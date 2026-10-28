@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds lumatv-npu-probe, the stub delegate and the test-model generator.
+# Builds lumatv-npu-probe, the stub delegate, the stub NNAPI runtime and the test-model generator.
 #   build.sh [arm|host|all] [-j N]
 # arm  -> build/arm/  : 32-bit ARM soft-float (the TV; also runs under qemu-arm-static)
 # host -> build/host/ : x86-64, for the stub-delegate tests
@@ -38,6 +38,7 @@ if [ ! -f "$src/tensorflow/lite/CMakeLists.txt" ]; then
   [ "$(sha256sum "$out/src/tf-$tf.tar.gz" | cut -d' ' -f1)" = "$tf_sha256" ] || { echo "TensorFlow $tf: checksum mismatch" >&2; exit 1; }
   tar xzf "$out/src/tf-$tf.tar.gz" -C "$out/src"
 fi
+python3 "$here/patch_tflite.py" "$src" >/dev/null
 stb=$("$here/third_party/fetch.sh" "$out/third_party")
 
 build() {
@@ -48,7 +49,7 @@ build() {
   esac
   cmake -S "$here" -B "$out/$target" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$toolchain" \
     -DTFLITE_SRC="$src" -DSTB_DIR="$stb" -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-  ninja -C "$out/$target" -j "$jobs" lumatv-npu-probe stub-npu-delegate not-a-delegate make-test-models
+  ninja -C "$out/$target" -j "$jobs" lumatv-npu-probe stub-npu-delegate stub-neuralnetworks stub-neuralnetworks-12 not-a-delegate make-test-models
   echo "built $out/$target/lumatv-npu-probe"
 }
 

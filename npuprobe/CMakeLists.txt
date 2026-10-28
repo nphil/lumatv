@@ -11,7 +11,7 @@ if(NOT TFLITE_SRC OR NOT STB_DIR)
 endif()
 
 set(TFLITE_ENABLE_XNNPACK ON CACHE BOOL "")
-set(TFLITE_ENABLE_NNAPI OFF CACHE BOOL "")
+set(TFLITE_ENABLE_NNAPI ON CACHE BOOL "" FORCE)  # built on Linux by patch_tflite.py; the device's libneuralnetworks.so is dlopen'ed
 set(TFLITE_ENABLE_GPU OFF CACHE BOOL "")
 set(TFLITE_ENABLE_EXTERNAL_DELEGATE ON CACHE BOOL "")
 add_subdirectory("${TFLITE_SRC}/tensorflow/lite" "${CMAKE_CURRENT_BINARY_DIR}/tensorflow-lite" EXCLUDE_FROM_ALL)
@@ -23,7 +23,7 @@ add_compile_options(-Wall -Wextra)
 # Delegates are shared libraries that leave TfLiteDelegateCreate, TfLiteIntArray* and
 # tflite::Subgraph::SetCustomAllocationForTensor undefined (libtflite-npu-delegate.so has no DT_NEEDED on the
 # runtime); the probe exports its static TFLite so they bind to it, as they bind to libtensorflow-lite.so on the TV.
-add_executable(lumatv-npu-probe src/probe.cc src/delegate_loader.cc src/detect.cc src/image.cc src/sysinfo.cc)
+add_executable(lumatv-npu-probe src/probe.cc src/delegate_loader.cc src/detect.cc src/image.cc src/nnapi_path.cc src/sysinfo.cc)
 target_include_directories(lumatv-npu-probe PRIVATE src)
 target_include_directories(lumatv-npu-probe SYSTEM PRIVATE "${TFLITE_SRC}" "${STB_DIR}")
 target_link_libraries(lumatv-npu-probe PRIVATE tensorflow-lite ${CMAKE_DL_LIBS} pthread)
@@ -42,6 +42,17 @@ target_include_directories(stub-npu-delegate SYSTEM PRIVATE "${TFLITE_SRC}" $<TA
 target_compile_options(stub-npu-delegate PRIVATE -fvisibility=hidden)
 # TFLite's own symbols come from the executable; nothing may be linked in here.
 target_link_options(stub-npu-delegate PRIVATE -Wl,--allow-shlib-undefined)
+
+# Stand-ins for the Android NN runtime the NNAPI route loads (libneuralnetworks.so), one per directory so that LD_LIBRARY_PATH picks it:
+# nnapi-stub/ is a 1.3 runtime, nnapi-stub-12/ an Android 10 one without ANeuralNetworksDevice_getFeatureLevel.
+foreach(variant "" "-12")
+  add_library(stub-neuralnetworks${variant} SHARED stub/stub_nnapi.cc)
+  target_include_directories(stub-neuralnetworks${variant} SYSTEM PRIVATE "${TFLITE_SRC}")
+  target_compile_options(stub-neuralnetworks${variant} PRIVATE -fvisibility=hidden)
+  set_target_properties(stub-neuralnetworks${variant} PROPERTIES OUTPUT_NAME neuralnetworks
+                        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/nnapi-stub${variant}")
+endforeach()
+target_compile_definitions(stub-neuralnetworks-12 PRIVATE STUB_NNAPI_12_ONLY)
 
 # A shared library without the plugin entry points, for the loader's error path.
 add_library(not-a-delegate SHARED stub/not_a_delegate.c)

@@ -1,8 +1,10 @@
-// lumatv-npu-probe: time a .tflite model on the CPU and through a TFLite external delegate, and say which nodes the
-// delegate took. Built for the TV's 32-bit ARM userland and for the build host (stub-delegate tests).
+// lumatv-npu-probe: time a .tflite model on the CPU and through an accelerator route, and say which nodes the accelerator
+// took: a TFLite external delegate (LG's libtflite-npu-delegate) or TFLite's NNAPI delegate over the device's NN HAL.
+// Built for the TV's 32-bit ARM userland and for the build host (stub-delegate and stub-NNAPI tests).
 //
 //   lumatv-npu-probe --model m.tflite --image person.jpg --runs 100
 //       [--delegate /usr/lib/libtflite-npu-delegate.so.1 --delegate-opt min_freq=30]
+//       [--nnapi --nnapi-opt accelerator=lgnpu]
 //
 // Output is plain text; the last line, SUMMARY, repeats the headline numbers as key=value pairs.
 #include <dlfcn.h>
@@ -24,6 +26,7 @@
 #include "delegate_loader.h"
 #include "detect.h"
 #include "image.h"
+#include "nnapi_path.h"
 #include "sysinfo.h"
 #include "tensorflow/lite/builtin_ops.h"
 #include "tensorflow/lite/c/c_api.h"
@@ -57,6 +60,9 @@ struct Args {
   bool require_delegate = false;
   bool print_output = false;
   bool system_info = false;
+  bool nnapi = false;
+  bool nnapi_list = false;
+  probe::NnapiOptions nnapi_opts;
 };
 
 void Usage() {
@@ -70,7 +76,10 @@ void Usage() {
       "  --cpu-backend xnnpack|builtin|none   the no-delegate phase (xnnpack)\n"
       "  --delegate LIB.so       TFLite external delegate to try (tflite_plugin_create_delegate)\n"
       "  --delegate-opt K=V      option for the plugin, repeatable (LG's: min_freq=30, use_custom_alloc=true)\n"
-      "  --require-delegate      exit 3 unless the delegate took at least one node\n"
+      "  --require-delegate      exit 3 unless the delegate took a node and the timed runs completed, 5 if its outputs are not the CPU's\n"
+      "  --nnapi                 instead of --delegate: TFLite's NNAPI delegate over the device's libneuralnetworks.so (the NN HAL route)\n"
+      "  --nnapi-opt K=V         accelerator=NAME (lgnpu), sdk=N (Android level to assume), pref=low|fast|sustained, partitions=3, allow_cpu=true, allow_fp16=true\n"
+      "  --nnapi-list            load libneuralnetworks.so, list its devices and exit\n"
       "  --labels FILE           class names, one per line (default: COCO)\n"
       "  --min-score X --top K   detection filter and count (0.3, 5)\n"
       "  --print-output          first values of every output tensor\n"
@@ -97,6 +106,10 @@ bool ParseArgs(int argc, char** argv, Args* a) {
       a->require_delegate = true;
     } else if (f == "--system-info") {
       a->system_info = true;
+    } else if (f == "--nnapi") {
+      a->nnapi = true;
+    } else if (f == "--nnapi-list") {
+      a->nnapi_list = true;
     } else if (f == "--print-output") {
       a->print_output = true;
     } else if (f == "-h" || f == "--help") {
@@ -104,7 +117,7 @@ bool ParseArgs(int argc, char** argv, Args* a) {
       std::exit(0);
     } else if (f == "--model" || f == "--image" || f == "--labels" || f == "--delegate" || f == "--delegate-opt" ||
                f == "--cpu-backend" || f == "--norm" || f == "--fill" || f == "--proc-dir" || f == "--runs" ||
-               f == "--warmup" || f == "--threads" || f == "--top" || f == "--min-score") {
+               f == "--warmup" || f == "--threads" || f == "--top" || f == "--min-score" || f == "--nnapi-opt") {
       v = need(i, f.c_str());
       if (v == nullptr) return false;
       if (f == "--model") a->model = v;
@@ -114,6 +127,12 @@ bool ParseArgs(int argc, char** argv, Args* a) {
       else if (f == "--delegate-opt") {
         if (!probe::ParseOption(v, &a->delegate_opts)) {
           std::fprintf(stderr, "--delegate-opt wants KEY=VALUE, got '%s'\n", v);
+          return false;
+        }
+      } else if (f == "--nnapi-opt") {
+        std::string why;
+        if (!probe::ParseNnapiOption(v, &a->nnapi_opts, &why)) {
+          std::fprintf(stderr, "%s\n", why.c_str());
           return false;
         }
       } else if (f == "--cpu-backend") a->cpu_backend = v;
@@ -130,8 +149,12 @@ bool ParseArgs(int argc, char** argv, Args* a) {
       return false;
     }
   }
-  if (a->model.empty() && !a->system_info) {
+  if (a->model.empty() && !a->system_info && !a->nnapi_list) {
     std::fputs("--model is required\n", stderr);
+    return false;
+  }
+  if (a->nnapi && !a->delegate.empty()) {
+    std::fputs("--nnapi and --delegate are two routes: one per run\n", stderr);
     return false;
   }
   if (a->cpu_backend != "xnnpack" && a->cpu_backend != "builtin" && a->cpu_backend != "none") {
@@ -347,6 +370,7 @@ struct Phase {
   std::vector<probe::Detection> detections;
   bool detections_ok = false;
   std::string detections_why;
+  std::string verdict = "n/a";  // outputs against the CPU's: identical, close, zero, differ or n/a
 };
 
 // |image_bytes| is the picture already resized to the input size (or empty for const fills).
@@ -538,22 +562,27 @@ void ShowDetections(const Phase& p, const Args& args, const probe::Labels& label
     std::printf("  (%zu detections at or above %.2f, top %d shown)\n", p.detections.size(), args.min_score, args.top);
 }
 
-void CompareOutputs(const Phase& cpu, const Phase& dlg) {
-  if (!cpu.ran || !dlg.ran) return;
+// Where an accelerator's outputs stand against the CPU's: "identical"; "close" (every tensor within 2% of its largest CPU value, a
+// quantisation step or two); "zero" (all zero while the CPU's are not: a device that returned without computing); "differ".
+// "n/a" when there is nothing to compare with. An accelerator's time means nothing if it did not compute the answer.
+std::string CompareOutputs(const Phase& cpu, const Phase& dlg) {
+  if (!cpu.ran || !dlg.ran) return "n/a";
   if (cpu.outputs.size() != dlg.outputs.size()) {
     std::printf("  outputs: different tensor counts\n");
-    return;
+    return "differ";
   }
-  double worst = 0;
+  double worst = 0, worst_ratio = 0;
   std::string worst_name;
   size_t differing = 0, total = 0;
+  bool cpu_zero = true, dlg_zero = true;
   for (size_t k = 0; k < cpu.outputs.size(); ++k) {
     const auto& a = cpu.outputs[k];
     const auto& b = dlg.outputs[k];
     if (a.size() != b.size()) {
       std::printf("  outputs: tensor %s changed size\n", cpu.output_names[k].c_str());
-      return;
+      return "differ";
     }
+    double range = 0, tensor_worst = 0;
     for (size_t i = 0; i < a.size(); ++i) {
       double d = std::fabs(static_cast<double>(a[i]) - b[i]);
       ++total;
@@ -562,12 +591,25 @@ void CompareOutputs(const Phase& cpu, const Phase& dlg) {
         worst = d;
         worst_name = cpu.output_names[k];
       }
+      tensor_worst = std::max(tensor_worst, d);
+      range = std::max(range, static_cast<double>(std::fabs(a[i])));
+      if (a[i] != 0) cpu_zero = false;
+      if (b[i] != 0) dlg_zero = false;
     }
+    worst_ratio = std::max(worst_ratio, tensor_worst / std::max(range, 1e-9));
   }
-  if (worst == 0) std::printf("  outputs vs CPU: identical (%zu values)\n", total);
-  else
-    std::printf("  outputs vs CPU: max |difference| %.6g in %s, %zu of %zu values differ\n", worst, worst_name.c_str(),
-                differing, total);
+  if (worst == 0) {
+    std::printf("  outputs vs CPU: identical (%zu values)\n", total);
+    return "identical";
+  }
+  const std::string verdict = (dlg_zero && !cpu_zero) ? "zero" : worst_ratio <= 0.02 ? "close" : "differ";
+  std::printf("  outputs vs CPU: max |difference| %.6g in %s, %zu of %zu values differ (%s)\n", worst, worst_name.c_str(),
+              differing, total, verdict.c_str());
+  if (verdict == "zero")
+    std::printf("  WARNING: every output value is zero: the accelerator returned without computing, so its time is not a measurement of this model\n");
+  else if (verdict == "differ")
+    std::printf("  WARNING: the accelerator's outputs are not the CPU's: its time is not a measurement of this model\n");
+  return verdict;
 }
 
 
@@ -685,6 +727,28 @@ int SystemInfo(const Args& args) {
   return 0;
 }
 
+static void PrintNnapiInfo(const probe::NnapiInfo& n) {
+  if (!n.library) {
+    std::printf("  NNAPI runtime: %s\n", n.error.c_str());
+    return;
+  }
+  std::printf("  NNAPI runtime: libneuralnetworks.so loaded, feature level %lld; TFLite derives Android level %d from the functions it exports (27 = NNAPI 1.0, 29 = 1.2, 30 = 1.3)\n",
+              static_cast<long long>(n.runtime_feature_level), n.tflite_sdk_level);
+  if (!n.error.empty()) std::printf("  NNAPI devices: %s\n", n.error.c_str());
+  else std::printf("  NNAPI devices (%zu):%s\n", n.devices.size(), n.devices.empty() ? " none" : "");
+  for (size_t i = 0; i < n.devices.size(); ++i) {
+    const probe::NnapiDevice& d = n.devices[i];
+    std::printf("    [%zu] %s  type=%s version=%s feature level %lld\n", i, d.name.c_str(), probe::NnapiDeviceType(d.type),
+                d.version.empty() ? "?" : d.version.c_str(), static_cast<long long>(d.feature_level));
+  }
+}
+
+static int NnapiList() {
+  PrintNnapiInfo(probe::QueryNnapi());
+  return 0;
+}
+
+
 int main(int argc, char** argv) {
   InstallCrashReporter();
   Args args;
@@ -697,6 +761,7 @@ int main(int argc, char** argv) {
   std::printf("lumatv-npu-probe %s  (TFLite runtime %s, built %s, %zu-bit)\n", kVersion, TfLiteVersion(), __DATE__,
               sizeof(void*) * 8);
   if (args.system_info) return SystemInfo(args);
+  if (args.nnapi_list) return NnapiList();
 
   auto model = tflite::FlatBufferModel::BuildFromFile(args.model.c_str());
   if (!model) {
@@ -828,32 +893,52 @@ int main(int argc, char** argv) {
     if (!cpu.ran) std::printf("  CPU phase did not run: %s\n", cpu.note.c_str());
   }
 
-  // ---- phase 2: through the delegate
-  if (!args.delegate.empty()) {
-    std::printf("\n== delegate %s", args.delegate.c_str());
-    for (const auto& kv : args.delegate_opts) std::printf(" %s=%s", kv.first.c_str(), kv.second.c_str());
-    std::printf("\n");
+  // ---- phase 2: through an accelerator route: LG's external delegate plugin, or TFLite's NNAPI delegate over the NN HAL
+  const bool route = !args.delegate.empty() || args.nnapi;
+  const char* const key = args.nnapi ? "nnapi" : "delegate";  // SUMMARY prefix
+  const char* const label = args.nnapi ? "NNAPI delegate" : "delegate";
+  if (route) {
+    if (args.nnapi) {
+      std::printf("\n== NNAPI delegate (%s)\n", probe::DescribeNnapiOptions(args.nnapi_opts).c_str());
+    } else {
+      std::printf("\n== delegate %s", args.delegate.c_str());
+      for (const auto& kv : args.delegate_opts) std::printf(" %s=%s", kv.first.c_str(), kv.second.c_str());
+      std::printf("\n");
+    }
     const std::string procs_before = probe::ReadSmall(args.proc_dir + "/npu_process_list");
     probe::ExternalDelegate plugin;  // declared before the interpreter: destroyed after it
+    probe::NnapiDelegate nnapi;
+    TfLiteDelegate* dg = nullptr;
     Interp it;
     bool ok = true;
-    if (!plugin.Load(args.delegate, args.delegate_opts)) {
-      dlg.note = "delegate not created: " + plugin.error();
-      ok = false;
+    if (args.nnapi) {
+      PrintNnapiInfo(probe::QueryNnapi());
+      if (!nnapi.Create(args.nnapi_opts, &error)) {
+        dlg.note = "NNAPI delegate not created: " + error;
+        ok = false;
+      }
+      dg = nnapi.get();
+    } else {
+      if (!plugin.Load(args.delegate, args.delegate_opts)) {
+        dlg.note = "delegate not created: " + plugin.error();
+        ok = false;
+      }
+      for (const auto& m : plugin.plugin_messages()) std::printf("  plugin said: %s\n", m.c_str());
+      dg = plugin.get();
     }
-    for (const auto& m : plugin.plugin_messages()) std::printf("  plugin said: %s\n", m.c_str());
     if (ok && !Build(*model, args.threads, facts.custom_ops, &it, &error)) {
       dlg.note = error;
       ok = false;
     }
     if (ok) {
       const std::vector<PlanOp> before = Plan(*it.interp);
-      const TfLiteStatus st = it.interp->ModifyGraphWithDelegate(plugin.get());
+      const TfLiteStatus st = it.interp->ModifyGraphWithDelegate(dg);
       if (st != kTfLiteOk) {
-        dlg.note = std::string("delegate refused the graph: ModifyGraphWithDelegate returned ") + StatusName(st) + " (" +
+        dlg.note = std::string(label) + " refused the graph: ModifyGraphWithDelegate returned " + StatusName(st) + " (" +
                    std::to_string(static_cast<int>(st)) + ")";
         std::printf("  %s; the interpreter is back to its pre-delegation state\n", dlg.note.c_str());
-        std::printf("  (the plugin logs its reason to PmLog, not stderr: see /var/log/messages)\n");
+        if (args.nnapi) std::printf("  (TFLite's reason is on stderr, above; NNAPI errno %d)\n", nnapi.Errno());
+        else std::printf("  (the plugin logs its reason to PmLog, not stderr: see /var/log/messages)\n");
       } else {
         const std::vector<PlanOp> after = Plan(*it.interp);
         int kernels = 0;
@@ -873,8 +958,10 @@ int main(int argc, char** argv) {
           for (const PlanOp& p : after)
             if (p.delegate_kernel) std::printf("  - %s (%d input tensor(s), %d output tensor(s))\n", p.name.c_str(), p.inputs, p.outputs);
         } else {
-          dlg.note = "the delegate accepted the call but claimed no node";
+          dlg.note = std::string("the ") + label + " accepted the call but claimed no node";
           std::printf("  %s\n", dlg.note.c_str());
+          if (args.nnapi)
+            std::printf("  (NNAPI leaves a node to the CPU unless the chosen device reports its operation as supported: compare the device list above with the ops of the model)\n");
         }
       }
       if (it.interp->AllocateTensors() != kTfLiteOk) {
@@ -894,18 +981,19 @@ int main(int argc, char** argv) {
         std::printf("  top detections:\n");
         if (dlg.detections_ok) ShowDetections(dlg, args, labels, src);
         else std::printf("  not a post-processed detector output (%s)\n", dlg.detections_why.c_str());
-        CompareOutputs(cpu, dlg);
+        dlg.verdict = CompareOutputs(cpu, dlg);
       } else if (ok) {
         dlg.note = error;
       }
     }
+    if (args.nnapi && nnapi.Errno() != 0) std::printf("  NNAPI errno after the run: %d\n", nnapi.Errno());
     const std::string procs_after = probe::ReadSmall(args.proc_dir + "/npu_process_list");
     if (!procs_before.empty() || !procs_after.empty()) {
       std::printf("  npu_process_list before the run: %s\n", procs_before.empty() ? "(empty)" : procs_before.c_str());
-      std::printf("  npu_process_list after the run (delegate still loaded): %s\n", procs_after.empty() ? "(empty)" : procs_after.c_str());
+      std::printf("  npu_process_list after the run (%s still loaded): %s\n", label, procs_after.empty() ? "(empty)" : procs_after.c_str());
     }
-    if (!dlg.ran) std::printf("  delegate phase did not run to the end: %s\n", dlg.note.c_str());
-    else if (!dlg.delegate_applied) std::printf("  delegate NOT APPLIED: this run is the CPU path again (%s)\n", dlg.note.c_str());
+    if (!dlg.ran) std::printf("  %s phase did not run to the end: %s\n", label, dlg.note.c_str());
+    else if (!dlg.delegate_applied) std::printf("  %s NOT APPLIED: this run is the CPU path again (%s)\n", label, dlg.note.c_str());
   }
 
   // ---- summary
@@ -918,20 +1006,22 @@ int main(int argc, char** argv) {
   } else {
     std::printf(" cpu_ran=0");
   }
-  if (!args.delegate.empty()) {
-    std::printf(" delegate_applied=%d", dlg.delegate_applied ? 1 : 0);
+  if (route) {
+    std::printf(" %s_applied=%d", key, dlg.delegate_applied ? 1 : 0);
     if (dlg.ran) {
       Stats s = Summarize(dlg.ms);
-      std::printf(" delegate_mean_ms=%.3f delegate_median_ms=%.3f delegate_p95_ms=%.3f delegate_busy_pct=%.0f", s.mean,
-                  s.median, s.p95, dlg.cpu_percent);
-      if (dlg.npu_sampled) std::printf(" delegate_npu_util_max=%d delegate_npu_util_mean=%.1f", dlg.npu.max, dlg.npu.mean);
+      std::printf(" %s_mean_ms=%.3f %s_median_ms=%.3f %s_p95_ms=%.3f %s_busy_pct=%.0f", key, s.mean, key, s.median, key, s.p95, key,
+                  dlg.cpu_percent);
+      if (dlg.npu_sampled) std::printf(" %s_npu_util_max=%d %s_npu_util_mean=%.1f", key, dlg.npu.max, key, dlg.npu.mean);
+      std::printf(" %s_outputs=%s", key, dlg.verdict.c_str());
     } else {
-      std::printf(" delegate_ran=0");
+      std::printf(" %s_ran=0", key);
     }
   }
   std::printf("\n");
 
-  if (args.require_delegate && !dlg.delegate_applied) return 3;
+  if (args.require_delegate && (!dlg.delegate_applied || !dlg.ran)) return 3;
+  if (args.require_delegate && (dlg.verdict == "zero" || dlg.verdict == "differ")) return 5;
   if (!cpu.ran && args.cpu_backend != "none" && !(dlg.ran)) return 4;
   return 0;
 }

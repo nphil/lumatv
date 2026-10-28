@@ -18,6 +18,14 @@ else
 fi
 probe=$b/lumatv-npu-probe
 stub=$b/libstub-npu-delegate.so
+# The NNAPI route loads libneuralnetworks.so by name: NN_LIB is the directory the stub runtime is picked from, NN_ENV its switches
+# (stub/stub_nnapi.cc), both applied inside the subshell that runs the probe.
+NN_LIB=
+NN_ENV=
+nnenv() {
+  [ -n "$NN_LIB" ] && export LD_LIBRARY_PATH="$NN_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  for kv in $NN_ENV; do export "$kv"; done
+}
 [ -x "$probe" ] && [ -f "$stub" ] && [ -f "$b/libnot-a-delegate.so" ] || { echo "build first: build.sh $target" >&2; exit 2; }
 
 tmp=$(mktemp -d)
@@ -36,7 +44,7 @@ t() {
   while [ "$1" != "--" ]; do pats="$pats
 $1"; shift; done
   shift
-  out=$(run "$probe" "$@" 2>&1); code=$?
+  out=$(nnenv; run "$probe" "$@" 2>&1); code=$?
   res=ok
   [ "$code" = "$want" ] || res="exit $code, wanted $want"
   oldifs=$IFS; IFS='
@@ -89,6 +97,55 @@ t "min_freq must be an integer" 3 'min_freq is not an integer' -- --model "$m/fl
 t "missing delegate library" 3 'dlopen failed' -- --model "$m/float_net.tflite" $common --cpu-backend none --delegate /nonexistent/libx.so --require-delegate
 t "a library that is not a plugin" 3 'not an external delegate' -- --model "$m/float_net.tflite" $common --cpu-backend none --delegate "$b/libnot-a-delegate.so" --require-delegate
 
+# --- the NNAPI route: TFLite's NNAPI delegate over a runtime that is stub/stub_nnapi.cc, with devices lgnpu-stub (accelerator) and
+# nnapi-reference (cpu). It computes ADD and accepts every other operation it claims without computing it, as LG's libwebos_nnhal does.
+nnc="--runs 8 --warmup 1 --threads $T --cpu-backend builtin --nnapi"
+NN_LIB=$b/nnapi-stub
+NN_ENV="STUB_NNAPI_OPS=ADD"
+t "nnapi: the device takes the ADD and computes it, outputs identical" 0 'NNAPI devices \(2\):' '\[0\] lgnpu-stub +type=accelerator' '\[1\] nnapi-reference +type=cpu' \
+  '1 delegate kernel\(s\) took 1 node\(s\), 2 left on the CPU' 'delegated ops: ADD x1$' 'outputs vs CPU: identical' 'nnapi_applied=1' 'nnapi_outputs=identical' -- \
+  --model "$m/float_net.tflite" $nnc --nnapi-opt accelerator=lgnpu-stub --require-delegate
+NN_ENV="STUB_NNAPI_OPS=ADD STUB_NNAPI_DELAY_US=3000"
+t "nnapi: a 3 ms device" 0 'nnapi_applied=1' 'outputs vs CPU: identical' -- --model "$m/float_net.tflite" $nnc --nnapi-opt accelerator=lgnpu-stub
+ms=$(printf '%s\n' "$last" | sed -n 's/.*nnapi_mean_ms=\([0-9.]*\).*/\1/p')
+if [ -n "$ms" ] && [ "$(echo "$ms" | awk '{print ($1 >= 3.0 && $1 < 20.0)}')" = 1 ]; then ok "nnapi: the timed phase includes the device's 3 ms ($ms)"; else bad "nnapi: timing ($ms)"; fi
+NN_ENV=
+t "nnapi: a device that claims every op and computes nothing is caught, exit 5" 5 'delegated ops: ADD x1, CONV_2D x1, DEPTHWISE_CONV_2D x1' '1 delegate kernel\(s\) took 3 node\(s\), 0 left on the CPU' \
+  'WARNING: every output value is zero' 'nnapi_applied=1' 'nnapi_outputs=zero' -- \
+  --model "$m/float_net.tflite" $nnc --nnapi-opt accelerator=lgnpu-stub --require-delegate
+t "nnapi: the same run without --require-delegate reports it and exits 0" 0 'WARNING: every output value is zero' 'nnapi_outputs=zero' -- \
+  --model "$m/float_net.tflite" $nnc --nnapi-opt accelerator=lgnpu-stub
+t "nnapi: LG's op set, which ops TFLite hands an NNAPI 1.2 device" 5 'took 5 node\(s\), 2 left on the CPU' 'delegated ops: ADD x1, CONCATENATION x1, CONV_2D x1, DEPTHWISE_CONV_2D x1, PAD x1$' -- \
+  --model "$m/int8_net.tflite" $nnc --nnapi-opt accelerator=lgnpu-stub --require-delegate
+NN_ENV="STUB_NNAPI_OPS=none"
+t "nnapi: a device that supports nothing takes no node, exit 3" 3 'claimed no node' 'NNAPI delegate NOT APPLIED' 'nnapi_applied=0' -- \
+  --model "$m/float_net.tflite" $nnc --require-delegate
+t "nnapi: allow_cpu=true adds NNAPI's CPU reference, which claims everything" 5 'delegated ops: ADD x1, CONV_2D x1, DEPTHWISE_CONV_2D x1' 'allow_cpu' -- \
+  --model "$m/float_net.tflite" $nnc --nnapi-opt allow_cpu=true --require-delegate
+NN_ENV="STUB_NNAPI_DEVICES=lgnpu:accelerator STUB_NNAPI_OPS=ADD"
+t "nnapi: LG's device name, a single device" 0 'NNAPI devices \(1\):' '\[0\] lgnpu +type=accelerator' 'delegated ops: ADD x1$' 'outputs vs CPU: identical' -- \
+  --model "$m/float_net.tflite" $nnc --nnapi-opt accelerator=lgnpu --require-delegate
+t "nnapi: --nnapi-list lists the devices and exits" 0 'libneuralnetworks.so loaded, feature level 29' 'TFLite derives Android level 29' '\[0\] lgnpu +type=accelerator version=stub-1.0 feature level 29' -- --nnapi-list
+NN_ENV="STUB_NNAPI_OPS=ADD"
+t "nnapi: an unknown accelerator is refused with TFLite's list" 3 'Could not find the specified NNAPI accelerator: nope. Must be one of: \{lgnpu-stub,nnapi-reference\}' 'NNAPI delegate refused the graph' 'nnapi_applied=0' -- \
+  --model "$m/float_net.tflite" $nnc --nnapi-opt accelerator=nope --require-delegate
+NN_ENV="STUB_NNAPI_OPS=ADD STUB_NNAPI_FAIL=compile"
+t "nnapi: a compilation the device fails is refused and the CPU path runs, exit 3" 3 'ANEURALNETWORKS_OP_FAILED' 'NNAPI delegate refused the graph' 'NNAPI errno 5' 'outputs vs CPU: identical' -- \
+  --model "$m/float_net.tflite" $nnc --nnapi-opt accelerator=lgnpu-stub --require-delegate
+NN_ENV="STUB_NNAPI_OPS=ADD STUB_NNAPI_FAIL=compute"
+t "nnapi: an execution the device fails ends the phase, exit 3" 3 'ANEURALNETWORKS_OP_FAILED' 'NNAPI delegate phase did not run to the end: Invoke failed during warm-up' 'nnapi_ran=0' -- \
+  --model "$m/float_net.tflite" $nnc --nnapi-opt accelerator=lgnpu-stub --require-delegate
+NN_LIB=$b/nnapi-stub-12
+NN_ENV="STUB_NNAPI_OPS=ADD"
+t "nnapi: a runtime without the 1.3 feature-level call still selects its device" 0 'delegated ops: ADD x1$' 'outputs vs CPU: identical' -- \
+  --model "$m/float_net.tflite" $nnc --nnapi-opt accelerator=lgnpu-stub --require-delegate
+t "nnapi: sdk=28 has no device selection: the accelerator name and the device's op list are not used" 5 'sdk=28' '1 delegate kernel\(s\) took 3 node\(s\)' 'nnapi_outputs=zero' -- \
+  --model "$m/float_net.tflite" $nnc --nnapi-opt sdk=28 --nnapi-opt accelerator=lgnpu-stub --require-delegate
+NN_LIB=
+NN_ENV=
+t "nnapi: no libneuralnetworks.so, exit 3" 3 'libneuralnetworks.so is not loadable' 'nnapi_applied=0' -- --model "$m/float_net.tflite" $nnc --require-delegate
+t "nnapi: --nnapi-list without a runtime" 0 'libneuralnetworks.so is not loadable' -- --nnapi-list
+
 t "detections are decoded, sorted, thresholded and named" 0 'person +0.910 +box y 0.100..0.600 x 0.200..0.500' 'dog +0.620' -- --model "$m/ssd_const.tflite" --runs 2 --warmup 0 --cpu-backend builtin
 n "detection below the threshold is hidden" 'cat +0.120'
 t "threshold and top-k" 0 'person +0.910' 'cat +0.120' -- --model "$m/ssd_const.tflite" --runs 1 --warmup 0 --cpu-backend builtin --min-score 0.1 --top 3
@@ -98,6 +155,10 @@ t "labels file" 0 'thing-zero +0.910' 'class 17 +0.620' -- --model "$m/ssd_const
 t "bad usage" 2 'usage:' -- --runs 3
 t "delegate option without a value" 2 'wants KEY=VALUE' -- --model "$m/float_net.tflite" --delegate-opt novalue
 t "system info without a model" 0 'probe runtime: TFLite [0-9]+\.[0-9]+\.[0-9]+' 'delegate: ' -- --system-info --delegate "$stub"
+t "nnapi and a delegate plugin are two routes" 2 'two routes' -- --model "$m/float_net.tflite" --nnapi --delegate "$stub"
+t "nnapi option without a value" 2 'wants KEY=VALUE' -- --model "$m/float_net.tflite" --nnapi-opt novalue
+t "nnapi option with a bad number" 2 'sdk is not a whole number' -- --model "$m/float_net.tflite" --nnapi-opt sdk=x
+t "nnapi option with an unknown key" 2 'unknown --nnapi-opt key' -- --model "$m/float_net.tflite" --nnapi-opt bogus=1
 t "unreadable model" 1 'cannot load model' -- --model "$tmp/nothing.tflite"
 
 # --- optional: the real detector on LG's own sample pictures
