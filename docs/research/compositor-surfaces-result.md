@@ -8,16 +8,20 @@ compositor. Under LG's compositor nothing changes: the shadow module keeps runni
 ## Resume here
 
 State (2026-10-27, after round 4 on f0d3cb4, `compositor/slot-2026-10-27-1900/`): the picker's and the toast's frame-gate
-failures have a cause and a fix ("The picker and the toast of the frame gate" below: f903648, bc25983), host-tested and not yet
-on the set. `gate.sh shell` passed 11 of 11 alone in round 4, and keys, ime and shell passed in `--only keys,ime,shell,frames`.
-Next, in order:
+failures have a cause and a fix ("The picker and the toast of the frame gate" below: f903648, bc25983, b193b28), host-tested
+and not yet on the set. `gate.sh shell` passed 11 of 11 alone in round 4, and keys, ime and shell passed in
+`--only keys,ime,shell,frames`. Next, in order:
 
 1. One TV round of `tv_gate.py --only keys,ime,shell,frames` with the bundle of HEAD installed. The frame gate must show:
-   - picker: `first_frame_ms` about 31 ms (limit 50), `burst_end_ms` about 148 (limit 180), `windows` 6/6, and `show_ms` under
-     1 ms on the opens (the compositor asks the shell at the press). `burst_over20` is the open question: round 4 had 5
-     intervals of 33.4 ms in its six windows (opens 1, 2 and 0, closes 1, 0 and 1). Where any remain, read the GPU busy time
-     of those intervals in `frames.json` (12.1-13.5 ms in round 4, against 11.0 ms for a plain frame of Home) and cut the
-     picker's GPU work per frame (its glass quad is 1.0 Mpx, the quick panel's 0.7) before touching the pacing.
+   - picker: `first_frame_ms` about 31 ms (limit 50), `burst_end_ms` 150-165 (limit 180), `windows` 6/6, `burst_over20` 0 (round
+     4: 5 intervals of 33.4 ms in its six windows) and `show_ms` under 1 ms on the opens (the compositor asks the shell at the
+     press). After the gate the driver prints `shell callbacks: N of M sent ahead of their flip` (`ctl status` `callbacksAhead`):
+     0 means the change was not in play. `--frames-callbacks landing` runs the gate with round 4's callbacks, the A/B. Where
+     33.4 ms intervals remain with callbacks ahead, the time is not in when the shell's frame starts: copy the TV's
+     `/tmp/perf/gate-c4shell-picker-*` before anything else runs (the gate keeps digests only) and read, for the first missed
+     interval, when qml-runner woke against the flip, when its GPU job began and ended against the next flip, and when
+     `commit_work` ran. They tell a late GPU from a late flip request, and what to cut (the picker's glass quad is 1.0 Mpx, the
+     quick panel's 0.7).
    - toast: `windows` 3/3, and per window `sent_ms`, `delivered_ms` and `first_frame_ms` (now from the compositor's
      `Q:toast-delivered`): the shell's own time from being handed the toast (limit 50). If it is over, read the journal's
      `shell: system layer window mapped` line against `delivered_ms`: the system window's first showing after its last hide is
@@ -30,11 +34,12 @@ Next, in order:
    the browser; whether `keys.rs` should keep the press from SAM is open.
 4. The full gate (not run in round 4), then idle Home ("Open" below): the tick held while nothing visible changes.
 
-Likeliest failures on the set now: the picker's 33.4 ms frame intervals (above), the toast's first frame from the compositor's
-marker, an app left open by a key (`gate.sh shell` starts with Home not in front: `connected` fails with `drawn false`, and
-the frame gate's session then covers Home), the idle cost over the threshold (a client CPU over a third of a core at nice 10
-would be the Qt render of the full scene per tick), keys not arriving (`ctl shell` `ui.keys` stays 0 while `ctl keys` counts
-them delivered: the focus went elsewhere, `ctl windows` and the journal's `focus ->` lines say where).
+Likeliest failures on the set now: the picker's frame intervals if the shell's callbacks are not what gates its frames (above),
+the toast's first frame from the compositor's marker, an app left open by a key (`gate.sh shell` starts with Home not in front:
+`connected` fails with `drawn false`, and the frame gate's session then covers Home), the idle cost over the threshold (a
+client CPU over a third of a core at nice 10 would be the Qt render of the full scene per tick), keys not arriving (`ctl shell`
+`ui.keys` stays 0 while `ctl keys` counts them delivered: the focus went elsewhere, `ctl windows` and the journal's `focus ->`
+lines say where).
 
 ## What was built
 
@@ -82,6 +87,10 @@ them delivered: the focus went elsewhere, `ctl windows` and the journal's `focus
   (what is open, the OSD, toasts, alerts, the PIN prompt, the saver, keys seen, the link), the topics pushed, the open
   luna calls, the counters. `ctl luna`'s tokens: one counter for every outbound call now (`luna_call` shared the
   bridge's token space with the subscriptions before).
+- Frame callbacks: every client's go out when its frame's flip lands (`State::frames_in_flight`); a shell window's go out when its
+  frame is the oldest on its way, and the buffers its commits replaced are given back when the frame lands (`Owed`), so the
+  shell makes its next frame while the last waits for its refresh. `ctl callbacks shell early|landing` switches it; `ctl
+  status` `callbacksAhead` counts it.
 
 Host tests: unit tests in `shell.rs` (allowlist, HTTP parsing, the outbox window, the token check, the server thread
 holding a long poll over TCP), `tests/shell.rs` (Home in the card slot with the stub in front and its keys; the system
@@ -231,14 +240,29 @@ panels with `Shell.qml`'s new `fgApp` handler). The compositor writes `Q:<panel>
 asks the shell for a panel (not for the gear's warm-up); the gate reads it as `show_ms`, the key to that instant, beside
 `first_frame_ms`.
 
-**The picker's 33.4 ms intervals, not changed.** The slides have 5 of them in about 34 intervals: opens 1, 2 and 0, closes 1, 0
-and 1. The gate counted `burst_over20` 5 (open 2's burst, 3 with the interval after its stray frame, and one in each of two
-closes); the opens with no burst counted none, and will count theirs once the first frame is in time. Each interval has the
-GPU busy 13.0-13.5 ms in its 4 jobs, the compositor's thread 0.0-0.27 ms (the client's buffer goes to the plane whole) and
-qml-runner 2.2-3.5 ms; one plain frame of Home in the D-pad's windows measured 11.0 ms. The quick panel's slides had none in
-about 48 intervals in round 4 (1 in the first run). [INFERENCE: a frame of Home with the 1792 px sheet is at the pipeline's
-limit (the client's CPU, about 13 ms of GPU, the flip within a refresh of the compositor's latch); the sheet's glass quad is
-1.0 Mpx against the quick panel's 0.7.]
+**The picker's 33.4 ms intervals: the shell's frame starts at the flip, and its CPU and GPU time leave the flip nothing to
+spare.** The slides have 5 of them in about 34 intervals: opens 1, 2 and 0, closes 1, 0 and 1 (the gate's `burst_over20` 5 also
+counts the interval after open 2's stray frame). Each has the GPU busy 13.0-13.5 ms in 4 jobs, qml-runner 2.2-3.5 ms of CPU on
+one thread, the compositor's thread under 1.1 ms (the client's buffer goes to the plane whole), and the GPU's first power-up
+1.8-2.9 ms after the flip that began the interval. The shell's frame starts at the flip (the compositor fires a client's frame
+callbacks when its flip lands, and Qt makes a frame on its callback), so it is 15.4-16.4 ms of CPU and GPU away from a flip that
+needs the GPU done before its refresh (`kms/timing.rs`: a page the GPU finishes after the driver's cutoff slips a refresh,
+16 gaps of 20-33 ms in the second gate's X1). One plain frame of Home in the D-pad's windows (11.0 ms of GPU, 3.2 ms of CPU)
+missed the same way, and the quick panel's frames, a millisecond or two lighter, had none in about 48 intervals. Under LG's
+compositor the picker had 0, 1 and 0 (rounds 12-14): its QML ran in the compositor's own process, with no client's callback
+between a frame and the next. A slide's first frame is late the same way: in the second open the show reached the compositor
+at about 50 ms, the GPU job started at 54 ms and the frame showed at 81 ms, a refresh after the one at 64 ms.
+
+Fix (b193b28): a shell window's frame callback goes out when its frame is the oldest on its way (at its draw when none is ahead
+of it, else when the one ahead lands) and not when it lands, so the shell makes frame k+1 while frame k waits for its refresh, and
+the buffers its commits replaced are given back when the frame lands (a client let run ahead takes the first buffer it is given
+back, and the one on the screen must not be drawn into). Other clients' callbacks stay at the flip (X1 paces to the refresh).
+The shell's 15.4-16.4 ms then run from the draw of the frame before, with the GPU done before the compositor's latch (7 ms
+before the refresh) instead of at the refresh. Expected [INFERENCE: not run on the set]: no 33.4 ms interval in a slide; the
+burst ends 5-17 ms later than it would, each frame being made a refresh ahead of its display (150-165 ms from the key, limit
+180); first frames unchanged. `ctl callbacks shell landing` and `tv_gate.py --frames-callbacks landing` turn it off for an A/B.
+Host tests: `flips.rs` (a shell window's callback at its draw, behind a frame on its way, its replaced buffer held to the
+landing, the switch off, a card's behaviour unchanged).
 
 **The toast: the capture lost its first events, and the surface is not the volume display.** The gate's `toast` is LG's
 `createToast` through the notification service (`kb.py` `!toast`). Its cycle was 16.3 s (8 s settle on each side of the close),
@@ -260,7 +284,7 @@ change of the shell touches; the shell's part is what the marker measures.
 
 ## Open
 
-- The picker's 33.4 ms frame intervals and the toast's first frame from the compositor's marker, on the set (Resume); the full gate.
+- The picker's 33.4 ms frame intervals with the shell's callbacks ahead, and the toast's first frame from the compositor's marker, on the set (Resume); the full gate.
 - Idle Home commits at the live wallpaper's tick (10 a second, 3 % of a core at nice 10). Parity with LG's compositor:
   there too idle Home presents one frame per tick while `wallpaperMotion.enabled` is on (`LumaHome.qml`: the phase and
   the clock's hands advance on the one 10 Hz tick, "idle Home presents one frame per tick"; the gate's `home-idle`
