@@ -224,7 +224,10 @@ FULL_TRACE_BUDGET_S = 11.0
 # first markers whatever the plan does (the stock toast's 16.3 s did, validate() refuses it now).
 FULL_RING_S = 13.0
 FULL_CAPTURE_MAX_S = 12.0
-GAP_MS = 17.5             # analyse.py's gap listing threshold, as run.py uses
+GAP_MS = 17.5             # analyse.py's gap listing threshold, as run.py uses (a 60 Hz refresh and a twentieth); scaled by --refresh
+# The refresh the frames are presented at (--refresh): 120 under the compositor's refresh test mode (`ctl refresh 120`), where a
+# dropped frame is an interval over 10 ms and the gap listing starts at 8.75; the first-frame and burst-end limits are wall time and stay.
+REFRESH_HZ = 60.0
 # A capture whose burst held an app's own drawing (analyse.py `burst_app_jobs`: a film's player redrawing its controls at 60 Hz) measures
 # the app as well as the surface; it is kept under `discarded` and measured again, at most this many more times.
 APP_RETRIES = 2
@@ -785,7 +788,7 @@ class Rig:
         return f'{self.run.LOCAL}/{name}.trace', f'{self.run.LOCAL}/{name}.sys'
 
     def analyse(self, name):
-        return self.run.analyse(name, self.set.sm_pid, GAP_MS)
+        return self.run.analyse(name, self.set.sm_pid, GAP_MS * 60.0 / REFRESH_HZ, REFRESH_HZ)
 
 
 class LogWatch:
@@ -1047,6 +1050,7 @@ def main(argv=None):
     ap.add_argument('--load', metavar='KINDS', help=f'measure under synthetic background load, a comma-separated subset of {",".join(LOAD_KINDS)} (see LOADGEN): the gate '
                     'starts it after the compositor has settled and ends it with the run; the numbers are the same, the thresholds are not changed')
     ap.add_argument('--load-seconds', type=int, default=3600, help='the longest the load runs if the gate does not end it (default 3600)')
+    ap.add_argument('--refresh', type=float, default=60.0, help='the refresh the output runs at, Hz (default 60): 120 for the compositor\'s refresh test mode, where an interval over 10 ms is a dropped frame')
     a = ap.parse_args(argv)
     cycles = a.cycles if a.cycles is not None else (SOAK_RELEASE_CYCLES if a.soak else SOAK_DEFAULT_CYCLES)
     if cycles <= RSS_SKIP_CYCLES:
@@ -1061,12 +1065,16 @@ def main(argv=None):
     load = [k for k in a.load.split(',') if k] if a.load else None
     if load and set(load) - set(LOAD_KINDS):
         ap.error(f'--load: unknown workload(s) {",".join(sorted(set(load) - set(LOAD_KINDS)))}; the workloads are {",".join(LOAD_KINDS)}')
+    global REFRESH_HZ
+    REFRESH_HZ = a.refresh
+    import analyse
+    analyse.set_refresh(a.refresh)
     results = run_gate(Rig(), chosen, cycles, tag, load=load, load_seconds=a.load_seconds)
     v = verdict(results)
     print(f'VERDICT {v}')
     if a.json:
         with open(a.json, 'w') as f:
-            json.dump(jsonable({'tag': tag, 'verdict': v, 'measure_cycles': MEASURE_CYCLES, 'soak_cycles': cycles,
+            json.dump(jsonable({'tag': tag, 'verdict': v, 'measure_cycles': MEASURE_CYCLES, 'soak_cycles': cycles, 'refresh_hz': REFRESH_HZ,
                                 'thresholds': THRESHOLDS, 'surfaces': results}), f, indent=1, default=str)
     return 0 if v == 'PASS' else 1
 

@@ -5,7 +5,7 @@ the standby check, and the checks that end the live session (Home held on a virt
 killed, the compositor's own hold-Home escape) each get a fresh session. Exit 0 only when every check passed; the result
 lines and files land in /tmp/lumatv-tv-out/out/gate and docs/research/compositor/gate-<date>.txt.
 
-    tv_gate.py [--skip netflix,hdmi,...] [--only keys,ime] [--x1-seconds N] [--enable-after] [--frames-callbacks landing]
+    tv_gate.py [--skip netflix,hdmi,...] [--only keys,ime] [--x1-seconds N] [--enable-after] [--frames-callbacks landing] [--refresh 120]
 
 The gate's rule for the frame check is 60 s with no gap over 20 ms (tv-gate.sh, "The frame rule"); --x1-seconds under 60
 can only fail it. Checks that can be skipped: firmware, homeheld, volume, x1, netflix, hdmi, keys, ime, standby, homekey,
@@ -13,6 +13,10 @@ wd-hang, wd-crash, escape. --only runs just the named ones (in one session, the 
 step-1 test of the remote's keys and the keyboard is `--only keys,ime`. --frames-callbacks landing runs the surface frame gate with
 the shell client's frame callbacks at the flip like every client's (`ctl callbacks shell landing`), against the default of a frame
 ahead of it inside a run of its frames, so that a round says what the change made.
+--refresh 120 runs the surface frame gate in the compositor's refresh test mode (docs/research/ui120-result.md): `gate.sh refresh 120`
+before it (the OSD vblank divider at 1, the pacer at 8.33 ms; a GATE refresh line with the rate measured three ways, Mali busy and the
+temperature at idle Home), the gate's dropped-frame threshold at 10 ms, idle Home measured again after the surfaces, then
+`gate.sh refresh 60` (and once more in the clean-up, whatever happened). `--only frames --refresh 120` is the whole 120 Hz check.
 
 Every session carries the set's own safety timer (cutover.sh enable --session --max-minutes): if this driver or the
 workstation dies in the middle of the gate, the set ends the session by itself and LG's compositor and Home come back.
@@ -109,17 +113,18 @@ def volume_check():
     ok = None not in (before, up, back) and up > before and abs(back - before) < 1e-6
     return "GATE volume: %s %s" % ("PASS" if ok else "FAIL", detail)
 
-def frames_check(cycles, load=False):
+def frames_check(cycles, load=False, refresh=60):
     """The surface frame gate (`docs/research/perf/gate.py`) over LumaTV's own surfaces under its compositor: Home's D-pad, the quick
     panel and the input picker (the gear and Input through the shell client) and a toast. Its verdict line, with each surface's
     failed checks, becomes `GATE frames:`. With `load` the same surfaces are measured under synthetic background load (a camera-like
     decode, Home Assistant websocket chatter, a BLE scan stand-in, a low-priority download: `lumatv-loadgen`, started and stopped by
     the gate), and the line is `GATE frames-load:`, a report: no baseline of loaded numbers exists yet, so the unloaded thresholds'
     verdict is told but is no verdict of the gate's."""
-    out_json = "/tmp/lumatv-tv-out/frames%s.json" % ("-load" if load else "")
+    out_json = "/tmp/lumatv-tv-out/frames%s%s.json" % ("-load" if load else "", "-%d" % refresh if refresh != 60 else "")
     os.makedirs("/tmp/lumatv-tv-out", exist_ok=True)
     cmd = [sys.executable, PERF_GATE, "--surfaces", FRAMES_SURFACES, "--input-key", "241", "--cycles", str(cycles), "--json", out_json,
-           "--tag", "c4shell-load" if load else "c4shell"] + (["--load", "decode,ws,ble,download"] if load else [])
+           "--tag", "c4shell-load" if load else ("c4shell-%d" % refresh if refresh != 60 else "c4shell")] + (["--load", "decode,ws,ble,download"] if load else []) \
+          + (["--refresh", str(refresh)] if refresh != 60 else [])
     name = "frames-load" if load else "frames"
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=1500)
@@ -147,7 +152,7 @@ def frames_check(cycles, load=False):
         detail = "no %s.json" % name
     if load:
         return "GATE frames-load: measured under synthetic background load, the unloaded thresholds say %s: %s (surfaces %s, %d cycles; %s)" % (verdict, detail, FRAMES_SURFACES, cycles, out_json)
-    return "GATE frames: %s %s (surfaces %s, %d cycles; %s)" % (verdict, detail, FRAMES_SURFACES, cycles, out_json)
+    return "GATE frames%s: %s %s (surfaces %s, %d cycles; %s)" % (" at %d Hz" % refresh if refresh != 60 else "", verdict, detail, FRAMES_SURFACES, cycles, out_json)
 
 def wait_ssh(seconds):
     t0 = time.time()
@@ -254,6 +259,8 @@ def main():
     ap.add_argument("--kwait", action="store_true", help="trace the x1 run (capture.sh's kwait mode) and name the kernel waits behind each late frame (kwait.py)")
     ap.add_argument("--frames-callbacks", choices=["early", "landing"], default="early",
                     help="when the shell client's frame callbacks go out in the surface frame gate: a frame ahead of the flip inside a run of its frames (early, the default) or at the flip (landing)")
+    ap.add_argument("--refresh", type=int, choices=[60, 120], default=60,
+                    help="the refresh the surface frame gate runs at: 120 switches the compositor's refresh test mode on for it (gate.sh refresh 120) and off after")
     a = ap.parse_args()
     skip = set(a.skip.split(",")) - {""}
     skipped = set(skip)       # as asked, before --only leaves out what it did not name
@@ -339,8 +346,15 @@ def main():
             if a.frames_callbacks == "landing":
                 print(pty("sh /tmp/lumatv/gate.sh callbacks landing", 60))
         if run_frames:
+            if a.refresh != 60:
+                # The switch, then idle Home at the new rate: the rate three ways, the compositor's measure, Mali and the temperature.
+                step("refresh", "sh /tmp/lumatv/gate.sh refresh %d 10" % a.refresh, 120)
             print(pty("sh /tmp/lumatv/gate.sh wake reset", 60))
-            lines.append(frames_check(a.frames_cycles))
+            lines.append(frames_check(a.frames_cycles, refresh=a.refresh))
+            if a.refresh != 60:
+                # Idle Home again after the surfaces (the thermal reading that matters), then the mode off: 60 is the gate's resting state.
+                step("refresh", "sh /tmp/lumatv/gate.sh refresh reset 10", 120)
+                step("refresh", "sh /tmp/lumatv/gate.sh refresh 60 5", 120)
             # What the loop's wake-ups cost over the gate, and what the compositor holds in memory after it (reports, not rules).
             step("wake", "sh /tmp/lumatv/gate.sh wake frames", 60)
             step("mem", "sh /tmp/lumatv/gate.sh mem", 60)
@@ -376,6 +390,12 @@ def main():
             print(pty("sh /tmp/lumatv/cutover.sh disable", 300))
         except Exception as e:
             print("disable failed: %s" % e)
+        # The refresh test mode's divider back to LG's 2 whatever happened above (the compositor puts it back itself at a clean exit).
+        if a.refresh != 60:
+            try:
+                print("divider after: " + pty("f=/sys/module/lg1k/parameters/fbdev_vsync_cnt_on_flip; [ \"$(cat $f)\" = 2 ] || echo 2 > $f; cat $f", 20).strip())
+            except Exception as e:
+                print("divider restore failed: %s" % e)
         # The session's whole log (the escape and the fallback included) stays in the state directory until the next
         # start of LumaTV's compositor truncates it.
         tv.tv("cp /var/lib/lumatv/compositor/compositor.log /tmp/lumatv/out/gate/compositor-final.log; cp /var/lib/lumatv/compositor/sm.log /tmp/lumatv/out/gate/sm-final.log")

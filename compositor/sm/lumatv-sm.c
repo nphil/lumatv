@@ -182,6 +182,18 @@ static long read_number(const char *p, long dflt) {
     return v;
 }
 
+// The refresh test mode (the compositor's `refresh.rs`, `ctl refresh 120`) sets the OSD's vblank divider to 1 and puts LG's 2 back
+// when it exits; a compositor killed mid-run leaves 1, and LG's compositor would then get a page flip at every panel refresh.
+#define VSYNC_DIVIDER "/sys/module/lg1k/parameters/fbdev_vsync_cnt_on_flip"
+static void restore_vsync_divider(void) {
+    if (read_number(VSYNC_DIVIDER, 2) == 2) return;
+    FILE *f = fopen(VSYNC_DIVIDER, "w");
+    if (!f) return;
+    fputs("2\n", f);
+    fclose(f);
+    logline("fallback: %s put back to 2 (the refresh test mode left 1)", VSYNC_DIVIDER);
+}
+
 static void write_text(const char *p, const char *text) {
     char tmp[600];
     snprintf(tmp, sizeof tmp, "%s.tmp", p);
@@ -703,6 +715,7 @@ static void fallback(const char *reason, bool count_failure) {
         waitpid(child_pid, NULL, 0);
         child_pid = 0;
     }
+    if (!dry_run && !probe) restore_vsync_divider();
     if (dry_run || probe) {
         logline("%s: would unmount %s and exec LG's compositor", dry_run ? "dry run" : "probe", lg_binary);
         exit(75);

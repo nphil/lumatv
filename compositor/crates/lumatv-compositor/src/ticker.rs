@@ -150,8 +150,9 @@ impl Tick {
     /// After a frame, a flip or an event: the output's latch as a one-shot while it paces itself, else the fixed interval on the panel's grid
     /// where the output remembers it (a one-shot too), else periodic (re-armed only when the timer was last set as a one-shot or the period
     /// changes, so the periodic timer keeps its phase). In the calm described above the grid latch is one at least `idle_tick_ns` away and
-    /// the periodic fallback has that period.
-    pub fn rearm(&mut self, state: &State, tick_ns: u64) -> io::Result<()> {
+    /// the periodic fallback has that period. The panel's rate is the live config's `tick_ns`: `ctl refresh` changes it.
+    pub fn rearm(&mut self, state: &State) -> io::Result<()> {
+        let tick_ns = state.config.tick_ns;
         let now = Instant::now();
         let slow = Some(state.config.idle_tick_ns)
             .filter(|&ns| ns > 0 && self.calm.is_calm(monotonic_ns()) && !state.surfaces.any_undrawn() && state.output.idle_ok());

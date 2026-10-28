@@ -69,6 +69,9 @@ pub struct Config {
     /// The tick's period once the screen is at rest and nothing has happened for a while (`ticker`), ns; 0 keeps the panel's rate.
     /// `ctl idle MS` changes it while running.
     pub idle_tick_ns: u64,
+    /// The refresh the output is asked to run at, Hz: 60 (the set's OSD vblank as LG leaves it) or 120 (`refresh`: the test mode, the
+    /// OSD's vblank divider at 1). `ctl refresh HZ` changes it while running.
+    pub refresh_hz: u32,
 }
 
 /// Where the trace ring lives.
@@ -119,6 +122,7 @@ impl Default for Config {
             mlock: crate::mem::Mlock::Auto,
             ring: RingSetting::Auto,
             idle_tick_ns: crate::ticker::IDLE_TICK_NS,
+            refresh_hz: crate::refresh::DEFAULT_HZ,
         }
     }
 }
@@ -155,6 +159,8 @@ pub const USAGE: &str = "lumatv-compositor [options]
                          lumatv-trace.ring in the runtime directory, which the supervisor copies into the crash bundle)
   --idle-tick-ms N       the tick's period while the screen is at rest and nothing has happened for 250 ms (default 100; 0 keeps the panel's
                          rate, 60 wake-ups a second doing nothing)
+  --refresh 60|120       the refresh the output runs at (default 60): 120 is the test mode (docs/research/ui120-result.md), the OSD
+                         vblank divider set to 1 so page flips land at every panel refresh; `ctl refresh 60|120` switches it while running
   --rt-mali N            SCHED_FIFO priority of the Mali blob's submission threads, 1-99 (default 19; 0 keeps them time-shared)
   --shell off|auto|PATH  the shell client (LumaTV's QML on LG's Qt through /usr/bin/qml-runner): auto (default) runs it with
                          --input when <bundle>/shell/Shell.qml sits beside this executable's bin/; PATH names another root QML
@@ -273,6 +279,14 @@ impl Config {
                     }
                 }
                 "--idle-tick-ms" => c.idle_tick_ns = value()?.parse::<u64>().map_err(|_| "--idle-tick-ms")? * 1_000_000,
+                "--refresh" => {
+                    let hz: u32 = value()?.parse().map_err(|_| "--refresh")?;
+                    if !crate::refresh::supported(hz) {
+                        return Err("--refresh takes 60 or 120".into());
+                    }
+                    c.refresh_hz = hz;
+                    c.tick_ns = crate::refresh::period_ns(hz);
+                }
                 "--shell-port" => c.shell_port = value()?.parse().map_err(|_| "--shell-port")?,
                 "-h" | "--help" => return Err(USAGE.to_string()),
                 o => return Err(format!("unknown option {o}\n{USAGE}")),
@@ -309,5 +323,8 @@ mod tests {
         assert_eq!(c.frames, Some(6));
         assert_eq!(c.check, Check::X2);
         assert!(Config::parse(["--renderer", "gl"].map(String::from)).is_err());
+        let c = Config::parse(["--refresh", "120"].map(String::from)).unwrap();
+        assert_eq!((c.refresh_hz, c.tick_ns), (120, 8_333_333));
+        assert!(Config::parse(["--refresh", "90"].map(String::from)).is_err());
     }
 }

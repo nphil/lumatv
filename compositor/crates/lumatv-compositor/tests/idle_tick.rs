@@ -71,7 +71,7 @@ fn a_screen_at_rest_wakes_the_loop_ten_times_a_second_and_an_event_puts_the_pane
     // Busy output: the panel's rate, whatever the calm.
     let (period, slowed) = server.eval(|s| {
         let mut tick = Tick::new(REFRESH_NS).unwrap();
-        tick.rearm(s, REFRESH_NS).unwrap();
+        tick.rearm(s).unwrap();
         (tick.period_ns(), tick.is_slowed())
     });
     assert_eq!((period, slowed), (REFRESH_NS, false), "the output has not said it is at rest");
@@ -81,7 +81,7 @@ fn a_screen_at_rest_wakes_the_loop_ten_times_a_second_and_an_event_puts_the_pane
     let tick = server.eval(|s| {
         let mut tick = Tick::new(REFRESH_NS).unwrap();
         tick.calm.event(monotonic_ns().saturating_sub(1_000_000_000), false);
-        tick.rearm(s, REFRESH_NS).unwrap();
+        tick.rearm(s).unwrap();
         tick
     });
     assert_eq!((tick.period_ns(), tick.is_slowed()), (IDLE_TICK_NS, true));
@@ -92,7 +92,7 @@ fn a_screen_at_rest_wakes_the_loop_ten_times_a_second_and_an_event_puts_the_pane
     let mut tick = tick;
     let tick = server.eval(move |s| {
         tick.calm.event(monotonic_ns(), false);
-        tick.rearm(s, REFRESH_NS).unwrap();
+        tick.rearm(s).unwrap();
         tick
     });
     assert_eq!((tick.period_ns(), tick.is_slowed()), (REFRESH_NS, false), "a commit, a key, a flip: not calm");
@@ -103,7 +103,7 @@ fn a_screen_at_rest_wakes_the_loop_ten_times_a_second_and_an_event_puts_the_pane
     let mut tick = tick;
     let tick = server.eval(move |s| {
         tick.calm.event(monotonic_ns().saturating_sub(1_000_000_000), true);
-        tick.rearm(s, REFRESH_NS).unwrap();
+        tick.rearm(s).unwrap();
         tick
     });
     assert!(!tick.is_slowed(), "a key went down a second ago: its hold is being measured");
@@ -114,7 +114,7 @@ fn a_screen_at_rest_wakes_the_loop_ten_times_a_second_and_an_event_puts_the_pane
         s.config.idle_tick_ns = 0;
         tick.calm.event(0, false);
         tick.calm.event(0, true);
-        tick.rearm(s, REFRESH_NS).unwrap();
+        tick.rearm(s).unwrap();
         tick
     });
     assert_eq!((tick.period_ns(), tick.is_slowed()), (REFRESH_NS, false));
@@ -134,7 +134,7 @@ fn a_commit_waiting_to_be_drawn_keeps_the_panels_rate_even_at_rest() {
     let (slowed, period) = server.eval(|s| {
         let mut tick = Tick::new(REFRESH_NS).unwrap();
         tick.calm.event(0, false);
-        tick.rearm(s, REFRESH_NS).unwrap();
+        tick.rearm(s).unwrap();
         (tick.is_slowed(), tick.period_ns())
     });
     assert!(!slowed && period == REFRESH_NS, "a commit no frame has shown yet is drawn at the next tick, which must not be 100 ms away");
@@ -143,7 +143,7 @@ fn a_commit_waiting_to_be_drawn_keeps_the_panels_rate_even_at_rest() {
         s.tick();
         let mut tick = Tick::new(REFRESH_NS).unwrap();
         tick.calm.event(0, false);
-        tick.rearm(s, REFRESH_NS).unwrap();
+        tick.rearm(s).unwrap();
         tick.is_slowed()
     });
     assert!(slowed, "drawn, and the screen at rest");

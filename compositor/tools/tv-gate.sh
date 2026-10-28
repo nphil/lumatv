@@ -34,6 +34,10 @@
 #                     SECS-long cyclictest-style probe at the loop's class, the Mali submission threads' class and a time-shared one. A report, no rule
 #   gate.sh mem       what the compositor has resident and pinned, malloc's mmapped blocks, and what the set has left (report)
 #   gate.sh load start SECS [KINDS] | stop | status   synthetic background load (decode, ws, ble, download) for the frame gate's loaded run
+#   gate.sh refresh [60|120|reset] [SECS]   the refresh test mode (`ctl refresh`, docs/research/ui120-result.md): with 60 or 120 switches the
+#                     output to it (the OSD vblank divider, the pacer, the tick, the shell), then measures SECS (default 5) of the screen as it is:
+#                     flips a second, DE2VSYNC and osd_irq a second, the compositor's measure (intervals in refreshes, late, lost, missed,
+#                     pipeline p50/p99/max), Mali busy, the SoC's temperature. `reset` starts the measure over; no argument only measures. A report
 #
 # The frame rule (PLAN, C4: "the X1 test with zero frames over 20 ms in 60 s"). The client's swap-to-swap gaps over
 # the run: none over 20 ms, the first second included (no warm-up is excused); the run is the whole 60 s and holds 60 Hz
@@ -596,6 +600,37 @@ callbacks)
     [ -z "${2:-}" ] || ctl callbacks shell "$2" > /dev/null
     st=$(ctl status)
     echo "shell callbacks${2:+ set to $2}: $(echo "$st" | grep -o '"callbacksAhead":[0-9]*' | cut -d: -f2) of $(echo "$st" | grep -o '"callbacks":[0-9]*' | cut -d: -f2) sent ahead of their flip"
+    ;;
+refresh)
+    # The refresh test mode: switch (60, 120), reset or read; then SECS of the screen as it is, counted three ways (the OSD plane's flips,
+    # the display engine's vsync and the OSD's interrupt), the compositor's measure, Mali's busy share (the cumulative busy and idle times,
+    # as vplane/tools/measure.py reads them) and the SoC's temperature. The divider is confirmed from its file: a kernel that ignored the
+    # write reads 2 at 120.
+    r_secs=${3:-5}
+    DIVIDER=/sys/module/lg1k/parameters/fbdev_vsync_cnt_on_flip
+    case "${2:-}" in
+    60|120|reset)
+        r_set=$(ctl refresh $2)
+        if ! echo "$r_set" | grep -q '"ok":true'; then echo "GATE refresh: FAIL $r_set"; exit 1; fi
+        sleep 2 ;;
+    "") ;;
+    *) echo "GATE refresh: FAIL refresh [60|120|reset] [SECS]"; exit 1 ;;
+    esac
+    r_hz=$(ctl refresh | jnum hz)
+    r_div=$(tr -d ' \n' < $DIVIDER 2>/dev/null)
+    irq_count() { awk -v n="$1" '$0 ~ n { for (i = 2; i <= 5; i++) if ($i ~ /^[0-9]+$/) s += $i; print s + 0 }' $PROC/interrupts 2>/dev/null; }
+    mali_count() { sed -n "s/.*$1:[ ]*\([0-9]*\).*/\1/p" /sys/kernel/debug/mali0/dvfs_utilization 2>/dev/null | head -n 1; }
+    f0=$(tr -dc '0-9' < /proc/lg/fbdev/fb0/flip_cnt 2>/dev/null); v0=$(irq_count DE2VSYNC); o0=$(irq_count osd_irq)
+    b0=$(mali_count busy_time); i0=$(mali_count idle_time)
+    sleep "$r_secs"
+    f1=$(tr -dc '0-9' < /proc/lg/fbdev/fb0/flip_cnt 2>/dev/null); v1=$(irq_count DE2VSYNC); o1=$(irq_count osd_irq)
+    b1=$(mali_count busy_time); i1=$(mali_count idle_time)
+    per_s() { awk -v a="${1:-0}" -v b="${2:-0}" -v s="$r_secs" 'BEGIN { printf "%.1f", (b - a) / s }'; }
+    mali=$(awk -v b0="${b0:-0}" -v b1="${b1:-0}" -v i0="${i0:-0}" -v i1="${i1:-0}" 'BEGIN { t = (b1 - b0) + (i1 - i0); if (t > 0) printf "%.1f", 100 * (b1 - b0) / t; else print "?" }')
+    temp=$(tr -d '\n' < /proc/lg/pm/temperature 2>/dev/null | head -c 40)
+    m=$(ctl refresh)
+    echo "$m" > $OUT/refresh-${r_hz:-x}.json
+    echo "GATE refresh: measured hz ${r_hz:-?} divider ${r_div:-unreadable} over ${r_secs} s: OSD flips/s $(per_s "$f0" "$f1"), DE2VSYNC/s $(per_s "$v0" "$v1"), osd_irq/s $(per_s "$o0" "$o1"); compositor: $(echo "$m" | grep -o '"intervals":{[^}]*}') $(echo "$m" | grep -o '"frames":{[^}]*}') $(echo "$m" | grep -o '"pipeline_ms":{[^}]*}') flips/s $(echo "$m" | grep -o '"flips_per_second":[0-9.]*' | cut -d: -f2); mali busy ${mali} %; temperature ${temp:-unreadable}"
     ;;
 standby)
     ctl journal > $OUT/standby-journal-before.json

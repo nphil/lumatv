@@ -13,7 +13,7 @@
 //! Everything else goes over the UI channel: an HTTP server on the loopback (`--shell-port`) that the client long-polls the
 //! way it polls LumaTV's helper (`kit/Helper.qml`), since QML has no socket of its own and the set has no QtWebSockets.
 //! To the UI, as topics: `foreground` (the app in front and whether Home is drawn), `screen`, `cursor`, `keyboard`, `wall` (whether the
-//! moving wallpaper's hole is under Home),
+//! moving wallpaper's hole is under Home), `refresh` (the Hz the output runs at, `refresh.rs`),
 //! `audio` (the audio service's volume state the compositor subscribes to), `homekey`; and `show` (a panel the gear or
 //! Input asked for) and `luna` (the answers to its calls). From the UI: what it can show (`can`), whether its system layer
 //! wants the keys (`wants`), its state for the gate (`state`), and luna calls from an allowlist, which the bridge makes in
@@ -741,6 +741,9 @@ impl State {
         // frame after it stops (an app taking the front stops it at once: the wallpaper's window is left out of the stack with Home).
         let wall = json!({"hole": home_shown && self.scene.wall_hole()});
         self.shell.push_if_changed("wall", wall);
+        // The refresh the output runs at (`refresh`): the shell draws its frames per refresh and trims what a frame costs at 120.
+        let refresh = json!({"hz": self.config.refresh_hz});
+        self.shell.push_if_changed("refresh", refresh);
         crate::server::ime::own_publish(self);
     }
 

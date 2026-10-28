@@ -69,6 +69,10 @@ WebOSWindow {
     readonly property bool wallHole: !!Link.topics.wall && Link.topics.wall.hole === true
     Binding { target: lumaHome.item; property: "videoWallBackend"; value: "own"; when: homeWin.homeReady }
     Binding { target: lumaHome.item; property: "videoWallHole"; value: homeWin.wallHole; when: homeWin.homeReady }
+    // The Hz the compositor's output runs at (the `refresh` topic; 120 is the test mode, docs/research/ui120-result.md): Home trims what a
+    // frame costs at 120 (kit/Lu.qml `fast`).
+    readonly property int refreshHz: Link.topics.refresh && Link.topics.refresh.hz ? Link.topics.refresh.hz : 60
+    Binding { target: lumaHome.item; property: "refreshHz"; value: homeWin.refreshHz; when: homeWin.homeReady }
 
     // The module's key bridge: the way into LumaBus.js's engine-wide instance (the one LumaHome and LumaOverlay registered
     // with), made from the module's own file so the library URL is theirs.

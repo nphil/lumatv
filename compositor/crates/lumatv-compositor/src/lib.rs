@@ -26,6 +26,7 @@ pub mod output;
 /// LumaShow's frame pacer, copied verbatim by `tools/sync-lumashow.sh` (`vendor/LUMASHOW_REV` names the commit).
 #[path = "vendor/pacer.rs"]
 pub mod pacer;
+pub mod refresh;
 pub mod render;
 pub mod ring;
 pub mod scene;

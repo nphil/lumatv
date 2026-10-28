@@ -1234,7 +1234,7 @@ class GateDriver(unittest.TestCase):
         g.wake = lambda: True
         g.avr_mute = lambda on: None
         g.volume_check = lambda: "GATE volume: PASS fine"
-        g.frames_check = lambda cycles, load=False: "GATE frames-load: measured fine" if load else "GATE frames: PASS fine"
+        g.frames_check = lambda cycles, load=False, refresh=60: "GATE frames-load: measured fine" if load else ("GATE frames at %d Hz: PASS fine" % refresh if refresh != 60 else "GATE frames: PASS fine")
         g.VERIFIED_LIST = lst
         g.here = repo
         with mock.patch.object(sys, "argv", ["tv_gate.py", *argv]), mock.patch.object(g.time, "sleep"), mock.patch.object(g.os, "system"), \
@@ -1253,6 +1253,22 @@ class GateDriver(unittest.TestCase):
             elif "cutover.sh" in c:
                 out.append("cutover " + " ".join(c.split()[c.split().index("sh") + 2:]))
         return out
+
+    def test_the_frame_gate_at_120_hz_switches_the_mode_on_before_the_surfaces_and_off_after(self):
+        calls, code, _ = self.run_main(argv=("--only", "frames", "--refresh", "120"))
+        self.assertEqual(code, 0)
+        checks = [c for c in self.checks(calls) if not c.startswith("key ")]
+        self.assertEqual(checks, [
+            "cutover enable --session --max-minutes 32", "live", "evidence",
+            "cutover enable --session --max-minutes 20", "live frames", "refresh 120 10", "wake reset", "refresh reset 10", "refresh 60 5",
+            "wake frames", "mem", "callbacks", "cutover disable"])
+        divider = [c for c in calls if "fbdev_vsync_cnt_on_flip" in c]
+        self.assertEqual(len(divider), 1, "the divider is put back to 2 in the clean-up, once: %s" % calls)
+        self.assertIn("echo 2 > $f", divider[0])
+        # at 60 nothing of the mode runs, and the divider is not touched
+        calls, _, _ = self.run_main(argv=("--only", "frames"))
+        self.assertNotIn("refresh", " ".join(self.checks(calls)))
+        self.assertFalse([c for c in calls if "fbdev_vsync_cnt_on_flip" in c])
 
     def test_the_order_of_a_full_gate_with_a_fresh_session_after_every_check_that_ends_one(self):
         calls, code, _ = self.run_main()

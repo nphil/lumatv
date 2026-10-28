@@ -170,6 +170,17 @@ fn run(config: Config) -> io::Result<()> {
     if state.luna.is_connected() {
         state.luna_register();
     }
+    // `--refresh 120`: the output is asked once it exists; a refusal (no divider on this kernel) keeps the default, and says so.
+    if config.refresh_hz != lumatv_compositor::refresh::DEFAULT_HZ {
+        match state.output.set_refresh(config.refresh_hz) {
+            Ok(hz) => state.journal(format!("refresh: {hz} Hz from the command line")),
+            Err(e) => {
+                log::warn!("refresh {} Hz refused: {e}; staying at {}", config.refresh_hz, lumatv_compositor::refresh::DEFAULT_HZ);
+                state.config.refresh_hz = lumatv_compositor::refresh::DEFAULT_HZ;
+                state.config.tick_ns = lumatv_compositor::refresh::period_ns(lumatv_compositor::refresh::DEFAULT_HZ);
+            }
+        }
+    }
     log::info!(
         "listening on {}/{} ({} renderer, buffers {:?}{}, {} globals incl. {})",
         config.runtime_dir.display(),
@@ -203,7 +214,7 @@ fn run(config: Config) -> io::Result<()> {
             log::info!("mali thread: {line}");
         }
     }
-    let mut tick = ticker::Tick::new(config.tick_ns)?;
+    let mut tick = ticker::Tick::new(state.config.tick_ns)?;
     let epoll = Epoll::new()?;
     const TAG_WL: u64 = 1;
     const TAG_LISTEN: u64 = 2;
@@ -320,7 +331,7 @@ fn run(config: Config) -> io::Result<()> {
                     }
                     state.tick();
                     state.poll_holds();
-                    tick.rearm(&state, config.tick_ns)?;
+                    tick.rearm(&state)?;
                 }
                 TAG_OUTPUT => {
                     // Page flips landed: the pacer learned their timestamps, a frame waiting behind the flip went
@@ -328,7 +339,7 @@ fn run(config: Config) -> io::Result<()> {
                     // first flip of a run is what teaches the pacer the panel's phase, and a fixed tick that fired
                     // before the next latch drew X1's second frame alone on the tenth gate.
                     state.land_flips();
-                    tick.rearm(&state, config.tick_ns)?;
+                    tick.rearm(&state)?;
                 }
                 TAG_LUNA => {
                     luna_poll(&mut state);
@@ -338,13 +349,13 @@ fn run(config: Config) -> io::Result<()> {
                     if state.ui_wake() {
                         handled |= 1 << 9;
                         state.tick();
-                        tick.rearm(&state, config.tick_ns)?;
+                        tick.rearm(&state)?;
                     }
                 }
                 TAG_SHELL => {
                     if state.shell_poll() {
                         handled |= 1 << 9;
-                        tick.rearm(&state, config.tick_ns)?;
+                        tick.rearm(&state)?;
                     }
                 }
                 TAG_CONTROL => {
@@ -417,11 +428,11 @@ fn run(config: Config) -> io::Result<()> {
         if state.wants_frame_now() {
             handled |= 1 << 9;
             state.tick();
-            tick.rearm(&state, config.tick_ns)?;
+            tick.rearm(&state)?;
         }
         // An event ends the slowed tick: the timer goes back to the panel's rate before the loop sleeps, not at the next slow tick.
         if saw_event && tick.is_slowed() {
-            tick.rearm(&state, config.tick_ns)?;
+            tick.rearm(&state)?;
         }
         display.flush_clients()?;
         // Anything that holds the loop for half a refresh delays every client's callbacks and commits with it; the

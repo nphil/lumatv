@@ -127,4 +127,11 @@ QtObject {
     readonly property int restMs: ms("restMs")
     readonly property int focusEasing: easing(motion.focusEasing)
     readonly property int cardEasing: easing(motion.cardEasing)
+
+    // ---- refresh: the Hz the compositor's output runs at (LumaHome's `refreshHz`, from the compositor's `refresh` topic under LumaTV's
+    // compositor; 60 under LG's). `fast` is the 120 Hz test mode (docs/research/ui120-result.md): a frame then has 8.33 ms, and a frame
+    // of Home costs 11-13.5 ms of GPU at 60, so while a panel slides over Home the widgets and the dock are drawn from one cached texture
+    // each instead of their nodes (LumaHome.qml). At 60 nothing here changes anything.
+    property int refreshHz: 60
+    readonly property bool fast: refreshHz >= 100
 }

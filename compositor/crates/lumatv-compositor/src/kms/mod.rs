@@ -177,6 +177,10 @@ pub struct Kms {
     /// lose refreshes), and every tick, commit and flip until it runs out gets a `trace:` line.
     trace_left: u32,
     seq: u64,
+    /// The OSD's vblank divider (`refresh`): written for 120 Hz, put back at 60 and at exit.
+    divider: crate::refresh::Divider,
+    /// The refresh asked for (`Config::refresh_hz`), as last set; the measured period is the pacer's.
+    refresh_hz: u32,
 }
 
 const PAGES: usize = 3;
@@ -390,6 +394,8 @@ impl Kms {
             reach_worst_ns: 0,
             trace_left: 0,
             seq: 0,
+            divider: crate::refresh::Divider::new(),
+            refresh_hz: crate::refresh::DEFAULT_HZ,
         })
     }
 
@@ -884,6 +890,31 @@ impl Output for Kms {
     /// step with, so the tick would only delay it by up to a refresh.
     fn draws_on_damage(&self, _now: Instant) -> bool {
         !self.pending_flip && self.queued.is_none() && self.last_assignment.is_none() && !self.flowing(self.now_ns())
+    }
+
+    /// The divider first, so a kernel that refuses the write leaves the pacer where it was; then the pacer keyed to the nominal
+    /// period by order (the measured path would not take 60 after 120: a doubled interval is a skipped refresh to it) and the
+    /// latch and run state forgotten, so the first flips at the new rate start a run of their own.
+    fn set_refresh(&mut self, hz: u32) -> io::Result<u32> {
+        if !crate::refresh::supported(hz) {
+            return Err(other(format!("refresh {hz}: 60 or 120")));
+        }
+        let divider = self.divider.set(hz)?;
+        let period_ns = crate::refresh::period_ns(hz);
+        self.timing.rekey(period_ns);
+        self.latch.set((0, 0));
+        self.in_run = false;
+        self.refresh_hz = hz;
+        log::info!("kms: refresh {hz} Hz: {} = {divider}, the pacer keyed to {:.2} ms", self.divider.path().display(), period_ns as f64 / 1e6);
+        Ok(hz)
+    }
+
+    fn refresh_report(&self) -> Option<serde_json::Value> {
+        let mut r = self.timing.measure.report(self.timing.period_ns());
+        r["hz"] = self.refresh_hz.into();
+        r["measured_period_ms"] = self.timing.mean_period_ns().map(|p| p / 1e6).into();
+        r["divider"] = self.divider.report();
+        Some(r)
     }
 
     fn stats_line(&self) -> String {

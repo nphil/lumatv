@@ -85,6 +85,15 @@ class Runs:
 
 
 BURST_GAP_MS = 50.0
+# A frame interval over this is a dropped frame (the `over20`, `dropped` and `burst_over20` counts): 20 ms is a 60 Hz refresh and a
+# fifth; set_refresh() scales it (10 ms at 120, the compositor's refresh test mode).
+DROP_MS = 20.0
+
+
+def set_refresh(hz):
+    """The refresh the frames were presented at: the drop threshold becomes a refresh and a fifth."""
+    global DROP_MS
+    DROP_MS = round(1.2 * 1000.0 / float(hz), 2)
 # Processes whose GPU work is the composition itself, not an app's own drawing.
 COMPOSITION_COMMS = ('surface-manager', 'gal_renderd')
 # An app's buffer reaches the screen up to three frames after its GPU job ends.
@@ -109,7 +118,7 @@ def burst(times, start, gap_ms=BURST_GAP_MS):
     for t in times:
         if (t - prev) * 1000.0 > gap_ms:
             break
-        if n and (t - prev) * 1000.0 > 20:
+        if n and (t - prev) * 1000.0 > DROP_MS:
             out['over20'] += 1
         prev = t
         n += 1
@@ -319,7 +328,7 @@ def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
         seqd = collections.Counter(fr[i + 1][1] - fr[i][1] for i in range(len(fr) - 1))
         w = {'name': nm, 'start': round(a, 3), 'dur_s': round(b - a, 3), 'frames': len(fr),
              'fps': round(len(fr) / (b - a), 1) if b > a else 0,
-             'over17': sum(1 for x in ivals if x > 17.5), 'over20': sum(1 for x in ivals if x > 20),
+             'over17': sum(1 for x in ivals if x > 17.5), 'over20': sum(1 for x in ivals if x > DROP_MS),
              'over33': sum(1 for x in ivals if x > 33.5), 'over50': sum(1 for x in ivals if x > 50),
              'worst_ms': round(max(ivals), 1) if ivals else 0,
              'vblanks_between_presents': dict(sorted(seqd.items())),
@@ -404,17 +413,17 @@ def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
             else:
                 timer.append(rec)
         w['anim_frames'] = len(anim)
-        w['dropped'] = sum(1 for iv, r in anim if iv > 20)
+        w['dropped'] = sum(1 for iv, r in anim if iv > DROP_MS)
         # A frame over 20 ms that follows another animated frame is a miss inside a running
         # animation; the first animated frame after an idle gap is late by construction (the update
         # that starts it fires when the key does) and is not counted here.
-        w['dropped_in_motion'] = sum(1 for (iv, r), late in zip(anim, anim_late) if iv > 20 and late)
+        w['dropped_in_motion'] = sum(1 for (iv, r), late in zip(anim, anim_late) if iv > DROP_MS and late)
         w['dropped_pct'] = round(100.0 * w['dropped'] / len(anim), 1) if anim else 0
         w['timer_frames'] = len(timer)
         rends = sorted(r for iv, r in anim)
         w['anim_render_ms'] = {'median': round(rends[len(rends) // 2], 2), 'p90': round(rends[int(0.9 * (len(rends) - 1))], 2), 'max': round(rends[-1], 2)} if rends else None
         w['anim_render_samples'] = [round(r, 2) for iv, r in anim]
-        w['dropped_render_ms'] = sorted(round(r, 1) for iv, r in anim if iv > 20)[-12:]
+        w['dropped_render_ms'] = sorted(round(r, 1) for iv, r in anim if iv > DROP_MS)[-12:]
 
         # The burst that starts at the window's marker: the response to the key
         # injected right after it. Animated frames count when both of their
@@ -509,7 +518,9 @@ if __name__ == '__main__':
     ap.add_argument('--top', type=int, default=10)
     ap.add_argument('--window', type=float, nargs=2)
     ap.add_argument('--json')
+    ap.add_argument('--refresh', type=float, default=60.0, help='the refresh the frames were presented at, Hz: the dropped-frame threshold is a refresh and a fifth (20 ms at 60)')
     a = ap.parse_args()
+    set_refresh(a.refresh)
     r = analyse(a.trace, a.sm, a.gap, a.window)
     if a.json:
         with open(a.json, 'w') as f:

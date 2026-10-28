@@ -30,6 +30,9 @@ Item {
     signal closeRequested(string id)
     signal openSettingsPage(string id)
     function up(id) { return open === id || below.indexOf(id) >= 0 }
+    // The quick panel or the input picker is on the screen or on its way in or out (not parked): what LumaHome caches its widgets and dock
+    // behind at 120 Hz (Lu.fast).
+    readonly property bool panelSliding: (quickRes.ready && (quickRes.shown || quickRes.leaving)) || (pickerRes.ready && (pickerRes.shown || pickerRes.leaving))
 
     // Home has presented a second ago: start the chain. A built chain is never restarted.
     Timer {

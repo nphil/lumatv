@@ -9,9 +9,11 @@
 //! so a 300 ms slide takes 300 ms at 24 Hz as at 60: the UI's clock is its own; only its frame rate is the panel's.
 
 use crate::pacer::{Pacer, Shown};
+use crate::refresh::Measure;
 
-/// Rates the panel is known or likely to run at, as periods in ns: a measured interval is snapped to the nearest.
-const RATES_HZ: [f64; 10] = [23.976, 24.0, 25.0, 29.97, 30.0, 48.0, 50.0, 59.94, 60.0, 120.0];
+/// Rates the panel is known or likely to run at, as periods in ns: a measured interval is snapped to the nearest. 100 and 120 are
+/// the engine's own rates with the OSD's vblank divider at 1 (`refresh`): 100 under 50-family content, 120 otherwise.
+const RATES_HZ: [f64; 11] = [23.976, 24.0, 25.0, 29.97, 30.0, 48.0, 50.0, 59.94, 60.0, 100.0, 120.0];
 /// Consecutive flips that must agree on a new period before the pacer is keyed to it.
 const AGREE: usize = 4;
 /// How far an interval may sit from a period (or a multiple of it) and still be taken as that period: the stamps on the
@@ -80,6 +82,8 @@ pub struct FlipTiming {
     pub late_frames: u64,
     pub lost_refreshes: u64,
     pub rate_changes: u64,
+    /// What the flips said since the last `rekey` (`ctl refresh`), or the start.
+    pub measure: Measure,
 }
 
 impl FlipTiming {
@@ -97,12 +101,26 @@ impl FlipTiming {
             late_frames: 0,
             lost_refreshes: 0,
             rate_changes: 0,
+            measure: Measure::default(),
         }
     }
 
     /// The refresh period the pacer is keyed to, in ns.
     pub fn period_ns(&self) -> u64 {
         self.period_ns
+    }
+
+    /// Keys the pacer to `period_ns` by order (`ctl refresh`), forgets the intervals seen and starts the measure over. The measured
+    /// path cannot do this for 120 to 60: a period that is a whole number of the current one is a skipped refresh to it, not a slower
+    /// panel (`rate_from_recent`).
+    pub fn rekey(&mut self, period_ns: u64) {
+        if period_ns != self.period_ns {
+            self.period_ns = period_ns;
+            self.pacer = Pacer::new(period_ns);
+            self.rate_changes += 1;
+        }
+        self.filled = 0;
+        self.measure = Measure::default();
     }
 
     /// When the last flip landed (CLOCK_MONOTONIC ns), 0 before the first.
@@ -136,8 +154,10 @@ impl FlipTiming {
         let mut out = Landed::default();
         let last = self.last_flip_ns;
         let mut skipped = false;
+        let mut interval = 0;
         if last != 0 {
             let since = presented_ns.saturating_sub(last);
+            interval = since;
             self.recent[self.filled % AGREE] = since;
             self.filled += 1;
             if let Some(new) = self.rate_from_recent() {
@@ -152,6 +172,7 @@ impl FlipTiming {
                 skipped = since > self.period_ns;
             }
         }
+        self.measure.flip(presented_ns, interval, self.period_ns);
         self.last_flip_ns = presented_ns;
         if self.first_flip_ns == 0 {
             self.first_flip_ns = presented_ns;
@@ -187,6 +208,7 @@ impl FlipTiming {
             out.late = landing.late;
             out.lost = landing.lost;
             out.shift_ns = landing.late as i64 * self.period_ns as i64;
+            self.measure.frame(timing.ready_ns.saturating_sub(timing.started_ns), landing.late, landing.lost, out.missed);
         }
         out
     }
@@ -300,6 +322,103 @@ mod tests {
         let out = run(&mut t, from, P60, 8);
         assert_eq!(out.iter().filter_map(|l| l.rate_change).collect::<Vec<_>>(), [(P24, P60)]);
         assert_eq!(t.period_ns(), P60);
+    }
+
+    const P120: u64 = (1e9 / 120.0) as u64;
+
+    /// Flips every `period` from `from`, `n` of them, each of a frame with a `pipeline` from start to ready.
+    fn run_costing(t: &mut FlipTiming, from: u64, period: u64, n: usize, pipeline: u64) -> Vec<Landed> {
+        (0..n)
+            .map(|i| {
+                let slot = from + i as u64 * period;
+                t.landed(slot, Some((Timing { slot_ns: slot, started_ns: slot - pipeline - 500_000, ready_ns: slot - 500_000, content_ns: None }, None)))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn flips_at_one_hundred_and_twenty_hz_key_the_pacer_to_it_by_themselves() {
+        // The divider written to 1 with the pacer still keyed to 60: the first four 8.33 ms intervals look like pairs, the fourth settles it.
+        let mut t = FlipTiming::new(P60);
+        let base = 1_000_000_000;
+        run(&mut t, base, P60, 4);
+        let start = base + 3 * P60 + P120;
+        let out = run_costing(&mut t, start, P120, 12, 4_000_000);
+        let change = out.iter().position(|l| l.rate_change.is_some()).expect("a rate change");
+        assert_eq!(out[change].rate_change, Some((P60, P120)));
+        assert_eq!(change, 3);
+        assert_eq!(t.period_ns(), P120);
+        let late_before = t.late_frames;
+        let out = run_costing(&mut t, start + 12 * P120, P120, 12, 4_000_000);
+        assert!(out.iter().all(|l| l.odd.is_none() && l.rate_change.is_none()), "{out:?}");
+        assert_eq!(t.late_frames, late_before, "4 ms frames land on every 8.33 ms refresh");
+    }
+
+    #[test]
+    fn fifty_family_content_at_one_hundred_hz_is_followed_and_left_again() {
+        // The divider at 1 and a 50 fps video in front: the engine runs 100 Hz and so do the flips; the pacer follows, and back.
+        const P100: u64 = 10_000_000;
+        let mut t = FlipTiming::new(P120);
+        let base = 1_000_000_000;
+        run_costing(&mut t, base, P120, 6, 4_000_000);
+        let start = base + 5 * P120 + P100;
+        let out = run_costing(&mut t, start, P100, 8, 4_000_000);
+        assert_eq!(out.iter().filter_map(|l| l.rate_change).collect::<Vec<_>>(), [(P120, P100)]);
+        assert_eq!(t.period_ns(), P100);
+        let from = start + 8 * P100;
+        let out = run_costing(&mut t, from, P120, 8, 4_000_000);
+        assert_eq!(out.iter().filter_map(|l| l.rate_change).collect::<Vec<_>>(), [(P100, P120)]);
+    }
+
+    #[test]
+    fn rekey_takes_the_pacer_back_to_sixty_where_the_measured_path_cannot() {
+        let mut t = FlipTiming::new(P120);
+        let base = 1_000_000_000;
+        run_costing(&mut t, base, P120, 8, 4_000_000);
+        // The divider back at 2: 16.67 ms intervals are two 120 Hz refreshes to the measured path, never a 60 Hz panel.
+        let out = run_costing(&mut t, base + 7 * P120 + P60, P60, 8, 4_000_000);
+        assert!(out.iter().all(|l| l.rate_change.is_none()), "{out:?}");
+        assert_eq!(t.period_ns(), P120);
+        assert!(out.iter().all(|l| l.odd.is_some()), "every one a skipped refresh at 120: {out:?}");
+        t.rekey(P60);
+        assert_eq!(t.period_ns(), P60);
+        assert_eq!(t.measure.flips, 0, "the measure starts over");
+        let from = base + 7 * P120 + 9 * P60;
+        let out = run_costing(&mut t, from, P60, 8, 4_000_000);
+        assert!(out.iter().all(|l| l.odd.is_none() && l.rate_change.is_none()), "{out:?}");
+        assert_eq!(t.measure.flips, 8);
+        assert_eq!(t.measure.one, 8, "the first flip of the measure is one refresh after the last of the old one");
+        // rekey to the period in force changes nothing but the measure
+        let changes = t.rate_changes;
+        t.rekey(P60);
+        assert_eq!((t.rate_changes, t.measure.flips), (changes, 0));
+    }
+
+    #[test]
+    fn the_measure_at_one_hundred_and_twenty_reads_a_frame_that_costs_a_sixty_hz_budget() {
+        let mut t = FlipTiming::new(P120);
+        let base = 1_000_000_000;
+        run_costing(&mut t, base, P120, 4, 4_000_000);
+        // The shell's 15 ms frames: each planned for the refresh after the last landing, each landing two refreshes after it, so the
+        // pacer finds every one a refresh late and the flips two refreshes apart.
+        let mut last = base + 3 * P120;
+        let mut out = Vec::new();
+        for _ in 0..6 {
+            let slot = last + P120;
+            let presented = last + 2 * P120;
+            out.push(t.landed(presented, Some((Timing { slot_ns: slot, started_ns: last, ready_ns: last + 15_000_000, content_ns: None }, None))));
+            last = presented;
+        }
+        assert!(out.iter().all(|l| l.odd.is_some() && l.late == 1 && !l.missed), "{out:?}");
+        let m = &t.measure;
+        assert_eq!(m.flips, 10);
+        assert_eq!((m.one, m.two, m.three, m.more), (3, 6, 0, 0));
+        assert_eq!((m.frames, m.late, m.lost, m.missed), (10, 6, 0, 0));
+        let r = m.report(t.period_ns());
+        assert_eq!(r["period_ms"].as_f64().unwrap().round(), 8.0);
+        assert_eq!(r["pipeline_ms"]["max"], 15.0);
+        assert_eq!(r["pipeline_ms"]["p50"], 15.0);
+        assert_eq!(r["intervals"]["worst_ms"].as_f64().unwrap().round(), 17.0);
     }
 
     #[test]

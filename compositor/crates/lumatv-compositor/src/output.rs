@@ -149,6 +149,17 @@ pub trait Output {
         false
     }
 
+    /// Runs the output at `hz` (`refresh`, 60 or 120): KMS writes the OSD's vblank divider and keys its pacer to the period; an
+    /// output without a panel only takes the number. Answers what is in force, or why the change was refused (nothing changed then).
+    fn set_refresh(&mut self, hz: u32) -> io::Result<u32> {
+        Ok(hz)
+    }
+
+    /// The refresh mode's measure since the last switch (`refresh::Measure::report`), for `ctl refresh`; `None` without flips.
+    fn refresh_report(&self) -> Option<serde_json::Value> {
+        None
+    }
+
     /// Output-specific counters for the summary line (KMS: flips, late and lost refreshes, direct scan-outs).
     fn stats_line(&self) -> String {
         String::new()

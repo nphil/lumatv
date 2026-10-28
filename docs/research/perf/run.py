@@ -266,9 +266,9 @@ WORKLOADS = {'hog': wl_hog, 'pressure': wl_pressure, 'coldhome': wl_coldhome, 'i
 GAP = {'hog': 17.5, 'pressure': 17.5, 'coldhome': 17.5, 'idle': 34, 'dpad': 17.5, 'sweep': 17.5, 'qs': 17.5, 'apphome': 17.5, 'appfull': 17.5, 'video': 34}
 
 
-def analyse(name, sm_pid, gap):
+def analyse(name, sm_pid, gap, refresh=60):
     r = subprocess.run([sys.executable, os.path.join(HERE, 'analyse.py'), f'{LOCAL}/{name}.trace',
-                        '--sm', str(sm_pid), '--gap', str(gap), '--json', f'{LOCAL}/{name}.json', '--top', '6'],
+                        '--sm', str(sm_pid), '--gap', str(gap), '--refresh', str(refresh), '--json', f'{LOCAL}/{name}.json', '--top', '6'],
                        capture_output=True, text=True)
     with open(f'{LOCAL}/{name}.txt', 'w') as f:
         f.write(r.stdout + r.stderr)

@@ -231,6 +231,25 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             }
             json!({"ok": true, "idle_tick_ms": state.config.idle_tick_ns / 1_000_000})
         }
+        // The refresh the output runs at (`refresh`, docs/research/ui120-result.md): `refresh` reads the mode and the measure since the
+        // last switch, `refresh 60|120` switches it (the OSD's vblank divider, the pacer's period, the tick, the shell's `refresh` topic),
+        // `refresh reset` starts the measure over at the mode in force (the gate's windows).
+        "refresh" => match words.next() {
+            None => json!({"ok": true, "hz": state.config.refresh_hz, "tick_ms": state.config.tick_ns as f64 / 1e6, "measure": state.output.refresh_report()}),
+            Some(w) => match w.parse::<u32>().ok().filter(|&hz| crate::refresh::supported(hz)).or((w == "reset").then_some(state.config.refresh_hz)) {
+                Some(hz) => match state.output.set_refresh(hz) {
+                    Ok(hz) => {
+                        state.config.refresh_hz = hz;
+                        state.config.tick_ns = crate::refresh::period_ns(hz);
+                        state.journal(format!("refresh: {hz} Hz (control socket{})", if w == "reset" { ", measure reset" } else { "" }));
+                        state.shell_sync_topics();
+                        json!({"ok": true, "hz": hz, "tick_ms": state.config.tick_ns as f64 / 1e6, "measure": state.output.refresh_report()})
+                    }
+                    Err(e) => json!({"ok": false, "error": format!("refresh {hz}: {e}"), "hz": state.config.refresh_hz}),
+                },
+                None => json!({"ok": false, "error": "refresh [60|120|reset]"}),
+            },
+        },
         "quit" => {
             state.should_exit = true;
             json!({"ok": true})
@@ -244,7 +263,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
         }
         "" => json!({"ok": false, "error": "empty command"}),
         other => {
-            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, key CODE, remote CODE, pointer X Y, click, sched mali fifo|other, callbacks shell early|landing, mem, wake [reset|probe start|probe stop], ring [N], idle [MS], fallback [reason], quit")})
+            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, key CODE, remote CODE, pointer X Y, click, sched mali fifo|other, callbacks shell early|landing, mem, wake [reset|probe start|probe stop], ring [N], idle [MS], refresh [60|120], fallback [reason], quit")})
         }
     };
     Reply::Now(reply.to_string())

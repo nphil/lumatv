@@ -25,6 +25,9 @@ Item {
 
     // set by StarfishFullscreenContainer: Home is this container's app and visible
     property bool hostActive: false
+    // The Hz the compositor's output runs at: set by the shell client under LumaTV's compositor (compositor/shell/Shell.qml, the
+    // `refresh` topic); 60 under LG's. Read through Lu.fast (kit/Lu.qml): the 120 Hz test mode.
+    property int refreshHz: 60
 
     readonly property string themeDirUrl: "file://{{dataDir}}/theme/"
     readonly property string fontsDirUrl: "file://{{dataDir}}/fonts/"
@@ -71,6 +74,7 @@ Item {
     Binding { target: Lu; property: "theme"; value: root.theme }
     Binding { target: Lu; property: "isLight"; value: root.isLight }
     Binding { target: Lu; property: "wallAccent"; value: root.wallTint ? root.wallAccent : "transparent" }
+    Binding { target: Lu; property: "refreshHz"; value: root.refreshHz }
     // The glass samples the wallpaper's blur while Home is on screen: Home takes the backdrop at load and whenever it is shown again, since
     // over an app the overlay (LumaOverlay.qml) points it at a flat colour. An assignment and not a Binding: a Binding that switches off is
     // the one construct whose behaviour differs between Qt 5.12 (the set) and 5.15 (the offline host).
@@ -1152,6 +1156,11 @@ Item {
         MouseArea { anchors.fill: parent; hoverEnabled: true; onClicked: { if (miniFrame.open) root.closeMini(); else { statusBarItem.requestClosePopover(); root.focusLayer = "statusbar" } } }
     }
 
+    // At 120 Hz (Lu.fast) a panel sliding over Home draws the widgets and the dock from one texture each (the item layer, rendered once
+    // when the slide starts and again only when something in them changes: the clock's second), not their nodes in every frame of the
+    // slide: a frame of Home costs 11-13.5 ms of GPU at 60 and has 8.33 ms at 120. The dock's texture reaches past its rect for the
+    // glass shadows, which the layer would otherwise clip. At 60 nothing is layered.
+    readonly property real layerReach: 80 * Math.max(1, Lu.depth)
     Item {
         id: widgetLayer
         anchors.fill: parent
@@ -1159,6 +1168,7 @@ Item {
         opacity: root.previewMode ? 0 : 1
         visible: opacity > 0.005
         Behavior on opacity { NumberAnimation { duration: root.layerMs; easing.type: Easing.OutCubic } }
+        layer.enabled: Lu.fast && layers.panelSliding
         Repeater {
             id: widgetRepeater
             model: root.widgetIds
@@ -1199,6 +1209,8 @@ Item {
         opacity: root.previewMode ? 0 : 1
         visible: opacity > 0.005
         Behavior on opacity { NumberAnimation { duration: root.layerMs; easing.type: Easing.OutCubic } }
+        layer.enabled: Lu.fast && layers.panelSliding
+        layer.sourceRect: Qt.rect(-root.layerReach, -root.layerReach, width + 2 * root.layerReach, height + 2 * root.layerReach)
         active: root.dockEntry !== null
         x: active ? root.cellRect(root.dockEntry).x : 0
         y: active ? root.cellRect(root.dockEntry).y : 0
