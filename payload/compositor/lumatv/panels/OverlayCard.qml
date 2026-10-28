@@ -130,7 +130,7 @@ Item {
                 y: metaText.height + Lu.space(2)
                 width: board.width
                 height: Math.max(firstName.implicitHeight, firstScore.implicitHeight)
-                LuText { id: firstName; width: parent.width - firstScore.implicitWidth - Lu.space(4); role: "body"; elide: Text.ElideRight
+                LuText { id: firstName; y: Math.round((parent.height - implicitHeight) / 2); width: parent.width - firstScore.implicitWidth - Lu.space(4); role: "body"; elide: Text.ElideRight
                          font.weight: board.firstN > board.secondN ? Font.DemiBold : Font.Medium; color: board.firstN > board.secondN ? Lu.ink : Lu.ink2
                          text: card.score ? card.score.away.name : "" }
                 LuText { id: firstScore; x: parent.width - implicitWidth; y: Math.round((parent.height - implicitHeight) / 2); role: "title"; text: card.score ? card.score.away.score : "" }
@@ -140,7 +140,7 @@ Item {
                 y: firstRow.y + firstRow.height
                 width: board.width
                 height: Math.max(secondName.implicitHeight, secondScore.implicitHeight)
-                LuText { id: secondName; width: parent.width - secondScore.implicitWidth - Lu.space(4); role: "body"; elide: Text.ElideRight
+                LuText { id: secondName; y: Math.round((parent.height - implicitHeight) / 2); width: parent.width - secondScore.implicitWidth - Lu.space(4); role: "body"; elide: Text.ElideRight
                          font.weight: board.secondN > board.firstN ? Font.DemiBold : Font.Medium; color: board.secondN > board.firstN ? Lu.ink : Lu.ink2
                          text: card.score ? card.score.home.name : "" }
                 LuText { id: secondScore; x: parent.width - implicitWidth; y: Math.round((parent.height - implicitHeight) / 2); role: "title"; text: card.score ? card.score.home.score : "" }

@@ -239,6 +239,7 @@ function hide(e, now) {
 // a record ends, a wait runs out or the keys become the card's (`armMs`).
 function select(q, ctx, cfg, now) {
     var i, e
+    for (var k in q.lastShown) if (now - q.lastShown[k] > 3600000) delete q.lastShown[k]       // a cooldown is minutes; the map does not grow for ever
     // the end of what a card may be
     for (i = q.list.length - 1; i >= 0; i--) {
         e = q.list[i]
@@ -247,8 +248,8 @@ function select(q, ctx, cfg, now) {
         var stale = !e.visible && e.src === "note" && e.waitMs > 0 && now - (e.hiddenAt || e.arrivedAt) >= e.waitMs
         if (over || used || stale) {
             if (e.visible) q.lastShown[e.key] = now
-            // a card that had its time is done with: this revision is not news again
-            if (used && e.src === "note") q.dismissed[e.key] = e.revision
+            // a card that had its time is done with: this revision is not news again (a ringing card that is still there is not shown a second time)
+            if (used) q.dismissed[e.key] = e.revision
             q.list.splice(i, 1)
         }
     }

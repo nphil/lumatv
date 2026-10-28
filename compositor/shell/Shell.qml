@@ -136,8 +136,9 @@ WebOSWindow {
         }
         Binding { target: overlay.item; property: "appFront"; value: homeWin.appFront; when: overlay.status === Loader.Ready }
         // Do not disturb: the overlay's cards wait while an alert, the input popup or the PIN prompt of the notifications, the keyboard or the saver
-        // has the screen, and its first card is drawn once while the layer is warmed
-        Binding { target: overlay.item; property: "systemBusy"; value: homeWin.notifyWants || homeWin.keyboardUp || homeWin.saverUp; when: overlay.status === Loader.Ready }
+        // has the screen, and while the screen is off (a ring while the TV is in standby is still there when it is switched on, if it is in date);
+        // its first card is drawn once while the layer is warmed
+        Binding { target: overlay.item; property: "systemBusy"; value: homeWin.notifyWants || homeWin.keyboardUp || homeWin.saverUp || !homeWin.screenOn; when: overlay.status === Loader.Ready }
         Binding { target: overlay.item; property: "warming"; value: homeWin.warmShow; when: overlay.status === Loader.Ready }
         Loader {
             id: notify
