@@ -25,7 +25,7 @@ Item {
     property string open: ""                            // the modal surface that owns the keys ("" none)
     property var below: []                              // the modal surfaces under it, drawn and without keys
     property int buildStep: -1                          // -1: waiting for Home to present
-    readonly property int steps: 13                     // surfaces in the build chain
+    readonly property int steps: 15                     // surfaces in the build chain
     readonly property bool built: buildStep >= steps
     signal closeRequested(string id)
     signal openSettingsPage(string id)
@@ -50,7 +50,7 @@ Item {
         return id === "settings" ? settingsRes : id === "gallery" ? galleryRes : id === "picker" ? pickerRes : id === "quick" ? quickRes
              : id === "menu" ? menuRes : id === "confirm" ? confirmRes : id === "remote" ? remoteRes
              : id === "apps" ? appsRes : id === "search" ? searchRes : id === "voice" ? voiceRes : id === "banner" ? bannerRes
-             : id === "drawer" ? drawerRes : null
+             : id === "drawer" ? drawerRes : id === "access" ? accessRes : id === "recents" ? recentsRes : null
     }
     function key(dir) {
         var r = find(open)
@@ -107,6 +107,15 @@ Item {
     function spinner(text) { if (splashRes.item) splashRes.item.spin(text) }
     function holdRing(rect, name, fraction) { if (splashRes.item) { if (fraction < 0) splashRes.item.done(); else { splashRes.item.hold(rect, name); splashRes.item.fraction = fraction } } }
     function endSplash() { if (splashRes.item) splashRes.item.done(); splashEnd.stop() }
+    // Quick Access (panels/QuickAccess.qml): a toast for the digit that opened something, the question for one that opened nothing.
+    function accessToast(digit, name, line) { if (accessRes.item) accessRes.item.toast(digit, name, line) }
+    function accessAsk(digit, picks) { if (accessRes.item) accessRes.item.ask(digit, picks) }
+    signal accessAssigned(string digit, string appId)
+    signal accessMore(string digit)
+    // Recent apps (panels/Recents.qml): read whenever Home comes to the front, so Back knows whether there is anything to show.
+    function recentsRead() { if (recentsRes.item) recentsRes.item.read() }
+    readonly property int recentsCount: recentsRes.item ? recentsRes.item.count : 0
+    signal recentsPicked(string appId)
     // Home going away is the app arriving; if it never does, the splash gives up after a while rather than cover Home for ever.
     Timer { id: splashEnd; interval: 8000; onTriggered: layers.endSplash() }
     onHostActiveChanged: if (!hostActive) endSplash()
@@ -237,6 +246,46 @@ Item {
         build: layers.buildStep >= step
         shown: layers.hostActive
         onDone: layers.advance(step)
+    }
+
+    // ---- Quick Access (step 13): the toast over the launch screen, so above the splash; the question owns the keys while it is up. Always
+    // drawn while Home is up; it draws nothing until it is asked.
+    Resident {
+        id: accessRes
+        name: "access"
+        step: 13
+        source: "panels/QuickAccess.qml"
+        anchors.fill: parent
+        z: 76
+        build: layers.buildStep >= step
+        shown: layers.hostActive
+        onDone: layers.advance(step)
+    }
+    Connections {
+        target: accessRes.item
+        ignoreUnknownSignals: true
+        onAssigned: layers.accessAssigned(digit, appId)
+        onMoreRequested: layers.accessMore(digit)
+        onCloseRequested: layers.closeRequested("access")
+    }
+
+    // ---- recent apps (step 14): over Home, the switcher; it owns the keys while it is up (Back closes it, a held OK closes the app of the frame)
+    Resident {
+        id: recentsRes
+        name: "recents"
+        step: 14
+        source: "panels/Recents.qml"
+        anchors.fill: parent
+        z: 68
+        build: layers.buildStep >= step
+        shown: layers.up("recents")
+        onDone: layers.advance(step)
+    }
+    Connections {
+        target: recentsRes.item
+        ignoreUnknownSignals: true
+        onActivated: layers.recentsPicked(appId)
+        onCloseRequested: layers.closeRequested("recents")
     }
 
     // ---- the all-apps library (step 7): the Apps tile's own grid, and Search over it (step 8)

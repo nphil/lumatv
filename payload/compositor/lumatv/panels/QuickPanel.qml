@@ -3,6 +3,8 @@ import WebOSCompositorBase 1.0
 import WebOSServices 1.0
 import "../kit"
 import "../settings"
+import "../LumaBus.js" as Bus
+import "QuickArrange.js" as Arr
 
 // The quick panel (docs/mocks/10-quick-panel): a tall sheet docked to the right edge, 648 wide and 56 from the top, bottom and right edges, where
 // the Notification Centre's sheet sits (the mock's place; LG's own sat at the left), with the few things reached for most, one row each (QuickList):
@@ -17,6 +19,10 @@ import "../settings"
 //
 // Tiles of plugins (PLAN, Plugins: `plugin.<id>.tiles`, settings/PluginTiles) follow the built-in ones; OK on one is a POST to the
 // plugin's action route. "All settings" is under the list, one Down past the last tile; what LG's Settings has beyond it is its row there.
+//
+// OK on a stepper tile, or on one that has a `popup`, opens a card beside the panel (QuickPopup: a value picker, a slider; docs/mocks/29-qp-*), and
+// a held OK on a tile edits the tiles (QuickEdit): move one, take one off, add one back from the tiles the panel does not show (QuickMore). The
+// owner's order and choice is the theme's `quickPanel.tiles` (QuickArrange.js); without it the panel shows its own list.
 Item {
     id: panel
     anchors.fill: parent
@@ -59,21 +65,21 @@ Item {
     property bool footFocus: false                      // the "All settings" button under the list has the focus, not a tile
     property var clock: new Date()
     Timer { interval: 15000; running: panel.up; repeat: true; onTriggered: panel.clock = new Date() }
-    onPresentedChanged: { if (presented) refresh(); else readTimer.stop() }
+    onPresentedChanged: { if (presented) refresh(); else { readTimer.stop(); endEdit(); popup.open = false } }
     // What the open path does is only what the first frame needs. The readings (each an answer that rebinds the rows and can change a
     // line's wrapping) are asked for once the slide is over and the frame burst the key started has ended: the rows show what the
     // last reading said for the first 310 ms, and a reading that differs redraws them after. Asked for at 170 ms, the answers' frames
     // chained onto the slide's (r15 over the film: a burst to 370 ms with two intervals over 20 ms, compositor frames only), as the
     // picker's did (InputPicker.qml).
     function refresh() {
-        clock = new Date(); footFocus = false; touched = false
+        clock = new Date(); footFocus = false; touched = false; editing = false; popup.open = false
         list.reset()
         readTimer.restart()
     }
     Timer {
         id: readTimer
         interval: motion.enterMs + 200
-        onTriggered: { Sio.read("picture", ["pictureMode"]); Inputs.refresh(); Power.readSleep() }
+        onTriggered: { Sio.read("picture", ["pictureMode"].concat(more.pictureKeys)); Sio.read("general", ["remotePointer"]); Inputs.refresh(); Power.readSleep() }
     }
     onFootFocusChanged: zone = footFocus ? "foot" : "page"
     onZoneChanged: footFocus = (zone === "foot")
@@ -87,6 +93,8 @@ Item {
 
     function key(dir) {
         touched = true
+        if (popup.open) { popup.key(dir); return }
+        if (editing) { edit.key(dir); return }
         if (footFocus) {
             if (dir === "up") footFocus = false
             else if (dir === "ok") openSettingsPage("")
@@ -99,6 +107,62 @@ Item {
         if (dir === "back") closeRequested()
     }
     function patch(p) { }                              // the list's host contract; the panel changes no theme
+
+    // ---- popups and edit mode. The arrangement is `arranged()`: the owner's list of ids (or the panel's own) as the tiles they stand for.
+    property bool editing: false
+    readonly property bool popupOpen: popup.open
+    // theme `remote.quickPanelEdit` (Settings > Remote & pointer), off until the TV check: with it off OK on a stepper does nothing, a held OK is an ordinary OK,
+    // and the hint line is not drawn
+    readonly property bool popupsOn: !!Lu.theme && !!Lu.theme.remote && Lu.theme.remote.quickPanelEdit === true
+    QuickMore { id: more; panel: panel }
+    function ev(x) { return typeof x === "function" ? x() : x }
+    function everything() {
+        var all = tiles(), extra = more.rows()
+        for (var i = 0; i < all.length; i++) all[i].dflt = true
+        for (var j = 0; j < extra.length; j++) extra[j].dflt = false
+        return all.concat(extra)
+    }
+    function ids(rows) { return rows.map(function(r) { return r.id }) }
+    function arranged() {
+        var all = everything()
+        var saved = Lu.theme && Lu.theme.quickPanel ? Lu.theme.quickPanel.tiles : undefined
+        var byId = {}
+        for (var i = 0; i < all.length; i++) byId[all[i].id] = all[i]
+        return Arr.shown(saved, all.map(function(r) { return { id: r.id, dflt: r.dflt } })).map(function(id) { return byId[id] })
+    }
+    // The owner's order, shown at once and (`keep`) written; with no Home loaded to write it nothing changes.
+    function keepOrder(order, keep) { Bus.writeTheme(Arr.patch(order), keep) }
+    function popupFor(row) {
+        if (row.popup) return row.popup
+        var x = more.pickExtras(row.id)
+        return { kind: "pick", title: String(ev(row.label)), text: x.text || "", options: ev(row.options), icon: x.icon || String(ev(row.icon) || ""), detail: x.detail,
+                 index: function() { var i = ev(row.index); return i === undefined ? -1 : i }, set: function(i) { row.act(i) } }
+    }
+    function openPopup(row) { popup.show(popupFor(row)) }
+    function openAdd() {
+        var shown = ids(arranged())
+        var left = everything().filter(function(r) { return shown.indexOf(r.id) < 0 })
+        popup.show({ kind: "add", title: "Add a tile", text: left.length ? "Tiles not on the panel. OK adds one at the bottom." : "Every tile is on the panel.",
+                     items: left.map(function(r) { return { id: r.id, icon: String(ev(r.icon) || ""), label: String(ev(r.label)) } }),
+                     pick: function(id) { keepOrder(Arr.added(shown, id), true); edit.index = shown.length } })
+    }
+    // A held OK on a tile (LumaHome and the overlay time the hold): that tile is picked up in edit mode.
+    function holdReady() { return popupsOn && !editing && !popup.open && !footFocus && list.stop >= 0 && !!list.rows[list.stop] }
+    function hold() {
+        if (!holdReady()) return
+        var at = ids(list.rows).indexOf(list.rows[list.stop].id)
+        editStart = ids(list.rows)
+        editing = true
+        edit.begin(at)
+    }
+    // Leaving edit mode (Back, or the panel closing): a change that is only on the screen so far is written.
+    property var editStart: []
+    function endEdit() {
+        if (!editing) return
+        editing = false
+        var now = ids(arranged())
+        if (!Arr.same(now, editStart)) keepOrder(now, true)
+    }
 
     PluginTiles { id: pluginTiles }
 
@@ -147,31 +211,46 @@ Item {
                 // the clock sits beside the title while both fit on a line, else under it (a large text size)
                 readonly property bool clockBelow: titleProbe.implicitWidth + clockText.implicitWidth + Lu.space(4) > width
                 height: clockBelow ? titleText.height + clockText.height : Math.max(titleText.height, clockText.height)
-                LuText { id: titleText; width: parent.width - (head.clockBelow ? 0 : clockText.width + Lu.space(4)); role: "title"; text: "Quick settings"; wrapMode: Text.WordWrap }
+                LuText { id: titleText; width: parent.width - (head.clockBelow ? 0 : clockText.width + Lu.space(4)); role: "title"; text: panel.editing ? "Edit tiles" : "Quick settings"; wrapMode: Text.WordWrap }
                 LuText { id: titleProbe; visible: false; role: "title"; text: titleText.text }
                 LuText {
                     id: clockText
                     x: head.clockBelow ? 0 : parent.width - width
                     y: head.clockBelow ? titleText.height : Math.round((titleText.height - height) / 2)
                     role: "label"; color: Lu.ink2
-                    text: Qt.formatTime(panel.clock, "h:mm AP")
+                    text: panel.editing ? (edit.grab ? "Up and down moves \u00b7 OK drops" : "OK picks up \u00b7 Back is done") : Qt.formatTime(panel.clock, "h:mm AP")
                 }
             }
             QuickList {
                 id: list
+                visible: !panel.editing
                 x: panel.pad; y: head.y + head.height + Lu.space(4)
                 width: panel.inner
                 height: foot.y - Lu.space(4) - y
                 host: panel
                 rested: panel.rested
                 instant: !motion.settled
-                rows: panel.tiles()
+                rows: panel.arranged()
+            }
+            QuickEdit {
+                id: edit
+                visible: panel.editing
+                x: panel.pad; y: head.y + head.height + Lu.space(4)
+                width: panel.inner
+                height: sheet.height - panel.pad - y
+                rows: panel.arranged()
+                rested: panel.rested
+                instant: !motion.settled
+                onReorder: panel.keepOrder(ids, keep)
+                onAddRequested: panel.openAdd()
+                onDone: panel.endEdit()
             }
             Item {
                 id: foot
+                visible: !panel.editing
                 x: panel.pad
                 width: panel.inner
-                height: allSettings.height
+                height: allSettings.height + (hint.visible ? hint.height + Lu.space(2) : 0)
                 y: sheet.height - panel.pad - height
                 LuButton {
                     id: allSettings
@@ -181,7 +260,24 @@ Item {
                     onActivated: { panel.footFocus = true; panel.openSettingsPage("") }
                     onHoverFocus: { panel.footFocus = true }
                 }
+                // what the keys do that the tiles do not say (docs/mocks/29-qp-slider)
+                LuText {
+                    id: hint
+                    visible: panel.popupsOn
+                    y: allSettings.height + Lu.space(2)
+                    width: parent.width
+                    horizontalAlignment: Text.AlignHCenter
+                    role: "caption"; color: Lu.ink2; wrapMode: Text.WordWrap
+                    text: "Hold OK on a tile to edit \u00b7 Back closes"
+                }
             }
+        }
+        // beside the sheet, 48 px from it (the mock): a value, a choice or a tile to add; it moves with the sheet and shows only while it is asked for
+        QuickPopup {
+            id: popup
+            x: -(width + Lu.space(8) + Lu.space(2))
+            y: 81
+            rested: panel.rested
         }
     }
 

@@ -112,7 +112,24 @@ function desc(category, keys) {
 // The other services the Settings pages and the input picker read, answered as the host's make-believe TV
 // would: four HDMI ports (Apple TV 4K, the Denon receiver in front, a PlayStation, one empty) and a strong
 // Wi-Fi link. `call` returns the JSON the service would send.
+// Where the make-believe TV's recents keep their snapshots (set by LS.qml): one fixture thumbnail, for the app with a snapshot on file.
+var fixtures = "";
+function setFixtures(url) { fixtures = String(url).replace(/^file:\/\//, ""); }
 var services = {
+    // LG's list as the real one answers (docs/research/cardapp/tv-20261025-1939/recents.json): a snapshot path only for an app that has one on
+    // file, and the time of a snapshot in its file name ("_Tue_Oct_27_23_00_00_2026.JPEG"); an app without one says nothing of when.
+    "luna://com.webos.service.recent/listRecents": function() {
+        return {
+            returnValue: true, ready: true,
+            recentsAppList: [
+                { appId: "netflix", title: "Netflix", subtitle: "25 min ago", cardSnapShotFilePath: "" },
+                { appId: "com.beb.plxnative", title: "PlxNative", subtitle: "", cardSnapShotFilePath: fixtures + "recents/com.beb.plxnative_Tue_Oct_27_23_00_00_2026.JPEG" },
+                { appId: "youtube.leanback.v4", title: "YouTube", subtitle: "1 hr ago", cardSnapShotFilePath: "" },
+                { appId: "com.geforcenow.play", title: "GeForce NOW", subtitle: "Yesterday", cardSnapShotFilePath: "" },
+                { appId: "org.nphil.lumatv.card", title: "LumaTV Card", subtitle: "", cardSnapShotFilePath: "" }
+            ]
+        };
+    },
     "luna://com.webos.service.eim/getAllInputStatus": {
         returnValue: true,
         devices: [

@@ -2,6 +2,7 @@ import QtQuick 2.4
 import "../kit"
 import "Rows.js" as R
 import "AppKeys.js" as AK
+import "QuickAccess.js" as QA
 import "Choice.js" as C
 import "."
 
@@ -60,6 +61,14 @@ PageList {
                  value: function() { var t = AK.target(page.keyCfg, k.id, page.installed); return t.installed ? t.title : "Nothing" },
                  act: function() { if (page.host) page.host.openPage("appkey", { key: k.id }) } }
     }
+    // One row per number key (Quick Access, shown while it is on): what it opens now; OK opens the same chooser for it.
+    readonly property var dockIds: Apps.dockKey === "" ? [] : Apps.dockKey.split("|")
+    function numberRow(d) {
+        return R.over({ kind: "value", tab: 1, icon: "hash", label: "Number key " + d,
+                        value: function() { var t = QA.target(page.theme, d, page.dockIds, function(id) { return Apps.byId(id) }); return t.kind === "none" ? "Nothing yet" : t.title },
+                        act: function() { if (page.host) page.host.openPage("appkey", { digit: d }) } },
+                      { visible: function() { return QA.on(page.theme) } })
+    }
 
     rows: [
         R.toggle(Sio, { ds: "general.remotePointer", tab: 0, icon: "mouse-pointer-2", label: "Magic Remote pointer",
@@ -83,8 +92,22 @@ PageList {
         { kind: "toggle", tab: 1, icon: "cable", label: "Input picker on Input key",
           on: function() { return !page.theme.remote || page.theme.remote.inputPicker !== false },
           act: function(v) { if (page.host) page.host.patch({ remote: { inputPicker: v } }) } },
+        { kind: "toggle", tab: 1, icon: "layout-grid", label: "Quick panel tiles: choices and editing",
+          help: "OK on Picture mode or Sleep timer opens its choices beside the panel, and a held OK on a tile moves, removes or adds tiles. Off leaves OK and a held OK as they were.",
+          on: function() { return !!page.theme.remote && page.theme.remote.quickPanelEdit === true },
+          act: function(v) { if (page.host) page.host.patch({ remote: { quickPanelEdit: v } }) } },
+        { kind: "toggle", tab: 1, icon: "history", label: "Recent apps on Back",
+          help: "Back on Home shows the apps that are open, to switch to or close. Off leaves Back to LG's own.",
+          on: function() { return !!page.theme.remote && page.theme.remote.recents === true },
+          act: function(v) { if (page.host) page.host.patch({ remote: { recents: v } }) } },
+        { kind: "toggle", tab: 1, icon: "hash", label: "Quick Access for the number keys",
+          help: "A number key says what it opened, and one with nothing behind it asks what to give it. Off leaves the number keys as the dock's first ten tiles.",
+          on: function() { return QA.on(page.theme) },
+          act: function(v) { if (page.host) page.host.patch({ remote: { quickAccess: QA.switched(page.theme, v) } }) } },
         R.head("App keys", 1)
     ].concat(AK.keys.map(function(k) { return page.appKeyRow(k) }), [
+        R.over(R.head("Number keys", 1), { visible: function() { return QA.on(page.theme) } })
+    ], QA.digits.map(function(d) { return page.numberRow(d) }), [
         R.toggle(Sio, { ds: "option.remoteSlowInput", tab: 1, icon: "timer", label: "Extend Pressing Time on Remote",
                         help: "For a slower hand: a key must be held longer to count as a long press, and repeats come slower." }),
         page.slow(C.choice(Sio, { ds: "option.longPressInterval", tab: 1, icon: "hourglass", label: "Activate time for long press", names: page.seconds, page: page,

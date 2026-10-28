@@ -10,6 +10,7 @@ import "FakeMore.js" as More
 // settings service, so a page reads back what it wrote. One the service refuses (an unknown key, a value
 // the key does not take) keeps `error` on its entry and changes nothing.
 QtObject {
+    Component.onCompleted: Fake.setFixtures(Qt.resolvedUrl("../../fixtures/"))
     id: ls
     property string appId: "org.nphil.lumatv.test"
     property var calls: []

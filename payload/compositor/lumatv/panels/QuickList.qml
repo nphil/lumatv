@@ -54,6 +54,8 @@ Item {
     function activate(i) {
         var r = rows[i]
         if (!r || !focusable(i)) return
+        // a stepper's choices and a tile's own card open beside the panel (QuickPopup) when the host has one
+        if ((r.popup || r.kind === "stepper") && host && host.popupsOn && host.openPopup) { host.openPopup(r); return }
         if (r.kind === "toggle") change(i, !ev(r.on))
         else if (r.kind === "value" || r.kind === "action") change(i)
         else if (r.kind === "nudge" && r.open) r.open()

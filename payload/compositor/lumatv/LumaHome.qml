@@ -11,6 +11,7 @@ import "LayoutGrid.js" as Grid
 import "kit"
 import "kit/Match.js" as Match
 import "settings/AppKeys.js" as AppKeys
+import "settings/QuickAccess.js" as QA
 
 // The compositor-drawn Home: wallpaper, glass material, status bar, widget grid and dock,
 // driven by {{dataDir}}/theme/{theme.json,layout.json}. Keys arrive through
@@ -689,7 +690,7 @@ Item {
 
     onHostActiveChanged: {
         resetOk()
-        if (hostActive) { Lu.backdrop = blurTex; focusLayer = "dock"; statusBarItem.requestClosePopover() }
+        if (hostActive) { Lu.backdrop = blurTex; focusLayer = "dock"; statusBarItem.requestClosePopover(); layers.recentsRead() }
         else {
             if (voiceBusy) voiceAbort()
             if (settingsOpen) closeSettings()
@@ -775,8 +776,8 @@ Item {
     // A held OK has a meaning on a dock tile and on a library icon (the options of that app) and, in Settings, on a row with
     // an info mark (its help); anywhere else a long press is an ordinary one.
     function holdAvailable() {
-        if (layers.open === "apps") return true
-        if (layers.open === "settings") return layers.holdReady()
+        if (layers.open === "apps" || layers.open === "recents") return true
+        if (layers.open === "settings" || layers.open === "quick") return layers.holdReady()
         var d = dockLoader.item
         if (layers.open === "" && focusLayer === "widgets" && widgetFocusId !== "" && !editing) return true          // a card: Edit Home
         return layers.open === "" && focusLayer === "dock" && !!d && !d.moving
@@ -787,7 +788,7 @@ Item {
         onTriggered: {
             if (!root.okDown || !root.holdAvailable()) return
             root.okHeld = true
-            if (layers.open === "apps" || layers.open === "settings") layers.hold()
+            if (layers.open === "apps" || layers.open === "settings" || layers.open === "recents" || layers.open === "quick") layers.hold()
             else if (root.focusLayer === "widgets") root.editHome(root.widgetFocusId)
             else root.openTileMenu()
         }
@@ -797,9 +798,15 @@ Item {
     // open: anywhere else a digit means what LG's own handling makes of it, and so does a digit with no tile behind it. The tile takes
     // Home's focus, so it is as if the owner had walked to it and pressed OK. The press acts (a digit has no hold), and its repeats and
     // release are taken with it, wherever Home is by then.
+    // Quick Access (theme `remote.quickAccess`, settings/QuickAccess.js, off until the TV check): with it on, a digit says what it opened in a
+    // toast (panels/QuickAccess.qml), the owner's own choice for a number comes before the dock's tile, and a digit with nothing behind it
+    // asks what to assign instead of being LG's.
     readonly property bool numberKeysOn: !theme.remote || theme.remote.numberKeys !== false
+    readonly property bool quickAccessOn: QA.on(theme)
     property int numberEaten: 0
     function tileForKey(k) { return k >= Qt.Key_1 && k <= Qt.Key_9 ? k - Qt.Key_1 : k === Qt.Key_0 ? 9 : -1 }
+    function dockIds() { var d = dockLoader.item; return d ? d.points.map(function(p) { return p.id }) : [] }
+    function appById(id) { return Apps.byId(id) }
     function numberKey(k, tile, pressed, autoRepeat) {
         if (pressed && !autoRepeat) numberEaten = 0                // a new press supersedes one whose release never came
         if (numberEaten === k) {
@@ -807,12 +814,53 @@ Item {
             return true
         }
         if (!pressed || autoRepeat) return false
-        if (!hostActive || !numberKeysOn || aiPrompt.up || trialOn || layers.open !== "" || focusLayer === "popover") return false
+        if (!hostActive || !numberKeysOn || aiPrompt.up || trialOn || focusLayer === "popover") return false
+        if (layers.open === "access") return true                  // the question has the keys: a digit is not an answer, and is not LG's
+        if (layers.open !== "") return false
+        var digit = k === Qt.Key_0 ? "0" : String(k - Qt.Key_0)
+        if (quickAccessOn) {
+            var slot = QA.target(theme, digit, dockIds(), appById)
+            var app = slot.kind === "slot" ? Apps.byId(slot.id) : null
+            if (app) { numberEaten = k; focusLayer = "dock"; launchApp(app); layers.accessToast(digit, app.title || app.id, "Opening."); return true }
+            if (slot.kind === "none") { numberEaten = k; accessAsk(digit); return true }
+        }
         var d = dockLoader.item
+        var t = d ? d.tileAt(tile) : null
         if (!d || !d.openTile(tile)) return false
         numberEaten = k
         focusLayer = "dock"
+        if (quickAccessOn && t && layers.open === "") layers.accessToast(digit, t.title || t.id, "Opening.")
         return true
+    }
+    // The question for a number with nothing behind it: four apps no number opens yet, More and Not now.
+    function accessAsk(digit) {
+        layers.accessAsk(digit, QA.suggestions(theme, dockIds(), Apps.shown, 4))
+        openLayer("access")
+    }
+    // What the question did: an app was picked (the choice is kept, and the app opens), or More was (Settings has every number).
+    function accessAssigned(digit, appId) {
+        var cfg = QA.chosen(theme, digit, appId)
+        patchTheme({ remote: { quickAccess: cfg } })
+        persistTheme({ remote: { quickAccess: cfg } })
+        var app = Apps.byId(appId)
+        if (app) { launchApp(app); layers.accessToast(digit, app.title || app.id, "Assigned. Opening.") }
+    }
+    function accessMore(digit) { openSettings(); layers.settingsGoTo("remote") }
+    // ---- recent apps (Settings, Remote & pointer, "Recent apps on Back": theme `remote.recents`, off until the TV check). Back from the top of Home
+    // opens the switcher (panels/Recents.qml) when LG's recents list holds an app, instead of leaving Home for the latest one; with the
+    // switch off or the list empty Back is what it always was.
+    readonly property bool recentsOn: !!theme.remote && theme.remote.recents === true
+    function recentsBack() {
+        if (!recentsOn || layers.recentsCount === 0) return false
+        openLayer("recents")
+        return true
+    }
+    function recentsPicked(appId) {
+        var app = Apps.byId(appId)
+        if (app) { launchApp(app); return }
+        closeAllLayers()
+        layers.launchSplash(appId, "")
+        LS.adhoc.call(appMgr, "/launch", JSON.stringify({ id: appId }))
     }
     // ---- the gear key held (payload/keyfilter/lumatv.js times the hold): the notification drawer, from wherever Home is. While Home can
     // do this the filter stops LG's Settings long press (theme `remote.gearHold`, on unless the owner turned it off, hands the hold back to
@@ -958,7 +1006,7 @@ Item {
             return true
         }
         if (focusLayer === "widgets") {
-            if (dir === "back") return false
+            if (dir === "back") return recentsBack()
             var idx = widgetIndexById(widgetFocusId)
             var entry = idx >= 0 ? nonDockWidgets[idx] : null
             if (dir === "ok") {
@@ -982,7 +1030,7 @@ Item {
             return true
         }
         if (focusLayer === "statusbar") {
-            if (dir === "back") return false
+            if (dir === "back") return recentsBack()
             if (dir === "left") statusFocusIndex = Math.max(0, statusFocusIndex - 1)
             else if (dir === "right") statusFocusIndex = Math.min(statusItems.length - 1, statusFocusIndex + 1)
             else if (dir === "down") { widgetFocusId = nearestWidgetByX(statusBarItem.focusedGlobalX()); focusLayer = "widgets" }
@@ -1006,11 +1054,12 @@ Item {
         Bus.setHandler(root.key); Bus.setEscapeHandler(root.escapeRequested); Bus.setGear({ ready: root.gearReady, hold: root.gearHold }); Bus.setAppKey(root.appKey)
         // what a camera pop-up must not cover: a prompt, a layer that has the keys (a PIN, a confirmation, Settings), the layout editor
         Bus.setHomeBusy(function() { return root.hostActive && (aiPrompt.up || layers.open !== "" || root.editing || root.trialOn) })
+        Bus.setThemeWriter({ patch: root.patchTheme, persist: root.persistTheme })
         root.beatOnce()
         console.info("[LumaHome] loaded, first beat written")
         loadAll(); readMode(); Helper.start(); NoteLog.seenAt = Date.now()       // the log's own toast subscription starts when it is first read
     }
-    Component.onDestruction: { Bus.setHandler(null); Bus.setEscapeHandler(null); Bus.setGear(null); Bus.setAppKey(null); Bus.setHomeBusy(null) }
+    Component.onDestruction: { Bus.setHandler(null); Bus.setEscapeHandler(null); Bus.setGear(null); Bus.setAppKey(null); Bus.setThemeWriter(null); Bus.setHomeBusy(null) }
 
     // Pointer: anything not over a card/tile lands here so the stock Home underneath never
     // sees the Magic Remote.
@@ -1382,6 +1431,9 @@ Item {
         onConfirmAnswered: root.confirmAnswered(id)
         onRemoteKey: root.sendRemoteKey(name)
         onBannerPicked: root.bannerPicked(id)
+        onAccessAssigned: root.accessAssigned(digit, appId)
+        onAccessMore: root.accessMore(digit)
+        onRecentsPicked: root.recentsPicked(appId)
     }
     // the gear's tap and the Input key: the quick panel and the input picker, from the key filter's second entry (HomePanels.qml)
     HomePanels { home: root; layers: layers; aiPrompt: aiPrompt }
