@@ -61,6 +61,13 @@ NETFLIX_TEARDOWN = [f"luna-send -n 1 {SAM}/closeByAppId '{{\"id\":\"netflix\"}}'
                     f"luna-send -n 1 {SAM}/launch '{{\"id\":\"com.webos.app.home\"}}'", 'sleep 6']
 NETFLIX_FULL_BUDGET_S = 5.0     # seconds of one full capture over the film (the ring holds about 7 s there)
 HDMI_SETUP = [f"luna-send -n 1 {SAM}/launch '{{\"id\":\"com.webos.app.hdmi{{HDMI}}\"}}'", 'sleep 8']
+# LG's Content Store, cold, with its first page up (the loader, then LG's cloud page, the shelves' pictures): the page the theme
+# (`lumatv store on`) restyles. A fresh start each run, so the page's network phases are part of what the setup waits out.
+STORE_ID = 'com.webos.app.discovery'
+STORE_SETUP = [f"luna-send -n 1 {SAM}/closeByAppId '{{\"id\":\"{STORE_ID}\"}}'", 'sleep 3',
+               f"luna-send -n 1 {SAM}/launch '{{\"id\":\"{STORE_ID}\"}}'", 'sleep 20']
+STORE_TEARDOWN = [f"luna-send -n 1 {SAM}/closeByAppId '{{\"id\":\"{STORE_ID}\"}}'", 'sleep 2',
+                  f"luna-send -n 1 {SAM}/launch '{{\"id\":\"com.webos.app.home\"}}'", 'sleep 6']
 HDMI_TEARDOWN = [f"luna-send -n 1 {SAM}/closeByAppId '{{\"id\":\"com.webos.app.hdmi{{HDMI}}\"}}'",
                  f"luna-send -n 1 {SAM}/launch '{{\"id\":\"com.webos.app.home\"}}'", 'sleep 6']
 
@@ -140,6 +147,16 @@ SURFACES = [
     # cannot spell out yet.
     {'name': 'apps', 'default': False, 'act': 'release',
      'open': '@apps-open OK', 'close': '@apps-close BACK', 'settle_s': 2.5},
+    # LG's Content Store scrolled with the D-pad (`--surfaces store-scroll`, with the store's home page up, the first shelf focused): five
+    # moves down and five back at the remote's own pace, the way `home-dpad` walks Home. The compositor draws a web card by what the page
+    # commits, so a page that animates a long transition or paints a shadow per tile shows as frames over 20 ms in these windows and as
+    # a late first frame; run it with `lumatv store off` and again with `store on` and compare the two (the store's open time is the
+    # other number, docs/research/store-result.md). The page is LG's and its focus rule is not ours, so the thresholds that judge a
+    # LumaTV surface (a burst that ends within 180 ms) are not asked of it; the first frame after each key is.
+    {'name': 'store-scroll', 'default': False, 'setup': STORE_SETUP, 'teardown': STORE_TEARDOWN,
+     'open': '@store-scroll-open DOWNx5@0.35 UPx5@0.35', 'close': '@store-scroll-close', 'settle_s': 1,
+     'transition': False,
+     'thresholds': {'burst_end_ms': None}},
     # The gallery is built by the theme flag, not by a key (Home polls theme.json within 2 s), and
     # BACK turns the flag off again. Each cycle sets it, waits for the build, then times the first
     # D-pad move inside the built gallery (open) and BACK (close).
