@@ -28,6 +28,10 @@ QtObject {
     id: hub
 
     property bool toasts: true                          // theme.plugins.toasts
+    // The overlay system (panels/Overlays.qml, theme `overlays.enabled`) sets this while it is on: what a plugin says that is news then goes to it
+    // (`posted`) and not to an LG toast, so that a doorbell or an alert is one card, queued and kept clear of a PIN and the subtitles.
+    property bool overlays: false
+    signal posted(var note)
     property var list: []                               // the plugins the owner switched on, then the helper's own
     property string problem: ""
     property var connected: []
@@ -73,7 +77,11 @@ QtObject {
             var n = it.post || {}
             return { pluginId: pl.id, plugin: pl.name || pl.id, firstParty: !!pl.firstParty, id: it.id, channel: it.channel, channelTitle: it.channelTitle || "",
                      channelIcon: it.channelIcon || "", revision: it.revision, receivedAt: it.receivedAt, expiresAt: it.expiresAt,
-                     title: n.title || "", body: n.body || "", actions: n.actions || [] }
+                     title: n.title || "", body: n.body || "", actions: n.actions || [],
+                     // what the overlay system reads where a plugin says it (the proposal for LumaShow's plugin API, docs/research/overlays-result.md):
+                     // the kind of moment, how serious, how private, a score's two sides; and the channel's importance where the helper publishes it
+                     kind: n.kind || it.kind || "", level: n.level || "", privacy: n.privacy || "", score: n.score || null,
+                     importance: it.importance || "", channelKind: it.channelKind || "" }
         })
         if (!same(ns, notes)) notes = ns
         var link = Helper.topics["ha.link"] || { state: "off" }
@@ -150,6 +158,7 @@ QtObject {
         music: "audio-lines", speaker: "boom-box", tv: "monitor", sensor: "activity", clock: "clock", timer: "hourglass", info: "info",
         "home-assistant": "house-wifi", doorbell: "bell",
         warning: "circle-alert", check: "circle-check", wifi: "wifi", mic: "mic", heart: "heart-pulse", leaf: "leaf", moon: "moon", sun: "sun",
+        alarm: "alarm-clock", alarms: "alarm-clock", "alarm-clock": "alarm-clock", score: "trophy", scores: "trophy", sports: "trophy", trophy: "trophy",
         newspaper: "scroll-text", news: "scroll-text", cloud: "sun-dim", weather: "sun-dim", bot: "bot", download: "download"
     })
     // ...and the names it already has (icons/lucide/index.json) are drawn as they are.
@@ -170,7 +179,7 @@ QtObject {
         "square", "square-arrow-out-up-right", "square-check", "star", "sun", "sun-dim", "sun-medium", "sunrise",
         "text-cursor-input", "theater", "timer", "toggle-right", "trash-2", "triangle-alert", "tv", "tv-minimal",
         "tv-minimal-play", "type", "undo-2", "unplug", "usb", "user", "volume-1", "volume-2", "volume-x", "wallpaper",
-        "wand-sparkles", "waves", "wifi", "wrench", "x", "zap"
+        "wand-sparkles", "waves", "wifi", "wrench", "x", "zap", "alarm-clock", "trophy"
     ]
     function icon(name) {
         var n = String(name || "").split("/").pop().toLowerCase()
@@ -235,7 +244,10 @@ QtObject {
             var n = notes[i], key = n.pluginId + "/" + n.id + "/" + n.revision
             if (a[key]) continue
             a[key] = true
-            if (toasts && (!n.expiresAt || n.expiresAt > now)) toast(n)
+            if (!n.expiresAt || n.expiresAt > now) {
+                if (overlays) posted(n)
+                else if (toasts) toast(n)
+            }
         }
         announced = a
     }

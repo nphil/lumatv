@@ -413,6 +413,12 @@ impl State {
         if first_press && logical == keys::Logical::Gear {
             self.shell_show("quick", true);
         }
+        // The overlay cards' OK and Back, which the shell's system layer asks for by name while an app has the focus (`takes`): they go to
+        // the layer as `syskey` events, the arrows and everything else stay the app's (`shell_takes_key`).
+        if self.shell_takes_key(seat, code, pressed, out.swallow, now) {
+            self.seat.last_input = "key";
+            return;
+        }
         if out.swallow {
             self.seat.last_input = "key";
             return;

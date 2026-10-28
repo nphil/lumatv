@@ -38,6 +38,12 @@ test("a theme that says nothing gets the defaults, and a number of the wrong kin
   expect(O.config({ enabled: "yes" }).enabled).toBe(false)
 })
 
+test("the defaults are the shipped theme's numbers, and the shipped theme has the switch off", () => {
+  const theme = JSON.parse(readFileSync(new URL("../payload/theme/theme.json", import.meta.url), "utf8"))
+  expect(theme.overlays.enabled).toBe(false)
+  expect(O.config(theme.overlays)).toEqual(O.config({}))
+})
+
 test("a record's class: what a plugin calls its channel and its icon, an explicit kind over both, an alert otherwise", () => {
   expect(O.classOf({ channel: "doorbell", channelIcon: "base.icons/doorbell" })).toBe("doorbell")
   expect(O.classOf({ channel: "ha", channelIcon: "base.icons/home" })).toBe("alert")

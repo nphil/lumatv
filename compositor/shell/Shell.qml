@@ -135,6 +135,10 @@ WebOSWindow {
             onStatusChanged: if (status === Loader.Error) console.warn("[Shell] LumaOverlay failed to load from " + source)
         }
         Binding { target: overlay.item; property: "appFront"; value: homeWin.appFront; when: overlay.status === Loader.Ready }
+        // Do not disturb: the overlay's cards wait while an alert, the input popup or the PIN prompt of the notifications, the keyboard or the saver
+        // has the screen, and its first card is drawn once while the layer is warmed
+        Binding { target: overlay.item; property: "systemBusy"; value: homeWin.notifyWants || homeWin.keyboardUp || homeWin.saverUp; when: overlay.status === Loader.Ready }
+        Binding { target: overlay.item; property: "warming"; value: homeWin.warmShow; when: overlay.status === Loader.Ready }
         Loader {
             id: notify
             anchors.fill: parent
@@ -203,12 +207,15 @@ WebOSWindow {
     }
     readonly property bool notifyWants: !!notify.item && notify.item.wants
     readonly property bool saverUp: !!saver.item && saver.item.active
-    readonly property bool overlayWants: !!overlay.item && overlay.item.wants
+    // the surfaces of the overlay that take every key (the keyboard focus is theirs); the cards take OK and Back by name (`takes`) and the app keeps the focus
+    readonly property bool overlayWants: !!overlay.item && (overlay.item.wantsFocus !== undefined ? overlay.item.wantsFocus : overlay.item.wants)
+    readonly property var overlayTakes: !!overlay.item && overlay.item.takes !== undefined ? overlay.item.takes : []
     readonly property bool sysWants: overlayWants || notifyWants || saverUp
+    readonly property bool keyboardUp: (!!kbd.item && kbd.item.wanted === true) || (!!Link.topics.keyboard && Link.topics.keyboard.up === true)
     readonly property bool kbdLive: !!kbd.item && kbd.item.live
     // the keyboard's panel, for the host tests and the gate (nothing in the shell reads it)
     readonly property var keyboardItem: kbd.item
-    readonly property bool sysLive: (!!overlay.item && overlay.item.visible) || (!!notify.item && notify.item.live) || saverUp || kbdLive
+    readonly property bool sysLive: (!!overlay.item && (overlay.item.live !== undefined ? overlay.item.live : overlay.item.visible)) || (!!notify.item && notify.item.live) || saverUp || kbdLive
     // The system layer's window is made (and kept) two seconds after Home loaded, out of the way of Home's own first frames;
     // the walk of its buffers starts a moment after it mapped.
     property bool sysWarm: false
@@ -320,6 +327,17 @@ WebOSWindow {
         event.accepted = true
         keysSeen++
     }
+    // A key the overlay's cards took (the compositor's `takes`, shell.rs: OK and Back while an app has the focus and a card is up, the app never
+    // sees them): the same dispatch as a key of this layer's own window, from the event Link brings.
+    function sysKeyEvent(name, pressed, repeat) {
+        var k = name === "ok" ? Qt.Key_Return : name === "back" ? Qt.Key_Back : 0
+        if (k === 0 || !bridge) return
+        var taken = false
+        try { taken = bridge.dispatchOverlay(k, pressed, repeat, 0) }
+        catch (e) { console.warn("[Shell] syskey " + name + " threw: " + e) }
+        keysSeen++
+        if (!taken) keysDropped++
+    }
 
     // ---- what the compositor is told: what this client can show, whether the layer wants the keys, and its state
     property string lastReport: ""
@@ -339,6 +357,7 @@ WebOSWindow {
         return {
             homeLoaded: !!h, hostActive: !!h && h.hostActive === true, layer: h ? String(h.layerOpen || "") : "", focus: h ? String(h.focusLayer || "") : "",
             settings: !!h && h.settingsOpen === true, overlay: o ? String(o.surface || "") : "", osd: !!o && o.osdLive === true,
+            cards: o ? { on: o.overlaysOn === true, popup: o.popupUp === true, stack: o.overlaysUp === true, armed: o.cardsArmed === true, dnd: o.dnd === true } : null,
             toasts: n ? n.toasts.length : 0, alert: !!n && n.alertUp, pin: !!n && n.pinUp, saver: saverUp || (!!h && h.saverUp === true), keys: keysSeen, dropped: keysDropped,
             beat: !!h && h.lastBeatMs > 0, idleHold: !!h && h.idleHold === true, link: { up: Link.up, calls: Link.nextTag, events: Link.events },
             wall: { backend: h ? String(h.videoWallBackend || "") : "", hole: wallHole, up: !!h && h.videoWallUp === true },
@@ -347,7 +366,7 @@ WebOSWindow {
         }
     }
     function report() {
-        var doc = { can: can(), wants: sysWants, live: sysLive, state: state() }
+        var doc = { can: can(), wants: sysWants, takes: overlayTakes, live: sysLive, state: state() }
         var text = JSON.stringify(doc)
         if (text === lastReport) return
         lastReport = text
@@ -355,6 +374,7 @@ WebOSWindow {
     }
     Timer { interval: 1000; repeat: true; running: true; onTriggered: homeWin.report() }
     onSysWantsChanged: report()
+    onOverlayTakesChanged: report()
     onSysLiveChanged: report()
     onHomeCurrentChanged: report()
 
@@ -373,6 +393,7 @@ WebOSWindow {
     Connections {
         target: Link
         onShow: homeWin.show(kind, warm)
+        onSysKey: homeWin.sysKeyEvent(key, down, repeat)
         // The Home key while LumaTV's Home has the screen: back to the top of Home, as LG's Home does on its own key.
         onHomeKey: {
             var h = lumaHome.item

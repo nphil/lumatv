@@ -204,5 +204,23 @@
   },
   "remote": {
     "numberKeys": true
+  },
+  "overlays": {
+    "enabled": false,
+    "maxVisible": 2,
+    "top": 134,
+    "right": 96,
+    "width": 560,
+    "gap": 16,
+    "limit": 810,
+    "armMs": 600,
+    "mergeMs": 20000,
+    "classes": {
+      "doorbell": { "priority": 0, "dwellMs": 15000, "waitMs": 20000 },
+      "alarm": { "priority": 0, "dwellMs": 60000, "waitMs": 120000 },
+      "timer": { "priority": 0, "dwellMs": 30000, "waitMs": 60000 },
+      "alert": { "priority": 1, "dwellMs": 10000, "waitMs": 120000 },
+      "score": { "priority": 2, "dwellMs": 8000, "waitMs": 30000, "cooldownMs": 30000 }
+    }
   }
 }

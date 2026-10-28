@@ -1,4 +1,5 @@
 import QtQuick 2.4
+import "."
 
 // A camera's picture, kept fresh from the helper (`GET /v1/cameras/{id}/frame?w=&h=`): the helper fetches the camera's current picture
 // from Home Assistant's signed address when asked and decodes it off the CPU where the TV can, so what arrives here is a picture of about

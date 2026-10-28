@@ -65,6 +65,11 @@ const NICE: i32 = 10;
 /// leaves two kinds of its own there (`Q:<panel>-show` when it asks the shell for a panel on a key, `Q:<feed>-delivered` when a
 /// notification reaches it from the service), so the gate can tell what the shell is asked, and when, from what the shell does with it.
 pub const TRACE_MARKER: &str = "/sys/kernel/debug/tracing/trace_marker";
+/// The keys the system layer may ask to take while an app has the focus (`Msg::Takes`): the overlay cards' OK and Back. The arrows stay the
+/// app's, so a doorbell card never costs the person the film's controls.
+pub const TAKEABLE: &[&str] = &["ok", "back"];
+/// A press the layer took whose release has not come for this long was a release lost: the next press is a new one, not a repeat.
+const TOOK_STALE: Duration = Duration::from_secs(3);
 
 /// The bus names the shell may call through the bridge: the services LumaTV's QML calls under LG's compositor (read off
 /// `payload/compositor/<module>`), and the compositor's own names, which the bridge routes back to `luna_methods.rs`.
@@ -149,6 +154,9 @@ pub enum Msg {
     Ime(Value),
     /// `POST /v1/switcher`: the app switcher's requests (`switcher.rs`): open, layout, close, activate, quit, quitall.
     Switcher(Value),
+    /// `POST /v1/ui` with a `takes` list: the keys, by name (`ok`, `back`), the system layer wants as `syskey` events while an app keeps
+    /// the keyboard focus (the overlay cards' OK and Back). A list that is empty is the layer letting them go.
+    Takes(Vec<String>),
 }
 
 /// Events on their way to the client, shared with the server thread.
@@ -247,6 +255,12 @@ pub struct Shell {
     pub can: Vec<String>,
     /// The UI's system layer wants the keys.
     pub wants: bool,
+    /// The keys the UI's system layer takes by name while an app has the focus (`Msg::Takes`): they reach it as `syskey` events and the
+    /// app never sees them, every other key stays the app's. Empty when the layer asks for none.
+    pub takes: Vec<String>,
+    /// The keys whose press the layer took and whose release it is still owed (code, when the last press or repeat came): a release (and a
+    /// repeat) of a key goes where its press went, whatever `takes` says by then.
+    pub took: Vec<(u32, Instant)>,
     /// The UI's system layer has something to show (a banner, a panel, a toast, the saver). Its window stays mapped and warm
     /// meanwhile; the scene draws it only while this is true (`Scene::set_shell_system_live`). True until the UI says.
     pub live: bool,
@@ -280,6 +294,8 @@ impl Default for Shell {
             last_seen: None,
             can: Vec::new(),
             wants: false,
+            takes: Vec::new(),
+            took: Vec::new(),
             live: true,
             ui_state: Value::Null,
             luna_tags: Vec::new(),
@@ -554,6 +570,8 @@ impl State {
         }
         self.shell.connected = false;
         self.shell.can.clear();
+        self.shell.takes.clear();
+        self.shell.took.clear();
         for t in std::mem::take(&mut self.shell.luna_tags) {
             if t.subscribe {
                 self.luna.send(ToBridge::Cancel { token: t.token });
@@ -704,6 +722,23 @@ impl State {
                     return true;
                 }
             }
+            Msg::Takes(names) => {
+                self.shell.note_seen(now);
+                // only the names the keyboard's key table knows (`own_key_name`), each once
+                let mut takes: Vec<String> = Vec::new();
+                for n in names {
+                    if !takes.contains(&n) && TAKEABLE.contains(&n.as_str()) {
+                        takes.push(n);
+                    }
+                }
+                if takes != self.shell.takes {
+                    self.journal(format!(
+                        "shell: the system layer {}",
+                        if takes.is_empty() { "lets go of OK and Back".to_string() } else { format!("takes {} for its cards", takes.join(" and ")) }
+                    ));
+                    self.shell.takes = takes;
+                }
+            }
         }
         false
     }
@@ -833,6 +868,45 @@ impl State {
         self.shell.mark(text);
     }
 
+    /// One key of the remote, offered to the system layer before the focus routing: the cards of the overlay system take OK and Back (`takes`)
+    /// while an app has the keyboard focus, the keys arrive as `syskey` events and the app never sees them; every other key, and every key
+    /// while the layer takes none, goes the way it always went. A release (and a repeat) goes where its press went: a press the layer took
+    /// has its release here even when the cards are gone by then (the app is never left with a release of a key it had no press of), and a
+    /// press the app has (the OK that was down as a card arrived) keeps its repeats and its release. `swallowed`: the router already took
+    /// the key (the gear, Input, an app button, a hold that fired): nothing here.
+    pub fn shell_takes_key(&mut self, seat: crate::server::seat::SeatId, code: u32, pressed: bool, swallowed: bool, now: Instant) -> bool {
+        let Some(name) = crate::server::ime::own_key_name(code) else { return false };
+        let mut repeat = false;
+        if let Some(i) = self.shell.took.iter().position(|(c, _)| *c == code) {
+            if !pressed {
+                self.shell.took.remove(i);
+                self.shell.push("syskey", json!({"k": name, "d": false, "r": false}));
+                self.keys.delivered += 1;
+                return true;
+            }
+            if now.saturating_duration_since(self.shell.took[i].1) < TOOK_STALE {
+                self.shell.took[i].1 = now;
+                repeat = true;
+            } else {
+                self.shell.took.remove(i);
+            }
+        }
+        if !repeat {
+            if !pressed || swallowed || !self.shell.connected || !self.shell.takes.iter().any(|n| n == name) {
+                return false;
+            }
+            // the layer's own windows get their keys on wl_keyboard: only an app's focus is the layer's to share
+            let focused = self.seat.focus.and_then(|s| self.scene.window_of(s)).and_then(|w| self.scene.window(w));
+            if !focused.is_some_and(|w| !w.kind.is_shell()) || self.seat.pressed.contains(&(seat, code)) {
+                return false;
+            }
+            self.shell.took.push((code, now));
+        }
+        self.shell.push("syskey", json!({"k": name, "d": true, "r": repeat}));
+        self.keys.delivered += 1;
+        true
+    }
+
     /// `ctl shell`.
     pub fn shell_report(&self) -> Value {
         let s = &self.shell;
@@ -845,6 +919,7 @@ impl State {
             "connected": s.connected,
             "can": s.can,
             "wants": s.wants,
+            "takes": s.takes,
             "systemLive": s.live,
             "homeDrawn": self.shell_home_drawn(),
             "homeMapped": self.scene.shell_window(WindowType::ShellHome).is_some_and(|w| w.map_serial > 0),
@@ -1145,6 +1220,9 @@ fn handle_request(req: &Request, token: &str, outbox: &Arc<Mutex<Outbox>>, inbox
             let live = body.get("live").and_then(Value::as_bool);
             let state = body.get("state").cloned();
             inbox.send(Msg::Ui { can, wants, live, state });
+            if let Some(list) = body.get("takes").and_then(Value::as_array) {
+                inbox.send(Msg::Takes(list.iter().filter_map(Value::as_str).map(str::to_string).collect()));
+            }
             Handled::Answer(200, json!({"ok": true}))
         }
         ("POST", "/v1/luna") => {

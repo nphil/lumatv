@@ -23,6 +23,7 @@ Item {
     property bool appFront: false            // an app's picture is under this layer: the glass lets it through to the reading alpha
     property bool hostBusy: false            // the host has something up that must not be covered (a PIN, an alert, a panel): a pop-up waits
     signal closeRequested()
+    signal popupShown(string kind)           // a pop-up came up: the overlay system takes in a doorbell record of the same ring
 
     readonly property var topic: Helper.topics.cameras || null
     readonly property var popupTopic: Helper.topics["cameras.popup"] || null
@@ -81,6 +82,7 @@ Item {
         shownAt = Date.now()
         popup = popupTopic
         mode = "popup"
+        popupShown(popupTopic.kind)
         ends.interval = Math.max(500, popupTopic.untilMs - Date.now())
         ends.restart()
         tick()
@@ -90,7 +92,15 @@ Item {
         if (popupUp && (!popupTopic || popupTopic.id !== shownId)) hidePopup(false)   // cleared elsewhere, or replaced
         consider()
     }
-    onHostBusyChanged: if (!hostBusy) consider()
+    // Do not disturb: a PIN, an alert, the keyboard or a panel arrives while the card is up and it steps aside, without telling the helper (it is
+    // not dismissed): it is due again, and comes back when the host is free if its time (`untilMs`) is not over.
+    onHostBusyChanged: { if (hostBusy && popupUp) holdPopup(); else if (!hostBusy) consider() }
+    function holdPopup() {
+        ends.stop()
+        mode = ""
+        popup = null
+        shownId = 0
+    }
     Timer { id: waiting; interval: 500; repeat: true; onTriggered: cams.consider() }
     Timer { id: ends; onTriggered: cams.hidePopup(true) }
     function hidePopup(tell) {
@@ -194,7 +204,13 @@ Item {
     readonly property int padX: Lu.space(5)       // 20
     readonly property int cardW: 560
     readonly property int previewW: cardW - 2 * padX
-    readonly property int previewH: Math.floor(previewW * 9 / 16)   // 292: an even height, as the decoders like it
+    // 292: an even height, as the decoders like it. Where the head and the foot grow (large text) the picture gives up height, never below 120, until the
+    // card ends above 75 % of the height (810): the film's subtitles and the volume bar keep the bottom quarter (docs/research/overlays-result.md).
+    readonly property int previewNat: Math.floor(previewW * 9 / 16)
+    readonly property int cardLimit: 810
+    readonly property int previewH: Math.max(120, Math.min(previewNat, ((cardLimit - 134 - (2 * padX + head.height + 2 * Lu.space(3) + foot.height)) >> 1) << 1))
+    // where the card ends, for the overlay system's cards that go under it
+    readonly property real popupBottom: card.y + card.height
     LuPane {
         id: card
         width: cams.cardW
@@ -240,6 +256,8 @@ Item {
                 width: nameText.width
                 role: "label"
                 color: Lu.ink2
+                wrapMode: Text.WordWrap
+                maximumLineCount: 2
                 elide: Text.ElideRight
                 text: cams.kindWord(cams.popup) + (cams.ago !== "" ? "  \u00b7  " + cams.ago : "")
             }
@@ -261,9 +279,12 @@ Item {
             x: cams.padX
             y: preview.y + preview.height + Lu.space(3)
             width: cams.previewW
-            // the hint sits at the end of the state's line, or on a line of its own when the text is large (never at the card's edge)
-            readonly property bool twoLines: stateText.x + stateText.implicitWidth + Lu.space(4) + hint.implicitWidth > width
-            height: stateText.implicitHeight + (twoLines ? Lu.space(1) + hint.implicitHeight : 0)
+            // the keys sit at the end of the state's line, or on a line of their own when the text is large, and then each on a line when both do not
+            // fit (a key's words are never cut and never at the card's edge)
+            readonly property real keysW: hintOk.implicitWidth + Lu.space(5) + hintBack.implicitWidth
+            readonly property bool twoLines: stateText.x + stateText.implicitWidth + Lu.space(4) + keysW > width
+            readonly property bool stacked: keysW > width
+            height: stateText.implicitHeight + (twoLines ? Lu.space(1) + hintOk.implicitHeight : 0) + (stacked ? Lu.space(1) + hintBack.implicitHeight : 0)
             Rectangle {
                 id: liveDot
                 width: 12; height: 12; radius: 6
@@ -279,12 +300,20 @@ Item {
                 text: preview.ready ? "Live" : preview.failed > 1 ? "No picture" : "Connecting"
             }
             LuText {
-                id: hint
-                x: foot.twoLines ? 0 : foot.width - implicitWidth
+                id: hintOk
+                x: foot.twoLines ? 0 : foot.width - foot.keysW
                 y: foot.twoLines ? stateText.implicitHeight + Lu.space(1) : 0
                 role: "caption"
-                color: Lu.ink3
-                text: "OK expands  \u00b7  Back dismisses"
+                color: Lu.ink2
+                text: "OK expands"
+            }
+            LuText {
+                id: hintBack
+                x: foot.stacked ? 0 : hintOk.x + hintOk.implicitWidth + Lu.space(5)
+                y: foot.stacked ? hintOk.y + hintOk.implicitHeight + Lu.space(1) : hintOk.y
+                role: "caption"
+                color: Lu.ink2
+                text: "Back dismisses"
             }
         }
     }

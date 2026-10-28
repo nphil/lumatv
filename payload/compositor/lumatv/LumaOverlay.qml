@@ -29,10 +29,13 @@ import "kit"
 //   volume    panels/VolumeOsd.qml: up whenever the audio service or the receiver reports a volume or a mute, and while the sound is muted
 //   quick     panels/QuickPanel.qml: the gear's tap (the key filter's second entry), a tall panel docked to the right edge; Back slides it back
 //   picker    panels/InputPicker.qml: the Input key, a sheet along the bottom; the key again goes to the next input
+//   cards     panels/Overlays.qml (theme `overlays.enabled`): the doorbell, an alarm or timer that finished, a Home Assistant alert, a score, in a column
+//             in the top right corner with the camera pop-up on top; OK and Back are the top card's (`takes`), every other key the app's
 Item {
     id: ov
     anchors.fill: parent
-    visible: up || osdLive || panelLeaving || panelHeld || cameraUp
+    // `live` is what the compositor is told (the layer is drawn); `overlaysWarming` keeps the layer's tree built and drawn once while the shell warms it
+    visible: live || overlaysWarming
 
     // set by the container: an app, not Home, is this container's surface and is on screen
     property bool appFront: false
@@ -47,8 +50,33 @@ Item {
     // the camera pop-up and viewer (panels/Cameras.qml) are up over Home as over an app: the layer is drawn for them whatever else is
     readonly property bool cameraUp: !!cameraRes.item && cameraRes.item.up
     readonly property var cameraItem: cameraRes.item          // the surface itself, for the gate and the host's tests
+    readonly property var overlaysItem: overlaysRes.item     // the overlay system's surface, likewise
     readonly property bool cameraWants: !!cameraRes.item && cameraRes.item.wants
-    readonly property bool wants: appFront && (surface !== "" || cameraWants || (cameraUp && !!cameraRes.item && cameraRes.item.popupUp))
+    readonly property bool viewerUp: !!cameraRes.item && cameraRes.item.viewerUp
+    readonly property bool popupUp: !!cameraRes.item && cameraRes.item.popupUp
+    readonly property bool live: up || osdLive || panelLeaving || panelHeld || cameraUp || overlaysLive
+    // The cards (the camera's pop-up, the overlay system's) take OK and Back only, and only once the top one has been up a moment (theme
+    // `overlays.armMs`): a press made as it arrived was meant for the app. Everything else is the app's. They are not a surface that takes the
+    // keyboard focus: under LumaTV's compositor the layer asks for the two keys by name (`takes`) and the app keeps the focus and its arrows.
+    readonly property bool cardsUp: popupUp || overlaysUp
+    property bool cameraArmed: false
+    readonly property bool cardsArmed: popupUp ? (!overlaysOn || cameraArmed) : (overlaysUp && !!overlaysRes.item && overlaysRes.item.armed)
+    Timer { id: cameraArm; interval: !!overlaysRes.item ? overlaysRes.item.cfg.armMs : 600; onTriggered: ov.cameraArmed = true }
+    onPopupUpChanged: { cameraArmed = false; if (popupUp) cameraArm.restart(); else cameraArm.stop() }
+    // what takes every key (a panel, a banner with buttons, the camera viewer): the layer wants the keyboard focus
+    readonly property bool wantsFocus: appFront && (surface !== "" || cameraWants)
+    // and the question LG's key filter asks, which is answered key by key (`key` returns false for what it passes on)
+    readonly property bool wants: appFront && (surface !== "" || cameraWants || cardsUp)
+    readonly property var takes: appFront && surface === "" && !cameraWants && cardsUp && cardsArmed ? ["ok", "back"] : []
+    // the overlay system
+    readonly property bool overlaysOn: !!theme.overlays && theme.overlays.enabled === true
+    readonly property bool overlaysLive: !!overlaysRes.item && overlaysRes.item.live
+    readonly property bool overlaysUp: !!overlaysRes.item && overlaysRes.item.up
+    property bool warming: false                              // set by the shell: its layer is being warmed (a card is drawn once with letters, nothing is shown)
+    readonly property bool overlaysWarming: !!overlaysRes.item && warming && overlaysOn
+    // Do-not-disturb: nothing shows (and what is up goes) while a panel, a PIN, an alert, the keyboard, the saver or the camera's viewer has the screen
+    property bool systemBusy: false                           // set by the shell: the notifications' alert, input popup or PIN prompt, the keyboard, the saver
+    readonly property bool dnd: surface !== "" || homeBusy || systemBusy || viewerUp || panelLeaving
     // the volume display has something on screen or is fading: this layer is drawn for it whatever else is up
     readonly property bool osdLive: !!osdRes.item && osdRes.item.live
     // a panel that has been told to go is still sliding away: this layer stays drawn until it has gone
@@ -147,11 +175,31 @@ Item {
         shown: ov.warm
     }
     Binding { target: cameraRes.item; property: "appFront"; value: ov.appFront; when: !!cameraRes.item }
-    Binding { target: cameraRes.item; property: "hostBusy"; value: ov.surface !== "" || ov.homeBusy; when: !!cameraRes.item }
-    Binding { target: osdRes.item; property: "avoidTopRight"; value: ov.cameraUp && !!cameraRes.item && cameraRes.item.popupUp; when: !!osdRes.item }
+    // The cards of the overlay system. Below the camera pop-up, whose card they go under, above the panels and below the volume display.
+    Resident {
+        id: overlaysRes
+        name: "overlay cards"
+        source: "panels/Overlays.qml"
+        anchors.fill: parent
+        z: 2.4
+        build: ov.warm && ov.overlaysOn
+        shown: ov.warm && ov.overlaysOn
+    }
+    Binding { target: overlaysRes.item; property: "appFront"; value: ov.appFront; when: !!overlaysRes.item }
+    Binding { target: overlaysRes.item; property: "dnd"; value: ov.dnd; when: !!overlaysRes.item }
+    Binding { target: overlaysRes.item; property: "cameraUp"; value: ov.popupUp; when: !!overlaysRes.item }
+    Binding { target: overlaysRes.item; property: "cameraBottom"; value: !!cameraRes.item ? cameraRes.item.popupBottom : 0; when: !!overlaysRes.item }
+    Binding { target: overlaysRes.item; property: "warming"; value: ov.warming; when: !!overlaysRes.item }
+    // OK on a card without a button of its own opens the notification drawer, where it can be opened (Home's over Home, this layer's over an app)
+    Binding { target: overlaysRes.item; property: "drawerReady"; value: !!overlaysRes.item && overlaysRes.item.pending && Bus.gearReady(); when: !!overlaysRes.item }
+    Connections { target: overlaysRes.item; ignoreUnknownSignals: true; onOpenDrawer: Bus.gearHold() }
+    // the camera pop-up showed a card: a doorbell record of the same ring is not a second one
+    Connections { target: cameraRes.item; ignoreUnknownSignals: true; onPopupShown: { if (overlaysRes.item) overlaysRes.item.cameraShown(kind) } }
+    Binding { target: cameraRes.item; property: "hostBusy"; value: ov.dnd; when: !!cameraRes.item }
+    Binding { target: osdRes.item; property: "avoidTopRight"; value: ov.cardsUp; when: !!osdRes.item }
     // what Home says of itself (a PIN, an alert, a prompt, a confirmation up): read once a second while a pop-up may be waiting, not bound
     property bool homeBusy: false
-    Timer { interval: 500; repeat: true; running: !!cameraRes.item && (cameraRes.item.up || Helper.topics["cameras.popup"] !== null && Helper.topics["cameras.popup"] !== undefined); onTriggered: ov.homeBusy = Bus.homeBusy() }
+    Timer { interval: 500; repeat: true; running: (!!cameraRes.item && (cameraRes.item.up || Helper.topics["cameras.popup"] !== null && Helper.topics["cameras.popup"] !== undefined)) || (!!overlaysRes.item && overlaysRes.item.pending); onTriggered: ov.homeBusy = Bus.homeBusy() }
     Connections {
         target: cameraRes.item
         ignoreUnknownSignals: true
@@ -322,18 +370,29 @@ Item {
         if (k === Qt.Key_Back || k === WebOS.Key_webOS_Back) return "back"
         return ""
     }
+    // The top card's key, over an app and over Home alike (Home asks through the bus): the camera's viewer takes every key; a card takes OK and
+    // Back once armed, the camera's pop-up first (it is on top), then the overlay system's. True when taken.
+    function cardKey(dir) {
+        var cam = cameraRes.item
+        if (cam && cam.viewerUp) return cam.key(dir)
+        if (dir !== "ok" && dir !== "back") return false
+        if (!cardsArmed) return false
+        if (popupUp) return cam.key(dir)
+        return !!overlaysRes.item && overlaysRes.item.key(dir)
+    }
     property bool okHeldDown: false
     Timer { id: okHold; interval: Lu.motion.holdMs || 700; onTriggered: { if (ov.surface === "quick" && quickRes.item && quickRes.item.hold) quickRes.item.hold() } }
     function key(k, pressed, autoRepeat, deviceId) {
         if (!wants) return false
         var dir = directionFor(k)
         if (dir === "") return false
-        // the pop-up takes OK and Back only: a press the camera surface does not take goes on to the app (and its release with it)
-        if (surface === "" && cameraRes.item && cameraRes.item.up) {
-            if (cameraRes.item.popupUp && dir !== "ok" && dir !== "back") return false
+        // Over an app the cards take OK and Back (once armed) and the camera's viewer every key; a press that is not theirs goes on to the app
+        // (and its release with it)
+        if (surface === "" && cardsUp || surface === "" && viewerUp) {
+            if (!viewerUp && (dir !== "ok" && dir !== "back" || !cardsArmed)) return false
             if (!pressed) return true
             if (autoRepeat && (dir === "back" || dir === "ok")) return true
-            return cameraRes.item.key(dir)
+            return cardKey(dir)
         }
         // OK on the quick panel is decided on its release, as on Home, so that a held OK can edit the tiles (panels/QuickPanel.qml): the press
         // starts the timer, the release before it is up is an ordinary OK, the timer is the hold. Where the panel has nothing to pick up, OK acts on the press.
@@ -366,6 +425,9 @@ Item {
         try { d = JSON.parse(text) } catch (e) { console.warn("[LumaOverlay] the door holds no JSON: " + text.substring(0, 80)); return }
         if (d && d.open === "drawer") openDrawer()
         else if (d && (d.open === "quick" || d.open === "picker")) panel(d.open)
+        // {"card": {"class": "timer", "title": "Pasta", "body": "Time's up", "source": "Kitchen Show", "actions": [...], "score": {...}, "ttl": 20}}: an overlay card
+        // made by hand, as the plugin broker's record would make it, for the gate and the TV steps
+        else if (d && d.card && overlaysRes.item) overlaysRes.item.door(d.card)
         else if (d && d.kind) showBanner(d)
     }
     Timer { interval: 1000; running: ov.appFront; repeat: true; onTriggered: ov.readDoor() }
@@ -374,7 +436,7 @@ Item {
         Lu.flatBackdrop = flatTex
         Bus.setOverlay({ wants: function() { return ov.wants }, key: ov.key, ready: ov.gearReady, hold: ov.gearHold, panelReady: ov.panelReady, panel: ov.panel, warm: ov.warmPanel })
         // Home routes the D-pad here while a camera surface is up over it (LumaHome.keyAction)
-        Bus.setCamera({ up: function() { return ov.cameraUp && ov.surface === "" }, key: function(dir) { return !!cameraRes.item && cameraRes.item.key(dir) } })
+        Bus.setCamera({ up: function() { return (ov.cameraUp || ov.overlaysUp) && ov.surface === "" }, key: function(dir) { return ov.cardKey(dir) } })
         console.info("[LumaOverlay] loaded")
     }
     Component.onDestruction: { Bus.setOverlay(null); Bus.setCamera(null) }
