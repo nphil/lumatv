@@ -12,8 +12,9 @@
 #     --npu-run  also run any model found in step 2 that carries an lgnpu_custom_op through LG's delegate (opens /dev/npu0)
 #     --force    carry on although something already holds the NPU
 #     --assume-abi  run the delegate steps although step 1 could not compare the TFLite releases
-#     --nnapi-run   step 6b: LG's own benchmark_model with the NNAPI delegate on our model (the one route left for a builtin-op model;
-#                   it may open /dev/npu0 through libwebos_nnhal)
+#     --nnapi-run   step 6b: our model through the NNAPI delegate (accelerator lgnpu) over the device's NN HAL, with the probe and then
+#                   with LG's benchmark_model (the one route a builtin-op model could still take; it opens /dev/npu0 only if the
+#                   HAL behind it is a real one: the build analysed offline, step 6a, is a stand-in that sleeps 1 ms)
 set -u
 W=${W:-/tmp/lumatv-npu}
 OUT=$W/results
@@ -24,6 +25,10 @@ OURS=${OURS:-$W/models/efficientdet_lite0_320_ptq.tflite}
 ALT=${ALT:-$W/models/tf2_ssd_mobilenet_v2_coco17_ptq.tflite}  # optional second candidate (fetch-model.sh --all)
 LABELS=${LABELS:-$W/models/coco_labels.txt}
 DELEGATE=${DELEGATE:-/usr/lib/libtflite-npu-delegate.so.1}
+LIBDIR=${LIBDIR:-/usr/lib}
+NNHAL_TEST=${NNHAL_TEST:-/usr/bin/lgnpu_online_nnhal_test}   # LG's gtest of the online NN HAL
+OFFLINE_TEST=${OFFLINE_TEST:-/usr/bin/lgnpu_nn_hal_test}     # and of the offline HAL
+RUN_LGNPU=${RUN_LGNPU:-/usr/bin/run_lgnpu}
 RUNS=100
 THREADS=3
 LUNA=1
@@ -48,6 +53,8 @@ mkdir -p "$OUT"
 [ -x "$PROBE" ] || { echo "no $PROBE"; exit 2; }
 SUMMARY=$OUT/summary.txt
 : > "$SUMMARY"
+# libwebos_nnhal.so as analysed offline (docs/research/npu-result.md): an NN HAL 1.2 device "lgnpu" whose execute call sleeps 1 ms.
+ANALYSED_NNHAL=963204be235cdcdf9361e61a7505280d9b000ee27d59e8627bc88de46c03d230
 
 step() { echo; echo "=== $1"; }
 note() { echo "$*" | tee -a "$SUMMARY"; }
@@ -79,6 +86,8 @@ step "0. before: who holds the NPU, CPU state"
   holders
 } > "$OUT/00-before.txt" 2>&1
 cat "$OUT/00-before.txt"
+AIPQ=$(grep -i aipq /proc/npu/npu_device_capability 2>/dev/null)
+note "0: ${AIPQ:-aipq compatibility: not readable}  (false: the NPU is not meant to be shared with AI picture (ai_pq); only steps 6 and 6b ever open it, and only after this check)"
 if [ -n "$(cat /proc/npu/npu_process_list 2>/dev/null)" ] || [ -n "$(holders)" ]; then
   note "WARNING: something holds the NPU already (see 00-before.txt)"
   [ "$FORCE" = 1 ] || { echo "stopping; --force to go on"; exit 3; }
@@ -167,8 +176,48 @@ else
   note "6: no model with an NPU package on this TV, so nothing to run on the NPU"
 fi
 
-step "6b. NNAPI route (only with --nnapi-run): LG's benchmark_model, our model, delegate nnapi, accelerator lgnpu"
+step "6a. LG's NN HAL tools (read only): the online HAL's own test, run_lgnpu's usage"
+HALSUM=$(sha256sum "$LIBDIR/libwebos_nnhal.so" 2>/dev/null | cut -d' ' -f1)
+{
+  echo "-- hashes; libwebos_nnhal.so $ANALYSED_NNHAL is the build analysed offline"
+  ( cd "$LIBDIR" && sha256sum libwebos_nnhal.so libwebos_offline_nnhal.so.1.0.0 libnnrt.so.1.0.0 libnpu.so.1.0.0 libtflite-npu-delegate.so.1.0.0 2>&1 )
+  echo "-- NNAPI runtime files: $(ls "$LIBDIR"/libneuralnetworks* 2>&1 | tr '\n' ' ')"
+  if [ "$HALSUM" = "$ANALYSED_NNHAL" ]; then
+    echo "-- lgnpu_online_nnhal_test, the analysed build (it opens no device)"
+    ( cd "$W" && "$NNHAL_TEST" ) 2>&1
+    echo "exit $?"
+  else
+    echo "-- libwebos_nnhal.so is not the analysed build: lgnpu_online_nnhal_test NOT run; reread the library (tests/lg/hal_mock.sh) first"
+  fi
+  echo "-- run_lgnpu -h (its documented arguments; a run needs a .lgnpu package, and none is shipped)"
+  "$RUN_LGNPU" -h 2>&1 | head -n 5
+  echo "-- npu_process_list after: $(cat /proc/npu/npu_process_list 2>&1)"
+} > "$OUT/06a-hal-tools.txt" 2>&1
+cat "$OUT/06a-hal-tools.txt"
+if [ "$HALSUM" = "$ANALYSED_NNHAL" ]; then HALNOTE="is the analysed stand-in"; else HALNOTE="DIFFERS from the analysed build"; fi
+note "6a: libwebos_nnhal.so $HALNOTE; $(grep -E 'PASSED|FAILED|NOT run' "$OUT/06a-hal-tools.txt" | head -n 1)"
+if [ "$NPURUN" = 1 ]; then
+  mkdir -p "$W/offline" && ( cd "$W/offline" && "$OFFLINE_TEST" ) > "$OUT/06a-offline-hal-test.txt" 2>&1
+  echo "exit $?" >> "$OUT/06a-offline-hal-test.txt"
+  note "6a: offline HAL test (needs ./dne_custom_op.lgnpu, which is not shipped): $(grep -E 'PASSED|FAILED|fail to open|^exit' "$OUT/06a-offline-hal-test.txt" | head -n 3 | tr '\n' ';')"
+fi
+
+step "6b. NNAPI route to the HAL (only with --nnapi-run): our model through the NNAPI delegate, accelerator lgnpu"
 if [ "$NNAPIRUN" = 1 ]; then
+  echo "${AIPQ:-aipq compatibility: not readable}: false means the NPU is not shared with AI picture. If AI picture is on and the picture changes while this runs, stop it (kill -9 the probe); turning AI picture back on is a settings action for a person."
+  "$PROBE" --nnapi-list > "$OUT/06b-nnapi-list.txt" 2>&1
+  cat "$OUT/06b-nnapi-list.txt"
+  note "6b runtime and devices: $(grep -E 'NNAPI runtime|NNAPI devices|\[[0-9]+\]' "$OUT/06b-nnapi-list.txt" | cut -c1-110 | tr '\n' ';')"
+  if [ -f "$OURS" ]; then
+    for parts in 3 16; do
+      tag=ours-partitions$parts
+      "$PROBE" --model "$OURS" --image "$IMG" --labels "$LABELS" --runs "$RUNS" --warmup 3 --threads "$THREADS" --cpu-backend xnnpack --nnapi --nnapi-opt accelerator=lgnpu --nnapi-opt partitions=$parts > "$OUT/06b-$tag.txt" 2>&1
+      echo "exit $?" >> "$OUT/06b-$tag.txt"
+      echo "$tag: $(grep -E 'delegated ops|delegate kernel\(s\) took|NOT APPLIED|refused|not created|WARNING|^exit ' "$OUT/06b-$tag.txt" | cut -c1-200 | tr '\n' ';') $(grep '^SUMMARY' "$OUT/06b-$tag.txt" | cut -d' ' -f3-)" | tee -a "$SUMMARY"
+    done
+  else
+    note "6b: no $OURS, probe run skipped"
+  fi
   BM=$(ls /usr/bin/benchmark_model* 2>/dev/null | head -n 1)
   if [ -n "$BM" ] && [ -f "$OURS" ]; then
     (
@@ -176,13 +225,13 @@ if [ "$NNAPIRUN" = 1 ]; then
       while [ $i -lt 600 ]; do echo "$(cat /proc/npu/npu_utilization 2>/dev/null)"; i=$((i + 1)); sleep 0.05 2>/dev/null || sleep 1; done
     ) > "$OUT/06b-util.txt" 2>&1 &
     SAMPLER=$!
-    "$BM" --graph="$OURS" --num_runs=20 --warmup_runs=2 --num_threads="$THREADS" --use_nnapi=true --nnapi_accelerator_name=lgnpu > "$OUT/06b-nnapi.txt" 2>&1
-    echo "exit $?" >> "$OUT/06b-nnapi.txt"
+    "$BM" --graph="$OURS" --num_runs=20 --warmup_runs=2 --num_threads="$THREADS" --use_nnapi=true --nnapi_accelerator_name=lgnpu > "$OUT/06b-benchmark-model.txt" 2>&1
+    echo "exit $?" >> "$OUT/06b-benchmark-model.txt"
     kill "$SAMPLER" 2>/dev/null
-    tail -25 "$OUT/06b-nnapi.txt"
-    note "6b: benchmark_model nnapi: $(grep -i -E 'nnapi|delegate|average|avg' "$OUT/06b-nnapi.txt" | head -4 | tr '\n' ';'); npu utilisation samples above 0: $(grep -c -v '^0$' "$OUT/06b-util.txt")"
+    tail -n 25 "$OUT/06b-benchmark-model.txt"
+    note "6b: LG's benchmark_model, nnapi lgnpu: $(grep -i -E 'nnapi|delegate|average|avg' "$OUT/06b-benchmark-model.txt" | head -n 4 | tr '\n' ';'); npu utilisation samples above 0: $(grep -c -v '^0$' "$OUT/06b-util.txt")"
   else
-    note "6b: no benchmark_model or no model, skipped"
+    note "6b: no benchmark_model or no model, LG's tool skipped"
   fi
 else
   note "6b: skipped (--nnapi-run)"

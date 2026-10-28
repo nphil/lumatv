@@ -9,26 +9,30 @@ whose `custom_options` are an NPU package compiled offline by LG. It refuses eve
 run on the NPU through this entry. Person and animal detection for the camera pop-ups therefore runs on the CPU (XNNPACK): the model
 is EfficientDet-Lite0 int8, below. The NPU entry stays wired in the probe for the day a package turns up (TV slot step 2 looks).
 This is the reason `PLAN.md` saw the delegate "apply to none of LG's shipped models": it was never going to take a builtin-op graph.
+The other route, a standard model through NNAPI to LG's "online" NN HAL (`libwebos_nnhal.so`, `lgnpu_online_nnhal_test`), is no route either:
+that HAL is a stand-in whose execute call sleeps 1 ms and reports it as the time on the device; nothing in the firmware compiles a model for
+the NPU (section "The online NN HAL"). The probe has the NNAPI path anyway (`--nnapi`), with a check that catches a device that does not compute.
 
 **Done offline (2026-10-28), nothing run on the TV.**
 
 - Symbols, strings and JSON of the 24 ELF files and 7 JSON files copied off the set (sizes and hashes in the copy's `inventory.txt`,
   scratch under `/tmp/lumatv-npu-tv`). No disassembly.
-- LG's delegate run as a black box on the host (`tests/lg`, 18 checks): its options, the graphs it takes and refuses, the calls it makes into
-  `libnnrt`, and the TFLite structure layout it was built against (2.13).
+- LG's delegate run as a black box on the host (`tests/lg/run.sh`, 18 checks): its options, the graphs it takes and refuses, the calls it makes
+  into `libnnrt`, and the TFLite structure layout it was built against (2.13). LG's online NN HAL test run the same way (`tests/lg/hal_mock.sh`,
+  19 checks, system calls traced under qemu-arm-static): what the HAL does and does not touch.
 - `npuprobe/`: `lumatv-npu-probe` (TFLite 2.13.1 static, 32-bit ARM soft-float and x86-64), a stub delegate with LG's plugin surface,
-  29 tests that pass on both builds (the ARM one under qemu), and the TV slot script `tv-probe.sh`.
+  a stub NNAPI runtime for its NNAPI path, 50 tests that pass on both builds (the ARM one under qemu), and the TV slot script `tv-probe.sh`.
 - The model, `npuprobe/fetch-model.sh`.
 
 **Open (needs a TV slot, below).** The device's own TFLite version (the delegate is only safe in a process with the same 2.13 layout),
-whether any `.tflite` on the set carries an NPU package, the speed of the model on the A76s, and the NNAPI route
-(`libwebos_nnhal`, step 6b), the one path where a builtin-op model might still reach the NPU.
+whether any `.tflite` on the set carries an NPU package, the speed of the model on the A76s, and whether the set has `libneuralnetworks.so`
+(the NNAPI runtime; it would change nothing about speed while the HAL behind it is the stand-in).
 
 ## Evidence key
 
 `SYM` exported symbols, strings and ELF headers of the copied files (read with a symbol and string reader; no disassembly).
 `JSON` the luna permission, role and model-list files. `RUN` behaviour of LG's `libtflite-npu-delegate.so.1.0.0` loaded as a black
-box with fake `libnnrt` and `libPmLogLib` (`tests/lg/run.sh`). `SRC` public sources (TensorFlow, webosose). `TV` earlier measurements
+box with fake `libnnrt` and `libPmLogLib` (`tests/lg/run.sh`), and of LG's own `lgnpu_online_nnhal_test` with its library, traced (`tests/lg/hal_mock.sh`). `SRC` public sources (TensorFlow, webosose). `TV` earlier measurements
 recorded in `hardware-census.md` and `PLAN.md`. `[INFERENCE]` not observed; the step that settles it is named.
 
 ## Architecture
@@ -123,11 +127,35 @@ written by TF 2.9.1 (`CONVERSION_METADATA` of the QAT detector); that says nothi
   refusal above.
 - **No NPU package is known on the set.** `auto_delegation_test` names `/model/FitTV_Pose2D.tflite` for its `webosnpu` case; it is not shipped.
   TV step 2 searches every `.tflite` for `lgnpu_custom_op`.
-- **`libwebos_nnhal.so`** (21,900 bytes) is an Android NN HAL 1.2 `IDevice` (`android::nn::hal::lgnpu::NpuNnHal`, device name `lgnpu`,
-  `v1.0`). Its functions are 4 to 424 bytes (`prepareModel_1_2` 308, `getSupportedOperations_1_2` 424, `NpuPreparedModel::initialize` 4):
-  too little to compile a network [INFERENCE: it adapts the same package]. `libedgeai-vision` imports no NNAPI symbol; its `nnapi_delegate`
-  name and `libai-inference-interface`'s `"type": "nnhal"` are configuration values. TV step 6b tries LG's own `benchmark_model` with the
-  NNAPI delegate on our model.
+- **`libwebos_nnhal.so`** (21,900 bytes) is an NN HAL 1.2 shaped device, `lgnpu`, `v1.0`, and a stand-in: see the next section.
+
+## The online NN HAL
+
+Asked: LG ships `libwebos_nnhal.so`, `lgnpu_online_nnhal_test`, `lgnpu_nn_hal_test`, `run_lgnpu` and `nn-proxy`; does one of them compile a
+standard model for the NPU at run time? No. `SYM`, and `RUN` for the first two rows (`tests/lg/hal_mock.sh`, LG's own test and library under
+qemu-arm-static on the host, system calls traced):
+
+| File | What it is |
+|---|---|
+| `libwebos_nnhal.so` (21,900 bytes, recipe `nnhal 2.0.1-1072-r4`) | A C++ API shaped like an Android NN HAL 1.2 driver, in namespace `android::nn::hal`; not a binder service. `getDevices()` returns one `IDevice`, `lgnpu::NpuNnHal`: name `lgnpu`, version `v1.0`, `getCapabilities_1_2`, `getSupportedOperations_1_2(Model)`, `prepareModel_1_2(Model, ExecutionPreference, Priority, cache files, token)`, `prepareModelFromCache`, and `NpuPreparedModel::executeSynchronously(Request, MeasureTiming, ...)`. It links libstdc++, libgcc_s and libc only; it imports no `open`, `ioctl`, `mmap`, `dlopen` or socket call and nothing of `libnpu`, `libnnrt` or the offline HAL, but `usleep`, `steady_clock::now` and `std::cout`. Its functions are 4 to 664 bytes (`validateModel` 12, `NpuPreparedModel::initialize` 4). |
+| `lgnpu_online_nnhal_test` (292 KB, gtest) | One test, `NnHaTest.DeviceTest`: device name and version, feature level, extensions, capabilities, cache file counts, `getSupportedOperations_1_2`, `prepareModel_1_2`, `executeSynchronously(req, MeasureTiming::YES, results)` and `timing.timeOnDevice`. `RUN`: it passes in 6 ms and prints `count: 1` and `supported size: 1`; between two reads of the monotonic clock the only call is one `clock_nanosleep` of 1,000,000 ns; no file under `/dev` is opened, no `ioctl` (but the terminal query) and no socket are made. |
+| `lgnpu_nn_hal_test` (276 KB, gtest) | The offline HAL's test (`libwebos_offline_nnhal`, `init`, `prepare`, `invoke`, `free`). It reads `./dne_custom_op.lgnpu`, a precompiled package, and reports "error: fail to open init data" without it. No such file is shipped. |
+| `run_lgnpu` (186 KB) | A direct `libnpu` runner: `Usage: run_lgnpu [-i input tensor file] [-p .lgnpu file] [-o output file prefix] [-a affinity] [-c run count] -j [tensor meta json]`; tensor types fp32, int8, uint8, scale and zero point from the JSON, outputs written as `.bin`. It runs a package; it compiles nothing. |
+| `nn-proxy` (75 KB) | `com.webos.service.nnproxy`, the AI picture and sound service over `libaibsp` and `libmali` (`SqmEnable`, `SREnable`, `GenreEnable`, "AI 8K Upscaling is Updated"). Not a model API. |
+
+So the "online" HAL takes an NNAPI-style operand and operation graph and answers, but it neither compiles nor runs it: `prepareModel_1_2`
+makes an object and `executeSynchronously` sleeps 1 ms. Nothing it imports could compute, so the outputs of a model run through it are
+[INFERENCE] left as they were, while the time looks like a 1 ms NPU. That is why the probe's NNAPI phase compares outputs with the CPU's.
+The rest of the firmware has no compile route either: no string in `libnpu`, `libnnrt`, `libwebos_offline_nnhal`, the delegate or `libaibsp` names
+a model compiler, converter or graph builder. `libai-inference-interface` names `/model/tflite`, `/model/cache` and `/model/lib` and has
+`installModel` [INFERENCE: models arrive already compiled, as IPKs]. A real online HAL would be a later firmware's; `tests/lg/hal_mock.sh`
+pins this build's hash, and TV step 6a checks it on the set.
+
+How an app would reach a real one: TFLite's NNAPI delegate, then `libneuralnetworks.so` (webosose's `webos-nnruntime`, pulled in by the
+machine feature `webos-nnapi`; `SRC` `tensorflow-lite_2.9.3.inc`, whose `0007-enable-nnapi-delegate.patch` only drops the Android-only gate
+from TFLite's CMake), then the HAL. TFLite 2.13.1 off Android derives the Android level from the functions the runtime exports (`SRC`
+`CalculateAndroidSdkVersion`: 27 for NNAPI 1.0, 28 for 1.1, 29 for 1.2, 30 for 1.3), so a 1.2 runtime works and the delegate can target a device
+by name (`accelerator_name=lgnpu`). Whether the set has `libneuralnetworks.so` is not in the copied files: TV step 1 lists it, step 6b loads it.
 
 ## ai-inference-manager (luna)
 
@@ -165,6 +193,11 @@ budget and holders before it opens the NPU (TV step 3); it does not call `open`,
 2. The NPU entry is kept in the probe and the worker (an option, off): it works the day an NPU package exists, with nothing else to build.
 3. Getting our own network onto the NPU needs LG's offline compiler or the package and DNE instruction formats. Neither is on the set or
    published. Reading the formats goes past symbols and strings, the limit set for this work, so it is Main's decision whether to start.
+4. The NNAPI route is kept in the probe (`--nnapi`) and checked on the set (TV step 6b), but nothing in the firmware gives it something to
+   compile with: the HAL behind it is a 1 ms stand-in.
+5. A second accelerator exists in LG's own stack: the TFLite GPU delegate (`libedgeai-vision` imports `TfLiteGpuDelegateV2Create`; the
+   recipe's `webos-gpu-delegate` feature and its OpenCL wrapper patches; `auto_delegation_test` has GPU-cache cases). It needs no compiler.
+   Not probed here; a `--gpu` mode is the next extension if the CPU's 80 to 120 ms is not enough.
 
 ## Our model
 
@@ -207,8 +240,10 @@ rate, 16 to 20 ms at the 25 to 30 % utilisation `hardware-census.md` assumes.
 
 - `build.sh [arm|host|all]` unpacks the toolchains (`toolchain.py`: Ubuntu 22.04 GCC 11.4 and glibc 2.35 cross for `arm-linux-gnueabi`, Debian 12
   binutils, GCC 12 for the host, cmake 3.27, ninja, qemu-arm-static) under `/tmp/lumatv-npu-tools`, fetches TensorFlow 2.13.1 and `stb_image.h`
-  (pinned, checked), builds TFLite with XNNPACK and its dependencies for each target, then `lumatv-npu-probe`, `libstub-npu-delegate.so`,
-  `libnot-a-delegate.so`, `make-test-models` into `build/{arm,host}/`. The ARM binary is `e_flags 0x5000200`, interpreter
+  (pinned, checked), patches TFLite's CMake so that its NNAPI delegate builds on Linux (`patch_tflite.py`: the change webosose's
+  `0007-enable-nnapi-delegate.patch` makes), builds TFLite with XNNPACK and NNAPI and its dependencies for each target, then `lumatv-npu-probe`,
+  `libstub-npu-delegate.so`, `nnapi-stub/libneuralnetworks.so` and `nnapi-stub-12/libneuralnetworks.so` (stub NNAPI runtimes), `libnot-a-delegate.so`,
+  `make-test-models` into `build/{arm,host}/`. The ARM binary is `e_flags 0x5000200`, interpreter
   `/lib/ld-linux.so.3`, needs only GLIBC up to 2.34 and `libgcc_s` (libstdc++ is linked in because the set's stops at GLIBCXX_3.4.29).
   GCC 12 or zig cannot be used for the ARM build: GCC 12's libstdc++ adds GLIBCXX_3.4.30 and `arc4random`, zig cannot emit NEON for the
   soft-float ABI.
@@ -218,13 +253,26 @@ rate, 16 to 20 ms at the 25 to 30 % utilisation `hardware-census.md` assumes.
   before and after, delegate kernels, the list of absorbed ops), the outputs compared with the CPU's, the top detections with COCO names, and a
   `SUMMARY` line of key=value pairs. `--info` describes a model (and reports `lgnpu_custom_op` nodes and their package size); `--system-info`
   reads the device's TFLite version, XNNPACK, NNAPI runtime and the delegate's entry points without running anything of LG's; `--fill const:V`,
-  `--norm`, `--labels`, `--min-score`, `--top`, `--print-output`, `--require-delegate` (exit 3 unless a kernel was installed).
+  `--norm`, `--labels`, `--min-score`, `--top`, `--print-output`, `--require-delegate` (exit 3 unless a kernel was installed and the runs
+  completed, 5 if the outputs are not the CPU's).
+  `--nnapi` takes the place of `--delegate`: the same second phase through TFLite's NNAPI delegate over the device's `libneuralnetworks.so`
+  (`--nnapi-opt accelerator=lgnpu`, `sdk=N`, `pref=low|fast|sustained`, `partitions=N`, `allow_cpu=true`, `allow_fp16=true`), listing the runtime's
+  devices first and then which ops landed on the device and the time. A device is only believed if its outputs match: they are compared with the
+  CPU's as `identical`, `close` (within 2 % of the largest value, a quantisation step or two), `zero` or `differ`, the last two with a WARNING
+  (`nnapi_outputs=` in `SUMMARY`). `--nnapi-list` lists the runtime's devices and exits. TFLite asks every selected device for its NNAPI 1.3
+  feature level without checking that the runtime has the call; the probe supplies one for a 1.2 runtime.
   A crash inside the plugin prints the module, offset and symbol (the set has no debugger); an exception from the create call is caught.
-- `tests/run_tests.sh [host|arm]`: 29 checks against `stub/stub_delegate.cc` (LG's plugin surface: options, custom-op-only claim rule, refusal
-  text, `use_custom_alloc` through the exported `SetCustomAllocationForTensor`, a configurable device delay) and generated models, among them
-  one with exactly LG's op set (`tests/make_models.cc`) and one with a lone `lgnpu_custom_op`, and the real detector on LG's sample pictures.
-  Passing on both builds (the ARM one under qemu-arm-static).
+- `tests/run_tests.sh [host|arm]`: 50 checks against `stub/stub_delegate.cc` (LG's plugin surface: options, custom-op-only claim rule, refusal
+  text, `use_custom_alloc` through the exported `SetCustomAllocationForTensor`, a configurable device delay) and `stub/stub_nnapi.cc` (a stand-in
+  NNAPI runtime with the devices `lgnpu-stub`, an accelerator, and `nnapi-reference`, a CPU; it computes float32 ADD, so data crossing between CPU
+  and device can be checked, and accepts every other operation it claims without computing it, as LG's HAL does; switches `STUB_NNAPI_OPS`,
+  `_DEVICES`, `_DELAY_US`, `_FAIL=compile|compute`, `_LOG`; a second build leaves out the 1.3 feature-level call) and generated models, among
+  them one with exactly LG's op set (`tests/make_models.cc`) and one with a lone `lgnpu_custom_op`, and the real detector on LG's sample
+  pictures. The NNAPI checks cover device listing and selection, partial and full claims, a device that computes nothing (exit 5), failing
+  compilation and execution, a missing runtime, and which of LG's op set TFLite hands an NNAPI 1.2 device (all but `QUANTIZE` and
+  `RESIZE_NEAREST_NEIGHBOR`). Passing on both builds (the ARM one under qemu-arm-static).
 - `tests/lg/run.sh` (needs the copied delegate): the 18 checks of the entry section, on LG's real binary.
+- `tests/lg/hal_mock.sh` (needs the copied HAL files): the 19 checks of the section on the online NN HAL, on LG's real test binary and library.
 
 ## TV slot
 
@@ -249,19 +297,22 @@ Pull `/tmp/lumatv-npu/results/*` with `tv.get`, then `tv.tv("rm -rf /tmp/lumatv-
 
 | Step | What | Expected | Says |
 |---|---|---|---|
-| 0 | `/proc/npu/*`, `/dev/npu0` holders, CPU online and frequency | `npu_utilization` 0, empty `npu_process_list`, no holder, `aipq compatibility : false`; the script stops if something holds the NPU (`--force` to go on) | nothing else (the AI picture path, an app) holds the NPU; if `ai_pq` is on, `aipq` and the process list change and the NPU is shared |
+| 0 | `/proc/npu/*`, `/dev/npu0` holders, CPU online and frequency | `npu_utilization` 0, empty `npu_process_list`, no holder, `aipq compatibility : false` (printed to the summary); the script stops if something holds the NPU (`--force` to go on) | nothing else (the AI picture path, an app) holds the NPU; if `ai_pq` is on, `aipq` and the process list change and the NPU is shared |
 | 1 | `lumatv-npu-probe --system-info` and `ls -l` of the libraries | `device runtime: libtensorflow-lite.so, TfLiteVersion() = 2.13.x`, `ABI: ... same minor release`, entry points present, `libXNNPACK.so` loadable | the ABI gate for steps 5 and 6; any other version: do not run them, rebuild the probe with that release (`TFLITE_VERSION`, `TFLITE_SHA256`) |
 | 2 | every `*.tflite` under `/usr/share /usr/lib /mnt/lg /media /var /opt`, `grep lgnpu_custom_op` | `0 of N carry lgnpu_custom_op` | whether any NPU package exists to run; the whole route hangs on this |
 | 3 | by hand, in a shell with a PTY (`luna-send` hangs without one; run the script without `--no-luna` there and it does this itself): `luna-send -n 1 -f luna://com.webos.service.aiinferencemanager/{getDeviceCapability,getDeviceStatus,getResourceList} '{}'`, the query group, read only | JSON with the NPU's tops (0.4), the holders and the registered models, or a permission error | the real field names, `aipqCompatibility`, and the free budget |
 | 4 | LG's detector and ours (and SSD-MobileNetV2 when pushed), `xnnpack` and `builtin`, 1 and 3 threads, 100 runs, `/usr/share/aif/images/people.jpg` | ours, XNNPACK, 3 threads: 80 to 120 ms median; builtin, 4-thread class: about 370 ms; LG's within a factor of 1.3 of ours; `person` x5 for `people.jpg` | the CPU path's real cost and its CPU share (`cpu_busy_pct`, about 300 for 3 threads) |
 | 5 | LG's delegate on both models, `min_freq=30`, `--cpu-backend none` | both `delegate NOT APPLIED`, no crash; the 100 timed runs are the CPU path with builtin kernels (the delegate took nothing), `delegate_npu_util_max=0`; `grep NPUDELEGATE /var/log/messages` shows `Nodes doesn't have customOp node for NPU`; `npu_process_list` stays empty | the refusal on the set itself; a crash line means the TFLite release differs |
 | 6 (`--npu-run`) | each model found in step 2, `--fill const:0`, delegate on | `delegate kernel(s) took 1 node`, `npu_utilization` non-zero during the loop, `npu_process_list` names the probe | the NPU's real speed and utilisation; skipped when step 2 found nothing |
-| 6b (`--nnapi-run`) | LG's `benchmark_model --use_nnapi=true --nnapi_accelerator_name=lgnpu` on our model, utilisation sampled | most likely an NNAPI error or CPU fallback and utilisation 0 [INFERENCE]; if the NPU runs, the figure is the answer | whether any builtin-op model reaches the NPU |
+| 6a | `sha256sum` of the HAL libraries, LG's own `lgnpu_online_nnhal_test` (only if `libwebos_nnhal.so` is the analysed build), `run_lgnpu -h`; with `--npu-run` also `lgnpu_nn_hal_test` in an empty directory | `lgnpu_online_nnhal_test` prints `[  PASSED  ] 1 test.` and `count: 1supported size: 1` in about 6 ms; `run_lgnpu -h` prints its usage; the hash is `963204be...`; empty process list after | that the set's HAL is the stand-in analysed here; a different hash means a later HAL and the analysis starts again |
+| 6b (`--nnapi-run`) | `lumatv-npu-probe --nnapi-list`, then our model through `--nnapi --nnapi-opt accelerator=lgnpu` (partitions 3 and 16), then LG's `benchmark_model --use_nnapi=true --nnapi_accelerator_name=lgnpu`; utilisation sampled | `libneuralnetworks.so` loaded with the device `lgnpu` (or `libneuralnetworks.so is not loadable`: the set has no NNAPI runtime); if loaded: ops delegated, about 1 ms per inference, `nnapi_outputs=zero` or `differ`, `npu_util` 0 [INFERENCE: the stand-in] | which ops would land on the NPU and what it would take; a time with `nnapi_outputs=identical` would be real |
 | 7 | state after, `dmesg` lines about `npu` | empty process list, no `npu` error lines | nothing left held |
 
 `tv-probe.sh` writes `00-before.txt` to `07-after.txt` and `summary.txt` (one line per step) under `/tmp/lumatv-npu/results`.
 
-Rollback: nothing outside `/tmp/lumatv-npu` changes; `rm -rf /tmp/lumatv-npu`. The probe holds `/dev/npu0` only inside steps 6 and 6b. If a
+Rollback: nothing outside `/tmp/lumatv-npu` changes; `rm -rf /tmp/lumatv-npu`. The probe holds `/dev/npu0` only inside steps 6 and 6b (in 6b only if the HAL is not the stand-in). The script
+prints the `aipq compatibility` line at step 0 and again at step 6b: `false` means the NPU is not shared with AI picture (`ai_pq`), so if AI picture
+is on and the picture changes during a run, stop the probe; switching AI picture back on is a person's action in the TV's settings. If a
 run hangs, kill the probe (`kill -9`): the driver keeps one context per open file [INFERENCE: `npu_drv.c` per-open `inst_id`, `hardware-census.md`], so closing the
 descriptor frees it; the status files read as in step 0. A reboot is infrastructure and Nitin's decision (Principle 0). The slot sets no LG
 setting and calls no luna method outside the query group.
