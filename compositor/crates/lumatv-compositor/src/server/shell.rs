@@ -107,6 +107,14 @@ impl Dispatch<WlShellSurface, ShellSurfaceData> for State {
                 let (w, h) = state.output.size();
                 resource.configure(wl_shell_surface::Resize::None, w as i32, h as i32);
             }
+            // A window with a transient parent (the shell client's system layer, a QML `Window` nested in another) is configured as a
+            // toplevel is: Qt's Wayland client exposes a wl_shell window at its first configure, and one it never gets never draws (the
+            // shell's system layer was created at its first showing and mapped only at a later one, gate run 2026-10-27 21:05).
+            wl_shell_surface::Request::SetTransient { .. } | wl_shell_surface::Request::SetPopup { .. } => {
+                state.note_request("wl_shell_surface", pid, "set_transient/popup");
+                let (w, h) = state.output.size();
+                resource.configure(wl_shell_surface::Resize::None, w as i32, h as i32);
+            }
             other => state.note_request("wl_shell_surface", pid, &format!("{other:?} (ignored)")),
         }
     }

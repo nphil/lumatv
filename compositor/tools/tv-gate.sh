@@ -416,17 +416,18 @@ shell)
     journal_after shell-picker > $OUT/shell-picker.txt
     # The volume display: a volume key through the compositor's own route; the audio service's push reaches the client as the audio topic.
     key_tap 115
-    if wait_shell_bool osd true 8; then res ok osd; else res no osd "osd $(shell_bool osd) after Volume+ (audio topic: $(ctl shell | grep -o '"audio":{[^}]*' | cut -c1-120))"; fi
+    if wait_shell_bool osd true 8 && wait_shell_bool systemMapped true 6; then res ok osd
+    else res no osd "osd $(shell_bool osd), system window mapped $(shell_bool systemMapped) after Volume+ (audio topic: $(ctl shell | grep -o '"audio":{[^}]*' | cut -c1-120))"; fi
     # A toast through the notification service, as any app raises one.
     ls1 com.webos.notification/createToast '{"message":"LumaTV gate: a toast under its own compositor","sourceId":"org.nphil.lumatv"}' > /dev/null
-    if wait_shell_num_ge toasts 1 10; then res ok toast
-    else res no toast "toasts $(shell_num toasts) after createToast"; fi
+    if wait_shell_num_ge toasts 1 10 && wait_shell_bool systemMapped true 6; then res ok toast
+    else res no toast "toasts $(shell_num toasts), system window mapped $(shell_bool systemMapped) after createToast"; fi
     # Over an app (the Home Hub, a card): the system layer draws the quick panel, takes the keys while it is up and lets go on Back.
     ls1 com.webos.applicationManager/launch '{"id":"com.webos.app.homeconnect"}' > /dev/null
     if wait_app com.webos.app.homeconnect 20; then
         sleep 3
         ctl note shell-quick-app > /dev/null; key_tap 139
-        if wait_shell_str overlay quick 10 && wait_shell_bool wants true 4 && [ "$(shell_bool systemMapped)" = true ]; then
+        if wait_shell_str overlay quick 10 && wait_shell_bool wants true 4 && wait_shell_bool systemMapped true 6; then
             key_tap 412
             if wait_shell_str overlay "" 10 && wait_shell_bool wants false 4; then res ok quick-app; else res no quick-app "Back left overlay '$(shell_str overlay)', wants $(shell_bool wants)"; fi
         else res no quick-app "overlay '$(shell_str overlay)', wants $(shell_bool wants), system mapped $(shell_bool systemMapped), home drawn $(shell_bool homeDrawn)"; fi
