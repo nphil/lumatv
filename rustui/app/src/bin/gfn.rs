@@ -14,7 +14,7 @@
 use lumatv_render::host::{Engine, HostConfig};
 use lumatv_render::{Demand, Gles, now_ns};
 use lumatv_rustui::card::{FULLSCREEN, MINIMIZED, key_of};
-use lumatv_rustui::gfn::app::{Action, App, Input, PadKey};
+use lumatv_rustui::gfn::app::{Action, App, Input, PadKey, PadLatency};
 use lumatv_rustui::gfn::core::{CoreClient, CoreMsg};
 use lumatv_rustui::gfn::layout::{H, W};
 use lumatv_rustui::gfn::prefs::Prefs;
@@ -179,6 +179,8 @@ struct PadSide {
     sock: UnixDatagram,
     last_buttons: u16,
     last_dir: Option<PadKey>,
+    /// The newest press latency the engine reported, until the loop takes it.
+    latency: Option<PadLatency>,
 }
 
 impl PadSide {
@@ -189,7 +191,7 @@ impl PadSide {
         let _ = std::fs::remove_file(path);
         let sock = UnixDatagram::bind(path).ok()?;
         sock.set_nonblocking(true).ok()?;
-        Some(Self { sock, last_buttons: 0, last_dir: None })
+        Some(Self { sock, last_buttons: 0, last_dir: None, latency: None })
     }
 
     fn poll(&mut self) -> Vec<PadKey> {
@@ -200,6 +202,12 @@ impl PadSide {
             match v["pad"].as_str() {
                 Some("guide") if v["pressed"] == true => out.push(PadKey::Guide),
                 Some("exit") => out.push(PadKey::Exit),
+                Some("latency") => {
+                    let us = |k: &str| v[k].as_u64().unwrap_or(0).min(u64::from(u32::MAX)) as u32;
+                    if v["n"].as_u64().unwrap_or(0) > 0 {
+                        self.latency = Some(PadLatency { p50_us: us("p50"), p99_us: us("p99") });
+                    }
+                }
                 Some("report") => {
                     let buttons = v["buttons"].as_u64().unwrap_or(0) as u16;
                     let pressed = buttons & !self.last_buttons;
@@ -322,6 +330,8 @@ fn run(o: Options) -> io::Result<i32> {
         ("LUMATV_GFN_PAD_SIDE", o.pad_side.to_string_lossy().into_owned()),
         ("LUMATV_GFN_PREFS", prefs_path.to_string_lossy().into_owned()),
         ("OPENNOW_STREAMER_LOG_FILE", data.join("streamer.log").to_string_lossy().into_owned()),
+        // Where the engine writes latency.tsv and latency.json (one line per button press); `lumatv-gfn-latency` reads them.
+        ("LUMATV_GFN_LATENCY_DIR", data.to_string_lossy().into_owned()),
     ];
     let mut core = CoreClient::spawn(&o.core, &o.core_args, &data, &env)?;
     log(&format!("core started, pid {:?}, data {}", core.child_pid(), data.display()));
@@ -423,6 +433,9 @@ fn run(o: Options) -> io::Result<i32> {
         }
         if let Some(p) = pad.as_mut() {
             inputs.extend(p.poll().into_iter().map(Input::Pad));
+            if let Some(l) = p.latency.take() {
+                inputs.push(Input::PadLatency(l));
+            }
         }
         inputs.extend(core.poll().into_iter().map(Input::Core));
         inputs.push(Input::Tick { now_ms: started.elapsed().as_millis() as u64 });
@@ -521,6 +534,7 @@ fn describe(input: &Input) -> String {
     match input {
         Input::Key { code, pressed } => format!("key {code} {}", if *pressed { "down" } else { "up" }),
         Input::Pad(p) => format!("pad {p:?}"),
+        Input::PadLatency(l) => format!("pad latency {l:?}"),
         Input::Core(CoreMsg::Response { method, ok, error_code, .. }) => format!("{method}: {}", if *ok { "ok".to_owned() } else { format!("error {error_code}") }),
         Input::Core(CoreMsg::Event { name, .. }) => format!("event {name}"),
         Input::Core(CoreMsg::Gone) => "core gone".into(),

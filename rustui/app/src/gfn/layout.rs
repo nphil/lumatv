@@ -400,6 +400,9 @@ pub fn stats_line(app: &App) -> String {
     if !s.input_ready && s.status == "streaming" {
         parts.push("no input yet".into());
     }
+    if let Some(l) = app.pad_latency {
+        parts.push(format!("pad {:.1} ms (p99 {:.1})", f64::from(l.p50_us) / 1000.0, f64::from(l.p99_us) / 1000.0));
+    }
     if parts.is_empty() {
         if s.message.is_empty() { s.status.clone() } else { s.message.clone() }
     } else {
@@ -880,7 +883,7 @@ pub fn over(fg: compositor_protocol::Rgba, bg: [f32; 3]) -> [f32; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gfn::app::{Game, Stats};
+    use crate::gfn::app::{Game, PadLatency, Stats};
     use crate::gfn::fixtures::every_screen;
     use crate::look::{Mode, palette_for};
 
@@ -1103,5 +1106,8 @@ mod tests {
         app.stats = Stats { status: "starting".into(), message: "Launching the native NVST media runtime…".into(), ..Default::default() };
         assert!(stats_line(&app).starts_with("Launching"));
         assert_eq!(phase_text("queued", 7), "In the queue, place 7");
+        app.pad_latency = Some(PadLatency { p50_us: 420, p99_us: 1260 });
+        app.stats = Stats { status: "streaming".into(), fps: 119.6, bitrate_mbps: 78.4, input_ready: true, ..Default::default() };
+        assert_eq!(stats_line(&app), "120 fps · 78 Mbit/s · pad 0.4 ms (p99 1.3)");
     }
 }

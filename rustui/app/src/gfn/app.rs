@@ -88,6 +88,14 @@ pub struct Stats {
     pub queue_drops: i64,
 }
 
+/// The press latency the engine measures from the pad's kernel time stamp to the packet leaving for the transport (microseconds), as
+/// its side channel reports it (gfn/engine `pads.rs`, `lumatv-gfn-pad` `latency`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PadLatency {
+    pub p50_us: u32,
+    pub p99_us: u32,
+}
+
 /// What comes into the rules.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Input {
@@ -95,6 +103,8 @@ pub enum Input {
     Key { code: u32, pressed: bool },
     /// The pad's side channel while the overlay is up: a direction, OK or Guide, decoded by the loop.
     Pad(PadKey),
+    /// The engine's press latency figures, from the pad's side channel.
+    PadLatency(PadLatency),
     /// A response or event from the core.
     Core(crate::gfn::core::CoreMsg),
     /// The monotonic clock, for the overlay's inactivity and the sign-in's poll timer.
@@ -173,6 +183,7 @@ pub struct App {
     pub decision_message: String,
     pub session: Option<Session>,
     pub stats: Stats,
+    pub pad_latency: Option<PadLatency>,
     pub overlay_row: usize,
     pub overlay_since_ms: u64,
     pub chrome_until_ms: u64,
@@ -248,6 +259,7 @@ impl App {
             decision_message: String::new(),
             session: None,
             stats: Stats::default(),
+            pad_latency: None,
             overlay_row: 0,
             overlay_since_ms: 0,
             chrome_until_ms: 0,
@@ -350,6 +362,10 @@ impl App {
                 self.key(k)
             }
             Input::Pad(p) => self.pad(p),
+            Input::PadLatency(l) => {
+                self.pad_latency = Some(l);
+                Vec::new()
+            }
             Input::Core(m) => self.core(m),
             Input::State(s) => {
                 self.minimized = s == crate::card::MINIMIZED;
@@ -668,6 +684,7 @@ impl App {
         self.screen = Screen::Launching;
         self.session = None;
         self.stats = Stats::default();
+        self.pad_latency = None;
         let mut params = json!({
             "appId": g.variant_id,
             "catalogAppId": g.id,
