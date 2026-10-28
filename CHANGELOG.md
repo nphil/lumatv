@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   screensaver run as a standalone Qt client (qml-runner) in two compositor windows, fed over a
   token-gated loopback channel with luna calls proxied from an allowlist; the gear and Input
   open LumaTV's panels first. New gate checks `shell` (screens and idle cost) and `frames`.
+- Compositor (not live yet): the frame loop and the Mali driver's submission threads run
+  SCHED_FIFO; a buffer the driver is still warming is stood in for by the last frame; the idle
+  tick follows the panel's refresh grid and the latch moves later by at most 1 ms per frame;
+  the X1 probe pre-allocates its swapchain and stamps its gaps; a start-up trace and late-flip
+  lines explain any gap the gate still sees.
 - Settings lists: section heads grow with the text and read in the light theme; danger labels
   (Delete Device) and disabled-row text pass contrast at 100% and 200%. Segmented controls,
   status words, the AI access lock row and long page headers pass too: all 98 Settings scenes
