@@ -1,16 +1,28 @@
 /* lumatv-venc: the C4 hardware-encoder probe and the first streaming path.
  *
- *   lumatv-venc caps                     what the encoder nodes say about themselves (read-only ioctls on /dev/video24)
+ * Small steps, each a separate run that ends by itself (the slot script runs them one by one and stops at
+ * the first failure):
+ *   lumatv-venc caps                     read-only: the device nodes, /proc/hma/status, nothing opened but files
  *   lumatv-venc vtcaps                   the video tap's capability record (opens /dev/video60 once, no capture)
- *   lumatv-venc synth [opts] -o out.h264 a moving test picture from CPU memory through /dev/venc (the encoder alone)
- *   lumatv-venc m2m   [opts] -o out.h264 the same through the V4L2 M2M node /dev/video24 (the fallback route)
- *   lumatv-venc vt    [opts] -o out.h264 the screen: video tap -> encoder, no copy (the chosen route)
- *   lumatv-venc serve [opts] -p PORT     the screen as an H.264 byte stream to one TCP client at a time
+ *   lumatv-venc gate                     open /dev/venc, pass the KADP gate, close
+ *   lumatv-venc create [-w -h]           + ENC_CREATE, GET_BUFFER_INFO printed and checked against the pool table, DESTROY
+ *   lumatv-venc map    [-w -h]           + mmap of the ES ring, its first bytes read, unmapped
+ *   lumatv-venc hma    [-w -h]           one NV12 frame from an HMA pool: alloc, write, read back, free; nothing encoded
+ *   lumatv-venc synth  [opts] -o out.h264 a moving test picture from CPU memory through /dev/venc (the encoder alone)
+ *   lumatv-venc tapopen [opts]           the tap opened at the point and size asked, buffers mapped and their addresses
+ *                                        printed, no streaming, closed
+ *   lumatv-venc vt     [opts] -o out.h264 the screen: video tap -> encoder, no copy (the chosen route)
+ *   lumatv-venc serve  [opts] -p PORT    the screen as an H.264 byte stream to one TCP client at a time
+ *
+ * /dev/video24 (the V4L2 M2M node) is never used: its mmap maps the kernel page at vmalloc_to_page(<physical
+ * address>), so a frame written through it lands in kernel memory; the first slot wedged the kernel that way
+ * (docs/research/venc-result.md).
  *
  * Options: -w WIDTH -h HEIGHT (default 1280x720) -r FPS (30) -b KBPS (4000; 0 = fixed QP -q) -g GOP (30)
  *          -n FRAMES (300) -l blended|osd|display|scaler-output (blended) -d DIVIDE (1) -P profile high|main|baseline
  *          --pool NAME (photofb) --csv FILE --cbr --nbuf N (4) --active-file PATH (serve)
  * Every run prints one JSON line with the numbers at the end. Nothing is written outside the paths given.
+ * Every call that can block is under a watchdog (watchdog.h): exit 75 names the call that hung.
  */
 #define _GNU_SOURCE
 #include <arpa/inet.h>
@@ -36,10 +48,14 @@
 
 #include "annexb.h"
 #include "hma.h"
+#include "pools.h"
 #include "synth.h"
 #include "sysops.h"
 #include "venc.h"
 #include "vtcap.h"
+#include "watchdog.h"
+
+#define SLOW_LIMIT 3 /* encodes slower than VENC_SLOW_MS before a run stops */
 
 static volatile sig_atomic_t stop_now;
 static void on_signal(int sig) { (void)sig; stop_now = 1; }
@@ -66,9 +82,9 @@ struct opts {
 
 static void usage(void)
 {
-    fputs("usage: lumatv-venc caps|vtcaps|synth|m2m|vt|serve [-w W] [-h H] [-r FPS] [-b KBPS] [-q QP] [-g GOP] [-n FRAMES]\n"
-          "       [-l blended|osd|display|scaler-output] [-d DIVIDE] [-P high|main|baseline] [--pool NAME] [--cbr]\n"
-          "       [--nbuf N] [--csv FILE] [--active-file PATH] [-p PORT] -o OUT.h264\n",
+    fputs("usage: lumatv-venc caps|vtcaps|gate|create|map|hma|synth|tapopen|vt|serve [-w W] [-h H] [-r FPS] [-b KBPS] [-q QP]\n"
+          "       [-g GOP] [-n FRAMES] [-l blended|osd|display|scaler-output] [-d DIVIDE] [-P high|main|baseline]\n"
+          "       [--pool NAME] [--cbr] [--nbuf N] [--csv FILE] [--active-file PATH] [-p PORT] -o OUT.h264\n",
           stderr);
 }
 
@@ -257,56 +273,18 @@ static int do_caps(void)
     stat_node("/dev/lg/venc0");
     stat_node("/dev/hma");
     stat_node("/dev/video60");
-    puts("/proc/hma/status (pools and free space):");
-    cat_head("/proc/hma/status", 40);
-    puts("/dev/video24 (sic-encoder, V4L2):");
-    int fd = open("/dev/video24", O_RDWR | O_CLOEXEC);
-    if (fd < 0) {
-        printf("  open: %s\n", strerror(errno));
-        return 1;
+    puts("/proc/hma/status (pools):");
+    cat_head("/proc/hma/status", 60);
+    struct pools ps;
+    unsigned n = pools_read(&ps, NULL);
+    const struct pool *cpb = NULL, *vt0 = NULL, *vt1 = NULL;
+    for (unsigned i = 0; i < n; i++) {
+        if (!strcmp(ps.p[i].name, "cpb")) cpb = &ps.p[i];
+        if (!strcmp(ps.p[i].name, "de-vt-m0")) vt0 = &ps.p[i];
+        if (!strcmp(ps.p[i].name, "de-vt-m1")) vt1 = &ps.p[i];
     }
-    struct v4l2_capability cap;
-    memset(&cap, 0, sizeof(cap));
-    if (ioctl(fd, VIDIOC_QUERYCAP, &cap) == 0)
-        printf("  driver %s card '%s' bus %s caps 0x%08x device_caps 0x%08x\n", cap.driver, cap.card, cap.bus_info,
-               cap.capabilities, cap.device_caps);
-    else
-        printf("  QUERYCAP: %s\n", strerror(errno));
-    for (int type = 0; type < 2; type++) {
-        struct v4l2_fmtdesc fd_;
-        for (uint32_t i = 0;; i++) {
-            memset(&fd_, 0, sizeof(fd_));
-            fd_.index = i;
-            fd_.type = type ? V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE : V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
-            if (ioctl(fd, VIDIOC_ENUM_FMT, &fd_) < 0)
-                break;
-            char fcc[5] = { (char)(fd_.pixelformat & 0xff), (char)(fd_.pixelformat >> 8), (char)(fd_.pixelformat >> 16), (char)(fd_.pixelformat >> 24), 0 };
-            printf("  %s format %u: %s\n", type ? "cap (ES) " : "out (YUV)", i, fcc);
-            if (type) {
-                struct v4l2_frmsizeenum fs;
-                memset(&fs, 0, sizeof(fs));
-                fs.pixel_format = fd_.pixelformat;
-                if (ioctl(fd, VIDIOC_ENUM_FRAMESIZES, &fs) == 0 && fs.type == V4L2_FRMSIZE_TYPE_STEPWISE)
-                    printf("    sizes %ux%u .. %ux%u step %ux%u\n", fs.stepwise.min_width, fs.stepwise.min_height,
-                           fs.stepwise.max_width, fs.stepwise.max_height, fs.stepwise.step_width, fs.stepwise.step_height);
-            }
-        }
-    }
-    static const struct { uint32_t id; const char *name; } ctrls[] = {
-        { V4L2_CID_MPEG_VIDEO_BITRATE, "bitrate" }, { V4L2_CID_MPEG_VIDEO_GOP_SIZE, "gop" },
-        { V4L2_CID_MPEG_VIDEO_H264_PROFILE, "h264_profile" }, { V4L2_CID_MPEG_VIDEO_H264_LEVEL, "h264_level" },
-        { V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME, "force_key_frame" },
-    };
-    for (unsigned i = 0; i < sizeof(ctrls) / sizeof(ctrls[0]); i++) {
-        struct v4l2_queryctrl q;
-        memset(&q, 0, sizeof(q));
-        q.id = ctrls[i].id;
-        if (ioctl(fd, VIDIOC_QUERYCTRL, &q) == 0)
-            printf("  control %-16s min %d max %d step %d default %d\n", ctrls[i].name, q.minimum, q.maximum, q.step, q.default_value);
-        else
-            printf("  control %-16s %s\n", ctrls[i].name, strerror(errno));
-    }
-    close(fd);
+    printf("pools parsed: %u; cpb (the encoder's ES/AUI and photofb frames) %s; de-vt-m0 (tap buffers) %s; de-vt-m1 %s\n", n,
+           cpb ? "present" : "ABSENT", vt0 ? "present" : "ABSENT", vt1 ? "present" : "ABSENT");
     return 0;
 }
 
@@ -327,6 +305,122 @@ static int do_vtcaps(void)
     return 0;
 }
 
+static void print_bufinfo(const struct venc *v)
+{
+    struct pools ps;
+    unsigned n = pools_read(&ps, NULL);
+    const struct pool *pe = n ? pools_find(&ps, v->buf.ui32ESBufPhysBase, v->buf.ui32ESBufSize) : NULL;
+    const struct pool *pa = n ? pools_find(&ps, v->buf.ui32AUIBufPhysBase, v->buf.ui32AUIBufSize) : NULL;
+    printf("venc: instance %d; es 0x%08x+0x%x (pool %s) aui 0x%08x+0x%x (pool %s) in 0x%08x+0x%x thumb 0x%08x+0x%x\n", v->id,
+           v->buf.ui32ESBufPhysBase, v->buf.ui32ESBufSize, pe ? pe->name : (n ? "NONE" : "unknown"), v->buf.ui32AUIBufPhysBase,
+           v->buf.ui32AUIBufSize, pa ? pa->name : (n ? "NONE" : "unknown"), v->buf.ui32InBufPhysBase, v->buf.ui32InBufSize,
+           v->buf.ui32PhysicalAddress, v->buf.ui32Size);
+}
+
+/* ---- the small steps: gate, create, map, hma, tapopen ---- */
+
+static int do_gate(void)
+{
+    char err[256] = "";
+    struct venc v;
+    if (venc_open(&v, &sysops_real, err, sizeof(err)) < 0) {
+        fprintf(stderr, "venc: %s\n", err);
+        return 2;
+    }
+    puts("gate: /dev/venc opened and the KADP gate passed");
+    venc_close(&v);
+    puts("gate: closed");
+    printf("{\"step\":\"gate\",\"ok\":true}\n");
+    return 0;
+}
+
+/* create: the instance and its buffer map; map: the same plus the ES ring mapped and read */
+static int do_create(const struct opts *o, int map)
+{
+    char err[256] = "";
+    struct venc v;
+    if (venc_open(&v, &sysops_real, err, sizeof(err)) < 0) {
+        fprintf(stderr, "venc: %s\n", err);
+        return 2;
+    }
+    struct venc_cfg cfg;
+    venc_cfg_from(o, &cfg);
+    if (venc_create(&v, &cfg, err, sizeof(err)) < 0) {
+        fprintf(stderr, "venc create: %s\n", err);
+        venc_close(&v);
+        return 4;
+    }
+    print_bufinfo(&v);
+    if (map) {
+        /* venc_create mapped the ring already; show that the mapping reads, and what it holds */
+        const volatile uint8_t *p = v.es;
+        unsigned nonzero = 0;
+        for (size_t i = 0; i < 4096 && i < v.buf.ui32ESBufSize; i++)
+            nonzero += p[i] != 0;
+        printf("map: ES ring mapped at %p; first 16 bytes:", (const void *)v.es);
+        for (size_t i = 0; i < 16; i++)
+            printf(" %02x", p[i]);
+        printf("; %u non-zero bytes in the first 4 KiB\n", nonzero);
+    }
+    venc_close(&v);
+    puts("destroyed and closed");
+    printf("{\"step\":\"%s\",\"ok\":true,\"id\":%d,\"es_size\":%u,\"aui_size\":%u}\n", map ? "map" : "create", v.id,
+           v.buf.ui32ESBufSize, v.buf.ui32AUIBufSize);
+    return 0;
+}
+
+static int do_hma(const struct opts *o)
+{
+    char err[256] = "";
+    size_t frame_bytes = (size_t)o->w * o->h * 3 / 2;
+    struct hma_buf b;
+    if (hma_alloc(&b, &sysops_real, o->pool, frame_bytes, 4096, 0, err, sizeof(err)) < 0) {
+        fprintf(stderr, "hma: %s\n", err);
+        return 3;
+    }
+    struct pools ps;
+    unsigned n = pools_read(&ps, NULL);
+    const struct pool *pp = n ? pools_find(&ps, b.paddr, frame_bytes) : NULL;
+    printf("hma: %zu bytes from %s at 0x%08x (pool %s), mapped at %p\n", frame_bytes, o->pool, b.paddr, pp ? pp->name : (n ? "NONE" : "unknown"),
+           (void *)b.vaddr);
+    if (n && !pp) {
+        fprintf(stderr, "hma: the address lies in no listed pool; stopping\n");
+        hma_free(&b);
+        return 5;
+    }
+    synth_nv12(b.vaddr, b.vaddr + (size_t)o->w * o->h, o->w, o->h, 0x1234);
+    uint32_t back = synth_read_counter(b.vaddr, o->w, o->h);
+    printf("hma: pattern written and read back: counter 0x%04x (expected 0x1234)\n", back);
+    hma_free(&b);
+    if (back != 0x1234)
+        return 6;
+    printf("{\"step\":\"hma\",\"ok\":true,\"paddr\":%u,\"bytes\":%zu}\n", b.paddr, frame_bytes);
+    return 0;
+}
+
+static int do_tapopen(const struct opts *o)
+{
+    char err[256] = "";
+    enum v4l2_ext_capture_location loc;
+    if (vtcap_location_parse(o->location, &loc) < 0) {
+        fprintf(stderr, "unknown location %s\n", o->location);
+        return 1;
+    }
+    struct vtcap cap;
+    if (vtcap_open(&cap, &sysops_real, loc, o->w, o->h, o->nbuf, o->divide, err, sizeof(err)) < 0) {
+        fprintf(stderr, "tap: %s\n", err);
+        return 3;
+    }
+    printf("tap: %s %ux%u stride %u, %u buffers queued, no streaming:\n", o->location, o->w, o->h, cap.stride, cap.nqueued);
+    for (uint32_t i = 0; i < o->nbuf; i++)
+        printf("  buffer %u: y 0x%08x (%u bytes) c 0x%08x (%u bytes) pool %s\n", i, cap.paddr_y[i], cap.plane_len[i][0], cap.paddr_c[i],
+               cap.plane_len[i][1], cap.pool[i]);
+    vtcap_close(&cap);
+    puts("tap: buffers released and closed");
+    printf("{\"step\":\"tapopen\",\"ok\":true,\"location\":\"%s\",\"stride\":%u}\n", o->location, cap.stride);
+    return 0;
+}
+
 /* ---- synth: CPU frames through /dev/venc ---- */
 
 static int do_synth(const struct opts *o)
@@ -340,13 +434,12 @@ static int do_synth(const struct opts *o)
         fprintf(stderr, "venc: %s\n", err);
         return 2;
     }
-    printf("venc: es 0x%08x+0x%x aui 0x%08x+0x%x in 0x%08x+0x%x\n", v.buf.ui32ESBufPhysBase, v.buf.ui32ESBufSize,
-           v.buf.ui32AUIBufPhysBase, v.buf.ui32AUIBufSize, v.buf.ui32InBufPhysBase, v.buf.ui32InBufSize);
     size_t frame_bytes = (size_t)o->w * o->h * 3 / 2;
     struct hma_buf in[2];
     for (int i = 0; i < 2; i++)
         if (hma_alloc(&in[i], &sysops_real, o->pool, frame_bytes, 4096, 0, err, sizeof(err)) < 0) {
             fprintf(stderr, "hma: %s\n", err);
+            if (i) hma_free(&in[0]);
             venc_close(&v);
             return 3;
         }
@@ -358,6 +451,7 @@ static int do_synth(const struct opts *o)
         hma_free(&in[0]); hma_free(&in[1]); venc_close(&v);
         return 4;
     }
+    print_bufinfo(&v);
     printf("venc: instance %d, %ux%u %u fps %u kbps gop %u\n", v.id, o->w, o->h, o->fps, o->kbps, o->gop);
     struct stats st;
     stats_begin(&st, o->csv);
@@ -382,6 +476,11 @@ static int do_synth(const struct opts *o)
             rc = 6;
             break;
         }
+        if (v.slow >= SLOW_LIMIT) {
+            fprintf(stderr, "%u encodes took longer than %d ms; stopping\n", v.slow, VENC_SLOW_MS);
+            rc = 7;
+            break;
+        }
         next += period;
         double sleep_s = next - now_s();
         if (sleep_s > 0)
@@ -391,176 +490,6 @@ static int do_synth(const struct opts *o)
     hma_free(&in[0]);
     hma_free(&in[1]);
     venc_close(&v);
-    close(out);
-    return rc;
-}
-
-/* ---- m2m: CPU frames through /dev/video24 (standard V4L2, the fallback) ---- */
-
-static int set_ctrl(int fd, uint32_t id, int32_t val)
-{
-    struct v4l2_control c = { .id = id, .value = val };
-    return ioctl(fd, VIDIOC_S_CTRL, &c);
-}
-
-static int do_m2m(const struct opts *o)
-{
-    int out = open_out(o->out);
-    if (out < 0)
-        return 1;
-    int fd = open("/dev/video24", O_RDWR | O_CLOEXEC);
-    if (fd < 0) {
-        fprintf(stderr, "open /dev/video24: %s\n", strerror(errno));
-        return 2;
-    }
-    struct v4l2_format f;
-    memset(&f, 0, sizeof(f));
-    f.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
-    f.fmt.pix_mp.width = o->w;
-    f.fmt.pix_mp.height = o->h;
-    f.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_NV12M;
-    f.fmt.pix_mp.num_planes = 2;
-    if (ioctl(fd, VIDIOC_S_FMT, &f) < 0) {
-        fprintf(stderr, "S_FMT out: %s\n", strerror(errno));
-        return 3;
-    }
-    uint32_t ysize = f.fmt.pix_mp.plane_fmt[0].sizeimage, csize = f.fmt.pix_mp.plane_fmt[1].sizeimage;
-    memset(&f, 0, sizeof(f));
-    f.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
-    f.fmt.pix_mp.width = o->w;
-    f.fmt.pix_mp.height = o->h;
-    f.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_H264;
-    f.fmt.pix_mp.num_planes = 1;
-    f.fmt.pix_mp.plane_fmt[0].sizeimage = o->w * o->h;
-    if (ioctl(fd, VIDIOC_S_FMT, &f) < 0) {
-        fprintf(stderr, "S_FMT cap: %s\n", strerror(errno));
-        return 3;
-    }
-    uint32_t essize = f.fmt.pix_mp.plane_fmt[0].sizeimage;
-    struct v4l2_streamparm parm;
-    memset(&parm, 0, sizeof(parm));
-    parm.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
-    parm.parm.output.timeperframe.numerator = 1;
-    parm.parm.output.timeperframe.denominator = o->fps;
-    if (ioctl(fd, VIDIOC_S_PARM, &parm) < 0)
-        fprintf(stderr, "S_PARM: %s\n", strerror(errno));
-    if (set_ctrl(fd, V4L2_CID_MPEG_VIDEO_BITRATE, (int32_t)(o->kbps * 1000)) < 0)
-        fprintf(stderr, "S_CTRL bitrate: %s\n", strerror(errno));
-    if (set_ctrl(fd, V4L2_CID_MPEG_VIDEO_GOP_SIZE, (int32_t)o->gop) < 0)
-        fprintf(stderr, "S_CTRL gop: %s\n", strerror(errno));
-    if (set_ctrl(fd, V4L2_CID_MPEG_VIDEO_H264_PROFILE, o->profile == LX_VENC_H264_PROFILE_BASELINE ? V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE
-                                                        : o->profile == LX_VENC_H264_PROFILE_MAIN ? V4L2_MPEG_VIDEO_H264_PROFILE_MAIN
-                                                                                                   : V4L2_MPEG_VIDEO_H264_PROFILE_HIGH) < 0)
-        fprintf(stderr, "S_CTRL profile: %s\n", strerror(errno));
-    enum { NB = 2 };
-    uint8_t *outp[NB][2], *capp[NB];
-    uint32_t outlen[NB][2], caplen[NB];
-    for (int type = 0; type < 2; type++) {
-        struct v4l2_requestbuffers req;
-        memset(&req, 0, sizeof(req));
-        req.count = NB;
-        req.type = type ? V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE : V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
-        req.memory = V4L2_MEMORY_MMAP;
-        if (ioctl(fd, VIDIOC_REQBUFS, &req) < 0) {
-            fprintf(stderr, "REQBUFS %s: %s\n", type ? "cap" : "out", strerror(errno));
-            return 4;
-        }
-        for (int i = 0; i < NB; i++) {
-            struct v4l2_buffer b;
-            struct v4l2_plane pl[2];
-            memset(&b, 0, sizeof(b));
-            memset(pl, 0, sizeof(pl));
-            b.type = req.type;
-            b.memory = V4L2_MEMORY_MMAP;
-            b.index = (uint32_t)i;
-            b.length = type ? 1 : 2;
-            b.m.planes = pl;
-            if (ioctl(fd, VIDIOC_QUERYBUF, &b) < 0) {
-                fprintf(stderr, "QUERYBUF: %s\n", strerror(errno));
-                return 4;
-            }
-            for (uint32_t p = 0; p < b.length; p++) {
-                void *m = mmap(NULL, pl[p].length, type ? PROT_READ : PROT_WRITE, MAP_SHARED, fd, (off_t)pl[p].m.mem_offset);
-                if (m == MAP_FAILED) {
-                    fprintf(stderr, "mmap %s[%d][%u] (offset 0x%x len %u): %s\n", type ? "cap" : "out", i, p, pl[p].m.mem_offset, pl[p].length, strerror(errno));
-                    return 5;
-                }
-                if (type) { capp[i] = m; caplen[i] = pl[p].length; }
-                else { outp[i][p] = m; outlen[i][p] = pl[p].length; }
-            }
-        }
-    }
-    printf("m2m: out planes %u+%u bytes, es buffers %u bytes\n", ysize, csize, essize);
-    for (int t = 0; t < 2; t++) {
-        int type = t ? V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE : V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
-        if (ioctl(fd, VIDIOC_STREAMON, &type) < 0) {
-            fprintf(stderr, "STREAMON %d: %s\n", type, strerror(errno));
-            return 6;
-        }
-    }
-    struct stats st;
-    stats_begin(&st, o->csv);
-    int rc = 0;
-    for (uint32_t i = 0; i < o->frames && !stop_now; i++) {
-        int bi = (int)(i % NB);
-        double tf = now_s();
-        synth_nv12(outp[bi][0], outp[bi][1], o->w, o->h, i);
-        double fill = now_s() - tf;
-        struct v4l2_buffer b;
-        struct v4l2_plane pl[2];
-        memset(&b, 0, sizeof(b));
-        memset(pl, 0, sizeof(pl));
-        b.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
-        b.memory = V4L2_MEMORY_MMAP;
-        b.index = (uint32_t)bi;
-        b.length = 2;
-        b.m.planes = pl;
-        pl[0].bytesused = ysize;
-        pl[1].bytesused = csize;
-        gettimeofday(&b.timestamp, NULL);
-        double t1 = now_s();
-        if (ioctl(fd, VIDIOC_QBUF, &b) < 0) { fprintf(stderr, "QBUF out: %s\n", strerror(errno)); rc = 7; break; }
-        memset(&b, 0, sizeof(b));
-        memset(pl, 0, sizeof(pl));
-        b.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
-        b.memory = V4L2_MEMORY_MMAP;
-        b.index = (uint32_t)bi;
-        b.length = 1;
-        b.m.planes = pl;
-        if (ioctl(fd, VIDIOC_QBUF, &b) < 0) { fprintf(stderr, "QBUF cap: %s\n", strerror(errno)); rc = 7; break; }
-        struct pollfd pfd = { .fd = fd, .events = POLLIN };
-        int pr = poll(&pfd, 1, 2000);
-        if (pr <= 0) { fprintf(stderr, "frame %u: no result within 2 s\n", i); rc = 8; break; }
-        memset(&b, 0, sizeof(b));
-        memset(pl, 0, sizeof(pl));
-        b.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
-        b.memory = V4L2_MEMORY_MMAP;
-        b.length = 1;
-        b.m.planes = pl;
-        if (ioctl(fd, VIDIOC_DQBUF, &b) < 0) { fprintf(stderr, "DQBUF cap: %s\n", strerror(errno)); rc = 9; break; }
-        double t2 = now_s();
-        struct venc_frame vf = { .data = capp[b.index], .size = pl[0].bytesused, .keyframe = !!(b.flags & V4L2_BUF_FLAG_KEYFRAME), .hw_ms = 0 };
-        stats_frame(&st, &vf, t2 - t1, fill);
-        if (write_all(out, vf.data, vf.size) < 0) { rc = 10; break; }
-        memset(&b, 0, sizeof(b));
-        memset(pl, 0, sizeof(pl));
-        b.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
-        b.memory = V4L2_MEMORY_MMAP;
-        b.length = 2;
-        b.m.planes = pl;
-        if (ioctl(fd, VIDIOC_DQBUF, &b) < 0) { fprintf(stderr, "DQBUF out: %s\n", strerror(errno)); rc = 9; break; }
-    }
-    stats_end(&st, o, "m2m:/dev/video24", "\"wait_is\":\"fill_ms\"");
-    for (int t = 0; t < 2; t++) {
-        int type = t ? V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE : V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
-        ioctl(fd, VIDIOC_STREAMOFF, &type);
-    }
-    for (int i = 0; i < NB; i++) {
-        munmap(outp[i][0], outlen[i][0]);
-        munmap(outp[i][1], outlen[i][1]);
-        munmap(capp[i], caplen[i]);
-    }
-    close(fd);
     close(out);
     return rc;
 }
@@ -617,10 +546,14 @@ static int run_capture(const struct opts *o, struct sink *sink, uint32_t max_fra
     }
     printf("tap: %s %ux%u stride %u, %u buffers at", o->location, o->w, o->h, cap.stride, o->nbuf);
     for (uint32_t i = 0; i < o->nbuf; i++)
-        printf(" 0x%08x/0x%08x", cap.paddr_y[i], cap.paddr_c[i]);
+        printf(" 0x%08x/0x%08x(%s)", cap.paddr_y[i], cap.paddr_c[i], cap.pool[i]);
     putchar('\n');
-    if (cap.stride && cap.stride != o->w)
-        fprintf(stderr, "warning: tap stride %u differs from width %u; the encoder assumes stride == width\n", cap.stride, o->w);
+    if (cap.stride && cap.stride != o->w) {
+        fprintf(stderr, "tap stride %u differs from width %u; the encoder assumes stride == width; stopping\n", cap.stride, o->w);
+        vtcap_close(&cap);
+        venc_close(&v);
+        return 3;
+    }
     struct venc_cfg cfg;
     venc_cfg_from(o, &cfg);
     if (venc_create(&v, &cfg, err, sizeof(err)) < 0) {
@@ -628,6 +561,13 @@ static int run_capture(const struct opts *o, struct sink *sink, uint32_t max_fra
         vtcap_close(&cap);
         venc_close(&v);
         return 4;
+    }
+    print_bufinfo(&v);
+    if (vtcap_start(&cap, err, sizeof(err)) < 0) {
+        fprintf(stderr, "tap: %s\n", err);
+        vtcap_close(&cap);
+        venc_close(&v);
+        return 3;
     }
     int rc = 0;
     uint32_t n = 0, idle = 0;
@@ -672,6 +612,11 @@ static int run_capture(const struct opts *o, struct sink *sink, uint32_t max_fra
         }
         n++;
         stats_frame(st, &f, t2 - t1, wait);
+        if (v.slow >= SLOW_LIMIT) {
+            fprintf(stderr, "%u encodes took longer than %d ms; stopping\n", v.slow, VENC_SLOW_MS);
+            rc = 10;
+            break;
+        }
         if (sink_write(sink, f.data, f.size) < 0) {
             if (sink->is_socket) {
                 fprintf(stderr, "client gone\n");
@@ -769,10 +714,15 @@ int main(int argc, char **argv)
     signal(SIGINT, on_signal);
     signal(SIGTERM, on_signal);
     setvbuf(stdout, NULL, _IOLBF, 0);
+    wd_install();
     if (!strcmp(o.mode, "caps")) return do_caps();
     if (!strcmp(o.mode, "vtcaps")) return do_vtcaps();
+    if (!strcmp(o.mode, "gate")) return do_gate();
+    if (!strcmp(o.mode, "create")) return do_create(&o, 0);
+    if (!strcmp(o.mode, "map")) return do_create(&o, 1);
+    if (!strcmp(o.mode, "hma")) return do_hma(&o);
     if (!strcmp(o.mode, "synth")) return do_synth(&o);
-    if (!strcmp(o.mode, "m2m")) return do_m2m(&o);
+    if (!strcmp(o.mode, "tapopen")) return do_tapopen(&o);
     if (!strcmp(o.mode, "vt")) return do_vt(&o);
     if (!strcmp(o.mode, "serve")) return do_serve(&o);
     usage();

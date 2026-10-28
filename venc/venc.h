@@ -1,7 +1,12 @@
 /* An H.264 encoder session on the C4's hardware encoder through /dev/venc, memory-to-memory: the caller
  * owns NV12 frames at known physical addresses (HMA buffers, or the video tap's capture buffers) and gets
  * one Annex B access unit back per frame, from the encoder's own output ring, with no CPU copy on the
- * way in and one memcpy's worth of bytes on the way out (the caller takes the bytes from the mapping). */
+ * way in and one memcpy's worth of bytes on the way out (the caller takes the bytes from the mapping).
+ *
+ * Order, as the MCU insists (ENC_Create is what allocates the ES and AUI buffers, h1encode.c
+ * H1EncodeMemoryInit; the buffer info reads zeros before it, which the first slot measured):
+ *   venc_open (open, KADP gate) -> venc_create (ENC_CREATE, GET_BUFFER_INFO, mmap of the ES ring, SET_RC)
+ *   -> venc_encode ... -> venc_close (ENC_DESTROY, munmap, close). */
 #ifndef LUMATV_VENC_H
 #define LUMATV_VENC_H
 
@@ -24,25 +29,29 @@ struct venc_cfg {
 struct venc_frame {
     const uint8_t *data; /* inside the ES mapping; valid until the next venc_encode */
     uint32_t size;
-    int keyframe;    /* 1 for an I frame (SPS/PPS block included) */
-    uint32_t hw_ms;  /* encoder's own clock for this frame, as reported */
+    int keyframe;   /* 1 for an I frame (SPS/PPS block included) */
+    uint32_t hw_ms; /* encoder's own clock for this frame, as reported */
 };
 
 struct venc {
     const struct sysops *sys;
     int fd;
-    int id; /* encoder instance, -1 before create */
+    int created; /* an encoder instance exists */
+    int id;      /* the instance id the MCU returned (0 on this firmware: ENC_Encode uses the fd's handle) */
     LX_VENC_BUFFER_T buf;
-    uint8_t *es; /* mapping of the ES (output) buffer, buf.ui32ESBufSize bytes */
+    uint8_t *es; /* mapping of the ES (output) buffer, buf.ui32ESBufSize bytes; NULL until created */
     struct venc_cfg cfg;
     uint64_t frames; /* encoded so far */
+    unsigned slow;   /* encodes that took longer than VENC_SLOW_MS */
 };
 
-/* Opens /dev/venc, passes the KADP gate, reads the buffer map and maps the output ring. No encoder
- * instance exists yet. Returns 0, or -1 with err. */
+#define VENC_SLOW_MS 500
+
+/* Opens /dev/venc and passes the KADP gate. Returns 0, or -1 with err. */
 int venc_open(struct venc *v, const struct sysops *sys, char *err, size_t errlen);
 
-/* Creates the H.264 encoder instance (one per fd). */
+/* Creates the H.264 encoder instance, reads the buffer map the MCU allocated for it, checks it (the ES
+ * ring must be non-empty and, when pools is given, inside a listed HMA pool) and maps the ring. */
 int venc_create(struct venc *v, const struct venc_cfg *cfg, char *err, size_t errlen);
 
 /* Encodes the NV12 frame at paddr_y (luma) and paddr_c (interleaved chroma). out points into the ES

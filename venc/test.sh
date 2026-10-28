@@ -11,6 +11,31 @@ srv=
 
 "$b/venc_test" || fail "unit tests"
 
+# 0. the small steps, in the slot's order
+"$b/lumatv-venc" gate >"$tmp/g.out" || fail "gate"
+grep -q '"step":"gate","ok":true' "$tmp/g.out" || fail "gate summary"
+"$b/lumatv-venc" create -w 320 -h 240 >"$tmp/c.out" || fail "create"
+grep -q '^venc: instance 0; es 0x80100000+0x270000' "$tmp/c.out" || fail "create buffer info: $(cat "$tmp/c.out")"
+"$b/lumatv-venc" map -w 320 -h 240 >"$tmp/m.out" || fail "map"
+grep -q '^map: ES ring mapped at' "$tmp/m.out" || fail "map line"
+"$b/lumatv-venc" hma -w 320 -h 240 >"$tmp/h.out" || fail "hma"
+grep -q 'counter 0x1234 (expected 0x1234)' "$tmp/h.out" || fail "hma readback"
+"$b/lumatv-venc" tapopen -l osd -w 640 -h 368 --nbuf 2 >"$tmp/t.out" || fail "tapopen"
+grep -q '2 buffers queued, no streaming' "$tmp/t.out" || fail "tapopen line"
+grep -q '"step":"tapopen","ok":true' "$tmp/t.out" || fail "tapopen summary"
+set +e
+FAKE_VENC_DENY_MAGIC=1 "$b/lumatv-venc" gate >"$tmp/gd.out" 2>&1; rc=$?
+set -e
+[ "$rc" = 2 ] || fail "denied gate should exit 2 (rc $rc)"
+grep -q 'KADP gate' "$tmp/gd.out" || fail "denied gate message"
+set +e
+FAKE_VENC_HANG=1 "$b/lumatv-venc" synth -w 320 -h 240 -n 2 -o "$tmp/hang.h264" >"$tmp/hang.out" 2>&1; rc=$?
+set -e
+[ "$rc" = 75 ] || fail "a hung encode should end with 75 (rc $rc)"
+grep -q 'watchdog: LX_VENC_IOWR_ENC_ENCODE did not return within 3000 ms' "$tmp/hang.out" || fail "watchdog message"
+"$b/lumatv-venc" caps >"$tmp/caps.out" || fail "caps"
+grep -q '^pools parsed:' "$tmp/caps.out" || fail "caps pools line"
+
 # 1. synth: 40 frames, GOP 10 -> 4 I frames, each starting with SPS+PPS; a JSON summary with the counts
 "$b/lumatv-venc" synth -w 640 -h 360 -r 400 -n 40 -g 10 -o "$tmp/s.h264" --csv "$tmp/s.csv" >"$tmp/s.out" || fail "synth exited non-zero"
 tail -n 1 "$tmp/s.out" | grep -q '"frames":40,"keyframes":4' || fail "synth summary: $(tail -n 1 "$tmp/s.out")"
@@ -27,6 +52,7 @@ EOF
 "$b/lumatv-venc" vt -w 640 -h 368 -n 25 -g 5 -l osd -o "$tmp/v.h264" >"$tmp/v.out" || fail "vt exited non-zero"
 tail -n 1 "$tmp/v.out" | grep -q '"frames":25,"keyframes":5,"refused":0' || fail "vt summary: $(tail -n 1 "$tmp/v.out")"
 grep -q '^tap: osd 640x368 stride 640, 4 buffers at 0x' "$tmp/v.out" || fail "vt buffer line"
+grep -q '^venc: instance 0; es 0x80100000+0x270000' "$tmp/v.out" || fail "vt buffer info after create"
 set +e
 FAKE_VT_PROTECTED=1 timeout 5 "$b/lumatv-venc" vt -w 640 -h 368 -n 3 -l blended -o "$tmp/p.h264" >"$tmp/p.out"; rc=$?
 set -e

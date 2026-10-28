@@ -13,7 +13,7 @@ set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 out=$here/build
 mkdir -p "$out/arm" "$out/arm64" "$out/host"
-common="$here/venc.c $here/hma.c $here/vtcap.c $here/annexb.c $here/synth.c"
+common="$here/venc.c $here/hma.c $here/vtcap.c $here/annexb.c $here/synth.c $here/pools.c $here/watchdog.c"
 flags="-O2 -Wall -Wextra -Wno-unused-parameter"
 
 zig cc -target arm-linux-gnueabi.2.28 -O2 -Wall -Wextra -Wno-unused-parameter -s -o "$out/arm/lumatv-venc" "$here/probe.c" $common "$here/sysops.c"

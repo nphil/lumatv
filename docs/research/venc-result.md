@@ -2,9 +2,9 @@
 
 ## Resume here
 
-Done (2026-10-28, offline; no TV slot has run): the encoder identified from LG's published tree and the set's own binaries; LG's three ways of driving it recovered byte for byte (the `/dev/venc` ioctl ABI, the V4L2 node, the display-feedback record mode); the video tap's capture ABI on this firmware; a prototype that captures the screen through the tap into the encoder with no CPU copy and serves the H.264 stream over TCP (`venc/`, commit `28d7bca`), host-tested against a fake of the three devices; the first TV slot written as a script (`venc/tv_slot.sh`).
+Done (2026-10-28, offline): the encoder identified from LG's published tree and the set's own binaries; LG's three ways of driving it recovered byte for byte (the `/dev/venc` ioctl ABI, the V4L2 node, the display-feedback record mode); the video tap's capture ABI on this firmware; a prototype that captures the screen through the tap into the encoder with no CPU copy and serves the H.264 stream over TCP (`venc/`), host-tested against a fake of the three devices. First TV slot run (below): the read-only steps passed, the `/dev/venc` route failed on a call-order mistake of this prototype (buffer info asked before create; fixed, with the fake now refusing the same way), and the V4L2 M2M node wedged the kernel (LG's driver maps kernel memory into the caller; the node is never touched again). The probe now runs as small steps under a watchdog, dequeues only what it queued, checks every address against the HMA pool table, and the slot script kills over-budget steps and detects a kernel-stuck process.
 
-Open: the first slot (below, about 6 minutes at Home, 10 with the Netflix and HDMI captures); then the helper integration (start/stop behind Nitin's action, the on-screen indicator, go2rtc on BeastNAS, the Home Assistant camera), and the GeForce NOW clip ring, which this note argues should come from OpenNOW's own stream, not from the encoder.
+Open: the second slot (`venc/tv_slot.sh`, step list below; **needs Nitin's OK: the first slot showed a kernel wedge is possible, and a wedge ends in a cold boot**); then the helper integration (start/stop behind Nitin's action, the on-screen indicator, go2rtc on BeastNAS, the Home Assistant camera), and the GeForce NOW clip ring, which this note argues should come from OpenNOW's own stream, not from the encoder.
 
 ## Evidence key
 
@@ -19,11 +19,11 @@ Nodes on the set (TV: `/tmp/hwcensus/tv/devices.json`, `extra.txt`):
 | Node | What | Who may open |
 |---|---|---|
 | `/dev/venc` (char 1820:0, root:composit 0660) | the IPC front door: `LX_VENC_*` ioctls forwarded to the MCU; the first ioctl must be the KADP magic (`"SIC"`,`"KADP"`,`"VENC"`), every other answers EFAULT before it (SRC `ipc/local/venc.c:359-383`). mmap: offset 0 the AUI buffer, offset `ui32AUIBufSize` the ES ring (`:484-514`) | root, group `composit` |
-| `/dev/video24` "sic-encoder" (81:21, root:composit 0660) | a V4L2 M2M multi-planar wrapper over the same IPC: out NV12M/NV21M/YUV420M/YVU420M, cap H264 (VP8 too on this chip), 240x120..1920x1080, bitrate 1..20,000,000 default 20 M, GOP default 60, profile up to High, level up to 4.2 default 4.0; MMAP buffers only, allocated by the driver from the HMA pool "photofb" (SRC `v4l2_venc.c`, `v4l2_venc.h`). Its mmap maps the physical address through `vmalloc_to_page`, which looks wrong for a physical address [INFERENCE: the slot's `m2m` step answers it] | root, `composit` |
+| `/dev/video24` "sic-encoder" (81:21, root:composit 0660) | a V4L2 M2M multi-planar wrapper over the same IPC: out NV12M/NV21M/YUV420M/YVU420M, cap H264 and VP8, 240x120..1920x1080 step 4, bitrate 1..20,000,000 default 20 M, GOP default 60, profile 0..4 default High, level 0..13 default 4.0 (TV: first slot `caps`); MMAP buffers only, allocated by the driver from the HMA pool "photofb" (SRC `v4l2_venc.c`, `v4l2_venc.h`). **Unusable and dangerous from user space**: its mmap maps `page_address(vmalloc_to_page(<physical address>))`, i.e. whatever kernel page sits at that virtual address, so a frame written through the mapping lands in kernel memory, and the first slot's one run of it wedged the kernel (below). Never opened by LumaTV again, not even for `QUERYCAP` | root, `composit` |
 | `/dev/lg/venc0` (162:0, **0777**) | the pre-MCU in-kernel driver (`venc/venc_drv.c`). Its ARM build has no hardware table for O22 (only o20/e60 under `#else // __XTENSA__`, `venc_cfg.c:180-190`), so it is a stub here [INFERENCE: `caps`-level open in a later slot]. Its mmap is `remap_pfn_range(vma->vm_pgoff)` of any page the caller names (`venc_drv.c:775-790`): **any process on this set can map any physical memory through it.** LG's bug; nothing here uses the node | anyone |
 | `/dev/hma` (1819:0, 0666) | LG's contiguous-memory allocator: one allocation per fd from a named pool, physical address back, mmap, dma-buf export (SRC `hma/hma_drv.c`). LG's encoder plugin takes its frames from "photofb" (an alias of "cpb", 66 MB) | anyone |
 
-Memory the MCU reserves for the encoder: 10 MB non-secure ("venc0": ES ring 0x270000 = 2.4 MB, AUI 64 KB, CPB 1 MB, H1 working memory 6.5 MB; `venc_cfg.c:133-142` "FHD") and 12 MB secure ("venc1") for the HDCP path (SRC `platform/o22_pioneer/platform_init.c:829-830`, `platform_mem_map.h`). Memory-to-memory input frames are the caller's (HMA, or the tap's buffers); nothing comes out of the UI's CMA.
+Memory the MCU reserves for the encoder: 10 MB non-secure per instance (ES ring 0x270000 = 2.4 MB, AUI 64 KB, CPB 1 MB, H1 working memory 6.5 MB; `venc_cfg.c:133-142` "FHD"), taken from pool `venc0`, which on this model is an alias of `cpb` (66 MB at 0x77200000; TV: `/proc/hma/status` lists `cpb` and no `venc0`; SRC `platform_init.c:891`, `memalloc.c:117-134`), and 12 MB secure (`venc1`, 0x76200000; TV) for the HDCP path. The tap's buffers come from the display engine's pools `de-vt-m0` (24 MB at 0x80e28000) and `de-vt-m1` (12 MB at 0x9a800000) (TV). Memory-to-memory input frames are the caller's (HMA `photofb` = `cpb`, or the tap's buffers); nothing comes out of the UI's CMA (`CmaFree` was 16 MB at Home during the slot).
 
 Limits that matter: 1920x1080 maximum (`VENC_MAX_WIDTH/HEIGHT`); in the display-feedback record mode the MCU encodes 1080p at 30 fps at most (`FHD_FRAMERATE_MAX 30`, every other vsync skipped, `h1encode.c:59,2175-2186`; 720p keeps 60); memory-to-memory runs as fast as frames are pushed (one blocking ioctl per frame, measured by the slot). Bit-rate control VBR/CBR/fixed QP; IDR on demand; bitrate, GOP and frame rate changeable between frames (`LX_VENC_IOWR_ENC_PARAM`). Every I frame starts with the 64-byte SPS/PPS block the MCU made at create time, zero padded (`h1encode.c:2386-2399`): the stream is self-describing at every keyframe, which is what a late-joining viewer needs. No B frames, no HEVC, no 4K.
 
@@ -63,49 +63,55 @@ The GeForce NOW frames are on the video plane through the NDL path (clear, not s
 | 1 | **Tap → `/dev/venc` memory-to-memory, zero copy** | the whole screen (or the UI alone), any size to 1080p, LG's own encoder interface (the magic gate is three strings), the tap's buffers already contiguous, no CMA from the UI budget, bitrate/GOP/IDR control, the SPS/PPS in every I frame | the encoder and the decoder share the MCU: a wedged encoder call could stall video for the whole set until a reboot [INFERENCE, never observed]; the tap is a single resource, so the ambient histogram and a capture cannot run at once; LG's screenshot `method: DISPLAY` fails while a capture holds the tap [INFERENCE] | done offline; one slot |
 | 2 | Own compositor → GPU NV12 → HMA dma-buf → `/dev/venc` | works when the tap is busy (histogram) or for UI-only mirroring with no tap at all; the frames are LumaTV's own | the GPU pass costs frame time on a 60 fps UI; dma-buf import of an HMA buffer into Mali is unproven [INFERENCE: one compositor slot] | M |
 | 3 | Display feedback → record mode | no buffers, hardware-timed, the exact Miracast TX path | reconfigures the sub scaler behind `videooutputd` (PIP/multiview owner); 1080p capped at 30 fps; `/dev/video31` is held by LG's services | M-L |
-| 4 | `/dev/video24` M2M | standard V4L2, a second implementation to compare | the suspicious mmap; a copy per frame | done in the probe (`m2m`) |
+| 4 | `/dev/video24` M2M | standard V4L2 | **rejected after the first slot**: the driver's mmap maps kernel memory into the caller and the one run wedged the kernel (below) | never again |
 | 5 | CPU encode (x264) | none: four A76 at 1.4 GHz have no budget for 1080p30 beside the UI | | rejected |
 
-Chosen: 1, with 2 as the second source once the compositor exports a frame, 4 as the fallback the slot measures anyway.
+Chosen: 1, with 2 as the second source once the compositor exports a frame. There is no fallback through the V4L2 node.
 
-## The prototype (`venc/`, commit `28d7bca`)
+## The prototype (`venc/`)
 
-- `venc_abi.h`, `hma_abi.h`, `vt_abi.h`: the three ABIs, re-declared with the GPL header's field names and static size asserts. The tap's control base on this firmware is `V4L2_CID_USER_BASE + 0x2a00` (BIN: `VtDriver::setCapturePlanePropertes` issues 0x982a03, `setCaptureFrameRate` 0x982a08; the webOS 25 header says +0x2100), the ext-control payload size is 16 for PLANE_PROP (BIN), the physical-address query writes through two pointers it reads as 32-bit values (SRC `v4l2_vt.c:981-1013`; `vtcap.c` keeps them below 4 GiB for a 64-bit caller).
-- `venc.c`: open, gate, buffer map, ES mapping, create, encode (physical Y/UV in, Annex B unit out of the ring), bitrate, IDR, close. `hma.c`: one contiguous buffer. `vtcap.c`: the tap in LG's own order (PLANE_PROP, S_FMT, DIVIDE, REQBUFS, PLANE_INFO, QUERYBUF+mmap, PHYSICAL_MEMORY_INFO, QBUF, STREAMON; BIN `VtDriver::preprocessVtCapture`), `poll`+`DQBUF`, refused frames (EACCES/ENODATA) reported, not fatal. `annexb.c`: NAL walker, keyframe check. `synth.c`: the moving test picture with a frame counter.
-- `probe.c` → `lumatv-venc`: `caps` (read-only), `vtcaps`, `synth`, `m2m`, `vt`, `serve` (TCP Annex B to one client, an IDR per connection, the `/tmp/lumatv/venc-active` file while a client is connected: the shell's indicator hook). One JSON line per run with frames, bytes, fps, kbit/s, CPU %, ioctl ms avg/max, the MCU's own ms, tap wait ms, refused frames and the first keyframe's SPS profile/level; `--csv` per frame.
-- Builds (`build.sh`): the set's binary is 64-bit static musl (`build/arm64`: the kernel's own V4L2 layouts, no compat path), with a 32-bit glibc-2.28 build beside it (`build/arm`: the ABI LG's own 32-bit libraries speak). Not 32-bit musl: its 64-bit `time_t` makes `struct v4l2_buffer` 80 bytes where this 5.4 kernel knows only 68, so QUERYBUF/QBUF/DQBUF would be refused (measured: 80/68/88 bytes for musl-arm, glibc-arm, aarch64). Plus the host build against `tests/fake_sys.c` (a fake of the three devices: the gate, the buffer map, the ES ring at offset = AUI size, HMA physical addresses, the tap's buffers, EACCES/timeouts on demand).
-- Tests (`test.sh`, all passing on the host): `tests/venc_test.c` (ioctl order and refusals, GOP/IDR bookkeeping, SPS profile per create, the tap's buffers reach the encoder by physical address, protected and timeout answers, fd hygiene, Annex B edge cases, the picture's counter round trip), then the probe's `synth`, `vt` (refusal path, width check) and `serve` (stream starts with SPS, the active file lives exactly while a client is connected). The Annex B reader was also run over an x264 stream (30 frames, 3 GOPs: 3/3/3 SPS/PPS/IDR, 27 P, 1 SEI).
-- `tv_slot.sh`: the first slot (below). `tools/decode_check.py`: pulls the numbers out of a slot directory, ffprobes every stream and decodes first/middle/last frames to PNG.
+- `venc_abi.h`, `hma_abi.h`, `vt_abi.h`: the three ABIs, re-declared with the GPL header's field names and static size asserts. The tap's control base on this firmware is `V4L2_CID_USER_BASE + 0x2a00` (BIN: `VtDriver::setCapturePlanePropertes` issues 0x982a03, `setCaptureFrameRate` 0x982a08 as a plain `S_CTRL`; the webOS 25 header says +0x2100), the ext-control payload size is 16 for PLANE_PROP (BIN), the physical-address query writes through two pointers it reads as 32-bit values (SRC `v4l2_vt.c:981-1013`; `vtcap.c` keeps them below 4 GiB for a 64-bit caller).
+- `venc.c`: open and the KADP gate; **create, then** the buffer map the MCU allocated for the instance (checked: non-zero, page-aligned, inside a pool of `/proc/hma/status`), the ES ring mapped; encode (physical Y/UV in, Annex B unit out of the ring); bitrate; IDR; close. The order is the MCU's: `ENC_Create` runs `H1EncodeMemoryInit`, which is where the ES and AUI buffers come from (`h1encode.c:2660, 762-840`), and `GET_BUFFER_INFO` reads the instance's fields (`:917-935`), zeros before create. `hma.c`: one contiguous buffer. `vtcap.c`: the tap in LG's own order (PLANE_PROP, S_FMT, DIVIDE, REQBUFS, PLANE_INFO, QUERYBUF, PHYSICAL_MEMORY_INFO, mmap, QBUF; BIN `VtDriver::preprocessVtCapture`), streaming started by a separate call, `poll`+`DQBUF` only while a buffer is queued, requeue only of a buffer this session holds, plane sizes and addresses checked before anything is mapped, refused frames (EACCES/ENODATA) reported, not fatal. `pools.c`: the `/proc/hma/status` table. `watchdog.c`: every call that can block (ioctls, poll, mmap, open, close) runs under an armed timer; when it fires the process names the call and exits 75. `annexb.c`: NAL walker, keyframe check. `synth.c`: the moving test picture with a frame counter.
+- `probe.c` → `lumatv-venc`: small steps, one process each: `caps` (files only), `vtcaps`, `gate`, `create`, `map`, `hma`, `synth`, `tapopen`, `vt`, `serve` (TCP Annex B to one client, an IDR per connection, the `/tmp/lumatv/venc-active` file while a client is connected: the shell's indicator hook). A run stops after three encodes slower than 500 ms. One JSON line per run with frames, bytes, fps, kbit/s, CPU %, ioctl ms avg/max, the MCU's own ms, tap wait ms, refused frames and the first keyframe's SPS profile/level; `--csv` per frame. No code path opens `/dev/video24`.
+- Builds (`build.sh`): the set's binary is 64-bit static musl (`build/arm64`: the kernel's own V4L2 layouts, no compat path), with a 32-bit glibc-2.28 build beside it (`build/arm`: the ABI LG's own 32-bit libraries speak). Not 32-bit musl: its 64-bit `time_t` makes `struct v4l2_buffer` 80 bytes where this 5.4 kernel knows only 68, so QUERYBUF/QBUF/DQBUF would be refused (measured: 80/68/88 bytes for musl-arm, glibc-arm, aarch64). Plus the host build against `tests/fake_sys.c`: a fake of the three devices that behaves as the MCU does (zeros from `GET_BUFFER_INFO` before create, instance id 0, the ES ring at mmap offset = AUI size, HMA physical addresses, the tap's buffers, EACCES/timeouts and a never-returning encode on demand).
+- Tests (`test.sh`, all passing on the host): `tests/venc_test.c` (the call order and its refusals, GOP/IDR bookkeeping, SPS profile per create, the tap's buffers reach the encoder by physical address, dequeue refused before start and with nothing queued, requeue refused for a buffer the driver holds, protected and timeout answers, a hung encode ended by the watchdog with exit 75, fd hygiene, the pool table, Annex B edge cases, the picture's counter round trip), then the probe's steps in the slot's order, the denied gate, the hung encode, `synth`, `vt` (refusal path, width check) and `serve` (stream starts with SPS, the active file lives exactly while a client is connected). The Annex B reader was also run over an x264 stream (30 frames, 3 GOPs: 3/3/3 SPS/PPS/IDR, 27 P, 1 SEI).
+- `tv_slot.sh`: the slot (below). `tools/decode_check.py`: pulls the numbers out of a slot directory, ffprobes every stream and decodes first/middle/last frames to PNG.
 
-## First TV slot
+## Second TV slot (needs Nitin's OK first)
 
-Preconditions: Home in front, nothing playing, the receiver muted by Main if `--apps` is used, nobody holding the four nodes (the script checks and stops). Everything stays under `/tmp`.
+Preconditions: Home in front, nothing playing, nobody holding the four nodes (the script checks and stops). Everything stays under `/tmp`. Nitin's OK, because the first slot showed that a wrong call can wedge the kernel and a wedge ends in a cold boot. This slot never touches `/dev/video24`; the `/dev/venc` route runs one call further per step so a failure is one call wide.
 
 ```
 scp venc/build/arm64/lumatv-venc venc/tv_slot.sh tv:/tmp/venc/
-ssh tv 'sh /tmp/venc/tv_slot.sh'           # ~6 min: caps, vtcaps, synth 720p/1080p (+ max rate), m2m, tap osd/blended/display
-ssh tv 'sh /tmp/venc/tv_slot.sh --apps'    # ~10 min: + Netflix (protected) and HDMI 2 captures, apps closed after
+ssh tv 'sh /tmp/venc/tv_slot.sh'           # ~4 min, 15 steps, stops at the first failure
+ssh tv 'sh /tmp/venc/tv_slot.sh --full'    # + 1080p, the unpaced runs, the display point (~6 min)
 scp -r tv:/tmp/venc-slot/ docs/research/venc/ && python3 venc/tools/decode_check.py docs/research/venc/<dir>
 ```
 
-Steps and pass marks:
+Each step is its own process with a time budget (10-40 s). Over budget: SIGKILL, then five seconds for the process to disappear; if it is still there it is stuck in the kernel, the slot writes `WEDGED` with the task's `/proc` stack and stops. Any non-zero exit stops the slot too (the end snapshot is still taken).
 
-1. `caps`: `/proc/hma/status` (free space in "cpb"/"photofb" ≥ 8 MB), `/dev/video24` QUERYCAP `sic-encoder`, out formats NV12M.., cap H264 (VP8), sizes 240x120..1920x1080, the five controls with their ranges.
-2. `synth-720p-short` (60 frames, 2 s): rc 0; the JSON line's `first_key` has sps 1, pps 1, idr 1; ffprobe on the host decodes 60 frames and the PNGs show the bars, the diagonal and the counter. **Gate for every later step.**
-3. `synth-720p30`, `synth-1080p30` (300 frames each, paced): fps_got ≈ 30, kbps_got near the ask, `ioctl_ms_avg` is the per-frame cost (the MCU's `hw_ms` beside it), cpu_pct is the probe's whole cost (fill + ioctl + file write).
-4. `synth-1080p-max`, `synth-720p-max` (unpaced): fps_got is the encoder's ceiling at each size.
-5. `m2m-720p`: records whether the V4L2 node's mmap works (a decodable stream) or fails (EINVAL/EAGAIN at mmap or a bad picture).
-6. `vt-osd-720p`, `vt-blended-720p`, `vt-blended-1080p`, `vt-display-720p` at Home: rc 0, refused 0, timeouts 0, `wait_ms_avg` ≈ 1000/60 ÷ divide, the PNGs show Home (osd: the UI over black; blended: the same with whatever video window LG shows; display: video only). `tap:` line lists non-zero physical addresses.
-7. With `--apps`: `vt-netflix-blended` must show refused > 0 or black video with the OSD only (never Netflix pixels); `vt-hdmi2-blended` records whether an HDCP input is treated as secure (black) or captured [INFERENCE either way].
-8. End: no new failed unit (`failed-diff.txt` empty), `dmesg-venc.txt` has the `LowPower::...::venc::open/close` pairs and no `venc` error lines, `hma-after` matches `hma-before`, Netflix and an HDMI input still play after the slot (Main's check).
+| # | step | what it does | pass |
+|---|---|---|---|
+| 1 | `caps` | files only: nodes, `/proc/hma/status`, the pools the later steps need | rc 0, `cpb` and `de-vt-m0` present |
+| 2 | `vtcaps` | opens the tap once for its capability record | rc 0, flags 0x3f, max 3840x2160 (as measured) |
+| 3 | `gate` | open `/dev/venc`, KADP gate, close | rc 0; `dmesg` shows `LowPower::...::venc::...::open::ok` and `close::ok` |
+| 4 | `create-320` | + `ENC_CREATE` 320x240, `GET_BUFFER_INFO`, `DESTROY` | rc 0; the line `venc: instance 0; es 0x7xxxxxxx+0x270000 (pool cpb) aui ...+0x10000 (pool cpb)` |
+| 5 | `map-320` | + mmap of the ES ring, 16 bytes read | rc 0 |
+| 6 | `hma-320` | one NV12 frame from `photofb`, pattern written and read back | rc 0, `counter 0x1234` |
+| 7 | `one-320` | one frame encoded (`synth -n 1`) | rc 0, `first_key` sps 1 pps 1 idr 1; the `.h264` decodes on the host |
+| 8 | `synth-320` | 30 frames | rc 0, 30 frames, ffprobe decodes 30 |
+| 9 | `create-720` | the 720p instance | rc 0, same pools |
+| 10 | `synth-720` | 60 frames at 720p30 | rc 0, `ioctl_ms_avg` is the encode cost, `hw_ms_avg` the MCU's |
+| 11 | `tapopen-osd` | the tap at `osd`, 640x368, 2 buffers, no streaming | rc 0, two buffers with addresses in `de-vt-m0` (or `-m1`), stride 640 |
+| 12 | `vt1-osd` | one captured frame encoded | rc 0, the PNG shows Home |
+| 13 | `vt-osd-720` | 60 frames of the UI | rc 0, refused 0, wait ≈ 17 ms |
+| 14 | `tapopen-blended` | the `blended` point at 720p | rc 0 |
+| 15 | `vt-blended-720` | 60 frames of the screen | rc 0 |
+| `--full` | `synth-1080`, `synth-720-max`, `synth-1080-max`, `vt-blended-1080`, `vt-display-720` | the ceilings | fps_got at each size |
 
-Risks and rollback:
+End: no new failed unit, `holders-end.txt` empty, `hma-after` equals `hma-before`, Netflix still plays afterwards (Main's check).
 
-- The encoder shares the MCU with the decoder. A hung `ENC_ENCODE` would show as the probe stuck and video playback dead until reboot; rollback is a TV reboot, Nitin's action (Principle 0), asked for before the slot. The slot runs at Home with nothing playing so a stall costs nothing else. The MCU's own encode call has a timeout; LG's plugin runs this path in production [INFERENCE that a stall is possible at all].
-- The tap is single-owner: LG's `method: DISPLAY` screenshots fail during a `vt` step [INFERENCE] (`oledepl`'s GRAPHIC capture uses the blitter, which the census saw `captureservice` hold, and keeps working). The probe gives the tap back at exit, also on SIGTERM.
-- HMA from "photofb" (cpb): two 720p/1080p frames (1.4/3.1 MB each); during 4K playback the pool can be empty: ENOMEM, the probe stops cleanly. Not run during playback.
-- `/dev/venc` powers the encoder up at open and down at close; a killed probe closes the fd and the kernel undoes both.
-- Nothing is written outside `/tmp`; no LG state is changed; no app is installed.
+Risks and rollback: a stuck step is detected and the slot stops; the only clean-up of a kernel wedge is a cold boot (Nitin). The encoder and the decoder share the MCU, so the slot runs at Home with nothing playing. HMA from `photofb` (`cpb`, 66 MB) is 115 KB to 3.1 MB per frame; ENOMEM stops cleanly. The tap is single-owner: LG's `method: DISPLAY` screenshots fail during a `vt` step [INFERENCE]. Nothing is written outside `/tmp`; no LG state is changed; no app is installed.
 
 ## Expected numbers
 
@@ -148,14 +154,16 @@ The encoder is the right source for everything that is not OpenNOW (an HDMI cons
 
 ## Open
 
-- The `/dev/video24` mmap question (slot step 5); the `/dev/lg/venc0` open (a later `caps` extension).
-- Whether an HDCP HDMI input sets the tap's secure flag (slot step 7).
+- The second slot (above).
+- Why `__dma_inv_area` faulted in the V4L2 node's path (the stack Main read): the driver's cache maintenance on `hma_map(<ES physical address>)` after the encode, or a consequence of the frame written through the wrong mapping. Academic: the node is not used.
+- The `/dev/lg/venc0` open (read-only) in a later `caps`.
+- Whether an HDCP HDMI input sets the tap's secure flag (a later slot, with the receiver muted).
 - The compositor-side NV12 export (route 2) and the helper integration (start/stop API, indicator, go2rtc config).
 - VP8 (`LX_VENC_ENCODE_TYPE_VP8`, exposed by the V4L2 node on this chip) is untested and unneeded.
 
 ## Changelog line (for Main)
 
-`venc/`: the C4's hardware H.264 encoder reached from LumaTV's own process (video tap into `/dev/venc`, zero copy), with a probe, a TCP stream server and host tests; first TV slot scripted (`docs/research/venc-result.md`).
+`venc/`: the C4's hardware H.264 encoder reached from LumaTV's own process (video tap into `/dev/venc`, zero copy), with a probe in small steps under a watchdog, a TCP stream server and host tests; the V4L2 M2M node `/dev/video24` is never used (its mmap writes kernel memory; wedged the kernel once); second TV slot scripted with a kernel-wedge detector (`docs/research/venc-result.md`).
 
 ## First TV slot, run 2026-10-28 (`compositor/slot-2026-10-28-1300/venc/`)
 
@@ -174,3 +182,10 @@ Home in front, nothing playing, receiver muted, `venc/tv_slot.sh` and the 64-bit
 - To do before another slot: why the capture planes' addresses are zero on the `/dev/venc` route, and the V4L2 node's DQBUF fault (the probe mapped the capture
   buffer; a fault in `__dma_inv_area` means the mapping is not valid for the CPU); the probe should poll with a timeout and `munmap` before the DQBUF, and never reach
   a DQBUF without a successful QBUF/STREAMON on the capture queue.
+
+### Root causes and what changed (offline, after the slot)
+
+- **The zeros.** `GET_BUFFER_INFO` reads the instance's `memESB`/`memAUI` fields (SRC `h1encode.c:917-935`), which `ENC_Create` fills through `H1EncodeMemoryInit` (`:2660`, `:762-840`, pool `venc0` = alias of `cpb` on this model, `platform_init.c:891`). The prototype asked before creating; LG's plugin asks after (`gst_lxvideoenc_chain`: `KADP_VENC_ENC_Create` at 0x2b4e, `KADP_VENC_GetBufferInfo` at 0x2ba8). Fixed in `venc.c` (create, then buffer info, then the ES mapping); the fake kernel now returns zeros before create and the tests cover the order. The instance id the MCU returns is 0 (`pstCreate->id = handle->id`, never set); `ENC_Encode` uses the fd's handle, not the id (`:2712-2726`).
+- **The wedge.** The V4L2 node's mmap (SRC `v4l2_venc.c:1594-1632`) treats the buffer's physical address as a kernel virtual address: `page_address(vmalloc_to_page(phys))`, then `remap_pfn_range` of that page. On this kernel that is the page at kernel VA `0xffff0000_<phys>` (or `page_address(NULL)`), so the probe's test picture was written into kernel memory before the first `DQBUF`, and the task then spun in `v4l_dqbuf` → `__dma_inv_area` → `do_page_fault` (TV: Main's stack read) with SIGKILL pending. Nothing user space does can make that node safe; the m2m mode is gone from the probe and the slot, and no step opens the node.
+- **Guards added**, so the next failure is one call wide and ends by itself: a watchdog around every blocking call (exit 75 names the call); `DQBUF` only after `poll` and only while a buffer is queued, requeue only of a held buffer, streaming started by a separate call; buffer sizes and every physical address (the MCU's ES/AUI, the tap's planes, HMA frames) checked against `/proc/hma/status` before any mmap or encode; a run stops after three encodes over 500 ms; the slot kills a step over its budget and detects a process that survives SIGKILL.
+

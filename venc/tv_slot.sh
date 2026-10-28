@@ -1,29 +1,58 @@
 #!/bin/sh
-# The first encoder slot, run ON THE SET as root (busybox sh), with the binary beside it:
+# The encoder slot, run ON THE SET as root (busybox sh), with the binary beside it:
 #
 #   scp venc/build/arm64/lumatv-venc venc/tv_slot.sh tv:/tmp/venc/
-#   ssh tv 'sh /tmp/venc/tv_slot.sh'            # Home in front, nothing playing, about 6 minutes
-#   ssh tv 'sh /tmp/venc/tv_slot.sh --apps'     # adds the Netflix (protected) and HDMI 2 captures; receiver muted first
+#   ssh tv 'sh /tmp/venc/tv_slot.sh'            # Home in front, nothing playing, nothing else touching the nodes
+#   ssh tv 'sh /tmp/venc/tv_slot.sh --full'     # adds 1080p and the 150-frame runs
 #   scp -r tv:/tmp/venc-slot/ docs/research/venc/   # then: python3 venc/tools/decode_check.py docs/research/venc/<dir>
 #
-# Every step is one probe run that exits by itself; the only state it leaves is files under /tmp/venc-slot.
-# Nothing is written outside /tmp. The set's encoder is powered up for the length of a run and released at
-# its exit (fd close), the video tap is taken for a run and given back the same way. A step that fails
-# stops the dependent steps, never the collection. Read the slot plan in docs/research/venc-result.md first.
+# Every step is one small probe run in its own process. A step gets a time budget; when it is over, the
+# step is killed and the slot checks that the process is gone. A process that survives SIGKILL for 5 s is
+# stuck inside the kernel: the slot writes WEDGED, stops, and the only way out is a cold boot (Nitin's
+# action). The first non-zero exit code also stops the slot (after the end-of-slot snapshot). Nothing is
+# written outside /tmp; the encoder is powered up for the length of a run and released at its exit.
+# Never run anything against /dev/video24 (the V4L2 M2M node): its mmap writes into kernel memory
+# (docs/research/venc-result.md, "The first slot").
 set -u
 D=/tmp/venc-slot/$(date +%Y%m%d-%H%M%S)
 B=/tmp/venc/lumatv-venc
 mkdir -p "$D"
-APPS=0
-[ "${1:-}" = "--apps" ] && APPS=1
+FULL=0
+[ "${1:-}" = "--full" ] && FULL=1
 log() { echo "$(date +%H:%M:%S) $*" | tee -a "$D/log.txt"; }
-run() { # name, then the probe arguments; stdout+stderr to name.out, exit code to name.rc
-    n=$1; shift
-    log "== $n: $B $*"
-    "$B" "$@" >"$D/$n.out" 2>&1; rc=$?
+STOP=""
+step() { # name, budget seconds, then the probe arguments; stdout+stderr to name.out, exit code to name.rc
+    [ -n "$STOP" ] && return 1
+    n=$1; t=$2; shift 2
+    log "== $n: $B $* (budget ${t}s)"
+    "$B" "$@" >"$D/$n.out" 2>&1 &
+    pid=$!
+    i=0
+    while kill -0 "$pid" 2>/dev/null && [ "$i" -lt "$t" ]; do sleep 1; i=$((i+1)); done
+    if kill -0 "$pid" 2>/dev/null; then
+        log "== $n: over budget, killing"
+        kill -KILL "$pid" 2>/dev/null
+        j=0
+        while kill -0 "$pid" 2>/dev/null && [ "$j" -lt 5 ]; do sleep 1; j=$((j+1)); done
+        if kill -0 "$pid" 2>/dev/null; then
+            cat "/proc/$pid/stat" "/proc/$pid/wchan" >"$D/$n.wedged" 2>&1; echo >>"$D/$n.wedged"
+            cat "/proc/$pid/stack" >>"$D/$n.wedged" 2>&1
+            log "== $n: WEDGED: pid $pid survives SIGKILL (see $n.wedged); stopping the slot; cold boot needed"
+            echo wedged >"$D/WEDGED"
+            STOP=wedged
+            return 1
+        fi
+        wait "$pid" 2>/dev/null
+        echo 137 >"$D/$n.rc"
+        log "== $n: killed after ${t}s"
+        STOP="$n"
+        return 1
+    fi
+    wait "$pid"; rc=$?
     echo "$rc" >"$D/$n.rc"
-    tail -n 3 "$D/$n.out" | tee -a "$D/log.txt"
+    tail -n 4 "$D/$n.out" | tee -a "$D/log.txt"
     log "== $n: rc $rc"
+    [ "$rc" = 0 ] || STOP="$n"
     return $rc
 }
 holders() { # who has a device node open
@@ -34,9 +63,9 @@ holders() { # who has a device node open
         done
     done
 }
-snapshot() { # before/after state
+snapshot() {
     s=$1
-    cat /proc/meminfo | grep -E 'MemAvailable|CmaFree|CmaTotal' >"$D/mem-$s.txt"
+    grep -E 'MemAvailable|CmaFree|CmaTotal' /proc/meminfo >"$D/mem-$s.txt"
     cat /proc/hma/status >"$D/hma-$s.txt" 2>&1
     holders >"$D/holders-$s.txt"
     systemctl --failed --no-legend >"$D/failed-$s.txt" 2>&1
@@ -44,59 +73,44 @@ snapshot() { # before/after state
     dmesg | tail -n 200 >"$D/dmesg-$s.txt" 2>&1
 }
 
-log "slot $D, binary $B, apps=$APPS"
+log "slot $D, binary $B, full=$FULL"
 [ -x "$B" ] || { log "no binary at $B"; exit 2; }
 snapshot before
-cat "$D/holders-before.txt" | tee -a "$D/log.txt"
-if [ -s "$D/holders-before.txt" ]; then log "something holds an encoder or tap node; stopping (see holders-before.txt)"; exit 3; fi
+if [ -s "$D/holders-before.txt" ]; then cat "$D/holders-before.txt" | tee -a "$D/log.txt"; log "something holds an encoder or tap node; stopping"; exit 3; fi
 ls -l /dev/venc /dev/video24 /dev/lg/venc0 /dev/hma /dev/video60 | tee -a "$D/log.txt"
 
-# 1. read-only
-run caps caps || true
-run vtcaps vtcaps || true
-
-# 2. the encoder alone, from CPU memory: a 2 s check, then 720p30, 1080p30 and 1080p as fast as it goes
-if run synth-720p-short synth -w 1280 -h 720 -r 30 -n 60 -b 4000 -g 30 -o "$D/synth-720p-short.h264" --csv "$D/synth-720p-short.csv"; then
-    run synth-720p30 synth -w 1280 -h 720 -r 30 -n 300 -b 4000 -g 30 -o "$D/synth-720p30.h264" --csv "$D/synth-720p30.csv" || true
-    run synth-1080p30 synth -w 1920 -h 1080 -r 30 -n 300 -b 8000 -g 30 -o "$D/synth-1080p30.h264" --csv "$D/synth-1080p30.csv" || true
-    run synth-1080p-max synth -w 1920 -h 1080 -r 240 -n 300 -b 8000 -g 30 -o "$D/synth-1080p-max.h264" --csv "$D/synth-1080p-max.csv" || true
-    run synth-720p-max synth -w 1280 -h 720 -r 240 -n 300 -b 4000 -g 30 -o "$D/synth-720p-max.h264" --csv "$D/synth-720p-max.csv" || true
-    ENC_OK=1
-else
-    log "the /dev/venc route failed; the V4L2 node is the fallback"
-    ENC_OK=0
+# read-only
+step caps 10 caps
+step vtcaps 10 vtcaps
+# the encoder, one call further each time
+step gate 10 gate
+step create-320 15 create -w 320 -h 240
+step map-320 15 map -w 320 -h 240
+step hma-320 10 hma -w 320 -h 240
+step one-320 20 synth -w 320 -h 240 -r 30 -n 1 -b 500 -g 30 -o "$D/one-320.h264"
+step synth-320 20 synth -w 320 -h 240 -r 30 -n 30 -b 500 -g 30 -o "$D/synth-320.h264" --csv "$D/synth-320.csv"
+step create-720 15 create -w 1280 -h 720
+step synth-720 30 synth -w 1280 -h 720 -r 30 -n 60 -b 4000 -g 30 -o "$D/synth-720.h264" --csv "$D/synth-720.csv"
+# the tap, one call further each time (Home in front: the osd point shows the UI)
+step tapopen-osd 15 tapopen -l osd -w 640 -h 368 --nbuf 2
+step vt1-osd 20 vt -l osd -w 640 -h 368 -r 30 -n 1 -b 1000 -g 30 --nbuf 2 -o "$D/vt1-osd.h264"
+step vt-osd-720 30 vt -l osd -w 1280 -h 720 -r 30 -n 60 -b 4000 -g 30 -o "$D/vt-osd-720.h264" --csv "$D/vt-osd-720.csv"
+step tapopen-blended 15 tapopen -l blended -w 1280 -h 720
+step vt-blended-720 30 vt -l blended -w 1280 -h 720 -r 30 -n 60 -b 4000 -g 30 -o "$D/vt-blended-720.h264" --csv "$D/vt-blended-720.csv"
+if [ "$FULL" = 1 ]; then
+    step synth-1080 40 synth -w 1920 -h 1080 -r 30 -n 60 -b 8000 -g 30 -o "$D/synth-1080.h264" --csv "$D/synth-1080.csv"
+    step synth-720-max 40 synth -w 1280 -h 720 -r 240 -n 150 -b 4000 -g 30 -o "$D/synth-720-max.h264" --csv "$D/synth-720-max.csv"
+    step synth-1080-max 40 synth -w 1920 -h 1080 -r 240 -n 150 -b 8000 -g 30 -o "$D/synth-1080-max.h264" --csv "$D/synth-1080-max.csv"
+    step vt-blended-1080 40 vt -l blended -w 1920 -h 1080 -r 30 -n 150 -b 8000 -g 30 -o "$D/vt-blended-1080.h264" --csv "$D/vt-blended-1080.csv"
+    step vt-display-720 30 vt -l display -w 1280 -h 720 -r 30 -n 60 -b 4000 -g 30 -o "$D/vt-display-720.h264" --csv "$D/vt-display-720.csv"
 fi
 
-# 3. the V4L2 M2M node (the fallback route), short
-run m2m-720p m2m -w 1280 -h 720 -r 30 -n 60 -b 4000 -g 30 -o "$D/m2m-720p.h264" --csv "$D/m2m-720p.csv" || true
-
-# 4. the screen: the tap into the encoder, Home in front (the UI)
-if [ "$ENC_OK" = 1 ]; then
-    run vt-osd-720p vt -l osd -w 1280 -h 720 -r 30 -n 150 -b 4000 -g 30 -o "$D/vt-osd-720p.h264" --csv "$D/vt-osd-720p.csv" || true
-    run vt-blended-720p vt -l blended -w 1280 -h 720 -r 30 -n 150 -b 4000 -g 30 -o "$D/vt-blended-720p.h264" --csv "$D/vt-blended-720p.csv" || true
-    run vt-blended-1080p vt -l blended -w 1920 -h 1080 -r 30 -n 300 -b 8000 -g 30 -o "$D/vt-blended-1080p.h264" --csv "$D/vt-blended-1080p.csv" || true
-    run vt-display-720p vt -l display -w 1280 -h 720 -r 30 -n 60 -b 4000 -g 30 -o "$D/vt-display-720p.h264" --csv "$D/vt-display-720p.csv" || true
-fi
-
-# 5. with apps in front (receiver muted by Main first): protected video must come back refused or black
-if [ "$APPS" = 1 ] && [ "$ENC_OK" = 1 ]; then
-    luna-send -n 1 luna://com.webos.applicationManager/launch '{"id":"netflix"}' >/dev/null 2>&1
-    sleep 30
-    luna-send -n 1 luna://com.webos.applicationManager/getForegroundAppInfo '{}' >"$D/fg-netflix.txt" 2>&1
-    run vt-netflix-blended vt -l blended -w 1280 -h 720 -r 30 -n 150 -b 4000 -g 30 -o "$D/vt-netflix-blended.h264" --csv "$D/vt-netflix-blended.csv" || true
-    luna-send -n 1 luna://com.webos.applicationManager/launch '{"id":"com.webos.app.hdmi2"}' >/dev/null 2>&1
-    sleep 12
-    luna-send -n 1 luna://com.webos.applicationManager/getForegroundAppInfo '{}' >"$D/fg-hdmi2.txt" 2>&1
-    run vt-hdmi2-blended vt -l blended -w 1280 -h 720 -r 30 -n 150 -b 4000 -g 30 -o "$D/vt-hdmi2-blended.h264" --csv "$D/vt-hdmi2-blended.csv" || true
-    luna-send -n 1 luna://com.webos.applicationManager/launch '{"id":"com.webos.app.home"}' >/dev/null 2>&1
-    sleep 3
-    luna-send -n 1 luna://com.webos.applicationManager/closeByAppId '{"id":"netflix"}' >/dev/null 2>&1
-    luna-send -n 1 luna://com.webos.applicationManager/closeByAppId '{"id":"com.webos.app.hdmi2"}' >/dev/null 2>&1
-fi
-
+[ -n "$STOP" ] && log "stopped at step $STOP"
 snapshot after
 diff "$D/failed-before.txt" "$D/failed-after.txt" >"$D/failed-diff.txt" 2>&1 || log "NEW FAILED UNITS: $(cat "$D/failed-diff.txt")"
-dmesg | grep -i -E 'venc|vt_|vtg|capture|hma|lowpower.*venc' | tail -n 80 >"$D/dmesg-venc.txt" 2>&1
+dmesg | grep -i -E 'venc|vt_|vtg|capture|hma|lowpower.*venc|v4l2' | tail -n 120 >"$D/dmesg-venc.txt" 2>&1
+holders >"$D/holders-end.txt"; [ -s "$D/holders-end.txt" ] && log "NODES STILL HELD: $(cat "$D/holders-end.txt")"
 ls -la "$D" | tee -a "$D/log.txt"
 log "done; pull $D"
 echo done >"$D/done"
+[ -z "$STOP" ]

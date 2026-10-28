@@ -6,7 +6,7 @@
  * query through two pointers, QBUF/DQBUF, STREAMON/OFF). The fake encoder "reads" the input frame through
  * the physical addresses it knows and writes an Annex B unit whose payload carries a checksum of it.
  *
- * Knobs (environment): FAKE_VENC_DENY_MAGIC=1 refuses the gate; FAKE_VT_PROTECTED=1 answers DQBUF with
+ * Knobs (environment): FAKE_VENC_DENY_MAGIC=1 refuses the gate; FAKE_VENC_HANG=1 makes the encode call never return; FAKE_VT_PROTECTED=1 answers DQBUF with
  * EACCES (protected content); FAKE_VT_TIMEOUT=1 never has a frame; FAKE_VT_NO_BLENDED=1 refuses the blended
  * tap point with EOPNOTSUPP; FAKE_LOG=path appends one line per call. */
 #define _GNU_SOURCE
@@ -19,6 +19,7 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/types.h>
+#include <unistd.h>
 
 #include "../hma_abi.h"
 #include "../synth.h"
@@ -219,13 +220,17 @@ static int venc_ioctl(struct fd_state *s, unsigned long req, void *arg)
         return -1;
     }
     if (req == LX_VENC_IOR_GET_BUFFER_INFO) {
+        /* the MCU fills this from the instance's memory, which ENC_Create allocates: all zeros before it
+         * (h1encode.c, H1EncodeGetBufferInfo / H1EncodeMemoryInit; the first slot measured the zeros) */
         LX_VENC_BUFFER_T *b = arg;
         memset(b, 0, sizeof(*b));
-        b->ui32ESBufPhysBase = ES_BASE;
-        b->ui32ESBufSize = ES_SIZE;
-        b->ui32AUIBufPhysBase = AUI_BASE;
-        b->ui32AUIBufSize = AUI_SIZE;
-        logcall("venc bufinfo");
+        if (s->inst >= 0) {
+            b->ui32ESBufPhysBase = ES_BASE;
+            b->ui32ESBufSize = ES_SIZE;
+            b->ui32AUIBufPhysBase = AUI_BASE;
+            b->ui32AUIBufSize = AUI_SIZE;
+        }
+        logcall("venc bufinfo inst=%d", s->inst);
         return 0;
     }
     if (req == LX_VENC_IOWR_ENC_CREATE) {
@@ -235,8 +240,8 @@ static int venc_ioctl(struct fd_state *s, unsigned long req, void *arg)
             errno = EINVAL;
             return -1;
         }
-        s->inst = 7;
-        c->id = 7;
+        s->inst = 0; /* pstCreate->id = handle->id, never set: 0 on the real MCU */
+        c->id = 0;
         s->w = c->width; s->h = c->height; s->gop = c->gopLength; s->kbps = c->bitrate; s->profile = c->profile;
         s->frames = 0;
         logcall("venc create %ux%u fps %u gop %u kbps %u profile %u", c->width, c->height, c->framerate, c->gopLength, c->bitrate, c->profile);
@@ -259,6 +264,11 @@ static int venc_ioctl(struct fd_state *s, unsigned long req, void *arg)
     }
     if (req == LX_VENC_IOWR_ENC_ENCODE) {
         LX_VENC_ENC_ENCODE_T *e = arg;
+        if (getenv("FAKE_VENC_HANG")) {
+            logcall("venc encode hangs");
+            for (;;)
+                pause();
+        }
         if (e->id != s->inst || e->bus_output != ES_BASE || e->out_buf_size > ES_SIZE) { errno = EINVAL; return -1; }
         int intra = 0;
         uint32_t n = fake_encode(s, e, es_mem, e->out_buf_size, &intra);
@@ -457,7 +467,7 @@ static void *fake_mmap(void *addr, size_t length, int prot, int flags, int fd, o
     if (fd < 0 || fd >= MAX_FDS || !fds[fd].used) { errno = EBADF; return MAP_FAILED; }
     struct fd_state *s = &fds[fd];
     if (s->kind == K_VENC) {
-        if (offset != (off_t)AUI_SIZE || length != ES_SIZE) { errno = EINVAL; return MAP_FAILED; }
+        if (s->inst < 0 || offset != (off_t)AUI_SIZE || length != ES_SIZE) { errno = EINVAL; return MAP_FAILED; }
         return es_mem;
     }
     if (s->kind == K_HMA) {
