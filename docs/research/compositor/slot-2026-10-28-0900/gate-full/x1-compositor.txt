@@ -1,0 +1,584 @@
+[srv   2517.341] info trace: commit of buffer 10 at 2517.341 (new: warming)
+[srv   2517.348] info warm: driver buffer 10 1920x1080: import 0.3 ms, warm draw submitted in 0.3 ms, its fence seen done 6.9 ms after (polled at the ticks)
+[srv   2517.349] info trace: drew at 2517.348 for slot 2517.334 (on the panel at 2517.374): items 3, stood in 0, render 350 us
+[srv   2517.349] info trace: frame queued at 2517.349 behind the flip in flight
+[srv   2517.349] info trace: idle tick at 2517.365 on the grid (10.7 ms before the refresh)
+[srv   2517.359] info trace: flip at 2517.359 (+0.1 ms to reach): frame drawn at 2517.339 for slot 2517.317, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv   2517.359] info trace: committed at 2517.359: fence export 0.1 ms, atomic commit 0.1 ms
+[srv   2517.359] info trace: next tick at 2517.379 (latch, 11.7 ms before the refresh at 2517.391)
+[srv   2517.375] info trace: flip at 2517.375 (+0.1 ms to reach): frame drawn at 2517.348 for slot 2517.334, late 0 lost 0, gpu done 10.7 ms after the draw
+[srv   2517.376] info trace: next tick at 2517.379 (latch, 11.7 ms before the refresh at 2517.391)
+[srv   2517.376] info trace: commit of buffer 12 at 2517.376 (new: warming)
+[srv   2517.379] info warm: driver buffer 12 1920x1080: import 0.3 ms, warm draw submitted in 0.3 ms, its fence seen done 2.7 ms after (polled at the ticks)
+[srv   2517.379] info trace: tick 31.0 ms after the last drawing tick (latch lead 11.7 ms)
+[srv   2517.380] info trace: drew at 2517.379 for slot 2517.351 (on the panel at 2517.391): items 3, stood in 0, render 295 us
+[srv   2517.380] info trace: committed at 2517.380: fence export 0.1 ms, atomic commit 0.1 ms
+[srv   2517.380] info trace: next tick at 2517.391 (latch, 16.7 ms before the refresh at 2517.407)
+[srv   2517.384] info trace: commit of buffer 113 at 2517.384
+[srv   2517.391] info trace: drew at 2517.391 for slot 2517.367 (on the panel at 2517.407): items 3, stood in 0, render 378 us
+[srv   2517.391] info trace: frame queued at 2517.391 behind the flip in flight
+[srv   2517.392] info trace: next tick at 2517.407 (latch, 16.7 ms before the refresh at 2517.424)
+[srv   2517.392] info trace: flip at 2517.392 (+0.1 ms to reach): frame drawn at 2517.379 for slot 2517.351, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2517.392] info trace: committed at 2517.392: fence export 0.1 ms, atomic commit 0.0 ms
+[srv   2517.392] info trace: next tick at 2517.407 (latch, 16.7 ms before the refresh at 2517.424)
+[srv   2517.394] info trace: commit of buffer 13 at 2517.394 (new: warming)
+[srv   2517.400] info trace: commit of buffer 108 at 2517.400
+[srv   2517.407] info warm: driver buffer 13 1920x1080: import 0.3 ms, warm draw submitted in 0.3 ms, its fence seen done 13.1 ms after (polled at the ticks)
+[srv   2517.408] info trace: drew at 2517.408 for slot 2517.384 (on the panel at 2517.424): items 3, stood in 0, render 351 us
+[srv   2517.408] info trace: frame queued at 2517.408 behind the flip in flight
+[srv   2517.408] info trace: next tick at 2517.424 (latch, 16.7 ms before the refresh at 2517.441)
+[srv   2517.409] info trace: flip at 2517.409 (+0.1 ms to reach): frame drawn at 2517.391 for slot 2517.367, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv   2517.409] info trace: committed at 2517.409: fence export 0.1 ms, atomic commit 0.1 ms
+[srv   2517.409] info trace: next tick at 2517.424 (latch, 16.7 ms before the refresh at 2517.441)
+[srv   2517.417] info trace: commit of buffer 112 at 2517.417
+[srv   2517.425] info trace: drew at 2517.424 for slot 2517.401 (on the panel at 2517.441): items 3, stood in 0, render 351 us
+[srv   2517.425] info trace: frame queued at 2517.425 behind the flip in flight
+[srv   2517.425] info trace: next tick at 2517.441 (latch, 16.7 ms before the refresh at 2517.458)
+[srv   2517.425] info trace: flip at 2517.425 (+0.1 ms to reach): frame drawn at 2517.408 for slot 2517.384, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv   2517.426] info trace: committed at 2517.426: fence export 0.1 ms, atomic commit 0.0 ms
+[srv   2517.426] info trace: next tick at 2517.441 (latch, 16.7 ms before the refresh at 2517.458)
+[srv   2517.426] info trace: commit of buffer 10 at 2517.426
+[srv   2517.432] info trace: commit of buffer 113 at 2517.432
+[srv   2517.441] info trace: drew at 2517.441 for slot 2517.417 (on the panel at 2517.458): items 3, stood in 0, render 346 us
+[srv   2517.442] info trace: frame queued at 2517.442 behind the flip in flight
+[srv   2517.442] info trace: next tick at 2517.458 (latch, 16.7 ms before the refresh at 2517.474)
+[srv   2517.442] info trace: flip at 2517.442 (+0.1 ms to reach): frame drawn at 2517.424 for slot 2517.401, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv   2517.442] info trace: committed at 2517.442: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2517.442] info trace: next tick at 2517.458 (latch, 16.7 ms before the refresh at 2517.474)
+[srv   2517.448] info trace: commit of buffer 108 at 2517.448
+[srv   2517.458] info trace: drew at 2517.458 for slot 2517.434 (on the panel at 2517.474): items 3, stood in 0, render 347 us
+[srv   2517.458] info trace: frame queued at 2517.458 behind the flip in flight
+[srv   2517.458] info trace: next tick at 2517.474 (latch, 16.7 ms before the refresh at 2517.491)
+[srv   2517.459] info trace: flip at 2517.459 (+0.1 ms to reach): frame drawn at 2517.441 for slot 2517.417, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv   2517.459] info trace: committed at 2517.459: fence export 0.1 ms, atomic commit 0.0 ms
+[srv   2517.459] info trace: next tick at 2517.474 (latch, 16.7 ms before the refresh at 2517.491)
+[srv   2517.459] info trace: commit of buffer 12 at 2517.459
+[srv   2517.464] info trace: commit of buffer 112 at 2517.464
+[srv   2517.475] info trace: drew at 2517.474 for slot 2517.451 (on the panel at 2517.491): items 3, stood in 0, render 343 us
+[srv   2517.475] info trace: frame queued at 2517.475 behind the flip in flight
+[srv   2517.475] info trace: next tick at 2517.491 (latch, 16.7 ms before the refresh at 2517.508)
+[srv   2517.475] info trace: flip at 2517.475 (+0.1 ms to reach): frame drawn at 2517.458 for slot 2517.434, late 0 lost 0, gpu done 4.8 ms after the draw
+[srv   2517.476] info trace: committed at 2517.476: fence export 0.1 ms, atomic commit 0.0 ms
+[srv   2517.476] info trace: next tick at 2517.491 (latch, 16.7 ms before the refresh at 2517.508)
+[srv   2517.480] info trace: commit of buffer 113 at 2517.480
+[srv   2517.492] info trace: drew at 2517.491 for slot 2517.467 (on the panel at 2517.508): items 3, stood in 0, render 357 us
+[srv   2517.492] info trace: frame queued at 2517.492 behind the flip in flight
+[srv   2517.492] info trace: next tick at 2517.508 (latch, 16.7 ms before the refresh at 2517.525)
+[srv   2517.492] info trace: flip at 2517.492 (+0.1 ms to reach): frame drawn at 2517.474 for slot 2517.451, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv   2517.492] info trace: committed at 2517.492: fence export 0.1 ms, atomic commit 0.0 ms
+[srv   2517.492] info trace: next tick at 2517.508 (latch, 16.7 ms before the refresh at 2517.525)
+[srv   2517.493] info trace: commit of buffer 13 at 2517.493
+[srv   2517.497] info trace: commit of buffer 108 at 2517.497
+[srv   2517.508] info trace: drew at 2517.508 for slot 2517.484 (on the panel at 2517.525): items 3, stood in 0, render 355 us
+[srv   2517.508] info trace: frame queued at 2517.508 behind the flip in flight
+[srv   2517.509] info trace: next tick at 2517.524 (latch, 16.7 ms before the refresh at 2517.541)
+[srv   2517.509] info trace: flip at 2517.509 (+0.2 ms to reach): frame drawn at 2517.491 for slot 2517.467, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv   2517.509] info trace: committed at 2517.509: fence export 0.1 ms, atomic commit 0.1 ms
+[srv   2517.509] info trace: next tick at 2517.525 (latch, 16.7 ms before the refresh at 2517.541)
+[srv   2517.513] info trace: commit of buffer 112 at 2517.513
+[srv   2517.525] info trace: drew at 2517.525 for slot 2517.501 (on the panel at 2517.541): items 3, stood in 0, render 363 us
+[srv   2517.525] info trace: frame queued at 2517.525 behind the flip in flight
+[srv   2517.525] info trace: next tick at 2517.542 (latch, 15.7 ms before the refresh at 2517.558)
+[srv   2517.526] info trace: flip at 2517.525 (+0.1 ms to reach): frame drawn at 2517.508 for slot 2517.484, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv   2517.526] info trace: committed at 2517.526: fence export 0.1 ms, atomic commit 0.0 ms
+[srv   2517.526] info trace: next tick at 2517.542 (latch, 15.7 ms before the refresh at 2517.558)
+[srv   2517.526] info trace: commit of buffer 10 at 2517.526
+[srv   2517.530] info trace: commit of buffer 113 at 2517.530
+[srv   2517.542] info trace: flip at 2517.542 (+0.1 ms to reach): frame drawn at 2517.525 for slot 2517.501, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv   2517.542] info trace: next tick at 2517.542 (latch, 15.7 ms before the refresh at 2517.558)
+[srv   2517.543] info trace: drew at 2517.543 for slot 2517.517 (on the panel at 2517.558): items 3, stood in 0, render 349 us
+[srv   2517.544] info trace: committed at 2517.544: fence export 0.1 ms, atomic commit 0.1 ms
+[srv   2517.544] info trace: next tick at 2517.560 (latch, 14.7 ms before the refresh at 2517.575)
+[srv   2517.559] info trace: flip at 2517.559 (+0.1 ms to reach): frame drawn at 2517.543 for slot 2517.517, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2517.559] info trace: next tick at 2517.560 (latch, 14.7 ms before the refresh at 2517.575)
+[srv   2517.559] info trace: commit of buffer 12 at 2517.559
+[srv   2517.560] info trace: drew at 2517.560 for slot 2517.534 (on the panel at 2517.575): items 3, stood in 0, render 314 us
+[srv   2517.561] info trace: committed at 2517.561: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2517.561] info trace: next tick at 2517.578 (latch, 13.7 ms before the refresh at 2517.591)
+[srv   2517.576] info trace: flip at 2517.575 (+0.1 ms to reach): frame drawn at 2517.560 for slot 2517.534, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2517.576] info trace: next tick at 2517.578 (latch, 13.7 ms before the refresh at 2517.591)
+[srv   2517.576] info trace: commit of buffer 13 at 2517.576
+[srv   2517.578] info trace: drew at 2517.578 for slot 2517.551 (on the panel at 2517.591): items 3, stood in 0, render 309 us
+[srv   2517.578] info trace: committed at 2517.578: fence export 0.1 ms, atomic commit 0.0 ms
+[srv   2517.579] info trace: next tick at 2517.595 (latch, 12.7 ms before the refresh at 2517.608)
+[srv   2517.592] info trace: flip at 2517.592 (+0.1 ms to reach): frame drawn at 2517.578 for slot 2517.551, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2517.592] info trace: next tick at 2517.595 (latch, 12.7 ms before the refresh at 2517.608)
+[srv   2517.593] info trace: commit of buffer 10 at 2517.593
+[srv   2517.596] info trace: drew at 2517.595 for slot 2517.567 (on the panel at 2517.608): items 3, stood in 0, render 324 us
+[srv   2517.596] info trace: committed at 2517.596: fence export 0.0 ms, atomic commit 0.1 ms
+[srv   2517.596] info trace: next tick at 2517.613 (latch, 11.7 ms before the refresh at 2517.625)
+[srv   2517.609] info trace: flip at 2517.609 (+0.1 ms to reach): frame drawn at 2517.595 for slot 2517.567, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2517.609] info trace: next tick at 2517.613 (latch, 11.7 ms before the refresh at 2517.625)
+[srv   2517.609] info trace: commit of buffer 12 at 2517.609
+[srv   2517.614] info trace: drew at 2517.613 for slot 2517.584 (on the panel at 2517.625): items 3, stood in 0, render 309 us
+[srv   2517.614] info trace: committed at 2517.614: fence export 0.1 ms, atomic commit 0.0 ms
+[srv   2517.614] info trace: next tick at 2517.631 (latch, 10.7 ms before the refresh at 2517.642)
+[srv   2517.626] info trace: flip at 2517.625 (+0.1 ms to reach): frame drawn at 2517.613 for slot 2517.584, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2517.626] info trace: next tick at 2517.631 (latch, 10.7 ms before the refresh at 2517.642)
+[srv   2517.626] info trace: commit of buffer 13 at 2517.626
+[srv   2517.631] info trace: drew at 2517.631 for slot 2517.601 (on the panel at 2517.642): items 3, stood in 0, render 307 us
+[srv   2517.631] info trace: committed at 2517.631: fence export 0.1 ms, atomic commit 0.1 ms
+[srv   2517.632] info trace: next tick at 2517.648 (latch, 10.7 ms before the refresh at 2517.658)
+[srv   2517.642] info trace: flip at 2517.642 (+0.1 ms to reach): frame drawn at 2517.631 for slot 2517.601, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2517.642] info trace: next tick at 2517.648 (latch, 10.7 ms before the refresh at 2517.658)
+[srv   2517.643] info trace: commit of buffer 10 at 2517.643
+[srv   2517.648] info trace: drew at 2517.648 for slot 2517.617 (on the panel at 2517.658): items 3, stood in 0, render 408 us
+[srv   2517.648] info trace: committed at 2517.648: fence export 0.1 ms, atomic commit 0.0 ms
+[srv   2517.649] info trace: next tick at 2517.664 (latch, 10.7 ms before the refresh at 2517.675)
+[srv   2517.659] info trace: flip at 2517.659 (+0.1 ms to reach): frame drawn at 2517.648 for slot 2517.617, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv   2517.659] info trace: next tick at 2517.664 (latch, 10.7 ms before the refresh at 2517.675)
+[srv   2517.659] info trace: commit of buffer 12 at 2517.659
+[srv   2517.665] info trace: drew at 2517.664 for slot 2517.634 (on the panel at 2517.675): items 3, stood in 0, render 400 us
+[srv   2517.665] info trace: committed at 2517.665: fence export 0.1 ms, atomic commit 0.1 ms
+[srv   2517.665] info trace: next tick at 2517.681 (latch, 10.7 ms before the refresh at 2517.692)
+[srv   2517.676] info trace: flip at 2517.676 (+0.1 ms to reach): frame drawn at 2517.664 for slot 2517.634, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv   2517.676] info trace: next tick at 2517.681 (latch, 10.7 ms before the refresh at 2517.692)
+[srv   2517.676] info trace: commit of buffer 13 at 2517.676
+[srv   2517.682] info trace: drew at 2517.681 for slot 2517.651 (on the panel at 2517.692): items 3, stood in 0, render 420 us
+[srv   2517.682] info trace: committed at 2517.682: fence export 0.1 ms, atomic commit 0.1 ms
+[srv   2517.682] info trace: next tick at 2517.698 (latch, 10.7 ms before the refresh at 2517.708)
+[srv   2517.692] info trace: flip at 2517.692 (+0.1 ms to reach): frame drawn at 2517.681 for slot 2517.651, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv   2517.693] info trace: next tick at 2517.698 (latch, 10.7 ms before the refresh at 2517.708)
+[srv   2517.693] info trace: commit of buffer 10 at 2517.693
+[srv   2517.698] info trace: drew at 2517.698 for slot 2517.667 (on the panel at 2517.708): items 3, stood in 0, render 378 us
+[srv   2517.698] info trace: committed at 2517.698: fence export 0.1 ms, atomic commit 0.1 ms
+[srv   2517.699] info trace: next tick at 2517.714 (latch, 10.7 ms before the refresh at 2517.725)
+[srv   2517.709] info trace: flip at 2517.709 (+0.1 ms to reach): frame drawn at 2517.698 for slot 2517.667, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv   2517.709] info trace: next tick at 2517.714 (latch, 10.7 ms before the refresh at 2517.725)
+[srv   2517.709] info trace: commit of buffer 12 at 2517.709
+[srv   2517.715] info trace: drew at 2517.714 for slot 2517.684 (on the panel at 2517.725): items 3, stood in 0, render 378 us
+[srv   2517.715] info trace: committed at 2517.715: fence export 0.1 ms, atomic commit 0.1 ms
+[srv   2517.715] info trace: next tick at 2517.731 (latch, 10.7 ms before the refresh at 2517.742)
+[srv   2517.726] info trace: flip at 2517.726 (+0.1 ms to reach): frame drawn at 2517.714 for slot 2517.684, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv   2517.726] info trace: next tick at 2517.731 (latch, 10.7 ms before the refresh at 2517.742)
+[srv   2517.726] info trace: commit of buffer 13 at 2517.726
+[srv   2517.732] info trace: drew at 2517.731 for slot 2517.701 (on the panel at 2517.742): items 3, stood in 0, render 333 us
+[srv   2517.732] info trace: committed at 2517.732: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2517.732] info trace: next tick at 2517.748 (latch, 10.7 ms before the refresh at 2517.758)
+[srv   2517.742] info trace: flip at 2517.742 (+0.1 ms to reach): frame drawn at 2517.731 for slot 2517.701, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2517.742] info trace: next tick at 2517.748 (latch, 10.7 ms before the refresh at 2517.758)
+[srv   2517.743] info trace: commit of buffer 10 at 2517.743
+[srv   2517.748] info trace: drew at 2517.748 for slot 2517.717 (on the panel at 2517.758): items 3, stood in 0, render 332 us
+[srv   2517.748] info trace: committed at 2517.748: fence export 0.1 ms, atomic commit 0.1 ms
+[srv   2517.749] info trace: next tick at 2517.764 (latch, 10.7 ms before the refresh at 2517.775)
+[srv   2517.759] info trace: flip at 2517.759 (+0.1 ms to reach): frame drawn at 2517.748 for slot 2517.717, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2517.759] info trace: next tick at 2517.764 (latch, 10.7 ms before the refresh at 2517.775)
+[srv   2517.759] info trace: commit of buffer 12 at 2517.759
+[srv   2517.765] info trace: drew at 2517.765 for slot 2517.734 (on the panel at 2517.775): items 3, stood in 0, render 311 us
+[srv   2517.765] info trace: committed at 2517.765: fence export 0.1 ms, atomic commit 0.0 ms
+[srv   2517.765] info trace: next tick at 2517.781 (latch, 10.7 ms before the refresh at 2517.792)
+[srv   2517.776] info trace: flip at 2517.776 (+0.1 ms to reach): frame drawn at 2517.765 for slot 2517.734, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2517.776] info trace: next tick at 2517.781 (latch, 10.7 ms before the refresh at 2517.792)
+[srv   2517.776] info trace: commit of buffer 13 at 2517.776
+[srv   2517.782] info trace: drew at 2517.781 for slot 2517.751 (on the panel at 2517.792): items 3, stood in 0, render 326 us
+[srv   2517.782] info trace: committed at 2517.782: fence export 0.0 ms, atomic commit 0.1 ms
+[srv   2517.782] info trace: next tick at 2517.798 (latch, 10.7 ms before the refresh at 2517.809)
+[srv   2517.792] info trace: flip at 2517.792 (+0.1 ms to reach): frame drawn at 2517.781 for slot 2517.751, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv   2517.793] info trace: next tick at 2517.798 (latch, 10.7 ms before the refresh at 2517.809)
+[srv   2517.793] info trace: commit of buffer 10 at 2517.793
+[srv   2517.798] info trace: drew at 2517.798 for slot 2517.767 (on the panel at 2517.809): items 3, stood in 0, render 315 us
+[srv   2517.798] info trace: committed at 2517.798: fence export 0.1 ms, atomic commit 0.0 ms
+[srv   2517.799] info trace: next tick at 2517.815 (latch, 10.7 ms before the refresh at 2517.825)
+[srv   2517.809] info trace: flip at 2517.809 (+0.1 ms to reach): frame drawn at 2517.798 for slot 2517.767, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2517.809] info trace: next tick at 2517.815 (latch, 10.7 ms before the refresh at 2517.825)
+[srv   2517.809] info trace: commit of buffer 12 at 2517.809
+[srv   2517.815] info trace: drew at 2517.815 for slot 2517.784 (on the panel at 2517.825): items 3, stood in 0, render 316 us
+[srv   2517.815] info trace: committed at 2517.815: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2517.815] info trace: next tick at 2517.831 (latch, 10.7 ms before the refresh at 2517.842)
+[srv   2517.826] info trace: flip at 2517.826 (+0.1 ms to reach): frame drawn at 2517.815 for slot 2517.784, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2517.826] info trace: next tick at 2517.831 (latch, 10.7 ms before the refresh at 2517.842)
+[srv   2517.826] info trace: commit of buffer 13 at 2517.826
+[srv   2517.832] info trace: drew at 2517.831 for slot 2517.801 (on the panel at 2517.842): items 3, stood in 0, render 348 us
+[srv   2517.832] info trace: committed at 2517.832: fence export 0.1 ms, atomic commit 0.1 ms
+[srv   2517.832] info trace: next tick at 2517.848 (latch, 10.7 ms before the refresh at 2517.859)
+[srv   2517.842] info trace: flip at 2517.842 (+0.1 ms to reach): frame drawn at 2517.831 for slot 2517.801, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv   2517.843] info trace: next tick at 2517.848 (latch, 10.7 ms before the refresh at 2517.859)
+[srv   2517.843] info trace: commit of buffer 10 at 2517.843
+[srv   2517.848] info trace: drew at 2517.848 for slot 2517.817 (on the panel at 2517.859): items 3, stood in 0, render 319 us
+[srv   2517.849] info trace: committed at 2517.849: fence export 0.0 ms, atomic commit 0.1 ms
+[srv   2517.849] info trace: next tick at 2517.865 (latch, 10.7 ms before the refresh at 2517.875)
+[srv   2517.859] info trace: flip at 2517.859 (+0.1 ms to reach): frame drawn at 2517.848 for slot 2517.817, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2517.859] info trace: next tick at 2517.865 (latch, 10.7 ms before the refresh at 2517.875)
+[srv   2517.859] info trace: commit of buffer 12 at 2517.859
+[srv   2517.865] info trace: drew at 2517.865 for slot 2517.834 (on the panel at 2517.875): items 3, stood in 0, render 325 us
+[srv   2517.865] info trace: committed at 2517.865: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2517.865] info trace: next tick at 2517.881 (latch, 10.7 ms before the refresh at 2517.892)
+[srv   2517.876] info trace: flip at 2517.876 (+0.1 ms to reach): frame drawn at 2517.865 for slot 2517.834, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2517.876] info trace: next tick at 2517.881 (latch, 10.7 ms before the refresh at 2517.892)
+[srv   2517.876] info trace: commit of buffer 13 at 2517.876
+[srv   2517.882] info trace: drew at 2517.881 for slot 2517.851 (on the panel at 2517.892): items 3, stood in 0, render 326 us
+[srv   2517.882] info trace: committed at 2517.882: fence export 0.1 ms, atomic commit 0.0 ms
+[srv   2517.882] info trace: next tick at 2517.898 (latch, 10.7 ms before the refresh at 2517.909)
+[srv   2517.892] info trace: flip at 2517.892 (+0.1 ms to reach): frame drawn at 2517.881 for slot 2517.851, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2517.893] info trace: next tick at 2517.898 (latch, 10.7 ms before the refresh at 2517.909)
+[srv   2517.893] info trace: commit of buffer 10 at 2517.893
+[srv   2517.898] info trace: drew at 2517.898 for slot 2517.867 (on the panel at 2517.909): items 3, stood in 0, render 354 us
+[srv   2517.899] info trace: committed at 2517.899: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2517.899] info trace: next tick at 2517.915 (latch, 10.7 ms before the refresh at 2517.925)
+[srv   2517.909] info trace: flip at 2517.909 (+0.1 ms to reach): frame drawn at 2517.898 for slot 2517.867, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv   2517.909] info trace: next tick at 2517.915 (latch, 10.7 ms before the refresh at 2517.925)
+[srv   2517.909] info trace: commit of buffer 12 at 2517.909
+[srv   2517.915] info trace: drew at 2517.915 for slot 2517.884 (on the panel at 2517.925): items 3, stood in 0, render 333 us
+[srv   2517.915] info trace: committed at 2517.915: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2517.916] info trace: next tick at 2517.931 (latch, 10.7 ms before the refresh at 2517.942)
+[srv   2517.926] info trace: flip at 2517.926 (+0.1 ms to reach): frame drawn at 2517.915 for slot 2517.884, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2517.926] info trace: next tick at 2517.931 (latch, 10.7 ms before the refresh at 2517.942)
+[srv   2517.926] info trace: commit of buffer 13 at 2517.926
+[srv   2517.932] info trace: drew at 2517.931 for slot 2517.901 (on the panel at 2517.942): items 3, stood in 0, render 323 us
+[srv   2517.932] info trace: committed at 2517.932: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2517.932] info trace: next tick at 2517.948 (latch, 10.7 ms before the refresh at 2517.959)
+[srv   2517.936] info trace: commit of buffer 108 at 2517.936
+[srv   2517.943] info trace: flip at 2517.942 (+0.1 ms to reach): frame drawn at 2517.931 for slot 2517.901, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2517.943] info trace: next tick at 2517.948 (latch, 10.7 ms before the refresh at 2517.959)
+[srv   2517.943] info trace: commit of buffer 10 at 2517.943
+[srv   2517.949] info trace: drew at 2517.948 for slot 2517.917 (on the panel at 2517.959): items 3, stood in 0, render 328 us
+[srv   2517.949] info trace: committed at 2517.949: fence export 0.1 ms, atomic commit 0.0 ms
+[srv   2517.949] info trace: next tick at 2517.965 (latch, 10.7 ms before the refresh at 2517.975)
+[srv   2517.953] info trace: commit of buffer 112 at 2517.953
+[srv   2517.959] info trace: flip at 2517.959 (+0.1 ms to reach): frame drawn at 2517.948 for slot 2517.917, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2517.959] info trace: next tick at 2517.965 (latch, 10.7 ms before the refresh at 2517.975)
+[srv   2517.960] info trace: commit of buffer 12 at 2517.960
+[srv   2517.965] info trace: drew at 2517.965 for slot 2517.934 (on the panel at 2517.975): items 3, stood in 0, render 351 us
+[srv   2517.965] info trace: committed at 2517.965: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2517.966] info trace: next tick at 2517.981 (latch, 10.7 ms before the refresh at 2517.992)
+[srv   2517.970] info trace: commit of buffer 113 at 2517.970
+[srv   2517.976] info trace: flip at 2517.976 (+0.1 ms to reach): frame drawn at 2517.965 for slot 2517.934, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2517.976] info trace: next tick at 2517.981 (latch, 10.7 ms before the refresh at 2517.992)
+[srv   2517.976] info trace: commit of buffer 13 at 2517.976
+[srv   2517.982] info trace: drew at 2517.982 for slot 2517.951 (on the panel at 2517.992): items 3, stood in 0, render 351 us
+[srv   2517.982] info trace: committed at 2517.982: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2517.982] info trace: next tick at 2517.998 (latch, 10.7 ms before the refresh at 2518.009)
+[srv   2517.987] info trace: commit of buffer 108 at 2517.987
+[srv   2517.993] info trace: flip at 2517.992 (+0.1 ms to reach): frame drawn at 2517.982 for slot 2517.951, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2517.993] info trace: next tick at 2517.998 (latch, 10.7 ms before the refresh at 2518.009)
+[srv   2517.993] info trace: commit of buffer 10 at 2517.993
+[srv   2517.999] info trace: drew at 2517.998 for slot 2517.967 (on the panel at 2518.009): items 3, stood in 0, render 351 us
+[srv   2517.999] info trace: committed at 2517.999: fence export 0.1 ms, atomic commit 0.0 ms
+[srv   2517.999] info trace: next tick at 2518.015 (latch, 10.7 ms before the refresh at 2518.026)
+[srv   2518.003] info trace: commit of buffer 112 at 2518.003
+[srv   2518.009] info trace: flip at 2518.009 (+0.1 ms to reach): frame drawn at 2517.998 for slot 2517.967, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv   2518.009] info trace: next tick at 2518.015 (latch, 10.7 ms before the refresh at 2518.026)
+[srv   2518.010] info trace: commit of buffer 12 at 2518.010
+[srv   2518.015] info trace: drew at 2518.015 for slot 2517.984 (on the panel at 2518.026): items 3, stood in 0, render 348 us
+[srv   2518.016] info trace: committed at 2518.016: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.016] info trace: next tick at 2518.032 (latch, 10.7 ms before the refresh at 2518.042)
+[srv   2518.020] info trace: commit of buffer 113 at 2518.020
+[srv   2518.026] info trace: flip at 2518.026 (+0.1 ms to reach): frame drawn at 2518.015 for slot 2517.984, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv   2518.026] info trace: next tick at 2518.032 (latch, 10.7 ms before the refresh at 2518.042)
+[srv   2518.026] info trace: commit of buffer 13 at 2518.026
+[srv   2518.032] info trace: drew at 2518.032 for slot 2518.001 (on the panel at 2518.042): items 3, stood in 0, render 351 us
+[srv   2518.032] info trace: committed at 2518.032: fence export 0.0 ms, atomic commit 0.1 ms
+[srv   2518.033] info trace: next tick at 2518.048 (latch, 10.7 ms before the refresh at 2518.059)
+[srv   2518.037] info trace: commit of buffer 108 at 2518.037
+[srv   2518.043] info trace: flip at 2518.043 (+0.1 ms to reach): frame drawn at 2518.032 for slot 2518.001, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.043] info trace: next tick at 2518.048 (latch, 10.7 ms before the refresh at 2518.059)
+[srv   2518.043] info trace: commit of buffer 10 at 2518.043
+[srv   2518.049] info trace: drew at 2518.048 for slot 2518.017 (on the panel at 2518.059): items 3, stood in 0, render 329 us
+[srv   2518.049] info trace: committed at 2518.049: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.049] info trace: next tick at 2518.065 (latch, 10.7 ms before the refresh at 2518.076)
+[srv   2518.053] info trace: commit of buffer 112 at 2518.053
+[srv   2518.059] info trace: flip at 2518.059 (+0.1 ms to reach): frame drawn at 2518.048 for slot 2518.017, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv   2518.059] info trace: next tick at 2518.065 (latch, 10.7 ms before the refresh at 2518.076)
+[srv   2518.060] info trace: commit of buffer 12 at 2518.060
+[srv   2518.065] info trace: drew at 2518.065 for slot 2518.034 (on the panel at 2518.076): items 3, stood in 0, render 335 us
+[srv   2518.066] info trace: committed at 2518.066: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.066] info trace: next tick at 2518.082 (latch, 10.7 ms before the refresh at 2518.092)
+[srv   2518.070] info trace: commit of buffer 113 at 2518.070
+[srv   2518.076] info trace: flip at 2518.076 (+0.1 ms to reach): frame drawn at 2518.065 for slot 2518.034, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv   2518.076] info trace: next tick at 2518.082 (latch, 10.7 ms before the refresh at 2518.092)
+[srv   2518.076] info trace: commit of buffer 13 at 2518.076
+[srv   2518.082] info trace: drew at 2518.082 for slot 2518.051 (on the panel at 2518.092): items 3, stood in 0, render 328 us
+[srv   2518.082] info trace: committed at 2518.082: fence export 0.0 ms, atomic commit 0.1 ms
+[srv   2518.083] info trace: next tick at 2518.098 (latch, 10.7 ms before the refresh at 2518.109)
+[srv   2518.087] info trace: commit of buffer 108 at 2518.087
+[srv   2518.093] info trace: flip at 2518.093 (+0.1 ms to reach): frame drawn at 2518.082 for slot 2518.051, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.093] info trace: next tick at 2518.098 (latch, 10.7 ms before the refresh at 2518.109)
+[srv   2518.093] info trace: commit of buffer 10 at 2518.093
+[srv   2518.099] info trace: drew at 2518.098 for slot 2518.067 (on the panel at 2518.109): items 3, stood in 0, render 366 us
+[srv   2518.099] info trace: committed at 2518.099: fence export 0.1 ms, atomic commit 0.1 ms
+[srv   2518.099] info trace: next tick at 2518.115 (latch, 10.7 ms before the refresh at 2518.126)
+[srv   2518.109] info trace: flip at 2518.109 (+0.1 ms to reach): frame drawn at 2518.098 for slot 2518.067, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv   2518.110] info trace: next tick at 2518.115 (latch, 10.7 ms before the refresh at 2518.126)
+[srv   2518.110] info trace: commit of buffer 12 at 2518.110
+[srv   2518.116] info trace: drew at 2518.115 for slot 2518.084 (on the panel at 2518.126): items 3, stood in 0, render 433 us
+[srv   2518.116] info trace: committed at 2518.116: fence export 0.1 ms, atomic commit 0.1 ms
+[srv   2518.116] info trace: next tick at 2518.132 (latch, 10.7 ms before the refresh at 2518.142)
+[srv   2518.126] info trace: flip at 2518.126 (+0.1 ms to reach): frame drawn at 2518.115 for slot 2518.084, late 0 lost 0, gpu done 4.8 ms after the draw
+[srv   2518.126] info trace: next tick at 2518.132 (latch, 10.7 ms before the refresh at 2518.142)
+[srv   2518.127] info trace: commit of buffer 13 at 2518.127
+[srv   2518.132] info trace: drew at 2518.132 for slot 2518.101 (on the panel at 2518.142): items 3, stood in 0, render 414 us
+[srv   2518.132] info trace: committed at 2518.132: fence export 0.1 ms, atomic commit 0.1 ms
+[srv   2518.133] info trace: next tick at 2518.148 (latch, 10.8 ms before the refresh at 2518.159)
+[srv   2518.143] info trace: flip at 2518.143 (+0.1 ms to reach): frame drawn at 2518.132 for slot 2518.101, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv   2518.143] info trace: next tick at 2518.148 (latch, 10.8 ms before the refresh at 2518.159)
+[srv   2518.143] info trace: commit of buffer 10 at 2518.143
+[srv   2518.149] info trace: drew at 2518.148 for slot 2518.117 (on the panel at 2518.159): items 3, stood in 0, render 349 us
+[srv   2518.149] info trace: committed at 2518.149: fence export 0.1 ms, atomic commit 0.1 ms
+[srv   2518.149] info trace: next tick at 2518.165 (latch, 10.8 ms before the refresh at 2518.176)
+[srv   2518.159] info trace: flip at 2518.159 (+0.1 ms to reach): frame drawn at 2518.148 for slot 2518.117, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.160] info trace: next tick at 2518.165 (latch, 10.8 ms before the refresh at 2518.176)
+[srv   2518.160] info trace: commit of buffer 12 at 2518.160
+[srv   2518.165] info trace: drew at 2518.165 for slot 2518.134 (on the panel at 2518.176): items 3, stood in 0, render 326 us
+[srv   2518.166] info trace: committed at 2518.166: fence export 0.1 ms, atomic commit 0.0 ms
+[srv   2518.166] info trace: next tick at 2518.182 (latch, 10.8 ms before the refresh at 2518.192)
+[srv   2518.176] info trace: flip at 2518.176 (+0.1 ms to reach): frame drawn at 2518.165 for slot 2518.134, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.176] info trace: next tick at 2518.182 (latch, 10.8 ms before the refresh at 2518.192)
+[srv   2518.176] info trace: commit of buffer 13 at 2518.176
+[srv   2518.182] info trace: drew at 2518.182 for slot 2518.151 (on the panel at 2518.192): items 3, stood in 0, render 331 us
+[srv   2518.182] info trace: committed at 2518.182: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.183] info trace: next tick at 2518.198 (latch, 10.8 ms before the refresh at 2518.209)
+[srv   2518.193] info trace: flip at 2518.193 (+0.1 ms to reach): frame drawn at 2518.182 for slot 2518.151, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.193] info trace: next tick at 2518.198 (latch, 10.8 ms before the refresh at 2518.209)
+[srv   2518.193] info trace: commit of buffer 10 at 2518.193
+[srv   2518.199] info trace: drew at 2518.198 for slot 2518.167 (on the panel at 2518.209): items 3, stood in 0, render 316 us
+[srv   2518.199] info trace: committed at 2518.199: fence export 0.1 ms, atomic commit 0.0 ms
+[srv   2518.199] info trace: next tick at 2518.215 (latch, 10.8 ms before the refresh at 2518.226)
+[srv   2518.209] info trace: flip at 2518.209 (+0.1 ms to reach): frame drawn at 2518.198 for slot 2518.167, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.210] info trace: next tick at 2518.215 (latch, 10.8 ms before the refresh at 2518.226)
+[srv   2518.210] info trace: commit of buffer 12 at 2518.210
+[srv   2518.215] info trace: drew at 2518.215 for slot 2518.184 (on the panel at 2518.226): items 3, stood in 0, render 330 us
+[srv   2518.216] info trace: committed at 2518.216: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.216] info trace: next tick at 2518.232 (latch, 10.8 ms before the refresh at 2518.242)
+[srv   2518.226] info trace: flip at 2518.226 (+0.1 ms to reach): frame drawn at 2518.215 for slot 2518.184, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.226] info trace: next tick at 2518.232 (latch, 10.8 ms before the refresh at 2518.242)
+[srv   2518.226] info trace: commit of buffer 13 at 2518.226
+[srv   2518.232] info trace: drew at 2518.232 for slot 2518.201 (on the panel at 2518.242): items 3, stood in 0, render 335 us
+[srv   2518.232] info trace: committed at 2518.232: fence export 0.1 ms, atomic commit 0.1 ms
+[srv   2518.233] info trace: next tick at 2518.248 (latch, 10.8 ms before the refresh at 2518.259)
+[srv   2518.243] info trace: flip at 2518.243 (+0.1 ms to reach): frame drawn at 2518.232 for slot 2518.201, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.243] info trace: next tick at 2518.248 (latch, 10.8 ms before the refresh at 2518.259)
+[srv   2518.243] info trace: commit of buffer 10 at 2518.243
+[srv   2518.249] info trace: drew at 2518.248 for slot 2518.217 (on the panel at 2518.259): items 3, stood in 0, render 331 us
+[srv   2518.249] info trace: committed at 2518.249: fence export 0.1 ms, atomic commit 0.0 ms
+[srv   2518.249] info trace: next tick at 2518.265 (latch, 10.8 ms before the refresh at 2518.276)
+[srv   2518.259] info trace: flip at 2518.259 (+0.1 ms to reach): frame drawn at 2518.248 for slot 2518.217, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.260] info trace: next tick at 2518.265 (latch, 10.8 ms before the refresh at 2518.276)
+[srv   2518.260] info trace: commit of buffer 12 at 2518.260
+[srv   2518.266] info trace: drew at 2518.265 for slot 2518.234 (on the panel at 2518.276): items 3, stood in 0, render 348 us
+[srv   2518.266] info trace: committed at 2518.266: fence export 0.0 ms, atomic commit 0.1 ms
+[srv   2518.266] info trace: next tick at 2518.282 (latch, 10.7 ms before the refresh at 2518.292)
+[srv   2518.276] info trace: flip at 2518.276 (+0.1 ms to reach): frame drawn at 2518.265 for slot 2518.234, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.276] info trace: next tick at 2518.282 (latch, 10.7 ms before the refresh at 2518.292)
+[srv   2518.277] info trace: commit of buffer 13 at 2518.277
+[srv   2518.282] info trace: drew at 2518.282 for slot 2518.251 (on the panel at 2518.292): items 3, stood in 0, render 321 us
+[srv   2518.282] info trace: committed at 2518.282: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.283] info trace: next tick at 2518.299 (latch, 10.6 ms before the refresh at 2518.309)
+[srv   2518.293] info trace: flip at 2518.293 (+0.1 ms to reach): frame drawn at 2518.282 for slot 2518.251, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.293] info trace: next tick at 2518.299 (latch, 10.6 ms before the refresh at 2518.309)
+[srv   2518.293] info trace: commit of buffer 10 at 2518.293
+[srv   2518.299] info trace: drew at 2518.299 for slot 2518.267 (on the panel at 2518.309): items 3, stood in 0, render 330 us
+[srv   2518.299] info trace: committed at 2518.299: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.299] info trace: next tick at 2518.315 (latch, 10.6 ms before the refresh at 2518.326)
+[srv   2518.310] info trace: flip at 2518.309 (+0.1 ms to reach): frame drawn at 2518.299 for slot 2518.267, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.310] info trace: next tick at 2518.315 (latch, 10.6 ms before the refresh at 2518.326)
+[srv   2518.310] info trace: commit of buffer 12 at 2518.310
+[srv   2518.316] info trace: drew at 2518.315 for slot 2518.284 (on the panel at 2518.326): items 3, stood in 0, render 325 us
+[srv   2518.316] info trace: committed at 2518.316: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.316] info trace: next tick at 2518.332 (latch, 10.6 ms before the refresh at 2518.343)
+[srv   2518.326] info trace: flip at 2518.326 (+0.1 ms to reach): frame drawn at 2518.315 for slot 2518.284, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.326] info trace: next tick at 2518.332 (latch, 10.6 ms before the refresh at 2518.343)
+[srv   2518.327] info trace: commit of buffer 13 at 2518.327
+[srv   2518.332] info trace: drew at 2518.332 for slot 2518.301 (on the panel at 2518.343): items 3, stood in 0, render 381 us
+[srv   2518.333] info trace: committed at 2518.333: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.333] info trace: next tick at 2518.349 (latch, 10.6 ms before the refresh at 2518.359)
+[srv   2518.343] info trace: flip at 2518.343 (+0.1 ms to reach): frame drawn at 2518.332 for slot 2518.301, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv   2518.343] info trace: next tick at 2518.349 (latch, 10.6 ms before the refresh at 2518.359)
+[srv   2518.343] info trace: commit of buffer 10 at 2518.343
+[srv   2518.349] info trace: drew at 2518.349 for slot 2518.317 (on the panel at 2518.359): items 3, stood in 0, render 334 us
+[srv   2518.349] info trace: committed at 2518.349: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.350] info trace: next tick at 2518.365 (latch, 10.7 ms before the refresh at 2518.376)
+[srv   2518.360] info trace: flip at 2518.359 (+0.1 ms to reach): frame drawn at 2518.349 for slot 2518.317, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.360] info trace: next tick at 2518.365 (latch, 10.7 ms before the refresh at 2518.376)
+[srv   2518.360] info trace: commit of buffer 12 at 2518.360
+[srv   2518.366] info trace: drew at 2518.365 for slot 2518.334 (on the panel at 2518.376): items 3, stood in 0, render 332 us
+[srv   2518.366] info trace: committed at 2518.366: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.366] info trace: next tick at 2518.382 (latch, 10.7 ms before the refresh at 2518.393)
+[srv   2518.376] info trace: flip at 2518.376 (+0.1 ms to reach): frame drawn at 2518.365 for slot 2518.334, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.376] info trace: next tick at 2518.382 (latch, 10.7 ms before the refresh at 2518.393)
+[srv   2518.377] info trace: commit of buffer 13 at 2518.377
+[srv   2518.382] info trace: drew at 2518.382 for slot 2518.351 (on the panel at 2518.393): items 3, stood in 0, render 313 us
+[srv   2518.383] info trace: committed at 2518.383: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.383] info trace: next tick at 2518.399 (latch, 10.7 ms before the refresh at 2518.409)
+[srv   2518.393] info trace: flip at 2518.393 (+0.1 ms to reach): frame drawn at 2518.382 for slot 2518.351, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.393] info trace: next tick at 2518.399 (latch, 10.7 ms before the refresh at 2518.409)
+[srv   2518.393] info trace: commit of buffer 10 at 2518.393
+[srv   2518.399] info trace: drew at 2518.399 for slot 2518.367 (on the panel at 2518.409): items 3, stood in 0, render 344 us
+[srv   2518.399] info trace: committed at 2518.399: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.400] info trace: next tick at 2518.415 (latch, 10.7 ms before the refresh at 2518.426)
+[srv   2518.410] info trace: flip at 2518.410 (+0.1 ms to reach): frame drawn at 2518.399 for slot 2518.367, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.410] info trace: next tick at 2518.415 (latch, 10.7 ms before the refresh at 2518.426)
+[srv   2518.410] info trace: commit of buffer 12 at 2518.410
+[srv   2518.416] info trace: drew at 2518.415 for slot 2518.384 (on the panel at 2518.426): items 3, stood in 0, render 350 us
+[srv   2518.416] info trace: committed at 2518.416: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.416] info trace: next tick at 2518.432 (latch, 10.7 ms before the refresh at 2518.443)
+[srv   2518.426] info trace: flip at 2518.426 (+0.1 ms to reach): frame drawn at 2518.415 for slot 2518.384, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.426] info trace: next tick at 2518.432 (latch, 10.7 ms before the refresh at 2518.443)
+[srv   2518.427] info trace: commit of buffer 13 at 2518.427
+[srv   2518.432] info trace: drew at 2518.432 for slot 2518.401 (on the panel at 2518.443): items 3, stood in 0, render 326 us
+[srv   2518.433] info trace: committed at 2518.433: fence export 0.1 ms, atomic commit 0.0 ms
+[srv   2518.433] info trace: next tick at 2518.449 (latch, 10.7 ms before the refresh at 2518.459)
+[srv   2518.443] info trace: flip at 2518.443 (+0.1 ms to reach): frame drawn at 2518.432 for slot 2518.401, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.443] info trace: next tick at 2518.449 (latch, 10.7 ms before the refresh at 2518.459)
+[srv   2518.443] info trace: commit of buffer 10 at 2518.443
+[srv   2518.449] info trace: drew at 2518.449 for slot 2518.417 (on the panel at 2518.459): items 3, stood in 0, render 338 us
+[srv   2518.449] info trace: committed at 2518.449: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.450] info trace: next tick at 2518.465 (latch, 10.7 ms before the refresh at 2518.476)
+[srv   2518.460] info trace: flip at 2518.460 (+0.1 ms to reach): frame drawn at 2518.449 for slot 2518.417, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.460] info trace: next tick at 2518.465 (latch, 10.7 ms before the refresh at 2518.476)
+[srv   2518.460] info trace: commit of buffer 12 at 2518.460
+[srv   2518.466] info trace: drew at 2518.465 for slot 2518.434 (on the panel at 2518.476): items 3, stood in 0, render 337 us
+[srv   2518.466] info trace: committed at 2518.466: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.466] info trace: next tick at 2518.482 (latch, 10.7 ms before the refresh at 2518.493)
+[srv   2518.476] info trace: flip at 2518.476 (+0.1 ms to reach): frame drawn at 2518.465 for slot 2518.434, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.476] info trace: next tick at 2518.482 (latch, 10.7 ms before the refresh at 2518.493)
+[srv   2518.477] info trace: commit of buffer 13 at 2518.477
+[srv   2518.482] info trace: drew at 2518.482 for slot 2518.451 (on the panel at 2518.493): items 3, stood in 0, render 327 us
+[srv   2518.483] info trace: committed at 2518.483: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.483] info trace: next tick at 2518.499 (latch, 10.6 ms before the refresh at 2518.509)
+[srv   2518.493] info trace: flip at 2518.493 (+0.1 ms to reach): frame drawn at 2518.482 for slot 2518.451, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.493] info trace: next tick at 2518.499 (latch, 10.6 ms before the refresh at 2518.509)
+[srv   2518.493] info trace: commit of buffer 10 at 2518.493
+[srv   2518.499] info trace: drew at 2518.499 for slot 2518.467 (on the panel at 2518.509): items 3, stood in 0, render 327 us
+[srv   2518.499] info trace: committed at 2518.499: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.500] info trace: next tick at 2518.515 (latch, 10.6 ms before the refresh at 2518.526)
+[srv   2518.510] info trace: flip at 2518.510 (+0.1 ms to reach): frame drawn at 2518.499 for slot 2518.467, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.510] info trace: next tick at 2518.515 (latch, 10.6 ms before the refresh at 2518.526)
+[srv   2518.510] info trace: commit of buffer 12 at 2518.510
+[srv   2518.516] info trace: drew at 2518.515 for slot 2518.484 (on the panel at 2518.526): items 3, stood in 0, render 345 us
+[srv   2518.516] info trace: committed at 2518.516: fence export 0.1 ms, atomic commit 0.1 ms
+[srv   2518.516] info trace: next tick at 2518.532 (latch, 10.6 ms before the refresh at 2518.543)
+[srv   2518.526] info trace: flip at 2518.526 (+0.1 ms to reach): frame drawn at 2518.515 for slot 2518.484, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.527] info trace: next tick at 2518.532 (latch, 10.6 ms before the refresh at 2518.543)
+[srv   2518.527] info trace: commit of buffer 13 at 2518.527
+[srv   2518.533] info trace: drew at 2518.532 for slot 2518.501 (on the panel at 2518.543): items 3, stood in 0, render 322 us
+[srv   2518.533] info trace: committed at 2518.533: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.533] info trace: next tick at 2518.549 (latch, 10.6 ms before the refresh at 2518.559)
+[srv   2518.543] info trace: flip at 2518.543 (+0.1 ms to reach): frame drawn at 2518.532 for slot 2518.501, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.543] info trace: next tick at 2518.549 (latch, 10.6 ms before the refresh at 2518.559)
+[srv   2518.543] info trace: commit of buffer 10 at 2518.543
+[srv   2518.549] info trace: drew at 2518.549 for slot 2518.517 (on the panel at 2518.559): items 3, stood in 0, render 337 us
+[srv   2518.549] info trace: committed at 2518.549: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.550] info trace: next tick at 2518.565 (latch, 10.6 ms before the refresh at 2518.576)
+[srv   2518.560] info trace: flip at 2518.560 (+0.1 ms to reach): frame drawn at 2518.549 for slot 2518.517, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.560] info trace: next tick at 2518.565 (latch, 10.6 ms before the refresh at 2518.576)
+[srv   2518.560] info trace: commit of buffer 12 at 2518.560
+[srv   2518.566] info trace: drew at 2518.566 for slot 2518.534 (on the panel at 2518.576): items 3, stood in 0, render 321 us
+[srv   2518.566] info trace: committed at 2518.566: fence export 0.1 ms, atomic commit 0.0 ms
+[srv   2518.566] info trace: next tick at 2518.582 (latch, 10.6 ms before the refresh at 2518.593)
+[srv   2518.576] info trace: flip at 2518.576 (+0.1 ms to reach): frame drawn at 2518.566 for slot 2518.534, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.577] info trace: next tick at 2518.582 (latch, 10.6 ms before the refresh at 2518.593)
+[srv   2518.577] info trace: commit of buffer 13 at 2518.577
+[srv   2518.583] info trace: drew at 2518.582 for slot 2518.551 (on the panel at 2518.593): items 3, stood in 0, render 324 us
+[srv   2518.583] info trace: committed at 2518.583: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.583] info trace: next tick at 2518.599 (latch, 10.6 ms before the refresh at 2518.609)
+[srv   2518.593] info trace: flip at 2518.593 (+0.1 ms to reach): frame drawn at 2518.582 for slot 2518.551, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.593] info trace: next tick at 2518.599 (latch, 10.6 ms before the refresh at 2518.609)
+[srv   2518.593] info trace: commit of buffer 10 at 2518.593
+[srv   2518.599] info trace: drew at 2518.599 for slot 2518.567 (on the panel at 2518.609): items 3, stood in 0, render 324 us
+[srv   2518.599] info trace: committed at 2518.599: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.600] info trace: next tick at 2518.616 (latch, 10.6 ms before the refresh at 2518.626)
+[srv   2518.610] info trace: flip at 2518.610 (+0.1 ms to reach): frame drawn at 2518.599 for slot 2518.567, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.610] info trace: next tick at 2518.616 (latch, 10.6 ms before the refresh at 2518.626)
+[srv   2518.610] info trace: commit of buffer 12 at 2518.610
+[srv   2518.616] info trace: drew at 2518.616 for slot 2518.584 (on the panel at 2518.626): items 3, stood in 0, render 344 us
+[srv   2518.616] info trace: committed at 2518.616: fence export 0.0 ms, atomic commit 0.1 ms
+[srv   2518.616] info trace: next tick at 2518.632 (latch, 10.6 ms before the refresh at 2518.643)
+[srv   2518.626] info trace: flip at 2518.626 (+0.1 ms to reach): frame drawn at 2518.616 for slot 2518.584, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.627] info trace: next tick at 2518.632 (latch, 10.6 ms before the refresh at 2518.643)
+[srv   2518.627] info trace: commit of buffer 13 at 2518.627
+[srv   2518.633] info trace: drew at 2518.632 for slot 2518.601 (on the panel at 2518.643): items 3, stood in 0, render 318 us
+[srv   2518.633] info trace: committed at 2518.633: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.633] info trace: next tick at 2518.649 (latch, 10.6 ms before the refresh at 2518.659)
+[srv   2518.643] info trace: flip at 2518.643 (+0.1 ms to reach): frame drawn at 2518.632 for slot 2518.601, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.643] info trace: next tick at 2518.649 (latch, 10.6 ms before the refresh at 2518.660)
+[srv   2518.644] info trace: commit of buffer 10 at 2518.644
+[srv   2518.649] info trace: drew at 2518.649 for slot 2518.617 (on the panel at 2518.660): items 3, stood in 0, render 336 us
+[srv   2518.650] info trace: committed at 2518.650: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.650] info trace: next tick at 2518.666 (latch, 10.6 ms before the refresh at 2518.676)
+[srv   2518.660] info trace: flip at 2518.660 (+0.1 ms to reach): frame drawn at 2518.649 for slot 2518.617, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.660] info trace: next tick at 2518.666 (latch, 10.6 ms before the refresh at 2518.676)
+[srv   2518.660] info trace: commit of buffer 12 at 2518.660
+[srv   2518.666] info trace: drew at 2518.666 for slot 2518.634 (on the panel at 2518.676): items 3, stood in 0, render 348 us
+[srv   2518.666] info trace: committed at 2518.666: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.666] info trace: next tick at 2518.682 (latch, 10.6 ms before the refresh at 2518.693)
+[srv   2518.677] info trace: flip at 2518.676 (+0.1 ms to reach): frame drawn at 2518.666 for slot 2518.634, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.677] info trace: next tick at 2518.682 (latch, 10.6 ms before the refresh at 2518.693)
+[srv   2518.677] info trace: commit of buffer 13 at 2518.677
+[srv   2518.683] info trace: drew at 2518.682 for slot 2518.651 (on the panel at 2518.693): items 3, stood in 0, render 321 us
+[srv   2518.683] info trace: committed at 2518.683: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.683] info trace: next tick at 2518.699 (latch, 10.6 ms before the refresh at 2518.710)
+[srv   2518.693] info trace: flip at 2518.693 (+0.1 ms to reach): frame drawn at 2518.682 for slot 2518.651, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.693] info trace: next tick at 2518.699 (latch, 10.6 ms before the refresh at 2518.710)
+[srv   2518.694] info trace: commit of buffer 10 at 2518.694
+[srv   2518.699] info trace: drew at 2518.699 for slot 2518.667 (on the panel at 2518.710): items 3, stood in 0, render 322 us
+[srv   2518.700] info trace: committed at 2518.700: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.700] info trace: next tick at 2518.716 (latch, 10.6 ms before the refresh at 2518.726)
+[srv   2518.710] info trace: flip at 2518.710 (+0.1 ms to reach): frame drawn at 2518.699 for slot 2518.667, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.710] info trace: next tick at 2518.716 (latch, 10.6 ms before the refresh at 2518.726)
+[srv   2518.710] info trace: commit of buffer 12 at 2518.710
+[srv   2518.716] info trace: drew at 2518.716 for slot 2518.684 (on the panel at 2518.726): items 3, stood in 0, render 332 us
+[srv   2518.716] info trace: committed at 2518.716: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.717] info trace: next tick at 2518.732 (latch, 10.6 ms before the refresh at 2518.743)
+[srv   2518.727] info trace: flip at 2518.726 (+0.1 ms to reach): frame drawn at 2518.716 for slot 2518.684, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.727] info trace: next tick at 2518.732 (latch, 10.6 ms before the refresh at 2518.743)
+[srv   2518.727] info trace: commit of buffer 13 at 2518.727
+[srv   2518.733] info trace: drew at 2518.732 for slot 2518.701 (on the panel at 2518.743): items 3, stood in 0, render 328 us
+[srv   2518.733] info trace: committed at 2518.733: fence export 0.1 ms, atomic commit 0.0 ms
+[srv   2518.733] info trace: next tick at 2518.749 (latch, 10.6 ms before the refresh at 2518.760)
+[srv   2518.743] info trace: flip at 2518.743 (+0.1 ms to reach): frame drawn at 2518.732 for slot 2518.701, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.743] info trace: next tick at 2518.749 (latch, 10.6 ms before the refresh at 2518.760)
+[srv   2518.744] info trace: commit of buffer 10 at 2518.744
+[srv   2518.749] info trace: drew at 2518.749 for slot 2518.717 (on the panel at 2518.760): items 3, stood in 0, render 333 us
+[srv   2518.750] info trace: committed at 2518.750: fence export 0.1 ms, atomic commit 0.0 ms
+[srv   2518.750] info trace: next tick at 2518.766 (latch, 10.6 ms before the refresh at 2518.776)
+[srv   2518.760] info trace: flip at 2518.760 (+0.1 ms to reach): frame drawn at 2518.749 for slot 2518.717, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.760] info trace: next tick at 2518.766 (latch, 10.6 ms before the refresh at 2518.776)
+[srv   2518.760] info trace: commit of buffer 12 at 2518.760
+[srv   2518.766] info trace: drew at 2518.766 for slot 2518.734 (on the panel at 2518.776): items 3, stood in 0, render 337 us
+[srv   2518.766] info trace: committed at 2518.766: fence export 0.0 ms, atomic commit 0.1 ms
+[srv   2518.767] info trace: next tick at 2518.782 (latch, 10.6 ms before the refresh at 2518.793)
+[srv   2518.777] info trace: flip at 2518.777 (+0.1 ms to reach): frame drawn at 2518.766 for slot 2518.734, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.777] info trace: next tick at 2518.782 (latch, 10.6 ms before the refresh at 2518.793)
+[srv   2518.777] info trace: commit of buffer 13 at 2518.777
+[srv   2518.783] info trace: drew at 2518.782 for slot 2518.751 (on the panel at 2518.793): items 3, stood in 0, render 326 us
+[srv   2518.783] info trace: committed at 2518.783: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.783] info trace: next tick at 2518.799 (latch, 10.6 ms before the refresh at 2518.810)
+[srv   2518.793] info trace: flip at 2518.793 (+0.1 ms to reach): frame drawn at 2518.782 for slot 2518.751, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.793] info trace: next tick at 2518.799 (latch, 10.6 ms before the refresh at 2518.810)
+[srv   2518.794] info trace: commit of buffer 10 at 2518.794
+[srv   2518.799] info trace: drew at 2518.799 for slot 2518.767 (on the panel at 2518.810): items 3, stood in 0, render 315 us
+[srv   2518.800] info trace: committed at 2518.800: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.800] info trace: next tick at 2518.816 (latch, 10.6 ms before the refresh at 2518.826)
+[srv   2518.810] info trace: flip at 2518.810 (+0.1 ms to reach): frame drawn at 2518.799 for slot 2518.767, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.810] info trace: next tick at 2518.816 (latch, 10.6 ms before the refresh at 2518.826)
+[srv   2518.810] info trace: commit of buffer 12 at 2518.810
+[srv   2518.816] info trace: drew at 2518.816 for slot 2518.784 (on the panel at 2518.826): items 3, stood in 0, render 321 us
+[srv   2518.816] info trace: committed at 2518.816: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.817] info trace: next tick at 2518.832 (latch, 10.6 ms before the refresh at 2518.843)
+[srv   2518.827] info trace: flip at 2518.827 (+0.1 ms to reach): frame drawn at 2518.816 for slot 2518.784, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.827] info trace: next tick at 2518.832 (latch, 10.6 ms before the refresh at 2518.843)
+[srv   2518.827] info trace: commit of buffer 13 at 2518.827
+[srv   2518.833] info trace: drew at 2518.832 for slot 2518.801 (on the panel at 2518.843): items 3, stood in 0, render 317 us
+[srv   2518.833] info trace: committed at 2518.833: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.833] info trace: next tick at 2518.849 (latch, 10.6 ms before the refresh at 2518.860)
+[srv   2518.843] info trace: flip at 2518.843 (+0.1 ms to reach): frame drawn at 2518.832 for slot 2518.801, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.843] info trace: next tick at 2518.849 (latch, 10.6 ms before the refresh at 2518.860)
+[srv   2518.844] info trace: commit of buffer 10 at 2518.844
+[srv   2518.849] info trace: drew at 2518.849 for slot 2518.817 (on the panel at 2518.860): items 3, stood in 0, render 305 us
+[srv   2518.850] info trace: committed at 2518.850: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.850] info trace: next tick at 2518.866 (latch, 10.6 ms before the refresh at 2518.876)
+[srv   2518.860] info trace: flip at 2518.860 (+0.1 ms to reach): frame drawn at 2518.849 for slot 2518.817, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.860] info trace: next tick at 2518.866 (latch, 10.6 ms before the refresh at 2518.876)
+[srv   2518.860] info trace: commit of buffer 12 at 2518.860
+[srv   2518.866] info trace: drew at 2518.866 for slot 2518.834 (on the panel at 2518.876): items 3, stood in 0, render 333 us
+[srv   2518.866] info trace: committed at 2518.866: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.867] info trace: next tick at 2518.882 (latch, 10.6 ms before the refresh at 2518.893)
+[srv   2518.877] info trace: flip at 2518.877 (+0.1 ms to reach): frame drawn at 2518.866 for slot 2518.834, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv   2518.877] info trace: next tick at 2518.882 (latch, 10.6 ms before the refresh at 2518.893)
+[srv   2518.877] info trace: commit of buffer 13 at 2518.877
+[srv   2518.883] info trace: drew at 2518.882 for slot 2518.851 (on the panel at 2518.893): items 3, stood in 0, render 329 us
+[srv   2518.883] info trace: committed at 2518.883: fence export 0.0 ms, atomic commit 0.0 ms
+[srv   2518.883] info trace: next tick at 2518.899 (latch, 10.6 ms before the refresh at 2518.910)
+[srv   2518.893] info trace: flip at 2518.893 (+0.1 ms to reach): frame drawn at 2518.882 for slot 2518.851, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv   2577.427] info client disconnected: pid 23751 uid 0 after 60190 ms (ConnectionClosed); bound ["wl_compositor", "wl_shell", "wl_webos_shell"]; cmd "/tmp/lumatv/lib/ld-linux-aarch64.so.1 --library-path /tmp/lumatv/lib --preload /tmp/lumatv/lib/x1heapshim.so /tmp/lumatv/bin/x1client /tmp/lumatv/lib/libmali-bi"
+[srv   2577.449] info bury: 1 freed in 3.1 ms, 1 left for the next pass

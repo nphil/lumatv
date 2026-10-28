@@ -608,3 +608,30 @@ was disabled first (`cutover disable`) and the install went through Main's grant
   and `theme.json` kept `remote.quickAccess` and `remote.quickPanelEdit`. Standby means nobody saw the panel: a cold boot's pictures and Home on the next
   wake were not looked at.
 - `/var/log` is tmpfs, so the reboot took SAM's lines for the 07:50 and 07:51 launches with it; the compositor and supervisor logs copied at 08:00:40 survive.
+
+### Round 12, 2026-10-28 (set's clock 05:38-06:30 PDT, TV clock 08:40-09:25), forge/main `0f2190c` (`compositor/slot-2026-10-28-0900/`)
+
+The whole package of `0f2190c` (LiveTvFix's window groups `a5e2c50`, the foreground list `0f2190c`, the update-block tool fix `dbc3f9b`, Settings fixes,
+`ALLOWED_METHODS`): `lumatv compositor off` (the TV had rebooted, `/tmp/lumatv` was gone, so no `cutover disable` was possible), install through
+Main's grant, `/tmp/lumatv-r10` kept as the rollback, then the gate under LumaTV's compositor and `enable` persistent.
+
+- Full gate (`--skip volume`): firmware, homeheld, live, netflix, keys, ime (keyboard at (0, 642)), shell 11 of 11, standby, homekey, wd-hang, wd-crash
+  (crash bundles) and escape PASS. `hdmi` FAILED on the gate's own pattern (`mapped 0`): `ctl windows` now writes `exposed`, `front` and `inGroup`
+  between `appId` and `mapped`, and `tv-gate.sh` matched the old key order; the window was mapped and in front (`fg ... hdmi2`). The pattern no
+  longer depends on the order; `--only hdmi` PASSES. `x1`: client 5 gaps over 20 ms in the full gate (20.x, 20.x, 21.x, 33.x and 34.9 ms; 59.86 fps),
+  the compositor's side clean (`late` 1 to 1, no stamp, no stall); two reruns 1 gap each (21.5 ms, 59.93 fps), compositor clean.
+- `--only keys,ime,shell,frames`: keys, ime, shell PASS; frames FAIL on MINOR lines (home-dpad and picker `burst_over20` 1-3, picker burst end
+  184.7 ms, toast first frame 56.5 ms in the full gate and 80.6 ms in this run).
+- Live TV (`livetv-check.py`, receiver muted, in a session): `launch com.webos.app.livetv` returns true; SAM's foreground is `com.webos.app.livetv` at
+  4, 8, 12, 16, 20 and 24 s and stays (round 11: Home within 20 s); `ctl windows` lists Live TV Fullscreen and Live Dmost `inGroup true` as the member
+  of group `com.webos.app.livetv` in `dmostLayer` (journal: `surface group "com.webos.app.livetv": surface 219 attached to layer "dmostLayer"`,
+  `window 7: fullscreen (a group member follows its owner)`), `video` has one fullscreen window; no `LAUNCH_LASTAPP` or `last_input_handler` line in
+  SAM's log. Back (412) left Live TV in front (the foreground stayed `livetv`: Back is Live TV's own); closing it through SAM and launching Home
+  gave Home. The panel capture is 6863 bytes (the capture service does not read the video plane), so the channel picture itself was not seen.
+- `lumatv updateblock status`: `"blocking":true,"state":"blocked"`, flag and all four hosts. Settings > System > Support > Update, under LumaTV's
+  compositor (pictures `update-page/`): Block LG system updates is on and drawn undimmed, Check for Updates says "Updates blocked"; the row's
+  subtitle reads "Homebrew Channel: Not permitted to send to org.webosbrew.hbchannel.service." (the page's own call to the channel is refused on
+  the bus for the shell's client, while `lumatv updateblock status` reads the flag; not looked into). A navigation mistake of mine (a first
+  attempt opened LG's Sound > Advanced Settings by pressing OK on its row, then RIGHT and DOWN keys; nothing else was pressed there; the Dolby Atmos
+  setting could not be read back).
+- Re-enabled: `cutover enable` persistent, `GATE live-enabled: PASS`, `settled: two minutes healthy`, failures 0.

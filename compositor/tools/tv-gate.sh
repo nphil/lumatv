@@ -357,8 +357,8 @@ hdmi)
     ctl windows > $OUT/hdmi-windows.json
     ctl journal > $OUT/hdmi-journal.json
     card=$(grep -c '"com.webos.app.hdmi2"' $OUT/hdmi-windows.json)
-    # serde_json writes keys in order: appId, id, keyMask, mapped.
-    mapped=$(grep -o '"appId":"com.webos.app.hdmi2","id":[0-9]*,"keyMask":[0-9]*,"mapped":true' $OUT/hdmi-windows.json | wc -l)
+    # serde_json writes keys in order: appId, exposed, front, id, inGroup, keyMask, mapped (the props, with braces, follow).
+    mapped=$(grep -o '"appId":"com.webos.app.hdmi2"[^}]*"mapped":true' $OUT/hdmi-windows.json | wc -l)
     bare=$(grep -o 'committed without a buffer ([A-Za-z]* app \\"com.webos.app.hdmi2' $OUT/hdmi-journal.json | wc -l)
     f=$(fg)
     b=$(cap $OUT/hdmi.png)

@@ -1,0 +1,53 @@
+power state: active
+home stub before the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+avr: left to the agent (True)
+firmware: verified 10.2.1-5202
+safety timer: this session ends by itself after 12 min if it is still live ('cutover.sh disable' cancels the timer)
+mounted; restarting the unit
+t=5s unit=active exe=/usr/bin/surface-manager compositor=1397 mounted=yes wam=active
+   09:00:15 recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+   09:00:15 recover: WebAppMgr answering after 0s (active)
+t=10s unit=active exe=/usr/bin/surface-manager compositor=1397 mounted=yes wam=active
+   09:00:15 recover: WebAppMgr answering after 0s (active)
+   09:00:16 recover: Home running under LumaTV's compositor after 0s
+t=15s unit=active exe=/usr/bin/surface-manager compositor=1397 mounted=yes wam=active
+   09:00:16 recover: Home running under LumaTV's compositor after 0s
+   09:00:26 recover: librdx reports swept; remaining 0
+t=20s unit=active exe=/usr/bin/surface-manager compositor=1397 mounted=yes wam=active
+   09:00:16 recover: Home running under LumaTV's compositor after 0s
+   09:00:26 recover: librdx reports swept; remaining 0
+t=25s unit=active exe=/usr/bin/surface-manager compositor=1397 mounted=yes wam=active
+   09:00:16 recover: Home running under LumaTV's compositor after 0s
+   09:00:26 recover: librdx reports swept; remaining 0
+t=30s unit=active exe=/usr/bin/surface-manager compositor=1397 mounted=yes wam=active
+   09:00:16 recover: Home running under LumaTV's compositor after 0s
+   09:00:26 recover: librdx reports swept; remaining 0
+enabled (session): LumaTV's compositor stays live (recovery done after 0s more); 'cutover.sh disable' restores LG's
+
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 391150 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+GATE x1: FAIL 1 gap(s) over 20 ms in the client's swaps (worst 21.5 ms) | [x1] RESULT frames=3596 in 60.00 s = 59.93 fps; gaps: <=17.5 ms 3581, 17.5-20 13, 20-33.5 1, >33.5 0; worst 21.5 ms; ended at monotonic 3640.261 | pacer before: flips 533 late 0 lost 0 after: flips 4140 late 0 lost 0 | compositor: loop stalls 0, frame gaps 0, clients connected 0, over 20 ms 0; major faults +0, run-queue wait +3.7 ms, loop thread SCHED_FIFO prio -21, mali-cmar-backe run-queue wait +4.3 ms SCHED_FIFO | wake-up latency: tick p50 0.01 p99 0.03 max 0.11 ms (n 3637); flip p50 0.02 p99 0.04 max 0.15 ms (n 3606); input no samples; tick waited on a busy loop p50 0.09 p99 0.09 max 0.09 ms (n 1) | waits: loop: run-queue wait 0 us a wake-up on average, no per-wait statistics; mali-cmar-backe: run-queue wait 0 us a wake-up on average, no per-wait statistics
+
+GATE hdmi: PASS hdmi2 windows 1 mapped 1 bufferless commits 0 fg while open com.webos.app.hdmi2 now com.webos.app.home panel 6863 bytes audio-port-held-after-close none
+
+evidence: 2 subscription(s) from SAM, 11 client lines, 1 loop stalls, 2 watchdog lines
+
+safety timer cancelled
+umount: /usr/bin/surface-manager: target is busy.
+revert: active; mounted: no; exe: /usr/bin/surface-manager
+recover: surface-manager-daemon.service active after 0s; exe /usr/bin/surface-manager
+recover: compositor answering on the bus after 0s
+recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+recover: WebAppMgr answering after 0s (active)
+recover: Home on the panel after 0s (capture 61991 bytes)
+recover: librdx reports swept; remaining 0
+
+avr: left to the agent (False)
+{"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+
+home stub after the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 391150 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE x1: FAIL 1 gap(s) over 20 ms in the client's swaps (worst 21.5 ms) | [x1] RESULT frames=3596 in 60.00 s = 59.93 fps; gaps: <=17.5 ms 3581, 17.5-20 13, 20-33.5 1, >33.5 0; worst 21.5 ms; ended at monotonic 3640.261 | pacer before: flips 533 late 0 lost 0 after: flips 4140 late 0 lost 0 | compositor: loop stalls 0, frame gaps 0, clients connected 0, over 20 ms 0; major faults +0, run-queue wait +3.7 ms, loop thread SCHED_FIFO prio -21, mali-cmar-backe run-queue wait +4.3 ms SCHED_FIFO | wake-up latency: tick p50 0.01 p99 0.03 max 0.11 ms (n 3637); flip p50 0.02 p99 0.04 max 0.15 ms (n 3606); input no samples; tick waited on a busy loop p50 0.09 p99 0.09 max 0.09 ms (n 1) | waits: loop: run-queue wait 0 us a wake-up on average, no per-wait statistics; mali-cmar-backe: run-queue wait 0 us a wake-up on average, no per-wait statistics
+GATE hdmi: PASS hdmi2 windows 1 mapped 1 bufferless commits 0 fg while open com.webos.app.hdmi2 now com.webos.app.home panel 6863 bytes audio-port-held-after-close none
+GATE: FAIL
+wrote ../lumatv-r12/docs/research/compositor/gate-2026-10-28.txt
