@@ -286,14 +286,18 @@ fn maliit_window(k: &mut Keyboard, w: i32, h: i32, region: Option<(i32, i32, i32
 
 #[test]
 fn the_keyboard_is_at_the_bottom_whatever_size_maliit_makes_its_window() {
-    // On the TV maliit's window was 1920x438 in two runs of six and 1920x1080 in the other four, the keyboard drawn in the top 438 rows
-    // and the rest transparent, and the keyboard was at the top of the screen whenever the window was the full size. Its input region
-    // is the keyboard's area; the keyboard is placed, and told to the field, by that.
+    // On the TV maliit's window was 1920x438 in five of ten runs and 1920x1080 in the other five, the keyboard drawn in the top 438 rows
+    // and the rest transparent, and the keyboard was at the top of the screen whenever the window was the full size. The keyboard is
+    // its input region when it has one, else its top 438 rows when the window is the screen's size; it is placed, and told to the field,
+    // by that.
     let bottom = (0, 642, 1920, 438);
     let bottom_u = (0, 642, 1920u32, 438u32);
     for (name, w, h, region, window_at) in [
         ("the keyboard's own size", 1920, 438, None, (0, 642, 1920, 438)),
         ("the whole screen, the keyboard in its top rows", 1920, 1080, Some((0, 0, 1920, 438)), (0, 642, 1920, 1080)),
+        // Round 7 of the TV: the full-screen window with no input region (kisf-2), the keyboard in its top 438 rows.
+        ("the whole screen and no region at all", 1920, 1080, None, (0, 642, 1920, 1080)),
+        ("a region that is not on the window, on the whole screen", 1920, 1080, Some((0, 5000, 10, 10)), (0, 642, 1920, 1080)),
         ("the whole screen, the keyboard in its bottom rows", 1920, 1080, Some((0, 642, 1920, 438)), (0, 0, 1920, 1080)),
         ("the keyboard's own size with the region the whole window", 1920, 438, Some((0, 0, 1920, 438)), (0, 642, 1920, 438)),
         ("a region that is not on the window at all", 1920, 438, Some((0, 5000, 10, 10)), (0, 642, 1920, 438)),

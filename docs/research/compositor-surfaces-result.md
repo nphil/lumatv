@@ -33,7 +33,10 @@ between this build and go-live. Next, in order:
 5. The keyboard's place (section "The keyboard's place"): open LG's Search 5 times (a fresh MaliitServer on the first, a warm one after);
    the keyboard must be at the bottom each time. Per open read `ime-journal.txt`: the `the keyboard is on the screen` line (the panel
    should be 1920x438 at (0, 642) whatever `its window` and `input region` say) and `ime-up.json`'s `panel`; the gate's `ime` now fails a
-   panel 540 rows or more high. A run with a full-screen window and no input region is not covered by the fix: the journal line says.
+   panel 540 rows or more high. Round 7 (`slot-2026-10-28-0300`, kisf-2) showed the full-screen window with no input region at all, so
+   the keyboard is also taken as the top 438 rows of a window taller than three quarters of the screen; the journal line's `keyboard WxH
+   at (x, y) in it` says which rule applied. What makes maliit size its window 1080 in some runs is not known (its journal, `maliit-server`'s
+   log with the `At visible changed, State` lines, would say whether `setPanelSize` ran): worth capturing on the next round.
 
 Likeliest failures on the set now: the toast's first frame (above), an app left open by a key (`gate.sh shell` starts with Home
 not in front: `connected` fails with `drawn false`, and the frame gate's session then covers Home), the idle cost over the
@@ -336,6 +339,15 @@ field's asked-for rectangle, and `set_input_panel_rect` is journaled, so a run t
 needs the panel under 540 rows as well as ending at 1080. Host test `tests/ime.rs`
 `the_keyboard_is_at_the_bottom_whatever_size_maliit_makes_its_window` (five window shapes; before the change the full-screen window at y 0
 with the keyboard in its top rows came out as a 1920x1080 panel at (0, 0)).
+
+Round 7 (808256c, `slot-2026-10-28-0300/kisf-1..3`): 1920x438 twice and 1920x1080 once, and the 1080 window's journal line reads `input
+region None`, so maliit sets no input region and the region alone did not help. maliit's QML (`view-global/main.qml`) puts the keyboard at
+y 0 of its window (`normalKeyboard` y 0, height `keyboardDefaultHeight` = 876 / 2 = 438 at 1080p) and the window is only resized by
+`PluginProxy.setPanelSize`, so a window that stays at the screen's size has the keyboard in its top rows. The keyboard is now, in order, the
+input region's bounds, else the whole window when it is not taller than 3/4 of the output, else the top `KEYBOARD_HEIGHT` (438) rows of the
+window (`scene::keyboard_geometry`); the window is then placed so those rows end at the bottom edge (y 642, the rest of the 1080 rows below
+the screen). A taller keyboard in such a window (the prediction row adds 90) would be cut at the bottom; a window that is resized to the
+keyboard later is read by its own size again. Host test: the same test, two more shapes (no region, a missed region, on a 1080 window).
 
 ## Open
 

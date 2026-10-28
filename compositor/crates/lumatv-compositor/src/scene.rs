@@ -25,15 +25,26 @@ pub const HOME_APP: &str = "com.webos.app.home";
 /// what the client's request takes, 100 ms and more under load on the set (the layer's empty frame after its last content is older still).
 const JOIN_FRESH_NS: u64 = 400_000_000;
 
-/// The part of a keyboard window that is the keyboard, in the window's own coordinates: the bounding box of its input region, or the whole
-/// window when it set none. maliit's window is not always the keyboard's size: on the TV it came 1920x1080 (the keyboard drawn in the top
-/// 438 rows) in four runs of six and 1920x438 in two, and sizing the keyboard by the window put it at the top in the first case. KWin reads the
-/// same maliit the same way (the input shape is the window's geometry). The box is clipped to the window; a region that misses it is none.
+/// LG's keyboard at 1080p: maliit's `keyboardDefaultHeight` (`876 / resolution`, resolution 2) and what a window that was sized to the
+/// keyboard is on the set (1920x438 in the gate's good runs). The keyboard sits in the top rows of its window (`normalKeyboard` at y 0).
+pub const KEYBOARD_HEIGHT: i32 = 438;
+
+/// The part of a keyboard window that is the keyboard, in the window's own coordinates. maliit's window is not always the keyboard's size:
+/// on the TV it came 1920x1080 (the keyboard drawn in the top rows, the rest transparent) in 5 of 10 runs and 1920x438 in the other 5, and
+/// round 7's journal shows the 1080 window with no input region, so neither the region nor the size says where the keyboard is. In order:
+/// the bounding box of the window's input region, clipped to the window; else the whole window when it is not taller than three quarters
+/// of the output (a window sized to its keyboard); else the top [`KEYBOARD_HEIGHT`] rows of it (a window the size of the screen, which
+/// no keyboard is).
 pub fn keyboard_geometry(size: (i32, i32), input: Option<&[Rect]>) -> Rect {
     let whole = Rect::new(0, 0, size.0, size.1);
-    let Some(rects) = input else { return whole };
-    let bounds = rects.iter().map(|r| r.intersect(&whole)).fold(Rect::default(), |a, r| a.union(&r));
-    if bounds.is_empty() { whole } else { bounds }
+    let bounds = input.map(|rects| rects.iter().map(|r| r.intersect(&whole)).fold(Rect::default(), |a, r| a.union(&r))).unwrap_or_default();
+    if !bounds.is_empty() {
+        bounds
+    } else if size.1 > OUTPUT_HEIGHT as i32 * 3 / 4 {
+        Rect::new(0, 0, size.0, KEYBOARD_HEIGHT.min(size.1))
+    } else {
+        whole
+    }
 }
 
 /// Where a keyboard window's origin goes so that its keyboard (`g`, from [`keyboard_geometry`]) is LG's `KeyboardView` panel: the full
