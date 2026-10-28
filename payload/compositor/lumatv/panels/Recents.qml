@@ -166,7 +166,7 @@ Item {
                                 Row {
                                     x: 6
                                     width: 364 - 12
-                                    height: 52
+                                    height: 60
                                     spacing: Lu.space(3)
                                     LuAppIcon { anchors.verticalCenter: parent.verticalCenter; width: 40; height: 40; radius: 10; source: card.r ? card.r.iconUrl : "" }
                                     Column {

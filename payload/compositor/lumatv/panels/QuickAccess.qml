@@ -118,7 +118,7 @@ Item {
                         id: pick
                         readonly property bool isMore: index === qa.moreIndex
                         readonly property bool isFocus: qa.asking && qa.index === index
-                        width: 140; height: 150
+                        width: 140; height: Math.max(150, pickName.y + pickName.implicitHeight + Lu.space(3))
                         FocusLift { id: lift; focused: pick.isFocus; rested: qa.rested; reduced: Lu.reduced; duration: Lu.cardMs; easing: Lu.cardEasing }
                         LuHalo { anchors.centerIn: parent; width: parent.width * 1.2; height: parent.height * 1.5; z: -1; on: pick.isFocus }
                         Rectangle {
@@ -133,10 +133,13 @@ Item {
                         LuAppIcon { visible: !pick.isMore; x: Math.round((pick.width - width) / 2); y: Lu.space(3); width: 76; height: 76; radius: 18; source: pick.isMore ? "" : (qa.picks[index] ? qa.picks[index].iconUrl || "" : "") }
                         LuTile { visible: pick.isMore; x: Math.round((pick.width - width) / 2); y: Lu.space(3); size: 76; icon: "ellipsis" }
                         LuText {
+                            id: pickName
                             x: Lu.space(1); y: Lu.space(3) + 76 + Lu.space(2)
                             width: pick.width - 2 * Lu.space(1)
                             horizontalAlignment: Text.AlignHCenter
                             role: "caption"
+                            wrapMode: Text.Wrap                         // "Homebrew Channel" on two lines, not cut short; a word wider than the tile (200 % text) breaks inside
+                            maximumLineCount: 3
                             elide: Text.ElideRight
                             text: pick.isMore ? "More\u2026" : (qa.picks[index] ? qa.picks[index].title : "")
                         }
