@@ -57,6 +57,7 @@ class Channel:
         self.reports = []
         self.luna = []
         self.cancels = []
+        self.ime = []
         self.polls = 0
 
     def push(self, topic, data):
@@ -133,6 +134,10 @@ def serve(channel, port):
                 channel.cancels.append(doc.get('tag'))
                 say('[cancel] ' + json.dumps(doc))
                 return self.answer(200, {'ok': True})
+            if self.path == '/v1/ime':
+                channel.ime.append(doc)
+                say('[ime] ' + json.dumps(doc))
+                return self.answer(200, {'ok': True})
             self.answer(404, {'ok': False})
 
     srv = ThreadingHTTPServer(('127.0.0.1', port), Handler)
@@ -152,6 +157,10 @@ def main(argv=None):
     ap.add_argument('--eval', action='append', default=[], metavar='MS:EXPR')
     ap.add_argument('--shot-home')
     ap.add_argument('--shot-sys')
+    ap.add_argument('--snap-sys', action='append', default=[], metavar='MS:PATH', help='grab the system layer at MS')
+    ap.add_argument('--audit-sys', action='append', default=[], metavar='MS:PATH[:KINDS]', help='write the layout audit (layoutaudit.py) of the system layer at MS')
+    ap.add_argument('--backdrop', help='an image drawn behind everything in the system layer: a still of video, for a render of what is over an app')
+    ap.add_argument('--frames-sys', action='append', default=[], metavar='MS:LABEL', help='print how many frames the system layer has swapped since the start, at MS, as `[frames] LABEL N`')
     ap.add_argument('--data')
     ap.add_argument('--theme', help='JSON written as the user theme.json')
     ap.add_argument('--fake-helper', action='store_true')
@@ -241,6 +250,16 @@ def main(argv=None):
         v = e.evaluate()
         print(f'[eval] {v}', flush=True)
 
+    def snap_sys(path):
+        sysw.grabWindow().save(path)
+        print(f'shot {path}', flush=True)
+
+    def audit_sys(path, kinds):
+        import layoutaudit
+        found = layoutaudit.audit(sysw.contentItem(), 1920, 1080, sysw.grabWindow(), kinds)
+        layoutaudit.write(path, found)
+        print(f'audit {path} {len(found)} finding(s)', flush=True)
+
     def finish():
         if a.shot_home:
             home.grabWindow().save(a.shot_home)
@@ -265,6 +284,22 @@ def main(argv=None):
     for spec in a.eval:
         ms, expr = spec.split(':', 1)
         QtCore.QTimer.singleShot(int(ms), QtCore.Qt.PreciseTimer, lambda x=expr: evaluate(x))
+    for spec in a.snap_sys:
+        ms, path = spec.split(':', 1)
+        QtCore.QTimer.singleShot(int(ms), QtCore.Qt.PreciseTimer, lambda p=path: snap_sys(p))
+    for spec in a.audit_sys:
+        ms, path, *rest = spec.split(':')
+        kinds = rest[0].split(',') if rest else None
+        QtCore.QTimer.singleShot(int(ms), QtCore.Qt.PreciseTimer, lambda p=path, k=kinds: audit_sys(p, k))
+    if a.backdrop:
+        src = 'import QtQuick 2.4\nImage { anchors.fill: parent; source: "file://%s"; fillMode: Image.PreserveAspectCrop; z: -1000 }' % os.path.abspath(a.backdrop)
+        QtCore.QTimer.singleShot(300, QtCore.Qt.PreciseTimer, lambda: evaluate('Qt.createQmlObject(%s, sys.contentItem, "backdrop") !== null' % json.dumps(src)))
+    frames = {'n': 0}
+    if sysw is not None:
+        sysw.frameSwapped.connect(lambda: frames.__setitem__('n', frames['n'] + 1))
+    for spec in a.frames_sys:
+        ms, label = spec.split(':', 1)
+        QtCore.QTimer.singleShot(int(ms), QtCore.Qt.PreciseTimer, lambda l=label: print(f'[frames] {l} {frames["n"]}', flush=True))
     QtCore.QTimer.singleShot(a.wait, QtCore.Qt.PreciseTimer, finish)
     app.exec_()
     srv.shutdown()

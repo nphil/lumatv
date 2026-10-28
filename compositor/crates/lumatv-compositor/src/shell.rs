@@ -20,6 +20,10 @@
 //! the compositor's name: qml-runner's own bus role reaches the app manager and nothing else. Every request carries the
 //! token of `<runtime dir>/lumatv-shell.token` (root-only), so another local process cannot drive the channel.
 //!
+//! LumaTV's own on-screen keyboard (`server/ime.rs`, `lumatv keyboard luma`) uses three more things of the channel: the topic `ime` (the
+//! text field that holds the activation and whether it wants the keyboard), the event `imekey` (the remote's keys while the keyboard is up)
+//! and `POST /v1/ime` (what it typed, the keys it pressed, where it is on the screen), and `keyboard` in `can`.
+//!
 //! The server runs on a thread of its own and never touches the compositor's state: requests come to the loop as
 //! [`Msg`]s through a channel and an eventfd ([`State::shell_fd`]), events go out through the shared [`Outbox`].
 
@@ -105,6 +109,8 @@ pub const ALLOWED_SERVICES: &[&str] = &[
     "com.webos.service.systemUIManager",
     "com.webos.surfacemanager",
     "lg.thinqai.adapter",
+    // LG's voice service, for the keyboard's microphone key (maliit's own dictation card calls it the same way)
+    "com.webos.service.voiceconductor",
 ];
 
 /// Whether the shell may make this call: `luna://<service>/...` with the service on the allowlist (a sub-name such as
@@ -128,6 +134,8 @@ pub enum Msg {
     Luna { tag: u64, uri: String, payload: Value, subscribe: bool },
     /// `POST /v1/cancel`.
     Cancel { tag: u64 },
+    /// `POST /v1/ime`: the shell's keyboard (`ime::own_op`).
+    Ime(Value),
 }
 
 /// Events on their way to the client, shared with the server thread.
@@ -222,7 +230,7 @@ pub struct Shell {
     pub gave_up: bool,
     pub connected: bool,
     last_seen: Option<Instant>,
-    /// What the UI says it can show now: "quick", "picker", "drawer".
+    /// What the UI says it can show now: "quick", "picker", "drawer", "keyboard".
     pub can: Vec<String>,
     /// The UI's system layer wants the keys.
     pub wants: bool,
@@ -526,6 +534,7 @@ impl State {
     }
 
     fn shell_client_gone(&mut self, why: &str) {
+        crate::server::ime::own_gone(self);
         if self.shell.connected || !self.shell.luna_tags.is_empty() {
             self.journal(format!("shell: client gone ({why}); {} luna subscription(s) cancelled", self.shell.luna_tags.iter().filter(|t| t.subscribe).count()));
         }
@@ -669,6 +678,10 @@ impl State {
                     }
                 }
             }
+            Msg::Ime(body) => {
+                self.shell.note_seen(now);
+                crate::server::ime::own_op(self, &body);
+            }
         }
         false
     }
@@ -717,6 +730,7 @@ impl State {
         // frame after it stops (an app taking the front stops it at once: the wallpaper's window is left out of the stack with Home).
         let wall = json!({"hole": home_shown && self.scene.wall_hole()});
         self.shell.push_if_changed("wall", wall);
+        crate::server::ime::own_publish(self);
     }
 
     /// Whether LumaTV's Home would be drawn now: the shell's Home window is mapped and the foreground card is SAM's Home or there is
@@ -775,6 +789,12 @@ impl State {
             let n = self.shell.stats.events;
             self.shell.push("homekey", json!({"n": n}));
         }
+    }
+
+    /// A line in the kernel's trace buffer for the frame gate (`Q:<name>-show`, `-shown`): the keyboard writes its own, since it is asked for by
+    /// a text field and not by a key of the remote.
+    pub fn shell_mark(&self, text: &str) {
+        self.shell.mark(text);
     }
 
     /// `ctl shell`.
@@ -1107,6 +1127,10 @@ fn handle_request(req: &Request, token: &str, outbox: &Arc<Mutex<Outbox>>, inbox
             inbox.send(Msg::Cancel { tag });
             Handled::Answer(200, json!({"ok": true}))
         }
+        ("POST", "/v1/ime") => {
+            inbox.send(Msg::Ime(body));
+            Handled::Answer(200, json!({"ok": true}))
+        }
         _ => Handled::Answer(404, json!({"ok": false, "error": "no such route"})),
     }
 }
@@ -1214,6 +1238,7 @@ mod tests {
     #[test]
     fn allowlist_names_services_not_methods() {
         assert!(allowed("luna://com.webos.applicationManager/launch"));
+        assert!(allowed("luna://com.webos.service.voiceconductor/system/recognizeVoiceWithDetails"));
         assert!(allowed("luna://com.webos.service.audio/tv/getSoundCardsState"));
         assert!(allowed("luna://com.webos.service.sm/deviceid/getIDs"));
         assert!(allowed("luna://com.palm.systemservice/time/getEffectiveBroadcastTime"));

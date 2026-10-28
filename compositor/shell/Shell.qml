@@ -143,6 +143,37 @@ WebOSWindow {
             onStatusChanged: if (status === Loader.Error) console.warn("[Shell] Screensaver failed to load from " + source)
         }
         Binding { target: saver.item; property: "hostActive"; value: homeWin.appFront; when: saver.status === Loader.Ready }
+        // LumaTV's own on-screen keyboard (panels/Keyboard.qml): built once in the background, drawn only while a field the compositor serves
+        // here asks for it. It takes no keys of this window: the remote's keys reach it as `imekey` events (Link), so that the field's app
+        // keeps the keyboard focus. Below the overlay, whose volume display sits at the foot of the screen, where the keyboard's keys are, and
+        // below the notifications: a change of volume while typing is seen.
+        Loader {
+            id: kbd
+            anchors.fill: parent
+            z: -1
+            asynchronous: true
+            source: homeWin.moduleUrl + "panels/Keyboard.qml"
+            onStatusChanged: {
+                if (status === Loader.Error) console.warn("[Shell] Keyboard failed to load from " + source)
+                homeWin.report()
+            }
+        }
+        Binding { target: kbd.item; property: "field"; value: Link.topics.ime || ({}); when: kbd.status === Loader.Ready }
+        Binding { target: kbd.item; property: "voiceOk"; value: homeWin.voiceOk; when: kbd.status === Loader.Ready }
+        Binding { target: kbd.item; property: "voiceNote"; value: homeWin.voiceNote; when: kbd.status === Loader.Ready }
+        Binding { target: kbd.item; property: "listening"; value: homeWin.voiceListening; when: kbd.status === Loader.Ready }
+        Connections {
+            target: kbd.item
+            ignoreUnknownSignals: true
+            onTyped: homeWin.imePost({ op: "text", text: text })
+            onFieldAction: homeWin.imePost(name === "clear" ? { op: "clear" } : { op: "key", key: name })
+            onHideAsked: homeWin.imePost({ op: "hide" })
+            onShownAt: homeWin.imePost({ op: "shown", x: x, y: y, w: w, h: h })
+            onVoiceAsked: homeWin.voiceStart()
+            onVoiceCancelled: homeWin.voiceStop()
+            // the keyboard going away ends a listening that is still open
+            onWantedChanged: if (kbd.item && !kbd.item.wanted && homeWin.voiceListening) homeWin.voiceStop()
+        }
         Item {
             id: sysKeys
             anchors.fill: parent
@@ -164,7 +195,10 @@ WebOSWindow {
     readonly property bool saverUp: !!saver.item && saver.item.active
     readonly property bool overlayWants: !!overlay.item && overlay.item.wants
     readonly property bool sysWants: overlayWants || notifyWants || saverUp
-    readonly property bool sysLive: (!!overlay.item && overlay.item.visible) || (!!notify.item && notify.item.live) || saverUp
+    readonly property bool kbdLive: !!kbd.item && kbd.item.live
+    // the keyboard's panel, for the host tests and the gate (nothing in the shell reads it)
+    readonly property var keyboardItem: kbd.item
+    readonly property bool sysLive: (!!overlay.item && overlay.item.visible) || (!!notify.item && notify.item.live) || saverUp || kbdLive
     // The system layer's window is made (and kept) two seconds after Home loaded, out of the way of Home's own first frames;
     // the walk of its buffers starts a moment after it mapped.
     property bool sysWarm: false
@@ -174,6 +208,81 @@ WebOSWindow {
     property bool warmShow: false
     Timer { id: warmHide; interval: 400; onTriggered: homeWin.warmShow = false }
     Binding { target: notify.item; property: "warming"; value: homeWin.warmShow; when: notify.status === Loader.Ready }
+    // ---- the keyboard's link with the compositor (server/ime.rs): what it types, the keys it presses and where it is go back over
+    // `POST /v1/ime`, tagged with the field they are for, so that a request that outlives its field is dropped there. The remote's keys come as
+    // `imekey` events while the keyboard is up. The requests go one at a time, each after the answer to the one before: two requests made in
+    // the same moment (Enter, then the keyboard going away) travel on connections of their own and arrived the other way round.
+    readonly property int imeModel: Link.topics.ime ? (Link.topics.ime.model | 0) : 0
+    property var imeQueue: []
+    property bool imeBusy: false
+    function imePost(op) {
+        op.model = imeModel
+        imeQueue.push(op)
+        if (!imeBusy) imeSend()
+    }
+    function imeSend() {
+        if (!imeQueue.length) { imeBusy = false; imeStall.stop(); return }
+        imeBusy = true
+        imeStall.restart()
+        Link.post("/v1/ime", imeQueue.shift(), function() { homeWin.imeSend() })
+    }
+    // an answer that never comes (the compositor went) must not hold the keyboard's requests for ever
+    Timer { id: imeStall; interval: 2000; onTriggered: { homeWin.imeQueue = []; homeWin.imeBusy = false } }
+    Connections {
+        target: Link
+        onImeKey: { if (kbd.item) kbd.item.imeKey(key, down, repeat) }
+        onUpChanged: { if (Link.up && !homeWin.voiceProbed) { homeWin.voiceProbed = true; homeWin.voiceProbe() } }
+    }
+
+    // ---- the keyboard's microphone: LG's voice service does the listening (the call maliit's own dictation card makes, recognizeVoiceWithDetails
+    // with `runVoiceUi: false`), the keyboard says what it is doing on its space bar and the first answer is typed into the field. The key is
+    // there only when the TV says it has voice recognition; a TV whose voice services are stopped (the `lean` profile) answers with an error
+    // and the space bar says so.
+    property bool voiceOk: false
+    property bool voiceProbed: false
+    property bool voiceListening: false
+    property string voiceNote: ""
+    property string voiceTicket: ""
+    property int voiceTag: 0
+    function voiceProbe() {
+        Link.luna("luna://com.webos.service.config/getConfigs", { configNames: ["system.supportVoiceRecognition"] }, false, function(p) {
+            voiceOk = !!(p && p.configs && p.configs["system.supportVoiceRecognition"] === true)
+        })
+    }
+    function voiceStart() {
+        if (voiceListening) return
+        voiceListening = true
+        voiceTicket = ""
+        voiceNote = "Listening"
+        voiceTag = Link.luna("luna://com.webos.service.voiceconductor/system/recognizeVoiceWithDetails",
+                             { subscribe: true, language: "en-US", runVoiceUi: false }, true, voiceEvent)
+        voiceLimit.restart()
+    }
+    function voiceStop(note) {
+        voiceLimit.stop()
+        if (voiceTag) {
+            Link.cancel(voiceTag)
+            if (voiceTicket !== "") Link.luna("luna://com.webos.service.voiceconductor/cancelRecognition", { voiceTicket: voiceTicket }, false, function() {})
+        }
+        voiceTag = 0
+        voiceTicket = ""
+        voiceListening = false
+        voiceNote = note || ""
+        if (note) voiceNoteClear.restart()
+    }
+    function voiceEvent(p) {
+        if (!voiceListening || !p) return
+        if (p.returnValue === false || p.event === "sttError") { voiceStop("Voice isn't available"); return }
+        if (p.event === "sttStart") voiceTicket = String(p.voiceTicket || "")
+        else if (p.event === "sttConnecting") voiceNote = "Working"
+        else if (p.event === "sttResult") {
+            var words = p.text && p.text.length ? String(p.text[0]) : ""
+            voiceStop(words === "" ? "Nothing heard" : "")
+            if (words !== "") imePost({ op: "text", text: words })
+        }
+    }
+    Timer { id: voiceLimit; interval: 20000; onTriggered: homeWin.voiceStop("Voice isn't available") }
+    Timer { id: voiceNoteClear; interval: 3000; onTriggered: homeWin.voiceNote = "" }
     // The notifications and the saver have the keys before the overlay's surfaces (LG's order: the PIN prompt and alerts above
     // everything); digits go to the PIN prompt.
     function sysKey(event, pressed) {
@@ -211,6 +320,7 @@ WebOSWindow {
             if (bridge.panelReady("quick")) c.push("quick")
             if (bridge.panelReady("picker")) c.push("picker")
             if (bridge.gearReady()) c.push("drawer")
+            if (kbd.status === Loader.Ready && !!kbd.item && kbd.item.ready === true) c.push("keyboard")
         } catch (e) {}
         return c
     }
@@ -221,7 +331,9 @@ WebOSWindow {
             settings: !!h && h.settingsOpen === true, overlay: o ? String(o.surface || "") : "", osd: !!o && o.osdLive === true,
             toasts: n ? n.toasts.length : 0, alert: !!n && n.alertUp, pin: !!n && n.pinUp, saver: saverUp || (!!h && h.saverUp === true), keys: keysSeen, dropped: keysDropped,
             beat: !!h && h.lastBeatMs > 0, idleHold: !!h && h.idleHold === true, link: { up: Link.up, calls: Link.nextTag, events: Link.events },
-            wall: { backend: h ? String(h.videoWallBackend || "") : "", hole: wallHole, up: !!h && h.videoWallUp === true }
+            wall: { backend: h ? String(h.videoWallBackend || "") : "", hole: wallHole, up: !!h && h.videoWallUp === true },
+            keyboard: kbd.item ? { up: kbd.item.wanted, live: kbd.item.live, layout: kbd.item.layoutId, focus: kbd.item.focusAt, key: kbd.item.focusKey ? kbd.item.focusKey.id : "",
+                                   shift: kbd.item.shift, listening: voiceListening, voice: kbd.item.voiceOk, busy: kbd.item.busy } : null
         }
     }
     function report() {

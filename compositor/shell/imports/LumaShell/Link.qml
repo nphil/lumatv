@@ -33,6 +33,9 @@ QtObject {
     signal updated(string topic)
     signal show(string kind, bool warm)
     signal homeKey()
+    // A key of the remote taken by the on-screen keyboard while it is up (compositor server/ime.rs): its name (left, right, up, down, ok, back, a
+    // digit), whether it went down, and whether it is the remote's repeat of a key already down.
+    signal imeKey(string key, bool down, bool repeat)
 
     property bool started: false
     property int failures: 0
@@ -82,7 +85,7 @@ QtObject {
         })
     }
     // Events that are not a state: not kept as topics, not replayed from the state read.
-    function streamed(name) { return name === "luna" || name === "show" || name === "homekey" }
+    function streamed(name) { return name === "luna" || name === "show" || name === "homekey" || name === "imekey" }
 
     function poll(gen) {
         polledAt = Date.now()
@@ -100,6 +103,7 @@ QtObject {
                 if (e.topic === "luna") { deliver(e.data.tag, e.data.payload); continue }
                 if (e.topic === "show") { show(String(e.data.kind || ""), e.data.warm === true); continue }
                 if (e.topic === "homekey") { homeKey(); continue }
+                if (e.topic === "imekey") { imeKey(String(e.data.k || ""), e.data.d === true, e.data.r === true); continue }
                 if (!next) { next = {}; for (var k in topics) next[k] = topics[k] }
                 next[e.topic] = e.data
                 if (changed.indexOf(e.topic) < 0) changed.push(e.topic)

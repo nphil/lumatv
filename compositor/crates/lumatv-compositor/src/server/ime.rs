@@ -13,6 +13,13 @@
 //!
 //! No input method yet: LG asks the system for one (`initctl emit ime-activate`) and finishes the activation when it binds and names
 //! its display (`input_method.set_display_id`); so does this.
+//!
+//! LumaTV's own keyboard (`lumatv keyboard luma`): while the flag file [`OWN_FLAG`] is in the data directory and the shell client says it can
+//! show a `keyboard`, a field is served by the shell instead of an input method. There is no context and no grab: the field's content type,
+//! enter key and `show_input_panel` go to the shell as the `ime` topic of the UI channel, the remote's navigation keys go to it as `imekey`
+//! events while its keyboard is on the screen, and what it types comes back as `POST /v1/ime` and leaves as the field's `commit_string`
+//! and `keysym` ([`own_op`]). LG's input method (maliit) serves every field when the flag is absent, the shell is not live or its keyboard
+//! does not come up within [`OWN_SHOW_WITHIN`].
 
 use std::time::{Duration, Instant};
 
@@ -39,6 +46,12 @@ use crate::{OUTPUT_HEIGHT, OUTPUT_WIDTH, Rect, State, plain_global};
 const DISPLAY: u32 = 0;
 /// At most one request for an input method in this long: the system takes a moment to start one.
 const ASK_EVERY: Duration = Duration::from_secs(3);
+/// The flag `lumatv keyboard luma` leaves in the data directory: LumaTV's own keyboard serves the fields while the shell can show it.
+pub const OWN_FLAG: &str = ".keyboard-luma";
+/// The shell has this long to put its keyboard on the screen after a field asked for it; past it LG's keyboard serves the field.
+const OWN_SHOW_WITHIN: Duration = Duration::from_secs(2);
+/// After a keyboard that did not come up, LG's keyboard serves every field for this long.
+const OWN_BROKEN_FOR: Duration = Duration::from_secs(60);
 
 pub struct ModelData(u32);
 pub struct MethodData(u32);
@@ -65,6 +78,19 @@ struct Model {
     show_wanted: bool,
     /// Where the app wants the keyboard (`set_input_panel_rect`).
     preferred: Option<Rect>,
+    /// What the field last said about itself, kept whether or not the model is active (an app may describe a field before it activates
+    /// it). Of the surrounding text only its length and the cursor's byte offset are kept: a password never rests here.
+    hint: u32,
+    purpose: u32,
+    enter: u32,
+    max: u32,
+    surround: Option<(u32, u32)>,
+    /// Served by the shell's keyboard ([`begin_own`]): no input method context exists for it.
+    own: bool,
+    /// The field wants the shell's keyboard on the screen.
+    own_show: bool,
+    /// The serial of the activation, which the shell's keyboard's events to the field carry (as the one maliit is activated with).
+    serial: u32,
 }
 
 struct Method {
@@ -84,6 +110,31 @@ pub struct Counts {
     pub grabbed_keys: u64,
 }
 
+/// What the shell's keyboard did, for `ctl ime` and the tests.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct OwnCounts {
+    pub activations: u64,
+    pub shown: u64,
+    pub texts: u64,
+    pub keys: u64,
+    pub clears: u64,
+    pub hides: u64,
+    pub nav: u64,
+    pub failed: u64,
+}
+
+/// The shell's keyboard as the compositor knows it.
+#[derive(Default)]
+pub struct Own {
+    /// Where the keyboard is on the screen, from the moment it starts to slide in until the field leaves, hides it or the shell says so.
+    pub up: Option<Rect>,
+    /// `show_input_panel` went to the shell at this time and its keyboard has not said it is up.
+    pending: Option<Instant>,
+    /// LG's keyboard serves every field until then: the shell's did not come up in time.
+    broken_until: Option<Instant>,
+    pub counts: OwnCounts,
+}
+
 pub struct ImeState {
     models: Vec<Model>,
     methods: Vec<Method>,
@@ -100,6 +151,8 @@ pub struct ImeState {
     /// Asks the system for an input method; the host tests replace it.
     pub ask_for_input_method: Box<dyn FnMut()>,
     pub counts: Counts,
+    /// The shell's own keyboard.
+    pub own: Own,
 }
 
 impl Default for ImeState {
@@ -116,6 +169,7 @@ impl Default for ImeState {
             asked: 0,
             ask_for_input_method: Box::new(ask_system),
             counts: Counts::default(),
+            own: Own::default(),
         }
     }
 }
@@ -163,11 +217,26 @@ impl ImeState {
         self.active.and_then(|id| self.model(id)).map(|m| (m.id, m.surface_id))
     }
 
-    /// The input method holds the keyboard grab and its keyboard is on the screen: the keys go to it. A keyboard that is off the screen
-    /// (the input method hid it on Back) is given none, so that the remote steers the app again at once; its grab is back in force when
-    /// the keyboard's window is.
+    /// An input method holds the keyboard grab and its keyboard is on the screen, or the shell's keyboard is: the keys go to it. A keyboard that
+    /// is off the screen (hidden on Back) is given none, so that the remote steers the app again at once; its grab is back in force when the
+    /// keyboard's window is.
     pub fn grabbing(&self) -> bool {
+        self.grabbing_external() || self.own_taking()
+    }
+
+    fn grabbing_external(&self) -> bool {
         self.panel.is_some() && self.grab.as_ref().is_some_and(live)
+    }
+
+    /// The shell's keyboard is on the screen for the active field: it is given the remote's navigation keys.
+    pub fn own_taking(&self) -> bool {
+        self.own.up.is_some() && self.active.and_then(|id| self.model(id)).is_some_and(|m| m.own && m.active)
+    }
+
+    /// Whether `code` goes to the keyboard that is up: every key to an input method's grab; to the shell's the navigation keys, OK, Back and
+    /// the digits (a hardware keyboard's letters are the app's own).
+    pub fn grabs(&self, code: u32) -> bool {
+        self.grabbing_external() || (self.own_taking() && own_key_name(code).is_some())
     }
 
     pub fn methods_bound(&self) -> usize {
@@ -251,6 +320,14 @@ impl Dispatch<TextModelFactory, ()> for State {
                 method: None,
                 show_wanted: false,
                 preferred: None,
+                hint: 0x7,
+                purpose: 0,
+                enter: 0,
+                max: 0,
+                surround: None,
+                own: false,
+                own_show: false,
+                serial: 0,
             });
             state.note_request("text_model_factory", 0, "create_text_model");
         }
@@ -269,14 +346,21 @@ impl Dispatch<TextModel, ModelData> for State {
     ) {
         state.touch_client(client);
         let mid = data.0;
-        state.note_request("text_model", resource.id().protocol_id(), &format!("{request:?}"));
+        state.note_request("text_model", resource.id().protocol_id(), &quiet(&request));
         // What the field says goes to the keyboard's context while the model is active (LG forwards it the same way and drops it
-        // while there is no context).
+        // while there is no context). The shell's keyboard has no context: it is told through the model's own record (`own_publish`).
         let ctx = state.ime.model(mid).filter(|m| m.active).and_then(|m| m.ctx.clone()).filter(live);
+        let own = state.ime.model(mid).is_some_and(|m| m.active && m.own);
         match request {
             text_model::Request::Activate { surface, .. } => activate(state, mid, &surface),
             text_model::Request::Deactivate { .. } => deactivate(state, mid, "the app deactivated it"),
             text_model::Request::SetSurroundingText { text, cursor, anchor } => {
+                if let Some(m) = state.ime.model_mut(mid) {
+                    m.surround = Some((text.len() as u32, cursor));
+                }
+                if own {
+                    own_publish(state);
+                }
                 if let Some(c) = ctx {
                     c.surrounding_text(text, cursor, anchor);
                 }
@@ -287,11 +371,24 @@ impl Dispatch<TextModel, ModelData> for State {
                 }
             }
             text_model::Request::SetContentType { hint, purpose } => {
+                if let Some(m) = state.ime.model_mut(mid) {
+                    m.hint = hint;
+                    m.purpose = purpose;
+                }
+                if own {
+                    own_publish(state);
+                }
                 if let Some(c) = ctx {
                     c.content_type(hint, purpose);
                 }
             }
             text_model::Request::SetEnterKeyType { enter_key_type } => {
+                if let Some(m) = state.ime.model_mut(mid) {
+                    m.enter = enter_key_type;
+                }
+                if own {
+                    own_publish(state);
+                }
                 if let Some(c) = ctx {
                     c.enter_key_type(enter_key_type);
                 }
@@ -307,6 +404,12 @@ impl Dispatch<TextModel, ModelData> for State {
                 }
             }
             text_model::Request::SetMaxTextLength { length } => {
+                if let Some(m) = state.ime.model_mut(mid) {
+                    m.max = length;
+                }
+                if own {
+                    own_publish(state);
+                }
                 if let Some(c) = ctx {
                     c.max_text_length(length);
                 }
@@ -317,6 +420,10 @@ impl Dispatch<TextModel, ModelData> for State {
                 }
             }
             text_model::Request::ShowInputPanel => {
+                if own {
+                    own_show(state, mid);
+                    return;
+                }
                 let method = state.ime.model(mid).filter(|m| m.active).and_then(|m| m.method.as_ref().map(|(_, r)| r.clone()));
                 match (method.filter(live), ctx) {
                     (Some(method), Some(c)) => method.show_input_panel(&c),
@@ -328,6 +435,10 @@ impl Dispatch<TextModel, ModelData> for State {
                 }
             }
             text_model::Request::HideInputPanel => {
+                if own {
+                    own_app_hides(state, mid);
+                    return;
+                }
                 let method = state.ime.model(mid).filter(|m| m.active).and_then(|m| m.method.as_ref().map(|(_, r)| r.clone()));
                 if let Some(m) = state.ime.model_mut(mid) {
                     m.show_wanted = false;
@@ -365,6 +476,28 @@ impl Dispatch<TextModel, ModelData> for State {
     }
 }
 
+/// A request as the protocol log shows it, with the words of the field left out: a password or a PIN is never logged.
+fn quiet(request: &text_model::Request) -> String {
+    match request {
+        text_model::Request::SetSurroundingText { text, cursor, anchor } => {
+            format!("SetSurroundingText {{ {} bytes, cursor: {cursor}, anchor: {anchor} }}", text.len())
+        }
+        text_model::Request::SetPlatformData { text } => format!("SetPlatformData {{ {} bytes }}", text.len()),
+        other => format!("{other:?}"),
+    }
+}
+
+/// The same for what an input method sends: the text it types is not logged.
+fn quiet_context(request: &input_method_context::Request) -> String {
+    match request {
+        input_method_context::Request::CommitString { serial, text } => format!("CommitString {{ serial: {serial}, {} bytes }}", text.len()),
+        input_method_context::Request::PreeditString { serial, text, commit } => {
+            format!("PreeditString {{ serial: {serial}, {} bytes, commit {} bytes }}", text.len(), commit.len())
+        }
+        other => format!("{other:?}"),
+    }
+}
+
 impl Dispatch<InputMethodContext, ContextData> for State {
     fn request(
         state: &mut Self,
@@ -375,7 +508,7 @@ impl Dispatch<InputMethodContext, ContextData> for State {
         _dh: &DisplayHandle,
         data_init: &mut DataInit<'_, Self>,
     ) {
-        state.note_request("input_method_context", resource.id().protocol_id(), &format!("{request:?}"));
+        state.note_request("input_method_context", resource.id().protocol_id(), &quiet_context(&request));
         // The keyboard's answers are the field's events. A context that is not the active model's any more (the keyboard's server is
         // slow to destroy it) is listened to for nothing.
         let model = state.ime.model(data.model).filter(|m| m.active && m.ctx.as_ref().is_some_and(|c| c.id() == resource.id())).map(|m| m.res.clone());
@@ -542,10 +675,10 @@ fn activate(state: &mut State, mid: u32, surface: &WlSurface) {
         return;
     }
     if on_another {
-        deactivate(state, mid, "activated on another surface");
+        deactivate_with(state, mid, "activated on another surface", false);
     }
     if let Some(prev) = state.ime.active.filter(|p| *p != mid) {
-        deactivate(state, prev, "another text field activated");
+        deactivate_with(state, prev, "another text field activated", false);
     }
     if let Some(m) = state.ime.model_mut(mid) {
         m.active = true;
@@ -557,10 +690,16 @@ fn activate(state: &mut State, mid: u32, surface: &WlSurface) {
     let app = state.scene.window_of(sid).and_then(|w| state.scene.window(w)).map(|w| w.app_id().to_string()).unwrap_or_default();
     state.journal(format!("ime: text model {mid} activated on surface {} ({app:?})", sid.0));
     begin(state, mid);
+    // The shell's keyboard hears of a field it serves from `begin_own`; a field that goes to LG's is news to it too when a field it served left.
+    own_publish(state);
 }
 
 /// Makes the model's context in the input method's client and tells the app it entered, or asks for an input method first.
 fn begin(state: &mut State, mid: u32) {
+    if own_ready(state) {
+        begin_own(state, mid);
+        return;
+    }
     let Some((method_id, method)) = state.ime.ready_method() else {
         request_input_method(state);
         return;
@@ -602,12 +741,20 @@ fn begin(state: &mut State, mid: u32) {
 
 /// A model stops being active: the keyboard is told, the field is told it left and the keyboard is no longer up for it.
 pub fn deactivate(state: &mut State, mid: u32, why: &str) {
+    deactivate_with(state, mid, why, true);
+}
+
+/// [`deactivate`]; `publish` says whether the shell hears of it at once (an activation that follows tells it of the field it is for).
+fn deactivate_with(state: &mut State, mid: u32, why: &str, publish: bool) {
     let Some(m) = state.ime.model_mut(mid) else { return };
     if !m.active {
         return;
     }
+    let was_own = m.own;
     m.active = false;
     m.show_wanted = false;
+    m.own = false;
+    m.own_show = false;
     m.surface = None;
     m.surface_id = None;
     let (res, ctx, method) = (m.res.clone(), m.ctx.take(), m.method.take());
@@ -626,6 +773,12 @@ pub fn deactivate(state: &mut State, mid: u32, why: &str) {
     if live(&res) {
         res.input_panel_state(0);
         res.leave();
+    }
+    if was_own {
+        own_off(state);
+        if publish {
+            own_publish(state);
+        }
     }
     state.journal(format!("ime: text model {mid} left ({why})"));
 }
@@ -734,20 +887,297 @@ fn request_input_method(state: &mut State) {
     (state.ime.ask_for_input_method)();
 }
 
+// ---- the shell's own keyboard
+
+/// Whether a field is served by the shell's keyboard now: the owner's flag, the shell able to show one, and no failure to bring one up
+/// in the last minute.
+fn own_ready(state: &State) -> bool {
+    state.shell_can("keyboard") && state.ime.own.broken_until.is_none_or(|t| Instant::now() >= t) && state.config.data_dir.join(OWN_FLAG).exists()
+}
+
+/// The model the shell's keyboard serves, if any.
+fn own_active(state: &State) -> Option<u32> {
+    let id = state.ime.active?;
+    state.ime.model(id).filter(|m| m.active && m.own).map(|m| m.id)
+}
+
+/// The name the shell's keyboard knows a key of the remote by, for the keys it takes while it is up: the arrows, OK, Back and the digits.
+pub fn own_key_name(code: u32) -> Option<&'static str> {
+    use crate::input::code::*;
+    const DIGITS: [&str; 9] = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
+    Some(match code {
+        KEY_UP => "up",
+        KEY_DOWN => "down",
+        KEY_LEFT => "left",
+        KEY_RIGHT => "right",
+        KEY_ENTER | KEY_OK => "ok",
+        KEY_BACK | KEY_PREVIOUS => "back",
+        KEY_1..=KEY_9 => DIGITS[(code - KEY_1) as usize],
+        KEY_0 => "0",
+        _ => return None,
+    })
+}
+
+/// The keysym a named key of the shell's keyboard is typed as (XKB's).
+fn keysym_of(name: &str) -> Option<u32> {
+    Some(match name {
+        "backspace" => 0xff08,
+        "tab" => 0xff09,
+        "enter" => 0xff0d,
+        "left" => 0xff51,
+        "up" => 0xff52,
+        "right" => 0xff53,
+        "down" => 0xff54,
+        _ => return None,
+    })
+}
+
+/// A field the shell's keyboard serves: no context, the field is told it entered, and the shell is told what the field is.
+fn begin_own(state: &mut State, mid: u32) {
+    let serial = state.next_serial();
+    let Some(m) = state.ime.model_mut(mid) else { return };
+    m.own = true;
+    m.serial = serial;
+    m.ctx = None;
+    m.method = None;
+    m.own_show = std::mem::take(&mut m.show_wanted);
+    let (res, surface, show) = (m.res.clone(), m.surface.clone(), m.own_show);
+    state.ime.own.counts.activations += 1;
+    if let Some(surface) = surface
+        && live(&res)
+        && live(&surface)
+    {
+        res.enter(&surface);
+    }
+    if show {
+        state.ime.own.pending = Some(Instant::now());
+    }
+    state.journal(format!("ime: text model {mid} entered; the shell's keyboard serves it"));
+    own_publish(state);
+}
+
+/// Tells the shell what the active field is and whether it wants the keyboard: the `ime` topic, pushed when it changed. A field the shell
+/// does not serve, or none, is `{"active": false}`. The text of the field is never in it, only whether there is any.
+pub fn own_publish(state: &mut State) {
+    let doc = match state.ime.active.and_then(|id| state.ime.model(id)).filter(|m| m.active && m.own) {
+        Some(m) => {
+            let app =
+                m.surface_id.and_then(|s| state.scene.window_of(s)).and_then(|w| state.scene.window(w)).map(|w| w.app_id().to_string()).unwrap_or_default();
+            serde_json::json!({
+                "active": true, "show": m.own_show, "model": m.id, "app": app,
+                "hint": m.hint, "purpose": m.purpose, "enter": m.enter, "max": m.max,
+                "text": m.surround.is_some_and(|(len, _)| len > 0),
+            })
+        }
+        None => serde_json::json!({"active": false, "show": false}),
+    };
+    state.shell.push_if_changed("ime", doc);
+}
+
+/// The field asks for its keyboard: the shell is told, and has [`OWN_SHOW_WITHIN`] to say it is up.
+fn own_show(state: &mut State, mid: u32) {
+    if let Some(m) = state.ime.model_mut(mid) {
+        m.own_show = true;
+    }
+    if state.ime.own.up.is_none() && state.ime.own.pending.is_none() {
+        state.ime.own.pending = Some(Instant::now());
+        state.shell_mark("Q:keyboard-show");
+    }
+    own_publish(state);
+}
+
+/// The field hides its keyboard (it stays active: the app asks again to have it back).
+fn own_app_hides(state: &mut State, mid: u32) {
+    if let Some(m) = state.ime.model_mut(mid) {
+        m.own_show = false;
+    }
+    own_publish(state);
+    own_down(state, mid);
+}
+
+/// The shell's keyboard is not on the screen (any longer, or it never got on): the pointer and the keys are the app's, the topics say so.
+/// Returns whether it was up.
+fn own_off(state: &mut State) -> bool {
+    state.ime.own.pending = None;
+    let was = state.ime.own.up.take().is_some();
+    state.scene.shell_pointer = None;
+    if was {
+        state.journal("ime: the shell's keyboard is off the screen".into());
+        state.shell_sync_topics();
+    }
+    was
+}
+
+/// [`own_off`] for a field that stays active: it is told its keyboard is gone.
+fn own_down(state: &mut State, mid: u32) {
+    if own_off(state)
+        && let Some(res) = state.ime.model(mid).map(|m| m.res.clone()).filter(live)
+    {
+        res.input_panel_state(0);
+    }
+}
+
+/// The shell says its keyboard is on the screen (it starts to slide in) at `rect`: the field is told where, and the remote's keys are the
+/// keyboard's from here.
+fn own_shown(state: &mut State, mid: u32, rect: Rect) {
+    let Some(res) = state.ime.model(mid).filter(|m| m.own_show).map(|m| m.res.clone()) else { return };
+    state.ime.own.pending = None;
+    if state.ime.own.up == Some(rect) {
+        return;
+    }
+    let first = state.ime.own.up.is_none();
+    state.ime.own.up = Some(rect);
+    state.scene.shell_pointer = Some(rect);
+    if live(&res) {
+        if first {
+            res.input_panel_state(1);
+        }
+        res.input_panel_rect(rect.x, rect.y, rect.w as u32, rect.h as u32);
+    }
+    if first {
+        state.ime.own.counts.shown += 1;
+        state.shell_mark("Q:keyboard-shown");
+        state.journal(format!("ime: the shell's keyboard is on the screen: {}x{} at ({}, {})", rect.w, rect.h, rect.x, rect.y));
+    }
+    state.shell_sync_topics();
+}
+
+/// The shell's keyboard hides itself (Back, or Done on a field that is finished): the field stays active.
+fn own_hide(state: &mut State, mid: u32) {
+    if let Some(m) = state.ime.model_mut(mid) {
+        m.own_show = false;
+    }
+    state.ime.own.counts.hides += 1;
+    own_publish(state);
+    own_down(state, mid);
+}
+
+/// Text the shell's keyboard typed: the field's `commit_string`.
+fn own_text(state: &mut State, mid: u32, text: &str) {
+    let Some((res, serial)) = state.ime.model(mid).map(|m| (m.res.clone(), m.serial)) else { return };
+    if live(&res) {
+        res.commit_string(serial, text.to_string());
+        state.ime.own.counts.texts += 1;
+    }
+}
+
+/// A key the shell's keyboard pressed that is not text (Backspace, Enter, the cursor keys): the field's `keysym`, press and release.
+fn own_key(state: &mut State, mid: u32, sym: u32) {
+    let Some((res, serial)) = state.ime.model(mid).map(|m| (m.res.clone(), m.serial)) else { return };
+    if live(&res) {
+        let time = crate::output::monotonic_ms();
+        res.keysym(serial, time, sym, 1, 0);
+        res.keysym(serial, time, sym, 0, 0);
+        state.ime.own.counts.keys += 1;
+    }
+}
+
+/// Clear all: the field's text, when the field has said how long it is (`set_surrounding_text`), as one `delete_surrounding_text` from the start.
+fn own_clear(state: &mut State, mid: u32) {
+    let Some((res, serial, surround)) = state.ime.model(mid).map(|m| (m.res.clone(), m.serial, m.surround)) else { return };
+    let Some((len, cursor)) = surround.filter(|(len, _)| *len > 0) else { return };
+    if live(&res) {
+        res.delete_surrounding_text(serial, -(cursor as i32), len);
+        state.ime.own.counts.clears += 1;
+        if let Some(m) = state.ime.model_mut(mid) {
+            m.surround = Some((0, 0));
+        }
+        own_publish(state);
+    }
+}
+
+/// One request of the shell's keyboard (`POST /v1/ime`), for the field it serves: `text`, `key`, `clear`, `shown` (with its rectangle) and
+/// `hide`. A request that names another field than the active one (`model`) is stale and dropped. Nothing of the text is journalled.
+pub fn own_op(state: &mut State, body: &serde_json::Value) {
+    let Some(mid) = own_active(state) else { return };
+    if body.get("model").and_then(serde_json::Value::as_u64).is_some_and(|m| m != u64::from(mid)) {
+        return;
+    }
+    let num = |k: &str| body.get(k).and_then(serde_json::Value::as_i64).unwrap_or(0) as i32;
+    match body.get("op").and_then(serde_json::Value::as_str).unwrap_or("") {
+        "text" => {
+            if let Some(t) = body.get("text").and_then(serde_json::Value::as_str).filter(|t| !t.is_empty() && t.len() <= 256) {
+                own_text(state, mid, t);
+            }
+        }
+        "key" => {
+            if let Some(sym) = body.get("key").and_then(serde_json::Value::as_str).and_then(keysym_of) {
+                own_key(state, mid, sym);
+            }
+        }
+        "clear" => own_clear(state, mid),
+        "shown" => {
+            let rect = Rect::new(num("x"), num("y"), num("w"), num("h"));
+            if rect.w > 0 && rect.h > 0 {
+                own_shown(state, mid, rect);
+            }
+        }
+        "hide" => own_hide(state, mid),
+        _ => {}
+    }
+}
+
+/// A key of the remote taken by the keyboard that is up: the shell hears it as an `imekey` event, with whether it is the remote's repeat.
+fn own_nav(state: &mut State, code: u32, pressed: bool, repeat: bool) {
+    let Some(name) = own_key_name(code) else { return };
+    state.ime.own.counts.nav += 1;
+    state.shell.push("imekey", serde_json::json!({"k": name, "d": pressed, "r": repeat}));
+}
+
+/// The shell's client went: a field it served leaves (the next one goes to LG's keyboard until the shell is back).
+pub fn own_gone(state: &mut State) {
+    if let Some(mid) = own_active(state) {
+        deactivate(state, mid, "the shell's keyboard went");
+    }
+    own_off(state);
+}
+
+/// Called every tick: a keyboard the shell was asked for and did not put on the screen in [`OWN_SHOW_WITHIN`] is given up for a minute, and
+/// the field goes to LG's keyboard at once (it is shown there, as the field asked).
+pub fn own_tick(state: &mut State, now: Instant) {
+    let Some(t) = state.ime.own.pending else { return };
+    if now.saturating_duration_since(t) < OWN_SHOW_WITHIN {
+        return;
+    }
+    state.ime.own.pending = None;
+    state.ime.own.broken_until = Some(now + OWN_BROKEN_FOR);
+    state.ime.own.counts.failed += 1;
+    let Some(mid) = own_active(state) else { return };
+    state.journal(format!(
+        "ime: the shell's keyboard did not come up in {} s; LG's keyboard serves for {} s",
+        OWN_SHOW_WITHIN.as_secs(),
+        OWN_BROKEN_FOR.as_secs()
+    ));
+    if let Some(m) = state.ime.model_mut(mid) {
+        m.own = false;
+        m.own_show = false;
+        m.show_wanted = true;
+    }
+    own_publish(state);
+    begin(state, mid);
+}
+
 impl State {
     /// An input method holds the keyboard grab: the hardware keys go to it.
     pub fn ime_grabbing(&self) -> bool {
         self.ime.grabbing()
     }
 
-    /// One key to the input method's grabbed keyboard (evdev code, as `wl_keyboard.key` carries it).
+    /// One key to the keyboard that is up: an input method's grabbed keyboard (evdev code, as `wl_keyboard.key` carries it), or the shell's
+    /// keyboard as an `imekey` event.
     pub fn grab_key(&mut self, code: u32, pressed: bool) {
+        let repeat = pressed && self.ime.grab_down.contains(&code);
         if pressed {
-            if !self.ime.grab_down.contains(&code) {
+            if !repeat {
                 self.ime.grab_down.push(code);
             }
         } else {
             self.ime.grab_down.retain(|c| *c != code);
+        }
+        if self.ime.own_taking() {
+            own_nav(self, code, pressed, repeat);
+            self.keys.delivered += 1;
+            return;
         }
         let Some(kb) = self.ime.grab.clone().filter(live) else { return };
         let serial = self.next_serial();
@@ -769,8 +1199,11 @@ impl State {
         let ime = &self.ime;
         let active = ime.active.and_then(|id| ime.model(id)).map(|m| {
             let app = m.surface_id.and_then(|s| self.scene.window_of(s)).and_then(|w| self.scene.window(w)).map(|w| w.app_id().to_string()).unwrap_or_default();
-            serde_json::json!({"model": m.id, "surface": m.surface_id.map(|s| s.0), "app": app, "context": m.ctx.as_ref().is_some_and(live), "showWanted": m.show_wanted})
+            serde_json::json!({"model": m.id, "surface": m.surface_id.map(|s| s.0), "app": app, "context": m.ctx.as_ref().is_some_and(live), "showWanted": m.show_wanted,
+                "own": m.own, "ownShow": m.own_show, "hint": m.hint, "purpose": m.purpose, "enter": m.enter, "max": m.max,
+                "surround": m.surround.map(|(len, cursor)| serde_json::json!({"len": len, "cursor": cursor}))})
         });
+        let own = &ime.own;
         serde_json::json!({
             "ok": true,
             "methods": ime.methods.iter().filter(|m| m.res.is_alive()).map(|m| serde_json::json!({"id": m.id, "display": m.display})).collect::<Vec<_>>(),
@@ -784,6 +1217,18 @@ impl State {
             "counts": {
                 "activations": ime.counts.activations, "declined": ime.counts.declined, "commits": ime.counts.commits, "preedits": ime.counts.preedits,
                 "deletes": ime.counts.deletes, "keysyms": ime.counts.keysyms, "grabbedKeys": ime.counts.grabbed_keys,
+            },
+            "own": {
+                "flag": self.config.data_dir.join(OWN_FLAG).exists(),
+                "canShow": self.shell_can("keyboard"),
+                "serving": own_active(self).is_some(),
+                "up": own.up.map(|r| serde_json::json!({"x": r.x, "y": r.y, "w": r.w, "h": r.h})),
+                "pending": own.pending.is_some(),
+                "broken": own.broken_until.is_some_and(|t| Instant::now() < t),
+                "counts": {
+                    "activations": own.counts.activations, "shown": own.counts.shown, "texts": own.counts.texts, "keys": own.counts.keys,
+                    "clears": own.counts.clears, "hides": own.counts.hides, "nav": own.counts.nav, "failed": own.counts.failed,
+                },
             },
         })
     }

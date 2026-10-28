@@ -170,6 +170,9 @@ pub struct Scene {
     last_cursor: Option<Rect>,
     /// Where the field that holds the text-input activation wants the keyboard (`text_model.set_input_panel_rect`), in output pixels.
     pub keyboard_pref: Option<Rect>,
+    /// Where the shell's own keyboard is on the screen while it is: the system layer takes the pointer there and nowhere else (its window has no
+    /// key focus to be the pointer's by: the field's app keeps that).
+    pub shell_pointer: Option<Rect>,
     /// The next plan damages everything it covers whatever changed ([`Scene::redraw_all`]).
     redraw_all: bool,
     /// What the last plan drew and where, to damage what moved, appeared, restacked or vanished.
@@ -216,14 +219,15 @@ impl Scene {
 
     /// The topmost drawn surface under an output point and the rectangle it is drawn at (the last plan), for
     /// the pointer. Holes are the video's, not a window's, so they do not count; the shell's system layer counts only
-    /// while it wants the keys (a transparent layer must not take the pointer from the app under it).
+    /// while it wants the keys or within its keyboard's rectangle (a transparent layer must not take the pointer from the app under it).
     pub fn surface_at(&self, x: i32, y: i32) -> Option<(SurfaceId, Rect)> {
+        let keyboard = self.shell_pointer.is_some_and(|r| r.contains(x, y));
         self.plan
             .items
             .iter()
             .rev()
             .filter(|i| i.rect.contains(x, y))
-            .find(|i| self.windows.get(&i.window).is_none_or(|w| w.kind != WindowType::ShellSystem || w.takes_keys))
+            .find(|i| self.windows.get(&i.window).is_none_or(|w| w.kind != WindowType::ShellSystem || w.takes_keys || keyboard))
             .map(|i| (i.surface, i.rect))
     }
 

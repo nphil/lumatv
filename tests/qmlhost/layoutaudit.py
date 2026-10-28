@@ -41,7 +41,8 @@ LARGE_PX = 48        # text from this size up may read at 3:1
 CONTRAST = {"text": 4.5, "large": 3.0, "muted": 3.0}
 KINDS = ("elided", "overflow", "clipped", "scaled", "outside", "tight", "overlap", "off-centre", "icon-level", "contrast")
 
-DESCENDERS = set("gjpqy,;()[]{}@\u00e7\u00b5")   # glyphs that reach under the baseline
+DESCENDERS = set("gjpqy,;()[]{}@_\u00e7\u00b5")   # glyphs that reach under the baseline (the underscore is drawn under it)
+HIGH_MARKS = set("`")                            # marks drawn above the capitals' height: the ink rectangle starts at the line's top for them
 
 _LINEAR = [((c / 255.0) / 12.92 if c / 255.0 <= 0.04045 else (((c / 255.0) + 0.055) / 1.055) ** 2.4) for c in range(256)]
 
@@ -117,6 +118,8 @@ def text_rects(item):
         glyph_h = ch - natural * (line - 1)
     metrics = QtGui.QFontMetricsF(item.property("font"))
     cap_top = metrics.ascent() - metrics.capHeight()
+    if any(c in HIGH_MARKS for c in (item.property("text") or "")):
+        cap_top = 0.0
     # the ink ends at the last baseline unless a glyph hangs under it (numerals and capitals do not)
     text = item.property("text") or ""
     bottom = glyph_h if any(c in DESCENDERS for c in text) else glyph_h - metrics.descent()
