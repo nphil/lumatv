@@ -45,6 +45,9 @@
 #                            default, re-mounted by apply at every boot while on
 #   keyboard on|off|status -> the on-screen keyboard's window in the theme's layer motion (shadow module, tools/keyboard_patch.py);
 #                            off by default; a change is one rebuild and, under LG's compositor, one restart
+#   keyboard luma|lg       -> who serves a text field's keyboard under LumaTV's compositor: LumaTV's own (the shell client draws it, the
+#                            compositor binds it to the field) or LG's maliit (the default); a flag the compositor reads at every field,
+#                            so nothing is rebuilt, mounted or restarted
 #   cover on|off|status    -> LG's startup cover (CoverUI) in the Lucent look, LG's sequencing kept (shadow module, tools/cover_patch.py);
 #                            off by default; a change is one rebuild and, under LG's compositor, one restart
 #   splash on|off|status   -> LG's launch splash (an app with no picture of its own) and launch spinner in the Lucent look (shadow module,
@@ -242,6 +245,9 @@ STORE_ON="$STATE/.store-on"
 # default like every other restyle of an LG process: `keyboard on` leaves the flag that build_shadow reads and the rebuild makes the patch.
 KEYBOARD_TOOL="$APPDIR/tools/keyboard_patch.py"
 KEYBOARD_ON="$STATE/.keyboard-on"
+# Who serves a text field's keyboard under LumaTV's compositor (`keyboard luma|lg`): the flag the compositor reads at every field
+# (compositor server/ime.rs OWN_FLAG). Absent, LG's maliit serves, as before; under LG's compositor nothing reads it.
+KEYBOARD_LUMA="$STATE/.keyboard-luma"
 # What build_shadow's patches are made of: each patch script, the modules it imports and the files it reads. shadow_patch_fp
 # fingerprints them, so that an update that changes only one of them (a patch, or the theme's motion) rebuilds the shadow and
 # restarts the compositor once; without it a set that already has a shadow keeps the old one. A patch added to build_shadow
@@ -1255,10 +1261,17 @@ verb_keyboard() {
       fi
       log_line "keyboard $1 (applied: $kb_applied)"
       printf '{"ok":true,"keyboard":"%s","applied":%s,"patched":%s}\n' "$1" "$kb_applied" "$(keyboard_patched)" ;;
+    luma|lg)
+      # See KEYBOARD_LUMA: the next field is the new one's, so there is nothing to rebuild, mount or restart.
+      mkdir -p "$STATE" 2>/dev/null
+      if [ "$1" = luma ]; then : > "$KEYBOARD_LUMA" || { emit_error "could not write $KEYBOARD_LUMA"; return 1; }; else rm -f "$KEYBOARD_LUMA"; fi
+      log_line "keyboard $1"
+      printf '{"ok":true,"keyboard":"%s"}\n' "$1" ;;
     status)
       kb_now=false; [ -f "$KEYBOARD_ON" ] && kb_now=true
-      printf '{"ok":true,"on":%s,"patched":%s}\n' "$kb_now" "$(keyboard_patched)" ;;
-    *) emit_error "usage: keyboard on|off|status"; return 1 ;;
+      kb_who=lg; [ -f "$KEYBOARD_LUMA" ] && kb_who=luma
+      printf '{"ok":true,"on":%s,"patched":%s,"keyboard":"%s"}\n' "$kb_now" "$(keyboard_patched)" "$kb_who" ;;
+    *) emit_error "usage: keyboard on|off|status|luma|lg"; return 1 ;;
   esac
   return 0
 }
@@ -2562,6 +2575,7 @@ do_revert_internal() {
   [ -f "$LOGO_ON" ] && logo_set off
   [ -f "$NOTI_ON" ] && { noti_set off; rm -f "$NOTI_ON"; }
   rm -f "$KEYBOARD_ON"
+  rm -f "$KEYBOARD_LUMA"
   rm -f "$COVER_ON" "$SPLASH_ON"
   [ -f "$INPUTCOMMON_ON" ] && { inputcommon_set off; rm -f "$INPUTCOMMON_ON"; }
   [ -f "$STORE_ON" ] && { store_set off; rm -f "$STORE_ON"; }
@@ -3112,6 +3126,7 @@ surfaces_json() {
   printf '{"id":"voice","on":%s,"fallback":"`voice off` unmounts the overlay; a reboot or revert clears it and LG'"'"'s Search app returns"},' "$(b test -f "$VOICE_ON")"
   printf '{"id":"keys","on":%s,"fallback":"`keys off` unmounts the overlay and restarts the keyboard server; a reboot or revert clears it and LG'"'"'s keys return"},' "$(b test -f "$KEYS_ON")"
   printf '{"id":"keyboard","on":%s,"fallback":"`keyboard off` rebuilds the shadow module with LG'"'"'s own keyboard view; revert drops the module"},' "$(b test -f "$KEYBOARD_ON")"
+  printf '{"id":"keyboard-luma","on":%s,"fallback":"`keyboard lg` takes the flag away; LG'"'"'s keyboard serves the next field, and already does while the shell is not live or its keyboard does not come up"},' "$(b test -f "$KEYBOARD_LUMA")"
   printf '{"id":"cover","on":%s,"fallback":"`cover off` rebuilds the shadow module without the patched CoverUI; revert drops the module"},' "$(b test -f "$COVER_ON")"
   printf '{"id":"splash","on":%s,"fallback":"`splash off` rebuilds the shadow module with LG'"'"'s own splash and spinner views; revert drops the module"},' "$(b test -f "$SPLASH_ON")"
   printf '{"id":"standbyscreen","on":%s,"fallback":"`standbyscreen on` puts back the Always Ready mode that was set; Settings > Home & look > Standby has the same switch"},' "$( [ "$(get_general_setting lifeOnScreenMode)" = off ] && echo true || echo false )"

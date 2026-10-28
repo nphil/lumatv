@@ -407,7 +407,8 @@ echo '{"ok":true,"applied":true,"mounts":3,"took":4}'
 
 
 class KeyboardVerb(unittest.TestCase):
-    """`keyboard on|off|status`: the flag build_shadow reads, and the one apply that makes the change reach the set."""
+    """`keyboard on|off|status|luma|lg`: the flag build_shadow reads, and the one apply that makes the change reach the set; and the flag the
+    compositor reads at every text field to choose LumaTV's own keyboard (nothing is applied for it)."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -416,6 +417,7 @@ class KeyboardVerb(unittest.TestCase):
         with open(os.path.join(self.d, "app", "tools", "lumatv"), "w") as f:
             f.write(KEYBOARD_APPLY)
         self.flag = os.path.join(self.d, ".keyboard-on")
+        self.luma = os.path.join(self.d, ".keyboard-luma")
         self.shadow = os.path.join(self.d, "qml")
         self.view = os.path.join(self.shadow, "WebOSCompositor", "views", "StarfishKeyboardView.qml")
 
@@ -425,7 +427,7 @@ class KeyboardVerb(unittest.TestCase):
     def run_verb(self, arg, module=True):
         if module:
             os.makedirs(os.path.dirname(self.view), exist_ok=True)
-        script = (f'FAKE="{self.d}"; export FAKE\nAPPDIR="{self.d}/app"\nSTATE="{self.d}"\nKEYBOARD_ON="{self.flag}"\nSHADOW_ROOT="{self.shadow}"\nLOGFILE="{self.d}/log"\n'
+        script = (f'FAKE="{self.d}"; export FAKE\nAPPDIR="{self.d}/app"\nSTATE="{self.d}"\nKEYBOARD_ON="{self.flag}"\nKEYBOARD_LUMA="{self.luma}"\nSHADOW_ROOT="{self.shadow}"\nLOGFILE="{self.d}/log"\n'
                   f'log_line() {{ echo "$1" >> "{self.d}/loglines"; }}\n'
                   + function("json_escape") + function("emit_error") + function("keyboard_patched") + function("verb_keyboard") + f'verb_keyboard "{arg}"\n')
         r = subprocess.run(["sh", "-c", script], capture_output=True, text=True, timeout=30)
@@ -473,17 +475,43 @@ class KeyboardVerb(unittest.TestCase):
         self.assertFalse(os.path.exists(self.flag))
 
     def test_status_reads_the_flag_and_the_module(self):
-        self.assertEqual(json.loads(self.run_verb("status")[1]), {"ok": True, "on": False, "patched": False})
+        self.assertEqual(json.loads(self.run_verb("status")[1]), {"ok": True, "on": False, "patched": False, "keyboard": "lg"})
         with open(self.view, "w") as f:
             f.write("// Luma: patched, see tools/keyboard_patch.py\n")
-        self.assertEqual(json.loads(self.run_verb("status")[1]), {"ok": True, "on": False, "patched": True})
+        self.assertEqual(json.loads(self.run_verb("status")[1]), {"ok": True, "on": False, "patched": True, "keyboard": "lg"})
         open(self.flag, "w").close()
         self.assertTrue(json.loads(self.run_verb("status")[1])["on"])
         self.assertEqual(self.applies(), [])
 
+    def test_luma_leaves_the_flag_the_compositor_reads_and_applies_nothing(self):
+        rc, out = self.run_verb("luma")
+        self.assertEqual((rc, json.loads(out)), (0, {"ok": True, "keyboard": "luma"}))
+        self.assertTrue(os.path.exists(self.luma))
+        self.assertFalse(os.path.exists(self.flag), "the window's motion is the other switch")
+        self.assertEqual(self.applies(), [], "no rebuild, no restart: the next field is the new keyboard's")
+        self.assertEqual(json.loads(self.run_verb("status")[1])["keyboard"], "luma")
+
+    def test_lg_takes_the_flag_away_and_is_what_a_set_has_without_it(self):
+        open(self.luma, "w").close()
+        rc, out = self.run_verb("lg")
+        self.assertEqual((rc, json.loads(out)), (0, {"ok": True, "keyboard": "lg"}))
+        self.assertFalse(os.path.exists(self.luma))
+        self.assertEqual(json.loads(self.run_verb("status")[1])["keyboard"], "lg")
+        # a second `lg` on a set that never had the flag is not an error
+        self.assertEqual(self.run_verb("lg")[0], 0)
+        self.assertEqual(self.applies(), [])
+
+    def test_the_two_switches_are_independent(self):
+        self.run_verb("on")
+        self.run_verb("luma")
+        self.run_verb("off")
+        self.assertTrue(os.path.exists(self.luma), "`off` is the window's motion and leaves the keyboard's flag")
+        self.run_verb("lg")
+        self.assertFalse(os.path.exists(self.luma))
+
     def test_a_wrong_word_is_an_error_that_touches_nothing(self):
         rc, out = self.run_verb("sideways")
-        self.assertEqual((rc, json.loads(out)["error"]), (1, "usage: keyboard on|off|status"))
+        self.assertEqual((rc, json.loads(out)["error"]), (1, "usage: keyboard on|off|status|luma|lg"))
         self.assertFalse(os.path.exists(self.flag))
         self.assertEqual(self.applies(), [])
 
@@ -509,6 +537,7 @@ class KeyboardVerb(unittest.TestCase):
         self.assertIn('{"id":"keyboard","on":%s', t)
         self.assertIn('KEYBOARD_ON="$STATE/.keyboard-on"', t)
         self.assertIn('rm -f "$KEYBOARD_ON"', function("do_revert_internal"))
+        self.assertIn('rm -f "$KEYBOARD_LUMA"', function("do_revert_internal"))
 
 
 def tool_lines(pattern):

@@ -29,7 +29,7 @@ def function(name):
 class Registry(unittest.TestCase):
     def run_registry(self, flags=(), helper='{"running":false}', home="off", live=False, general=""):
         with tempfile.TemporaryDirectory() as d:
-            paths = {k: os.path.join(d, k) for k in ("SYSTEMUI_ON", "WEBGLASS_ON", "NOTI_ON", "LOGO_ON", "PRELOAD_STATE", "INPUTCOMMON_ON", "VOICE_ON", "KEYS_ON", "KEYBOARD_ON", "STORE_ON", "COVER_ON", "SPLASH_ON")}
+            paths = {k: os.path.join(d, k) for k in ("SYSTEMUI_ON", "WEBGLASS_ON", "NOTI_ON", "LOGO_ON", "PRELOAD_STATE", "INPUTCOMMON_ON", "VOICE_ON", "KEYS_ON", "KEYBOARD_ON", "KEYBOARD_LUMA", "STORE_ON", "COVER_ON", "SPLASH_ON")}
             for k in flags:
                 open(paths[k], "w").close()
             script = "".join(f'{k}="{v}"\n' for k, v in paths.items())
@@ -43,7 +43,7 @@ class Registry(unittest.TestCase):
 
     def test_every_switch_has_an_entry_that_names_its_way_back(self):
         reg = self.run_registry()
-        self.assertEqual(sorted(reg), ["compositor", "cover", "helper", "home", "inputcommon", "keyboard", "keys", "logos", "notifications", "preload", "quicksettings", "settings-theme", "splash", "standbyscreen", "store", "voice"])
+        self.assertEqual(sorted(reg), ["compositor", "cover", "helper", "home", "inputcommon", "keyboard", "keyboard-luma", "keys", "logos", "notifications", "preload", "quicksettings", "settings-theme", "splash", "standbyscreen", "store", "voice"])
         for e in reg.values():
             self.assertIsInstance(e["on"], bool)
             self.assertGreater(len(e["fallback"]), 20, e["id"])
@@ -53,8 +53,8 @@ class Registry(unittest.TestCase):
 
     def test_each_entry_reads_its_own_flag(self):
         for flag, ident in (("SYSTEMUI_ON", "quicksettings"), ("WEBGLASS_ON", "settings-theme"), ("NOTI_ON", "notifications"),
-                            ("LOGO_ON", "logos"), ("PRELOAD_STATE", "preload"), ("INPUTCOMMON_ON", "inputcommon"), ("VOICE_ON", "voice"), ("KEYS_ON", "keys"), ("KEYBOARD_ON", "keyboard"), ("STORE_ON", "store"),
-                            ("COVER_ON", "cover"), ("SPLASH_ON", "splash")):
+                            ("LOGO_ON", "logos"), ("PRELOAD_STATE", "preload"), ("INPUTCOMMON_ON", "inputcommon"), ("VOICE_ON", "voice"), ("KEYS_ON", "keys"), ("KEYBOARD_ON", "keyboard"),
+                            ("KEYBOARD_LUMA", "keyboard-luma"), ("STORE_ON", "store"), ("COVER_ON", "cover"), ("SPLASH_ON", "splash")):
             reg = self.run_registry(flags=[flag])
             self.assertEqual([k for k, e in reg.items() if e["on"]], [ident], flag)
 
