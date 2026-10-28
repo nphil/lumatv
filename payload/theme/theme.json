@@ -200,7 +200,13 @@
     "stepSec": 30,
     "dimAfterMin": 5,
     "dimOverMin": 10,
-    "dimTo": 0.85
+    "dimTo": 0.85,
+    "appDim": false,
+    "appDimAfterMin": 3,
+    "appDimTo": 0.75,
+    "appShift": false,
+    "boxDim": false,
+    "refreshGuard": false
   },
   "remote": {
     "numberKeys": true

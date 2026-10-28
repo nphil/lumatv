@@ -38,7 +38,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             "focus": state.seat.focus.map(|s| s.0),
             "pointer": {"x": state.seat.pointer_position.0, "y": state.seat.pointer_position.1, "visible": state.seat.cursor_visible, "focus": state.seat.pointer_focus.map(|s| s.0), "motions": state.seat.motions, "lastInput": state.seat.last_input},
             "lastCapture": state.last_capture,
-            "oledcare": {"enabled": state.scene.care.enabled(), "offset": [state.scene.care.offset().0, state.scene.care.offset().1], "dim": [state.scene.care.dim(0), state.scene.care.dim(1)], "beats": state.scene.care.beats},
+            "oledcare": state.scene.care.status(crate::output::monotonic_ns()),
         }),
         "windows" => {
             let app_of =

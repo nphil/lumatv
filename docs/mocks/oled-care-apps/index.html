@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>LumaTV · Settings · System · OLED care · LumaTV panel care</title>
+<link rel="stylesheet" href="../lucent.css"><link rel="stylesheet" href="../help.css">
+<style>
+  /* The panel care group (docs/research/oledcare-apps-result.md; payload/compositor/lumatv/settings/PageSystem.qml, tab OLED care): LG's own
+     rows first, then LumaTV's five switches under one label. The list scrolls on the TV; the mock shows it scrolled to the group, the focus on
+     "Dim still apps". ?v=help: that row's help sheet (held OK). ?theme=light: the light material; ?text=200: the type doubled (Lucent: no
+     overlapping text at 100 % and 200 %). */
+  :root { --ts: 1; }
+  [data-text="200"] .row .t, [data-text="200"] .row .v { font-size: calc(28px * var(--ts)); }
+  [data-text="200"] .tab { font-size: calc(27px * var(--ts)); height: auto; min-height: 64px; padding: 10px 6px; }
+  [data-text="200"] .page-head h1 { font-size: calc(40px * var(--ts)); }
+  [data-text="200"] .group-label { font-size: calc(24px * var(--ts)); }
+  [data-text="200"] .row { height: auto; min-height: 88px; }
+  [data-text="200"] .row .t { white-space: normal; }
+  [data-text="200"] .row .t .info { display: inline-block; vertical-align: middle; }
+  [data-text="200"] .seg > span { font-size: calc(26px * var(--ts)); }
+  [data-text="200"] .help-sheet { width: 960px; }
+  [data-text="200"] .help-sheet .ht, [data-text="200"] .help-sheet p { font-size: calc(26px * var(--ts)); }
+  .st.help { display: none; }
+  [data-v="help"] .st.help { display: block; }
+</style>
+</head>
+<body>
+<div class="wall"></div>
+
+<div class="st page">
+<div class="pane topbar">
+  <i data-ic="chevron-left" class="ic"></i>
+  <span class="title">Settings</span>
+  <span class="spacer"></span>
+  <span class="status"><i data-ic="wifi"></i><i data-ic="mouse-pointer-2"></i></span>
+  <span class="time num">9:57 PM</span>
+</div>
+
+<nav class="pane rail" data-open="system" aria-label="Settings sections"></nav>
+
+<main class="pane page">
+  <div class="page-head">
+    <h1>System</h1>
+  </div>
+  <div class="tabs" role="tablist">
+    <div class="tab focusable" role="tab" aria-selected="false">General</div>
+    <div class="tab focusable" role="tab" aria-selected="false">Power</div>
+    <div class="tab focusable" role="tab" aria-selected="true">OLED care</div>
+    <div class="tab focusable" role="tab" aria-selected="false">Accessibility</div>
+    <div class="tab focusable" role="tab" aria-selected="false">About</div>
+  </div>
+  <div class="page-body">
+    <div class="rows">
+      <div class="row focusable" tabindex="0">
+        <div class="lead"><i data-ic="lightbulb"></i></div>
+        <div class="text"><div class="t">Care Recommendations<i data-ic="info" class="info"></i></div></div>
+        <div class="toggle" role="switch" aria-checked="true"></div>
+      </div>
+      <div class="group-label">LumaTV panel care</div>
+      <div class="row focusable" tabindex="0">
+        <div class="lead"><i data-ic="shield-check"></i></div>
+        <div class="text"><div class="t">LumaTV screens<i data-ic="info" class="info"></i></div></div>
+        <div class="toggle" role="switch" aria-checked="true"></div>
+      </div>
+      <div class="row focusable" tabindex="0" data-autofocus>
+        <div class="lead"><i data-ic="sun-medium"></i></div>
+        <div class="text"><div class="t">Dim still apps<i data-ic="info" class="info"></i><span class="info-pill"><i data-ic="info"></i>Hold OK</span></div></div>
+        <div class="toggle" role="switch" aria-checked="true"></div>
+      </div>
+      <div class="row focusable" tabindex="0">
+        <div class="lead"><i data-ic="waves"></i></div>
+        <div class="text"><div class="t">Shift apps<i data-ic="info" class="info"></i></div></div>
+        <div class="toggle" role="switch" aria-checked="false"></div>
+      </div>
+      <div class="row focusable" tabindex="0">
+        <div class="lead"><i data-ic="sun-dim"></i></div>
+        <div class="text"><div class="t">Dim bright still areas<i data-ic="info" class="info"></i></div></div>
+        <div class="toggle" role="switch" aria-checked="false"></div>
+      </div>
+      <div class="row focusable" tabindex="0">
+        <div class="lead"><i data-ic="rotate-ccw"></i></div>
+        <div class="text"><div class="t">Protect panel refresh<i data-ic="info" class="info"></i></div></div>
+        <div class="toggle" role="switch" aria-checked="false"></div>
+      </div>
+    </div>
+  </div>
+</main>
+</div>
+
+<div class="st help">
+<div class="scrim"></div>
+<div class="overlay help-sheet" style="left:572px; top:340px" role="dialog" aria-label="Dim still apps">
+  <div class="ht"><i data-ic="info"></i>Dim still apps</div>
+  <p>Dims an app a little when its picture has not changed for a few minutes. Video and any key bring it back.</p>
+</div>
+</div>
+
+<script src="../icons.js"></script>
+<script src="../mock.js"></script>
+<script>
+  const q = new URLSearchParams(location.search);
+  if (q.get('text')) document.documentElement.dataset.text = q.get('text');
+</script>
+</body>
+</html>

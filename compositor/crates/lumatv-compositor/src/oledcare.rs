@@ -22,6 +22,18 @@
 //! for an answer, and the compositor cannot tell a still picture from a video there. The dim multiplies the layer's colour, so it
 //! lowers the light of everything Home draws, text included: `dimTo` is not allowed below [`MIN_DIM_TO`], where the palette's
 //! second ink still reads 4.5 : 1 (`tests/test_oledcare.py`).
+//!
+//! **Apps** (`appDim`, `appShift`, each its own switch, independent of `enabled`). The card in front (`WindowType::Card`, not Home, not a
+//! covering overlay) is cared for while it is *still*: no key or pointer, no commit that redraws at least [`CHANGE_FRACTION`] of the
+//! screen, fewer than [`MOVING_PER_S`] commits a second, no video hole of its own, no transition. After `appDimAfterMin` (3) of that it
+//! eases down over `dimOverMin` to `appDimTo` (0.7 to 1; steps of one hundredth at its own beats) and, with `appShift`, its whole graphics
+//! window walks the same ring as the shell's (`orbitPx`, `stepSec`). Any key or pointer movement, any real redraw, a hole appearing (a
+//! video starts in it) or a transition puts it back at once: brightness 1 and offset (0, 0) in the very plan that sees it, so the plan is
+//! again a sole full-screen item and goes to the plane whole. While the care is not engaged nothing differs from the care being off.
+//! The shift is never held away from the origin while a hole is present: the hole moves with the graphics but the video plane does not
+//! (its rectangle comes from the window at the origin), so a shifted card over a hole would show the video through a misplaced cut-out.
+//! A video that is drawn into the app's own surface (no hole) is a stream of commits: more than [`MOVING_PER_S`] a second, or one that
+//! redraws a [`CHANGE_FRACTION`] of the screen, is movement.
 
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -38,6 +50,11 @@ pub const MOVING_PER_S: f64 = 2.0;
 const POLL_NS: u64 = 2_000_000_000;
 /// The lowest `dimTo`: the palette's second ink keeps 4.5 : 1 on its sheet at this brightness, dark and light.
 pub const MIN_DIM_TO: f32 = 0.8;
+/// The lowest `appDimTo`: an app's own colours are not ours to keep legible to a ratio, so the floor is the contract's 0.7.
+pub const MIN_APP_DIM_TO: f32 = 0.7;
+/// A commit that redraws at least this fraction of the output is a real change of the picture (a page, a video frame, a menu), not a
+/// caret, a clock or a progress bar: an app dimmed or shifted comes back for it. A smaller redraw does not count by itself.
+pub const CHANGE_FRACTION: u64 = 64;
 
 /// `theme.oledcare`, with the shipped values for what the theme leaves out.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -53,19 +70,38 @@ pub struct Settings {
     pub dim_over_ns: u64,
     /// The brightness the dim ends at, [`MIN_DIM_TO`] to 1 (1: no dim).
     pub dim_floor: f32,
+    /// `appDim`: the card in front eases down while it is still.
+    pub app_dim: bool,
+    /// `appShift`: the card in front walks the ring while it is still.
+    pub app_shift: bool,
+    /// Still for this long before an app's dim and shift begin (`appDimAfterMin`).
+    pub app_after_ns: u64,
+    /// The brightness an app's dim ends at, [`MIN_APP_DIM_TO`] to 1 (`appDimTo`).
+    pub app_floor: f32,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { enabled: false, radius: 3, step_ns: 30 * SEC, dim_after_ns: 5 * 60 * SEC, dim_over_ns: 10 * 60 * SEC, dim_floor: 0.85 }
+        Settings {
+            enabled: false,
+            radius: 3,
+            step_ns: 30 * SEC,
+            dim_after_ns: 5 * 60 * SEC,
+            dim_over_ns: 10 * 60 * SEC,
+            dim_floor: 0.85,
+            app_dim: false,
+            app_shift: false,
+            app_after_ns: 3 * 60 * SEC,
+            app_floor: 0.75,
+        }
     }
 }
 
 const SEC: u64 = 1_000_000_000;
 
 impl Settings {
-    /// The `oledcare` object of a theme: `enabled`, `orbitPx`, `stepSec`, `dimAfterMin`, `dimOverMin`, `dimTo`. Out-of-range numbers are
-    /// clamped, wrong types are the shipped value.
+    /// The `oledcare` object of a theme: `enabled`, `orbitPx`, `stepSec`, `dimAfterMin`, `dimOverMin`, `dimTo`, `appDim`, `appShift`,
+    /// `appDimAfterMin`, `appDimTo`. Out-of-range numbers are clamped, wrong types are the shipped value.
     pub fn from_theme(theme: &Value) -> Settings {
         let d = Settings::default();
         let Some(o) = theme.get("oledcare").and_then(Value::as_object) else { return d };
@@ -77,6 +113,10 @@ impl Settings {
             dim_after_ns: num("dimAfterMin").map_or(d.dim_after_ns, |v| (v.clamp(1.0, 120.0) * 60.0 * SEC as f64) as u64),
             dim_over_ns: num("dimOverMin").map_or(d.dim_over_ns, |v| (v.clamp(1.0, 240.0) * 60.0 * SEC as f64) as u64),
             dim_floor: num("dimTo").map_or(d.dim_floor, |v| (v as f32).clamp(MIN_DIM_TO, 1.0)),
+            app_dim: o.get("appDim").and_then(Value::as_bool).unwrap_or(d.app_dim),
+            app_shift: o.get("appShift").and_then(Value::as_bool).unwrap_or(d.app_shift),
+            app_after_ns: num("appDimAfterMin").map_or(d.app_after_ns, |v| (v.clamp(1.0, 120.0) * 60.0 * SEC as f64) as u64),
+            app_floor: num("appDimTo").map_or(d.app_floor, |v| (v as f32).clamp(MIN_APP_DIM_TO, 1.0)),
         }
     }
 }
@@ -125,6 +165,50 @@ impl Default for Layer {
 /// A window of the shell on the screen this frame: how many frames it has committed so far.
 pub type View = Option<u64>;
 
+/// The card in front, as the scene shows it to the care at a frame about to be planned.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AppView {
+    /// Its window.
+    pub window: u32,
+    /// How many frames it has committed so far.
+    pub commits: u64,
+    /// It has a commit to draw that redraws [`CHANGE_FRACTION`] of the screen or more.
+    pub changed: bool,
+    /// Something is on the screen that makes it not still: a video's hole of its own, a transition.
+    pub busy: bool,
+}
+
+/// What the care knows of the card in front.
+#[derive(Clone, Copy, Debug)]
+struct App {
+    window: Option<u32>,
+    /// Its commit count and the time at the last look, for the rate of commits.
+    commits: u64,
+    looked_ns: u64,
+    /// When it last changed, or a key or the pointer last did, or it appeared.
+    still_since_ns: u64,
+    level: f32,
+    offset: (i32, i32),
+    phase: usize,
+    /// When the next beat is due; 0 while it is not engaged.
+    next_beat_ns: u64,
+    beats: u64,
+    /// A dim or a shift is on it: the journal says so once, and once when it is put back.
+    engaged: bool,
+}
+
+impl Default for App {
+    fn default() -> Self {
+        App { window: None, commits: 0, looked_ns: 0, still_since_ns: 0, level: 1.0, offset: (0, 0), phase: 0, next_beat_ns: 0, beats: 0, engaged: false }
+    }
+}
+
+impl App {
+    fn away(&self) -> bool {
+        self.level != 1.0 || self.offset != (0, 0)
+    }
+}
+
 #[derive(Default)]
 pub struct Care {
     pub settings: Settings,
@@ -145,6 +229,9 @@ pub struct Care {
     /// A beat moved or dimmed something at the last [`Care::step`].
     changed: bool,
     pub beats: u64,
+    app: App,
+    /// Lines for the journal (engaged, restored), taken by [`Care::take_events`].
+    events: Vec<String>,
 }
 
 impl Care {
@@ -187,13 +274,31 @@ impl Care {
         if self.settings.enabled { self.layers[layer].level } else { 1.0 }
     }
 
+    /// `ctl status`'s `oledcare`: each feature's switch and what it is doing now. `dim` and `offset` are LumaTV's own screens (Home, the
+    /// system layer); the app features say what the card in front is drawn with (`window` is 0 while none is looked at).
+    pub fn status(&self, now_ns: u64) -> Value {
+        let (o, a) = (self.offset(), self.app_offset());
+        serde_json::json!({
+            "enabled": self.settings.enabled,
+            "offset": [o.0, o.1],
+            "dim": [self.dim(0), self.dim(1)],
+            "beats": self.beats,
+            "appDim": {"enabled": self.settings.app_dim, "level": self.app_dim(), "to": self.settings.app_floor, "afterMin": self.settings.app_after_ns / (60 * SEC)},
+            "appShift": {"enabled": self.settings.app_shift, "offset": [a.0, a.1]},
+            "app": {"window": self.app.window.unwrap_or(0), "stillSec": self.app_still_s(now_ns), "beats": self.app.beats, "engaged": self.app.engaged},
+        })
+    }
+
     /// Whether the last [`Care::step`] changed what is drawn (a beat moved or dimmed a window, or the care was switched off).
     pub fn beat_frame(&self) -> bool {
         self.changed
     }
 
-    /// A key or the pointer: everything is bright again, and the stillness starts over.
+    /// A key or the pointer: everything is bright again, and the stillness starts over. The card in front is put back too, whether or not
+    /// the shell's own care is on.
     pub fn input(&mut self, now_ns: u64) {
+        self.app.still_since_ns = now_ns;
+        self.app_restore("key or pointer");
         if !self.settings.enabled {
             return;
         }
@@ -201,6 +306,139 @@ impl Care {
             l.still_since_ns = now_ns;
             l.level = 1.0;
         }
+    }
+
+    /// Whether either app feature is switched on: the scene looks at the card in front only then.
+    pub fn wants_app(&self) -> bool {
+        self.settings.app_dim || self.settings.app_shift
+    }
+
+    /// The window the app features last looked at.
+    pub fn app_window(&self) -> Option<u32> {
+        self.app.window
+    }
+
+    /// Where the card in front is drawn relative to where it is placed: (0, 0) unless `appShift` has it away.
+    pub fn app_offset(&self) -> (i32, i32) {
+        if self.settings.app_shift { self.app.offset } else { (0, 0) }
+    }
+
+    /// The brightness of the card in front: 1 unless `appDim` has it down.
+    pub fn app_dim(&self) -> f32 {
+        if self.settings.app_dim { self.app.level } else { 1.0 }
+    }
+
+    /// How long the card in front has been still, in seconds (0 while no app is looked at).
+    pub fn app_still_s(&self, now_ns: u64) -> u64 {
+        if self.app.window.is_some() { now_ns.saturating_sub(self.app.still_since_ns) / SEC } else { 0 }
+    }
+
+    /// How many beats the card in front has had since it was last put back.
+    pub fn app_beats(&self) -> u64 {
+        self.app.beats
+    }
+
+    /// The lines the journal is owed (a dim or shift engaged, an app put back).
+    pub fn take_events(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.events)
+    }
+
+    /// Puts the card in front back at full brightness at the origin, with a journal line when something was on it. Whether the last
+    /// [`Care::step`]'s frame changed is told by the return value (and [`Care::beat_frame`]).
+    fn app_restore(&mut self, why: &str) -> bool {
+        let a = &mut self.app;
+        let moved = a.away();
+        if a.engaged {
+            self.events.push(format!("oledcare: app window {} put back ({why}): brightness 1, offset (0, 0)", a.window.unwrap_or(0)));
+        }
+        a.level = 1.0;
+        a.offset = (0, 0);
+        a.next_beat_ns = 0;
+        a.engaged = false;
+        self.changed |= moved;
+        moved
+    }
+
+    /// One look at the card in front at a frame about to be planned, after [`Care::step`]: `view` is the card (`None`: none is in front, or
+    /// it is not a plain app), `pending` as for `step`. The card still for `appDimAfterMin` is eased down (`appDim`) and walked round the
+    /// ring (`appShift`) at beats of its own; it is put back in this very call when it is not still any more, and nothing is ever
+    /// engaged under the saver or with both switches off. Returns whether what is drawn changed.
+    pub fn step_app(&mut self, now_ns: u64, view: Option<AppView>, pending: bool) -> bool {
+        let s = self.settings;
+        let Some(v) = view.filter(|_| (s.app_dim || s.app_shift) && !self.saver) else {
+            let why = if !(s.app_dim || s.app_shift) {
+                "switched off"
+            } else if self.saver {
+                "screensaver"
+            } else {
+                "no longer in front"
+            };
+            let moved = self.app_restore(why);
+            self.app = App::default();
+            return moved;
+        };
+        if self.app.window != Some(v.window) {
+            let moved = self.app_restore("another window");
+            self.app = App { window: Some(v.window), commits: v.commits, looked_ns: now_ns, still_since_ns: now_ns, ..App::default() };
+            return moved;
+        }
+        let secs = now_ns.saturating_sub(self.app.looked_ns) as f64 / SEC as f64;
+        let mut moving = false;
+        if secs >= 1.0 {
+            moving = v.commits.saturating_sub(self.app.commits) as f64 / secs > MOVING_PER_S;
+            self.app.commits = v.commits;
+            self.app.looked_ns = now_ns;
+        }
+        if v.busy || v.changed || moving {
+            self.app.still_since_ns = now_ns;
+            return self.app_restore(if v.busy {
+                "video or transition"
+            } else if v.changed {
+                "redrawn"
+            } else {
+                "moving"
+            });
+        }
+        let a = &mut self.app;
+        // A switch turned off while it is engaged: that feature is put back, the other one goes on.
+        let mut changed = false;
+        if !s.app_dim && a.level != 1.0 {
+            a.level = 1.0;
+            changed = true;
+        }
+        if !s.app_shift && a.offset != (0, 0) {
+            a.offset = (0, 0);
+            changed = true;
+        }
+        let still = now_ns.saturating_sub(a.still_since_ns);
+        if still >= s.app_after_ns {
+            if a.next_beat_ns == 0 {
+                a.next_beat_ns = now_ns;
+            }
+            if now_ns >= a.next_beat_ns && (pending || now_ns >= a.next_beat_ns + GRACE_NS) {
+                a.next_beat_ns = now_ns + s.step_ns;
+                a.beats += 1;
+                if s.app_shift {
+                    changed |= walk_ring(s.radius, &mut a.offset, &mut a.phase);
+                }
+                if s.app_dim {
+                    let level = dim_level(still, s.app_after_ns, s.dim_over_ns, s.app_floor);
+                    if level != a.level {
+                        a.level = level;
+                        changed = true;
+                    }
+                }
+            }
+        }
+        if changed && !a.engaged && a.away() {
+            a.engaged = true;
+            let (window, level, offset) = (v.window, a.level, a.offset);
+            self.events.push(format!("oledcare: app window {window} still for {} s: engaged (brightness {level}, offset {offset:?})", still / SEC));
+        } else if a.engaged && !a.away() {
+            a.engaged = false;
+        }
+        self.changed |= changed;
+        changed
     }
 
     /// One look at a frame about to be planned: `views` is each shell window on the screen (its commit count), `pending` whether any
@@ -267,20 +505,25 @@ impl Care {
 
     /// One pixel on one axis toward the next point of the ring (the x axis first); the next point once this one is reached.
     fn walk(&mut self) {
-        let r = self.settings.radius;
-        let mut target = ring(r, self.phase);
-        if self.offset == target && r > 0 {
-            self.phase = (self.phase + 1) % (8 * r as usize);
-            target = ring(r, self.phase);
-        }
-        let before = self.offset;
-        if self.offset.0 != target.0 {
-            self.offset.0 += (target.0 - self.offset.0).signum();
-        } else if self.offset.1 != target.1 {
-            self.offset.1 += (target.1 - self.offset.1).signum();
-        }
-        self.changed |= self.offset != before;
+        let moved = walk_ring(self.settings.radius, &mut self.offset, &mut self.phase);
+        self.changed |= moved;
     }
+}
+
+/// One step of [`Care::walk`]'s rule on `offset` and `phase`; whether the offset moved.
+fn walk_ring(r: i32, offset: &mut (i32, i32), phase: &mut usize) -> bool {
+    let mut target = ring(r, *phase);
+    if *offset == target && r > 0 {
+        *phase = (*phase + 1) % (8 * r as usize);
+        target = ring(r, *phase);
+    }
+    let before = *offset;
+    if offset.0 != target.0 {
+        offset.0 += (target.0 - offset.0).signum();
+    } else if offset.1 != target.1 {
+        offset.1 += (target.1 - offset.1).signum();
+    }
+    *offset != before
 }
 
 #[cfg(test)]
@@ -498,5 +741,197 @@ mod tests {
         c.refresh(19 * SEC);
         assert!(!c.enabled(), "gone: off");
         std::fs::remove_dir_all(&dir).ok();
+    }
+    fn app_on() -> Care {
+        let mut c = Care::default();
+        c.settings.app_dim = true;
+        c.settings.app_shift = true;
+        c.settings.app_after_ns = 3 * MIN;
+        c.settings.dim_over_ns = 10 * MIN;
+        c.settings.app_floor = 0.7;
+        c
+    }
+
+    fn view(commits: u64) -> Option<AppView> {
+        Some(AppView { window: 7, commits, changed: false, busy: false })
+    }
+
+    /// Looks at a still app every 2 s (a frame drawn anyway each time, so every due beat is taken) until `until`.
+    fn idle_until(c: &mut Care, t: &mut u64, until: u64) {
+        while *t < until {
+            *t += 2 * SEC;
+            c.step_app(*t, view(0), true);
+        }
+    }
+
+    #[test]
+    fn the_app_keys_are_read_clamped_and_off_by_default() {
+        let d = Settings::default();
+        assert!(!d.app_dim && !d.app_shift);
+        assert_eq!((d.app_after_ns, d.app_floor), (3 * MIN, 0.75));
+        let s = Settings::from_theme(&json!({"oledcare": {"appDim": true, "appShift": true, "appDimAfterMin": 0, "appDimTo": 0.2}}));
+        assert!(s.app_dim && s.app_shift);
+        assert_eq!((s.app_after_ns, s.app_floor), (MIN, MIN_APP_DIM_TO), "a dim too deep is held at its floor, a wait at its minute");
+        let wrong = Settings::from_theme(&json!({"oledcare": {"appDim": "yes", "appShift": 1, "appDimAfterMin": "soon", "appDimTo": null}}));
+        assert_eq!(wrong, d);
+        assert!(!Care::default().wants_app());
+    }
+
+    #[test]
+    fn a_still_app_is_left_alone_for_the_wait_then_eased_down_and_walked_and_a_key_puts_it_back_at_once() {
+        let mut c = app_on();
+        assert!(c.wants_app());
+        let mut t = 10 * SEC;
+        c.step_app(t, view(0), false);
+        let start = t;
+        idle_until(&mut c, &mut t, start + 3 * MIN - 4 * SEC);
+        assert_eq!((c.app_dim(), c.app_offset()), (1.0, (0, 0)), "not before appDimAfterMin");
+        idle_until(&mut c, &mut t, start + 3 * MIN + 5 * MIN);
+        assert!(c.app_dim() < 1.0 && c.app_dim() > 0.7, "easing down: {}", c.app_dim());
+        assert_ne!(c.app_offset(), (0, 0));
+        assert!(c.app_offset().0.abs() <= 3 && c.app_offset().1.abs() <= 3);
+        let events = c.take_events();
+        assert_eq!(events.len(), 1, "engaged once: {events:?}");
+        assert!(events[0].contains("engaged"), "{events:?}");
+        c.input(t + 1);
+        assert_eq!((c.app_dim(), c.app_offset()), (1.0, (0, 0)), "a key: bright and home in the same call");
+        let events = c.take_events();
+        assert_eq!(events.len(), 1);
+        assert!(events[0].contains("put back"), "{events:?}");
+        // and the wait starts over from the key
+        c.step_app(t + 2, view(0), false);
+        let mut u = t + 2;
+        idle_until(&mut c, &mut u, t + 3 * MIN - 5 * SEC);
+        assert_eq!(c.app_dim(), 1.0);
+        c.input(u);
+        assert!(c.take_events().is_empty(), "nothing was engaged: nothing to say");
+    }
+
+    #[test]
+    fn the_dim_reaches_its_floor_in_hundredths_and_never_lifts_by_itself() {
+        let mut c = app_on();
+        c.settings.app_shift = false;
+        let mut t = 10 * SEC;
+        c.step_app(t, view(0), false);
+        let mut levels = Vec::new();
+        for _ in 0..400 {
+            t += 2 * SEC;
+            c.step_app(t, view(0), true);
+            levels.push(c.app_dim());
+        }
+        assert!(levels.windows(2).all(|w| w[1] <= w[0]), "{levels:?}");
+        assert_eq!(*levels.last().unwrap(), 0.7);
+        assert!(levels.iter().all(|l| ((f64::from(*l) * 100.0).round() / 100.0 - f64::from(*l)).abs() < 1e-6), "hundredths");
+        assert_eq!(c.app_offset(), (0, 0), "appShift is its own switch");
+    }
+
+    #[test]
+    fn a_real_redraw_a_video_hole_or_a_stream_of_commits_puts_it_back_in_the_same_look() {
+        for why in 0..3 {
+            let mut c = app_on();
+            let mut t = 10 * SEC;
+            c.step_app(t, view(0), false);
+            idle_until(&mut c, &mut t, 10 * SEC + 8 * MIN);
+            assert!(c.app_dim() < 1.0 && c.app_offset() != (0, 0), "engaged before case {why}");
+            t += SEC;
+            let v = match why {
+                0 => AppView { changed: true, ..view(0).unwrap() },
+                1 => AppView { busy: true, ..view(0).unwrap() },
+                _ => view(100).unwrap(),
+            };
+            assert!(c.step_app(t, Some(v), false), "case {why}: the frame is a change to draw");
+            assert_eq!((c.app_dim(), c.app_offset()), (1.0, (0, 0)), "case {why}");
+            assert!(c.take_events().iter().any(|e| e.contains("put back")));
+            // and then it is not still: nothing engages for the wait again
+            let from = t;
+            let mut u = t;
+            while u < from + 3 * MIN - 4 * SEC {
+                u += 2 * SEC;
+                c.step_app(u, Some(AppView { commits: 100, ..view(0).unwrap() }), true);
+            }
+            assert_eq!((c.app_dim(), c.app_offset()), (1.0, (0, 0)), "case {why}: the wait starts over");
+        }
+    }
+
+    #[test]
+    fn a_hole_present_never_lets_an_app_dim_or_shift() {
+        let mut c = app_on();
+        let mut t = 10 * SEC;
+        let busy = Some(AppView { busy: true, ..view(0).unwrap() });
+        c.step_app(t, busy, false);
+        for _ in 0..600 {
+            t += 2 * SEC;
+            c.step_app(t, busy, true);
+            assert_eq!((c.app_dim(), c.app_offset()), (1.0, (0, 0)));
+        }
+        assert!(c.take_events().is_empty());
+    }
+
+    #[test]
+    fn the_screensaver_a_switched_off_feature_and_leaving_the_front_stand_it_down() {
+        let mut c = app_on();
+        let mut t = 10 * SEC;
+        c.step_app(t, view(0), false);
+        idle_until(&mut c, &mut t, 10 * SEC + 8 * MIN);
+        assert!(c.app_dim() < 1.0);
+        c.saver = true;
+        t += 2 * SEC;
+        assert!(c.step_app(t, view(0), true), "the saver is up: the card is put back");
+        assert_eq!((c.app_dim(), c.app_offset()), (1.0, (0, 0)));
+        for _ in 0..200 {
+            t += 2 * SEC;
+            c.step_app(t, view(0), true);
+            assert_eq!(c.app_dim(), 1.0, "never under the saver");
+        }
+        c.saver = false;
+        let mut c = app_on();
+        let mut t = 10 * SEC;
+        c.step_app(t, view(0), false);
+        idle_until(&mut c, &mut t, 10 * SEC + 8 * MIN);
+        let (dim, off) = (c.app_dim(), c.app_offset());
+        assert!(dim < 1.0 && off != (0, 0));
+        c.settings.app_shift = false;
+        t += 2 * SEC;
+        assert!(c.step_app(t, view(0), true));
+        assert_eq!((c.app_offset(), c.app_dim() <= dim), ((0, 0), true), "appShift off: home at once, the dim goes on");
+        assert!(c.app_dim() < 1.0);
+        c.settings.app_dim = false;
+        t += 2 * SEC;
+        assert!(c.step_app(t, view(0), true));
+        assert_eq!(c.app_dim(), 1.0, "appDim off: bright at once");
+        t += 2 * SEC;
+        assert!(!c.step_app(t, None, true), "no card in front: nothing to say");
+        assert_eq!(c.app_window(), None);
+    }
+
+    #[test]
+    fn a_new_window_starts_bright_and_the_shells_own_switch_is_not_needed() {
+        let mut c = app_on();
+        assert!(!c.settings.enabled, "LumaTV's screens are off");
+        let mut t = 10 * SEC;
+        c.step_app(t, view(0), false);
+        idle_until(&mut c, &mut t, 10 * SEC + 8 * MIN);
+        assert!(c.app_dim() < 1.0, "the app features run without `enabled`");
+        t += SEC;
+        assert!(c.step_app(t, Some(AppView { window: 8, ..view(0).unwrap() }), true), "another app: the old one is put back");
+        assert_eq!((c.app_dim(), c.app_offset(), c.app_window()), (1.0, (0, 0), Some(8)));
+    }
+
+    #[test]
+    fn an_apps_beat_waits_for_a_frame_drawn_anyway_or_the_grace_and_is_a_frame_of_its_own() {
+        let mut c = app_on();
+        c.settings.app_dim = false;
+        let t0 = 10 * SEC;
+        c.step_app(t0, view(0), false);
+        let engage = t0 + 3 * MIN;
+        assert!(!c.step_app(engage, view(0), false), "engaged: the first beat is due, the screen is at rest");
+        assert!(!c.step_app(engage + SEC, view(0), false));
+        assert_eq!(c.app_offset(), (0, 0));
+        assert!(c.step_app(engage + GRACE_NS, view(0), false));
+        assert!(c.beat_frame());
+        assert_eq!(c.app_offset(), (-1, 0));
+        assert!(!c.step_app(engage + GRACE_NS + SEC, view(0), true), "the next beat is a step away");
+        assert!(c.step_app(engage + GRACE_NS + 30 * SEC, view(0), true), "a frame drawn anyway carries it");
+        assert_eq!(c.app_offset(), (-2, 0));
     }
 }

@@ -18,6 +18,15 @@ PageList {
     readonly property var locales: (Sio.get("localeInfo") || ({})).locales || ({})     // the set keeps localeInfo outside every category
     readonly property var zone: Sio.get("time.timeZone") || ({})
     readonly property string zoneName: typeof zone === "string" ? zone : (zone.City || zone.ZoneID || "")
+    readonly property var theme: Lu.theme || ({})
+    function patch(p) { if (host) host.patch(p) }
+    // One of LumaTV's panel-care switches (theme `oledcare`, read by the compositor within 2 s; each feature is off in the shipped theme until its TV check has passed).
+    // A switch whose feature is not built yet still writes its key.
+    function careRow(key, icon, label, help) {
+        return { kind: "toggle", tab: 2, icon: icon, label: label, help: help,
+                 on: function() { return !!page.theme.oledcare && page.theme.oledcare[key] === true },
+                 act: function(v) { var o = {}; o[key] = v; page.patch({ oledcare: o }) } }
+    }
 
     function refresh() {
         Sio.read("", ["localeInfo"])
@@ -99,6 +108,13 @@ PageList {
             } }),
         C.lgShown(Sio, "other.oledCareRecommendation", R.toggle(Sio, { ds: "other.oledCareRecommendation", tab: 2, icon: "lightbulb", label: "Care Recommendations",
                                                                       help: "Suggests a picture setting for eye strain or the room, from how the TV is watched." })),
+
+        R.head("LumaTV panel care", 2),
+        page.careRow("enabled", "shield-check", "LumaTV screens", "Moves LumaTV's own screens a pixel now and then and dims Home when it sits idle."),
+        page.careRow("appDim", "sun-medium", "Dim still apps", "Dims an app a little when its picture has not changed for a few minutes. Video and any key bring it back."),
+        page.careRow("appShift", "waves", "Shift apps", "Slowly moves an app's picture a few pixels while it sits still. A key or video puts it back."),
+        page.careRow("boxDim", "sun-dim", "Dim bright still areas", "Dims only the bright parts of a picture that stays still, such as menu boxes. Video is never touched."),
+        page.careRow("refreshGuard", "rotate-ccw", "Protect panel refresh", "Keeps LG's panel refresh from being cut short when the TV is turned on just after it turns off."),
 
         R.head("Vision", 3),
         R.link({ tab: 3, id: "audioguide", icon: "audio-lines", label: "Audio Guidance", enabled: function() { return Sio.has("option.audioGuidance") },

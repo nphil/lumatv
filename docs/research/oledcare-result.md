@@ -1,6 +1,6 @@
 # OLED care: LumaTV's own screens on the panel
 
-Built and host-tested; off until its TV check passes. Switch: `theme.oledcare.enabled` (Settings › Home & look › Screensaver › OLED care, or `lumatv theme set '{"oledcare":{"enabled":true}}'`). The compositor reads `theme/theme.json` at the idle tick, at most every 2 s, so a change shows within 2 s. Mocks: `docs/mocks/oled-care/` (the row, its help sheet, a figure of the orbit and the dim; dark and light, 100 % and 200 % text).
+Built and host-tested; off until its TV check passes. Switch: `theme.oledcare.enabled` (Settings › System › OLED care › LumaTV panel care › LumaTV screens, or `lumatv theme set '{"oledcare":{"enabled":true}}'`; the row moved from Home & look › Screensaver with `docs/research/oledcare-apps-result.md`). The compositor reads `theme/theme.json` at the idle tick, at most every 2 s, so a change shows within 2 s. Mocks: `docs/mocks/oled-care/` (the row as it was on the Screensaver tab, its help sheet, a figure of the orbit and the dim; dark and light, 100 % and 200 % text); the row's present place is `docs/mocks/oled-care-apps/`.
 
 ## What it does
 

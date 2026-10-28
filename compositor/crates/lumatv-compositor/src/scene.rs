@@ -878,6 +878,49 @@ impl Scene {
         self.draw.sort_unstable();
     }
 
+    /// The card in front as the OLED care's app features see it (`oledcare::AppView`): the app's own card (not Home's stub, not a covering
+    /// overlay), while either feature is on. `busy` is a video's hole on any surface of the card's group, or a transition on the screen;
+    /// `changed` a commit waiting to be drawn that redraws a [`crate::oledcare::CHANGE_FRACTION`] of the output or more.
+    fn app_view(&mut self, surfaces: &Surfaces) -> Option<crate::oledcare::AppView> {
+        if !self.care.wants_app() {
+            return None;
+        }
+        let Front::Card(wid) = self.front else { return None };
+        let w = self.windows.get(&wid)?;
+        if w.kind != WindowType::Card || w.app_id() == HOME_APP || !self.stack.iter().any(|(_, _, id)| *id == wid) {
+            return None;
+        }
+        let (owner, commits, fresh) = (w.surface, w.commits, w.commits > w.commits_drawn);
+        self.build_members(owner);
+        let mut busy = self.transitions.active() || self.holes.iter().any(|h| h.surface == owner);
+        for k in 0..self.members.len() {
+            busy |= self.holes.iter().any(|h| h.surface == self.members[k].1);
+        }
+        let mut changed = false;
+        if fresh && !busy {
+            let mut area = 0i64;
+            for root in std::iter::once(owner).chain(self.members.iter().map(|m| m.1)) {
+                surfaces.tree_in_draw_order_into(root, &mut self.tree);
+                for &(sid, _, _) in &self.tree {
+                    let Some(s) = surfaces.get(sid) else { continue };
+                    let (sw, sh) = s.size();
+                    area += match &s.current.damage {
+                        None => i64::from(sw) * i64::from(sh),
+                        Some(d) => d
+                            .iter()
+                            .map(|r| {
+                                let r = r.intersect(&Rect::new(0, 0, sw, sh));
+                                i64::from(r.w.max(0)) * i64::from(r.h.max(0))
+                            })
+                            .sum(),
+                    };
+                }
+            }
+            changed = area * crate::oledcare::CHANGE_FRACTION as i64 >= i64::from(OUTPUT_WIDTH) * i64::from(OUTPUT_HEIGHT);
+        }
+        Some(crate::oledcare::AppView { window: wid.0, commits, changed, busy })
+    }
+
     /// [`Scene::plan`] at a given time (CLOCK_MONOTONIC ns), for the OLED care's beats.
     pub fn plan_at(&mut self, surfaces: &Surfaces, now_ns: u64) -> &Plan {
         let output = Rect::new(0, 0, OUTPUT_WIDTH as i32, OUTPUT_HEIGHT as i32);
@@ -901,8 +944,13 @@ impl Scene {
             }
         }
         self.care.step(now_ns, views, pending);
+        let app = self.app_view(surfaces);
+        self.care.step_app(now_ns, app, pending);
         self.care_only = self.care.beat_frame() && !pending;
         let (shift, dims) = (self.care.offset(), [self.care.dim(0), self.care.dim(1)]);
+        // The card the app features look at, and where and how bright they draw it (the origin and 1 unless it is engaged).
+        let app_card = app.map(|a| WindowId(a.window));
+        let (app_shift, app_dim) = (self.care.app_offset(), self.care.app_dim());
         self.step_transitions(surfaces, now_ns);
         self.merge_draw_list(surfaces);
         let n = self.draw.len();
@@ -919,7 +967,12 @@ impl Scene {
             };
             let mut dim = 1.0;
             let origin = if w.kind.is_card() {
-                (0, 0)
+                if app_card == Some(wid) {
+                    dim = app_dim;
+                    app_shift
+                } else {
+                    (0, 0)
+                }
             } else if w.kind == WindowType::Keyboard {
                 // LG's KeyboardView: anchored at the bottom of the output, as high as the window, the window centred in that width; the
                 // rectangle the app asked for when it asked for one.

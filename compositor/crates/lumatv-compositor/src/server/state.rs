@@ -463,6 +463,9 @@ impl State {
         if drew && self.scene.care_frame() {
             self.output.quiet_frame();
         }
+        for line in self.scene.care.take_events() {
+            self.journal(line);
+        }
         let presented = match self.output.present() {
             Ok(p) => p,
             Err(e) => {

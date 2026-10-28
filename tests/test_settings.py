@@ -197,9 +197,9 @@ class Settings(HostCase):
         self.assertEqual(s["style"], "art")
         self.assertEqual(s["art"], {"everyMin": 60, "order": "shuffle", "caption": True})      # one change, the other two kept
 
-    def test_the_screensaver_tab_has_the_switch_for_lumatvs_saver_after_standby_and_oled_care_after_it(self):
-        # Screensaver tab, style Clock: Dim over time, Weather and home fact, Then go to standby, LumaTV saver (on until OK turns it off), OLED care (off until OK
-        # turns it on), then LG's own rows
+    def test_the_screensaver_tab_has_the_switch_for_lumatvs_saver_after_standby_and_no_oled_care_row(self):
+        # Screensaver tab, style Clock: Dim over time, Weather and home fact, Then go to standby, LumaTV saver (on until OK turns it off), then LG's own rows:
+        # the panel care switches are System > OLED care (the test below)
         rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT,
                             *self.go("look", "right", "up", "right", "right", "down", "down", "down", "down", "down", "ok"),
                             "--eval", "%d:JSON.stringify(root.theme.screensaver || {})" % (READY + 3000), "--wait", str(READY + 3600))
@@ -209,7 +209,18 @@ class Settings(HostCase):
                             *self.go("look", "right", "up", "right", "right", "down", "down", "down", "down", "down", "down", "ok"),
                             "--eval", "%d:JSON.stringify(root.theme.oledcare || {})" % (READY + 3000), "--wait", str(READY + 3600))
         self.assertEqual(rc, 0, out[-1500:])
-        self.assertEqual(self.docs(out)[-1].get("enabled"), True, "the shipped theme has the care off, OK on its row writes the switch the compositor reads")
+        self.assertEqual(self.docs(out)[-1].get("enabled"), False, "the sixth stop is LG's screen saver time now: it does not touch the care")
+
+    def test_system_oled_care_has_lumatvs_five_panel_care_switches_under_lgs_rows_each_writing_its_own_key(self):
+        # System, tab OLED care (Right into the page, Up to the tab bar, two Rights, Down into the rows): LG's rows first, then the group. The sixth
+        # stop is LumaTV screens, then Dim still apps, Shift apps, Dim bright still areas, Protect panel refresh: OK on each in turn.
+        rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT,
+                            *self.go("system", "right", "up", "right", "right", "down"),
+                            *self.keys(READY + 2500, *(["down"] * 6), "ok", "down", "ok", "down", "ok", "down", "ok", "down", "ok"),
+                            "--eval", "%d:JSON.stringify(root.theme.oledcare || {})" % (READY + 4200), "--wait", str(READY + 4800))
+        self.assertEqual(rc, 0, out[-1500:])
+        care = self.docs(out)[-1]
+        self.assertEqual([care[k] for k in ("enabled", "appDim", "appShift", "boxDim", "refreshGuard")], [True] * 5, "the shipped theme has them all off; OK on each row writes its own key")
 
     def test_the_power_on_and_off_logos_are_chosen_among_three_and_kept_in_the_theme_file(self):
         with tempfile.TemporaryDirectory() as d:

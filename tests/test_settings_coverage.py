@@ -417,6 +417,8 @@ probe("remote_slow_pick", FIND % "remote" + "var a=R('Activate time for long pre
       "return {on:p.ev(a.enabled)!==false,a:oa.map(function(x){return x.value+':'+x.label}),b:ob.map(function(x){return x.value+':'+x.label}),va:p.ev(a.value),vb:p.ev(b.value)}", wait=300)
 probe("oled_care", FIND % "system" + "var row=R('Care Picture Settings');var o=row.options();row.pick(o.map(function(x){return x.value}).indexOf('comfortCare'));"
       "R('Care Recommendations').act(false);return {options:o.map(function(x){return x.value+':'+x.label}),value:p.ev(row.value)}", wait=300)
+probe("panel_care_rows", FIND % "system" + "var out=[];for(var i=0;i<p.rows.length;i++){var r=p.rows[i];if(r.tab!==2||p.ev(r.visible)===false)continue;"
+      "out.push([r.kind,String(p.ev(r.label)||r.text||''),p.ev(r.help)||'',r.on?p.ev(r.on):null])}return out")
 probe("pixel_ask", FIND % "system" + "R('Pixel Cleaning').act(true);return {asked:root.confirmOpen,on:p.ev(R('Pixel Cleaning').on)}", wait=250)
 probe("pixel_no", "root.key('ok');return {open:root.confirmOpen}", wait=250)
 probe("pixel_yes", FIND % "system" + "R('Pixel Cleaning').act(true);root.key('right');root.key('ok');return 1", wait=400)
@@ -1129,6 +1131,15 @@ class Coverage(unittest.TestCase):
         self.assertEqual(d["b"][:3], ["basic:Basic", "0.5:0.5 s", "1:1 s"])
         self.assertEqual((d["va"], d["vb"]), ("1.5 s", "0.5 s"))
         self.assertEqual(self.written("remote_slow_pick"), [{"longPressInterval": "1.5"}, {"repeatInterval": "0.5"}])
+
+    def test_oled_care_ends_with_lumatvs_group_of_five_switches_that_start_off(self):
+        rows = self.probe("panel_care_rows")["res"]
+        self.assertEqual([r[:2] for r in rows[-6:]], [["head", "LumaTV panel care"], ["toggle", "LumaTV screens"], ["toggle", "Dim still apps"], ["toggle", "Shift apps"],
+                                                      ["toggle", "Dim bright still areas"], ["toggle", "Protect panel refresh"]])
+        self.assertTrue(all(r[2] and r[3] is False for r in rows[-5:]), "each has its help and is off in the shipped theme")
+        labels = [r[1] for r in rows[:-6]]
+        self.assertIn("Screen shift", labels, "LG's rows stay above the group")
+        self.assertNotIn("OLED care", labels)
 
     def test_oled_care_has_LGs_three_care_modes_pixel_cleaning_asks_to_turn_on_and_recommendations_switch(self):
         d = self.probe("oled_care")["res"]
