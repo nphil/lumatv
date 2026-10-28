@@ -5,6 +5,7 @@ key safety, and the whole slot against the canned set (`--dry-run`: every comman
 """
 import importlib.util
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -93,6 +94,56 @@ class DryRun(unittest.TestCase):
             self.assertEqual(p.returncode, 0, p.stdout[-2000:])
             self.assertIn('plugins   ', p.stdout)
             self.assertTrue(os.path.exists(os.path.join(d, 'plugins', 'plugins.json')))
+
+
+class Layout(unittest.TestCase):
+    def slot(self):
+        d = tempfile.mkdtemp()
+        tv = r19.DryTv()
+        return r19.Slot(r19.parse_args(['--dry-run', '--out', d]), tv), tv, d
+
+    def test_dialog_classifier(self):
+        P = r19.pil()
+        flat = P[0].new('RGB', (960, 540), (24, 20, 32))
+        self.assertTrue(r19.dialog_like(flat))
+        photo = r19.load(os.path.join(R18, 'info-1.png'))
+        self.assertFalse(r19.dialog_like(photo))
+
+    def test_passes_when_the_file_is_unchanged_and_only_planned_keys_are_sent(self):
+        s, tv, d = self.slot()
+        res = s.check_layout()
+        by = {i['name']: i['verdict'] for i in res['items']}
+        self.assertEqual(by['layout.json unchanged'], 'PASS')
+        self.assertEqual(by['Cancel and confirm Discard'], 'EYES')
+        self.assertEqual(tv.problems, [])
+        keys = [c.split(r19.KB + ' ', 1)[1] for c in tv.commands if r19.KB + ' ' in c]
+        self.assertIn('RIGHTx5@0.25 s0.6', keys)
+        self.assertEqual(keys.index('RIGHTx5@0.25 s0.6') + 1, keys.index('OK s1.8'))    # the dialog's OK follows the move to Discard at once
+        self.assertNotIn('LEFT', ' '.join(keys).split()[:0])
+        for f in ('home-widgets.png', 'edit-grid.png', 'edit-pickup.png', 'edit-cancel.png'):
+            self.assertTrue(os.path.exists(os.path.join(d, 'layout', f)), f)
+        # nothing but reads touches the file
+        self.assertFalse([c for c in tv.commands if 'layout.json' in c and not re.search(r'^(if \[ -f|stat -c|cat )', c)])
+
+    def test_fails_when_the_layout_was_written(self):
+        s, tv, d = self.slot()
+        reads = iter([('aaa', '1', '{}'), ('bbb', '2', '{"widgets":[1]}')])
+        s.layout_file = lambda: next(reads)
+        res = s.check_layout()
+        self.assertEqual(res['verdict'], 'FAIL')
+        self.assertIn('THE LAYOUT WAS WRITTEN', str(res['items']))
+
+    def test_customised_layout_steps_up_one_row(self):
+        s, tv, d = self.slot()
+        s.layout_file = lambda: ('aaa', '1', '{"widgets":[{"id":"clock"}]}')
+        s.check_layout()
+        keys = [c.split(r19.KB + ' ', 1)[1] for c in tv.commands if r19.KB + ' ' in c]
+        i = keys.index('DOWNx30@0.08 s0.6')
+        self.assertEqual(keys[i + 1], 'UP s0.6')
+        s2, tv2, _ = self.slot()
+        s2.check_layout()
+        keys2 = [c.split(r19.KB + ' ', 1)[1] for c in tv2.commands if r19.KB + ' ' in c]
+        self.assertNotEqual(keys2[keys2.index('DOWNx30@0.08 s0.6') + 1], 'UP s0.6')
 
 
 class Plugins(unittest.TestCase):

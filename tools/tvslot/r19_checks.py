@@ -11,6 +11,8 @@ Checks (each timed and isolated: one failing never stops the others; each leaves
   banners   the input banner restyle (pill, INFO card, no-signal line); never switches inputcommon, it reports what is on
   plugins   the helper's plugin broker (127.0.0.1:18731, plugin API level 1): GET routes only; who is on, first-party cards, the Home
             Assistant plugin's state, captures of Home's At-home lane and the quick panel's tiles. Never links, enables or installs.
+  layout    Home's layout editor, opened from Settings > Home & look > Home widgets > Edit on Home: capture the grid, move and size a
+            card, Cancel and Discard; layout.json must have the same md5 afterwards (FAIL otherwise). Captures the Home widgets page.
 
 The script never touches the receiver, never installs, never writes to the rootfs, never opens port 6053 and never
 runs ble-link. The only writes to the TV are: kb.py in /tmp, a scratch dir /tmp/r19 (removed at the end), when the
@@ -50,7 +52,8 @@ KB = '/tmp/kb.py'
 SPLASH_MD5 = '3dcd88495b38ef186f728b4c3d3d2a0c'   # the launch splash (HDMI glyph on grey), docs/research/lg-restyles-result.md round 11
 IC_UPPER = '/var/lib/lumatv/inputcommon/upper'    # tools/inputcommon.sh: $STATE/inputcommon/upper, dataDir from brand.json
 IC_FILES = 30                        # the patched tree's .qml count (lg-restyles-result.md, round 18 "Next TV check" 1)
-CHECK_ORDER = ['speed', 'settings', 'plugins', 'ble', 'banners']   # banners last: it puts an HDMI input in front
+CHECK_ORDER = ['speed', 'settings', 'plugins', 'layout', 'ble', 'banners']   # banners last: it puts an HDMI input in front
+LAYOUT_FILE = '/var/lib/lumatv/theme/layout.json'    # tools/lumatv: $STATE/theme, dataDir from brand.json
 MEDIA_APPS = re.compile(r'^(netflix|youtube|amazon|spotify|com\.webos\.app\.(lgchannels|music|discovery)|.*plex.*|.*disney.*|.*hulu.*)')
 HDMI_APP = re.compile(r'^com\.webos\.app\.hdmi\d$')
 
@@ -368,6 +371,16 @@ def scan_stats(objs):
     }
 
 
+def dialog_like(img):
+    """Whether the centre of the screen looks like the confirm dialog (an opaque flat sheet, 760 of 1920 wide, over a hidden page): one
+    colour fills most of the central crop. [UNCALIBRATED: no capture of the dialog on the set]"""
+    if img is None:
+        return False
+    crop = img.crop((300, 190, 660, 350))
+    colours = crop.getcolors(maxcolors=crop.size[0] * crop.size[1])
+    return bool(colours) and max(c for c, _ in colours) / float(crop.size[0] * crop.size[1]) > 0.5
+
+
 def ha_words(owner_plugins, link):
     """What the Home Assistant plugin's chip says, as kit/PluginHub.qml works it out (haState, haWords): owner_plugins is `plugins` of
     GET /v1/plugins, link the value of the `ha.link` topic."""
@@ -497,6 +510,12 @@ def canned(cmd):
                                        for i in ('weather', 'news', 'clock', 'ambient')], 'problem': None})
     if 'curl' in cmd and cmd.rstrip().endswith('/v1/state'):
         return json.dumps({'boot': 'b', 'seq': 9, 'helper': {'version': '0.1', 'pid': 99, 'rssKb': 8000, 'threads': 6}, 'topics': {'weather': {}, 'ha.link': {}}})
+    if 'layout.json' in cmd and 'md5sum' in cmd:
+        return 'absent\n'
+    if 'layout.json' in cmd and 'stat -c' in cmd:
+        return '\n'
+    if 'layout.json' in cmd and cmd.startswith('cat'):
+        return 'ABSENT\n'
     if 'enabled.json' in cmd:
         return 'MISSING\n'
     if 'broker.sock' in cmd:
@@ -950,6 +969,118 @@ class Slot:
 
     # ================================================================================================= check: BLE scans
 
+    # ============================================================================================= check: layout editor
+    # Through Settings > Home & look > Home tab > Home widgets > "Edit on Home" (the same editor as holding OK on a card, but no
+    # guess about which card Home has focused). Nothing is saved: the editor is left through Cancel and Discard, and the owner's layout.json
+    # must be byte for byte as before (md5; absent stays absent). OK is pressed only on rows this plan names, and the dialog's keys
+    # only once the screen looks like the dialog.
+
+    def layout_file(self):
+        """(md5 or 'absent', mtime or '', content text) of the owner's layout.json, read straight from the file (`lumatv layout get`
+        would stage the theme when it is missing)."""
+        f = LAYOUT_FILE
+        md5 = self.sh('if [ -f %s ]; then md5sum %s | cut -d" " -f1; else echo absent; fi' % (f, f), 20).strip()
+        mtime = self.sh('stat -c %%Y %s 2>/dev/null; true' % f, 15).strip()
+        text = self.sh('cat %s 2>/dev/null || echo ABSENT' % f, 15)
+        return md5, mtime, text
+
+    def check_layout(self):
+        sub = 'layout'
+        items = []
+        before = self.layout_file()
+        doc = self.jl(before[2]) if before[0] != 'absent' else {}
+        customised = any(v for v in doc.values()) if isinstance(doc, dict) else False
+        self.item(items, 'layout.json before', 'INFO', 'md5 %s, mtime %s, %s' % (before[0], before[1] or '-', 'customised' if customised else 'not customised (the shipped layout)'))
+        if self.fg() != 'com.webos.app.home':
+            self.home()
+        home_noise = None
+        st, why = self.open_settings('l1', sub)
+        if st is None:
+            self.item(items, 'open Settings', 'FAIL', why)
+            self.kb('BACKx4@0.4 s1.0')
+            return self.layout_result(items, before, 'could not open Settings')
+        # Settings > Home & look > Home tab > Home widgets (first row of the tab), captured with nothing changed
+        self.kb('UPx12@0.1 DOWNx5@0.3 s0.5')
+        self.kb('RIGHT s0.8')
+        self.kb('UPx15@0.1 RIGHTx6@0.4 LEFTx2@0.5 s0.8')
+        self.kb('DOWN s0.6 OK s2.0')
+        page = self.shot('home-widgets', sub)
+        self.kb('UPx15@0.1 RIGHT s1.2')
+        self.shot('home-widgets-order', sub)
+        self.kb('LEFT s0.8')
+        self.item(items, 'Settings > Home & look > Home widgets', 'EYES', 'the page on its first tab (a row per card, Off/Small/Half/Wide) and its second tab (the order); nothing was changed',
+                  file=sub + '/home-widgets.png')
+        # the "Edit on Home" row: the last row, or the one before it while Reset to default is enabled (a customised layout)
+        self.kb('DOWN s0.5')
+        self.kb('DOWNx30@0.08 s0.6')
+        if customised:
+            self.kb('UP s0.6')
+        before_open = self.shot('edit-row-focus', sub)
+        self.kb('OK s2.2')
+        grid = self.shot('edit-grid', sub)
+        noise = mean_diff(self.shot('edit-grid-b', sub, keep=False), grid)
+        opened = self.dry or (before_open is not None and grid is not None and mean_diff(before_open, grid) > SEEN_FACTOR * noise + SEEN_FLOOR)
+        if not opened:
+            self.item(items, 'layout editor opens', 'FAIL', 'the screen did not change after OK on "Edit on Home"; no editor keys were sent')
+            self.kb('BACKx4@0.4 s1.0')
+            return self.layout_result(items, before, 'the editor did not open')
+        self.item(items, 'layout editor opens', 'EYES', 'the grid over Home with the bar (Add, Remove, Undo, Cancel, Save); look at edit-grid.png', file=sub + '/edit-grid.png')
+        thr = max(0.4, SEEN_FACTOR * noise)
+        # pick a card up, move it one cell, turn to the size, size it one step, put it down
+        self.kb('OK s0.7')
+        prev = self.shot('edit-pickup', sub)
+        moved = None
+        for key in ('RIGHT', 'LEFT', 'DOWN', 'UP'):
+            self.kb('%s s0.8' % key)
+            now = self.shot('edit-move-%s' % key.lower(), sub)
+            if self.dry or mean_diff(prev, now) > thr:
+                moved = key
+                break
+            prev = now
+        self.item(items, 'pick up and move one cell', 'EYES' if moved else 'INFO', ('moved %s: compare edit-pickup and edit-move-%s' % (moved.lower(), moved.lower())) if moved else
+                  'no direction changed the picture (the card may fill its row and column, or the move was refused)')
+        self.kb('OK s0.7')
+        prev = self.shot('edit-size-mode', sub)
+        sized = None
+        for key in ('RIGHT', 'LEFT', 'DOWN', 'UP'):
+            self.kb('%s s0.8' % key)
+            now = self.shot('edit-size-%s' % key.lower(), sub)
+            if self.dry or mean_diff(prev, now) > thr:
+                sized = key
+                break
+            prev = now
+        self.item(items, 'resize one step', 'EYES' if sized else 'INFO', ('sized with %s: compare edit-size-mode and edit-size-%s' % (sized.lower(), sized.lower())) if sized else
+                  'no direction changed the picture (the size may be at its limit, or refused)')
+        self.kb('OK s0.8')
+        after = self.shot('edit-changed', sub)
+        # Cancel: Back with nothing picked up asks "Save changes?" when something changed (Keep editing, Save, Discard, the last one danger)
+        self.kb('BACK s1.0')
+        dlg = self.shot('edit-cancel', sub)
+        homeish = mean_diff(dlg, after) < thr
+        if dialog_like(dlg) and (self.dry or not homeish):
+            self.kb('RIGHTx5@0.25 s0.6')          # the dialog stops at its last answer: Discard
+            self.shot('edit-discard-focus', sub)
+            self.kb('OK s1.8')
+            self.item(items, 'Cancel and confirm Discard', 'EYES', 'the question was recognised and Discard (the last answer) was chosen; see edit-cancel.png and edit-discard-focus.png')
+        elif moved or sized:
+            self.item(items, 'Cancel and confirm Discard', 'FAIL', 'the screen after Back is not recognisably the question; no key sent. The editor may still be open with unsaved changes: Back, then Discard, at the remote')
+            return self.layout_result(items, before, 'the discard question was not recognised')
+        else:
+            self.item(items, 'Cancel and confirm Discard', 'INFO', 'nothing changed, so Back left the editor without a question (edit-cancel.png)')
+        left = self.shot('edit-left', sub)
+        self.sleep(1.0)
+        return self.layout_result(items, before, '')
+
+    def layout_result(self, items, before, stopped):
+        after = self.layout_file()
+        same = after[0] == before[0]
+        self.item(items, 'layout.json unchanged', 'PASS' if same else 'FAIL', ('md5 %s before and after (mtime %s then %s)' % (before[0], before[1] or '-', after[1] or '-')) if same
+                  else 'md5 %s before, %s after: THE LAYOUT WAS WRITTEN' % (before[0], after[0]))
+        bad = [i for i in items if i['verdict'] in ('FAIL', 'ERROR')]
+        eyes = [i for i in items if i['verdict'] == 'EYES']
+        return {'verdict': 'FAIL' if bad else ('EYES' if eyes else 'PASS'), 'items': items,
+                'detail': ('failed: ' + ', '.join(i['name'] for i in bad)) if bad else 'editor opened, a card moved and sized, discarded; layout.json unchanged; look at the captures'}
+
     def check_ble(self):
         items = []
         self.sh('mkdir -p %s' % R, 15)
@@ -1249,7 +1380,7 @@ class Slot:
         self.sh('mkdir -p %s' % R, 15)
         self.tv.put(os.path.join(PERF, 'kb.py'), KB)
         chosen = [c for c in CHECK_ORDER if (not self.args.only or c in self.args.only) and c not in self.args.skip]
-        fns = {'speed': self.check_speed, 'settings': self.check_settings, 'plugins': self.check_plugins, 'ble': self.check_ble, 'banners': self.check_banners}
+        fns = {'speed': self.check_speed, 'settings': self.check_settings, 'plugins': self.check_plugins, 'layout': self.check_layout, 'ble': self.check_ble, 'banners': self.check_banners}
         aborted = None
         try:
             for name in chosen:
