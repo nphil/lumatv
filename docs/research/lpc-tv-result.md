@@ -170,9 +170,9 @@ always. Reads only, except the loaded run's synthetic work.
 
 1. `python3 compositor/tools/tv_gate.py --kwait --frames-load`: the zero-gap rule as before; then `wake`, `mem`, `irq` and
    `wakeups` lines after the frame run, and `GATE frames-load: measured ...`.
-2. Right after start, `ctl mem`: the lock's line (`locked what is touched ...` or the reason), `VmLck` growing with RSS,
-   `mmapped_blocks 0`. `lpc-probe.sh limits` before and after a gate run: `maps:` flat, `majflt` flat, and after a memory
-   hog (`memory-result.md`) no compositor major faults.
+2. Right after start, `ctl mem`: the lock's line (`locked what is touched ...` or the reason) and `mmapped_blocks 0`. `lpc-probe.sh limits`
+   before and after a gate run: `Mlocked` near the compositor's RSS (`VmLck` is the size of the locked mappings, touched or not, and
+   reads far higher), `maps:` flat, `majflt` flat, and after a memory hog (`memory-result.md`) no compositor major faults.
 3. `ctl idle 0` against `ctl idle 100`, each with `lpc-probe.sh wakeups 10 LABEL` on a still Home: the compositor's runs a
    second, about 60 and about 10 expected; then Home visible against covered.
 4. `lpc-probe.sh irq 10 stream` during Netflix or GFN, beside the `home` one the gate printed; apply the proposal's test.
@@ -180,6 +180,9 @@ always. Reads only, except the loaded run's synthetic work.
    against `fifo20@1` (the proposal's test).
 6. The `wd-crash` gate line's bundle summary; then Settings > Support on the TV shows the notice; Details; Clear.
 7. Record the first three runs' wake-up percentiles and set the gate's wake rule from them.
+8. `lpc-probe.sh swap 10 home` at an idle Home and again after an app has been used: the swap is full (613,964 of 614,396 kB), so what
+   it says is who holds it (the biggest holders by name, LumaTV's compositor, shell client and helper marked), how much no process
+   holds (tmpfs and shared memory), and whether pages move now (swapped in and out a second, major faults a second).
 
 Not testable offline: kbase's mappings per buffer, whether the trace trigger exists on 5.4.268, the real MemAvailable at the
 lock, the wake-up numbers themselves.
@@ -187,6 +190,7 @@ lock, the wake-up numbers themselves.
 ## TV reads, 2026-10-28 (idle Home, `48ee380`, LumaTV's compositor, `/tmp/lumatv/lpc-probe.sh` read only)
 
 - **`irq 10 home`.** CPUs 0-2 online (LG's power manager had CPU 3 off); every line's affinity is 0-3 and every device interrupt was served on CPU 0: `DE2VSYNC` 127.6 a second, `osd_irq` 127.0, the gpu lines 73.1 and 56.1, `ohci_hcd:usb8` 67.0, `eth0` 45.8, `hdmicec` 1.0, `gfx_irq` 0.6; xHCI and EHCI none. `arch_timer` fired 5,025 a second (CPU 0 1,250, CPU 1 2,432, CPU 2 1,344), rescheduling IPIs 429. The compositor's loop thread sat on CPU 2 for 86 % of its 100 samples and on CPU 0 for 14 %. The proposal's test needs 30 % or more on CPU 0 before an interrupt is moved, so LG's placement stays and the `fifo20@0` against `fifo20@1` comparison is not needed at Home; the stream case (Netflix, GFN) is still unread.
-- **`wakeups 10 home`.** Shell client (pid 10264) 801.9 runs a second, of which one thread, `QNetworkAccessM...`, takes 592.1, `qml-runner` 135.1, `mali-cmar-backe` 70.1; compositor (pid 9678) 181.7 (its loop thread 121.0, `mali-cmar-backe` 57.3); helper 17.4 (`receiver-telnet` 12.7, `receiver` 3.6). The system: 5,959 interrupts and 10,644 context switches a second. The shell client's network thread is the one line far above the census table's "1 to 10"; what it polls at an idle Home is not known yet.
-- **`limits`.** The compositor holds 547,820 kB locked (`VmLck`) against a soft and hard limit of 65,536 bytes, which `CapEff 3fffffffff` allows; RSS 50.2 MB, `VmSwap` 0, 174 mappings, 366 major faults. The set: `MemAvailable` 490.5 MB, swap 613,964 of 614,396 kB used (full), `CmaFree` 96.5 MB of 692 MB, `swappiness` 100.
+- **`wakeups 10 home`.** Compositor (pid 9678) 181.7 (its loop thread 121.0, `mali-cmar-backe` 57.3); helper 17.4 (`receiver-telnet` 12.7, `receiver` 3.6); the system: 5,959 interrupts and 10,644 context switches a second. The shell client's line (801.9, of which `QNetworkAccessM...` 592.1) is wrong: see the correction below.
+- **Correction: the shell client's network thread does not wake 592 times a second.** The first version of `wakeups` kept one start count a thread *name*. The shell client has two threads named `QNetworkAccessM` (and four `mali-utility-wo`), so the first of them started from the last one's count and its "rate" was the gap between two cumulative counts (the same readings show `mali-utility-wo -2.0` three times, which no thread can run). The servers say the same: in the ten-second reads of `compositor/slot-2026-10-28-0600` the compositor's shell server thread (`lumatv-shell-ht`) ran 1.3 to 1.6 a second, the helper's `http-accept` 0.0 to 0.1 and `http-conn` 0.0, and the shell's `link.events` reads 209 to 260 in the recorded states of that day's slots. There is no polling loop, so neither the compositor's channel nor the helper's long poll was changed. `wakeups` is now keyed by thread id and adds each busy thread's CPU and how much of its running was preemption; `tests/test_lpc_probe.py` has two same-named threads (a count of 9,000 growing by 10 beside one of 100) that the old arithmetic read as 891 a second for a true 1. Threads with a name of their own (`qml-runner`, the compositor's loop, `mali-cmar-backe`, `receiver-telnet`, `receiver`) were read right, so the helper's 12.7 a second on `receiver-telnet` stands: three quarters of the helper's idle wake-ups, the Denon link's own traffic [INFERENCE]. Process totals that contain same-named threads were not right and are read again next round.
+- **`limits`.** The compositor holds 547,820 kB locked (`VmLck`) against a soft and hard limit of 65,536 bytes, which `CapEff 3fffffffff` allows; RSS 50.2 MB, `VmSwap` 0, 174 mappings, 366 major faults. `VmLck` counts the whole size of every mapping the lock covers (`MCL_ONFAULT` marks them all, touched or not), so it is address space beside an RSS of 50.2 MB, not memory held: the pinned amount is `Mlocked` in `/proc/meminfo`, which `limits` prints. The set: `MemAvailable` 490.5 MB, swap 613,964 of 614,396 kB used (full), `CmaFree` 96.5 MB of 692 MB, `swappiness` 100. What fills the swap is read by `lpc-probe.sh swap`.
 

@@ -68,11 +68,22 @@ def tree(root):
     write(proc, "4242/task/4242/stat", stat_line(1))
     write(proc, "4242/task/4242/stat.2", stat_line(0))
     # threads: the compositor's loop and a helper thread of it, its shell client (a child), the helper; "slices" is the third schedstat field
+    # (two threads of the shell client share a name, as the two QNetworkAccessManager threads do on the set: one with a count of 9,000 runs that grows by
+    # 10 and one with 100 that does not)
     for pid, tid, comm, before, after in ((4242, 4242, "lumatv-composit", 1000, 1620), (4242, 4243, "shell-http", 40, 44),
-                                          (4300, 4300, "qml-runner", 500, 510), (777, 777, "lumatv-helper", 70, 190)):
+                                          (4300, 4300, "qml-runner", 500, 510), (4300, 4310, "QNetworkAccessM", 9000, 9010),
+                                          (4300, 4311, "QNetworkAccessM", 100, 100), (777, 777, "lumatv-helper", 70, 190)):
         write(proc, "%d/task/%d/comm" % (pid, tid), comm + "\n")
         write(proc, "%d/task/%d/schedstat" % (pid, tid), "1 2 %d\n" % before)
         write(proc, "%d/task/%d/schedstat.2" % (pid, tid), "1 2 %d\n" % after)
+    # CPU time and preempted runs of two threads: the compositor's loop (6 a second preempted of 62) and the helper's (all 12 of its 12, 5 % of a CPU; its
+    # name holds a space, as "Qt bearer threa" does)
+    write(proc, "4242/task/4242/status", "nonvoluntary_ctxt_switches:\t500\n")
+    write(proc, "4242/task/4242/status.2", "nonvoluntary_ctxt_switches:\t560\n")
+    write(proc, "777/task/777/stat", "777 (lumatv helper) S 1 777 777 0 -1 0 0 0 0 0 100 0 0 0 20 0 1 0 1 2 3\n")
+    write(proc, "777/task/777/stat.2", "777 (lumatv helper) S 1 777 777 0 -1 0 0 0 0 0 120 30 0 0 20 0 1 0 1 2 3\n")
+    write(proc, "777/task/777/status", "nonvoluntary_ctxt_switches:\t600\n")
+    write(proc, "777/task/777/status.2", "nonvoluntary_ctxt_switches:\t720\n")
     write(proc, "stat", "cpu  1 2 3 4\nintr 1000000 5 6\nctxt 5000000\n")
     write(proc, "stat.2", "cpu  1 2 3 4\nintr 1042000 5 6\nctxt 5090000\n")
     write(proc, "4242/maps", "".join("%08x-%08x rw-p 00000000 00:00 0\n" % (i * 4096, i * 4096 + 4096) for i in range(37)))
@@ -81,10 +92,27 @@ def tree(root):
                                "Max address space         unlimited            unlimited            bytes\n"
                                "Max locked memory         67108864             67108864             bytes\n"
                                "Max realtime priority     0                    0\n")
-    write(proc, "4242/status", "Name:\tlumatv-composit\nVmHWM:\t  120000 kB\nVmRSS:\t  110000 kB\nVmLck:\t   90000 kB\nVmSwap:\t       0 kB\nThreads:\t12\nCapEff:\t0000000000004000\n")
+    write(proc, "4242/status", "Name:\tlumatv-composit\nVmHWM:\t  120000 kB\nVmRSS:\t  110000 kB\nVmLck:\t   90000 kB\nVmSwap:\t    1200 kB\nThreads:\t12\nCapEff:\t0000000000004000\n")
     write(proc, "meminfo", "MemTotal:        1800000 kB\nMemFree:          100000 kB\nMemAvailable:     700000 kB\nSwapTotal:        500000 kB\nSwapFree:         400000 kB\n"
-                            "Mlocked:           90000 kB\nCmaTotal:         200000 kB\nCmaFree:           50000 kB\nBuffers:            1000 kB\n")
+                            "Mlocked:           90000 kB\nCmaTotal:         200000 kB\nCmaFree:           50000 kB\nBuffers:            1000 kB\n"
+                            "SwapCached:         2000 kB\nShmem:            150000 kB\nUnevictable:        5000 kB\nAnonPages:        600000 kB\nMapped:            90000 kB\n")
     write(proc, "swaps", "Filename\tType\tSize\tUsed\tPriority\n/dev/zram0\tpartition\t500000\t100000\t-2\n")
+    # what holds the swap: the three LumaTV processes (4242 has 1,200 kB of it, the shell client 30,000, the helper 400), a web app, the surface manager and a
+    # kernel thread with none; the kernel's swap counters move by 100, 500 and 1,000 in the run
+    write(proc, "4300/status", "Name:\tqml-runner\nVmRSS:\t   60000 kB\nVmSwap:\t   30000 kB\n")
+    write(proc, "777/status", "Name:\tlumatv-helper\nVmRSS:\t    1600 kB\nVmSwap:\t     400 kB\n")
+    write(proc, "100/status", "Name:\twebapp\nVmRSS:\t   90000 kB\nVmSwap:\t   40000 kB\n")
+    write(proc, "101/status", "Name:\tsurface-manager\nVmRSS:\t   70000 kB\nVmSwap:\t   25000 kB\n")
+    write(proc, "102/status", "Name:\tkworker\n")
+    write(proc, "vmstat", "pgmajfault 200\npswpin 1000\npswpout 5000\npgpgin 7\n")
+    write(proc, "vmstat.2", "pgmajfault 1200\npswpin 1100\npswpout 5500\npgpgin 9\n")
+    write(os.path.join(root, "sys"), "block/zram0/disksize", "524288000\n")
+    write(os.path.join(root, "sys"), "block/zram0/comp_algorithm", "[lz4] lzo\n")
+    write(os.path.join(root, "sys"), "block/zram0/mm_stat", "104857600 31457280 33554432 0 0 0 0 0\n")
+    os.makedirs(os.path.join(root, "tmp", "lumatv"))
+    with open(os.path.join(root, "tmp", "lumatv", "bundle.bin"), "wb") as f:
+        f.write(os.urandom(300 * 1024))         # random: a filesystem that compresses would count a run of one byte as nothing
+    write(root, "tmp/xdg/token", "t")
     for name, val in (("vm/swappiness", 60), ("vm/overcommit_memory", 0), ("kernel/sched_rt_runtime_us", 950000), ("kernel/sched_schedstats", 1)):
         write(proc, "sys/" + name, "%s\n" % val)
     sysdir = os.path.join(root, "sys")
@@ -107,7 +135,7 @@ class LpcProbe(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.root, True)
 
     def run_probe(self, *args):
-        env = dict(os.environ, LUMATV_PROC=self.proc, LUMATV_SYS=self.sys, PATH=self.bin + os.pathsep + os.environ["PATH"])
+        env = dict(os.environ, LUMATV_PROC=self.proc, LUMATV_SYS=self.sys, LUMATV_TMP=os.path.join(self.root, "tmp"), PATH=self.bin + os.pathsep + os.environ["PATH"])
         r = subprocess.run(["sh", SCRIPT, *args], env=env, capture_output=True, text=True, timeout=60)
         self.assertEqual(r.returncode, 0, r.stderr)
         return r.stdout
@@ -162,12 +190,44 @@ class LpcProbe(unittest.TestCase):
         self.assertEqual(lines[0], "lpc-probe wakeups: 10 s, idle-home")
         by_pid = {l.split()[1].rstrip(":"): l for l in lines if l.startswith("pid ")}
         self.assertEqual(sorted(by_pid), ["4242", "4300", "777"])
-        self.assertIn("pid 4242: 62.4 runs/s:", by_pid["4242"])        # 620 + 4 runs in ten seconds
-        self.assertIn("lumatv-composit 62.0,", by_pid["4242"])
-        self.assertIn("shell-http 0.4,", by_pid["4242"])
-        self.assertIn("pid 4300: 1.0 runs/s:", by_pid["4300"])
-        self.assertIn("pid 777: 12.0 runs/s:", by_pid["777"])
+        self.assertIn("pid 4242: 62.4 runs/s, 0.0 % CPU:", by_pid["4242"])        # 620 + 4 runs in ten seconds
+        self.assertIn("lumatv-composit[4242] 62.0,", by_pid["4242"])                # 6 a second preempted of 62: not worth a word
+        self.assertNotIn("shell-http", by_pid["4242"])                              # 0.4 a second and no CPU: left out of the line, kept in the total
+        self.assertIn("pid 4300: 2.0 runs/s, 0.0 % CPU:", by_pid["4300"])
+        self.assertIn("qml-runner[4300] 1.0,", by_pid["4300"])
+        self.assertIn("pid 777: 12.0 runs/s, 5.0 % CPU:", by_pid["777"])
+        self.assertIn("lumatv-helper[777] 12.0 (5.0 % CPU, 100 % preempted),", by_pid["777"])
         self.assertEqual(lines[-1], "system: 4200 interrupts/s, 9000 context switches/s")
+
+    def test_two_threads_with_one_name_are_each_read_from_their_own_count(self):
+        # The first reading of this probe kept one count a name: the thread whose count is 9,000 was given the other's 100 as its start and read 891 runs a
+        # second for 1, as the shell client's network thread read 592 on the set while its servers were asked once a second.
+        out = self.run_probe("wakeups", "10", "twins")
+        line = [l for l in out.splitlines() if l.startswith("pid 4300:")][0]
+        self.assertIn("QNetworkAccessM[4310] 1.0,", line)
+        self.assertNotIn("891", out)
+        self.assertNotIn("QNetworkAccessM[4311]", line, "the one that did not run is not listed")
+        self.assertIn("2.0 runs/s", line, "and the process's total is the sum of the true ones")
+
+    def test_swap_says_who_holds_what_the_swap_has_and_what_no_process_holds(self):
+        out = self.run_probe("swap", "10", "full")
+        lines = out.splitlines()
+        self.assertEqual(lines[0], "lpc-probe swap: 10 s, full; swap used 100000 kB of 500000 kB (20%), held by processes 96600 kB, "
+                                   "by no process (tmpfs and shared memory, the kernel) 3400 kB")
+        self.assertIn("/dev/zram0", out)
+        self.assertIn("zram0: disksize 524288000, algorithm [lz4] lzo, mm_stat (original, compressed, memory used) 104857600 31457280 33554432", out)
+        self.assertIn("pages moved in 10 s: swapped in 10 a second, swapped out 50 a second, major faults 100 a second", out)
+        for k, v in (("SwapCached", 2000), ("Shmem", 150000), ("Mlocked", 90000), ("Unevictable", 5000), ("AnonPages", 600000)):
+            self.assertIn("%s: %d kB" % (k, v), out)
+        self.assertIn("LumaTV (compositor, shell client, helper) holds 31600 kB of the swap", out)
+        holders = out.split("the biggest holders (kB swapped, kB resident):\n")[1].split("the biggest of")[0].splitlines()
+        self.assertEqual([h.split()[4] for h in holders], ["webapp", "qml-runner", "surface-manager", "lumatv-composit", "lumatv-helper"], holders)
+        self.assertEqual(holders[0].split()[:2], ["40000", "90000"])
+        self.assertTrue(all(h.endswith("[LumaTV]") for h in holders if "qml-runner" in h or "composit" in h or "helper" in h))
+        self.assertFalse(any("[LumaTV]" in h for h in holders if "webapp" in h or "surface" in h))
+        tmp = out.split("tmpfs pages are swapped out with nobody's name on them):\n")[1].splitlines()
+        # which is bigger is du's word and a compressing filesystem (the workstation's) gives a new file no blocks yet: the names are what is asserted
+        self.assertEqual(sorted(t.split()[-1].rsplit("/", 1)[1] for t in tmp), ["lumatv", "xdg"], tmp)
 
     def test_limits_reads_what_the_compositor_may_lock_and_what_the_set_has_left(self):
         out = self.run_probe("limits")
@@ -189,11 +249,11 @@ class LpcProbe(unittest.TestCase):
             found = {}
             for dp, _, names in os.walk(self.root):
                 for f in names:
-                    with open(os.path.join(dp, f)) as fh:
+                    with open(os.path.join(dp, f), "rb") as fh:
                         found[os.path.join(dp, f)] = fh.read()
             return found
         before = files()
-        for args in (("irq", "1", "home"), ("wakeups", "1"), ("limits",)):
+        for args in (("irq", "1", "home"), ("wakeups", "1"), ("limits",), ("swap", "1")):
             self.run_probe(*args)
         after = files()
         after.pop(os.path.join(self.proc, ".swapped"))
@@ -210,7 +270,7 @@ class LpcProbe(unittest.TestCase):
             self.assertNotIn(bad, body)
         # the redirections that write: the script's own four temporary files and the bit bucket (the rest are awk's comparisons)
         targets = set(re.findall(r">\s*([^\s;|)&]+)", body))
-        self.assertEqual(targets - {"$a", "$b", "$sa", "$sb", "/dev/null", "0", "1"}, set(), targets)
+        self.assertEqual(targets - {"$a", "$b", "$sa", "$sb", "/dev/null", "0", "1", "="}, set(), targets)
 
 
 if __name__ == "__main__":
