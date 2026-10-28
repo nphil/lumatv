@@ -20,13 +20,15 @@ live with the owner.
   runs before every package or hand deploy. Helpers commit from their own worktrees.
 - Installs: HomeLabber standing grant on `sh /mnt/nvme/appdata/cody/home/tmp/lumatv-install/tv-install.sh`
   (installs whatever `/data/home/tmp/lumatv-next` points at; one Face ID per 12 h).
-- On the set at 05:50 PDT (10-28): **LumaTV's compositor is live and persistent**
-  (bundle r9 = 808256c + 889bb21 + 09740aa on the 808256c ipk; firmware 10.2.1-5202 in
-  `compositor/firmware/verified.list`), LG's compositor the automatic fallback, Active
-  Standby. Every blocking gate check passed; MINOR items are the Optimisation list in
-  `compositor-gate9-result.md`. Not yet done: the runbook's reboot check. forge/main is
-  well ahead of the set (LPC work, own keyboard, wallpaper, cameras, restyles): the next
-  install of a compositor bundle needs the full gate again before it stays live.
+- On the set at 06:30 PDT (10-28): **LumaTV's compositor is live and persistent** on
+  forge/main 0f2190c (full package; firmware 10.2.1-5202 in `compositor/firmware/verified.list`),
+  LG's compositor the automatic fallback, Active Standby. Every blocking gate check passed
+  (round 12); MINOR items are the Optimisation list in `compositor-gate9-result.md`. LG's
+  daily reboot came back headless with LumaTV's compositor live (reboot check). On:
+  `inputcommon`, `voice`, `remote.quickAccess`, `remote.quickPanelEdit`, keys restyle. Off
+  until Nitin decides or a TV check passes: `store` (rebuilt 42050ce, not on the set),
+  `keyboard luma`, `cameras.*`, `wallpaper video` (needs `vplane install`), `cover`,
+  `splash`, `standbyscreen`, `remote.recents`. venc's first TV probe needs Nitin's OK.
 - Done 2026-10-26: compositor gate 9 (every safety check passes, frame timing fails:
   `compositor-gate9-result.md`); compositor step 1, the remote's keys and the keyboard
   under LumaTV's compositor, passed on the set (`compositor-step1-result.md`); quick

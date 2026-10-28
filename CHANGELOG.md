@@ -41,8 +41,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Input banners: the no-signal screen of an HDMI input follows mock 18 (plug glyph, input name,
   title, a line, and Inputs and Home buttons), and the Guide chip under the channel banner is a
   glass pill.
-- `lumatv store on|off|status`: LG's Content Store in the Lucent look with transitions capped
-  at 180 ms, off by default; `off` and `revert` restore LG's store exactly.
+- `lumatv store on|off|status|probe`: LG's Content Store in the Lucent look (Manrope, a glass
+  plate with a ring and ink on the item LG focuses, found by what the page computes),
+  transitions capped at 180 ms; off by default; `off` and `revert` restore LG's store exactly.
+- Live TV comes to the front under LumaTV's compositor: a window attached to a surface group
+  (Live Dmost) is a member of its owner, not a card that takes the front, the keys and SAM's
+  foreground.
+- Settings: tabs sit on a tray, single tabs draw no bar, Delete/Reset/Forget use the danger
+  style, and App Permissions shows each app's icon and a proper empty state.
 - `venc/`: the TV's hardware H.264 encoder driven from LumaTV's own process (video tap into
   the encoder, zero copy), with a probe and a TCP stream server; protected video stays black.
 - Quick panel docks at the right edge as in mock 10 (648 wide), with steppers beside their
