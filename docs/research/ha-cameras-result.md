@@ -35,20 +35,38 @@ Open, in this order: Nitin's steps (below), the TV check list (below), then what
 
 ## Nitin's steps
 
-1. **Home Assistant: the integration update.** The module is on the branch `tv-cameras` of `lumashow-ha`; until it is merged and released,
-   the TV gets no events (it still gets the cameras and their pictures from the released 0.1.0, and the pop-ups cannot fire). When Main says
-   the release is out: HACS › LumaShow › *Download*, restart Home Assistant.
-2. **Pair the TV once** (if the Bluetooth proxy is not linked yet): on the TV, as root, `lumatv-helper ble-link` (it prints the key once), then in
-   Home Assistant add the ESPHome device *LumaTV Bluetooth* with that key. The LumaShow integration finds the TV by itself a moment after the
-   camera bridge is on and reuses that key: *Discovered: LumaTV*, Add, nothing typed.
-3. **Turn the bridge on**: `cameras.enabled: true` in `/var/lib/lumatv/helper.json` and restart the helper (the TV round's step 1 does this).
-4. **Pick what the TV gets**: the LumaTV entry › *Configure* › *Pick by type* › Cameras (or by entity: `camera.exterior_front_door_camera`,
-   `camera.front_doorbell_camera_fluent`, `camera.back_door_camera`, ...), then *Notifications, cameras and alarms* › **Send camera events** on,
-   Save. Which kinds pop up is the TV's `cameras.popupKinds` (person, vehicle, animal, doorbell by default; package and motion are off).
+Plain words, in order. Nothing here runs by itself; each line is one thing to do. (Read-only check of 2026-10-28: the LumaShow integration
+0.1.0 is already in Home Assistant with one Show, `lumashow-7fabc1`; go2rtc is the one Home Assistant runs itself, so the fast stream path
+works; the TV has no Bluetooth-proxy link yet, so step 2 is needed.)
 
-*Share camera addresses* (RTSP, may carry a password) stays off for the TV: the live path needs nothing of it (the relay and HLS both run
-inside Home Assistant). The relay needs Home Assistant's own go2rtc (Settings › Integrations › go2rtc, "managed by Home Assistant"): with an
-external go2rtc the TV falls back to HLS.
+1. **Update the integration in Home Assistant (HACS).** Once Main says release 0.2.0 is out: HACS › *LumaShow* › **Update** (the card
+   says 0.2.0; if no update is offered yet, the three dots › *Redownload* and pick 0.2.0). Then **restart Home Assistant** (Settings ›
+   System › the power button › Restart). The Shows notice nothing: the new parts are off for every device until step 5.
+2. **Link the TV once** (the TV's pairing key is its Bluetooth proxy's, and there is none yet). On the TV, as root over SSH:
+   `lumatv-helper ble-link`. It prints the TV's address, the port (6053) and the **key** once, and opens that port on the home network
+   (that is why it is a step of Nitin's own, not an agent's). Within a few minutes Home Assistant shows *Discovered: lumatv-ble* (an
+   ESPHome device) under Settings › Devices & services: **Configure**, paste the key, Submit. If it does not appear: *Add integration* ›
+   *ESPHome* › the TV's address and port 6053, then the key. The scanner part is `ble-result.md`'s business; the key is what the cameras
+   need.
+3. **Turn the TV's camera bridge on.** Main does this: `cameras.enabled: true` in `/var/lib/lumatv/helper.json` and a restart of the helper
+   (TV check 1). A moment later Home Assistant shows *Discovered: LumaTV* under the **LumaShow** integration: press **Add**. Nothing to
+   type: the integration takes the key from the ESPHome device of step 2.
+4. **Pick the cameras the TV gets.** Settings › Devices & services › **LumaShow** › the **LumaTV** entry › **Configure** › *Pick by type* ›
+   tick **Cameras** (or *Pick by entity* and choose the Reolink ones: *Front doorbell camera fluent*, *Exterior front door camera*, *Back
+   door camera* and so on; the Scrypted cameras give pictures but no live stream) › Save.
+5. **Turn the events on for the TV.** The same LumaTV entry › **Configure** › *Notifications, cameras and alarms* › tick **Send camera
+   events** › Save. From now on a person, a vehicle, an animal or a doorbell ring at a shared camera pops up on the TV (top right, over
+   whatever plays; OK opens it full screen, Back closes it, it goes by itself). Leave **Share camera addresses** off: the TV never needs
+   the cameras' passwords.
+6. **Nothing to do for go2rtc.** The fast stream path uses the go2rtc Home Assistant runs itself; Nitin's Home Assistant has it (no
+   `go2rtc:` line in `configuration.yaml`, the entry says *go2rtc*). Were an external go2rtc ever configured there, the TV would fall back
+   to the slower HLS stream by itself.
+7. **The live full view** (Main switches it on after TV checks 1 to 6 pass: `cameras.live: true` with the feeder copied beside the helper,
+   TV check 12). Until then the full view shows the camera's pictures, a few a second.
+
+Later: *Settings › Devices & services › LumaShow › LumaTV* has the switches *Pause control* (the TV can then only look) and the entry's
+*Disable* (cuts the TV off at once). To take the TV's access away for good: delete the TV's ESPHome device and the LumaTV entry in Home
+Assistant; the old key then opens nothing.
 
 ## What Home Assistant has (read 2026-10-27, read-only)
 
