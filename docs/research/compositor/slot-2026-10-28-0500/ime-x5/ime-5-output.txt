@@ -1,0 +1,50 @@
+power state: active
+home stub before the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+avr: left to the agent (True)
+firmware: unverified: verified.list has no entry (this boot only: a reboot goes back to LG's compositor)
+safety timer: this session ends by itself after 12 min if it is still live ('cutover.sh disable' cancels the timer)
+mounted; restarting the unit
+t=5s unit=active exe=/usr/bin/surface-manager compositor=21154 mounted=yes wam=active
+   05:21:07 recover: WebAppMgr answering after 0s (active)
+   05:21:08 recover: Home running under LumaTV's compositor after 0s
+t=10s unit=active exe=/usr/bin/surface-manager compositor=21154 mounted=yes wam=active
+   05:21:07 recover: WebAppMgr answering after 0s (active)
+   05:21:08 recover: Home running under LumaTV's compositor after 0s
+t=15s unit=active exe=/usr/bin/surface-manager compositor=21154 mounted=yes wam=active
+   05:21:08 recover: Home running under LumaTV's compositor after 0s
+   05:21:18 recover: librdx reports swept; remaining 0
+t=20s unit=active exe=/usr/bin/surface-manager compositor=21154 mounted=yes wam=active
+   05:21:08 recover: Home running under LumaTV's compositor after 0s
+   05:21:18 recover: librdx reports swept; remaining 0
+t=25s unit=active exe=/usr/bin/surface-manager compositor=21154 mounted=yes wam=active
+   05:21:08 recover: Home running under LumaTV's compositor after 0s
+   05:21:18 recover: librdx reports swept; remaining 0
+t=30s unit=active exe=/usr/bin/surface-manager compositor=21154 mounted=yes wam=active
+   05:21:08 recover: Home running under LumaTV's compositor after 0s
+   05:21:18 recover: librdx reports swept; remaining 0
+enabled (session): LumaTV's compositor stays live (recovery done after 0s more); 'cutover.sh disable' restores LG's
+
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 392153 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+GATE ime: PASS before: maliit-server.service inactive, MaliitServer not running; after the keyboard came up: unit active, MaliitServer pid 22719; input methods bound 1; asked for one 1 time(s); OK pressed 0 time(s); keyboard up yes (panel y 642 h 438, capture 208512 bytes); context yes; typed 3; closed by Back | an input method bound, the field's context made, the keyboard's window at the bottom, a key typed on it reached the field, the keyboard closed
+
+evidence: 2 subscription(s) from SAM, 7 client lines, 1 loop stalls, 2 watchdog lines
+
+safety timer cancelled
+umount: /usr/bin/surface-manager: target is busy.
+revert: active; mounted: no; exe: /usr/bin/surface-manager
+recover: surface-manager-daemon.service active after 0s; exe /usr/bin/surface-manager
+recover: compositor answering on the bus after 0s
+recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+recover: WebAppMgr answering after 0s (active)
+recover: Home on the panel after 0s (capture 61988 bytes)
+recover: librdx reports swept; remaining 0
+
+avr: left to the agent (False)
+{"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+
+home stub after the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 392153 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE ime: PASS before: maliit-server.service inactive, MaliitServer not running; after the keyboard came up: unit active, MaliitServer pid 22719; input methods bound 1; asked for one 1 time(s); OK pressed 0 time(s); keyboard up yes (panel y 642 h 438, capture 208512 bytes); context yes; typed 3; closed by Back | an input method bound, the field's context made, the keyboard's window at the bottom, a key typed on it reached the field, the keyboard closed
+GATE: PASS
+wrote ../lumatv-r9/docs/research/compositor/gate-2026-10-28.txt

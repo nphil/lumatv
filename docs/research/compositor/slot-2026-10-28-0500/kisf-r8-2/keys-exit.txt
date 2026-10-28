@@ -1,0 +1,4 @@
+input: Back or Exit: closing com.palm.app.settings
+focus -> surface 107
+luna: foreground ['com.webos.app.home'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+luna: com.palm.app.settings-22172 cancelled com.webos.surfacemanager/getLastInputType

@@ -1,0 +1,11 @@
+input: gear tap: Quick Settings -> LumaTV's quick panel
+shell: system layer live; its last commit 3 ms ago, join draws it
+shell: the system layer wants the keys
+focus -> surface 108
+shell: the system layer lets go of the keys
+focus -> surface 279
+shell: the system layer wants the keys
+focus -> surface 108
+shell: system layer live; its last commit 16 ms ago, join draws it
+shell: the system layer lets go of the keys
+focus -> surface 279

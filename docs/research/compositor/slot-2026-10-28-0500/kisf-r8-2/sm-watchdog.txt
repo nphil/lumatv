@@ -1,0 +1,3 @@
+[04:51:15] watchdog: progress rules on (frozen output watched, empty panel watched)
+[04:51:15] watchdog: the set is ACTIVE
+[04:53:13] settled: two minutes healthy

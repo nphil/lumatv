@@ -1,0 +1,5 @@
+ime: the keyboard is on the screen: 1920x438 at (0, 642); its window 1920x1080, input region None (keyboard 1920x438 at (0, 0) in it), the field asked for None
+ime: the keyboard is on the screen: 1920x438 at (0, 642); its window 1920x1080, input region None (keyboard 1920x438 at (0, 0) in it), the field asked for None
+ime: the keyboard is on the screen: 1920x438 at (0, 642); its window 1920x1080, input region None (keyboard 1920x438 at (0, 0) in it), the field asked for None
+ime: the keyboard is on the screen: 1920x438 at (0, 642); its window 1920x438, input region None (keyboard 1920x438 at (0, 0) in it), the field asked for None
+ime: the keyboard is on the screen: 1920x438 at (0, 642); its window 1920x438, input region None (keyboard 1920x438 at (0, 0) in it), the field asked for None

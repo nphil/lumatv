@@ -157,15 +157,9 @@ steady frames, with its `flip reached 3.4 ms after it landed` line beside it.
 
 ### Resume here
 
-State (2026-10-28, after round 7): LumaTV's compositor is NOT live; the gate on 808256c passes every safety check (firmware,
-live, netflix, hdmi, keys, ime, standby, homekey, wd-hang, wd-crash, escape), the trial and x1 (PLAN rule), and fails on what
-Main's rule calls BLOCKING in single runs: `shell` `dpad` (1 of 3, run with maliit's full-screen keyboard window before it),
-`ime` by the gate's strict `bottom` rule (1 of 3, same cause: maliit's window size), `quick-app` (1 of 8, fixed in 889bb21),
-and the frame gate's toast (every run, 54-104 ms against 50; MINOR by the rule, but it fails the gate's `frames` line, which
-`--enable-after` needs). Next: install 889bb21 (staged), run `--only keys,ime,shell,frames` x3 and the full gate again;
-read the journal's `shell: toast delivered to the client` and `shell: system layer live; its last commit N ms ago` lines for
-the toast; decide whether `frames` may be waived for the toast (Main) so that `--enable-after` or the runbook's manual route
-goes ahead. The Optimisation list is at the end of "Rounds".
+State (2026-10-28, after round 9): LumaTV's compositor is LIVE (persistent, firmware 10.2.1-5202 verified, bundle r9 =
+808256c + 889bb21 + 09740aa on the ipk of 808256c). What is left is the Optimisation list at the end of "Rounds" and the
+runbook's reboot check (step 3, with Nitin). A later bundle goes through `cutover disable`, deploy, `install`, `enable`.
 
 ### What the ninth gate's lines were
 
@@ -539,3 +533,27 @@ go-live (BLOCKING items below).** Causes found offline from round 6's evidence a
 - `escaped` stays set after the gate's escape step until the next `cutover.sh enable`.
 - helper/ at c37660b-era HEADs did not compile on 2026-10-28 (stray `)` in `service.rs`, `sched_param` fields in
   `gfn_boost.rs` on musl); the ipks of rounds 6b and 7 carry the helper built at 1fadfcb.
+- Round 8 (r8 = 808256c + 889bb21), keys,ime,shell,frames x3: keys 3/3, shell 3/3 (`dpad`, `osd`, `quick-app`, `saver` all ok), the
+  toast's first frame 28-33 ms in all three (54-104 ms in round 7), frames failing only on isolated single 33 ms intervals
+  (`burst_over20` 1-2) and, once, a picker burst end of 191.6 ms (limit 180); ime failed 2 of 3 with maliit's 1920x1080
+  window at (0, 0), fixed by 09740aa (r9).
+- Round 9 (r9 = r8 + 09740aa), the go-live run: ime x5 at the bottom (`1920x438 at (0, 642)` in all five, maliit's window
+  1920x1080 in three and 1920x438 in two); full gate `--skip volume`: every safety and function check PASS (firmware, homeheld,
+  live, x1 [59.95 fps, no gap over 20 ms], netflix, hdmi, keys, ime, shell 11 of 11, standby, homekey, wd-hang, wd-crash,
+  escape); `frames` FAIL on MINOR lines only: toast first frame 63.4 ms, `burst_over20` 1 in home-dpad and picker, `dropped` 1 in
+  each, picker burst end 184.9 ms (limit 180).
+- The `dpad` failure of round 7 (1 of 3, then 0 of 8 runs): the keyboard was not on screen at the time (the Search app's
+  window had closed 17 s before; the journal's `focus ->` line after it named a different surface than in the passing run);
+  the shell's state at the start of the step was identical in both runs. No cause found.
+- `lumatv status` on the installed tool (the ipk of 808256c) ends with `updateblock_json: not found` (line 2978 of
+  `tools/lumatv`); the rest of the JSON is printed.
+
+### Go-live, 2026-10-28 05:39 (set's clock), by Main's and Nitin's authority
+
+Manual route of the runbook, with the r9 bundle already on the set (no second gate): `cutover.sh firmware record`, the entry
+added to `compositor/firmware/verified.list` (10.2.1-5202, fingerprint `e34f8de94ef657a4`), the list put on the set,
+`cutover.sh install`, `cutover.sh enable`: `enabled (persistent): LumaTV's compositor stays live`, `GATE live-enabled: PASS`.
+`lumatv compositor status`: `"flag":"persistent","mounted":true,"live":true,"firmware":"verified","failures":0`. Then, under
+LumaTV's compositor: keys PASS, ime PASS (keyboard at the bottom), Netflix PASS (Dolby Vision, picture mode back to filmMaker),
+HDMI 2 PASS, one standby and wake PASS (`PreparePowerOff` 1, `PreparePowerOn` 1, mounted yes, Home on the panel). Not done:
+the reboot of the runbook's step 3 (needs Nitin), and the escape (not triggered after go-live). Rollback as in "Go-live steps".
