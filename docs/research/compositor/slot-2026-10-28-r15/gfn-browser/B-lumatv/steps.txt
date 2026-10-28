@@ -1,0 +1,19 @@
+28791.34 lumatv start: fg=com.webos.app.home running=com.webos.app.home 
+28791.35 launch com.geforcenow.play call
+28791.50 t+0.1 fg=com.webos.app.home running=com.webos.app.home com.geforcenow.play 
+28792.57 t+1.2 fg=com.geforcenow.play running=com.webos.app.home com.geforcenow.play 
+28793.75 t+2.2 fg=com.geforcenow.play running=com.webos.app.home com.webos.app.browser 
+28794.89 t+3.5 fg=com.webos.app.browser running=com.webos.app.home com.webos.app.browser 
+28795.95 t+4.6 fg=com.webos.app.browser running=com.webos.app.home com.webos.app.browser 
+28797.02 t+5.6 fg=com.webos.app.browser running=com.webos.app.home com.webos.app.browser 
+28798.08 t+6.7 fg=com.webos.app.browser running=com.webos.app.home com.webos.app.browser 
+28799.20 t+7.8 fg=com.webos.app.browser running=com.webos.app.home com.webos.app.browser 
+28800.34 8 s: fg=com.webos.app.browser running=com.webos.app.home com.webos.app.browser 
+28800.36 launch com.webos.app.home call
+28800.81 home+0.3 fg=com.webos.app.browser running=com.webos.app.home com.webos.app.browser 
+28801.96 home+1.5 fg=com.webos.app.browser running=com.webos.app.home com.webos.app.browser 
+28803.07 home+2.6 fg=com.webos.app.browser running=com.webos.app.home com.webos.app.browser 
+28804.19 home+3.7 fg=com.webos.app.browser running=com.webos.app.home com.webos.app.browser 
+28805.33 home+4.9 fg=com.webos.app.browser running=com.webos.app.home com.webos.app.browser 
+28806.45 6 s after Home: fg=com.webos.app.browser running=com.webos.app.home com.webos.app.browser 
+28812.41 end: fg=com.webos.app.home running=com.webos.app.home 

@@ -1,0 +1,85 @@
+== plexsnap-lumatv, Plex close 1 (ms after the closeByAppId call reached SAM; monotonic 29255.726)
+       +0.0  sam      APP_CLOSE {"app_id":"com.beb.plxnative","caller":"com.webos.lunasend-7840"} params: {"id":"com.beb.plxnative"}
+       +0.0  sam      APP_CLOSE {"app_id":"com.beb.plxnative","uid":"bac26abf-ca1d-4725-acc1-48703f4d37e2","action":"created_close_i
+       +0.0  sam      APP_CLOSE {"app_id":"com.beb.plxnative","pid":"7327"} 
+      +11.2  sam      NATIVE_APP_HANDLER {"app_id":"com.beb.plxnative","status":"start_kill_timer"} pid: 7327
+      +11.3  sam      APP_CLOSE {"app_id":"com.beb.plxnative","uid":"bac26abf-ca1d-4725-acc1-48703f4d37e2","action":"removed_close_i
+      +12.3  plxnative [INFO:SYSTEM:11625] cb_RegistNativeApp - {"event":"close","reason":"undefined","returnValue":true}
+      +19.2  plxnative [INFO:SYSTEM:11632] SDL_Quit start
+      +29.7  plxnative [INFO:INPUT:11642] [SDL_SetRelativeMouseMode] called  but unsupported
+      +30.3  plxnative [INFO:SYSTEM:11643] [Wayland_DestroyWindow] Destroy wayland window
+      +32.7  plxnative [INFO:VIDEO:11643] [WebOS_EGL_UnloadLibrary] called this:115c210
+      +32.8  plxnative [INFO:VIDEO:11643] [WebOS_EGL_UnloadLibrary] unload
+      +39.8  plxnative [INFO:SYSTEM:0] UnloadWEBOSBASELibrary start
+      +48.1  sam      FOREGROUND_INFO {"current_fullscreen_foreground_apps":"com.webos.app.home","prev_fullscreen_foreground_apps":"
+     +149.4  sam      NATIVE_APP_HANDLER {"app_id":"com.beb.plxnative","status":"cancel_kill_timer"} 
+     +149.4  sam      APP_CLOSED {"app_id":"com.beb.plxnative","type":"native","pid":"7327","exit_status":0} 
+
+== plexsnap-lumatv, Plex close 2 (ms after the closeByAppId call reached SAM; monotonic 29292.107)
+       +0.0  sam      APP_CLOSE {"app_id":"com.beb.plxnative","caller":"com.webos.lunasend-9167"} params: {"id":"com.beb.plxnative"}
+       +0.0  sam      APP_CLOSE {"app_id":"com.beb.plxnative","uid":"8f12595f-c4cd-4c66-879c-748172621fcb","action":"created_close_i
+       +0.1  sam      APP_CLOSE {"app_id":"com.beb.plxnative","pid":"8641"} 
+       +9.7  sam      NATIVE_APP_HANDLER {"app_id":"com.beb.plxnative","status":"start_kill_timer"} pid: 8641
+       +9.8  sam      APP_CLOSE {"app_id":"com.beb.plxnative","uid":"8f12595f-c4cd-4c66-879c-748172621fcb","action":"removed_close_i
+      +12.3  plxnative [INFO:SYSTEM:11644] cb_RegistNativeApp - {"event":"close","reason":"undefined","returnValue":true}
+      +18.3  plxnative [INFO:SYSTEM:11649] SDL_Quit start
+      +29.3  plxnative [INFO:INPUT:11660] [SDL_SetRelativeMouseMode] called  but unsupported
+      +29.4  plxnative [INFO:SYSTEM:11660] [Wayland_DestroyWindow] Destroy wayland window
+      +29.5  plxnative [INFO:VIDEO:11660] [WebOS_EGL_UnloadLibrary] called this:2cc0210
+      +29.5  plxnative [INFO:VIDEO:11660] [WebOS_EGL_UnloadLibrary] unload
+      +31.5  plxnative [INFO:SYSTEM:0] UnloadWEBOSBASELibrary start
+      +44.8  sam      FOREGROUND_INFO {"current_fullscreen_foreground_apps":"com.webos.app.home","prev_fullscreen_foreground_apps":"
+     +120.1  sam      NATIVE_APP_HANDLER {"app_id":"com.beb.plxnative","status":"cancel_kill_timer"} 
+     +120.2  sam      APP_CLOSED {"app_id":"com.beb.plxnative","type":"native","pid":"8641","exit_status":0} 
+
+== plexsnap-lumatv, Plex close 3 (ms after the closeByAppId call reached SAM; monotonic 29328.608)
+       +0.0  sam      APP_CLOSE {"app_id":"com.beb.plxnative","caller":"com.webos.lunasend-10513"} params: {"id":"com.beb.plxnative"
+       +0.0  sam      APP_CLOSE {"app_id":"com.beb.plxnative","uid":"5b80a740-b3a5-4e58-b0cb-b0f48f374678","action":"created_close_i
+       +0.1  sam      APP_CLOSE {"app_id":"com.beb.plxnative","pid":"9977"} 
+      +10.6  sam      NATIVE_APP_HANDLER {"app_id":"com.beb.plxnative","status":"start_kill_timer"} pid: 9977
+      +10.7  sam      APP_CLOSE {"app_id":"com.beb.plxnative","uid":"5b80a740-b3a5-4e58-b0cb-b0f48f374678","action":"removed_close_i
+      +11.6  plxnative [INFO:SYSTEM:11630] cb_RegistNativeApp - {"event":"close","reason":"undefined","returnValue":true}
+      +23.6  plxnative [INFO:SYSTEM:11641] SDL_Quit start
+      +33.6  plxnative [INFO:INPUT:11652] [SDL_SetRelativeMouseMode] called  but unsupported
+      +34.1  plxnative [INFO:SYSTEM:11652] [Wayland_DestroyWindow] Destroy wayland window
+      +41.0  plxnative [INFO:VIDEO:11653] [WebOS_EGL_UnloadLibrary] called this:2d1e210
+      +41.1  plxnative [INFO:VIDEO:11653] [WebOS_EGL_UnloadLibrary] unload
+      +43.9  plxnative [INFO:SYSTEM:0] UnloadWEBOSBASELibrary start
+      +47.7  sam      FOREGROUND_INFO {"current_fullscreen_foreground_apps":"com.webos.app.home","prev_fullscreen_foreground_apps":"
+     +149.1  sam      NATIVE_APP_HANDLER {"app_id":"com.beb.plxnative","status":"cancel_kill_timer"} 
+     +149.1  sam      APP_CLOSED {"app_id":"com.beb.plxnative","type":"native","pid":"9977","exit_status":0} 
+
+== plexsnap-lumatv, Plex close 4 (ms after the closeByAppId call reached SAM; monotonic 29365.119)
+       +0.0  sam      APP_CLOSE {"app_id":"com.beb.plxnative","caller":"com.webos.lunasend-11872"} params: {"id":"com.beb.plxnative"
+       +0.0  sam      APP_CLOSE {"app_id":"com.beb.plxnative","uid":"aabdbaba-a039-4811-9806-5451681dcb18","action":"created_close_i
+       +0.1  sam      APP_CLOSE {"app_id":"com.beb.plxnative","pid":"11346"} 
+      +10.3  sam      NATIVE_APP_HANDLER {"app_id":"com.beb.plxnative","status":"start_kill_timer"} pid: 11346
+      +10.4  sam      APP_CLOSE {"app_id":"com.beb.plxnative","uid":"aabdbaba-a039-4811-9806-5451681dcb18","action":"removed_close_i
+      +11.8  plxnative [INFO:SYSTEM:11697] cb_RegistNativeApp - {"event":"close","reason":"undefined","returnValue":true}
+      +24.1  plxnative [INFO:SYSTEM:11710] SDL_Quit start
+      +37.9  plxnative [INFO:INPUT:11720] [SDL_SetRelativeMouseMode] called  but unsupported
+      +38.0  plxnative [INFO:SYSTEM:11720] [Wayland_DestroyWindow] Destroy wayland window
+      +38.1  plxnative [INFO:VIDEO:11720] [WebOS_EGL_UnloadLibrary] called this:1f54210
+      +38.1  plxnative [INFO:VIDEO:11720] [WebOS_EGL_UnloadLibrary] unload
+      +41.1  plxnative [INFO:SYSTEM:0] UnloadWEBOSBASELibrary start
+      +50.9  sam      FOREGROUND_INFO {"current_fullscreen_foreground_apps":"com.webos.app.home","prev_fullscreen_foreground_apps":"
+     +130.4  sam      NATIVE_APP_HANDLER {"app_id":"com.beb.plxnative","status":"cancel_kill_timer"} 
+     +130.4  sam      APP_CLOSED {"app_id":"com.beb.plxnative","type":"native","pid":"11346","exit_status":0} 
+
+== plexsnap-lumatv, Plex close 5 (ms after the closeByAppId call reached SAM; monotonic 29401.545)
+       +0.0  sam      APP_CLOSE {"app_id":"com.beb.plxnative","caller":"com.webos.lunasend-13190"} params: {"id":"com.beb.plxnative"
+       +0.0  sam      APP_CLOSE {"app_id":"com.beb.plxnative","uid":"ef02ff88-866c-4773-8086-e4696b84180d","action":"created_close_i
+       +0.1  sam      APP_CLOSE {"app_id":"com.beb.plxnative","pid":"12671"} 
+      +10.8  sam      NATIVE_APP_HANDLER {"app_id":"com.beb.plxnative","status":"start_kill_timer"} pid: 12671
+      +10.9  sam      APP_CLOSE {"app_id":"com.beb.plxnative","uid":"ef02ff88-866c-4773-8086-e4696b84180d","action":"removed_close_i
+      +12.6  plxnative [INFO:SYSTEM:11672] cb_RegistNativeApp - {"event":"close","reason":"undefined","returnValue":true}
+      +29.5  plxnative [INFO:SYSTEM:11689] SDL_Quit start
+      +39.7  plxnative [INFO:INPUT:11699] [SDL_SetRelativeMouseMode] called  but unsupported
+      +39.9  plxnative [INFO:SYSTEM:11700] [Wayland_DestroyWindow] Destroy wayland window
+      +40.0  plxnative [INFO:VIDEO:11700] [WebOS_EGL_UnloadLibrary] called this:1594210
+      +40.0  plxnative [INFO:VIDEO:11700] [WebOS_EGL_UnloadLibrary] unload
+      +45.7  plxnative [INFO:SYSTEM:0] UnloadWEBOSBASELibrary start
+      +52.7  sam      FOREGROUND_INFO {"current_fullscreen_foreground_apps":"com.webos.app.home","prev_fullscreen_foreground_apps":"
+     +135.8  sam      NATIVE_APP_HANDLER {"app_id":"com.beb.plxnative","status":"cancel_kill_timer"} 
+     +135.9  sam      APP_CLOSED {"app_id":"com.beb.plxnative","type":"native","pid":"12671","exit_status":0} 
+

@@ -1,0 +1,24 @@
+29102.80 start: fg=com.webos.app.home running=com.webos.app.home  crash-log SIGNAL 11 count 11 follower 1569
+29105.85 it1 yt launch call
+29106.92 it1 yt in front after 1.06s
+29117.99 it1 yt: fg=youtube.leanback.v4, closing through SAM
+29118.52 it1 yt gone
+29121.56 it1 plex launch call
+29123.11 it1 plex in front after 1.54s
+29133.65 it1 plex: fg=com.beb.plxnative, pid 2214, closing through SAM (sampler 2619)
+29133.69 it1 plex closeByAppId answered
+29133.97 it1 plex gone after 0.30 s
+29134.18 it1 copied (up 29134.17)
+29136.19 it1 crash-log SIGNAL 11 count 11 (was 11) crashed=no
+29142.26 it2 yt launch call
+29143.68 it2 yt in front after 1.41s
+29154.40 it2 yt: fg=youtube.leanback.v4, closing through SAM
+29154.94 it2 yt gone
+29157.98 it2 plex launch call
+29159.41 it2 plex in front after 1.42s
+29170.07 it2 plex: fg=com.beb.plxnative, pid 3591, closing through SAM (sampler 4044)
+29170.10 it2 plex closeByAppId answered
+29170.38 it2 plex gone after 0.30 s
+29170.60 it2 copied (up 29170.59)
+29172.60 it2 crash-log SIGNAL 11 count 11 (was 11) crashed=no
+29181.80 end: fg=com.webos.app.home running=com.webos.app.home  crashed=no

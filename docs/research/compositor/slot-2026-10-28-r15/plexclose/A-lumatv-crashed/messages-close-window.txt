@@ -1,0 +1,56 @@
+2026-10-28T21:51:41.791848Z [28694.437794120] user.info sam [] SAM APP_CLOSE {"app_id":"com.beb.plxnative","caller":"com.webos.lunasend-9299"} params: {"id":"com.beb.plxnative"}
+2026-10-28T21:51:41.791895Z [28694.437840920] user.info sam [] SAM APP_CLOSE {"app_id":"com.beb.plxnative","uid":"4203a276-2c47-4fcb-a19a-e44c707d4f2c","action":"created_close_item"} 
+2026-10-28T21:51:41.791965Z [28694.437911120] user.info sam [] SAM APP_CLOSE {"app_id":"com.beb.plxnative","pid":"8784"} 
+2026-10-28T21:51:41.791992Z [28694.437936500] user.info sam [] SAM NATIVE_APP_HANDLER {"app_id":"com.beb.plxnative","start_native_handler":"CloseAsPolicy"} ver: 2
+2026-10-28T21:51:41.792013Z [28694.437957420] user.info sam [] SAM RUNTIME_STATUS {"app_id":"com.beb.plxnative","current":4,"new":5} runtime_status_changed
+2026-10-28T21:51:41.792034Z [28694.437978560] user.info sam [] SAM SUBSCRIPTION_REPLY {"skey":"getAppLifeEvents","payload":{"event":"close","appId":"com.beb.plxnative","returnValue":true,"reason":"undefined"}} 
+2026-10-28T21:51:41.792095Z [28694.438040140] user.info sam [] SAM LIFE_STATUS {"app_id":"com.beb.plxnative","uid":"","current":4,"new":6} life_status_changed
+2026-10-28T21:51:41.792147Z [28694.438093940] user.info sam [] SAM SUBSCRIPTION_REPLY {"skey":"getAppLifeStatus","payload":{"reason":"undefined","status":"closing","appId":"com.beb.plxnative","appCategory":[],"processId":"8784","type":"native"}} 
+2026-10-28T21:51:41.802818Z [28694.448772780] user.info sam [] SAM NATIVE_APP_HANDLER {"app_id":"com.beb.plxnative","status":"start_kill_timer"} pid: 8784
+2026-10-28T21:51:41.802917Z [28694.448862520] user.info sam [] SAM APP_CLOSE {"app_id":"com.beb.plxnative","uid":"4203a276-2c47-4fcb-a19a-e44c707d4f2c","action":"removed_close_item"} 
+2026-10-28T21:51:41.803544Z [28694.449494160] user.info tvrm [] TVRMSRV TVRM_INFOMGR_STATUS {"status":"app_life_status_info_updated","app_status":"closing","app_id":"com.beb.plxnative"} 
+2026-10-28T21:51:41.804251Z [28694.450196760] user.info plxnative [] SDL2 INFO {} [INFO:SYSTEM:11696] cb_RegistNativeApp - {"event":"close","reason":"undefined","returnValue":true}
+2026-10-28T21:51:41.804279Z [28694.450223460] user.info umediaserver [] ums.default APP_STATUS_UPDATE {"TIMESTAMP":28694.449980720,"CODE_POINT":"<AppObserver.cpp:appLifeStatusCallback(128)>"} appLifeStatusEvt: {"reason":"undefined","status":"closing","appId":"com.beb.plxnative","appCategory":[],"processId":"8784","type":"native"}
+2026-10-28T21:51:41.836846Z [28694.482799400] user.info plxnative [] SDL2 INFO {} [INFO:SYSTEM:11729] SDL_Quit start
+2026-10-28T21:51:41.837616Z [28694.483565980] user.info tvpowerd [] tvpowerd CLIENT_DEREGISTER {} [/power/getPowerStateHandler] unsubscribed sender: com.beb.plxnative
+2026-10-28T21:51:41.837729Z [28694.483673540] user.info plxnative [] SDL2 INFO {} [INFO:SYSTEM:11729] cb_getPowerState - { "state": "Active", "returnValue": true }
+2026-10-28T21:51:41.847080Z [28694.493032900] user.info plxnative [] SDL2 INFO {} [INFO:INPUT:11739] [SDL_SetRelativeMouseMode] called  but unsupported
+2026-10-28T21:51:41.847193Z [28694.493138460] user.info plxnative [] SDL2 INFO {} [INFO:SYSTEM:11739] [Wayland_DestroyWindow] Destroy wayland window
+2026-10-28T21:51:41.847223Z [28694.493168340] user.info plxnative [] SDL2 INFO {} [INFO:VIDEO:11739] [WebOS_EGL_UnloadLibrary] called this:2920210
+2026-10-28T21:51:41.847245Z [28694.493190440] user.info plxnative [] SDL2 INFO {} [INFO:VIDEO:11739] [WebOS_EGL_UnloadLibrary] unload
+2026-10-28T21:51:41.848615Z [28694.494561160] user.info WebAppMgr [] WAM WINDOW_STATE_CHANGED {"APP_ID":"com.webos.app.home"} To FullScreen; call onStageActivated
+2026-10-28T21:51:41.848642Z [28694.494587060] user.info WebAppMgr [] WAM GENERAL {"APP_ID":"com.webos.app.home"} To FullScreen; call onStageActivated()
+2026-10-28T21:51:41.848682Z [28694.494627060] user.info WebAppMgr [] WAM RESUME_ALL {"APP_ID":"com.webos.app.home","PID":7417} resumeWebPageAll
+2026-10-28T21:51:41.852443Z [28694.498391880] user.info sam [] SAM FOREGROUND_INFO {"current_fullscreen_foreground_apps":"com.webos.app.home","prev_fullscreen_foreground_apps":"com.beb.plxnative"} 
+2026-10-28T21:51:41.852475Z [28694.498419700] user.info WebAppMgr [] WAM RESUME_WEBPAGE {"APP_ID":"com.webos.app.home","PID":7417} DONE
+2026-10-28T21:51:41.855412Z [28694.501365980] user.info WebAppMgr [] WAM RESUME_MEDIA {"APP_ID":"com.webos.app.home","PID":7417} resumeWebPageMedia
+2026-10-28T21:51:41.856153Z [28694.502103180] user.info WebAppMgr [] WAM WEBAPP_STAGE_ACITVATED {"APP_ID":"com.webos.app.home","PID":7417} 
+2026-10-28T21:51:41.860771Z [28694.506723860] user.info legacy-broadcast-atsc [] C_VL_IN_SERVICEINFO ARC {} [n0000021][appinfo_getForegroundAppInfoCallback][START] [_gpszPrevAppId:com.beb.plxnative] [pszAppId:com.webos.app.home] [bFirstCalled:0]
+2026-10-28T21:51:41.861060Z [28694.507004360] user.info memchute [] MM MEMMGR_MULIST {"unitId":"com.beb.plxnative"} Background
+2026-10-28T21:51:41.861121Z [28694.507066660] user.info arccontroller [] arccontroller ARCCONTROLLER_INFO {} [set_foreground_info][3414] foreground info [previous:current]:[com.beb.plxnative:com.webos.app.home],  m_foreground.size[2]
+2026-10-28T21:51:41.861147Z [28694.507091280] user.info arccontroller [] arccontroller ARCCONTROLLER_INFO {} [update_2depth_status] m_foreground.front()[com.beb.plxnative], m_foreground.back()[com.webos.app.home], m_hdmiarc_appname[com.webos.app.hdmi2]
+2026-10-28T21:51:41.862650Z [28694.508594740] user.info extinput-integration [] extinput-service ExtinputConfig {} [setConfig] :: [applicationmanager // foregroundAppInfo] {"subscribed":true,"returnValue":true,"appId":"com.beb.plxnative","appCategory":[],"processId":"","windowId":""} => {"subscribed":true,"returnValue":true,"appId":"com.webos.app.home","appCategory":["home"],"processId":"","windowId":""} [dim : N/A]
+2026-10-28T21:51:41.863891Z [28694.509835560] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(190): ModuleManager:notifyLastAppId com.beb.plxnative
+2026-10-28T21:51:41.863979Z [28694.509923600] user.info audiod [] AudioD NL_SOUND {"tv_speaker_volume":"","foreground_app_id":"com.beb.plxnative"} 
+2026-10-28T21:51:41.866352Z [28694.512296540] user.info extinput-integration [] extinput-integration EdidControl {} [updateForegroundApp] :: Update foreground app info [com.beb.plxnative -> com.webos.app.home]
+2026-10-28T21:51:41.866563Z [28694.512507760] user.info SettingsService [] SettingsService PrefsPerAppHandler {"m_currAppId":"com.webos.app.home","m_prevAppId":"com.beb.plxnative"} handleAppChange
+2026-10-28T21:51:41.867549Z [28694.513493720] user.info tvpowerd [] tvpowerd POWER_STATE {} Card Type is changed : previous(com.beb.plxnative), current(com.webos.app.home)
+2026-10-28T21:51:41.868159Z [28694.514104380] user.info accountmanager [] accountmanager ACCOUNT {} [onForegroundAppsReceived:590] previousAppId : [com.beb.plxnative]
+2026-10-28T21:51:41.869370Z [28694.515314520] user.info blegatt [] blegatt blegattTaskManager.cpp {} setForegrounAppInfo:295] fg app is changed com.beb.plxnative -> com.webos.app.home, status: 0
+2026-10-28T21:51:42.804489Z [28695.450441560] user.info plxnative [] SDL2 INFO {} [INFO:SYSTEM:12696] [callback_forceQuit] Quit SDL
+2026-10-28T21:51:42.804570Z [28695.450517200] user.info plxnative [] SDL2 INFO {} [INFO:SYSTEM:12696] SDL_Quit start
+2026-10-28T21:51:42.804600Z [28695.450546000] user.info plxnative [] SDL2 INFO {} [INFO:INPUT:12696] [SDL_SetRelativeMouseMode] called  but unsupported
+2026-10-28T21:51:42.851004Z [28695.496955720] user.info sam [] SAM APP_CLOSE {"closed_pid":"8784"} 
+2026-10-28T21:51:42.851115Z [28695.497061420] user.info sam [] SAM APP_CLOSE {"pid":"8784","where":"native_process_watcher"} received event closed by sam
+2026-10-28T21:51:42.851150Z [28695.497094960] user.info sam [] SAM NATIVE_APP_HANDLER {"app_id":"com.beb.plxnative","status":"cancel_kill_timer"} 
+2026-10-28T21:51:42.851190Z [28695.497135520] user.info sam [] SAM APP_CLOSED {"app_id":"com.beb.plxnative","type":"native","pid":"8784","exit_status":11} 
+2026-10-28T21:51:42.851216Z [28695.497160580] user.info sam [] SAM RUNTIME_STATUS {"app_id":"com.beb.plxnative","current":5,"new":0} runtime_status_changed
+2026-10-28T21:51:42.851237Z [28695.497182140] user.info sam [] SAM SUBSCRIPTION_REPLY {"skey":"getAppLifeEvents","payload":{"event":"stop","appId":"com.beb.plxnative","returnValue":true,"reason":"undefined"}} 
+2026-10-28T21:51:42.851258Z [28695.497203220] user.info sam [] SAM LIFE_STATUS {"app_id":"com.beb.plxnative","uid":"","current":6,"new":0} life_status_changed
+2026-10-28T21:51:42.851281Z [28695.497225520] user.info sam [] SAM SUBSCRIPTION_REPLY {"skey":"getAppLifeStatus","payload":{"reason":"undefined","status":"stop","appId":"com.beb.plxnative","appCategory":[],"processId":"8784","type":"native"}} 
+2026-10-28T21:51:42.851301Z [28695.497245780] user.info sam [] SAM RUNNING_LIST {"app_id":"com.beb.plxnative","action":"removed"} 
+2026-10-28T21:51:42.851363Z [28695.497307640] user.info sam [] SAM NATIVE_CLIENT_INFO {"app_id":"com.beb.plxnative"} client_info_removed
+2026-10-28T21:51:42.851384Z [28695.497328500] user.info tvrm [] TVRMSRV TVRM_INFOMGR_STATUS {"status":"app_life_status_info_updated","app_status":"stop","app_id":"com.beb.plxnative"} 
+2026-10-28T21:51:42.851479Z [28695.497424040] user.info umediaserver [] ums.default APP_STATUS_UPDATE {"TIMESTAMP":28695.495810100,"CODE_POINT":"<AppObserver.cpp:appLifeStatusCallback(128)>"} appLifeStatusEvt: {"reason":"undefined","status":"stop","appId":"com.beb.plxnative","appCategory":[],"processId":"8784","type":"native"}
+2026-10-28T21:51:42.851546Z [28695.497491080] user.info lginput2 [] lginput2 SENSOR {"TYPE":"INFO"} [mrcu_sensor_cancelSensorEventDataByAppLifeStatus (1408)] #request cancel subscription app/service = (com.beb.plxnative)#^M
+2026-10-28T21:51:42.851571Z [28695.497515820] user.info memchute [] MM MEMMGR_MEMUNIT {"appId":"com.beb.plxnative"} is closed

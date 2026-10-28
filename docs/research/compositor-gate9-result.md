@@ -729,3 +729,9 @@ Surface frame gate at 60 Hz (full set, 3 cycles; `frames-60-full-gate.json`):
   32 globals against 23, no `qt_hardware_integration` or `wl_drm`, `wl_webos_system_ux` added, `wl_compositor` v4, `wl_output.geometry` with size and model, 2 `wl_shm` formats against 14, `wl_keyboard.repeat_info(0, 0)` and a 1140 byte keymap.
 - Not run: `volume` (the gate reads the receiver over REST), and the four surfaces above (they need `lumatv layout reset` and the owner's file put back). End state: filmMaker, only Home running, `inputs` running `[]`,
   Active Standby at 14:19 PDT, Always Ready (`alwaysReady`), LG's compositor live (flag off, failures 0), Home stub on, `transitions` off, `wallpaper gpu`.
+- Follow-up, 14:50-15:03 PDT, Plex's close and the browser GeForce NOW opens (`slot-2026-10-28-r15/plexclose/`, `gfn-browser/`). The SIGSEGV is the second `SDL_Quit`: LG's SDL runs `callback_forceQuit` 1000 ms
+  after the close event, and in the close that crashed the first quit stopped after `WebOS_EGL_UnloadLibrary unload` (`UnloadWEBOSBASELibrary start` follows it by 2-9 ms in the 10 clean closes), so the
+  second ran at +1012 ms and died in libSDL2 `+0x875c6` (r7 NULL), `APP_CLOSED` exit 11 at +1059 ms. Clean closes end at 120-150 ms under LumaTV's compositor (LG's: 87-98 ms, exit 0); the compositor logs nothing during
+  the stall. Crashes: 1 of 9 YouTube-then-Plex closes in this follow-up, 4 of 13 over the round, 0 of 3 without YouTube; no stalled close was caught with a sampler or sweeps running (0 of 8).
+  The browser calls `Browser::RequestWindowFullscreen()` every 0.3 s under LumaTV's compositor and once under LG's; after Home is launched LG minimizes it (`WebOSExported::updateWindowState`, `getForegroundAppState`
+  `"state":"minimized"`, the browser's `SetVisible[0]` 0.155 s later) while under LumaTV's its next request raises it above Home 0.23 s after the launch and it stays in front.

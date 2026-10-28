@@ -1,0 +1,14 @@
+125:2026-10-28T21:52:48.129727Z [28760.775681120] user.info WebAppMgr [] chromium.ozone ShellSurface {} [15730]State changed(FULLSCREEN) from LSM
+126:2026-10-28T21:52:48.129827Z [28760.775773180] user.info WebAppMgr [] WAM WINDOW_STATE_CHANGED {"APP_ID":"com.webos.app.home"} To FullScreen; call onStageActivated
+1488:2026-10-28T21:53:18.991467Z [28791.637412000] user.info WebAppMgr [] WAM WINDOW_STATE_CHANGED {"APP_ID":"com.webos.app.home"} To Minimized; call onStageDeactivated
+1504:2026-10-28T21:53:18.993884Z [28791.639828980] user.info WebAppMgr [] chromium.ozone ShellSurface {} [15730]State changed(FULLSCREEN) from LSM
+1505:2026-10-28T21:53:18.993906Z [28791.639850380] user.info WebAppMgr [] WAM WINDOW_STATE_CHANGED {"APP_ID":"com.geforcenow.play"} To FullScreen; call onStageActivated
+2163:2026-10-28T21:53:21.004885Z [28793.650837720] user.info WebAppMgr [] chromium.ozone ShellSurface {} [15730]State changed(FULLSCREEN) from LSM
+2164:2026-10-28T21:53:21.005269Z [28793.651215240] user.info WebAppMgr [] WAM WINDOW_STATE_CHANGED {"APP_ID":"com.webos.app.home"} To FullScreen; call onStageActivated
+2883:2026-10-28T21:53:21.722813Z [28794.368760080] user.info WebAppMgr [] WAM WINDOW_STATE_CHANGED {"APP_ID":"com.webos.app.home"} To Minimized; call onStageDeactivated
+4442:2026-10-28T21:53:27.738102Z [28800.384047120] user.info WebAppMgr [] WAM GENERAL {"APP_ID":"com.webos.app.home","PID":15980} WebAppWayland::raise(); call setWindowState(webos::NATIVE_WINDOW_FULLSCREEN)
+4443:2026-10-28T21:53:27.738124Z [28800.384068480] user.info WebAppMgr [] chromium.ozone ShellSurface {} [15730]Request state change(FULLSCREEN) to LSM
+4444:2026-10-28T21:53:27.740389Z [28800.386348500] user.info WebAppMgr [] WAM WINDOW_STATE_CHANGED {"APP_ID":"com.webos.app.home"} To FullScreen; call onStageActivated
+4473:2026-10-28T21:53:27.751809Z [28800.397754020] user.info WebAppMgr [] chromium.ozone ShellSurface {} [15730]State changed(FULLSCREEN) from LSM
+4474:2026-10-28T21:53:27.751830Z [28800.397775080] user.info WebAppMgr [] WAM WINDOW_STATE_CHANGED {"APP_ID":"com.webos.app.home"} To FullScreen; call onStageActivated
+4514:2026-10-28T21:53:27.958613Z [28800.604557540] user.info WebAppMgr [] WAM WINDOW_STATE_CHANGED {"APP_ID":"com.webos.app.home"} To Minimized; call onStageDeactivated

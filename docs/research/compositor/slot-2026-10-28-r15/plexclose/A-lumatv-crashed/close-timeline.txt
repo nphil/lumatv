@@ -1,0 +1,19 @@
+== plexclose, Plex close 1 (ms after the closeByAppId call reached SAM; monotonic 28694.438)
+       +0.0  sam      APP_CLOSE {"app_id":"com.beb.plxnative","caller":"com.webos.lunasend-9299"} params: {"id":"com.beb.plxnative"}
+       +0.0  sam      APP_CLOSE {"app_id":"com.beb.plxnative","uid":"4203a276-2c47-4fcb-a19a-e44c707d4f2c","action":"created_close_i
+       +0.1  sam      APP_CLOSE {"app_id":"com.beb.plxnative","pid":"8784"} 
+      +11.0  sam      NATIVE_APP_HANDLER {"app_id":"com.beb.plxnative","status":"start_kill_timer"} pid: 8784
+      +11.1  sam      APP_CLOSE {"app_id":"com.beb.plxnative","uid":"4203a276-2c47-4fcb-a19a-e44c707d4f2c","action":"removed_close_i
+      +12.4  plxnative [INFO:SYSTEM:11696] cb_RegistNativeApp - {"event":"close","reason":"undefined","returnValue":true}
+      +45.0  plxnative [INFO:SYSTEM:11729] SDL_Quit start
+      +55.2  plxnative [INFO:INPUT:11739] [SDL_SetRelativeMouseMode] called  but unsupported
+      +55.3  plxnative [INFO:SYSTEM:11739] [Wayland_DestroyWindow] Destroy wayland window
+      +55.4  plxnative [INFO:VIDEO:11739] [WebOS_EGL_UnloadLibrary] called this:2920210
+      +55.4  plxnative [INFO:VIDEO:11739] [WebOS_EGL_UnloadLibrary] unload
+      +60.6  sam      FOREGROUND_INFO {"current_fullscreen_foreground_apps":"com.webos.app.home","prev_fullscreen_foreground_apps":"
+    +1012.6  plxnative [INFO:SYSTEM:12696] [callback_forceQuit] Quit SDL
+    +1012.7  plxnative [INFO:SYSTEM:12696] SDL_Quit start
+    +1012.8  plxnative [INFO:INPUT:12696] [SDL_SetRelativeMouseMode] called  but unsupported
+    +1059.3  sam      NATIVE_APP_HANDLER {"app_id":"com.beb.plxnative","status":"cancel_kill_timer"} 
+    +1059.3  sam      APP_CLOSED {"app_id":"com.beb.plxnative","type":"native","pid":"8784","exit_status":11} 
+

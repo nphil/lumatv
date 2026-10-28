@@ -1,0 +1,60 @@
+[28677.226691] [btmtk_info] btmtk_usb_fops_write: cmd:0xc 0x20
+[28677.227233] [btmtk_info] btmtk_usb_intr_complete: event:0xe 0x4 0x1 0xc 0x20
+[28677.227357] [btmtk_info] btmtk_usb_fops_write: cmd:0xc 0x20
+[28677.227860] [btmtk_info] btmtk_usb_intr_complete: event:0xe 0x4 0x1 0xc 0x20
+[28677.227955] [btmtk_info] btmtk_usb_fops_write: cmd:0xb 0x20
+[28677.228485] [btmtk_info] btmtk_usb_intr_complete: event:0xe 0x4 0x1 0xb 0x20
+[28677.901385] Detected PIPT I-cache on CPU3
+[28677.901427] CPU3: Booted secondary processor 0x0000000300 [0x414fd0b0]
+[28678.830119] LOGM_Close.657: closed daemon, do force printk
+[28678.830146] LOGM_Close.667: device closed (1810:0)
+[28678.990906] de           NOT (02715:02715) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982911 (V4L2_CID_EXT_VSC_ORBIT_WINDOW)
+[28678.991261] de           NOT (02715:02715) vsc_set_orbit_window     1893: win0: vi[0x0(0,0)] oi[1920x1080(0,0)] vo[0x0(0,0)] oo[3860x2170(0,0)]
+[28678.991320] de           NOT (02715:02715) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982912 (V4L2_CID_EXT_VSC_ORBIT_MOVE)
+[28678.991678] de           NOT (02715:02715) vsc_set_orbit_move       1978: win0: vi[0x0(0,0)] oi[3840x2160(12,3)] vo[0x0(0,0)] oo[3840x2160(0,0)]
+[28679.099224] ree_kdrv: free private_data
+[28679.099230] ree_kdrv: release(8078)
+[28679.099956] LOGM_Close.667: device closed (1810:0)
+[28679.905224] aud_clock    NOT (20531:20531) _update_dto_rate          542: [arc] change rate to 71
+[28681.606957] CPU3: shutdown
+[28681.785346] Detected PIPT I-cache on CPU3
+[28681.785380] CPU3: Booted secondary processor 0x0000000300 [0x414fd0b0]
+[28681.833544] hdmi20       NOT (20529:20529) __HDMI21_HAL_Rx_MainThread 10564: Warning [2] : Waited Delta(3G) for [5000] msec(C) TMDS[14896] State[0x080] TCS[0][0][0][0]/[0][0][0][0]/[0][0][0][0]/[0][0][0][0]. SCDC[0]
+[28682.253684] te           NOT (01265:01265) check_input_packet        571: IN_DEMOD0(TS) - no input packet #124(pkt:1938308)
+[28682.687563] linux-ca     DEB (03876:03876) optee_keymaster_call      309: command 0x(4)
+[28682.693184] linux-ca     DEB (03876:03876) optee_keymaster_call      309: command 0x(c)
+[28682.815442] linux-ca     DEB (03876:03876) optee_keymaster_call      309: command 0x(4)
+[28682.821018] linux-ca     DEB (03876:03876) optee_keymaster_call      309: command 0x(c)
+[28682.886690] LOGM_Open.626: device opened (1810:0)
+[28683.439998] de           NOT (02715:02715) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982911 (V4L2_CID_EXT_VSC_ORBIT_WINDOW)
+[28683.443638] de           NOT (02715:02715) vsc_set_orbit_window     1893: win0: vi[0x0(0,0)] oi[1920x1080(0,0)] vo[0x0(0,0)] oo[3860x2170(0,0)]
+[28683.443710] de           NOT (02715:02715) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982912 (V4L2_CID_EXT_VSC_ORBIT_MOVE)
+[28683.444240] de           NOT (02715:02715) vsc_set_orbit_move       1978: win0: vi[0x0(0,0)] oi[3840x2160(12,3)] vo[0x0(0,0)] oo[3840x2160(0,0)]
+[28683.614292] de           NOT (02715:02715) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982912 (V4L2_CID_EXT_VSC_ORBIT_MOVE)
+[28683.614797] de           NOT (02715:02715) vsc_set_orbit_move       1978: win0: vi[0x0(0,0)] oi[3840x2160(13,2)] vo[0x0(0,0)] oo[3840x2160(0,0)]
+[28684.253662] [wlan][4162]halRxMonitor:(HAL STATE) halRxMonitor: periodic check
+[28684.253668] [wlan][4162]halRxMonitor:(HAL STATE) in_urb_submit#: 16
+[28684.253669] [wlan][4162]halRxMonitor:(HAL STATE) in_urb_complete#: 12
+[28684.253671] [wlan][4162]halRxMonitor:(HAL STATE) in_urb_fail#: 0
+[28684.253674] [wlan][4162]halRxMonitor:(HAL STATE) urb in RxDataFreeQ#: 0
+[28684.253675] [wlan][4162]halRxMonitor:(HAL STATE) urb in RxDataCompleteQ#: 0
+[28685.025343] aud_clock    NOT (20531:20531) _update_dto_rate          542: [arc] change rate to 72
+[28688.830711] hdmi20       NOT (20529:20529) __HDMI21_HAL_Rx_MainThread 10564: Warning [2] : Waited Delta(3G) for [5000] msec(C) TMDS[14609] State[0x080] TCS[0][0][0][0]/[0][0][0][0]/[0][0][0][0]/[0][0][0][0]. SCDC[0]
+[28690.322934] CPU3: shutdown
+[28691.801432] Detected PIPT I-cache on CPU3
+[28691.801483] CPU3: Booted secondary processor 0x0000000300 [0x414fd0b0]
+[28692.361145] te           NOT (01265:01265) check_input_packet        571: IN_DEMOD0(TS) - no input packet #125(pkt:1938308)
+[28694.493653] [wlan][4162]halRxMonitor:(HAL STATE) halRxMonitor: periodic check
+[28694.493656] [wlan][4162]halRxMonitor:(HAL STATE) in_urb_submit#: 16
+[28694.493658] [wlan][4162]halRxMonitor:(HAL STATE) in_urb_complete#: 12
+[28694.493659] [wlan][4162]halRxMonitor:(HAL STATE) in_urb_fail#: 0
+[28694.493661] [wlan][4162]halRxMonitor:(HAL STATE) urb in RxDataFreeQ#: 0
+[28694.493663] [wlan][4162]halRxMonitor:(HAL STATE) urb in RxDataCompleteQ#: 0
+[28694.515702] de           NOT (02715:02715) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982911 (V4L2_CID_EXT_VSC_ORBIT_WINDOW)
+[28694.518227] de           NOT (02715:02715) vsc_set_orbit_window     1893: win0: vi[0x0(0,0)] oi[1920x1080(0,0)] vo[0x0(0,0)] oo[3860x2170(0,0)]
+[28694.518290] de           NOT (02715:02715) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982912 (V4L2_CID_EXT_VSC_ORBIT_MOVE)
+[28694.518472] de           NOT (02715:02715) vsc_set_orbit_move       1978: win0: vi[0x0(0,0)] oi[3840x2160(13,2)] vo[0x0(0,0)] oo[3840x2160(0,0)]
+[28695.265258] aud_clock    NOT (20531:20531) _update_dto_rate          542: [arc] change rate to 73
+[28695.493888] LOGM_Close.657: closed daemon, do force printk
+[28695.493893] LOGM_Close.667: device closed (1810:0)
+[28695.829739] hdmi20       NOT (20529:20529) __HDMI21_HAL_Rx_MainThread 10564: Warning [2] : Waited Delta(3G) for [5000] msec(C) TMDS[16144] State[0x080] TCS[0][0][0][0]/[0][0][0][0]/[0][0][0][0]/[0][0][0][0]. SCDC[0]

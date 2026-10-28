@@ -1,0 +1,60 @@
+curlio: bound libcurl.so.4 curl_multi_* (7 symbols)
+ff: bound avutil -> libavutil-plx.so.61
+ff: bound avcodec -> libavcodec-plx.so.63
+ff: bound avformat -> libavformat-plx.so.63
+ff: no swscale (expected in a RELEASE build) — dev capture JPEG/MPEG1 off
+ff: avformat=63.1.102 avcodec=63.1.102 avutil=61.1.102
+coldstart: could not remove every obsolete last-page bookmark
+notify: roster servers=1 described=1 owned=1
+notify: connecting sid=0
+font chain: Base /media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont.ttf codepoints=2853
+LIFECYCLE: foreground (wasPlaying=0)
+LIFECYCLE: foreground (wasPlaying=0)
+notify: network changed conns=1
+notify: resume conns=1
+FB bits: alpha=8 red=8 depth=0 stencil=0 (config alpha=8 depth=0 stencil=0)
+wm: released borrowed Wayland handles
+wm sdl=2.0.14 subsys=6 wl_surface=0x28f9958 wl_display=0x2914b68 alpha=8
+notify: connecting sid=0
+egl fence: EGL_KHR_fence_sync in use for the field read-back
+coldopen screen=home ms=0 prepared=true
+imgcache: /media/developer/com.beb.plxnative-imgcache entries=656 bytes=24109645 cap=134217728
+pms: server 0 version=1.43.5.11079-b3b13e506 plexPass=true
+auth: '<name>' answered only over plaintext at <addr>
+auth: '<name>' settled on its first verified route; 12 slower or lower-ranked address(es) not waited for
+auth: reached "<name>" <addr> (ours) via https://<host>
+hubs: source 0 fetching (off-thread)
+notify: roster servers=1 described=1 owned=1
+notify: connecting sid=0
+loop=63 route=home fps=61 carried=0 dropped=0 budget=1/0 evicted_hot=0
+pms: server 0 version=1.43.5.11079-b3b13e506 plexPass=true
+hubs: source 0 ok — 4 shelves, 12 in CW
+hubs: landed — 65 items, 5 shelves (merge 47 us, catalog ~50 KB)
+budget solo=residency
+egl surface (after 120 presents): buffer_age=3 ok=1 err=0x3000
+loop=59 route=home fps=60 carried=0 dropped=0 budget=13/7/solo:residency evicted_hot=0
+watchlist: list page 0 -> full read (etag=yes)
+loop=60 route=home fps=54 carried=0 dropped=0 budget=0/0 evicted_hot=0
+loop=60 route=home fps=1 carried=0 dropped=0 budget=0/0 evicted_hot=0
+loop=61 route=home fps=0 carried=0 dropped=0 budget=0/0 evicted_hot=0
+net: curl rc=28 — timed out
+net: curl rc=28 — timed out
+net: curl rc=28 — timed out
+net: curl rc=28 — timed out
+net: curl rc=28 — timed out
+loop=62 route=home fps=1 carried=0 dropped=0 budget=0/0 evicted_hot=0
+loop=61 route=home fps=0 carried=0 dropped=0 budget=0/0 evicted_hot=0
+loop=62 route=home fps=1 carried=0 dropped=0 budget=0/0 evicted_hot=0
+loop=61 route=home fps=0 carried=0 dropped=0 budget=0/0 evicted_hot=0
+home: hero page slot 1 rk=18700
+budget solo=residency
+loop=62 route=home fps=37 carried=0 dropped=0 budget=1/1/solo:residency evicted_hot=0
+loop=60 route=home fps=60 carried=0 dropped=0 budget=1/0 evicted_hot=0
+
+*** SIGNAL 11 (SIGSEGV) addr=0x18 pc=0xf7d675c6 lr=0xf7d524b5
+time: 1793224302
+reg: sp=0xea5fd498 fp=0x291935c ip=0xf7dae5c4 cpsr=0x60800030 r0=0x2920210 r1=0x292b0f8 r2=0x0 r3=0xfb4 r4=0xf7dadf7c r5=0x292b0f8 r6=0x2919240 r7=0x0 r8=0x0 r9=0xf7db2e40 r10=0xf7db2e18
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7ce0000-f7d9c000 r-xp 00000000 fd:01 46693                              /usr/lib/libSDL2-2.0.so.0.14.0
