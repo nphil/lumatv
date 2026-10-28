@@ -1,0 +1,13 @@
+[package]
+name = "lumatv-gfn-sendtap"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Latency tool only: an LD_PRELOAD library that stamps when each send, sendto and sendmsg returns, for the pad latency tap's last stage"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+libc.workspace = true

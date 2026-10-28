@@ -466,10 +466,16 @@ impl CapturedInputQueue {
     }
 
     pub fn take_sample(&self) -> Option<CapturedInputSample> {
-        self.pending
+        let sample = self
+            .pending
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .pop_front()
+            .pop_front()?;
+        // The engine takes a sample to give the transport at once: the press latency tap's "handoff" instant.
+        if matches!(sample.input, CapturedInput::Gamepad { .. }) {
+            lumatv_gfn_pad::latency::global().handoff(sample.captured_at, lumatv_gfn_pad::latency::mono_ns());
+        }
+        Some(sample)
     }
 
     pub fn take_overflowed(&self) -> bool {

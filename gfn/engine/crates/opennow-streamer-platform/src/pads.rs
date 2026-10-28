@@ -6,10 +6,11 @@ use std::os::unix::net::UnixDatagram;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use lumatv_gfn_pad::{PadConfig, PadEvent, PadRuntime, PadSink, PadState};
 
-use crate::types::{CapturedInput, CapturedInputQueue, StreamShortcutAction};
+use crate::types::{CapturedInput, CapturedInputQueue, CapturedInputSample, StreamShortcutAction};
 
 struct Bridge {
     queue: Arc<CapturedInputQueue>,
@@ -55,12 +56,18 @@ impl PadSink for Bridge {
                     self.queue.release_gamepad(slot, bitmap);
                 }
             }
-            PadEvent::Report { slot, state } => {
+            PadEvent::Report { slot, state, press } => {
                 if self.paused.load(Ordering::Acquire) || !self.active.load(Ordering::Acquire) {
                     self.aside(format!(
                         "{{\"pad\":\"report\",\"slot\":{slot},\"buttons\":{},\"lt\":{},\"rt\":{},\"lx\":{},\"ly\":{},\"rx\":{},\"ry\":{}}}",
                         state.buttons, state.left_trigger, state.right_trigger, state.left_x, state.left_y, state.right_x, state.right_y
                     ));
+                } else if let Some(id) = press {
+                    // The sample's `captured_at` is the key the queue hands back when the engine takes it (latency::Tap::handoff); it is
+                    // linked before the push so the engine cannot take the sample first.
+                    let at = Instant::now();
+                    lumatv_gfn_pad::latency::global().link(id, at);
+                    self.queue.push_sample(CapturedInputSample { input: gamepad(slot, bitmap, state), captured_at: at });
                 } else {
                     self.queue.push(gamepad(slot, bitmap, state));
                 }
@@ -78,6 +85,18 @@ impl PadSink for Bridge {
                 }
             }
         }
+    }
+
+    /// The app's stats line shows the press latency: the send's figures when the preload gave them, else the handoff's (microseconds).
+    fn latency(&self, summary: &lumatv_gfn_pad::latency::Summary) {
+        let (stage, s) = match summary.send {
+            Some(s) => ("send", s),
+            None => ("handoff", summary.handoff),
+        };
+        self.aside(format!(
+            "{{\"pad\":\"latency\",\"stage\":\"{stage}\",\"n\":{},\"p50\":{},\"p90\":{},\"p99\":{},\"max\":{}}}",
+            summary.samples, s.p50, s.p90, s.p99, s.max
+        ));
     }
 }
 
@@ -182,13 +201,13 @@ mod tests {
         let queue = Arc::new(CapturedInputQueue::default());
         let b = Bridge { queue: Arc::clone(&queue), active: AtomicBool::new(false), paused: AtomicBool::new(false), side: None };
         let s = PadState { buttons: 0x1000, ..Default::default() };
-        b.pad_event(0x0101, PadEvent::Report { slot: 0, state: s });
+        b.pad_event(0x0101, PadEvent::Report { slot: 0, state: s, press: None });
         assert!(queue.take().is_none());
         b.active.store(true, Ordering::Release);
-        b.pad_event(0x0101, PadEvent::Report { slot: 0, state: s });
+        b.pad_event(0x0101, PadEvent::Report { slot: 0, state: s, press: None });
         assert!(matches!(queue.take(), Some(CapturedInput::Gamepad { controller_id: 0, bitmap: 0x0101, buttons: 0x1000, .. })));
         b.paused.store(true, Ordering::Release);
-        b.pad_event(0x0101, PadEvent::Report { slot: 0, state: s });
+        b.pad_event(0x0101, PadEvent::Report { slot: 0, state: s, press: None });
         assert!(queue.take().is_none());
         b.paused.store(false, Ordering::Release);
         b.pad_event(0x0101, PadEvent::Guide { slot: 0, pressed: true });
@@ -198,6 +217,39 @@ mod tests {
         b.pad_event(0x0000, PadEvent::Disconnected { slot: 0 });
         assert!(matches!(queue.take(), Some(CapturedInput::Gamepad { bitmap: 0, buttons: 0, .. })));
         assert_eq!(json_str("a\"b"), "\"a\\\"b\"");
+    }
+
+    #[test]
+    fn a_press_is_followed_from_the_sink_to_the_engines_take_and_its_figures_go_to_the_apps_side_socket() {
+        use lumatv_gfn_pad::latency::{self, Summary};
+        let dir = std::env::temp_dir().join(format!("gfn-pad-side-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("pad.sock");
+        let app = UnixDatagram::bind(&path).unwrap();
+        let queue = Arc::new(CapturedInputQueue::default());
+        let b = Bridge { queue: Arc::clone(&queue), active: AtomicBool::new(true), paused: AtomicBool::new(false), side: Some((UnixDatagram::unbound().unwrap(), path)) };
+        let s = PadState { buttons: 0x1000, ..Default::default() };
+        let tap = latency::global();
+        let now = latency::mono_ns();
+        let id = tap.begin(0, 0x1000, now - 250_000, now - 150_000);
+        b.pad_event(0x0101, PadEvent::Report { slot: 0, state: s, press: Some(id) });
+        tap.pushed(id, latency::mono_ns());
+        // a sample that is not a press passes without leaving a trace
+        b.pad_event(0x0101, PadEvent::Report { slot: 0, state: PadState::default(), press: None });
+        let taken = queue.take_sample().expect("the press");
+        assert!(matches!(taken.input, CapturedInput::Gamepad { buttons: 0x1000, .. }));
+        assert!(queue.take_sample().is_some());
+        let done = tap.take_finished(latency::mono_ns());
+        let press = done.iter().find(|d| d.id == id).expect("the press finished at the take");
+        assert!(press.handoff_us >= 250 && press.handoff_us < 1_000_000 && press.wake_us == 100, "{press:?}");
+        let summary: Summary = tap.summary();
+        b.latency(&summary);
+        let mut buf = [0u8; 256];
+        let n = app.recv(&mut buf).unwrap();
+        let line = std::str::from_utf8(&buf[..n]).unwrap();
+        assert!(line.starts_with("{\"pad\":\"latency\",\"stage\":\"handoff\",\"n\":"), "{line}");
+        assert!(line.contains("\"p99\":") && line.contains("\"max\":"), "{line}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

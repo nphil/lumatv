@@ -8,17 +8,26 @@
 //! descriptor closes, so a crash cannot wedge the pad. Rumble is one `FF_RUMBLE` effect per pad, re-uploaded with each new pair of
 //! magnitudes and played with an `EV_FF` write, which `hid-sony` turns into the DS4 output report.
 //!
+//! Two more things live beside the readers. A boost thread asks `lumatv-helper` to give each reader `SCHED_FIFO` 10 and an affinity
+//! off CPU 0 while the stream is in front ([`boost`]); a stats thread follows every button press from the kernel's time stamp to the
+//! engine's handoff and writes the figures out ([`latency`]).
+//!
 //! The directories are parameters so the host tests can stand in a device tree with a pseudo-terminal for the node.
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::fs;
-use std::io;
+use std::io::{self, Write};
+use std::net::SocketAddr;
 use std::os::unix::io::RawFd;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU16, AtomicU64, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
+
+pub mod boost;
+pub mod latency;
+pub mod tool;
 
 pub const MAX_PADS: usize = 4;
 
@@ -88,8 +97,9 @@ pub struct PadState {
 pub enum PadEvent {
     Connected { slot: u8, name: String, uniq: String },
     Disconnected { slot: u8 },
-    /// A changed report; `bitmap` says which slots are connected (bit i) and that they are XInput style (bit i + 8).
-    Report { slot: u8, state: PadState },
+    /// A changed report; `bitmap` says which slots are connected (bit i) and that they are XInput style (bit i + 8). `press` names the
+    /// press in the latency tap when a button went down in this report; the sink gives it back to [`latency::Tap::link`].
+    Report { slot: u8, state: PadState, press: Option<u64> },
     /// The PS/Xbox button: a local action, never sent to the game.
     Guide { slot: u8, pressed: bool },
     /// Select and Start held together for a second: the app's own way out of a stream.
@@ -98,6 +108,9 @@ pub enum PadEvent {
 
 pub trait PadSink: Send + Sync {
     fn pad_event(&self, bitmap: u16, event: PadEvent);
+
+    /// The latency figures after a second in which presses finished (the engine puts them on the app's stats line).
+    fn latency(&self, _summary: &latency::Summary) {}
 }
 
 #[derive(Debug, Clone)]
@@ -108,6 +121,18 @@ pub struct PadConfig {
     /// Radial stick dead zone in percent, as OpenNOW applies it before the state goes on the wire.
     pub deadzone_percent: u8,
     pub chord_hold: Duration,
+    /// The helper's loopback address for the readers' real-time boost; `None` asks for nothing.
+    pub boost: Option<SocketAddr>,
+    /// How often the boost is renewed while the stream is in front (the helper's lease is 90 s).
+    pub boost_renew: Duration,
+    /// Where `latency.tsv` and `latency.json` go; `None` keeps the figures in memory for the stats line.
+    pub latency_dir: Option<PathBuf>,
+    /// How often finished presses are collected and published.
+    pub stats_every: Duration,
+    /// The press tap: the engine's own unless a test brings one.
+    pub tap: Arc<latency::Tap>,
+    /// The clock an event's stamp is on when the node refuses `EVIOCSCLOCKID` (a stand-in node does; a real one never).
+    pub stamp_clock: latency::Clock,
 }
 
 impl Default for PadConfig {
@@ -118,14 +143,21 @@ impl Default for PadConfig {
             rescan: Duration::from_secs(2),
             deadzone_percent: 8,
             chord_hold: Duration::from_secs(1),
+            boost: None,
+            boost_renew: Duration::from_secs(30),
+            latency_dir: None,
+            stats_every: Duration::from_secs(1),
+            tap: Arc::clone(latency::global()),
+            stamp_clock: latency::Clock::Real,
         }
     }
 }
 
 impl PadConfig {
-    /// `LUMATV_GFN_PAD_DEV` and `LUMATV_GFN_PAD_SYS` move the directories (the tests), `LUMATV_GFN_PAD_DEADZONE` the dead zone.
+    /// `LUMATV_GFN_PAD_DEV` and `LUMATV_GFN_PAD_SYS` move the directories (the tests), `LUMATV_GFN_PAD_DEADZONE` the dead zone,
+    /// `LUMATV_GFN_BOOST=0` or `LUMATV_GFN_BOOST_ADDR` the helper's boost, `LUMATV_GFN_LATENCY_DIR` where the latency files go.
     pub fn from_env() -> Self {
-        let mut c = Self::default();
+        let mut c = Self { boost: boost::addr_from_env(), latency_dir: std::env::var_os("LUMATV_GFN_LATENCY_DIR").map(PathBuf::from), ..Self::default() };
         if let Some(d) = std::env::var_os("LUMATV_GFN_PAD_DEV") {
             c.dev_dir = PathBuf::from(d);
         }
@@ -348,6 +380,12 @@ fn eviocgabs(fd: RawFd, code: u16) -> io::Result<(i32, i32)> {
     if rc < 0 { Err(io::Error::last_os_error()) } else { Ok((info[1], info[2])) }
 }
 
+/// `EVIOCSCLOCKID`: the clock this descriptor's event stamps use (`CLOCK_MONOTONIC`, so they compare with the engine's own times).
+fn eviocsclockid(fd: RawFd, clock: libc::c_int) -> io::Result<()> {
+    let rc = unsafe { libc::ioctl(fd, ioctl_code(1, 0xa0, 4) as _, &clock as *const libc::c_int) };
+    if rc < 0 { Err(io::Error::last_os_error()) } else { Ok(()) }
+}
+
 /// struct ff_effect for FF_RUMBLE on an LP64 kernel: 48 bytes, the rumble magnitudes at offset 16.
 fn ff_effect_bytes(id: i16, strong: u16, weak: u16, length_ms: u16) -> [u8; 48] {
     let mut b = [0u8; 48];
@@ -382,6 +420,8 @@ struct Slot {
     grabbed: AtomicBool,
     last_rumble: Mutex<Option<(u16, u16, u32)>>,
     reports: AtomicU64,
+    /// The reader thread's kernel thread id, 0 until it has started: what the boost is asked for.
+    tid: AtomicI32,
 }
 
 struct Inner {
@@ -392,6 +432,8 @@ struct Inner {
     stop: AtomicBool,
     bitmap: AtomicU16,
     scans: AtomicU64,
+    /// Set when the boost thread has something to do (the grab changed, a reader started, the runtime stops); it also wakes on a timer.
+    wake: (Mutex<bool>, Condvar),
 }
 
 /// The pads as a whole: start it once, point it at a sink, ask for the grab when the stream is in front.
@@ -410,16 +452,24 @@ impl PadRuntime {
             stop: AtomicBool::new(false),
             bitmap: AtomicU16::new(0),
             scans: AtomicU64::new(0),
+            wake: (Mutex::new(false), Condvar::new()),
         });
         let rt = Self { inner: Arc::clone(&inner) };
         let discovery = Arc::clone(&inner);
         let _ = thread::Builder::new().name("gfn-pad-discovery".to_owned()).spawn(move || discovery_loop(&discovery));
+        if let Some(addr) = inner.config.boost {
+            let boosting = Arc::clone(&inner);
+            let _ = thread::Builder::new().name("gfn-pad-boost".to_owned()).spawn(move || boost_loop(&boosting, addr));
+        }
+        let stats = Arc::clone(&inner);
+        let _ = thread::Builder::new().name("gfn-pad-stats".to_owned()).spawn(move || stats_loop(&stats));
         rt
     }
 
     /// Hold the pads exclusively (the stream is in front) or share them again.
     pub fn set_grab(&self, grab: bool) {
         self.inner.grab.store(grab, Ordering::Release);
+        wake_boost(&self.inner);
         let slots = self.inner.slots.lock().unwrap_or_else(|e| e.into_inner());
         for slot in slots.iter().flatten() {
             apply_grab(slot, grab);
@@ -476,6 +526,7 @@ impl PadRuntime {
 
     pub fn stop(&self) {
         self.inner.stop.store(true, Ordering::Release);
+        wake_boost(&self.inner);
         let mut slots = self.inner.slots.lock().unwrap_or_else(|e| e.into_inner());
         for slot in slots.iter_mut() {
             if let Some(s) = slot.take() {
@@ -562,6 +613,7 @@ fn scan(inner: &Arc<Inner>) {
                         grabbed: AtomicBool::new(false),
                         last_rumble: Mutex::new(None),
                         reports: AtomicU64::new(0),
+                        tid: AtomicI32::new(0),
                     });
                     slots[i] = Some(Arc::clone(&slot));
                     if inner.grab.load(Ordering::Acquire) {
@@ -583,6 +635,89 @@ fn scan(inner: &Arc<Inner>) {
     }
 }
 
+fn wake_boost(inner: &Inner) {
+    *inner.wake.0.lock().unwrap_or_else(|e| e.into_inner()) = true;
+    inner.wake.1.notify_all();
+}
+
+fn reader_tids(inner: &Inner) -> Vec<i32> {
+    let slots = inner.slots.lock().unwrap_or_else(|e| e.into_inner());
+    slots.iter().flatten().map(|s| s.tid.load(Ordering::Acquire)).filter(|&t| t > 0).collect()
+}
+
+/// While the grab is held (the stream is in front): ask for each reader's boost now and at every renewal; when it is let go, or the
+/// runtime stops, release what was boosted. The helper's refusals are logged once for each thread and reason.
+fn boost_loop(inner: &Arc<Inner>, addr: SocketAddr) {
+    let mut boosted: Vec<i32> = Vec::new();
+    let mut said: Vec<(i32, String)> = Vec::new();
+    loop {
+        {
+            let mut dirty = inner.wake.0.lock().unwrap_or_else(|e| e.into_inner());
+            if !*dirty {
+                dirty = inner.wake.1.wait_timeout(dirty, inner.config.boost_renew).unwrap_or_else(|e| e.into_inner()).0;
+            }
+            *dirty = false;
+        }
+        let stopping = inner.stop.load(Ordering::Acquire);
+        if inner.grab.load(Ordering::Acquire) && !stopping {
+            let tids = reader_tids(inner);
+            for &tid in &tids {
+                if let Err(why) = boost::boost(addr, tid) {
+                    if !said.iter().any(|(t, w)| *t == tid && *w == why) {
+                        eprintln!("gfn-pad: no boost for thread {tid}: {why}");
+                        said.push((tid, why));
+                    }
+                }
+            }
+            boosted = tids;
+        } else {
+            for tid in boosted.drain(..) {
+                boost::unboost(addr, tid);
+            }
+            said.clear();
+        }
+        if stopping {
+            break;
+        }
+    }
+}
+
+/// Once a second: collect the presses that finished, append them to `latency.tsv`, rewrite `latency.json`, tell the sink.
+fn stats_loop(inner: &Arc<Inner>) {
+    let mut tsv: Option<fs::File> = None;
+    let mut lines = 0usize;
+    while !inner.stop.load(Ordering::Acquire) {
+        thread::sleep(inner.config.stats_every);
+        let fresh = inner.config.tap.take_finished(latency::mono_ns());
+        if fresh.is_empty() {
+            continue;
+        }
+        let summary = inner.config.tap.summary();
+        if let Some(dir) = &inner.config.latency_dir {
+            let _ = fs::create_dir_all(dir);
+            if tsv.is_none() {
+                let path = dir.join("latency.tsv");
+                let fresh_file = fs::metadata(&path).map(|m| m.len() == 0).unwrap_or(true);
+                tsv = fs::OpenOptions::new().create(true).append(true).open(path).ok();
+                if let (Some(f), true) = (tsv.as_mut(), fresh_file) {
+                    let _ = writeln!(f, "{}", latency::Done::TSV_HEADER);
+                }
+            }
+            // A file that cannot grow without bound: 50 000 presses is hours of play.
+            if let (Some(f), true) = (tsv.as_mut(), lines < 50_000) {
+                let text: String = fresh.iter().map(|d| format!("{}\n", d.tsv())).collect();
+                let _ = f.write_all(text.as_bytes());
+                lines += fresh.len();
+            }
+            let tmp = dir.join("latency.json.tmp");
+            if fs::write(&tmp, summary.json()).is_ok() {
+                let _ = fs::rename(&tmp, dir.join("latency.json"));
+            }
+        }
+        inner.sink.latency(&summary);
+    }
+}
+
 fn recompute_bitmap(inner: &Inner) -> u16 {
     let slots = inner.slots.lock().unwrap_or_else(|e| e.into_inner());
     let mut b = 0u16;
@@ -597,6 +732,11 @@ fn recompute_bitmap(inner: &Inner) -> u16 {
 }
 
 fn reader_loop(inner: &Arc<Inner>, slot_index: u8, slot: &Arc<Slot>) {
+    // SAFETY: gettid takes nothing and cannot fail.
+    slot.tid.store(unsafe { libc::syscall(libc::SYS_gettid) } as i32, Ordering::Release);
+    wake_boost(inner);
+    let clock = if eviocsclockid(slot.fd, libc::CLOCK_MONOTONIC).is_ok() { latency::Clock::Mono } else { inner.config.stamp_clock };
+    let tap = &inner.config.tap;
     let mut raw = Raw::new(inner.config.deadzone_percent);
     for code in [ABS_X, ABS_Y, ABS_RX, ABS_RY, ABS_Z, ABS_RZ, ABS_HAT0X, ABS_HAT0Y] {
         if let Ok((min, max)) = eviocgabs(slot.fd, code) {
@@ -617,6 +757,7 @@ fn reader_loop(inner: &Arc<Inner>, slot_index: u8, slot: &Arc<Slot>) {
             }
             break;
         }
+        let read_ns = latency::mono_ns();
         let n = n as usize;
         let mut off = 0;
         while off + EVENT_SIZE <= n {
@@ -629,8 +770,13 @@ fn reader_loop(inner: &Arc<Inner>, slot_index: u8, slot: &Arc<Slot>) {
                     let bitmap = inner.bitmap.load(Ordering::Acquire);
                     let state = raw.state();
                     if state != last {
+                        let new_buttons = state.buttons & !last.buttons;
                         last = state;
-                        inner.sink.pad_event(bitmap, PadEvent::Report { slot: slot_index, state });
+                        let press = (new_buttons != 0).then(|| tap.begin(slot_index, new_buttons, latency::stamp_ns(ev.tv_sec, ev.tv_usec, clock), read_ns));
+                        inner.sink.pad_event(bitmap, PadEvent::Report { slot: slot_index, state, press });
+                        if let Some(id) = press {
+                            tap.pushed(id, latency::mono_ns());
+                        }
                     }
                     let g = raw.guide();
                     if g != guide {
@@ -727,5 +873,289 @@ mod tests {
         assert_eq!(ioctl_code(1, 0x90, 4), 0x40044590);
         assert_eq!(ioctl_code(1, 0x80, 48), 0x40304580);
         assert_eq!(ioctl_code(2, 0x40, 24), 0x80184540);
+        assert_eq!(ioctl_code(1, 0xa0, 4), 0x400445a0, "EVIOCSCLOCKID");
+    }
+
+    /// A pseudo-terminal standing in for `/dev/input/event0`: the test writes `input_event` records to the master and the reader
+    /// reads them from the slave exactly as it would from the evdev node (the ioctls fail with ENOTTY, as on any non-evdev file).
+    struct FakePad {
+        root: PathBuf,
+        master: RawFd,
+        slave: RawFd,
+    }
+
+    impl FakePad {
+        fn new(tag: &str) -> Self {
+            let root = std::env::temp_dir().join(format!("gfn-pad-{tag}-{}", std::process::id()));
+            let _ = fs::remove_dir_all(&root);
+            let (dev, sys) = (root.join("dev"), root.join("sys/event0/device"));
+            fs::create_dir_all(&dev).unwrap();
+            fs::create_dir_all(sys.join("capabilities")).unwrap();
+            fs::write(sys.join("name"), "Wireless Controller\n").unwrap();
+            fs::write(sys.join("uniq"), "1c:a0:b8:4c:7a:99\n").unwrap();
+            fs::write(sys.join("capabilities/ev"), "b\n").unwrap();
+            fs::write(sys.join("capabilities/key"), "1000000000000 0 0 0 0\n").unwrap();
+            fs::write(sys.join("capabilities/ff"), "0\n").unwrap();
+            // SAFETY: plain libc calls on descriptors this function owns.
+            let (master, slave, name) = unsafe {
+                let m = libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY);
+                assert!(m >= 0 && libc::grantpt(m) == 0 && libc::unlockpt(m) == 0);
+                let name = std::ffi::CStr::from_ptr(libc::ptsname(m)).to_string_lossy().into_owned();
+                let s = libc::open(CString::new(name.clone()).unwrap().as_ptr(), libc::O_RDWR | libc::O_NOCTTY);
+                assert!(s >= 0);
+                let mut t: libc::termios = std::mem::zeroed();
+                libc::tcgetattr(s, &mut t);
+                libc::cfmakeraw(&mut t);
+                libc::tcsetattr(s, libc::TCSANOW, &t);
+                (m, s, name)
+            };
+            std::os::unix::fs::symlink(name, dev.join("event0")).unwrap();
+            Self { root, master, slave }
+        }
+
+        fn config(&self) -> PadConfig {
+            PadConfig {
+                dev_dir: self.root.join("dev"),
+                sys_dir: self.root.join("sys"),
+                rescan: Duration::from_millis(50),
+                stats_every: Duration::from_millis(40),
+                tap: Arc::new(latency::Tap::new(None)),
+                stamp_clock: latency::Clock::Mono,
+                latency_dir: Some(self.root.join("out")),
+                ..PadConfig::default()
+            }
+        }
+
+        /// One report: the events, then `SYN_REPORT`, all stamped `stamp_ns` on the monotonic clock, in a single write.
+        fn report(&self, events: &[(u16, u16, i32)], stamp_ns: u64) {
+            let mut bytes = Vec::new();
+            for &(kind, code, value) in events.iter().chain([(EV_SYN, SYN_REPORT, 0)].iter()) {
+                let ev = InputEvent { tv_sec: (stamp_ns / 1_000_000_000) as i64, tv_usec: ((stamp_ns % 1_000_000_000) / 1000) as i64, kind, code, value };
+                bytes.extend_from_slice(unsafe { std::slice::from_raw_parts(&ev as *const InputEvent as *const u8, EVENT_SIZE) });
+            }
+            assert_eq!(unsafe { libc::write(self.master, bytes.as_ptr().cast(), bytes.len()) }, bytes.len() as isize);
+        }
+    }
+
+    impl Drop for FakePad {
+        fn drop(&mut self) {
+            unsafe {
+                libc::close(self.master);
+                libc::close(self.slave);
+            }
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    /// A sink that keeps what it is given and, like the engine's, tags each press's packet and hands it on.
+    struct Collect {
+        tap: Arc<latency::Tap>,
+        events: Mutex<Vec<PadEvent>>,
+        summaries: Mutex<Vec<latency::Summary>>,
+    }
+
+    impl PadSink for Collect {
+        fn pad_event(&self, _bitmap: u16, event: PadEvent) {
+            if let PadEvent::Report { press: Some(id), .. } = &event {
+                let at = Instant::now();
+                self.tap.link(*id, at);
+                self.tap.handoff(at, latency::mono_ns());
+            }
+            self.events.lock().unwrap().push(event);
+        }
+
+        fn latency(&self, summary: &latency::Summary) {
+            self.summaries.lock().unwrap().push(summary.clone());
+        }
+    }
+
+    fn collect(cfg: &PadConfig) -> Arc<Collect> {
+        Arc::new(Collect { tap: Arc::clone(&cfg.tap), events: Mutex::new(Vec::new()), summaries: Mutex::new(Vec::new()) })
+    }
+
+    fn wait_for(what: &str, cond: impl Fn() -> bool) {
+        let t0 = Instant::now();
+        while !cond() {
+            assert!(t0.elapsed() < Duration::from_secs(5), "timed out waiting for {what}");
+            thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    fn reports(sink: &Collect) -> Vec<(PadState, Option<u64>)> {
+        sink.events.lock().unwrap().iter().filter_map(|e| if let PadEvent::Report { state, press, .. } = e { Some((*state, *press)) } else { None }).collect()
+    }
+
+    #[test]
+    fn a_press_is_stamped_from_the_kernels_time_and_followed_to_the_handoff_and_into_the_files() {
+        let pad = FakePad::new("latency");
+        let cfg = pad.config();
+        let sink = collect(&cfg);
+        let rt = PadRuntime::start(cfg.clone(), sink.clone());
+        wait_for("the pad", || rt.bitmap() == 0x0101);
+        // the kernel stamped the report 300 us before this process wrote it
+        let stamp = latency::mono_ns() - 300_000;
+        pad.report(&[(EV_KEY, BTN_SOUTH, 1)], stamp);
+        wait_for("the press", || !reports(&sink).is_empty());
+        pad.report(&[(EV_KEY, BTN_SOUTH, 0)], latency::mono_ns());
+        wait_for("the release", || reports(&sink).len() == 2);
+        let r = reports(&sink);
+        assert_eq!(r[0].0.buttons, button::A);
+        assert!(r[0].1.is_some(), "a button going down is a press");
+        assert_eq!((r[1].0.buttons, r[1].1), (0, None), "a release is not");
+        let tsv = cfg.latency_dir.as_ref().unwrap().join("latency.tsv");
+        wait_for("latency.tsv", || fs::read_to_string(&tsv).is_ok_and(|t| t.lines().count() >= 2));
+        let rows = tool::parse_tsv(&fs::read_to_string(&tsv).unwrap());
+        assert_eq!(rows.len(), 1);
+        assert_eq!((rows[0].kernel_ns, rows[0].buttons, rows[0].slot), (stamp / 1000 * 1000, button::A, 0));
+        assert!(rows[0].wake_us >= 300 && rows[0].wake_us < 500_000, "{rows:?}");
+        // the test's sink hands the packet on from inside the report call, so the handoff falls before the reader's "queued" stamp
+        assert!(rows[0].pushed_us >= rows[0].wake_us && rows[0].handoff_us >= rows[0].wake_us, "{rows:?}");
+        let json = fs::read_to_string(cfg.latency_dir.as_ref().unwrap().join("latency.json")).unwrap();
+        assert!(json.contains("\"samples\":1") && json.contains("\"handoff_us\":{\"p50\":"), "{json}");
+        wait_for("the sink's summary", || !sink.summaries.lock().unwrap().is_empty());
+        assert_eq!(sink.summaries.lock().unwrap()[0].samples, 1);
+        rt.stop();
+    }
+
+    #[test]
+    fn a_realtime_stamp_is_used_when_the_node_will_not_switch_clocks() {
+        let pad = FakePad::new("realtime");
+        let mut cfg = pad.config();
+        cfg.stamp_clock = latency::Clock::Real;
+        let sink = collect(&cfg);
+        let rt = PadRuntime::start(cfg.clone(), sink.clone());
+        wait_for("the pad", || rt.bitmap() == 0x0101);
+        let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+        unsafe { libc::clock_gettime(libc::CLOCK_REALTIME, &mut ts) };
+        let real = ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64 - 1_000_000;
+        pad.report(&[(EV_KEY, BTN_EAST, 1)], real);
+        wait_for("the press", || !reports(&sink).is_empty());
+        let tsv = cfg.latency_dir.as_ref().unwrap().join("latency.tsv");
+        wait_for("latency.tsv", || fs::read_to_string(&tsv).is_ok_and(|t| t.lines().count() >= 2));
+        let row = tool::parse_tsv(&fs::read_to_string(&tsv).unwrap())[0];
+        assert!(row.wake_us >= 1000 && row.wake_us < 500_000, "1 ms old on the realtime clock, read {} us after the stamp", row.wake_us);
+        rt.stop();
+    }
+
+    /// A stand-in for the helper's loopback API: records each request's path and body, answers `status` with `reply`.
+    struct FakeHelper {
+        addr: SocketAddr,
+        seen: Arc<Mutex<Vec<(String, String)>>>,
+    }
+
+    impl FakeHelper {
+        fn start(status: u16, reply: &'static str) -> Self {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let addr = listener.local_addr().unwrap();
+            let seen: Arc<Mutex<Vec<(String, String)>>> = Arc::default();
+            let log = Arc::clone(&seen);
+            thread::spawn(move || {
+                use std::io::Read;
+                for stream in listener.incoming() {
+                    let Ok(mut s) = stream else { break };
+                    let mut raw = Vec::new();
+                    let mut buf = [0u8; 512];
+                    loop {
+                        let n = s.read(&mut buf).unwrap_or(0);
+                        raw.extend_from_slice(&buf[..n]);
+                        let text = String::from_utf8_lossy(&raw).into_owned();
+                        if let Some((head, body)) = text.split_once("\r\n\r\n") {
+                            let want = head.lines().find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").and_then(|v| v.trim().parse::<usize>().ok())).unwrap_or(0);
+                            if body.len() >= want {
+                                let path = head.split_whitespace().nth(1).unwrap_or("").to_owned();
+                                assert!(head.to_ascii_lowercase().contains("x-luma-client: gfn-pad"), "{head}");
+                                log.lock().unwrap().push((path, body.to_owned()));
+                                break;
+                            }
+                        }
+                        if n == 0 {
+                            break;
+                        }
+                    }
+                    let _ = s.write_all(format!("HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}", reply.len()).as_bytes());
+                }
+            });
+            Self { addr, seen }
+        }
+
+        fn count(&self, path: &str) -> usize {
+            self.seen.lock().unwrap().iter().filter(|(p, _)| p == path).count()
+        }
+    }
+
+    #[test]
+    fn the_reader_is_boosted_while_the_grab_is_held_renewed_and_released_when_it_ends() {
+        let helper = FakeHelper::start(200, r#"{"ok":true,"api":1}"#);
+        let pad = FakePad::new("boost");
+        let mut cfg = pad.config();
+        cfg.boost = Some(helper.addr);
+        cfg.boost_renew = Duration::from_millis(100);
+        let sink = collect(&cfg);
+        let rt = PadRuntime::start(cfg, sink.clone());
+        wait_for("the pad", || rt.bitmap() == 0x0101);
+        thread::sleep(Duration::from_millis(250));
+        assert_eq!(helper.count(boost::BOOST_PATH), 0, "nothing is asked before the stream is in front");
+        rt.set_grab(true);
+        wait_for("the boost request", || helper.count(boost::BOOST_PATH) >= 1);
+        let (path, body) = helper.seen.lock().unwrap()[0].clone();
+        assert_eq!(path, boost::BOOST_PATH);
+        let v: serde_like::Ids = serde_like::parse(&body);
+        assert_eq!(v.pid, std::process::id());
+        let comm = fs::read_to_string(format!("/proc/self/task/{}/comm", v.tid)).unwrap();
+        assert_eq!(comm.trim(), "gfn-pad-event0", "the thread asked for is the reader's");
+        wait_for("a renewal", || helper.count(boost::BOOST_PATH) >= 3);
+        rt.set_grab(false);
+        wait_for("the release", || helper.count(boost::UNBOOST_PATH) >= 1);
+        assert!(helper.seen.lock().unwrap().iter().any(|(p, b)| p == boost::UNBOOST_PATH && *b == body));
+        let asked = helper.count(boost::BOOST_PATH);
+        thread::sleep(Duration::from_millis(350));
+        assert_eq!(helper.count(boost::BOOST_PATH), asked, "no renewal once released");
+        rt.set_grab(true);
+        wait_for("a second boost", || helper.count(boost::BOOST_PATH) > asked);
+        rt.stop();
+        wait_for("the release at stop", || helper.count(boost::UNBOOST_PATH) >= 2);
+    }
+
+    #[test]
+    fn a_refusing_or_absent_helper_leaves_the_pad_working() {
+        let refusing = FakeHelper::start(403, r#"{"ok":false,"api":1,"error":{"code":"refused","message":"only the app's pad reader thread is boosted"}}"#);
+        let reply = boost::post(refusing.addr, boost::BOOST_PATH, "{}").unwrap();
+        assert_eq!((reply.status, reply.why().as_str()), (403, "only the app's pad reader thread is boosted"));
+        let closed = {
+            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            l.local_addr().unwrap()
+        };
+        for addr in [refusing.addr, closed] {
+            let pad = FakePad::new("refused");
+            let mut cfg = pad.config();
+            cfg.boost = Some(addr);
+            cfg.boost_renew = Duration::from_millis(50);
+            let sink = collect(&cfg);
+            let rt = PadRuntime::start(cfg, sink.clone());
+            wait_for("the pad", || rt.bitmap() == 0x0101);
+            rt.set_grab(true);
+            thread::sleep(Duration::from_millis(200));
+            pad.report(&[(EV_KEY, BTN_NORTH, 1)], latency::mono_ns());
+            wait_for("the press", || reports(&sink).len() == 1);
+            assert_eq!(reports(&sink)[0].0.buttons, button::Y);
+            rt.stop();
+        }
+        assert!(boost::boost(closed, 1).unwrap_err().contains("did not answer"));
+    }
+
+    /// `{"pid":n,"tid":n}` without a JSON dependency: the pad crate has none.
+    mod serde_like {
+        pub struct Ids {
+            pub pid: u32,
+            pub tid: i32,
+        }
+
+        pub fn parse(body: &str) -> Ids {
+            let num = |key: &str| -> i64 {
+                let i = body.find(key).unwrap() + key.len();
+                body[i..].chars().take_while(char::is_ascii_digit).collect::<String>().parse().unwrap()
+            };
+            Ids { pid: num("\"pid\":") as u32, tid: num("\"tid\":") as i32 }
+        }
     }
 }

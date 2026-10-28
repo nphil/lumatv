@@ -3,7 +3,7 @@
 # source is patched by package name, and the binary's main is this workspace's own (crates/lumatv-gfn-streamer).
 [workspace]
 resolver = "2"
-members = ["crates/opennow-streamer-platform", "crates/lumatv-gfn-pad", "crates/lumatv-gfn-streamer", "crates/keyring"]
+members = ["crates/opennow-streamer-platform", "crates/lumatv-gfn-pad", "crates/lumatv-gfn-sendtap", "crates/lumatv-gfn-streamer", "crates/keyring"]
 
 [workspace.package]
 edition = "2024"
