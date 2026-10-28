@@ -314,6 +314,8 @@ pub struct Switcher {
     activating: Option<String>,
     until: Option<Instant>,
     reduced: bool,
+    /// What the topics last said was made of (`apps_signature`): the list is rebuilt only when it changed.
+    pub(crate) topics_sig: u64,
 }
 
 impl Switcher {
@@ -715,8 +717,37 @@ impl State {
         }
     }
 
+    /// A number that changes when what `switcher_apps` and the topics say can have: the cards (which, in what order, whether in a group), what a
+    /// window's picture is on, the apps being quit, the switcher's phase. It allocates nothing: this runs after every frame drawn.
+    fn apps_signature(&self) -> u64 {
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut mix = |v: u64| h = (h ^ v).wrapping_mul(0x0000_0100_0000_01b3);
+        for w in self.scene.windows().filter(|w| w.kind == WindowType::Card) {
+            mix(w.id.0 as u64);
+            mix(w.front);
+            mix(w.map_serial);
+            mix(w.in_group as u64);
+            mix(w.title.len() as u64);
+            mix(w.app_id().len() as u64);
+        }
+        mix(self.scene.holes.len() as u64);
+        mix(self.foreign.exported.values().map(|e| e.contexts.len() as u64 + 1).sum());
+        for (a, _) in &self.switcher.quitting {
+            mix(a.bytes().next().unwrap_or(0) as u64 + 1);
+        }
+        mix(self.switcher.stuck.len() as u64 + 1000);
+        mix(self.switcher.phase as u64);
+        mix(self.switcher.seq);
+        h
+    }
+
     /// The topics the shell follows: `apps` (what is running, newest first) and `switcher` (whether it is open, and from where).
     pub fn switcher_sync_topics(&mut self) {
+        let sig = self.apps_signature();
+        if sig == self.switcher.topics_sig {
+            return;
+        }
+        self.switcher.topics_sig = sig;
         let apps = self.switcher_apps();
         let state = |id: &str| {
             if self.switcher.quitting.iter().any(|(a, _)| a == id) {

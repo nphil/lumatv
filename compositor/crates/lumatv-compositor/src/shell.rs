@@ -631,6 +631,7 @@ impl State {
                 }
                 // Its session starts from the state: every topic is pushed again so the first poll has them all.
                 self.shell.pushed.clear();
+                self.switcher.topics_sig = 0;
                 self.shell_sync_topics();
             }
             Msg::Seen => self.shell.note_seen(now),

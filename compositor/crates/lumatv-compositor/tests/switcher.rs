@@ -266,6 +266,18 @@ fn the_hold_of_home_is_the_same_escape_as_ever_also_right_after_a_tap_and_with_t
 }
 
 #[test]
+fn a_shell_that_connects_again_is_told_the_apps_again() {
+    let rig = rig_home(&["switcher"]);
+    rig.server.eval(|s| {
+        let before = recorded(s, "apps").len();
+        assert!(before >= 1);
+        s.shell_handle(Msg::Connected);
+        assert_eq!(recorded(s, "apps").len(), before + 1, "its first poll has the apps, though nothing about them changed");
+        assert_eq!(topic(s, "switcher")["open"], false);
+    });
+}
+
+#[test]
 fn a_press_on_home_with_apps_open_is_offered_to_the_shell_which_opens_it_and_a_third_press_closes_it() {
     let rig = rig_home(&["switcher"]);
     let (homes, offered, open, apps) = rig.server.eval(|s| {
