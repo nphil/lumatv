@@ -8,7 +8,7 @@ use wayland_server::protocol::wl_buffer::WlBuffer;
 use crate::Rect;
 use crate::buffer::{BufferKindRef, kind_of};
 use crate::output::{FrameClock, Image, Output, Presented, RenderStats};
-use crate::scene::Plan;
+use crate::scene::{Backdrop, Plan, coverage};
 use crate::surface::Surfaces;
 
 pub struct Software {
@@ -44,6 +44,65 @@ impl Software {
     pub fn pixel_argb(&self, x: u32, y: u32) -> u32 {
         self.pixels[(y * self.width + x) as usize]
     }
+
+    /// The app switcher's scrim and pictures (`scene/backdrop.rs`), inside `area`. Only `wl_shm` pictures can be read here.
+    fn draw_backdrop(&mut self, b: &Backdrop, area: &Rect, stats: &mut RenderStats) {
+        let scrim = pack(b.scrim);
+        if b.scrim[3] > 0.0 {
+            for y in area.y..area.bottom() {
+                let row = y as usize * self.width as usize;
+                for x in area.x..area.right() {
+                    let d = &mut self.pixels[row + x as usize];
+                    *d = blend(*d, scrim);
+                }
+            }
+        }
+        for p in &b.previews {
+            let clip = p.rect.intersect(area);
+            if clip.is_empty() {
+                continue;
+            }
+            let BufferKindRef::Shm(shm) = kind_of(&p.buffer) else {
+                stats.skipped += 1;
+                continue;
+            };
+            let shm = shm.clone();
+            let width = self.width as usize;
+            let pixels = &mut self.pixels;
+            let (w, h) = (p.rect.w as f32, p.rect.h as f32);
+            shm.pool.with_bytes(|bytes| {
+                for y in clip.y..clip.bottom() {
+                    let fy = (y - p.rect.y) as f32 + 0.5;
+                    let sy = ((fy / h * p.src.1 as f32) as i32).clamp(0, p.src.1 - 1);
+                    for x in clip.x..clip.right() {
+                        let fx = (x - p.rect.x) as f32 + 0.5;
+                        let cover = coverage(fx, fy, w, h, p.radius) * p.alpha;
+                        if cover <= 0.0 {
+                            continue;
+                        }
+                        let sx = ((fx / w * p.src.0 as f32) as i32).clamp(0, p.src.0 - 1);
+                        if let Some(src) = shm.pixel(bytes, sx, sy) {
+                            let d = &mut pixels[y as usize * width + x as usize];
+                            *d = blend(*d, scale(src, cover));
+                        }
+                    }
+                }
+            });
+            stats.drawn += 1;
+        }
+    }
+}
+
+/// Premultiplied RGBA floats (0 to 1) as 0xAARRGGBB.
+fn pack(c: [f32; 4]) -> u32 {
+    let q = |v: f32| (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u32;
+    (q(c[3]) << 24) | (q(c[0]) << 16) | (q(c[1]) << 8) | q(c[2])
+}
+
+/// A premultiplied 0xAARRGGBB pixel times `c` (0 to 1).
+fn scale(p: u32, c: f32) -> u32 {
+    let ch = |shift: u32| -> u32 { (((p >> shift) & 0xff) as f32 * c + 0.5) as u32 };
+    (ch(24) << 24) | (ch(16) << 16) | (ch(8) << 8) | ch(0)
 }
 
 /// Source-over of premultiplied 0xAARRGGBB `src` onto `dst`.
@@ -96,6 +155,9 @@ impl Output for Software {
         }
         self.fill(&area, 0xff00_0000);
         for (index, item) in plan.items.iter().enumerate() {
+            if let Some(b) = plan.backdrop.as_ref().filter(|b| b.before == index) {
+                self.draw_backdrop(b, &area, &mut stats);
+            }
             // a hole is cleared just before the item of its surface (LG's order): what is under it goes, what it and the items above draw stays
             for h in plan.holes.iter().filter(|h| h.before == index) {
                 let r = h.rect.intersect(&area);
@@ -138,6 +200,10 @@ impl Output for Software {
                     }
                 }
             }
+        }
+        // an idle system layer leaves the backdrop above every item
+        if let Some(b) = plan.backdrop.as_ref().filter(|b| b.before >= plan.items.len()) {
+            self.draw_backdrop(b, &area, &mut stats);
         }
         if let Some(c) = plan.cursor {
             let clip = c.intersect(&area);

@@ -8,9 +8,14 @@
 //! [`Scene::plan`] writes into storage the scene keeps, so a frame allocates nothing once the scene has been
 //! planned at its size (`alloc_tests`); the plan borrows the scene for the frame.
 
+mod backdrop;
+
 use std::collections::BTreeMap;
 
 use wayland_server::protocol::wl_buffer::WlBuffer;
+
+use backdrop::BackdropSig;
+pub use backdrop::{Backdrop, BackdropSpec, PlannedPreview, PreviewSpec, coverage};
 
 use crate::damage::Tiles;
 use crate::surface::{Role, SurfaceId, Surfaces};
@@ -133,6 +138,8 @@ pub struct Item {
 #[derive(Default)]
 pub struct Plan {
     pub items: Vec<Item>,
+    /// The app switcher's scrim and pictures, drawn before the shell's system layer (`scene/backdrop.rs`); `None` while it is closed.
+    pub backdrop: Option<Backdrop>,
     pub holes: Vec<PlannedHole>,
     pub damage_rects: Vec<Rect>,
     /// Bounds of everything that changed, in output pixels; empty when nothing did.
@@ -152,7 +159,7 @@ impl Plan {
     pub fn sole_fullscreen(&self) -> Option<&Item> {
         let full = Rect::new(0, 0, OUTPUT_WIDTH as i32, OUTPUT_HEIGHT as i32);
         match self.items.as_slice() {
-            [one] if one.opaque && one.rect == full && one.dim == 1.0 && self.holes.is_empty() && self.cursor.is_none() => Some(one),
+            [one] if one.opaque && one.rect == full && one.dim == 1.0 && self.holes.is_empty() && self.cursor.is_none() && self.backdrop.is_none() => Some(one),
             _ => None,
         }
     }
@@ -163,6 +170,7 @@ impl Plan {
 
     fn clear(&mut self) {
         self.items.clear();
+        self.backdrop = None;
         self.holes.clear();
         self.damage_rects.clear();
         self.damage = Rect::default();
@@ -204,6 +212,9 @@ pub struct Scene {
     pub shell_pointer: Option<Rect>,
     /// The next plan damages everything it covers whatever changed ([`Scene::redraw_all`]).
     redraw_all: bool,
+    /// The app switcher's frame (`set_backdrop`, set by the state before each plan) and what the last plan drew of it.
+    backdrop: Option<BackdropSpec>,
+    last_backdrop: BackdropSig,
     /// What the last plan drew and where, to damage what moved, appeared, restacked or vanished.
     last_placed: Vec<Placed>,
     last_holes: Vec<PlannedHole>,
@@ -656,6 +667,7 @@ impl Scene {
             }
             self.last_cursor = self.cursor;
         }
+        self.plan_backdrop(surfaces);
         self.plan.damage = self.plan.damage.intersect(&output);
         &self.plan
     }

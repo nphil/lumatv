@@ -35,6 +35,7 @@ pub mod sched;
 pub mod server;
 pub mod shell;
 pub mod surface;
+pub mod switcher;
 pub mod system_ui;
 pub mod ticker;
 pub mod transition;

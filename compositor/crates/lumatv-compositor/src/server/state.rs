@@ -134,6 +134,8 @@ pub struct State {
     pub ime: super::ime::ImeState,
     /// The shell client and its UI channel (`shell.rs`).
     pub shell: crate::shell::Shell,
+    /// The app switcher (`switcher.rs`).
+    pub switcher: crate::switcher::Switcher,
     pub stats: Stats,
     pub check: CheckState,
     pub clients: HashMap<ClientId, ClientInfo>,
@@ -181,6 +183,7 @@ impl State {
             keys,
             ime: super::ime::ImeState::default(),
             shell: crate::shell::Shell::default(),
+            switcher: crate::switcher::Switcher::default(),
             stats: Stats::default(),
             check: CheckState::default(),
             clients: HashMap::new(),
@@ -406,6 +409,7 @@ impl State {
         }
         self.scene.cursor =
             if self.seat.cursor_visible { Some(crate::render::cursor::rect_at(self.seat.pointer_position.0, self.seat.pointer_position.1)) } else { None };
+        self.switcher_frame(t0);
         let State { scene, surfaces, output, stats, shell, .. } = self;
         let now_ns = crate::output::monotonic_ns();
         scene.care.refresh(now_ns);

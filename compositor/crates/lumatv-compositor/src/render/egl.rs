@@ -191,6 +191,7 @@ entry_points! {
     glReadPixels: fn(GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, *mut c_void);
     glFinish: fn();
     glFlush: fn();
+    glUniform4f: fn(GLint, GLfloat, GLfloat, GLfloat, GLfloat);
 }
 
 /// Entry points that may be absent; each is checked before use.

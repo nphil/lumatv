@@ -68,6 +68,10 @@ pub trait Output {
         false
     }
 
+    /// The app switcher is opening: the output makes what drawing these buffers scaled needs, now and not in the frame that first shows
+    /// them. The default does nothing.
+    fn prepare_previews(&mut self, _buffers: &[WlBuffer]) {}
+
     /// Whether the driver is still busy with a buffer `prepare_buffer` started on (its warm draw's fence has not
     /// signalled): a frame drawn now would wait on it, so the tick keeps the previous frame on the screen instead
     /// and tries again next time. The default is never.

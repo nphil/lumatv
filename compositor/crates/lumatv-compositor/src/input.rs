@@ -440,10 +440,7 @@ impl State {
             } else {
                 let held = self.keys.home_down_since.take().map(|t| now.saturating_duration_since(t)).unwrap_or_default();
                 if !self.keys.home_escape_sent && r == Route::Home && held < HOLD_HOME {
-                    self.home_pressed(from_network);
-                    if shell_focus {
-                        self.shell_home_key();
-                    }
+                    self.home_tap(now, from_network, shell_focus);
                 }
             }
         }
@@ -558,7 +555,7 @@ impl State {
         self.ime.active_model().is_some() && (self.ime.own_taking() || self.scene.windows().any(|w| w.kind == WindowType::Keyboard && w.map_serial > 0))
     }
 
-    fn home_pressed(&mut self, from_network: bool) {
+    pub(crate) fn home_pressed(&mut self, from_network: bool) {
         self.journal(format!("input: Home{}: launchDefaultApp", if from_network { " (network key)" } else { "" }));
         self.luna_call(
             "luna://com.webos.applicationManager/launchDefaultApp".into(),

@@ -95,6 +95,22 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
                 _ => state.shell_report(),
             }
         }
+        "switcher" => {
+            // switcher [open | close | quitall | activate ID | quit ID]: the app switcher (`switcher.rs`) as the shell would ask for it; without
+            // a word, what it holds. A TV check opens it without the remote's keys and reads its cards.
+            let now = std::time::Instant::now();
+            match words.next() {
+                Some(op @ ("open" | "close" | "quitall")) => {
+                    state.switcher_op(&json!({"op": op}), now);
+                }
+                Some(op @ ("activate" | "quit")) => {
+                    let id = words.next().unwrap_or("");
+                    state.switcher_op(&json!({"op": op, "id": id}), now);
+                }
+                _ => {}
+            }
+            state.switcher_report()
+        }
         "capture" => match words.next() {
             Some(path) => match state.capture_image() {
                 Ok(image) => {

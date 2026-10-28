@@ -11,6 +11,8 @@ use wayland_backend::server::ObjectId;
 use wayland_server::Resource;
 use wayland_server::protocol::wl_buffer::WlBuffer;
 
+mod previews;
+
 use super::egl::{self, EGLImage, EGLSync, Egl, GLuint, Platform};
 use crate::Rect;
 use crate::buffer::{BufferKindRef, kind_of};
@@ -111,6 +113,8 @@ pub struct Gl {
     /// The tiles the frame being drawn copied from the stand-in page: the page owes them again (`Ring::owe`).
     standin_tiles: crate::damage::Tiles,
     warm_lines: u32,
+    /// The app switcher's program and the scaled copies of its pictures (`gl/previews.rs`).
+    previews: previews::Previews,
     #[cfg(feature = "ui")]
     ui: Option<crate::ui::Ui>,
     #[cfg(feature = "ui")]
@@ -193,7 +197,7 @@ impl Gl {
         let a = &egl.api;
         // SAFETY: a context is current; the program is checked by `link`.
         let (program, a_pos, a_uv, u_dim) = unsafe {
-            let program = link(&egl)?;
+            let program = link(&egl, VS, FS)?;
             let a_pos = (a.glGetAttribLocation)(program, c"a_pos".as_ptr());
             let a_uv = (a.glGetAttribLocation)(program, c"a_uv".as_ptr());
             (a.glUseProgram)(program);
@@ -231,6 +235,7 @@ impl Gl {
             standins_next: Vec::new(),
             standin_tiles: crate::damage::Tiles::new(width, height),
             warm_lines: 0,
+            previews: previews::Previews::default(),
             #[cfg(feature = "ui")]
             ui: None,
             #[cfg(feature = "ui")]
@@ -894,7 +899,13 @@ impl Gl {
         let mut standins = std::mem::take(&mut self.standins_next);
         standins.clear();
         let standin_page = self.standin_source.filter(|p| p.0 < self.targets.len());
+        if plan.backdrop.is_none() {
+            self.free_previews();
+        }
         for (index, item) in plan.items.iter().enumerate() {
+            if let Some(b) = plan.backdrop.as_ref().filter(|b| b.before == index) {
+                self.draw_backdrop(b, rects);
+            }
             self.clear_holes_before(plan, index, rects);
             let began = std::time::Instant::now();
             let Some((tex, _size, y_invert, new)) = self.texture_for(&item.buffer, plan.item_damage(item), &item.rect) else {
@@ -949,6 +960,10 @@ impl Gl {
             if drawn {
                 stats.drawn += 1;
             }
+        }
+        // an idle system layer leaves the backdrop above every item
+        if let Some(b) = plan.backdrop.as_ref().filter(|b| b.before >= plan.items.len()) {
+            self.draw_backdrop(b, rects);
         }
         self.set_dim(1.0);
         self.standins_next = std::mem::replace(&mut self.standins, standins);
@@ -1173,7 +1188,7 @@ fn offscreen_target(egl: &Egl, width: u32, height: u32) -> io::Result<(GLuint, G
     }
 }
 
-fn link(egl: &Egl) -> io::Result<GLuint> {
+fn link(egl: &Egl, vs_src: &str, fs_src: &str) -> io::Result<GLuint> {
     let a = &egl.api;
     let compile = |kind: u32, src: &str| -> io::Result<GLuint> {
         let csrc = CString::new(src).unwrap();
@@ -1194,8 +1209,8 @@ fn link(egl: &Egl) -> io::Result<GLuint> {
             Ok(s)
         }
     };
-    let vs = compile(egl::GL_VERTEX_SHADER, VS)?;
-    let fs = compile(egl::GL_FRAGMENT_SHADER, FS)?;
+    let vs = compile(egl::GL_VERTEX_SHADER, vs_src)?;
+    let fs = compile(egl::GL_FRAGMENT_SHADER, fs_src)?;
     // SAFETY: as above.
     unsafe {
         let p = (a.glCreateProgram)();
@@ -1271,6 +1286,10 @@ impl Output for Gl {
         if let Some(t) = self.textures.remove(&buffer.id()) {
             self.graveyard.push(t);
         }
+    }
+
+    fn prepare_previews(&mut self, buffers: &[WlBuffer]) {
+        Gl::prepare_previews(self, buffers);
     }
 
     fn ui_needs_frame(&mut self) -> io::Result<bool> {

@@ -968,6 +968,10 @@ impl Output for Kms {
         self.gl.query_buffer(buffer)
     }
 
+    fn prepare_previews(&mut self, buffers: &[WlBuffer]) {
+        self.gl.prepare_previews(buffers);
+    }
+
     fn prepare_buffer(&mut self, buffer: &WlBuffer) -> bool {
         let new = self.gl.prepare(buffer);
         if new {

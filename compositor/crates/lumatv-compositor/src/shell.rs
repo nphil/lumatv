@@ -147,6 +147,8 @@ pub enum Msg {
     Cancel { tag: u64 },
     /// `POST /v1/ime`: the shell's keyboard (`ime::own_op`).
     Ime(Value),
+    /// `POST /v1/switcher`: the app switcher's requests (`switcher.rs`): open, layout, close, activate, quit, quitall.
+    Switcher(Value),
 }
 
 /// Events on their way to the client, shared with the server thread.
@@ -546,6 +548,7 @@ impl State {
 
     fn shell_client_gone(&mut self, why: &str) {
         crate::server::ime::own_gone(self);
+        self.switcher_reset();
         if self.shell.connected || !self.shell.luna_tags.is_empty() {
             self.journal(format!("shell: client gone ({why}); {} luna subscription(s) cancelled", self.shell.luna_tags.iter().filter(|t| t.subscribe).count()));
         }
@@ -693,6 +696,14 @@ impl State {
                 self.shell.note_seen(now);
                 crate::server::ime::own_op(self, &body);
             }
+            Msg::Switcher(body) => {
+                self.shell.note_seen(now);
+                // The pictures move on the compositor's clock: a still screen shows the change at once, a running one at the tick.
+                if self.switcher_op(&body, now) && self.output.draws_on_damage(now) {
+                    self.tick();
+                    return true;
+                }
+            }
         }
         false
     }
@@ -745,6 +756,7 @@ impl State {
         let refresh = json!({"hz": self.config.refresh_hz});
         self.shell.push_if_changed("refresh", refresh);
         crate::server::ime::own_publish(self);
+        self.switcher_sync_topics();
     }
 
     /// Whether LumaTV's Home would be drawn now: the shell's Home window is mapped and the foreground card is SAM's Home or there is
@@ -799,9 +811,15 @@ impl State {
 
     /// The Home key was pressed while LumaTV's Home has the screen: the UI closes what it has open.
     pub fn shell_home_key(&mut self) {
+        self.shell_home_key_offer(false);
+    }
+
+    /// [`State::shell_home_key`], saying whether the switcher is on offer: Home was pressed at rest with apps open, and the UI, which knows what
+    /// Home has open, may open the switcher instead of closing something.
+    pub fn shell_home_key_offer(&mut self, switcher: bool) {
         if self.shell.connected {
             let n = self.shell.stats.events;
-            self.shell.push("homekey", json!({"n": n}));
+            self.shell.push("homekey", json!({"n": n, "switcher": switcher}));
         }
     }
 
@@ -1143,6 +1161,10 @@ fn handle_request(req: &Request, token: &str, outbox: &Arc<Mutex<Outbox>>, inbox
         }
         ("POST", "/v1/ime") => {
             inbox.send(Msg::Ime(body));
+            Handled::Answer(200, json!({"ok": true}))
+        }
+        ("POST", "/v1/switcher") => {
+            inbox.send(Msg::Switcher(body));
             Handled::Answer(200, json!({"ok": true}))
         }
         _ => Handled::Answer(404, json!({"ok": false, "error": "no such route"})),
