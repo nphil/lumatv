@@ -11,8 +11,9 @@
 #                     playing, filmMaker back on Home
 #   gate.sh hdmi      HDMI 2 (the receiver) as the foreground app, its card mapped, then Home and HDMI 2 ended through SAM
 #   gate.sh apps      YouTube (cobalt) and PlxNative (LG's SDL) from a fresh start: card mapped and foreground within 5 s, still running
-#                     10 s on with its connection kept, ended through SAM within 15 s with no exit status logged (the apps that died
-#                     under LumaTV's compositor on 2026-10-28 while every other ran)
+#                     10 s on with its connection kept, ended through SAM within 15 s with no exit status logged; then GeForce NOW,
+#                     which opens LG's browser: Home launched over it still in front 6 s later (the apps that failed under LumaTV's
+#                     compositor on 2026-10-28 while every other ran)
 #   gate.sh keys      the remote's own keys through the compositor's routing (keys.rs): a gear tap, Input, the Netflix button, a digit tapped
 #                     and held, Exit; each judged by the compositor's journal and by what SAM then has in front
 #   gate.sh ime       a text field in LG's Search app brings up maliit's keyboard: an input method bound, a context made for the field,
@@ -354,10 +355,10 @@ netflix)
     # instance is ended and the preload manager loads a new one, which the launch then takes.
     closed=0
     held=$(held_port)
-    if ls1 com.webos.applicationManager/running '{}' | grep -q '"id":"netflix"'; then
-        ls1 com.webos.applicationManager/closeByAppId '{"id":"netflix"}' > /dev/null
+    if app_running netflix; then
+        close_app netflix
         closed=1
-        n=0; while [ $n -lt 15 ] && ls1 com.webos.applicationManager/running '{}' | grep -q '"id":"netflix"'; do sleep 1; n=$((n+1)); done
+        wait_app_gone netflix 15
         sleep 5
     fi
     ls1 com.webos.applicationManager/launch '{"id":"netflix","params":{"contentTarget":"m=https://www.netflix.com/watch/80141336&source_type=4"}}' > /dev/null
@@ -403,10 +404,12 @@ hdmi)
     ;;
 apps)
     # YouTube (cobalt) and PlxNative (LG's SDL) died under LumaTV's compositor while every other app ran (2026-10-28): Cobalt wants
-    # touch on every seat and no wl_seat.name, LG's SDL wants wl_starfish_pointer. The check launches each from a fresh start: its card
+    # touch on every seat and no wl_seat.name, LG's SDL wants wl_starfish_pointer, and PlxNative's close waits for the frame callback
+    # of its last swap (it crashed 1 s after the close when that never came, SIGSEGV 11). Each is launched from a fresh start: its card
     # mapped and SAM naming it foreground within 5 s, still running and mapped 10 s later with its connection kept, ended through SAM
-    # within 15 s and SAM logging no exit status for its pid (a signal is one, SIGSEGV 11). YouTube may play sound; the driver muted the
-    # receiver. A later app that dies the same way is added to the list.
+    # within 15 s and SAM logging no exit status for its pid. YouTube may play sound; the driver muted the receiver. Then NVIDIA's
+    # GeForce NOW, which opens LG's browser and ends itself: Home launched over the browser stays in front (the browser took the front
+    # back the same day). A later app that fails the same way is added here.
     bad=""; kd=""
     for app in youtube.leanback.v4 com.beb.plxnative; do
         if app_running "$app"; then close_app "$app"; wait_app_gone "$app" 15; sleep 3; fi
@@ -433,6 +436,30 @@ apps)
         if [ "$up" != none ] && [ "$alive" = yes ] && [ "$dropped" = 0 ] && [ "$gone" = yes ] && [ -z "$died" ]; then kd="$kd $what;"; else bad="$bad $what;"; fi
         home; sleep 4
     done
+    if ls1 com.webos.applicationManager/getAppInfo '{"id":"com.geforcenow.play"}' | tr -d ' \n' | grep -q '"returnValue":true'; then
+        for a in com.webos.app.browser com.geforcenow.play; do
+            if app_running $a; then close_app $a; wait_app_gone $a 15; sleep 3; fi
+        done
+        ctl note apps-geforcenow > /dev/null
+        ls1 com.webos.applicationManager/launch '{"id":"com.geforcenow.play"}' > /dev/null
+        n=0; br=no
+        while [ $n -lt 16 ]; do
+            if [ "$(fg)" = com.webos.app.browser ]; then br=yes; break; fi
+            sleep 0.5; n=$((n+1))
+        done
+        # The browser's own requests for fullscreen start about 3.4 s after the launch; Home comes 8 s after it, as on 2026-10-28.
+        sleep 4
+        home; sleep 6
+        f=$(fg)
+        journal_after apps-geforcenow > $OUT/apps-geforcenow.txt
+        close_app com.webos.app.browser; close_app com.geforcenow.play
+        wait_app_gone com.webos.app.browser 15
+        home; sleep 3
+        what="com.geforcenow.play browser-in-front $br front-6s-after-home ${f:-none}"
+        if [ "$br" = yes ] && [ "$f" = com.webos.app.home ]; then kd="$kd $what;"; else bad="$bad $what;"; fi
+    else
+        kd="$kd com.geforcenow.play not installed;"
+    fi
     detail="${bad:+failed:$bad }ok:${kd:- none}"
     echo "$detail" > $OUT/apps-result.txt
     if [ -z "$bad" ]; then pass apps "$detail"; else fail apps "$detail"; fi

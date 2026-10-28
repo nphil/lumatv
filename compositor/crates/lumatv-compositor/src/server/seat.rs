@@ -32,9 +32,6 @@ impl SeatId {
 /// others their evdev device's ("LGE RCU", "LGE M-RCU - Builtin [0]", …). LG's SDL numbers the remotes by these names.
 pub const SEAT0_DEVICE: &str = "Default USB Mouse input, not initialized yet.";
 
-/// What `wl_starfish_pointer.get_mrcu_standby_timer` answers before an app set one: LG's compositor says 5000.
-pub const MRCU_STANDBY_DEFAULT_MS: u32 = 5000;
-
 #[derive(Default)]
 pub struct SeatState {
     /// Every bound `wl_keyboard`; its seat is its user data (`SeatId`).
@@ -62,15 +59,9 @@ pub struct SeatState {
     /// When the cursor was last shown or moved, for the timeout.
     pub cursor_shown_at: Option<std::time::Instant>,
     pub motions: u64,
-    /// The cursor standby time apps set through `wl_starfish_pointer` (ms), answered to `get_mrcu_standby_timer`.
-    pub mrcu_standby_timer: u32,
 }
 
 impl SeatState {
-    pub fn new(seats: u32) -> SeatState {
-        SeatState { seats, mrcu_standby_timer: MRCU_STANDBY_DEFAULT_MS, ..SeatState::default() }
-    }
-
     /// The device name `wl_webos_seat.info` reports for a seat.
     pub fn device_name(&self, id: SeatId) -> &str {
         match id.0 {

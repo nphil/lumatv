@@ -381,6 +381,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to -1, which skips the call). `wl_webos_seat.info` names each seat by its input device as LG
   does, `wl_output` sends no `scale` (LG never does), and the gate launches YouTube and PlxNative
   (`gate.sh apps`: foreground within 5 s, alive at 10 s, closed cleanly).
+- Compositor: PlxNative closes without crashing. A surface destroyed before any frame drew its
+  last commit still gets that commit's frame callbacks, with the frame in flight or at once:
+  LG's SDL destroys its `wl_surface` before `eglTerminate`, Mali's EGL waits there for the
+  callback of the last swap, and SDL's force-quit then ran a second `SDL_Quit` a second later,
+  which crashed (SIGSEGV in 4 of 13 closes). The cursor standby timer is kept per client. A
+  `set_state` asking for the state a window already has gets no answer, as under LG's
+  compositor: LG's browser, which NVIDIA's GeForce NOW opens, asked for fullscreen again 0.3 s
+  after each answer and took the front back from Home.
+- Gate: `gate.sh apps` also launches Home over the browser GeForce NOW opens, which must keep the
+  front, and the Netflix check's fresh start reads SAM's list as `luna-send` prints it, so a
+  running Netflix is closed first as intended.
 - Shell at 120 Hz: the quick panel, input picker and the dock's row scroll step once per rendered
   frame (`kit/FrameMotion`). The basic render loop has no animation driver, so every QML
   animation stepped on Qt's 16 ms timer and slides ran at 60 steps a second at 120 Hz.

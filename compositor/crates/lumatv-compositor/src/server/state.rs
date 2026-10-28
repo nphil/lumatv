@@ -76,11 +76,21 @@ pub struct ClientInfo {
     pub cmd: String,
     /// Globals bound, in order: what a client that leaves without a surface was looking for.
     pub bound: Vec<&'static str>,
+    /// The cursor standby time this client set through `wl_starfish_pointer` (ms), answered to its `get_mrcu_standby_timer`. Per
+    /// client: a probe got LG's 5000 from LG's compositor, and from one value for all the 300000 another client had set (2026-10-28).
+    pub mrcu_standby_ms: u32,
 }
 
 impl ClientInfo {
     fn new(pid: i32, uid: u32) -> Self {
-        ClientInfo { pid, uid, since: Instant::now(), cmd: if pid > 0 { cmdline(pid) } else { String::new() }, bound: Vec::new() }
+        ClientInfo {
+            pid,
+            uid,
+            since: Instant::now(),
+            cmd: if pid > 0 { cmdline(pid) } else { String::new() },
+            bound: Vec::new(),
+            mrcu_standby_ms: super::starfish::MRCU_STANDBY_DEFAULT_MS,
+        }
     }
 }
 
@@ -183,7 +193,7 @@ impl State {
             surfaces: Surfaces::default(),
             scene,
             output,
-            seat: SeatState::new(1),
+            seat: SeatState { seats: 1, ..SeatState::default() },
             foreign: ForeignState::default(),
             luna,
             luna_state: crate::luna_methods::LunaState::default(),
@@ -381,10 +391,10 @@ impl State {
             for b in s.current.buffer.into_iter().chain(s.current.retired) {
                 self.release_after_present.push(b);
             }
-            for cb in s.current.frame_callbacks {
-                // A callback on a destroyed surface is never fired; dropping the object destroys it client-side.
-                drop(cb);
-            }
+            // While the output paces frames the commit is not drawn here, and its callbacks would never be paid. LG's SDL destroys the
+            // wl_surface before eglTerminate, and Mali's EGL waits there for the callback of the last eglSwapBuffers: PlxNative's close
+            // hung until SDL's 1 s force-quit ran a second SDL_Quit, which crashed (SIGSEGV in 4 of 13 closes, 2026-10-28).
+            self.owe_after_destroy(s.current.frame_callbacks);
         }
         let was_card = self.scene.window_of(id).and_then(|wid| self.scene.window(wid)).is_some_and(|w| w.kind.is_card());
         self.scene.remove_surface(id);
@@ -602,6 +612,16 @@ impl State {
                 cb.done(at_ms);
                 self.stats.callbacks_sent += 1;
             }
+        }
+    }
+
+    /// Frame callbacks a destroyed surface owed for a commit no frame drew: they go out with the last frame in flight (a client's
+    /// callbacks never overtake its earlier ones), or at once when none is on its way.
+    fn owe_after_destroy(&mut self, callbacks: Vec<WlCallback>) {
+        if let Some((_, last)) = self.frames_in_flight.back_mut() {
+            last.callbacks.extend(callbacks);
+        } else {
+            self.fire_callbacks(callbacks, crate::output::monotonic_ms());
         }
     }
 

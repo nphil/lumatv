@@ -44,8 +44,8 @@ fn advertises_the_globals_lg_clients_bind() {
 
 /// LG's SDL (PlxNative, Apple TV) binds `wl_starfish_pointer` at the registry and sends it the cursor standby timer when
 /// its window's state becomes fullscreen (also at the bind and at every pointer enter); without the global the proxy is
-/// NULL and the app dies in `SetMRCUTimer` (PlxNative, 2026-10-28, SIGSEGV 0.5 s after its map). The timer is kept and
-/// answered; LG's compositor answers 5000 before any app set one.
+/// NULL and the app dies in `SetMRCUTimer` (PlxNative, 2026-10-28, SIGSEGV 0.5 s after its map). The timer is kept per
+/// client and answered; LG's compositor answers 5000 to a client that set none.
 #[test]
 fn lgs_sdl_sets_the_cursor_standby_timer_as_its_card_goes_fullscreen() {
     use lumatv_wl_protocols::webos_shell::client::wl_webos_shell_surface::State as WlState;
@@ -64,9 +64,13 @@ fn lgs_sdl_sets_the_cursor_standby_timer_as_its_card_goes_fullscreen() {
     starfish.get_mrcu_standby_timer();
     client.roundtrip();
     assert_eq!(client.state.starfish_timer_values, vec![5000, 300_000]);
-    let (timer, position) = server.eval(|s| (s.seat.mrcu_standby_timer, s.seat.pointer_position));
-    assert_eq!((timer, position), (300_000, (960, 540)));
-    assert!(server.eval(|s| s.clients.len()) == 1, "the client is still connected");
+    assert_eq!(server.eval(|s| s.seat.pointer_position), (960, 540));
+    let mut other = Client::connect_extra(&mut server);
+    let other_starfish = other.starfish_pointer();
+    other_starfish.get_mrcu_standby_timer();
+    other.roundtrip();
+    assert_eq!(other.state.starfish_timer_values, vec![5000], "another client's timer is not this one's");
+    assert!(server.eval(|s| s.clients.len()) == 2, "both clients are still connected");
 }
 
 /// Every seat of LG's compositor says keyboard, pointer and touch and never sends `name` (probed 2026-10-28). Cobalt
@@ -250,6 +254,40 @@ fn a_covered_card_is_minimized_and_comes_back_when_it_asks_for_fullscreen_or_the
     let (fg, image) = server.eval(|s| (s.scene.foreground(&s.surfaces).map(|w| w.title.clone()), harness::drawn(s)));
     assert_eq!(fg.as_deref(), Some("HDMI2"));
     assert_eq!(image.pixel(5, 5), [0, 0, 0xff, 0xff]);
+}
+
+/// A card that asks for the state it already has gets no answer, as under LG's compositor. LG's browser (NVIDIA's GeForce NOW
+/// opens it) asks for fullscreen again 0.3 s after each answer; answered every time, it asked 40 times in 12 s (once under LG's)
+/// and the request after Home's launch took the front back from Home (2026-10-28).
+#[test]
+fn a_card_asking_for_the_state_it_has_is_not_answered() {
+    use lumatv_wl_protocols::webos_shell::client::wl_webos_shell_surface::State as WlState;
+    let (fullscreen, minimized) = (WlState::Fullscreen as u32, WlState::Minimized as u32);
+    let mut server = Server::start();
+    let mut client = Client::connect(&mut server);
+    let states = |s: &harness::ClientState, id: u32| -> Vec<u32> { s.states_of.iter().filter(|(w, _)| *w == id).map(|(_, st)| *st).collect() };
+    let home = client.card("_WEBOS_WINDOW_TYPE_CARD", "Home");
+    let home_id = home.webos.id().protocol_id();
+    let red = client.shm_buffer(1920, 1080, 0xffff_0000);
+    client.present(&home.surface, &red);
+    let browser = client.card("_WEBOS_WINDOW_TYPE_CARD", "Browser");
+    let browser_id = browser.webos.id().protocol_id();
+    let blue = client.shm_buffer(1920, 1080, 0xff00_00ff);
+    client.present(&browser.surface, &blue);
+    assert!(client.wait_until(WAIT, |s| states(s, browser_id) == [fullscreen] && states(s, home_id) == [fullscreen, minimized]));
+    for _ in 0..3 {
+        browser.webos.set_state(fullscreen);
+    }
+    client.roundtrip();
+    std::thread::sleep(Duration::from_millis(30));
+    client.roundtrip();
+    assert_eq!(states(&client.state, browser_id), [fullscreen], "already fullscreen: nothing to answer");
+    // Home is launched: it comes to the front and the browser, minimized, is told so once.
+    home.webos.set_state(fullscreen);
+    client.conn.flush().unwrap();
+    assert!(client.wait_until(WAIT, |s| states(s, home_id) == [fullscreen, minimized, fullscreen] && states(s, browser_id) == [fullscreen, minimized]));
+    let fg = server.eval(|s| s.scene.foreground(&s.surfaces).map(|w| w.title.clone()));
+    assert_eq!(fg.as_deref(), Some("Home"));
 }
 
 /// A preloaded app's window (LG's `launchHidden` preload: created, properties set, committed without a buffer, never
@@ -1114,11 +1152,13 @@ fn planning_a_live_scene_allocates_nothing_once_warm() {
     assert_eq!(allocations, 0, "allocations while planning 200 frames");
 }
 
-/// Software output whose drawn frames are on their way to the screen until the test lets them land, like KMS.
+/// Software output whose drawn frames are on their way to the screen until the test lets them land, like KMS. `paced`: the output
+/// says when its next frame is due, as KMS does while frames follow one another.
 struct FlipOutput {
     inner: lumatv_compositor::render::software::Software,
     landings: std::sync::Arc<std::sync::atomic::AtomicU32>,
     drew: bool,
+    paced: bool,
 }
 
 impl lumatv_compositor::output::Output for FlipOutput {
@@ -1153,6 +1193,9 @@ impl lumatv_compositor::output::Output for FlipOutput {
     fn dispatch_events(&mut self) -> std::io::Result<u32> {
         Ok(self.landings.swap(0, std::sync::atomic::Ordering::SeqCst))
     }
+    fn next_frame_at(&self, now: std::time::Instant) -> Option<std::time::Instant> {
+        self.paced.then(|| now + Duration::from_millis(16))
+    }
 }
 
 #[test]
@@ -1162,7 +1205,7 @@ fn frame_callbacks_wait_for_the_frame_to_land() {
     let landings = Arc::new(AtomicU32::new(0));
     let l2 = landings.clone();
     let mut server = Server::start_with(Box::new(move || {
-        Box::new(FlipOutput { inner: lumatv_compositor::render::software::Software::new(1920, 1080), landings: l2, drew: false })
+        Box::new(FlipOutput { inner: lumatv_compositor::render::software::Software::new(1920, 1080), landings: l2, drew: false, paced: false })
     }));
     let mut client = Client::connect(&mut server);
     let win = client.card("_WEBOS_WINDOW_TYPE_CARD", "Paced");
@@ -1180,6 +1223,63 @@ fn frame_callbacks_wait_for_the_frame_to_land() {
     // A flip that never reports does not hold clients for good.
     client.present(&win.surface, &buf);
     assert!(client.wait_until(Duration::from_secs(2), |s| s.frames_done == 2), "sent after 250 ms without a flip");
+}
+
+/// A surface destroyed while the output paces frames, with a commit no frame drew yet: that commit's callback still goes out, with
+/// the frame in flight or at once. LG's SDL destroys the wl_surface before eglTerminate, and Mali's EGL waits there for the callback of
+/// the last swap (PlxNative, 2026-10-28: the close hung until SDL's force-quit crashed it).
+#[test]
+fn a_destroyed_surface_still_gets_the_callbacks_it_was_owed() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    let landings = Arc::new(AtomicU32::new(0));
+    let l2 = landings.clone();
+    let mut server = Server::start_with(Box::new(move || {
+        Box::new(FlipOutput { inner: lumatv_compositor::render::software::Software::new(1920, 1080), landings: l2, drew: false, paced: true })
+    }));
+    server.ticking.store(false, Ordering::SeqCst);
+    let mut client = Client::connect(&mut server);
+    let land = |server: &mut Server, landings: &AtomicU32| {
+        landings.store(1, Ordering::SeqCst);
+        server.eval(|s| {
+            let n = s.output.dispatch_events().unwrap();
+            s.frames_landed(n);
+        });
+    };
+    // The last swap comes while a frame is on its way: its callback goes with that frame.
+    let win = client.card("_WEBOS_WINDOW_TYPE_CARD", "Swapping");
+    let buf = client.shm_buffer(64, 64, 0xff00_ff00);
+    client.present(&win.surface, &buf);
+    client.roundtrip();
+    server.eval(|s| {
+        s.tick();
+    });
+    win.surface.attach(Some(&buf), 0, 0);
+    win.surface.damage(0, 0, i32::MAX, i32::MAX);
+    let _last = win.surface.frame(&client.qh, ());
+    win.surface.commit();
+    win.surface.destroy();
+    client.roundtrip();
+    assert_eq!(client.state.frames_done, 0, "both wait for the frame on its way");
+    land(&mut server, &landings);
+    assert!(client.wait_until(WAIT, |s| s.frames_done == 2), "the landing pays the destroyed surface's last callback too");
+    // The last swap comes after the last frame landed: its callback goes at once.
+    let win = client.card("_WEBOS_WINDOW_TYPE_CARD", "Closing");
+    client.present(&win.surface, &buf);
+    client.roundtrip();
+    server.eval(|s| {
+        s.tick();
+    });
+    land(&mut server, &landings);
+    assert!(client.wait_until(WAIT, |s| s.frames_done == 3));
+    win.surface.attach(Some(&buf), 0, 0);
+    win.surface.damage(0, 0, i32::MAX, i32::MAX);
+    let _last = win.surface.frame(&client.qh, ());
+    win.surface.commit();
+    win.surface.destroy();
+    client.roundtrip();
+    assert!(client.wait_until(WAIT, |s| s.frames_done == 4), "nothing is on its way: the callback goes with the destroy");
+    assert!(server.eval(|s| s.clients.len()) == 1, "the client is still connected");
 }
 
 #[test]

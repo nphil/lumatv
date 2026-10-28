@@ -10,19 +10,23 @@ use lumatv_wl_protocols::starfish::server::wl_starfish_pointer::{self, WlStarfis
 
 use crate::{State, noop_dispatch, plain_global};
 
+/// What `get_mrcu_standby_timer` answers a client that set none: LG's compositor says 5000 (probed 2026-10-28).
+pub const MRCU_STANDBY_DEFAULT_MS: u32 = 5000;
+
 plain_global!(WlStarfishPointer);
 plain_global!(WlStarfishOutput);
 
 impl Dispatch<WlStarfishPointer, ()> for State {
     fn request(
         state: &mut Self,
-        _client: &Client,
+        client: &Client,
         resource: &WlStarfishPointer,
         request: wl_starfish_pointer::Request,
         _data: &(),
         _dh: &DisplayHandle,
         _di: &mut DataInit<'_, Self>,
     ) {
+        state.touch_client(client);
         match request {
             wl_starfish_pointer::Request::SetCursorPosition { x, y } => {
                 state.note_request("wl_starfish_pointer", 0, &format!("set_cursor_position({x}, {y})"));
@@ -30,10 +34,12 @@ impl Dispatch<WlStarfishPointer, ()> for State {
             }
             wl_starfish_pointer::Request::SetMrcuStandbyTimer { value } => {
                 state.note_request("wl_starfish_pointer", 0, &format!("set_mrcu_standby_timer({value})"));
-                state.seat.mrcu_standby_timer = value;
+                if let Some(c) = state.clients.get_mut(&client.id()) {
+                    c.mrcu_standby_ms = value;
+                }
             }
             wl_starfish_pointer::Request::GetMrcuStandbyTimer => {
-                resource.timer_value(state.seat.mrcu_standby_timer);
+                resource.timer_value(state.clients.get(&client.id()).map_or(MRCU_STANDBY_DEFAULT_MS, |c| c.mrcu_standby_ms));
             }
             _ => {}
         }

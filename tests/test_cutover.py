@@ -933,11 +933,21 @@ else:
 save()
 '''
 SIM_LUNA = SIM_PRELUDE + r'''
+def sam_log(app, status):
+    """SAM's APP_CLOSED line for APP, in the log the gate reads."""
+    path = os.environ.get("LUMATV_MESSAGES")
+    if path:
+        with open(path, "a") as f:
+            f.write('2026-10-28T17:28:04.285632Z user.info sam [] SAM APP_CLOSED {"app_id":"%s","type":"native","pid":"%d","exit_status":%d} \n' % (app, pid_of(app), status))
+
+
 uri = [a for a in sys.argv[1:] if a.startswith("luna://")][0]
 payload = sys.argv[-1] if not sys.argv[-1].startswith("luna://") else "{}"
 method = uri.rsplit("/", 1)[1]
 if method == "getForegroundAppInfo":
     out({"returnValue": True, "appId": front()})
+elif method == "getAppInfo":
+    out({"returnValue": json.loads(payload)["id"] in cfg.get("installed", ["com.geforcenow.play"])})
 elif method == "launch":
     request = json.loads(payload)
     app = request["id"]
@@ -945,15 +955,22 @@ elif method == "launch":
     if app in cfg.get("unlaunchable", []):
         s["launched"].append(app)
         out({"returnValue": False, "errorText": "no such app"})
+    elif app == "com.geforcenow.play":
+        # NVIDIA's web app opens LG's browser and ends itself
+        s["launched"].append(app)
+        open_app("com.webos.app.browser")
+        out({"returnValue": True})
     else:
         open_app(app)
+        if app == "com.webos.app.home" and cfg.get("stray_browser") and any(w[0] == "com.webos.app.browser" for w in s["windows"]):
+            # the browser asks for fullscreen again and takes the front back (2026-10-28)
+            s["windows"] = [w for w in s["windows"] if w[0] != "com.webos.app.browser"] + [["com.webos.app.browser", "Card"]]
         if app != "com.webos.app.home":
             s["journal"].append("client connected: pid %d uid 5365 cmd \"/media/developer/apps/usr/palm/applications/%s/main {\\\"event\\\":\\\"launch\\\"}\"" % (pid_of(app), app))
         if app in cfg.get("dies", []):
             # an app that SIGSEGVs after its map, as YouTube and PlxNative did: its connection goes, SAM logs the signal
             s["journal"].append("client disconnected: pid %d uid 5365 after 599 ms (ConnectionClosed); bound [\"wl_compositor\"]" % pid_of(app))
-            with open(os.environ["LUMATV_MESSAGES"], "a") as f:
-                f.write('2026-10-28T17:28:04.285632Z user.info sam [] SAM APP_CLOSED {"app_id":"%s","type":"native","pid":"%d","exit_status":11} \n' % (app, pid_of(app)))
+            sam_log(app, 11)
             drop_app(app)
         if app == "com.webos.app.voice" and request.get("params", {}).get("launchMode") == "vkb" and cfg.get("vkb", True) and cfg.get("keyboard", True):
             s["panel"] = {"x": 0, "y": 720, "w": 1920, "h": 360}
@@ -962,6 +979,9 @@ elif method == "launch":
 elif method == "closeByAppId":
     app = json.loads(payload)["id"]
     s["closed"].append(app)
+    if any(w[0] == app for w in s["windows"]):
+        # PlxNative crashed a second after its close (SIGSEGV), with its connection kept until then
+        sam_log(app, 11 if app in cfg.get("crashes_at_close", []) else 0)
     drop_app(app)
     if app == "com.webos.app.voice":
         s["panel"] = None
@@ -1145,18 +1165,24 @@ class GateKeysAndIme(FakeSet):
         r = subprocess.run(["sh", "-c", ". %s\nime_rule 1 yes yes 3 yes yes" % GATE], env=dict(self.env, GATE_LIB="1"), capture_output=True, text=True)
         self.assertEqual((r.returncode, r.stdout[:4]), (0, "PASS"))
 
-    def test_youtube_and_plxnative_that_come_up_stay_and_close_pass_the_apps_check(self):
+    def apps(self, **cfg):
         messages = os.path.join(self.tmp.name, "messages")
         write(messages, "old lines\n")
-        rc, out = self.gate("apps", env={"LUMATV_MESSAGES": messages})
-        self.assertIn("GATE apps: PASS ok: youtube.leanback.v4 pid ", out)
-        self.assertIn("com.beb.plxnative pid ", out)
-        self.assertIn("alive-at-10s yes connection-lost 0 closed-in-15s yes;", out)
+        self.configure(**cfg)
+        return self.gate("apps", env={"LUMATV_MESSAGES": messages})
+
+    def test_youtube_plxnative_and_home_over_geforce_nows_browser_pass_the_apps_check(self):
+        rc, out = self.apps()
+        self.assertIn("GATE apps: PASS ok: youtube.leanback.v4 pid %d foreground-in-ms 0 alive-at-10s yes connection-lost 0 closed-in-15s yes; "
+                      "com.beb.plxnative pid " % (1000 + sum(map(ord, "youtube.leanback.v4")) % 1000), out)
+        self.assertIn("closed-in-15s yes; com.geforcenow.play browser-in-front yes front-6s-after-home com.webos.app.home;", out)
         sim = self.sim()
-        self.assertEqual([a for a in sim["launched"] if a != "com.webos.app.home"], ["youtube.leanback.v4", "com.beb.plxnative"])
-        self.assertEqual(sim["closed"], ["youtube.leanback.v4", "com.beb.plxnative"])
+        self.assertEqual([a for a in sim["launched"] if a != "com.webos.app.home"],
+                         ["youtube.leanback.v4", "com.beb.plxnative", "com.geforcenow.play", "com.webos.app.browser"])
+        self.assertEqual(sim["closed"], ["youtube.leanback.v4", "com.beb.plxnative", "com.webos.app.browser", "com.geforcenow.play"])
         self.assertEqual(sim["windows"], [["com.webos.app.home", "Card"]], "Home alone is left")
         self.assertTrue(os.path.exists(os.path.join(self.out, "apps-com.beb.plxnative.txt")))
+        self.assertTrue(os.path.exists(os.path.join(self.out, "apps-geforcenow.txt")))
 
     def test_sams_list_is_read_as_luna_send_prints_it_with_spaces_and_lines(self):
         # the app is on SAM's list while it runs and off it after the close: an app_running that never matches passed every app as "not alive"
@@ -1204,14 +1230,28 @@ class GateKeysAndIme(FakeSet):
         self.assertNotIn("youtube", r.stdout, "another app's exit is not copied")
 
     def test_an_app_that_dies_after_its_map_fails_the_apps_check_by_name_with_sams_exit_status(self):
-        messages = os.path.join(self.tmp.name, "messages")
-        write(messages, "old lines\n")
-        self.configure(dies=["youtube.leanback.v4"])
-        rc, out = self.gate("apps", env={"LUMATV_MESSAGES": messages})
+        rc, out = self.apps(dies=["youtube.leanback.v4"])
         self.assertIn("GATE apps: FAIL failed: youtube.leanback.v4 pid ", out)
         self.assertIn('alive-at-10s no connection-lost 1 closed-in-15s yes APP_CLOSED {"app_id":"youtube.leanback.v4","type":"native","pid":"', out)
         self.assertIn('"exit_status":11; ok: com.beb.plxnative pid ', out)
         self.assertEqual(self.sim()["windows"], [["com.webos.app.home", "Card"]])
+
+    def test_an_app_that_crashes_at_its_close_fails_the_apps_check(self):
+        # PlxNative's SIGSEGV a second after SAM's close, with its window and connection kept until then (2026-10-28)
+        rc, out = self.apps(crashes_at_close=["com.beb.plxnative"])
+        self.assertIn("GATE apps: FAIL failed: com.beb.plxnative pid ", out)
+        self.assertIn('alive-at-10s yes connection-lost 0 closed-in-15s yes APP_CLOSED {"app_id":"com.beb.plxnative","type":"native","pid":"', out)
+        self.assertIn('"exit_status":11; ok: youtube.leanback.v4 pid ', out)
+
+    def test_a_browser_that_takes_the_front_back_from_home_fails_the_apps_check(self):
+        rc, out = self.apps(stray_browser=True)
+        self.assertIn("GATE apps: FAIL failed: com.geforcenow.play browser-in-front yes front-6s-after-home com.webos.app.browser; ok: youtube.leanback.v4 pid ", out)
+        self.assertEqual(self.sim()["windows"], [["com.webos.app.home", "Card"]], "the browser is closed after the check")
+
+    def test_without_geforce_now_the_apps_check_says_so_and_passes(self):
+        rc, out = self.apps(installed=[])
+        self.assertIn("closed-in-15s yes; com.geforcenow.play not installed;", out)
+        self.assertIn("GATE apps: PASS", out)
 
 
 def load(name, extra_modules=()):
@@ -1397,12 +1437,12 @@ class GateDriver(unittest.TestCase):
     def test_skips_leave_out_their_checks_and_their_sessions(self):
         calls, code, _ = self.run_main(argv=["--skip", "firmware,homeheld,netflix,hdmi,apps,keys,ime,shell,frames,standby,homekey,wd-hang,wd-crash"])
         self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
-                         ["cutover enable --session --max-minutes 14", "live", "x1 60", "evidence", "escape", "cutover disable"])
+                         [self.session(self.first), "live", "x1 60", "evidence", "escape", "cutover disable"])
 
     def test_the_keys_and_the_keyboard_are_checks_of_their_own_in_the_first_session(self):
         calls, code, _ = self.run_main(argv=["--skip", "firmware,homeheld,x1,netflix,hdmi,apps,shell,frames,standby,homekey,wd-hang,wd-crash,escape"])
         self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
-                         ["cutover enable --session --max-minutes 14", "live", "keys", "ime", "evidence", "cutover disable"])
+                         [self.session(self.first), "live", "keys", "ime", "evidence", "cutover disable"])
         sent = [c for c in calls if "gate.sh keys" in c or "gate.sh ime" in c]
         self.assertEqual(len(sent), 2)
 
@@ -1410,8 +1450,8 @@ class GateDriver(unittest.TestCase):
         calls, code, _ = self.run_main(argv=["--only", "keys,ime"])
         self.assertEqual(code, 0)
         self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
-                         ["cutover enable --session --max-minutes 14", "live", "keys", "ime", "evidence", "cutover disable"])
-        self.assertEqual([c for c in calls if "cutover.sh enable" in c], ["sh /tmp/lumatv/cutover.sh enable --session --max-minutes 14"])
+                         [self.session(self.first), "live", "keys", "ime", "evidence", "cutover disable"])
+        self.assertEqual([c for c in calls if "cutover.sh enable" in c], ["sh /tmp/lumatv/cutover.sh enable --session --max-minutes %d" % self.first])
 
     def test_only_with_a_check_that_does_not_exist_changes_nothing_on_the_set(self):
         calls, code, _ = self.run_main(argv=["--only", "keys,bogus"])
@@ -1422,13 +1462,13 @@ class GateDriver(unittest.TestCase):
     def test_only_and_skip_together_leave_what_both_allow(self):
         calls, code, _ = self.run_main(argv=["--only", "keys,ime", "--skip", "ime"])
         self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
-                         ["cutover enable --session --max-minutes 14", "live", "keys", "evidence", "cutover disable"])
+                         [self.session(self.first), "live", "keys", "evidence", "cutover disable"])
 
     def test_the_keys_ime_and_home_checks_in_one_run_each_session_ends_with_the_check_that_ends_it(self):
         calls, code, _ = self.run_main(argv=["--only", "homeheld,keys,ime,homekey,escape"])
         self.assertEqual(code, 0)
         self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
-                         ["homeheld", "cutover enable --session --max-minutes 14", "live", "keys", "ime", "evidence",
+                         ["homeheld", self.session(self.first), "live", "keys", "ime", "evidence",
                           "homekey", "cutover enable --session --max-minutes 6", "live after-homekey", "escape", "cutover disable"])
 
     def test_the_shell_check_runs_in_the_first_session_and_the_frame_gate_in_one_of_its_own(self):

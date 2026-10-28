@@ -83,13 +83,15 @@ impl Dispatch<WlWebosShellSurface, WebosShellSurfaceData> for State {
                 // A window attached to a surface group is no card (LG: `__allowedFullscreen`): it never comes to the front, whatever it asks for.
                 let card = state.scene.window(data.window).is_some_and(|w| w.kind.is_card() && !w.in_group);
                 let was_top = state.scene.foreground(&state.surfaces).is_some_and(|w| w.id == data.window);
-                if let Some(w) = state.scene.window_mut(data.window) {
-                    w.state = new;
-                }
+                let old = state.scene.window_mut(data.window).map(|w| std::mem::replace(&mut w.state, new));
                 // Answered at once, mapped or not: a client may hold its first frame until the state it asked for is
                 // confirmed, and HDMI 2's card stayed fullscreen but unmapped on the 2026-10-25 gate while only
-                // mapped windows were answered.
-                send_state(resource, new);
+                // mapped windows were answered. The state a window already has is not answered, as LG's compositor does not:
+                // LG's browser asks for fullscreen again 0.3 s after each answer (40 times in 12 s on 2026-10-28, once under
+                // LG's), and the request that followed Home's launch took the front back from Home.
+                if old != Some(new) {
+                    send_state(resource, new);
+                }
                 // A card that asks for fullscreen comes to the front, with or without a buffer yet (LG's fullscreen
                 // container; a relaunch restores a covered card, and a preloaded app relaunched draws only once SAM
                 // has it foreground, which SAM learns here: third gate, 2026-10-25), and the card it covers is

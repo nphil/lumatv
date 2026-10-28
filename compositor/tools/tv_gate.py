@@ -47,11 +47,11 @@ LIBRARY = os.path.join(here, "..", "..", "tools", "compositor.sh")
 LUMATV_TOOL = "/media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv"
 
 # Minutes a session may live before the set ends it (--max-minutes). The first session (live, volume, x1's 60 s, netflix,
-# hdmi, the two app launches, standby and wake, then the key and keyboard checks) ran 4 minutes in the gate of 2026-10-26
-# (supervisor starts 14:03:11 to 14:07:12) before the app launches, which take about a minute; each session that follows an
+# hdmi, the app launches, standby and wake, then the key and keyboard checks) ran 4 minutes in the gate of 2026-10-26
+# (supervisor starts 14:03:11 to 14:07:12) before the app launches, which take about two minutes; each session that follows an
 # ending check 33-35 s; each gets at least three times that, so that a healthy run never meets its own timer, which would end
 # it under the checks.
-FIRST_SESSION_MINUTES = 14
+FIRST_SESSION_MINUTES = 18
 # The standby check wakes the set after 25 s, which cuts LG's panel refresh short when one is due; wake() then waits until 15 minutes of standby
 # have passed (refresh_guard.py), and the first session's timer must outlast that wait.
 WAKE_GUARD_MINUTES = 15
