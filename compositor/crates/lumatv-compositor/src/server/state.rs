@@ -287,6 +287,9 @@ impl State {
                 super::ime::refresh_panel(self);
             }
             if eff.new_buffer {
+                if let Some(w) = self.scene.window_of(sid).and_then(|w| self.scene.window_mut(w)) {
+                    w.commits += 1;
+                }
                 self.note_cadence(sid);
                 // The buffer's first-use costs are paid here, in the clients' pass, not in the frame that first
                 // draws it (the driver's import of a client buffer cost X1's first second a refresh on three gates).

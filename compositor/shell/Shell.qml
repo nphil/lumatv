@@ -38,6 +38,7 @@ WebOSWindow {
     readonly property bool screenOn: !Link.topics.screen || Link.topics.screen.on !== false
     // The compositor draws LumaTV's Home now: the Home stub's card is in front, or no card is.
     readonly property bool homeCurrent: fg.home === true
+    readonly property bool covered: fg.covered !== false
     readonly property bool appFront: !homeCurrent && !!fg.app && fg.app !== "com.webos.app.home" && screenOn
     readonly property bool lgHome: !!lumaHome.item && lumaHome.item.lgHome === true
     readonly property bool homeReady: lumaHome.status === Loader.Ready && !!lumaHome.item
@@ -53,6 +54,8 @@ WebOSWindow {
     }
     Binding { target: lumaHome.item; property: "hostActive"; value: homeWin.homeCurrent && homeWin.screenOn && !homeWin.lgHome; when: homeWin.homeReady }
     Binding { target: lumaHome.item; property: "homeCurrent"; value: homeWin.homeCurrent; when: homeWin.homeReady }
+    // Covered whole (an app, a full-screen overlay such as LG's Settings): the idle tick stops, nothing is drawn until Home shows again.
+    Binding { target: lumaHome.item; property: "idleHold"; value: homeWin.covered; when: homeWin.homeReady }
 
     // The module's key bridge: the way into LumaBus.js's engine-wide instance (the one LumaHome and LumaOverlay registered
     // with), made from the module's own file so the library URL is theirs.
@@ -186,7 +189,7 @@ WebOSWindow {
             homeLoaded: !!h, hostActive: !!h && h.hostActive === true, layer: h ? String(h.layerOpen || "") : "", focus: h ? String(h.focusLayer || "") : "",
             settings: !!h && h.settingsOpen === true, overlay: o ? String(o.surface || "") : "", osd: !!o && o.osdLive === true,
             toasts: n ? n.toasts.length : 0, alert: !!n && n.alertUp, pin: !!n && n.pinUp, saver: saverUp || (!!h && h.saverUp === true), keys: keysSeen, dropped: keysDropped,
-            beat: !!h && h.lastBeatMs > 0, link: { up: Link.up, calls: Link.nextTag, events: Link.events }
+            beat: !!h && h.lastBeatMs > 0, idleHold: !!h && h.idleHold === true, link: { up: Link.up, calls: Link.nextTag, events: Link.events }
         }
     }
     function report() {

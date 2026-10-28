@@ -52,6 +52,10 @@ const RESTART_LIMIT: usize = 5;
 const RESTART_WINDOW: Duration = Duration::from_secs(600);
 /// Events kept for a client that is behind; one that is further behind is told to read the state again.
 const EVENTS_KEPT: usize = 512;
+/// The client starts once SAM's Home has mapped, or this long after the compositor started.
+const START_ALONE: Duration = Duration::from_secs(15);
+/// The client's nice level: below the apps (nice 0), so an app's frames win the CPU over the shell's.
+const NICE: i32 = 10;
 
 /// The bus names the shell may call through the bridge: the services LumaTV's QML calls under LG's compositor (read off
 /// `payload/compositor/<module>`), and the compositor's own names, which the bridge routes back to `luna_methods.rs`.
@@ -359,7 +363,14 @@ impl State {
         self.shell.launch = Some(Launch { runner, main_qml, port: self.config.shell_port, token_path, log });
         self.journal(format!("shell: UI channel on 127.0.0.1:{}", self.config.shell_port));
         self.shell_sync_topics();
-        self.shell_spawn();
+        // The client's first frames and WebAppMgr's Home arriving together cost a missed refresh (CompFrames' trial, 2026-10-27): the
+        // client starts once SAM's Home has mapped, or START_ALONE after this compositor started.
+        self.shell.next_start = Some(Instant::now() + START_ALONE);
+    }
+
+    /// Whether SAM's Home (the Home stub) has a mapped window.
+    fn sam_home_mapped(&self) -> bool {
+        self.scene.windows().any(|w| w.app_id() == crate::scene::HOME_APP && w.map_serial > 0)
     }
 
     /// The eventfd the server thread writes when a message waits; the loop polls it.
@@ -430,6 +441,7 @@ impl State {
             unsafe {
                 cmd.pre_exec(|| {
                     libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
+                    libc::setpriority(libc::PRIO_PROCESS, 0, NICE);
                     Ok(())
                 });
             }
@@ -471,7 +483,16 @@ impl State {
                 self.shell.next_start = Some(now + Duration::from_secs(pause));
             }
         }
-        if self.shell.child.is_none() && !self.shell.gave_up && self.shell.next_start.is_some_and(|t| now >= t) {
+        if self.shell.child.is_none()
+            && !self.shell.gave_up
+            && self.shell.next_start.is_some_and(|t| now >= t || (self.shell.stats.starts == 0 && self.sam_home_mapped()))
+        {
+            if self.shell.stats.starts == 0 {
+                self.journal(format!(
+                    "shell: starting the client ({})",
+                    if self.sam_home_mapped() { "SAM's Home has mapped" } else { "no Home yet, 15 s are up" }
+                ));
+            }
             self.shell_spawn();
         }
         if self.shell.connected && self.shell.last_seen.is_some_and(|t| now.duration_since(t) > POLL_TIMEOUT) {
@@ -623,7 +644,8 @@ impl State {
             return;
         }
         let home_shown = self.shell_home_drawn();
-        let fg = json!({"app": self.foreground_app(), "home": home_shown});
+        let covered = !home_shown || self.scene.shell_home_covered(&self.surfaces);
+        let fg = json!({"app": self.foreground_app(), "home": home_shown, "covered": covered});
         self.shell.push_if_changed("foreground", fg);
         let screen = json!({"on": self.luna_state.power.rendering});
         self.shell.push_if_changed("screen", screen);
@@ -633,11 +655,11 @@ impl State {
         self.shell.push_if_changed("cursor", cursor);
     }
 
-    /// Whether LumaTV's Home would be drawn now: the shell's Home window is mapped and the foreground card is SAM's Home or none.
+    /// Whether LumaTV's Home would be drawn now: the shell's Home window is mapped and the foreground card is SAM's Home or there is
+    /// none (the scene's rule, `scene.rs` `build_stack`).
     pub fn shell_home_drawn(&self) -> bool {
         let home_mapped = self.scene.shell_window(WindowType::ShellHome).is_some_and(|w| w.map_serial > 0);
-        let fg = self.foreground_app();
-        home_mapped && (fg.is_empty() || fg == crate::scene::HOME_APP)
+        home_mapped && self.scene.foreground(&self.surfaces).is_none_or(|w| w.app_id() == crate::scene::HOME_APP)
     }
 
     /// One of the shell's windows got its first buffer.
@@ -681,6 +703,8 @@ impl State {
             "homeDrawn": self.shell_home_drawn(),
             "homeMapped": self.scene.shell_window(WindowType::ShellHome).is_some_and(|w| w.map_serial > 0),
             "systemMapped": self.scene.shell_window(WindowType::ShellSystem).is_some_and(|w| w.map_serial > 0),
+            "homeCommits": self.scene.shell_window(WindowType::ShellHome).map(|w| w.commits).unwrap_or(0),
+            "systemCommits": self.scene.shell_window(WindowType::ShellSystem).map(|w| w.commits).unwrap_or(0),
             "ui": s.ui_state,
             "topics": s.pushed,
             "lunaOpen": s.luna_tags.iter().map(|t| json!({"tag": t.tag, "uri": t.uri, "subscribe": t.subscribe})).collect::<Vec<_>>(),

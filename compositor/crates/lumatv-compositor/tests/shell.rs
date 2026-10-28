@@ -93,7 +93,7 @@ fn lumatv_home_takes_the_card_slot_and_the_keys_while_the_stub_is_in_front() {
     assert!(drawn_home);
     assert_eq!(focus, "LumaHome", "the keys stay LumaTV's Home's");
     assert_eq!(image.pixel(5, 5), [0, 0, 0xff, 0xff], "the stub's buffer is not drawn over Home");
-    assert_eq!(foreground_topic, Some(json!({"app": HOME_STUB, "home": true})));
+    assert_eq!(foreground_topic, Some(json!({"app": HOME_STUB, "home": true, "covered": false})));
     assert_eq!(stub.client.state.keyboard_enters, 0);
 
     // Back and the arrows reach Home as keys; Back closes nothing (not Home, not the stub).
@@ -120,7 +120,7 @@ fn lumatv_home_takes_the_card_slot_and_the_keys_while_the_stub_is_in_front() {
     assert_eq!(fg, "netflix");
     assert!(!drawn_home);
     assert_eq!(image.pixel(5, 5), [0, 0xff, 0, 0xff]);
-    assert_eq!(topic, Some(json!({"app": "netflix", "home": false})));
+    assert_eq!(topic, Some(json!({"app": "netflix", "home": false, "covered": true})));
     // Back on the app closes it, as before.
     server.eval(|s| s.key_event(SeatId(0), KEY_PREVIOUS, true, false));
     assert!(app.client.wait_until(WAIT, |s| s.closes >= 1), "the app got close");
@@ -128,10 +128,31 @@ fn lumatv_home_takes_the_card_slot_and_the_keys_while_the_stub_is_in_front() {
     // The app's card goes: the stub is the card again and Home is drawn in its place, with the focus.
     app.win.surface.destroy();
     app.client.roundtrip();
-    let (drawn_home, focus, image) = server.eval(|s| (s.shell_home_drawn(), focused_title(s), drawn(s)));
+    let (drawn_home, focus, image, commits) = server.eval(|s| (s.shell_home_drawn(), focused_title(s), drawn(s), s.shell_report()["homeCommits"].as_u64()));
     assert!(drawn_home);
     assert_eq!(focus, "LumaHome");
     assert_eq!(image.pixel(5, 5), [0, 0, 0xff, 0xff]);
+    assert_eq!(commits, Some(1), "the Home window's commits are counted for the idle-cost check");
+
+    // A full-screen overlay over Home (LG's Settings, the gate's X1 probe): Home stays drawn under it but is covered, so the client
+    // stops drawing it; a small one leaves it uncovered.
+    let mut overlay = shown(&mut server, false, "_WEBOS_WINDOW_TYPE_OVERLAY", "Probe", "org.nphil.lumatv.x1", 0xffff_ffff);
+    assert!(overlay.client.wait_until(WAIT, |s| s.keyboard_enters >= 1));
+    let topic = server.eval(|s| {
+        s.luna_notify();
+        s.shell.topic("foreground").cloned()
+    });
+    assert_eq!(topic, Some(json!({"app": HOME_STUB, "home": true, "covered": false})), "a 64x64 overlay covers nothing");
+    let big = overlay.client.shm_buffer(1920, 1080, 0xffff_ffff);
+    overlay.client.present(&overlay.win.surface, &big);
+    assert!(overlay.client.wait_until(WAIT, |s| s.frames_done >= 2));
+    let topic = server.eval(|s| {
+        s.tick();
+        s.luna_notify();
+        s.shell.topic("foreground").cloned()
+    });
+    assert_eq!(topic, Some(json!({"app": HOME_STUB, "home": true, "covered": true})), "a full-screen overlay covers Home");
+    drop(big);
     drop(home.win);
 }
 

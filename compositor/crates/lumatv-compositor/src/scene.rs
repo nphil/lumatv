@@ -188,6 +188,18 @@ impl Scene {
         self.home_shown
     }
 
+    /// Whether LumaTV's Home, drawn or not, is under a window that covers the whole output (an app's card, LG's Settings, the gate's
+    /// X1 probe as an overlay): the client stops drawing it then, as nothing of it can be seen. Builds the stack.
+    pub fn shell_home_covered(&mut self, surfaces: &Surfaces) -> bool {
+        self.build_stack(surfaces);
+        let Some(home) = self.stack.iter().position(|(layer, _, _)| *layer == Layer::Home) else { return true };
+        self.stack[home + 1..].iter().any(|(_, _, id)| {
+            self.windows.get(id).is_some_and(|w| {
+                !w.kind.is_shell() && surfaces.get(w.surface).map(|s| s.size()).is_some_and(|(sw, sh)| sw >= OUTPUT_WIDTH as i32 && sh >= OUTPUT_HEIGHT as i32)
+            })
+        })
+    }
+
     /// The shell's system layer wants the keys, or stops wanting them; returns whether that changed (the focus then moves).
     pub fn set_shell_takes_keys(&mut self, takes: bool) -> bool {
         let mut changed = false;
@@ -470,9 +482,12 @@ impl Scene {
                     Some((start, self.plan.damage_rects.len()))
                 }
             };
-            let opaque =
-                s.current.opaque.as_ref().map(|o| o.iter().any(|r| r.x <= 0 && r.y <= 0 && r.right() >= rect.w && r.bottom() >= rect.h)).unwrap_or(false)
-                    || crate::buffer::kind_of(&buffer).is_opaque_format();
+            // LumaTV's Home fills its window with an opaque wallpaper, whatever its buffer's format says: alone on the screen it goes to
+            // the plane whole (direct scan-out), and its idle tick costs the compositor a flip, not a composition.
+            let shell_home = self.windows.get(&window).is_some_and(|w| w.kind == WindowType::ShellHome);
+            let opaque = shell_home
+                || s.current.opaque.as_ref().map(|o| o.iter().any(|r| r.x <= 0 && r.y <= 0 && r.right() >= rect.w && r.bottom() >= rect.h)).unwrap_or(false)
+                || crate::buffer::kind_of(&buffer).is_opaque_format();
             let y_invert = s.current.y_invert;
             if let Some(c) = s.current.content_ns {
                 self.plan.content_ns = Some(self.plan.content_ns.map_or(c, |p| p.min(c)));

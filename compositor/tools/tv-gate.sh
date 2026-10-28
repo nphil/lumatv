@@ -17,7 +17,8 @@
 #   gate.sh shell     the shell client (shell.rs, compositor/shell): connected, LumaTV's Home drawn in the stub's place and taking the
 #                     D-pad, the quick panel and the input picker on the gear and Input (on Home and over an app, where the system
 #                     layer takes the keys and lets go), the volume display on a volume key, a toast, the screensaver when tvpower
-#                     starts it; Home in front and no app left at the end
+#                     starts it, and the idle cost (commits a second and CPU on Home at rest, none with an app covering Home);
+#                     Home in front and no app left at the end
 #   gate.sh evidence  no check: SAM's subscriptions, the clients (command lines, globals) and both logs, while live
 #   gate.sh key CODE  one remote key through the compositor's routing (the volume check in tv_gate.py)
 #   gate.sh standby   power off (remoteKey); the driver wakes the set; `gate.sh woke` then checks the rounds
@@ -93,6 +94,14 @@ shell_num() { ctl shell | jnum "$1"; }
 wait_shell_str() { w=0; while [ "$w" -lt "$3" ]; do [ "$(shell_str "$1")" = "$2" ] && return 0; sleep 0.5; w=$((w+1)); done; [ "$(shell_str "$1")" = "$2" ]; }
 wait_shell_bool() { w=0; while [ "$w" -lt "$3" ]; do [ "$(shell_bool "$1")" = "$2" ] && return 0; sleep 0.5; w=$((w+1)); done; [ "$(shell_bool "$1")" = "$2" ]; }
 wait_shell_num_ge() { w=0; while [ "$w" -lt "$3" ]; do [ "$(shell_num "$1")" -ge "$2" ] 2>/dev/null && return 0; sleep 0.5; w=$((w+1)); done; return 1; }
+# The shell's idle cost over SECS: "commits-per-second cpu-percent" of its Home window and of qml-runner (every thread, one core = 100).
+shell_idle_cost() {
+    sp=$(shell_num pid); c0=$(shell_num homeCommits); t0=$(awk '{print $14+$15}' /proc/$sp/stat 2>/dev/null)
+    sleep "$1"
+    c1=$(shell_num homeCommits); t1=$(awk '{print $14+$15}' /proc/$sp/stat 2>/dev/null)
+    hz=$(getconf CLK_TCK 2>/dev/null || echo 100)
+    echo "$(( (${c1:-0} - ${c0:-0}) / $1 )) $(( (${t1:-0} - ${t0:-0}) * 100 / hz / $1 ))"
+}
 # What the input method has sent to the fields so far (commits, preedits and keysyms), from the `ctl ime` JSON in file $1.
 ime_typed() { c=$(jnum commits < "$1"); p=$(jnum preedits < "$1"); k=$(jnum keysyms < "$1"); echo $(( ${c:-0} + ${p:-0} + ${k:-0} )); }
 # With the Home stub mounted (tools/lumatv homestub) Home is a transparent page by design and LumaHome lives in
@@ -386,6 +395,10 @@ shell)
     else res no connected "connected $(shell_bool connected), home mapped $(shell_bool homeMapped), drawn $(shell_bool homeDrawn), pid $(shell_num pid)"; fi
     if [ "$(shell_bool homeLoaded)" = true ] && [ "$(shell_bool hostActive)" = true ] && [ "$(shell_bool beat)" = true ]; then res ok home-loaded
     else res no home-loaded "homeLoaded $(shell_bool homeLoaded), hostActive $(shell_bool hostActive), beat $(shell_bool beat)"; fi
+    # Idle on Home: the client commits at the wallpaper's tick at most (10 a second) and stays under a third of a core; the compositor
+    # takes Home's buffer to the plane whole (the opaque rule in scene.rs), so each costs it a flip.
+    set -- $(shell_idle_cost 10); ic=$1; icpu=$2
+    if [ "${ic:-99}" -le 12 ] && [ "${icpu:-999}" -le 35 ]; then res ok "idle-home(${ic}/s,${icpu}%)"; else res no idle-home "$ic commits/s, $icpu % cpu on Home at rest"; fi
     # The D-pad: Up from the dock reaches the widgets, Down comes back; the shell counts the keys it got.
     k0=$(shell_num keys); key_tap 103; sleep 1
     f1=$(shell_str focus); key_tap 108; sleep 1
@@ -418,6 +431,10 @@ shell)
             if wait_shell_str overlay "" 10 && wait_shell_bool wants false 4; then res ok quick-app; else res no quick-app "Back left overlay '$(shell_str overlay)', wants $(shell_bool wants)"; fi
         else res no quick-app "overlay '$(shell_str overlay)', wants $(shell_bool wants), system mapped $(shell_bool systemMapped), home drawn $(shell_bool homeDrawn)"; fi
         journal_after shell-quick-app > $OUT/shell-quick-app.txt
+        # Covered by the app: Home draws nothing and the client sleeps (its tick is held, `covered` in the foreground topic).
+        sleep 2
+        set -- $(shell_idle_cost 10); ac=$1; acpu=$2
+        if [ "${ac:-99}" -eq 0 ] && [ "${acpu:-999}" -le 3 ]; then res ok "idle-covered(${acpu}%)"; else res no idle-covered "$ac commits/s, $acpu % cpu with the Home Hub in front; covered $(ctl shell | grep -o '"covered":[a-z]*')"; fi
     else res no quick-app "the Home Hub did not map: $(where_now)"; fi
     close_app com.webos.app.homeconnect; sleep 3; home; sleep 4
     # The screensaver: tvpower asked to start it; LumaTV's own answers and draws (on Home, LumaHome's). Any key ends it.

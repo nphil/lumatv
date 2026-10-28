@@ -189,6 +189,8 @@ pub struct Window {
     /// The shell's system layer has a surface that wants the keys (a panel is open, a prompt is up): it takes the keyboard
     /// focus and the pointer. Off, it is drawn but lets both through to whatever is under it. Set over the UI channel.
     pub takes_keys: bool,
+    /// Commits with a new buffer: what the client drew, whether or not it was shown (the shell's idle cost is read off it).
+    pub commits: u64,
 }
 
 impl Window {
@@ -211,6 +213,7 @@ impl Window {
             bare_commit_seen: false,
             exposed: false,
             takes_keys: false,
+            commits: 0,
         }
     }
 

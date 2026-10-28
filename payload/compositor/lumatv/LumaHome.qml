@@ -527,9 +527,12 @@ Item {
     // as one tick.
     property int frameTick: 0
     property double lastTickMs: 0
+    // Under LumaTV's compositor (compositor/shell/Shell.qml) Home is a window of its own that something may cover whole (an app's card,
+    // a full-screen overlay): the tick stops then, so a Home nobody sees draws nothing. Never set under LG's compositor.
+    property bool idleHold: false
     Timer {
         interval: Math.round(1000 / (root.wallMotion.fps || 10))
-        running: root.hostActive
+        running: root.hostActive && !root.idleHold
         repeat: true
         onTriggered: {
             var now = Date.now()
