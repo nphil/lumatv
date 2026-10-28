@@ -97,4 +97,53 @@ srv=
 grep -q '^serve: client 127.0.0.1' "$tmp/srv.out" || fail "serve did not log the client"
 grep -q '"route":"serve:/dev/video60->/dev/venc->tcp"' "$tmp/srv.out" || fail "serve summary"
 
+# 4. feed: the compositor's recorder protocol (feed_proto.h). The program says it is ready, takes NV12 frames on stdin, answers each with an
+#    access unit on stdout (the frame's pts back, a keyframe every GOP, SPS first), ends cleanly when stdin ends, and keeps stdout to itself
+python3 - "$b/lumatv-venc" "$tmp/feed.err" <<'EOF' || fail "feed round trip"
+import struct, subprocess, sys
+exe, errpath = sys.argv[1], sys.argv[2]
+W, H, N, GOP = 640, 360, 12, 5
+err = open(errpath, "wb")
+p = subprocess.Popen([exe, "feed", "-w", str(W), "-h", str(H), "-r", "30", "-b", "800", "-g", str(GOP)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=err)
+def take(n):
+    b = b""
+    while len(b) < n:
+        c = p.stdout.read(n - len(b))
+        assert c, "the program closed its output early"
+        b += c
+    return b
+ready = take(24)
+assert ready[:4] == b"LRDY" and struct.unpack("<IIIII", ready[4:]) == (1, W, H, 0, 0), ready
+frame = bytes((i * 7) % 256 for i in range(W * H * 3 // 2))
+keys = []
+for i in range(N):
+    pts = 1000000 + i * 33333
+    p.stdin.write(b"LFRM" + struct.pack("<IQII", 1 if i == 0 else 0, pts, len(frame), 0) + frame)
+    p.stdin.flush()
+    head = take(24)
+    magic, flags, got_pts, size, hw_ms = head[:4], *struct.unpack("<IQII", head[4:])
+    assert magic == b"LAUN" and got_pts == pts and size > 0, (magic, flags, got_pts, size)
+    data = take(size)
+    assert data[:3] == b"\x00\x00\x00" or data[:3] == b"\x00\x00\x01", data[:8]
+    keys.append(flags & 1)
+    if flags & 1:
+        assert data[:5] == b"\x00\x00\x00\x01\x67", "a keyframe starts with its SPS"
+assert keys == [1 if i % GOP == 0 else 0 for i in range(N)], keys
+p.stdin.close()
+assert p.wait(timeout=10) == 0, "feed ends cleanly when its input does"
+assert p.stdout.read() == b"", "nothing but the protocol on stdout"
+err.close()
+log = open(errpath).read()
+assert '"route":"feed:pipe->/dev/venc->pipe"' in log and '"frames":12,"keyframes":3' in log, log
+EOF
+
+# 5. feed refuses a frame that is not the size it was started for, and ends with the encoder given back
+python3 - "$b/lumatv-venc" <<'EOF' || fail "feed refusal"
+import struct, subprocess, sys
+p = subprocess.Popen([sys.argv[1], "feed", "-w", "640", "-h", "360"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+assert p.stdout.read(24)[:4] == b"LRDY"
+p.stdin.write(b"LFRM" + struct.pack("<IQII", 0, 0, 1234, 0) + b"x" * 1234)
+p.stdin.flush()
+assert p.wait(timeout=10) == 6, "a wrong-sized frame ends the session with the protocol error"
+EOF
 echo "venc tests: ok"

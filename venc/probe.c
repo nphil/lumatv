@@ -13,6 +13,7 @@
  *                                        printed, no streaming, closed
  *   lumatv-venc vt     [opts] -o out.h264 the screen: video tap -> encoder, no copy (the chosen route)
  *   lumatv-venc serve  [opts] -p PORT    the screen as an H.264 byte stream to one TCP client at a time
+ *   lumatv-venc feed   [opts]            NV12 frames on stdin, H.264 access units on stdout: the compositor's screen recorder (feed_proto.h)
  *
  * /dev/video24 (the V4L2 M2M node) is never used: its mmap maps the kernel page at vmalloc_to_page(<physical
  * address>), so a frame written through it lands in kernel memory; the first slot wedged the kernel that way
@@ -47,6 +48,7 @@
 #include <unistd.h>
 
 #include "annexb.h"
+#include "feed_proto.h"
 #include "hma.h"
 #include "pools.h"
 #include "synth.h"
@@ -82,9 +84,9 @@ struct opts {
 
 static void usage(void)
 {
-    fputs("usage: lumatv-venc caps|vtcaps|gate|create|map|hma|synth|tapopen|vt|serve [-w W] [-h H] [-r FPS] [-b KBPS] [-q QP]\n"
+    fputs("usage: lumatv-venc caps|vtcaps|gate|create|map|hma|synth|tapopen|vt|serve|feed [-w W] [-h H] [-r FPS] [-b KBPS] [-q QP]\n"
           "       [-g GOP] [-n FRAMES] [-l blended|osd|display|scaler-output] [-d DIVIDE] [-P high|main|baseline]\n"
-          "       [--pool NAME] [--cbr] [--nbuf N] [--csv FILE] [--active-file PATH] [-p PORT] -o OUT.h264\n",
+          "       [--pool NAME] [--cbr] [--nbuf N] [--csv FILE] [--active-file PATH] [-p PORT] [-o OUT.h264 (not feed)]\n",
           stderr);
 }
 
@@ -704,6 +706,142 @@ static int do_serve(const struct opts *o)
     return rc;
 }
 
+/* ---- feed: the compositor's screen recorder (feed_proto.h): NV12 frames from stdin through /dev/venc, access units to stdout ---- */
+
+static uint32_t get32(const uint8_t *p) { return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
+static uint64_t get64(const uint8_t *p) { return (uint64_t)get32(p) | (uint64_t)get32(p + 4) << 32; }
+static void put32(uint8_t *p, uint32_t v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24); }
+static void put64(uint8_t *p, uint64_t v) { put32(p, (uint32_t)v); put32(p + 4, (uint32_t)(v >> 32)); }
+
+/* Reads exactly n bytes: 1 when they are all there, 0 on a clean end of input before the first of them, -1 on an error, a short
+ * record or a stop signal. */
+static int read_fully(int fd, uint8_t *p, size_t n)
+{
+    size_t got = 0;
+    while (got < n) {
+        ssize_t r = read(fd, p + got, n - got);
+        if (r < 0) {
+            if (errno == EINTR && !stop_now)
+                continue;
+            return -1;
+        }
+        if (r == 0)
+            return got ? -1 : 0;
+        got += (size_t)r;
+    }
+    return 1;
+}
+
+/* The order is the one the MCU insists on (venc.h): open, the frame's HMA buffer, create (which allocates the ES ring), then frames. */
+static int do_feed(const struct opts *o)
+{
+    char err[256] = "";
+    /* stdout is the protocol's output; anything else this program prints goes to stderr (the recorder's log) */
+    int out = dup(1);
+    if (out < 0 || dup2(2, 1) < 0) {
+        perror("dup");
+        return 1;
+    }
+    /* SIGTERM must interrupt a read that waits for the next frame, and a recorder that went away must not kill the program before the
+     * hardware is closed */
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = on_signal;
+    sigaction(SIGINT, &sa, NULL);
+    sigaction(SIGTERM, &sa, NULL);
+    signal(SIGPIPE, SIG_IGN);
+    struct venc v;
+    if (venc_open(&v, &sysops_real, err, sizeof(err)) < 0) {
+        fprintf(stderr, "venc: %s\n", err);
+        return 2;
+    }
+    size_t frame_bytes = (size_t)o->w * o->h * 3 / 2;
+    struct hma_buf in;
+    if (hma_alloc(&in, &sysops_real, o->pool, frame_bytes, 4096, 0, err, sizeof(err)) < 0) {
+        fprintf(stderr, "hma: %s\n", err);
+        venc_close(&v);
+        return 3;
+    }
+    struct venc_cfg cfg;
+    venc_cfg_from(o, &cfg);
+    if (venc_create(&v, &cfg, err, sizeof(err)) < 0) {
+        fprintf(stderr, "venc create: %s\n", err);
+        hma_free(&in);
+        venc_close(&v);
+        return 4;
+    }
+    print_bufinfo(&v);
+    fprintf(stderr, "feed: %ux%u %u fps %u kbps gop %u, frame in pool %s at 0x%08x\n", o->w, o->h, o->fps, o->kbps, o->gop, o->pool, in.paddr);
+    uint8_t head[FEED_HEADER_LEN];
+    memset(head, 0, sizeof(head));
+    memcpy(head, FEED_MAGIC_READY, 4);
+    put32(head + 4, FEED_VERSION);
+    put32(head + 8, o->w);
+    put32(head + 12, o->h);
+    int rc = write_all(out, head, sizeof(head)) < 0 ? 8 : 0;
+    struct stats st;
+    stats_begin(&st, o->csv);
+    while (!rc && !stop_now) {
+        int r = read_fully(0, head, sizeof(head));
+        if (r == 0)
+            break; /* the recorder closed its end: the recording is over */
+        if (r < 0) {
+            rc = stop_now ? 0 : 5;
+            break;
+        }
+        if (memcmp(head, FEED_MAGIC_FRAME, 4) != 0 || get32(head + 16) != frame_bytes) {
+            fprintf(stderr, "feed: a frame header that is not one (size %u, %zu expected)\n", get32(head + 16), frame_bytes);
+            rc = 6;
+            break;
+        }
+        uint32_t flags = get32(head + 4);
+        uint64_t pts = get64(head + 8);
+        double tw = now_s();
+        if (read_fully(0, in.vaddr, frame_bytes) != 1) {
+            rc = stop_now ? 0 : 5;
+            break;
+        }
+        hma_cache(&in, HMA_CACHE_CLEAN, 0, frame_bytes);
+        double wait = now_s() - tw;
+        /* the first frame is an IDR whatever is asked; a later one only when the recorder asks */
+        if ((flags & FEED_FLAG_KEY) && v.frames > 0 && venc_force_idr(&v, err, sizeof(err)) < 0) {
+            fprintf(stderr, "idr: %s\n", err);
+            rc = 9;
+            break;
+        }
+        struct venc_frame f;
+        double t1 = now_s();
+        if (venc_encode(&v, in.paddr, in.paddr + (uint32_t)(o->w * o->h), &f, err, sizeof(err)) < 0) {
+            fprintf(stderr, "frame: %s\n", err);
+            rc = 7;
+            break;
+        }
+        stats_frame(&st, &f, now_s() - t1, wait);
+        uint8_t unit[FEED_HEADER_LEN];
+        memset(unit, 0, sizeof(unit));
+        memcpy(unit, FEED_MAGIC_UNIT, 4);
+        put32(unit + 4, f.keyframe ? FEED_FLAG_KEY : 0);
+        put64(unit + 8, pts);
+        put32(unit + 16, f.size);
+        put32(unit + 20, f.hw_ms);
+        if (write_all(out, unit, sizeof(unit)) < 0 || write_all(out, f.data, f.size) < 0) {
+            rc = 8;
+            break;
+        }
+        /* the encoder alone shares the video MCU with the decoder: three slow encodes in the run end it, as in every other mode */
+        if (v.slow >= SLOW_LIMIT) {
+            fprintf(stderr, "%u encodes took longer than %d ms; stopping\n", v.slow, VENC_SLOW_MS);
+            rc = 10;
+            break;
+        }
+    }
+    stats_end(&st, o, "feed:pipe->/dev/venc->pipe", "\"wait_is\":\"read_ms\"");
+    hma_free(&in);
+    venc_close(&v);
+    close(out);
+    return rc;
+}
+
 int main(int argc, char **argv)
 {
     struct opts o;
@@ -725,6 +863,7 @@ int main(int argc, char **argv)
     if (!strcmp(o.mode, "tapopen")) return do_tapopen(&o);
     if (!strcmp(o.mode, "vt")) return do_vt(&o);
     if (!strcmp(o.mode, "serve")) return do_serve(&o);
+    if (!strcmp(o.mode, "feed")) return do_feed(&o);
     usage();
     return 64;
 }
