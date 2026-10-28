@@ -296,7 +296,13 @@ impl Track {
     pub fn pose_at(&self, now_ns: u64) -> Pose {
         let e = self.ease.at(self.progress(now_ns));
         let (a0, a1) = self.alpha_span;
-        let a = if a1 > a0 { ((e - a0) / (a1 - a0)).clamp(0.0, 1.0) } else if e >= a1 { 1.0 } else { 0.0 };
+        let a = if a1 > a0 {
+            ((e - a0) / (a1 - a0)).clamp(0.0, 1.0)
+        } else if e >= a1 {
+            1.0
+        } else {
+            0.0
+        };
         Pose {
             rect: FRect::lerp(&self.from.rect, &self.to.rect, e),
             clip: FRect::lerp(&self.from.clip, &self.to.clip, e),
