@@ -96,6 +96,8 @@ function over(row, fields) {
 }
 
 function head(text, tab) { return { kind: "head", tab: tab, text: text } }
+// What a tab has nothing to list: a glyph tile, `title` and a `text` line under it
+function empty(title, text, icon, tab) { return { kind: "empty", tab: tab, icon: icon, title: title, text: text } }
 function note(text, tab, visible) { return { kind: "note", tab: tab, text: text, visible: visible } }
 
 // What a service value reads as, from a table; the raw value when the table lacks it.

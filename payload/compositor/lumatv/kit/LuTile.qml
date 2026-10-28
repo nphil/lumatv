@@ -7,6 +7,7 @@ import "."
 Item {
     id: tile
     property string icon: ""
+    property string iconUrl: ""             // a picture (an app's own icon) instead of a glyph: it fills the tile, rounded like the tile
     property bool accent: false
     property int size: Math.round(Lu.target * 0.75)
     property int glyph: Math.round(size * 0.55)
@@ -22,7 +23,15 @@ Item {
         border.color: Lu.edge
         antialiasing: true
     }
+    Image {
+        id: picture
+        visible: tile.iconUrl !== "" && status === Image.Ready
+        anchors.fill: parent; anchors.margins: Math.round(tile.size * 0.08)
+        source: tile.iconUrl; fillMode: Image.PreserveAspectFit; asynchronous: true; cache: true; smooth: true
+        sourceSize.width: tile.size; sourceSize.height: tile.size
+    }
     LuIcon {
+        visible: !picture.visible
         anchors.centerIn: parent
         name: tile.icon
         size: tile.glyph

@@ -115,4 +115,6 @@ direct("30-settings-signalling", "signalling", at=4500)
 direct("30-settings-emergency", "emergency", at=4500)
 direct("30-settings-permissions", "permissions", at=4500)
 direct("30-settings-permissions-microphone", "permissions", "up", "right", DOWN, at=4500)
+# a tab nobody has asked in: Nearby Devices with no app in its table
+direct("30-settings-permissions-empty", "permissions", "up", "right", "right", DOWN, at=4500, before=[tv_setting("option", "{nearbyDevicePermission: []}")])
 direct("30-settings-delete-data", "deletedata", at=4500)

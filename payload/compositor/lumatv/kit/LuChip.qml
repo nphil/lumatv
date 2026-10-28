@@ -7,6 +7,7 @@ Item {
     id: chip
     property string text: ""
     property string tone: ""            // "", "positive", "warning", "danger", "info", "live"
+    property bool danger: false         // a button-like tag that destroys something (Delete): the danger wash and ink, as the mock's .btn.danger.strong
     readonly property color toneColor: tone === "" ? "transparent" : Lu.role(tone)
 
     implicitWidth: row.width + 2 * Lu.space(4)
@@ -17,9 +18,9 @@ Item {
     Rectangle {
         anchors.fill: parent
         radius: Lu.radius("pill")
-        color: Lu.wash("selected")
+        color: chip.danger ? Qt.rgba(Lu.danger.r, Lu.danger.g, Lu.danger.b, 0.16) : Lu.wash("selected")
         border.width: 1
-        border.color: Lu.edge
+        border.color: chip.danger ? Qt.rgba(Lu.danger.r, Lu.danger.g, Lu.danger.b, 0.5) : Lu.edge
         antialiasing: true
     }
     Row {
@@ -34,6 +35,6 @@ Item {
             color: chip.toneColor
             antialiasing: true
         }
-        LuText { id: label; role: "caption"; text: chip.text }
+        LuText { id: label; role: "caption"; text: chip.text; color: chip.danger ? Lu.dangerOnWash : Lu.ink }
     }
 }

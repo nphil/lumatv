@@ -39,6 +39,7 @@ Item {
     property string chip: ""
     property string chipTone: "positive"
     property var tabs: []
+    readonly property bool tabbed: tabs.length > 1     // one tab is no choice: no bar, its rows sit under the head
     property var rows: []
     property int tab: 0
     property int stop: -2                               // a row index, -1 the tab bar, -2 not yet placed
@@ -55,7 +56,7 @@ Item {
     function focusable(i) {
         var r = rows[i]
         // a row that only shows (`info`) is skipped by the D-pad, unless it has help: then the focus can reach its info mark
-        return shown(i) && r.kind !== "head" && r.kind !== "note" && r.kind !== "figure" && (r.info !== true || helpFor(i) !== "") && ev(r.enabled) !== false
+        return shown(i) && r.kind !== "head" && r.kind !== "note" && r.kind !== "empty" && r.kind !== "figure" && (r.info !== true || helpFor(i) !== "") && ev(r.enabled) !== false
     }
     function first() { for (var i = 0; i < rows.length; i++) if (focusable(i)) return i; return -2 }
     function step(from, dir) {
@@ -115,7 +116,7 @@ Item {
     function key(dir) {
         if (blocked) return true
         if (stop === -2) { var f0 = first(); if (f0 >= 0) enter(f0) }      // rows that were not there yet
-        if (stop === -1 || (stop < 0 && tabs.length > 0)) {
+        if (stop === -1 || (stop < 0 && tabbed)) {
             // the tab bar
             if (dir === "left") { if (tab === 0) return false; stop = -1; tab--; return true }
             if (dir === "right") { stop = -1; tab = Math.min(tabs.length - 1, tab + 1); return true }
@@ -130,7 +131,7 @@ Item {
             if (k === "cards" && seg - (r.cols || 4) >= 0) { seg -= (r.cols || 4); return true }
             var p = step(stop, -1)
             if (p >= 0) enter(p)
-            else if (tabs.length > 0) { stop = -1 }
+            else if (tabbed) { stop = -1 }
             else return false
             return true
         }
@@ -207,10 +208,9 @@ Item {
     // ---- tabs
     LuSegmented {
         id: tabBar
-        visible: page.tabs.length > 0
+        visible: page.tabbed
         y: head.height + Lu.space(4)
         options: page.tabs
-        tray: false
         current: page.tab
         focusedIndex: page.active && page.stop === -1 ? page.tab : -1
         // the tabs share the page's width; a label too wide for its share (a long translation, doubled type) widens every tab and the bar scrolls
@@ -250,7 +250,7 @@ Item {
     }
     Item {
         id: viewport
-        y: head.height + Lu.space(4) + (page.tabs.length > 0 ? tabBar.height + Lu.space(4) : 0)
+        y: head.height + Lu.space(4) + (page.tabbed ? tabBar.height + Lu.space(4) : 0)
         width: parent.width
         height: parent.height - y
         clip: true
@@ -279,13 +279,13 @@ Item {
                         width: cell.width
                         sourceComponent: cell.r.kind === "toggle" ? cToggle : cell.r.kind === "seg" ? cSeg : cell.r.kind === "slider" ? cSlider
                                        : cell.r.kind === "value" ? cValue : cell.r.kind === "action" ? cAction : cell.r.kind === "cards" ? cCards
-                                       : cell.r.kind === "stepper" ? cStepper : cell.r.kind === "nudge" ? cNudge : cell.r.kind === "head" ? cHead : cell.r.kind === "figure" ? cFigure : cNote
+                                       : cell.r.kind === "stepper" ? cStepper : cell.r.kind === "nudge" ? cNudge : cell.r.kind === "head" ? cHead : cell.r.kind === "figure" ? cFigure : cell.r.kind === "empty" ? cEmpty : cNote
                     }
 
                     Component {
                         id: cToggle
                         LuRow {
-                            icon: page.ev(cell.r.icon) || ""
+                            icon: page.ev(cell.r.icon) || ""; iconUrl: page.ev(cell.r.iconUrl) || ""
                             label: page.ev(cell.r.label) || ""; detail: page.ev(cell.r.detail) || ""
                             help: page.helpFor(cell.ri); onHelpAsked: { page.pointAt(cell.ri); page.showHelp(cell.ri) }
                             enabled: page.ev(cell.r.enabled) !== false
@@ -414,7 +414,7 @@ Item {
                             focused: cell.isFocus; rested: page.rested
                             onActivated: { page.pointAt(cell.ri); page.activate(cell.ri) }
                             onHoverFocus: page.pointAt(cell.ri)
-                            trailing: LuChip { text: page.ev(cell.r.button) || "Run" }
+                            trailing: LuChip { text: page.ev(cell.r.button) || "Run"; danger: page.ev(cell.r.danger) === true }
                         }
                     }
                     Component {
@@ -500,6 +500,19 @@ Item {
                                 role: "caption"; color: Lu.ink2; wrapMode: Text.WordWrap
                                 text: page.ev(cell.r.text) || ""
                             }
+                        }
+                    }
+                    // What a tab has nothing to list: a tile, a title in the label size and a line under it, centred in the tab
+                    Component {
+                        id: cEmpty
+                        Column {
+                            width: cell.width
+                            spacing: Lu.space(3)
+                            Item { width: 1; height: Lu.space(5) }
+                            LuTile { x: Math.round((parent.width - width) / 2); size: 64; icon: page.ev(cell.r.icon) || "info" }
+                            LuText { width: parent.width; horizontalAlignment: Text.AlignHCenter; role: "label"; text: page.ev(cell.r.title) || "" }
+                            LuText { width: parent.width; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; role: "caption"; color: Lu.ink2; visible: text !== ""; text: page.ev(cell.r.text) || "" }
+                            Item { width: 1; height: Lu.space(5) }
                         }
                     }
                     Component {

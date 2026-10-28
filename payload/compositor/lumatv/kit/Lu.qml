@@ -53,6 +53,9 @@ QtObject {
     // The danger colour as words: the fill colour reads 4.1:1 on the dark glass and 1.6:1 on the light one, so the label is pushed
     // away from the material (lighter on dark, darker on light) until it clears 4.5:1.
     readonly property color dangerInk: isLight ? Qt.darker(danger, 3.2) : Qt.lighter(danger, 1.25)
+    // The danger word over the danger wash (a Delete button): the wash lifts the glass under it, so the word leans toward the reading ink as well
+    // (the mock's --lu-danger-readable mixes 78 % danger with ink; 45 % ink here, measured 4.5:1 on the dark glass over the wash)
+    readonly property color dangerOnWash: Qt.rgba(dangerInk.r * 0.55 + ink.r * 0.45, dangerInk.g * 0.55 + ink.g * 0.45, dangerInk.b * 0.55 + ink.b * 0.45, 1)
     readonly property color positiveInk: isLight ? Qt.darker(positive, 2.4) : Qt.lighter(positive, 1.1)   // the same push for the other status words
     readonly property color warningInk: isLight ? Qt.darker(warning, 2.4) : Qt.lighter(warning, 1.1)
     readonly property color info: role("info")

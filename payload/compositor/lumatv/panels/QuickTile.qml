@@ -59,6 +59,17 @@ Item {
         on: tile.focused
         instant: tile.instant
     }
+    // On the dark glass the focus wash lifts the background toward the white label (4.5:1 on the brightest wallpaper, 4.5 needed): a shade under it
+    // keeps the label's ground where it was
+    Rectangle {
+        visible: tile.focused && !Lu.isLight
+        anchors.fill: parent
+        radius: Lu.radius("row")
+        color: Qt.rgba(0, 0, 0, 0.16)
+        antialiasing: true
+        scale: 1 + (Lu.rowScale - 1) * lift.value
+        transformOrigin: Item.Center
+    }
     Rectangle {
         anchors.fill: parent
         radius: Lu.radius("row")

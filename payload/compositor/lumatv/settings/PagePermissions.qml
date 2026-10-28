@@ -23,10 +23,10 @@ PageList {
     property var fileTable: []
     // per tab: the resource LG's tables name, what the question calls it, and where the switch is written (a setting, or a `ppm` privacy group)
     readonly property var kinds: [
-        { resource: "camera", noun: "camera", ds: "option.cameraResourcePermission" },
-        { resource: "mic", noun: "microphone", group: "microphone.privacy" },
-        { resource: "ble", noun: "Nearby Devices", ds: "option.nearbyDevicePermission" },
-        { resource: "usbFileAccess", noun: "file", group: "usbFileAccess.privacy", visibleDs: "option.fileapiResourcePermission" }
+        { resource: "camera", noun: "camera", icon: "camera", ds: "option.cameraResourcePermission" },
+        { resource: "mic", noun: "microphone", icon: "mic", group: "microphone.privacy" },
+        { resource: "ble", noun: "Nearby Devices", icon: "radio", ds: "option.nearbyDevicePermission" },
+        { resource: "usbFileAccess", noun: "file", icon: "hard-drive", group: "usbFileAccess.privacy", visibleDs: "option.fileapiResourcePermission" }
     ]
 
     LunaCall {
@@ -54,6 +54,12 @@ PageList {
     }
     onOpened: refresh()
 
+    // the app's own icon where the TV lists one; the tab's glyph (the camera, the microphone) for an app it does not, so no row is a blank tile
+    function appIcon(appId) {
+        var l = Apps.launchPoints
+        for (var i = 0; i < l.length; i++) if (l[i].id === appId) return Apps.iconOf(l[i])
+        return ""
+    }
     function appTitle(appId, fallback) {
         var l = Apps.launchPoints
         for (var i = 0; i < l.length; i++) if (l[i].id === appId) return l[i].title || fallback || appId
@@ -96,7 +102,7 @@ PageList {
         reread.restart()
     }
     function appRow(i, e) {
-        return { kind: "toggle", tab: i, id: "app:" + i + ":" + e.appId, icon: "layout-grid", label: page.appTitle(e.appId, e.title),
+        return { kind: "toggle", tab: i, id: "app:" + i + ":" + e.appId, icon: kinds[i].icon, iconUrl: page.appIcon(e.appId), label: page.appTitle(e.appId, e.title),
                  on: function() { return e.on },
                  act: function(v) {
                      if (!v) { page.setPermission(i, e.appId, false); return }
@@ -108,7 +114,7 @@ PageList {
         var out = []
         for (var i = 0; i < kinds.length; i++) {
             var list = entries(i)
-            if (list.length === 0) out.push(R.note("No app has asked.", i))
+            if (list.length === 0) out.push(R.empty("No app has asked", "Apps that ask for access are listed here, each with a switch.", kinds[i].icon, i))
             for (var j = 0; j < list.length; j++) out.push(appRow(i, list[j]))
         }
         return out

@@ -14,9 +14,10 @@ Item {
     property string value: ""
     property string help: ""                // an explanation behind the info mark (LuInfo); "" draws no mark. A row is its name and its value, so what is not obvious goes here
     property string icon: ""                // a Lucide icon name: draws a tile at the left
+    property string iconUrl: ""             // an app's own icon in that tile (the glyph stays until it has loaded, and when it has none)
     property bool tileAccent: false         // the tile in the accent (a switch that is on, the current section)
     readonly property int tileSize: Math.round(Lu.target * 0.75)
-    readonly property int textX: Lu.space(6) + (icon !== "" ? tileSize + Lu.space(5) : 0)
+    readonly property int textX: Lu.space(6) + (icon !== "" || iconUrl !== "" ? tileSize + Lu.space(5) : 0)
     property bool focused: false
     property bool selected: false
     property bool rested: true              // the host's focus-rest flag (LumaHome.focusRested)
@@ -60,11 +61,12 @@ Item {
         transformOrigin: Item.Center
     }
     LuTile {
-        visible: row.icon !== ""
+        visible: row.icon !== "" || row.iconUrl !== ""
         x: Lu.space(6)
         anchors.verticalCenter: parent.verticalCenter
         size: row.tileSize
         icon: row.icon
+        iconUrl: row.iconUrl
         accent: row.tileAccent
     }
     Column {
