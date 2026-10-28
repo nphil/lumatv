@@ -12,8 +12,9 @@ impl GlobalDispatch<WlOutput, ()> for State {
         let (w, h) = state.output.size();
         out.geometry(0, 0, OUTPUT_MM.0, OUTPUT_MM.1, Subpixel::Unknown, "LG".into(), "OLED65C4PUA".into(), Transform::Normal);
         out.mode(Mode::Current | Mode::Preferred, w as i32, h as i32, REFRESH_MHZ);
+        // LG's compositor sends geometry, mode and done, never scale (probed 2026-10-28); LG's libwayland-client calls a
+        // listener entry a client left NULL, so an event LG never sends is one no LG client has to survive.
         if out.version() >= 2 {
-            out.scale(1);
             out.done();
         }
     }

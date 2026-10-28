@@ -154,7 +154,7 @@ fn run(config: Config) -> io::Result<()> {
         }
     };
     let own_mali = config.renderer == RendererKind::Software || config.buffers == BufferPath::Own;
-    State::create_globals(&dh, &config, own_mali);
+    State::create_globals(&dh, own_mali);
 
     let luna: Box<dyn luna::Bridge> = match std::env::var("LUMATV_LUNA_BRIDGE") {
         Ok(path) => match luna::Pipe::connect(&path) {
@@ -182,14 +182,12 @@ fn run(config: Config) -> io::Result<()> {
         }
     }
     log::info!(
-        "listening on {}/{} ({} renderer, buffers {:?}{}, {} globals incl. {})",
+        "listening on {}/{} ({} renderer, buffers {:?}{}, LG's globals incl. webos shell/foreign/group/input and starfish)",
         config.runtime_dir.display(),
         config.socket,
         state.output.name(),
         config.buffers,
         if own_mali { ", own mali_buffer_sharing" } else { ", mali_buffer_sharing from the driver" },
-        if config.starfish { "starfish" } else { "no starfish" },
-        "webos shell/foreign/group/input"
     );
 
     let control_listener = if config.control {

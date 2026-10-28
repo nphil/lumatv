@@ -41,9 +41,11 @@ impl Dispatch<WlWebosInputManager, ()> for State {
             wl_webos_input_manager::Request::GetWebosSeat { id, seat } => {
                 let ws = data_init.init(id, ());
                 let sid = seat.data::<crate::server::seat::SeatId>().copied().unwrap_or_default();
-                // id, name, designator and capabilities: a keyboard-and-pointer seat per input device, no sensors.
-                ws.info(sid.0 + 1, sid.name(), 0, Capability::Default as u32);
-                state.note_request("wl_webos_input_manager", 0, &format!("get_webos_seat({})", sid.name()));
+                // As LG's compositor: the seat's index as its id, the input device's name, designator 0 (the primary), no
+                // sensors. LG's SDL maps "LGE RCU" and "LGE M-RCU" in the name to its remote numbers.
+                let name = state.seat.device_name(sid).to_string();
+                ws.info(sid.0, name.clone(), 0, Capability::Default as u32);
+                state.note_request("wl_webos_input_manager", 0, &format!("get_webos_seat({}: {name})", sid.name()));
             }
             wl_webos_input_manager::Request::SetCursorVisibility { visibility } => {
                 // An app may hide the cursor (video playback does); showing it is the pointer's own business, so a

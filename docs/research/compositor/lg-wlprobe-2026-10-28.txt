@@ -1,0 +1,90 @@
+connected to /tmp/xdg/wayland-0
+  0.001 wl_registry@2.global(1, 'wl_webos_surface_group_compositor', 1)
+  0.001 wl_registry@2.global(2, 'wl_webos_foreign', 1)
+  0.001 wl_registry@2.global(3, 'wl_compositor', 3)
+  0.001 wl_registry@2.global(4, 'wl_subcompositor', 1)
+  0.001 wl_registry@2.global(5, 'wl_data_device_manager', 1)
+  0.001 wl_registry@2.global(6, 'wl_shm', 1)
+  0.001 wl_registry@2.global(7, 'qt_hardware_integration', 1)
+  0.001 wl_registry@2.global(8, 'mali_buffer_sharing', 5)
+  0.001 wl_registry@2.global(9, 'wl_drm', 2)
+  0.001 wl_registry@2.global(10, 'zwp_linux_dmabuf_v1', 3)
+  0.001 wl_registry@2.global(11, 'wl_seat', 4)
+  0.001 wl_registry@2.global(12, 'text_model_factory', 1)
+  0.001 wl_registry@2.global(13, 'input_method', 2)
+  0.002 wl_registry@2.global(14, 'input_panel', 1)
+  0.002 wl_registry@2.global(15, 'wl_webos_xinput_extension', 1)
+  0.002 wl_registry@2.global(16, 'wl_starfish_output', 1)
+  0.002 wl_registry@2.global(17, 'wl_starfish_pointer', 1)
+  0.002 wl_registry@2.global(18, 'wl_webos_shell', 1)
+  0.002 wl_registry@2.global(19, 'wl_webos_input_manager', 1)
+  0.002 wl_registry@2.global(20, 'wl_seat', 4)
+  0.002 wl_registry@2.global(21, 'wl_shell', 1)
+  0.002 wl_registry@2.global(22, 'wl_output', 2)
+  0.002 wl_registry@2.global(23, 'wl_seat', 4)
+  0.002 wl_callback@3.done(32,)
+  0.002 wl_display@1.delete_id(3,)
+--- 23 globals ---
+  global   1 wl_webos_surface_group_compositor        v1
+  global   2 wl_webos_foreign                         v1
+  global   3 wl_compositor                            v3
+  global   4 wl_subcompositor                         v1
+  global   5 wl_data_device_manager                   v1
+  global   6 wl_shm                                   v1
+  global   7 qt_hardware_integration                  v1
+  global   8 mali_buffer_sharing                      v5
+  global   9 wl_drm                                   v2
+  global  10 zwp_linux_dmabuf_v1                      v3
+  global  11 wl_seat                                  v4
+  global  12 text_model_factory                       v1
+  global  13 input_method                             v2
+  global  14 input_panel                              v1
+  global  15 wl_webos_xinput_extension                v1
+  global  16 wl_starfish_output                       v1
+  global  17 wl_starfish_pointer                      v1
+  global  18 wl_webos_shell                           v1
+  global  19 wl_webos_input_manager                   v1
+  global  20 wl_seat                                  v4
+  global  21 wl_shell                                 v1
+  global  22 wl_output                                v2
+  global  23 wl_seat                                  v4
+  0.005 wl_shm@5.format(0,)
+  0.005 wl_shm@5.format(1,)
+  0.005 wl_shm@5.format(1,)
+  0.005 wl_shm@5.format(0,)
+  0.005 wl_shm@5.format(909199186,)
+  0.005 wl_shm@5.format(892424792,)
+  0.005 wl_shm@5.format(875710290,)
+  0.005 wl_shm@5.format(842093144,)
+  0.005 wl_shm@5.format(842093121,)
+  0.005 wl_shm@5.format(875709016,)
+  0.005 wl_shm@5.format(875708993,)
+  0.005 wl_shm@5.format(808665688,)
+  0.005 wl_shm@5.format(808665665,)
+  0.005 wl_shm@5.format(808669784,)
+  0.005 wl_shm@5.format(808669761,)
+  0.005 wl_shm@5.format(538982467,)
+  0.006 wl_output@6.geometry(0, 0, -1, -1, 0, '', '', 0)
+  0.006 wl_output@6.mode(3, 1920, 1080, 60000)
+  0.006 wl_output@6.done()
+  0.006 wl_seat@7.capabilities(7,)
+  0.006 wl_seat@8.capabilities(7,)
+  0.006 wl_seat@9.capabilities(7,)
+  0.006 wl_webos_input_manager@10.cursor_visibility(0, 'null')
+  0.006 wl_callback@15.done(32,)
+  0.006 wl_display@1.delete_id(15,)
+--- seats: 3, outputs: 1, input manager: True, starfish pointer: True ---
+  0.018 wl_keyboard@16.repeat_info(40, 400)
+  0.018 wl_keyboard@16.keymap(1, 'fd:4', 66180)
+  0.018 wl_webos_seat@18.info(0, 'Default USB Mouse input, not initialized yet.', 0, 0)
+  0.018 wl_keyboard@19.repeat_info(40, 400)
+  0.018 wl_keyboard@19.keymap(1, 'fd:5', 66180)
+  0.018 wl_webos_seat@21.info(1, 'LGE RCU', 0, 0)
+  0.018 wl_keyboard@22.repeat_info(40, 400)
+  0.019 wl_keyboard@22.keymap(1, 'fd:6', 66180)
+  0.019 wl_starfish_pointer@11.timer_value(5000,)
+  0.019 wl_callback@28.done(32,)
+  0.019 wl_display@1.delete_id(28,)
+--- listening 4.0s ---
+--- done; objects: wl_display@1, wl_registry@2, wl_compositor@4, wl_shm@5, wl_output@6, wl_seat@7, wl_seat@8, wl_seat@9, wl_webos_input_manager@10, wl_starfish_pointer@11, wl_starfish_output@12, wl_webos_shell@13, wl_shell@14, wl_keyboard@16, wl_pointer@17, wl_webos_seat@18, wl_keyboard@19, wl_pointer@20, wl_webos_seat@21, wl_keyboard@22, wl_pointer@23, wl_webos_seat@24, wl_surface@25, wl_webos_shell_surface@26, wl_shell_surface@27
+ 

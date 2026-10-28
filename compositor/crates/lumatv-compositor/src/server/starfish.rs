@@ -1,5 +1,7 @@
-//! `wl_starfish_pointer` and `wl_starfish_output` (WebAppMgr). The tables in `protocol/private/starfish.xml` are
-//! LG's (read on the set); the globals are still offered only behind `--starfish`.
+//! `wl_starfish_pointer` and `wl_starfish_output`: LG's private cursor and 3D globals, which every LG set offers (its
+//! `libstarfishcompositorplugin.so`). WebAppMgr binds both; LG's SDL (PlxNative, Apple TV) binds the pointer and sends
+//! `set_mrcu_standby_timer` at the bind, at each `state_changed(fullscreen)` and at each pointer enter, so the global
+//! must exist for those apps to live. The tables in `protocol/private/starfish.xml` are LG's (read on the set).
 
 use wayland_server::{Client, DataInit, Dispatch, DisplayHandle};
 

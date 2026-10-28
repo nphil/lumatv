@@ -4,8 +4,8 @@
 //! are folded to LG's own tables as read on the set by `docs/research/arch/wlproto_from_elf.py`
 //! (`protocol/lg-tables.txt`, checked by `tests/lg_tables.rs`): opcodes are positional, and LG's order and
 //! versions differ from OSE's in six interfaces. `protocol/private/*.xml` are LG's private ones:
-//! `mali_buffer_sharing` (verified on the set in X2) and the two `wl_starfish_*` interfaces (verified tables; the
-//! compositor still advertises them only with `--starfish`, since WebAppMgr runs without them).
+//! `mali_buffer_sharing` (verified on the set in X2) and the two `wl_starfish_*` interfaces (verified tables; LG's
+//! SDL needs the pointer one to exist).
 //!
 //! Each protocol module has a `server` submodule (the compositor) and, behind the `client` feature, a `client`
 //! submodule (the test client).

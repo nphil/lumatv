@@ -36,7 +36,6 @@ pub struct Config {
     pub capture_dir: Option<PathBuf>,
     pub capture_every: u64,
     pub check: Check,
-    pub starfish: bool,
     pub log_protocol: bool,
     pub width: u32,
     pub height: u32,
@@ -104,7 +103,6 @@ impl Default for Config {
             capture_dir: None,
             capture_every: 1,
             check: Check::None,
-            starfish: false,
             log_protocol: false,
             width: crate::OUTPUT_WIDTH,
             height: crate::OUTPUT_HEIGHT,
@@ -141,7 +139,6 @@ pub const USAGE: &str = "lumatv-compositor [options]
   --capture-dir DIR      write every K-th drawn frame as PNG (frame-NNNN.png) into DIR
   --capture-every K      (default 1)
   --check x2             verify each drawn frame against the X2 client's colour pattern
-  --starfish             also advertise wl_starfish_pointer/output (WebAppMgr binds them on LG's compositor)
   --log-protocol         log every request
   --output WxH           output size (default 1920x1080)
   --panel WxH            the panel's size, the space of videooutputd's display windows (default 3840x2160)
@@ -224,7 +221,6 @@ impl Config {
                         o => return Err(format!("unknown check {o}")),
                     }
                 }
-                "--starfish" => c.starfish = true,
                 "--log-protocol" => c.log_protocol = true,
                 "--output" => {
                     let v = value()?;

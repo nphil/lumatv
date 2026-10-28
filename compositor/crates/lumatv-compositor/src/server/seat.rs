@@ -28,12 +28,21 @@ impl SeatId {
     }
 }
 
+/// What `wl_webos_seat.info` says a seat is: seat 0 (the control socket, the tests) is LG's own first seat's name, the
+/// others their evdev device's ("LGE RCU", "LGE M-RCU - Builtin [0]", …). LG's SDL numbers the remotes by these names.
+pub const SEAT0_DEVICE: &str = "Default USB Mouse input, not initialized yet.";
+
+/// What `wl_starfish_pointer.get_mrcu_standby_timer` answers before an app set one: LG's compositor says 5000.
+pub const MRCU_STANDBY_DEFAULT_MS: u32 = 5000;
+
 #[derive(Default)]
 pub struct SeatState {
     /// Every bound `wl_keyboard`; its seat is its user data (`SeatId`).
     pub keyboards: Vec<WlKeyboard>,
     /// How many `wl_seat` globals exist (`State::add_seat`).
     pub seats: u32,
+    /// The evdev name of each seat's device from seat 1 on (`State::add_seat`), for `wl_webos_seat.info`.
+    pub device_names: Vec<String>,
     /// Keys currently down, per seat: what a keyboard made mid-press is told in `enter`.
     pub pressed: Vec<(SeatId, u32)>,
     /// Every bound `wl_webos_input_manager`, for the cursor visibility broadcast.
@@ -53,7 +62,22 @@ pub struct SeatState {
     /// When the cursor was last shown or moved, for the timeout.
     pub cursor_shown_at: Option<std::time::Instant>,
     pub motions: u64,
+    /// The cursor standby time apps set through `wl_starfish_pointer` (ms), answered to `get_mrcu_standby_timer`.
     pub mrcu_standby_timer: u32,
+}
+
+impl SeatState {
+    pub fn new(seats: u32) -> SeatState {
+        SeatState { seats, mrcu_standby_timer: MRCU_STANDBY_DEFAULT_MS, ..SeatState::default() }
+    }
+
+    /// The device name `wl_webos_seat.info` reports for a seat.
+    pub fn device_name(&self, id: SeatId) -> &str {
+        match id.0 {
+            0 => SEAT0_DEVICE,
+            n => self.device_names.get(n as usize - 1).map(String::as_str).unwrap_or(SEAT0_DEVICE),
+        }
+    }
 }
 
 /// Linux `BTN_LEFT`: what the Magic Remote's OK is to a client while the cursor shows.
@@ -86,10 +110,11 @@ impl GlobalDispatch<WlSeat, SeatId> for State {
     fn bind(state: &mut Self, _handle: &DisplayHandle, client: &Client, resource: New<WlSeat>, seat: &SeatId, data_init: &mut DataInit<'_, Self>) {
         state.note_bind(client, "wl_seat");
         let res = data_init.init(resource, *seat);
-        res.capabilities(Capability::Keyboard | Capability::Pointer);
-        if res.version() >= 2 {
-            res.name(seat.name());
-        }
+        // Every seat of LG's compositor says keyboard, pointer and touch (probed 2026-10-28), and no `name`, whatever the
+        // bound version. Both matter: Cobalt's `DevInputWebOS` never initialises its touch proxy and "destroys" it when a
+        // seat has no touch (SIGSEGV 32 ms after YouTube connects), and LG's libwayland-client calls a NULL listener entry
+        // rather than aborting, so an event a client has no handler for (`name` in Cobalt's seat listener) is a crash.
+        res.capabilities(Capability::Keyboard | Capability::Pointer | Capability::Touch);
     }
 }
 

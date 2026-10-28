@@ -13,7 +13,7 @@
    checked: SAM's foreground subscription reached the compositor, the 7 s client is named, no protocol errors, the panel
    picture (`panel.png`, upright), and the trial's verdict (trial_problems): no fallback, nothing over 20 ms in the
    compositor's log, the watchdog reading its inputs.
-4. The gate (tools/tv_gate.py: firmware, homeheld, enable --session, live, volume, x1, netflix, hdmi, keys, ime, evidence,
+4. The gate (tools/tv_gate.py: firmware, homeheld, enable --session, live, volume, x1, netflix, hdmi, apps, keys, ime, evidence,
    standby/wake, homekey, wd-hang, wd-crash, escape, then disable), without --enable-after: the surfaces LumaTV draws
    do not exist under its compositor yet.
 5. End state: LG's compositor live, the enabled flag absent, Home stub as it was, receiver unmuted, Active Standby.

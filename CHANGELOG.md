@@ -362,6 +362,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Compositor: YouTube and PlxNative run under LumaTV's compositor. Every seat now offers touch
+  with the keyboard and pointer and sends no `wl_seat.name`, as LG's compositor does: Cobalt
+  (YouTube) never initialises its touch proxy and destroyed it when a seat had no touch (SIGSEGV
+  32 ms after it connected), and LG's libwayland-client calls a listener entry a client left
+  empty instead of aborting. The `wl_starfish_pointer` and `wl_starfish_output` globals are
+  always offered: LG's SDL (PlxNative, Apple TV, Prime Video) sends the cursor standby timer to
+  the pointer global at its bind, when its window goes fullscreen and at every pointer enter,
+  and PlxNative died in `SetMRCUTimer` without it (Apple TV and Prime Video set the timer hint
+  to -1, which skips the call). `wl_webos_seat.info` names each seat by its input device as LG
+  does, `wl_output` sends no `scale` (LG never does), and the gate launches YouTube and PlxNative
+  (`gate.sh apps`: foreground within 5 s, alive at 10 s, closed cleanly).
 - Compositor: the shell may call the Homebrew Channel's `getConfiguration` and `setConfiguration`
   (and nothing else of that service, which also runs commands as root), so Settings > System >
   Support > Update can read and change "Block LG system updates" instead of showing "Homebrew

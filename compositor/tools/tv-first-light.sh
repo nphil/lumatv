@@ -15,7 +15,7 @@
 #   tv-first-light.sh lumatv ARGS the installed tool on the set under a PTY (compositor on|off|status|check, revert, status);
 #                                 what survives a reboot, which /tmp/lumatv does not
 #   tv-first-light.sh gate [ARGS] the C4 gate (tools/tv_gate.py): firmware, homeheld, then a session of enable --session with live,
-#                                 volume, x1 (zero gaps over 20 ms in 60 s), netflix, hdmi, keys, ime, standby/wake, homekey,
+#                                 volume, x1 (zero gaps over 20 ms in 60 s), netflix, hdmi, apps, keys, ime, standby/wake, homekey,
 #                                 wd-hang, wd-crash, escape; --only keys,ime runs just those (the remote's keys and the keyboard);
 #                                 --enable-after lists the build the gate passed on and makes LumaTV's compositor live for good
 #                                 when every check passed

@@ -183,7 +183,7 @@ impl State {
             surfaces: Surfaces::default(),
             scene,
             output,
-            seat: SeatState { seats: 1, ..SeatState::default() },
+            seat: SeatState::new(1),
             foreign: ForeignState::default(),
             luna,
             luna_state: crate::luna_methods::LunaState::default(),
@@ -212,8 +212,11 @@ impl State {
     }
 
     /// Registers every global the compositor serves. `mali_buffer_sharing` only when this compositor serves the
-    /// buffers itself (`--buffers own`, or no GL at all so a client's bind at least gets an answer).
-    pub fn create_globals(dh: &DisplayHandle, config: &Config, own_mali: bool) {
+    /// buffers itself (`--buffers own`, or no GL at all so a client's bind at least gets an answer). The starfish
+    /// globals are LG's set's (its 23 globals, probed 2026-10-28): LG's SDL binds `wl_starfish_pointer` and sends it
+    /// the cursor standby timer at the bind, at every `state_changed(fullscreen)` and at every pointer enter, on a
+    /// proxy that is NULL without the global (PlxNative: SIGSEGV in `SetMRCUTimer` 0.5 s after its map).
+    pub fn create_globals(dh: &DisplayHandle, own_mali: bool) {
         dh.create_global::<State, WlCompositor, ()>(4, ());
         dh.create_global::<State, WlSubcompositor, ()>(1, ());
         dh.create_global::<State, WlShm, ()>(1, ());
@@ -234,17 +237,17 @@ impl State {
         if own_mali {
             dh.create_global::<State, MaliBufferSharing, ()>(5, ());
         }
-        if config.starfish {
-            dh.create_global::<State, WlStarfishPointer, ()>(1, ());
-            dh.create_global::<State, WlStarfishOutput, ()>(1, ());
-        }
+        dh.create_global::<State, WlStarfishPointer, ()>(1, ());
+        dh.create_global::<State, WlStarfishOutput, ()>(1, ());
     }
 
     /// One more `wl_seat` global, for an input device (`create_globals` made seat 0); returns its id, which the
-    /// device's keys are sent on.
+    /// device's keys are sent on. The device's name is what `wl_webos_seat.info` tells clients, as LG's compositor
+    /// does ("LGE RCU", "LGE M-RCU …": LG's SDL numbers the remotes by these).
     pub fn add_seat(&mut self, device: &str) -> super::seat::SeatId {
         let id = super::seat::SeatId(self.seat.seats);
         self.seat.seats += 1;
+        self.seat.device_names.push(device.to_string());
         self.dh.create_global::<State, WlSeat, super::seat::SeatId>(4, id);
         log::info!("{}: {device}", id.name());
         id

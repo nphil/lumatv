@@ -10,6 +10,9 @@
 #                     closed first): card mapped, video window exported, Picture Mode dolbyHdrCinema while
 #                     playing, filmMaker back on Home
 #   gate.sh hdmi      HDMI 2 (the receiver) as the foreground app, its card mapped, then Home and HDMI 2 ended through SAM
+#   gate.sh apps      YouTube (cobalt) and PlxNative (LG's SDL) from a fresh start: card mapped and foreground within 5 s, still running
+#                     10 s on with its connection kept, ended through SAM within 15 s with no exit status logged (the apps that died
+#                     under LumaTV's compositor on 2026-10-28 while every other ran)
 #   gate.sh keys      the remote's own keys through the compositor's routing (keys.rs): a gear tap, Input, the Netflix button, a digit tapped
 #                     and held, Exit; each judged by the compositor's journal and by what SAM then has in front
 #   gate.sh ime       a text field in LG's Search app brings up maliit's keyboard: an input method bound, a context made for the field,
@@ -52,6 +55,7 @@ OUT=${LUMATV_OUT:-$D/out/gate}
 LGBIN=${LUMATV_LG:-/usr/bin/surface-manager}
 MOUNTINFO=${LUMATV_MOUNTINFO:-/proc/self/mountinfo}
 RECOVER_LOCK=${LUMATV_RECOVER_LOCK:-/tmp/lumatv-recover.lock}
+MESSAGES=${LUMATV_MESSAGES:-/var/log/messages}
 PROC=${LUMATV_PROC:-/proc}
 GAP_LIMIT_MS=20
 GATE_SECONDS=60
@@ -76,6 +80,9 @@ fg() { ls1 com.webos.applicationManager/getForegroundAppInfo '{}' | tr -d ' \n' 
 key_tap() { ctl remote "$1" tap > /dev/null; }
 key_hold() { ctl remote "$1" press > /dev/null; sleep "$2"; ctl remote "$1" release > /dev/null; }
 close_app() { ls1 com.webos.applicationManager/closeByAppId "{\"id\":\"$1\"}" > /dev/null; }
+# Whether SAM lists APP as running, and a wait of SECS at most for it to stop.
+app_running() { ls1 com.webos.applicationManager/running '{}' | grep -q "\"id\":\"$1\""; }
+wait_app_gone() { w=0; while [ "$w" -lt "$2" ]; do app_running "$1" || return 0; sleep 1; w=$((w+1)); done; ! app_running "$1"; }
 # The app ids of the compositor's mapped windows, one a line. SAM's foreground answer names the front card only: LG's Settings and Search are
 # overlays, which it never names (round 11), so an app a key launched is looked for in the compositor's own window list.
 mapped_apps() { ctl windows | sed 's/{"appId"/\n&/g' | grep '"mapped":true' | sed -n 's/^{"appId":"\([^"]*\)".*/\1/p'; }
@@ -376,6 +383,41 @@ hdmi)
     echo "$detail" > $OUT/hdmi-result.txt
     if [ "$mapped" -ge 1 ] && [ "$f" = com.webos.app.hdmi2 ]; then pass hdmi "$detail"; else fail hdmi "$detail"; fi
     ;;
+apps)
+    # YouTube (cobalt) and PlxNative (LG's SDL) died under LumaTV's compositor while every other app ran (2026-10-28): Cobalt wants
+    # touch on every seat and no wl_seat.name, LG's SDL wants wl_starfish_pointer. The check launches each from a fresh start: its card
+    # mapped and SAM naming it foreground within 5 s, still running and mapped 10 s later with its connection kept, ended through SAM
+    # within 15 s and SAM logging no exit status for its pid (a signal is one, SIGSEGV 11). YouTube may play sound; the driver muted the
+    # receiver. A later app that dies the same way is added to the list.
+    bad=""; kd=""
+    for app in youtube.leanback.v4 com.beb.plxnative; do
+        if app_running "$app"; then close_app "$app"; wait_app_gone "$app" 15; sleep 3; fi
+        ctl note apps-$app > /dev/null
+        mark=$(wc -l < $MESSAGES 2>/dev/null)
+        ls1 com.webos.applicationManager/launch "{\"id\":\"$app\"}" > /dev/null
+        n=0; up=none
+        while [ $n -lt 10 ]; do
+            if app_mapped "$app" && [ "$(fg)" = "$app" ]; then up=$((n * 500)); break; fi
+            sleep 0.5; n=$((n+1))
+        done
+        # Its pid from the compositor's own connection line (an app that died is already off SAM's list), SAM's as the fallback.
+        pid=$(journal_after apps-$app | sed -n "s/^client connected: pid \([0-9]*\) .*$app.*/\1/p" | head -n 1)
+        [ -n "$pid" ] || pid=$(ls1 com.webos.applicationManager/running '{}' | tr -d ' \n' | sed -n "s/.*\"id\":\"$app\",\"processid\":\"\([0-9]*\)\".*/\1/p")
+        sleep 10
+        alive=no; app_running "$app" && app_mapped "$app" && alive=yes
+        dropped=$(journal_after apps-$app | grep -c "client disconnected: pid ${pid:-none} ")
+        close_app "$app"
+        gone=no; wait_app_gone "$app" 15 && gone=yes
+        died=$(tail -n +$((${mark:-0} + 1)) $MESSAGES 2>/dev/null | grep -o "APP_CLOSED {\"app_id\":\"$app\"[^}]*\"exit_status\":[1-9][0-9]*" | head -n 1)
+        journal_after apps-$app > $OUT/apps-$app.txt
+        what="$app pid ${pid:-none} foreground-in-ms ${up} alive-at-10s $alive connection-lost $dropped closed-in-15s $gone${died:+ $died}"
+        if [ "$up" != none ] && [ "$alive" = yes ] && [ "$dropped" = 0 ] && [ "$gone" = yes ] && [ -z "$died" ]; then kd="$kd $what;"; else bad="$bad $what;"; fi
+        home; sleep 4
+    done
+    detail="${bad:+failed:$bad }ok:${kd:- none}"
+    echo "$detail" > $OUT/apps-result.txt
+    if [ -z "$bad" ]; then pass apps "$detail"; else fail apps "$detail"; fi
+    ;;
 keys)
     # The remote's own keys under LumaTV's compositor, each injected through `ctl remote` (the path a key from the remote's device takes)
     # and judged by what the compositor's journal says it decided and what SAM then has in front. Home is in front at the start and at the
@@ -591,6 +633,8 @@ evidence)
     run_log | grep -E 'subscription|bridge:' > $OUT/sm-subscriptions.txt
     run_log | grep -E 'watchdog:|settled|previous run' > $OUT/sm-watchdog.txt
     grep -E 'client (dis)?connected' $STATE/compositor.log > $OUT/clients.txt
+    # The wire as a client sees it (globals, seats, output, webos seats, starfish timer), to set against LG's run of 2026-10-28.
+    [ -f $D/wlprobe.py ] && XDG_RUNTIME_DIR=/tmp/xdg timeout 20 python3 $D/wlprobe.py /tmp/xdg/wayland-0 2 > $OUT/wlprobe.txt 2>&1
     cp $STATE/compositor.log $OUT/compositor.log; run_log > $OUT/sm.log
     echo "evidence: $(grep -c applicationManager $OUT/sm-subscriptions.txt) subscription(s) from SAM, $(wc -l < $OUT/clients.txt) client lines, $(grep -c 'loop:' $OUT/compositor.log) loop stalls, $(wc -l < $OUT/sm-watchdog.txt) watchdog lines"
     ;;

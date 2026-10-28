@@ -128,7 +128,7 @@ fn run_server(
     let mut display: Display<State> = Display::new().unwrap();
     let dh = display.handle();
     let config = Config { frames: None, ..Config::default() };
-    State::create_globals(&dh, &config, true);
+    State::create_globals(&dh, true);
     let output = output();
     let mut state = State::new(dh, config, output, Box::new(luna::Null::default()));
     display.handle().insert_client(stream, Arc::new(ClientHandler { events: events.clone() })).unwrap();
@@ -189,6 +189,13 @@ pub struct ClientState {
     pub motions: Vec<(f64, f64)>,
     pub buttons: Vec<(u32, u32)>,
     pub cursor_visibility: Vec<u32>,
+    /// `wl_seat.capabilities` and `wl_seat.name`, every seat bound.
+    pub seat_capabilities: Vec<u32>,
+    pub seat_names: Vec<String>,
+    /// `wl_webos_seat.info`: id, device name, designator, capabilities.
+    pub webos_seat_infos: Vec<(u32, String, u32, u32)>,
+    /// `wl_starfish_pointer.timer_value`.
+    pub starfish_timer_values: Vec<u32>,
     /// What the text model and the input method were told (`ime.rs`).
     pub ime: ImeLog,
 }
@@ -301,6 +308,14 @@ impl Client {
     }
 
     pub fn input_panel(&mut self) -> InputPanel {
+        self.globals.bind(&self.qh, 1..=1, ()).unwrap()
+    }
+
+    pub fn input_manager(&mut self) -> lumatv_wl_protocols::webos_input_manager::client::wl_webos_input_manager::WlWebosInputManager {
+        self.globals.bind(&self.qh, 1..=1, ()).unwrap()
+    }
+
+    pub fn starfish_pointer(&mut self) -> lumatv_wl_protocols::starfish::client::wl_starfish_pointer::WlStarfishPointer {
         self.globals.bind(&self.qh, 1..=1, ()).unwrap()
     }
 
@@ -490,6 +505,50 @@ impl Dispatch<lumatv_wl_protocols::webos_input_manager::client::wl_webos_input_m
     }
 }
 
+impl Dispatch<WlSeat, ()> for ClientState {
+    fn event(state: &mut Self, _: &WlSeat, event: wayland_client::protocol::wl_seat::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        use wayland_client::protocol::wl_seat::Event;
+        match event {
+            Event::Capabilities { capabilities } => state.seat_capabilities.push(capabilities.into_result().map(|c| c.bits()).unwrap_or(99)),
+            Event::Name { name } => state.seat_names.push(name),
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<lumatv_wl_protocols::webos_input_manager::client::wl_webos_seat::WlWebosSeat, ()> for ClientState {
+    fn event(
+        state: &mut Self,
+        _: &lumatv_wl_protocols::webos_input_manager::client::wl_webos_seat::WlWebosSeat,
+        event: lumatv_wl_protocols::webos_input_manager::client::wl_webos_seat::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let lumatv_wl_protocols::webos_input_manager::client::wl_webos_seat::Event::Info { id, name, designator, capabilities } = event {
+            state.webos_seat_infos.push((id, name, designator, capabilities));
+        }
+    }
+}
+
+impl Dispatch<lumatv_wl_protocols::starfish::client::wl_starfish_pointer::WlStarfishPointer, ()> for ClientState {
+    fn event(
+        state: &mut Self,
+        _: &lumatv_wl_protocols::starfish::client::wl_starfish_pointer::WlStarfishPointer,
+        event: lumatv_wl_protocols::starfish::client::wl_starfish_pointer::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let lumatv_wl_protocols::starfish::client::wl_starfish_pointer::Event::TimerValue { value } = event {
+            state.starfish_timer_values.push(value);
+        }
+    }
+}
+
+delegate_noop!(ClientState: ignore wayland_client::protocol::wl_touch::WlTouch);
+delegate_noop!(ClientState: ignore lumatv_wl_protocols::starfish::client::wl_starfish_output::WlStarfishOutput);
+
 delegate_noop!(ClientState: ignore WlCompositor);
 delegate_noop!(ClientState: ignore WlShell);
 delegate_noop!(ClientState: ignore WlShm);
@@ -498,7 +557,6 @@ delegate_noop!(ClientState: ignore WlSurface);
 delegate_noop!(ClientState: ignore WlRegion);
 delegate_noop!(ClientState: ignore WlSubcompositor);
 delegate_noop!(ClientState: ignore WlSubsurface);
-delegate_noop!(ClientState: ignore WlSeat);
 delegate_noop!(ClientState: ignore WlWebosShell);
 delegate_noop!(ClientState: ignore WlWebosForeign);
 delegate_noop!(ClientState: ignore WlWebosSurfaceGroupCompositor);

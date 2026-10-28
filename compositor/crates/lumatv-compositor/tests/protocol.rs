@@ -35,10 +35,82 @@ fn advertises_the_globals_lg_clients_bind() {
         "wl_webos_system_ux",
         "zwp_linux_dmabuf_v1",
         "mali_buffer_sharing",
+        "wl_starfish_pointer",
+        "wl_starfish_output",
     ] {
         assert!(names.iter().any(|n| n == needed), "missing global {needed}; have {names:?}");
     }
-    assert!(!names.iter().any(|n| n == "wl_starfish_pointer"), "starfish must stay off until its tables are verified");
+}
+
+/// LG's SDL (PlxNative, Apple TV) binds `wl_starfish_pointer` at the registry and sends it the cursor standby timer when
+/// its window's state becomes fullscreen (also at the bind and at every pointer enter); without the global the proxy is
+/// NULL and the app dies in `SetMRCUTimer` (PlxNative, 2026-10-28, SIGSEGV 0.5 s after its map). The timer is kept and
+/// answered; LG's compositor answers 5000 before any app set one.
+#[test]
+fn lgs_sdl_sets_the_cursor_standby_timer_as_its_card_goes_fullscreen() {
+    use lumatv_wl_protocols::webos_shell::client::wl_webos_shell_surface::State as WlState;
+    let mut server = Server::start();
+    let mut client = Client::connect(&mut server);
+    let starfish = client.starfish_pointer();
+    starfish.get_mrcu_standby_timer();
+    client.roundtrip();
+    assert_eq!(client.state.starfish_timer_values, vec![5000], "LG's default before an app sets one");
+    let win = client.card("_WEBOS_WINDOW_TYPE_CARD", "plxnative");
+    let buf = client.shm_buffer(64, 64, 0xff00_0000);
+    client.present(&win.surface, &buf);
+    assert!(client.wait_until(WAIT, |s| s.shell_states.contains(&(WlState::Fullscreen as u32))), "the front card is told fullscreen");
+    starfish.set_mrcu_standby_timer(300_000);
+    starfish.set_cursor_position(960, 540);
+    starfish.get_mrcu_standby_timer();
+    client.roundtrip();
+    assert_eq!(client.state.starfish_timer_values, vec![5000, 300_000]);
+    let (timer, position) = server.eval(|s| (s.seat.mrcu_standby_timer, s.seat.pointer_position));
+    assert_eq!((timer, position), (300_000, (960, 540)));
+    assert!(server.eval(|s| s.clients.len()) == 1, "the client is still connected");
+}
+
+/// Every seat of LG's compositor says keyboard, pointer and touch and never sends `name` (probed 2026-10-28). Cobalt
+/// (YouTube) never initialises its touch proxy and "destroys" it when a seat lacks touch (SIGSEGV 32 ms after it
+/// connected), and its seat listener has no `name` entry, which LG's libwayland-client calls anyway.
+#[test]
+fn every_seat_offers_touch_with_the_keyboard_and_pointer_and_never_a_name() {
+    use wayland_client::protocol::wl_seat::{Capability, WlSeat};
+    let mut server = Server::start();
+    server.eval(|s| s.add_seat("LGE RCU"));
+    let mut client = Client::connect(&mut server);
+    let all = (Capability::Keyboard | Capability::Pointer | Capability::Touch).bits();
+    let seats: Vec<(u32, u32)> = client.globals.contents().with_list(|l| l.iter().filter(|g| g.interface == "wl_seat").map(|g| (g.name, g.version)).collect());
+    assert_eq!(seats.len(), 2);
+    // The harness bound the first seat at v4 already; Cobalt binds every seat at v1 and asks each for its touch.
+    let v1: WlSeat = client.globals.registry().bind(seats[1].0, 1, &client.qh, ());
+    let _touch_v1 = v1.get_touch(&client.qh, ());
+    let _kb = v1.get_keyboard(&client.qh, ());
+    let touch = client.seat.get_touch(&client.qh, ());
+    client.roundtrip();
+    assert_eq!(client.state.seat_capabilities, vec![all, all], "v4 and v1 binds alike");
+    assert!(client.state.seat_names.is_empty(), "no wl_seat.name, as LG's compositor");
+    assert_eq!(server.eval(|s| s.seat.touches.len()), 2, "the touch objects exist and no event ever goes out on them");
+    touch.release();
+    client.roundtrip();
+    assert_eq!(server.eval(|s| (s.seat.touches.len(), s.clients.len())), (1, 1));
+}
+
+/// `wl_webos_seat.info` as LG's compositor sends it: the seat's index, the input device's name (LG's SDL numbers the remotes
+/// by "LGE RCU" and "LGE M-RCU" in it), designator 0, no sensors.
+#[test]
+fn webos_seat_info_names_the_seats_device() {
+    use lumatv_compositor::server::seat::SEAT0_DEVICE;
+    use wayland_client::protocol::wl_seat::WlSeat;
+    let mut server = Server::start();
+    server.eval(|s| s.add_seat("LGE M-RCU - Builtin [0]"));
+    let mut client = Client::connect(&mut server);
+    let manager = client.input_manager();
+    let seats: Vec<(u32, u32)> = client.globals.contents().with_list(|l| l.iter().filter(|g| g.interface == "wl_seat").map(|g| (g.name, g.version)).collect());
+    let remote: WlSeat = client.globals.registry().bind(seats[1].0, 4, &client.qh, ());
+    let _ws0 = manager.get_webos_seat(&client.seat, &client.qh, ());
+    let _ws1 = manager.get_webos_seat(&remote, &client.qh, ());
+    client.roundtrip();
+    assert_eq!(client.state.webos_seat_infos, vec![(0, SEAT0_DEVICE.to_string(), 0, 0), (1, "LGE M-RCU - Builtin [0]".to_string(), 0, 0)]);
 }
 
 #[test]

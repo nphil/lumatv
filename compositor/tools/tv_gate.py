@@ -5,10 +5,10 @@ the standby check, and the checks that end the live session (Home held on a virt
 killed, the compositor's own hold-Home escape) each get a fresh session. Exit 0 only when every check passed; the result
 lines and files land in /tmp/lumatv-tv-out/out/gate and docs/research/compositor/gate-<date>.txt.
 
-    tv_gate.py [--skip netflix,hdmi,...] [--only keys,ime] [--x1-seconds N] [--enable-after] [--frames-callbacks landing] [--refresh 120]
+    tv_gate.py [--skip netflix,hdmi,apps,...] [--only keys,ime] [--x1-seconds N] [--enable-after] [--frames-callbacks landing] [--refresh 120]
 
 The gate's rule for the frame check is 60 s with no gap over 20 ms (tv-gate.sh, "The frame rule"); --x1-seconds under 60
-can only fail it. Checks that can be skipped: firmware, homeheld, volume, x1, netflix, hdmi, keys, ime, standby, homekey,
+can only fail it. Checks that can be skipped: firmware, homeheld, volume, x1, netflix, hdmi, apps, keys, ime, standby, homekey,
 wd-hang, wd-crash, escape. --only runs just the named ones (in one session, the live check and the evidence included); the
 step-1 test of the remote's keys and the keyboard is `--only keys,ime`. --frames-callbacks landing runs the surface frame gate with
 the shell client's frame callbacks at the flip like every client's (`ctl callbacks shell landing`), against the default of a frame
@@ -39,13 +39,14 @@ LIBRARY = os.path.join(here, "..", "..", "tools", "compositor.sh")
 LUMATV_TOOL = "/media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv"
 
 # Minutes a session may live before the set ends it (--max-minutes). The first session (live, volume, x1's 60 s, netflix,
-# hdmi, standby and wake, then the key and keyboard checks) ran 4 minutes in the gate of 2026-10-26 (supervisor starts
-# 14:03:11 to 14:07:12), each session that follows an ending check 33-35 s; each gets at least three times that, so that a
-# healthy run never meets its own timer, which would end it under the checks.
-FIRST_SESSION_MINUTES = 12
+# hdmi, the two app launches, standby and wake, then the key and keyboard checks) ran 4 minutes in the gate of 2026-10-26
+# (supervisor starts 14:03:11 to 14:07:12) before the app launches, which take about a minute; each session that follows an
+# ending check 33-35 s; each gets at least three times that, so that a healthy run never meets its own timer, which would end
+# it under the checks.
+FIRST_SESSION_MINUTES = 14
 LATER_SESSION_MINUTES = 6
 # Every check that can be skipped or picked with --only, in the order the gate runs them.
-CHECKS = ["firmware", "homeheld", "volume", "x1", "netflix", "hdmi", "keys", "ime", "shell", "frames", "frames-load", "standby", "homekey", "wd-hang", "wd-crash", "escape"]
+CHECKS = ["firmware", "homeheld", "volume", "x1", "netflix", "hdmi", "apps", "keys", "ime", "shell", "frames", "frames-load", "standby", "homekey", "wd-hang", "wd-crash", "escape"]
 # The surface frame gate (docs/research/perf/gate.py) under LumaTV's compositor: LumaTV's own surfaces, drawn by the shell client.
 FRAMES_SURFACES = "home-dpad,quick,picker,toast"
 FRAMES_SESSION_MINUTES = 20
@@ -274,6 +275,7 @@ def main():
     tv.put(os.path.join(here, "tv-cutover.sh"), "/tmp/lumatv/cutover.sh")
     tv.put(os.path.join(here, "tv-recover-home.sh"), "/tmp/lumatv/recover-home.sh")
     tv.put(os.path.join(here, "tv-uinput-key.py"), "/tmp/lumatv/uinput-key.py")
+    tv.put(os.path.join(here, "tv-wlprobe.py"), "/tmp/lumatv/wlprobe.py")
     tv.put(LIBRARY, "/tmp/lumatv/compositor.sh")
     if os.path.exists(VERIFIED_LIST):
         tv.put(VERIFIED_LIST, "/tmp/lumatv/verified.list")
@@ -331,6 +333,9 @@ def main():
             step("netflix", "sh /tmp/lumatv/gate.sh netflix")
         if "hdmi" not in skip:
             step("hdmi", "sh /tmp/lumatv/gate.sh hdmi")
+        if "apps" not in skip:
+            step("apps", "sh /tmp/lumatv/gate.sh apps", 300)
+            avr_mute(True)   # YouTube may have played sound
         if "keys" not in skip:
             step("keys", "sh /tmp/lumatv/gate.sh keys", 300)
             avr_mute(True)   # an app a key opened may have made a sound
