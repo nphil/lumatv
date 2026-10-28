@@ -108,14 +108,28 @@ impl Dispatch<WlWebosShellSurface, WebosShellSurfaceData> for State {
             wl_webos_shell_surface::Request::SetProperty { name, value } => {
                 state.note_request("wl_webos_shell_surface", pid, &format!("set_property({name:?}, {value:?})"));
                 let mut line = None;
+                let mut shell_shown = false;
                 if let Some(w) = state.scene.window_mut(data.window) {
                     let relayer = w.set_property(&name, &value);
                     if relayer || name == "appId" || name == "title" {
                         line = Some(format!("window {}: {name} = {value} ({:?})", data.window.0, w.kind));
                     }
+                    shell_shown = name == "title" && w.kind.is_shell();
                 }
                 if let Some(l) = line {
                     state.journal(l);
+                }
+                // The shell client sends its windows' properties at every showing. LG's Qt platform plugin makes Qt's expose of the
+                // compositor's `exposed`, and Qt's own expose is missing at the first showing of a window whose platform window was
+                // made earlier (the system layer, made with the client and shown later: never drew, gate runs 2026-10-27 21:05 and
+                // 21:11); the rectangle is the output's, as for a card that has no buffer yet.
+                if shell_shown {
+                    let (ow, oh) = state.output.size();
+                    send_exposed(resource, Some((ow as i32, oh as i32)));
+                    if let Some(w) = state.scene.window_mut(data.window) {
+                        w.exposed = true;
+                    }
+                    state.journal(format!("window {}: exposed {ow}x{oh} (a shell window shown)", data.window.0));
                 }
             }
             wl_webos_shell_surface::Request::SetKeyMask { webos_key } => {
