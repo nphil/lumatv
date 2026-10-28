@@ -1,4 +1,5 @@
 import QtQuick 2.4
+import QtQuick.Window 2.2
 import "kit"
 import WebOSCompositorBase 1.0
 import WebOSServices 1.0
@@ -275,10 +276,17 @@ Item {
         Item {
             id: grid
             x: dock.padX
-            y: dock.gridTop - dock.scrollRow * (dock.tileSize + dock.gap)
+            // At 120 Hz (Lu.fast) the scroll to a new row is stepped once per frame (kit/FrameMotion.qml); at 60 the Behavior, as before.
+            readonly property real restY: dock.gridTop - dock.scrollRow * (dock.tileSize + dock.gap)
+            readonly property bool perFrame: Lu.fast && !dock.motionReduced
+            y: perFrame ? scrollMotion.value : restY
+            onRestYChanged: if (perFrame) scrollMotion.start(restY, dock.scrollMs, "outCubic")
+            onPerFrameChanged: { scrollMotion.stop(); scrollMotion.value = restY }
+            Component.onCompleted: if (perFrame) scrollMotion.value = restY
             width: dock.cols * dock.tileSize + (dock.cols - 1) * dock.gap
             height: Math.max(1, dock.totalRows * dock.tileSize + (dock.totalRows - 1) * dock.gap)
-            Behavior on y { enabled: !dock.motionReduced; NumberAnimation { duration: dock.scrollMs; easing.type: dock.scrollEasing } }
+            Behavior on y { enabled: !dock.motionReduced && !grid.perFrame; NumberAnimation { duration: dock.scrollMs; easing.type: dock.scrollEasing } }
+            FrameMotion { id: scrollMotion; window: dock.Window.window }
     
             Repeater {
                 model: tileModel

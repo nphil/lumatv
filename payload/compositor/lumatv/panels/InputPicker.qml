@@ -1,4 +1,5 @@
 import QtQuick 2.4
+import QtQuick.Window 2.2
 import "../kit"
 
 // The input picker (docs/mocks/08-input-picker): a sheet along the bottom with one tile for Live TV and one for
@@ -31,7 +32,7 @@ Item {
     readonly property bool parked: motion.parked
     property alias lingerMs: motion.lingerMs
     function release() { motion.release() }
-    PanelMotion { id: motion; presented: picker.presented }
+    PanelMotion { id: motion; presented: picker.presented; window: picker.Window.window }
     readonly property real progress: motion.progress     // 0 away, 1 shown
     readonly property real sheetY: sheet.y               // where the sheet is (612 at rest)
 

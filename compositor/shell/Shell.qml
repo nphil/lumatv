@@ -385,6 +385,8 @@ WebOSWindow {
             toasts: n ? n.toasts.length : 0, alert: !!n && n.alertUp, pin: !!n && n.pinUp, saver: saverUp || (!!h && h.saverUp === true), keys: keysSeen, dropped: keysDropped,
             beat: !!h && h.lastBeatMs > 0, idleHold: !!h && h.idleHold === true, link: { up: Link.up, calls: Link.nextTag, events: Link.events },
             wall: { backend: h ? String(h.videoWallBackend || "") : "", hole: wallHole, up: !!h && h.videoWallUp === true },
+            // the refresh Home draws for (the `refresh` topic as Home took it): `ctl shell` says whether the 120 Hz mode reached the client
+            refreshHz: h ? (h.refreshHz | 0) : 0,
             capture: { dot: !!capture.item && capture.item.dotUp === true },
             keyboard: kbd.item ? { up: kbd.item.wanted, live: kbd.item.live, layout: kbd.item.layoutId, focus: kbd.item.focusAt, key: kbd.item.focusKey ? kbd.item.focusKey.id : "",
                                    shift: kbd.item.shift, listening: voiceListening, voice: kbd.item.voiceOk, busy: kbd.item.busy } : null

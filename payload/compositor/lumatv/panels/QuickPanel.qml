@@ -1,4 +1,5 @@
 import QtQuick 2.4
+import QtQuick.Window 2.2
 import WebOSCompositorBase 1.0
 import WebOSServices 1.0
 import "../kit"
@@ -45,7 +46,7 @@ Item {
     function release() { motion.release() }
     // the clock is brought up to date with the press, so the opening does not draw the cached sheet again for a new minute
     function warm() { clock = new Date(); motion.warm() }
-    PanelMotion { id: motion; presented: panel.presented }
+    PanelMotion { id: motion; presented: panel.presented; window: panel.Window.window }
     readonly property real progress: motion.progress     // 0 away, 1 shown
     readonly property real slideX: slide.x               // where the sheet is (1208 at rest), for the tests and the gate's step list
     readonly property real slideY: slide.y

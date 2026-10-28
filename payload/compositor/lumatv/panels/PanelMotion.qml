@@ -20,7 +20,11 @@ QtObject {
     id: motion
     property bool presented: false
     property real progress: 0
-    readonly property bool moving: anim.running
+    // The owner's window (its Window.window): at 120 Hz (Lu.fast) the slide is stepped once per frame of it (kit/FrameMotion.qml), since
+    // the basic render loop's animations step every 16 ms whatever the refresh; at 60 the NumberAnimation below, as before.
+    property QtObject window: null
+    readonly property bool perFrame: Lu.fast && !!window
+    readonly property bool moving: perFrame ? frame.running : anim.running
     // true while the panel is on its way out: it is drawn until progress reaches 0
     readonly property bool leaving: !presented && progress > 0
     // not wanted and the slide is over: nothing of the panel is on the screen. `held` starts when the panel is told to go (Resident's `visible`
@@ -51,13 +55,21 @@ QtObject {
         if (presented) release()
         else if (lingerMs > 0) { held = true; linger.restart() }
         anim.stop()
+        frame.stop()
+        var ms = Lu.reduced ? fadeMs : (presented ? enterMs : exitMs)
+        if (perFrame) {
+            frame.value = progress
+            frame.start(presented ? 1 : 0, ms, presented ? "outCubic" : "inCubic")
+            return
+        }
         anim.to = presented ? 1 : 0
-        anim.duration = Lu.reduced ? fadeMs : (presented ? enterMs : exitMs)
+        anim.duration = ms
         anim.easing.type = presented ? Easing.OutCubic : Easing.InCubic
         anim.start()
     }
 
     property NumberAnimation anim: NumberAnimation { target: motion; property: "progress" }
+    property FrameMotion frame: FrameMotion { window: motion.window; onValueChanged: if (motion.perFrame) motion.progress = value }
     property Timer linger: Timer { interval: motion.lingerMs; onTriggered: motion.held = false }
     // One frame after the join: the gear's tap can be 50 ms long, and a nudge at 30 ms put its frame after the release, ahead of the
     // opening's first frame by 33 ms (round 16, the gate's first opening: an interval over 20 ms in the burst)

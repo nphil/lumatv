@@ -187,6 +187,8 @@ def main(argv=None):
                     help='with --fake-helper: set a topic at MS after start')
     ap.add_argument('--eval', action='append', default=[], metavar='MS:EXPR',
                     help='evaluate a JavaScript expression at MS after start with `root` the surface; prints "[eval] value"')
+    ap.add_argument('--frames', action='append', default=[], metavar='MS:LABEL',
+                    help='print "[frames] LABEL N", the frames the window has swapped so far, at MS after start (repeatable): the frame-driven motions\' count')
     ap.add_argument('--fake-helper', action='store_true', help='serve a stand-in for the native helper on 127.0.0.1:18731 while running')
     ap.add_argument('--theme', help='JSON written as the user theme.json in the data dir (what the owner changed)')
     ap.add_argument('--layout', help='JSON written as the user layout.json in the data dir (the cards the owner arranged)')
@@ -384,6 +386,11 @@ def main(argv=None):
     for spec in a.eval:
         ms, expr = spec.split(':', 1)
         QtCore.QTimer.singleShot(int(ms), QtCore.Qt.PreciseTimer, lambda x=expr: evaluate(x))
+    frames = {'n': 0}
+    view.frameSwapped.connect(lambda: frames.__setitem__('n', frames['n'] + 1))
+    for spec in a.frames:
+        ms, label = spec.split(':', 1)
+        QtCore.QTimer.singleShot(int(ms), QtCore.Qt.PreciseTimer, lambda l=label: print(f'[frames] {l} {frames["n"]}', flush=True))
     if a.press:
         QtCore.QTimer.singleShot(a.wait // 2, QtCore.Qt.PreciseTimer, press)
     QtCore.QTimer.singleShot(a.wait, QtCore.Qt.PreciseTimer, shot)

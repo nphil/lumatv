@@ -1,6 +1,7 @@
 singleton Lu 1.0 Lu.qml
 singleton Warm 1.0 Warm.qml
 FocusLift 1.0 FocusLift.qml
+FrameMotion 1.0 FrameMotion.qml
 CameraFrame 1.0 CameraFrame.qml
 LuHalo 1.0 LuHalo.qml
 LuText 1.0 LuText.qml

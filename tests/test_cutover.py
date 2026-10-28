@@ -1260,7 +1260,7 @@ class GateDriver(unittest.TestCase):
         checks = [c for c in self.checks(calls) if not c.startswith("key ")]
         self.assertEqual(checks, [
             "cutover enable --session --max-minutes 32", "live", "evidence",
-            "cutover enable --session --max-minutes 20", "live frames", "refresh 120 10", "wake reset", "refresh reset 10", "refresh 60 5",
+            "cutover enable --session --max-minutes 20", "live frames", "refresh 120 10", "wake reset", "refresh read 10", "refresh 60 5",
             "wake frames", "mem", "callbacks", "cutover disable"])
         divider = [c for c in calls if "fbdev_vsync_cnt_on_flip" in c]
         self.assertEqual(len(divider), 1, "the divider is put back to 2 in the clean-up, once: %s" % calls)

@@ -352,8 +352,8 @@ def main():
             print(pty("sh /tmp/lumatv/gate.sh wake reset", 60))
             lines.append(frames_check(a.frames_cycles, refresh=a.refresh))
             if a.refresh != 60:
-                # Idle Home again after the surfaces (the thermal reading that matters), then the mode off: 60 is the gate's resting state.
-                step("refresh", "sh /tmp/lumatv/gate.sh refresh reset 10", 120)
+                # Idle Home again after the surfaces, the compositor's measure left running since the switch (it covers the slides), then the mode off: 60 is the gate's resting state.
+                step("refresh", "sh /tmp/lumatv/gate.sh refresh read 10", 120)
                 step("refresh", "sh /tmp/lumatv/gate.sh refresh 60 5", 120)
             # What the loop's wake-ups cost over the gate, and what the compositor holds in memory after it (reports, not rules).
             step("wake", "sh /tmp/lumatv/gate.sh wake frames", 60)

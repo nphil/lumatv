@@ -1,7 +1,9 @@
 # UI at 120 Hz: the refresh test mode
 
 Can Home and LumaTV's menus draw at 120 fps under LumaTV's compositor with no dropped frame? The mode is built and measurable
-(`--refresh 120`, `ctl refresh 120`, `tv_gate.py --only frames --refresh 120`), off by default; the set has not run it yet.
+(`--refresh 120`, `ctl refresh 120`, `tv_gate.py --only frames --refresh 120`), off by default. Round 14 ran it: the output runs at 120 and
+the compositor paces to it; the shell's slides came at 60 fps on the 120 Hz grid, and the cause is the shell's animation clock, not its
+cost (the section "The shell's cadence" below; fixed offline, a second TV run decides).
 
 ## Expected verdict [INFERENCE]
 
@@ -112,11 +114,13 @@ Nitin at the set or a slot with it free; LumaTV's compositor live as a session (
 
 1. `python3 compositor/tools/tv_gate.py --only frames --refresh 120`. It runs, in order: the live check, `gate.sh refresh 120 10`
    (`GATE refresh: measured hz 120 divider 1 ...`), the surface gate over `home-dpad,quick,picker,toast` at 120 (`GATE frames at 120 Hz:`),
-   `gate.sh refresh reset 10` (idle Home after the surfaces), `gate.sh refresh 60 5`, then `wake`, `mem`, `callbacks` as at 60.
+   `gate.sh refresh read 10` (idle Home after the surfaces, the compositor's measure since the switch, which covers the slides), `gate.sh
+   refresh 60 5`, then `wake`, `mem`, `callbacks` as at 60.
 2. Read, in `docs/research/compositor/gate-<date>.txt`:
-   - `GATE refresh` at 120: `divider 1`; OSD flips/s, `DE2VSYNC/s` and `osd_irq/s` near 120 at idle Home are the mode working (flips at
-     idle Home are the wallpaper's 10 a second plus the clock: the engine's rates are the proof, the compositor's `flips_per_second` the
-     UI's); `pipeline_ms` p50/p99 at idle; `mali busy` and `temperature` before the surfaces.
+   - `GATE refresh` at 120: `divider 1`, `shell 120` (the client's own report: the mode reached its QML); OSD flips/s, `DE2VSYNC/s` and
+     `osd_irq/s` near 120 at idle Home are the mode working (flips at idle Home are the wallpaper's 10 a second plus the clock: the
+     engine's rates are the proof, the compositor's `flips_per_second` the UI's); `pipeline_ms` p50/p99 at idle; `mali busy` and
+     `temperature` before the surfaces.
    - `GATE frames at 120 Hz`: per surface `burst_over20` (intervals over 10 ms inside the burst), `dropped`, `first_frame`, `burst_end`.
      The bar: zero `burst_over20` and `dropped` on `quick` and `picker`. `home-dpad` is expected to fail; `toast` is a report.
    - The second `GATE refresh` (after the surfaces): `intervals` (`one`, `two`, `three`, `more`), `frames` (`late`, `lost`, `missed`),
@@ -129,10 +133,11 @@ Nitin at the set or a slot with it free; LumaTV's compositor live as a session (
 4. If `quick` and `picker` pass and `home-dpad` fails on intervals over 10 ms: the next cut is the dock's focus move (each tile its own
    cached layer, the lift animated on the focused tile only), decided from `frames-120.json`'s `burst_first_render_ms` and the trace's
    GPU busy per frame.
-5. If `quick` and `picker` fail with `pipeline_ms` p99 over 7.5 ms in the second `GATE refresh`: the slide frame still costs more than
-   the budget; the gate's traces (`/tmp/perf/gate-c4shell-120-*`) say which GPU jobs; the wallpaper quad and the sheet's glass are the
-   next candidates. If they fail with p99 under 7 ms and `late` high: the shell's cadence, not its cost (the Qt update timer or a
-   callback a frame too late); `QT_QPA_UPDATE_IDLE_TIME=0` in the shell's environment is the one knob left untried.
+5. If `quick` and `picker` fail with `pipeline_ms` p99 over 13 ms in the second `GATE refresh` (the measure covers the slides now): the
+   slide frame costs more than the two refreshes a frame in flight has; the gate's traces (`/tmp/perf/gate-c4shell-120-*`) say which GPU
+   jobs; the wallpaper quad and the sheet's glass are the next candidates. If they fail with intervals still at 16.7 ms and `shell 120`
+   in `GATE refresh`: the per-frame motion is not in the chain on the set's Qt (`afterAnimating` not emitted there, or `update()` not
+   delivered on the callback); `GATE refresh`'s `slides:` field (the `[FrameMotion]` lines of the shell's log, steps per slide) says which.
 6. Whatever the verdict the run ends at 60 with the divider at 2 (`divider after: 2` in the driver's output). A set left at 120 by a
    crash is put back by the supervisor's fallback or, failing that, by `echo 2 > /sys/module/lg1k/parameters/fbdev_vsync_cnt_on_flip`.
 
@@ -153,3 +158,41 @@ wanted, which this test mode does not provide.
 no late, lost or missed frames; Mali 11.7 %, 57 C. After the surfaces: 120 intervals, p99 4.85 ms, 0 late, 0 lost, Mali 11.8 %, 56 C. Surfaces at 120 Hz: home-dpad `dropped` 1, quick `burst_over20` 32, picker 35,
 toast first frame 51.9 ms: the bar (zero `burst_over20` and `dropped` on quick and picker) is not met. The slide frame's cost is not the limit (p99 4.85 ms, 0 late); the shell's cadence is
 (step 5: `QT_QPA_UPDATE_IDLE_TIME=0` untried). The run ended at 60 (`divider after: 2`, `GATE refresh` 60 `divider 2`). Verdict: the mode is reachable and stable at idle; the UI's bursts do not reach it.
+
+## The shell's cadence: Qt's 16 ms animation timer (after round 14)
+
+Round 14's slides: every frame of `quick-open` and `picker-open` 16.7 ms apart (`frames-120.json`, the windows' `gaps`: 16.7, 16.7, 16.7,
+25.0), two refreshes each, and the compositor's log full of `page-flip interval 16.68 ms, nothing due at the refresh between`: the
+client's commits came every 16.7 ms, each drawn and shown as soon as it came. Nothing in the compositor held them: its pipeline was
+4.75 ms, `late` 0, and the shell's frame callbacks go out a frame ahead (`b193b28`).
+
+Why 16.7: the shell client runs Qt's basic render loop (LG's `qml-runner`, `WEBOS_GL_DISABLE_THREADED_RENDERING=1`, the environment LG's
+Qt apps run with), and the basic loop installs no animation driver (qtdeclarative 5.12 `qsgrenderloop.cpp`: `QSGGuiThreadRenderLoop::
+animationDriver()` returns null), so every QML animation (`NumberAnimation`, `Behavior`, `Timer`) steps on `QUnifiedTimer`'s default
+driver: a 16 ms `QBasicTimer` (`qabstractanimation.cpp`, `DEFAULT_TIMER_INTERVAL 16`), whatever the refresh. One animation step every 16 ms
+is one dirty frame every 16 ms, and QtWayland (`qwaylandwindow.cpp` 5.12: `requestUpdate` holds a request while a frame callback is
+pending and delivers it on the callback) renders one frame per step. The frames land on the next 120 Hz refresh each: 16.7 ms apart, two
+refreshes, as measured. The threaded loop would step per frame with its vsync driver, but that driver advances by `1000 / QScreen::
+refreshRate()` per frame, read once at start from the compositor's `wl_output` mode (60 Hz): double speed at 120 fps, a shell restart
+per switch, and a render loop LG's apps never run with.
+
+The fix is in the QML, at `Lu.fast` only: `kit/FrameMotion.qml` steps a motion once per rendered frame. A value set in the window's
+`afterAnimating` (the basic loop emits it between polish and sync) is in that frame, and `window.update()` asks for the next, which
+QtWayland delivers on the compositor's next frame callback: one step per refresh. Motion time advances a refresh per frame and is put
+back on the wall clock when more than a frame off either way (a skipped frame; the host, which has no refresh), as Qt's vsync driver does.
+`panels/PanelMotion.qml` drives the quick panel's and the picker's `progress` with it at 120 (the NumberAnimation at 60), `Dock.qml` the
+row scroll (the Behavior at 60); the dock's focus move is one redraw per key and needs nothing. The shell reports `refreshHz` in its
+state, so `ctl shell` (and `GATE refresh`'s `shell` field) say the mode reached the client; each motion logs its frame count and wall
+time at its end (`[FrameMotion] N steps in M ms for D`), which `GATE refresh` prints as `slides:`.
+
+Host measurement (`tests/test_ui120_motion.py`, Qt 5.15 with `QSG_RENDER_LOOP=basic`, software GL): a 1,500 ms linear motion stepped 97
+times in 97 frames (one step per frame, the frames kept coming by the motion itself), its value on the wall clock (33.0 at 500 ms, 66.6 at
+1,000) and on its target at the end, one frame in the second after it (the clock's); the panel slide at 120 stepped by frames (17 for the
+110 ms in, progress 0.73 at 40 ms as out-cubic says) and at 60 by the NumberAnimation with no step (0.64 at 40 ms: the 16 ms timer's lag).
+The host's frames come at its own pace (6-16 ms); the set's come at the callbacks, which is what the next run measures.
+
+Expected on the set [INFERENCE]: the slides' intervals at 8.33 ms with the compositor's early callbacks (a frame started at each landing,
+two in flight, 13 ms of GPU budget each); `quick` and `picker` `burst_over20` 0 if the slide frame's GPU time stays under about 13 ms
+(round 14 did not measure it: the measure was reset before the idle read; this run's `refresh read` after the surfaces covers them, its
+`pipeline_ms` p99 and `late` are the numbers); `burst_end` about 5 ms earlier than at 60. `home-dpad`: the row scroll per frame, the focus
+move one frame per key as before. The toast's first frame is the service's hand-over, not the shell's (`compositor-surfaces-result.md`).
