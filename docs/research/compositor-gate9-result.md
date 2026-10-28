@@ -104,16 +104,15 @@ steady frames, with its `flip reached 3.4 ms after it landed` line beside it.
 
 ### Resume here
 
-State (2026-10-27): rounds 1 to 3 are on the set (below); round 4's changes are built and host-tested (`cargo test`,
-the same with `--features ui`, clippy clean both ways, `cargo check --target aarch64-unknown-linux-gnu`, `python3 -m
-unittest test_cutover` from `tests/`), not yet on the set. The go-live configuration has CompShell's shell client up
-(`org.nphil.lumatv.shell`, run by the compositor from the state dir's `shell/Shell.qml`), and the x1 check and the trial
-must pass with it. Next (Main, 2026-10-27): one Face ID for the ipk, the bundle deploy and `cutover install` from one
-HEAD with CompShell's `04e9fd3`; then `tv_gate.py --only shell`, `--only keys,ime,shell,frames`, the trial
-(`cutover.sh trial 120`), x1 three times, and the parity run (the X1 probe's first swaps under LG's compositor:
-`X1_PRIME=0` with LG's live, before the session) that decides whether the probe primes its swapchain (`X1_PRIME`,
-default 4 only with that evidence). Read `gate/x1-compositor.txt` (`trace:`, `warm:`, `standin:`) against `x1.log`
-(`swap N returned`, `priming swap`, `gap`), and record the round under "Rounds".
+State (2026-10-27): rounds 1 to 4 are on the set (below; round 4 is f0d3cb4, `compositor/slot-2026-10-27-1900/`). The go-live
+configuration has CompShell's shell client up (`org.nphil.lumatv.shell`, run by the compositor from the state dir's
+`shell/Shell.qml`). Round 4 settled the probe's priming (X1_PRIME stays 4: LG's compositor shows the same swapchain-filling
+gaps with 0), the trial passes with the shell up, and x1 still fails the rule of zero gaps over 20 ms (2, 3 and 1 gaps,
+worst 20.5, 26.1, 21.5 ms), against 7 over 20 ms (worst 24.1 ms) for LG's own compositor in the same 60 s probe. Next:
+decide whether the rule is "zero" or "no worse than LG's compositor" (Main); if zero, the client-side gap at the 6th swap
+(first measured swap 2, 20.5-21.8 ms in all three runs: the swapchain's third buffer warming, 14-18 ms) and the
+occasional late client commit are what is left; the full gate (not run in round 4) follows. Read `gate/x1-compositor.txt`
+(`trace:`, `warm:`, `standin:`) against `x1.log` (`swap N returned`, `priming swap`, `gap`).
 
 ### What the ninth gate's lines were
 
@@ -248,3 +247,39 @@ Round 4 changes (`kms/mod.rs`, `arch/x1/x1client.c`):
   the last drawing tick`, 200 at most, run or no run of the start-up trace).
 - The X1 probe primes its swapchain with `X1_PRIME` swaps (default 4) before its clock and prints `primed: N swaps in
   M ms before the clock`; `X1_PRIME=0` measures from the first swap as before.
+
+**Round 4, 2026-10-27 22:00 (set's clock), commit `f0d3cb4` (`compositor/slot-2026-10-27-1900/`), the shell client up.** One
+HomeLabber plan put the ipk, the bundle and `cutover install` on the set.
+
+*Parity run under LG's compositor, before any session* (the X1 probe from the installed bundle, window type overlay over
+Home; it runs there as it does under LumaTV's). `X1_PRIME=0`, 30 s: swaps 1-3 return within 3 ms of each other (the
+heap shim's pool), the fourth 14 ms later, then gaps of 22.8 ms before swap 5 and 22.3 ms before swap 8 (the swapchain
+filling); 59.93 fps; two more gaps over 20 ms mid-run (21.6 ms at swap 367, 22.8 ms at swap 1459); 4 in total. `X1_PRIME=4`,
+60 s: the first eight measured swaps are all under 20 ms; 7 gaps over 20 ms in the run (worst 24.1 ms), 916 of 3597 in
+17.5-20 ms, 59.94 fps. LG's own compositor therefore shows the start-up gaps without priming and mid-run gaps with it.
+The probe's priming default stays 4 (the evidence the Gate 10 rule asked for).
+
+*Trial* (`cutover.sh trial 120`, the shell client up): settled, two minutes healthy; `odd stamps 82 (0 missed)`, `reached
+late 0 (over 1 ms 0, worst 0.4 ms)`, `held ticks 1`, `late 2 lost 14` of 1318 flips, render max 412 us. The 82 odd stamps
+are the shell's 10 Hz tick on idle Home, none a missed refresh. The start-up miss of round 3 did not recur.
+
+*x1, three runs of 60 s with the shell up* (X1_PRIME 4; `GATE x1: FAIL` each by the rule of zero over 20 ms):
+
+| run | client gaps over 20 ms | worst | fps | compositor over 20 ms | `late` | loop / `mali-cmar-backe` run-queue wait |
+|---|---|---|---|---|---|---|
+| 1 | 2 (20.5 at swap 2, 20.5 at swap 2175) | 20.5 ms | 59.93 | 0 | 1 to 1 | 4.3 / 4.6 ms |
+| 2 | 3 (21.8 at swap 2, 24.1 and 26.1 at swaps 53, 54) | 26.1 ms | 59.91 | 1 (`frame gap 29.0 ms`) | 2 to 2 | 4.7 / 3.8 ms |
+| 3 | 1 (21.5 at swap 2) | 21.5 ms | 59.93 | 0 | 1 to 1 | 4.0 / 4.2 ms |
+
+Every run has a gap of 20.5-21.8 ms at the first measured swap after the priming (the 6th swap): in run 3's trace the
+compositor commits buffers 12 and 14 as new, their warms' fences are seen done 18.1 and 14.4 ms after the draw, the frame
+for the client's next commit waits for a buffer release. [INFERENCE: that the warm is what holds the release; the trace
+shows the order, not the dependency.] Run 2's gap at swaps 53-54: the compositor's flips stay on the grid, its idle
+ticks draw nothing, and the client's commit comes 29 ms after its previous one, 13 ms after the flip's callback (normal:
+4 ms); the compositor logged it as `frame gap 29.0 ms` and `page-flip interval 33.36 ms, nothing due at the refresh
+between`. No loop stalls, no major faults, loop thread SCHED_FIFO.
+
+*x1 verdict, both ways.* By the rule as written (zero gaps over 20 ms, start-up included): FAIL in all three runs. Against
+LG's own compositor in the same probe (7 over 20 ms and worst 24.1 ms in 60 s with priming; 4 in 30 s without): 1-3 gaps
+and worst 20.5-26.1 ms is no worse in count, with the one difference that LumaTV's gap at the 6th swap is in every run
+while LG's first measured swaps were clean after priming. One 60 s run of LG's is the whole parity sample.

@@ -1,0 +1,105 @@
+power state: active
+home stub before the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+avr: left to the agent (True)
+firmware: unverified: verified.list has no entry (this boot only: a reboot goes back to LG's compositor)
+safety timer: this session ends by itself after 12 min if it is still live ('cutover.sh disable' cancels the timer)
+mounted; restarting the unit
+t=5s unit=active exe=/usr/bin/surface-manager compositor=32699 mounted=yes wam=active
+   22:01:05 recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+   22:01:05 recover: WebAppMgr answering after 0s (active)
+t=10s unit=active exe=/usr/bin/surface-manager compositor=32699 mounted=yes wam=active
+   22:01:05 recover: WebAppMgr answering after 0s (active)
+   22:01:06 recover: Home running under LumaTV's compositor after 0s
+t=15s unit=active exe=/usr/bin/surface-manager compositor=32699 mounted=yes wam=active
+   22:01:05 recover: WebAppMgr answering after 0s (active)
+   22:01:06 recover: Home running under LumaTV's compositor after 0s
+t=20s unit=active exe=/usr/bin/surface-manager compositor=32699 mounted=yes wam=active
+   22:01:06 recover: Home running under LumaTV's compositor after 0s
+   22:01:16 recover: librdx reports swept; remaining 0
+t=25s unit=active exe=/usr/bin/surface-manager compositor=32699 mounted=yes wam=active
+   22:01:06 recover: Home running under LumaTV's compositor after 0s
+   22:01:16 recover: librdx reports swept; remaining 0
+t=30s unit=active exe=/usr/bin/surface-manager compositor=32699 mounted=yes wam=active
+   22:01:06 recover: Home running under LumaTV's compositor after 0s
+   22:01:16 recover: librdx reports swept; remaining 0
+enabled (session): LumaTV's compositor stays live (recovery done after 0s more); 'cutover.sh disable' restores LG's
+
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 392683 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+GATE keys: PASS gear-shell ok; input-shell ok; netflix-button ok; digit-tap ok; digit-hold ok; exit ok; (key table: gear=139 input=241 netflix=1037 amazon=1038; unnamed keys seen: [])
+
+avr: left to the agent (True)
+GATE ime: PASS before: maliit-server.service inactive, MaliitServer not running; after the keyboard came up: unit active, MaliitServer pid 3200; input methods bound 1; asked for one 1 time(s); OK pressed 0 time(s); keyboard up yes (panel y 0 h 1080, capture 222517 bytes); context yes; typed 3; closed by Back | an input method bound, the field's context made, the keyboard's window at the bottom, a key typed on it reached the field, the keyboard closed
+
+GATE shell: FAIL idle-home(0/s,0%) ok; osd ok; toast ok; quick-app ok; idle-covered(0%) ok; saver ok; NOT: connected (connected true, home mapped true, drawn false, pid 659); home-loaded (homeLoaded true, hostActive false, beat true); dpad (focus 'dock' after Up, 'dock' after Down, keys 6 -> 6); quick-home (layer '' after the gear; can "can":["quick","picker","drawer"]); picker-home (layer '' after Input); (shell pid 659, starts 1, exits 0, luna calls 213, refused 0; foreground com.webos.app.browser, windows mapped: org.nphil.lumatv.shell com.webos.app.home com.webos.app.browser)
+
+avr: left to the agent (True)
+evidence: 2 subscription(s) from SAM, 12 client lines, 7 loop stalls, 3 watchdog lines
+
+already mounted; 'cutover.sh status' says what runs
+
+GATE live-frames: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 553634 bytes fg com.webos.app.browser watchdog 1 power-seen 1
+
+PASS  home-dpad       windows                3/3  (== 3)
+PASS  home-dpad       first_frame_ms       31.87  (<= 50)
+PASS  home-dpad       p90_render_ms         0.06  (< 3)  21 frames
+PASS  home-dpad       p90_window_ms         0.07  (< 4)  worst single window
+PASS  home-dpad       dropped                  0  (<= 0)
+PASS  home-dpad       burst_over20             0  (<= 0)
+PASS  home-dpad       rss_growth_mb         0.00  (<= 1.01)  462 -> 462 pages over 1 cycles
+PASS  home-dpad       log_errors               0  (== 0)
+PASS  home-dpad       compositor_pid       32417  (== 32417)
+PASS  quick           windows                6/6  (== 6)
+PASS  quick           first_frame_ms       24.28  (<= 50)
+PASS  quick           burst_end_ms        157.23  (<= 180)
+PASS  quick           p90_render_ms         none  (< 3)  no animated frames
+PASS  quick           p90_window_ms         none  (< 4)  worst single window
+PASS  quick           dropped                  0  (<= 0)
+FAIL  quick           burst_over20             1  (<= 0)
+PASS  quick           rss_growth_mb         0.00  (<= 1.01)  462 -> 462 pages over 1 cycles
+PASS  quick           log_errors               0  (== 0)
+PASS  quick           compositor_pid       32417  (== 32417)
+PASS  picker          windows                6/6  (== 6)
+FAIL  picker          first_frame_ms       85.76  (<= 50)
+FAIL  picker          burst_end_ms          none  (<= 180)  no burst at the key
+PASS  picker          p90_render_ms         none  (< 3)  no animated frames
+PASS  picker          p90_window_ms         none  (< 4)  worst single window
+PASS  picker          dropped                  0  (<= 0)
+FAIL  picker          burst_over20             1  (<= 0)
+PASS  picker          rss_growth_mb         0.00  (<= 1.01)  462 -> 462 pages over 1 cycles
+PASS  picker          log_errors               0  (== 0)
+PASS  picker          compositor_pid       32417  (== 32417)
+FAIL  toast           windows                2/3  (== 3)  no frame after the key in toast-open
+FAIL  toast           first_frame_ms        none  (<= 50)  the OSD was off at 1 key(s), on after 1979.1 ms at worst
+FAIL  toast           burst_end_ms          none  (<= 180)  no burst at the key
+PASS  toast           p90_render_ms         none  (< 3)  no animated frames
+PASS  toast           p90_window_ms         none  (< 4)  worst single window
+PASS  toast           dropped                  0  (<= 0)
+FAIL  toast           burst_over20             1  (<= 0)
+PASS  toast           rss_growth_mb         0.00  (<= 1.01)  462 -> 462 pages over 1 cycles
+PASS  toast           log_errors               0  (== 0)
+PASS  toast           compositor_pid       32417  (== 32417)
+VERDICT FAIL
+
+safety timer cancelled
+umount: /usr/bin/surface-manager: target is busy.
+revert: active; mounted: no; exe: /usr/bin/surface-manager
+recover: surface-manager-daemon.service active after 0s; exe /usr/bin/surface-manager
+recover: compositor answering on the bus after 0s
+recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+recover: WebAppMgr answering after 0s (active)
+recover: Home on the panel after 0s (capture 60677 bytes)
+recover: librdx reports swept; remaining 0
+
+avr: left to the agent (False)
+{"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+
+home stub after the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 392683 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE keys: PASS gear-shell ok; input-shell ok; netflix-button ok; digit-tap ok; digit-hold ok; exit ok; (key table: gear=139 input=241 netflix=1037 amazon=1038; unnamed keys seen: [])
+GATE ime: PASS before: maliit-server.service inactive, MaliitServer not running; after the keyboard came up: unit active, MaliitServer pid 3200; input methods bound 1; asked for one 1 time(s); OK pressed 0 time(s); keyboard up yes (panel y 0 h 1080, capture 222517 bytes); context yes; typed 3; closed by Back | an input method bound, the field's context made, the keyboard's window at the bottom, a key typed on it reached the field, the keyboard closed
+GATE shell: FAIL idle-home(0/s,0%) ok; osd ok; toast ok; quick-app ok; idle-covered(0%) ok; saver ok; NOT: connected (connected true, home mapped true, drawn false, pid 659); home-loaded (homeLoaded true, hostActive false, beat true); dpad (focus 'dock' after Up, 'dock' after Down, keys 6 -> 6); quick-home (layer '' after the gear; can "can":["quick","picker","drawer"]); picker-home (layer '' after Input); (shell pid 659, starts 1, exits 0, luna calls 213, refused 0; foreground com.webos.app.browser, windows mapped: org.nphil.lumatv.shell com.webos.app.home com.webos.app.browser)
+GATE live-frames: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 553634 bytes fg com.webos.app.browser watchdog 1 power-seen 1
+GATE frames: FAIL home-dpad ok [first_frame 31.87 p90_render 0.06]; quick NOT burst_over20=1 [first_frame 24.28 burst_end 157.23 p90_render None]; picker NOT first_frame_ms=85.76,burst_end_ms=None,burst_over20=1 [first_frame 85.76 burst_end None p90_render None]; toast NOT windows=2/3,first_frame_ms=None,burst_end_ms=None,burst_over20=1 [first_frame None burst_end None p90_render None] (surfaces home-dpad,quick,picker,toast, 3 cycles; /tmp/lumatv-tv-out/frames.json)
+GATE: FAIL
+wrote ../lumatv-r4/docs/research/compositor/gate-2026-10-27.txt

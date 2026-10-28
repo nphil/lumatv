@@ -7,25 +7,23 @@ compositor. Under LG's compositor nothing changes: the shadow module keeps runni
 
 ## Resume here
 
-State (2026-10-27, 21:30): deployed and run on the set (ipk and bundle of 2791f7f, then the bundle of fae341e, each through
-one HomeLabber plan): `gate.sh shell` passes 10 of its 11 steps; the one left (the volume display, the system window's
-first showing) is fixed in 5dd1785, built in the clean worktree `/tmp/lumatv-slot` and waiting for the next combined
-deploy with CompFrames' changes ("TV runs" below). Next, in order:
+State (2026-10-27, round 4 on f0d3cb4, `compositor/slot-2026-10-27-1900/`): ipk, bundle and `cutover install` of f0d3cb4 are
+on the set (one HomeLabber plan). `gate.sh shell` passes 11 of 11 alone, and in `--only keys,ime,shell,frames` keys,
+ime and shell pass; the frame gate fails on two surfaces (picker, toast; "TV runs" below). Next, in order:
 
-1. The deploy of 5dd1785 (the 2-step plan: `cd /tmp/lumatv-slot && sh compositor/tools/tv-first-light.sh deploy`, then
-   `... cutover install`, each as `docker exec -e HOME=/data/home Cody sh -c 'export PATH=/data/home/.local/bin:
-   /data/home/.cargo/bin:$PATH && ...'`; the ipk is unchanged since 2791f7f).
-2. `python3 compositor/tools/tv_gate.py --only shell` (one session, about 3 minutes; `ctl shell`, `compositor.log`'s
-   `shell:` lines and the client's console in `/var/log/messages` under `qml-runner ... org.nphil.lumatv.shell` on a
-   failure); then `--only keys,ime,shell,frames` (the frame gate, not run yet); then the full gate.
-3. Idle Home ("Open" below): the tick held while nothing visible changes.
+1. The picker and the toast of the frame gate (numbers in "TV runs", round 4): the picker's open misses the 50 ms first
+   frame in 2 of 3 cycles (82.1, 80.2 ms, no burst at the key) and the toast's open has no frame after the key in 2 of
+   3 (the volume display's window off at the key, woke after 281 and 582 ms).
+2. The held digit: its press also reaches SAM, which launches the Quick Access slot's app (`com.webos.app.browser`, 0.6 s
+   into the hold) beside the compositor's own Quick Access (`com.webos.app.magicnum`, at 1.0 s). The gate now closes
+   the browser; whether `keys.rs` should keep the press from SAM is open.
+3. The full gate (not run in round 4), then idle Home ("Open" below): the tick held while nothing visible changes.
 
-Likeliest failures on the set now: the idle cost over the threshold (`gate.sh shell` idle steps: the tick's commits while
-nothing covers Home are by design; a client CPU over a third of a core at nice 10 would be the Qt render of the full
-scene per tick, and the answer is the wallpaper motion off under the shell), a system layer that is opaque (black over an
-app while the volume display shows: the Qt window got no alpha config; the fix is a window LG's plugin gives alpha to,
-read off `inputcommon`'s windows), keys not arriving (`ctl shell` `ui.keys` stays 0 while `ctl keys` counts them
-delivered: the focus went elsewhere, `ctl windows` and the journal's `focus ->` lines say where).
+Likeliest failures on the set now: the frame gate's picker and toast (above), an app left open by a key (`gate.sh shell`
+starts with Home not in front: `connected` fails with `drawn false`, and the frame gate's session then covers Home), the
+idle cost over the threshold (a client CPU over a third of a core at nice 10 would be the Qt render of the full scene
+per tick), keys not arriving (`ctl shell` `ui.keys` stays 0 while `ctl keys` counts them delivered: the focus went
+elsewhere, `ctl windows` and the journal's `focus ->` lines say where).
 
 ## What was built
 
@@ -171,13 +169,35 @@ disable`: LG's compositor back, the Home stub on, the receiver unmuted; `docs/re
 
 Numbers read on the set: the client's idle cost on Home 10 commits a second (the live wallpaper's tick) at 3 % of a core
 at nice 10; under an app 0 and 0 %; the luna proxy made 158-163 calls per session with none refused; the system window
-maps within 15 ms of a showing (after the first); keys counted by the client matched the gate's taps. The surface frame
-gate (`frames`) has not run yet: it follows the deploy of 5dd1785.
+maps within 15 ms of a showing (after the first); keys counted by the client matched the gate's taps.
+
+### Round 4 (f0d3cb4, 2026-10-27, `compositor/slot-2026-10-27-1900/`)
+
+Ipk, bundle and `cutover install` of f0d3cb4 (one HomeLabber plan; the installed set reports firmware `unverified`, so
+sessions only). `--only shell`: 11 of 11 (`connected` through `saver`; idle Home 10 commits/s at 3 %, covered 0 %; 159
+luna calls, 0 refused), the volume display included.
+
+`--only keys,ime,shell,frames`, first run: keys PASS (gear, Input, Netflix button, digit tap, digit hold, Exit), ime PASS
+(an input method bound, context made, keyboard at the bottom, 3 keys typed, closed by Back), shell FAIL and frames FAIL
+with `com.webos.app.browser` in front of Home. The held digit of `keys` is the cause: its press also reaches SAM, which
+launches the Quick Access slot's app (`com.webos.app.browser`) 0.63 s into the hold, before the compositor's own Quick
+Access (`com.webos.app.magicnum`) at 1.0 s; the gate closed `magicnum` only. `tv-gate.sh` now closes the browser too.
+
+Second run, same checks: keys, ime and shell PASS (shell 11 of 11: 10 commits/s, 3 % on Home, 0 % covered, 180 luna calls,
+0 refused); frames FAIL on two of four surfaces, 3 open/close cycles each, no growth in RSS:
+
+- `home-dpad` ok (first frame 25.1 ms, p90 render 0.5 ms), `quick` ok (first frame 21.3 ms, burst end 138.8 ms, 0
+  frames over 20 ms in the burst).
+- `picker` NOT: the open's first frame is 82.1 and 80.2 ms (limit 50) in two cycles, with no render burst at the key in
+  those two (burst end none); the third cycle's open is 47.7 ms with its burst ending at 197.8 ms (limit 180) and 3
+  frames over 20 ms; the closes are 30.7-31.3 ms to first frame, burst end 130.8-131.4 ms. `burst_over20` 5.
+- `toast` NOT: `windows` 2 of 3: two of the three opens have no frame after the key (the volume display's window was
+  off at the key and came up after 281 and 582 ms), so no first frame; the closes' first frames are 421.9, 55.5 and
+  980.3 ms.
 
 ## Open
 
-- Deploy 5dd1785 (the system window's first showing) and run `--only shell` (expect 11 of 11), then `--only
-  keys,ime,shell,frames` and the full gate; write the frame numbers here.
+- The picker and the toast of the frame gate (round 4 below); the full gate.
 - Idle Home commits at the live wallpaper's tick (10 a second, 3 % of a core at nice 10). Parity with LG's compositor:
   there too idle Home presents one frame per tick while `wallpaperMotion.enabled` is on (`LumaHome.qml`: the phase and
   the clock's hands advance on the one 10 Hz tick, "idle Home presents one frame per tick"; the gate's `home-idle`

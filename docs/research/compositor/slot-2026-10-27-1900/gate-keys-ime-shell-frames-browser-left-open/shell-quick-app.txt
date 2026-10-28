@@ -1,0 +1,3 @@
+input: gear tap: Quick Settings -> LumaTV's quick panel
+shell: the system layer lets go of the keys
+focus -> surface 221

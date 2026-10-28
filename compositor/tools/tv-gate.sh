@@ -366,7 +366,9 @@ keys)
     if journal_after keys-digit-hold | grep -q 'input: 5 held: Quick Access slot 5 .*launching com.webos.app.magicnum'; then res ok digit-hold
     else res no digit-hold "no journal line"; fi
     journal_after keys-digit-hold > $OUT/keys-digit.txt
-    close_app com.webos.app.magicnum; sleep 2; home; sleep 3
+    # The held digit's press also reaches SAM, which launches the slot's app (com.webos.app.browser, 0.63 s into the hold on the set
+    # on 2026-10-27) beside Quick Access; left open it stays in front of Home for every check that follows.
+    close_app com.webos.app.magicnum; close_app com.webos.app.browser; sleep 2; home; sleep 3
     # Exit: the app that does not take it is closed and the TV comes back to Home.
     ls1 com.webos.applicationManager/launch '{"id":"com.palm.app.settings"}' > /dev/null
     wait_app com.palm.app.settings 25; sleep 2

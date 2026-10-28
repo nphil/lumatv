@@ -1,0 +1,85 @@
+firmware: unverified: verified.list has no entry (this boot only: a reboot goes back to LG's compositor)
+safety timer: this session ends by itself after 7 min if it is still live ('cutover.sh disable' cancels the timer)
+mounted; restarting the unit
+t=5s unit=active exe=/usr/bin/surface-manager compositor=30995 mounted=yes wam=active
+   22:25:12 recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+   22:25:12 recover: WebAppMgr answering after 0s (active)
+t=10s unit=active exe=/usr/bin/surface-manager compositor=30995 mounted=yes wam=active
+   22:25:12 recover: WebAppMgr answering after 0s (active)
+   22:25:13 recover: Home running under LumaTV's compositor after 0s
+t=15s unit=active exe=/usr/bin/surface-manager compositor=30995 mounted=yes wam=active
+   22:25:12 recover: WebAppMgr answering after 0s (active)
+   22:25:13 recover: Home running under LumaTV's compositor after 0s
+t=20s unit=active exe=/usr/bin/surface-manager compositor=30995 mounted=yes wam=active
+   22:25:13 recover: Home running under LumaTV's compositor after 0s
+   22:25:23 recover: librdx reports swept; remaining 0
+t=25s unit=active exe=/usr/bin/surface-manager compositor=30995 mounted=yes wam=active
+   22:25:13 recover: Home running under LumaTV's compositor after 0s
+   22:25:23 recover: librdx reports swept; remaining 0
+t=30s unit=active exe=/usr/bin/surface-manager compositor=30995 mounted=yes wam=active
+   22:25:13 recover: Home running under LumaTV's compositor after 0s
+   22:25:23 recover: librdx reports swept; remaining 0
+t=35s unit=active exe=/usr/bin/surface-manager compositor=30995 mounted=yes wam=active
+   22:25:13 recover: Home running under LumaTV's compositor after 0s
+   22:25:23 recover: librdx reports swept; remaining 0
+t=40s unit=active exe=/usr/bin/surface-manager compositor=30995 mounted=yes wam=active
+   22:25:13 recover: Home running under LumaTV's compositor after 0s
+   22:25:23 recover: librdx reports swept; remaining 0
+t=45s unit=active exe=/usr/bin/surface-manager compositor=30995 mounted=yes wam=active
+   22:25:13 recover: Home running under LumaTV's compositor after 0s
+   22:25:23 recover: librdx reports swept; remaining 0
+t=50s unit=active exe=/usr/bin/surface-manager compositor=30995 mounted=yes wam=active
+   22:25:13 recover: Home running under LumaTV's compositor after 0s
+   22:25:23 recover: librdx reports swept; remaining 0
+t=55s unit=active exe=/usr/bin/surface-manager compositor=30995 mounted=yes wam=active
+   22:25:13 recover: Home running under LumaTV's compositor after 0s
+   22:25:23 recover: librdx reports swept; remaining 0
+t=60s unit=active exe=/usr/bin/surface-manager compositor=30995 mounted=yes wam=active
+   22:25:13 recover: Home running under LumaTV's compositor after 0s
+   22:25:23 recover: librdx reports swept; remaining 0
+t=65s unit=active exe=/usr/bin/surface-manager compositor=30995 mounted=yes wam=active
+   22:25:13 recover: Home running under LumaTV's compositor after 0s
+   22:25:23 recover: librdx reports swept; remaining 0
+t=70s unit=active exe=/usr/bin/surface-manager compositor=30995 mounted=yes wam=active
+   22:25:13 recover: Home running under LumaTV's compositor after 0s
+   22:25:23 recover: librdx reports swept; remaining 0
+t=75s unit=active exe=/usr/bin/surface-manager compositor=30995 mounted=yes wam=active
+   22:25:13 recover: Home running under LumaTV's compositor after 0s
+   22:25:23 recover: librdx reports swept; remaining 0
+t=80s unit=active exe=/usr/bin/surface-manager compositor=30995 mounted=yes wam=active
+   22:25:13 recover: Home running under LumaTV's compositor after 0s
+   22:25:23 recover: librdx reports swept; remaining 0
+t=85s unit=active exe=/usr/bin/surface-manager compositor=30995 mounted=yes wam=active
+   22:25:13 recover: Home running under LumaTV's compositor after 0s
+   22:25:23 recover: librdx reports swept; remaining 0
+t=90s unit=active exe=/usr/bin/surface-manager compositor=30995 mounted=yes wam=active
+   22:25:13 recover: Home running under LumaTV's compositor after 0s
+   22:25:23 recover: librdx reports swept; remaining 0
+t=95s unit=active exe=/usr/bin/surface-manager compositor=30995 mounted=yes wam=active
+   22:25:13 recover: Home running under LumaTV's compositor after 0s
+   22:25:23 recover: librdx reports swept; remaining 0
+t=100s unit=active exe=/usr/bin/surface-manager compositor=30995 mounted=yes wam=active
+   22:25:13 recover: Home running under LumaTV's compositor after 0s
+   22:25:23 recover: librdx reports swept; remaining 0
+t=105s unit=active exe=/usr/bin/surface-manager compositor=30995 mounted=yes wam=active
+   22:25:13 recover: Home running under LumaTV's compositor after 0s
+   22:25:23 recover: librdx reports swept; remaining 0
+t=110s unit=active exe=/usr/bin/surface-manager compositor=30995 mounted=yes wam=active
+   22:25:13 recover: Home running under LumaTV's compositor after 0s
+   22:25:23 recover: librdx reports swept; remaining 0
+t=115s unit=active exe=/usr/bin/surface-manager compositor=30995 mounted=yes wam=active
+   22:25:13 recover: Home running under LumaTV's compositor after 0s
+   22:25:23 recover: librdx reports swept; remaining 0
+t=120s unit=active exe=/usr/bin/surface-manager compositor=30995 mounted=yes wam=active
+   22:25:23 recover: librdx reports swept; remaining 0
+   [22:27:07] settled: two minutes healthy
+trial evidence: "summary":"uptime 123.3s clients 2 (total 3) surfaces 29 windows 3 requests 5854 commits 1328 buffers 0 ticks 9173 drawn 1319 callbacks 1320 releases 1318 skipped 0 gl errors 0 render last 248 us max 412 us prepared 9 frame imports 0 held ticks 1 check ok 0 bad 0 unread 0 flips 1318 late 2 lost 14 reached late 0 (over 1 ms 0, worst 0.4 ms) direct 0 split 0 odd stamps 82 (0 missed) refresh 16.67 ms (measured 92.1357, changed 0)" windows "appId":"" "appId":"com.webos.app.home" "appId":"org.nphil.lumatv.shell" 
+safety timer cancelled
+umount: /usr/bin/surface-manager: target is busy.
+revert: active; mounted: no; exe: /usr/bin/surface-manager
+recover: surface-manager-daemon.service active after 0s; exe /usr/bin/surface-manager
+recover: compositor answering on the bus after 0s
+recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+recover: WebAppMgr answering after 0s (active)
+recover: Home on the panel after 0s (capture 61825 bytes)
+recover: librdx reports swept; remaining 0

@@ -1,0 +1,3 @@
+input: Back or Exit: closing com.palm.app.settings
+focus -> surface 221
+luna: foreground ['com.webos.app.browser'] pushed to 1 subscriber(s) (com.webos.applicationManager)

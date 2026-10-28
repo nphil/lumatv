@@ -1,0 +1,7 @@
+Round 4 on f0d3cb4 (set's clock 21:54-22:36): ipk + bundle + cutover install through one HomeLabber plan.
+parity-lg/      X1 probe under LG's compositor: x1.log (X1_PRIME=0, 30 s), x1-p4.log (X1_PRIME=4, 60 s)
+gate-shell/     --only shell: 11 of 11
+gate-keys-ime-shell-frames-browser-left-open/   first run: shell and frames failed with com.webos.app.browser left open by the held digit
+gate-keys-ime-shell-frames/                     second run (tv-gate.sh closes the browser): keys, ime, shell PASS; frames FAIL (picker, toast); frames.json
+trial/          cutover.sh trial 120: two minutes healthy, odd stamps 82 (0 missed)
+gate-x1-1..3/   x1 60 s each: x1.log, x1-compositor.txt, x1-result.txt, gate-output.txt

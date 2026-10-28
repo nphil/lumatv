@@ -48,3 +48,41 @@ GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 h
 GATE x1: FAIL 3 gap(s) over 20 ms in the client's swaps (worst 32.8 ms) | [x1] RESULT frames=3596 in 60.01 s = 59.92 fps; gaps: <=17.5 ms 3567, 17.5-20 25, 20-33.5 3, >33.5 0; worst 32.8 ms; ended at monotonic 49798.197 | pacer before: flips 403 late 3 lost 2 after: flips 4002 late 3 lost 2 | compositor: loop stalls 0, frame gaps 0, clients connected 0, over 20 ms 0; major faults +0, run-queue wait +4.5 ms, loop thread SCHED_FIFO prio -21, mali-cmar-backe run-queue wait +4.6 ms SCHED_FIFO
 GATE: FAIL
 
+# C4 gate 2026-10-27 19:00
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 392917 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE shell: PASS connected ok; home-loaded ok; idle-home(10/s,3%) ok; dpad ok; quick-home ok; picker-home ok; osd ok; toast ok; quick-app ok; idle-covered(0%) ok; saver ok; (shell pid 25571, starts 1, exits 0, luna calls 159, refused 0; foreground com.webos.app.home, windows mapped: org.nphil.lumatv.shell com.webos.app.home)
+GATE: PASS
+
+# C4 gate 2026-10-27 19:12
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 392683 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE keys: PASS gear-shell ok; input-shell ok; netflix-button ok; digit-tap ok; digit-hold ok; exit ok; (key table: gear=139 input=241 netflix=1037 amazon=1038; unnamed keys seen: [])
+GATE ime: PASS before: maliit-server.service inactive, MaliitServer not running; after the keyboard came up: unit active, MaliitServer pid 3200; input methods bound 1; asked for one 1 time(s); OK pressed 0 time(s); keyboard up yes (panel y 0 h 1080, capture 222517 bytes); context yes; typed 3; closed by Back | an input method bound, the field's context made, the keyboard's window at the bottom, a key typed on it reached the field, the keyboard closed
+GATE shell: FAIL idle-home(0/s,0%) ok; osd ok; toast ok; quick-app ok; idle-covered(0%) ok; saver ok; NOT: connected (connected true, home mapped true, drawn false, pid 659); home-loaded (homeLoaded true, hostActive false, beat true); dpad (focus 'dock' after Up, 'dock' after Down, keys 6 -> 6); quick-home (layer '' after the gear; can "can":["quick","picker","drawer"]); picker-home (layer '' after Input); (shell pid 659, starts 1, exits 0, luna calls 213, refused 0; foreground com.webos.app.browser, windows mapped: org.nphil.lumatv.shell com.webos.app.home com.webos.app.browser)
+GATE live-frames: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 553634 bytes fg com.webos.app.browser watchdog 1 power-seen 1
+GATE frames: FAIL home-dpad ok [first_frame 31.87 p90_render 0.06]; quick NOT burst_over20=1 [first_frame 24.28 burst_end 157.23 p90_render None]; picker NOT first_frame_ms=85.76,burst_end_ms=None,burst_over20=1 [first_frame 85.76 burst_end None p90_render None]; toast NOT windows=2/3,first_frame_ms=None,burst_end_ms=None,burst_over20=1 [first_frame None burst_end None p90_render None] (surfaces home-dpad,quick,picker,toast, 3 cycles; /tmp/lumatv-tv-out/frames.json)
+GATE: FAIL
+
+# C4 gate 2026-10-27 19:24
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 391063 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE keys: PASS gear-shell ok; input-shell ok; netflix-button ok; digit-tap ok; digit-hold ok; exit ok; (key table: gear=139 input=241 netflix=1037 amazon=1038; unnamed keys seen: [])
+GATE ime: PASS before: maliit-server.service inactive, MaliitServer not running; after the keyboard came up: unit active, MaliitServer pid 18984; input methods bound 1; asked for one 1 time(s); OK pressed 0 time(s); keyboard up yes (panel y 0 h 1080, capture 188574 bytes); context yes; typed 3; closed by Back | an input method bound, the field's context made, the keyboard's window at the bottom, a key typed on it reached the field, the keyboard closed
+GATE shell: PASS connected ok; home-loaded ok; idle-home(10/s,3%) ok; dpad ok; quick-home ok; picker-home ok; osd ok; toast ok; quick-app ok; idle-covered(0%) ok; saver ok; (shell pid 16800, starts 1, exits 0, luna calls 180, refused 0; foreground com.webos.app.home, windows mapped: org.nphil.lumatv.shell com.webos.app.home)
+GATE live-frames: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 390629 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE frames: FAIL home-dpad ok [first_frame 25.09 p90_render 0.5]; quick ok [first_frame 21.26 burst_end 138.75 p90_render None]; picker NOT first_frame_ms=82.07,burst_end_ms=None,burst_over20=5 [first_frame 82.07 burst_end None p90_render None]; toast NOT windows=2/3,first_frame_ms=None,burst_end_ms=None [first_frame None burst_end None p90_render 0.15] (surfaces home-dpad,quick,picker,toast, 3 cycles; /tmp/lumatv-tv-out/frames.json)
+GATE: FAIL
+
+# C4 gate 2026-10-27 19:29
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 391010 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE x1: FAIL 2 gap(s) over 20 ms in the client's swaps (worst 20.5 ms) | [x1] RESULT frames=3596 in 60.01 s = 59.93 fps; gaps: <=17.5 ms 3559, 17.5-20 34, 20-33.5 2, >33.5 0; worst 20.5 ms; ended at monotonic 53235.884 | pacer before: flips 399 late 1 lost 2 after: flips 4005 late 1 lost 2 | compositor: loop stalls 0, frame gaps 0, clients connected 0, over 20 ms 0; major faults +0, run-queue wait +4.3 ms, loop thread SCHED_FIFO prio -21, mali-cmar-backe run-queue wait +4.6 ms SCHED_FIFO
+GATE: FAIL
+
+# C4 gate 2026-10-27 19:31
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 390943 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE x1: FAIL 3 gap(s) over 20 ms in the client's swaps (worst 26.1 ms); the compositor logged 1 loop pass(es), client frame gap(s) or page-flip interval(s) over 20 ms during the run | [x1] RESULT frames=3595 in 60.01 s = 59.91 fps; gaps: <=17.5 ms 3566, 17.5-20 25, 20-33.5 3, >33.5 0; worst 26.1 ms; ended at monotonic 53363.233 | pacer before: flips 395 late 2 lost 2 after: flips 3997 late 2 lost 2 | compositor: loop stalls 0, frame gaps 1, clients connected 0, over 20 ms 1; major faults +0, run-queue wait +4.7 ms, loop thread SCHED_FIFO prio -21, mali-cmar-backe run-queue wait +3.8 ms SCHED_FIFO
+GATE: FAIL
+
+# C4 gate 2026-10-27 19:33
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 391338 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE x1: FAIL 1 gap(s) over 20 ms in the client's swaps (worst 21.5 ms) | [x1] RESULT frames=3596 in 60.01 s = 59.93 fps; gaps: <=17.5 ms 3568, 17.5-20 26, 20-33.5 1, >33.5 0; worst 21.5 ms; ended at monotonic 53490.264 | pacer before: flips 407 late 1 lost 19 after: flips 4010 late 1 lost 19 | compositor: loop stalls 0, frame gaps 0, clients connected 0, over 20 ms 0; major faults +0, run-queue wait +4.0 ms, loop thread SCHED_FIFO prio -21, mali-cmar-backe run-queue wait +4.2 ms SCHED_FIFO
+GATE: FAIL
+
