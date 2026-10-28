@@ -68,6 +68,30 @@ class Table(unittest.TestCase):
         self.assertIsNone(s['thresholds']['first_frame_ms'])
         self.assertEqual(s['thresholds']['p90_render_ms'], 3.0)
 
+    def test_no_cycle_is_longer_than_a_full_capture_can_hold(self):
+        # the stock toast's two 8 s settles made 16.3 s: past the ring's 13 s, the first markers of its captures were gone
+        for e in gate.SURFACES:
+            self.assertLessEqual(gate.cycle_seconds(gate.surface(e)), gate.FULL_CAPTURE_MAX_S, e['name'])
+        long = {'name': 'x', 'open': '@x-open !toast', 'close': '@x-close', 'settle_s': 8, 'delivery': True}
+        with self.assertRaisesRegex(ValueError, r'16\.3 s.*overflows the trace ring'):
+            gate.validate([long])
+        gate.validate([dict(long, settle_s=7, close_settle_s=0.5)])
+
+    def test_the_toast_waits_for_its_timer_and_not_after_the_close(self):
+        s = gate.find(['toast'])[0]
+        self.assertEqual(gate.cycle_tokens(s), ['@toast-open', '!toast', 's7', '@toast-close', 's0.5'])
+        self.assertAlmostEqual(gate.cycle_seconds(s), 7.8)
+        self.assertEqual(gate.plan_full(s, 3), [1, 1, 1])
+        alert = gate.find(['alert'])[0]
+        self.assertEqual(gate.cycle_tokens(alert)[-1], 's2.5', 'a surface that gives no close_settle_s waits as long after the close as after the open')
+
+    def test_every_toast_carries_a_text_of_its_own(self):
+        # kb.py cannot be imported without the set's key device: read what it sends
+        with open(os.path.join(os.path.dirname(gate.__file__), 'kb.py')) as f:
+            source = f.read()
+        self.assertEqual(source.count('A toast for the gate {N}'), 2, 'the message and the readable text')
+        self.assertIn("payload.replace('{N}'", source)
+
 
 class Commands(unittest.TestCase):
     def test_cycle_tokens_and_seconds(self):
@@ -427,6 +451,67 @@ class Edges(unittest.TestCase):
         self.assertAlmostEqual(first['burst_end_ms'], 91.0, places=1)         # the burst runs to 100.151
         self.assertIsNone(second['sent_ms'])
         self.assertIsNone(second['first_frame_ms'])                           # no return: dead, and the gate says so
+
+    def test_delivery_is_timed_from_the_compositors_marker_when_it_wrote_one(self):
+        trace = '\n'.join([
+            '  <...>-1 [001] .... 100.000: tracing_mark_write: P:toast-open',
+            '  <...>-1 [001] .... 100.050: tracing_mark_write: Q:toast-sent',                     # luna-send returned
+            '  <...>-1 [001] .... 100.900: tracing_mark_write: Q:toast-delivered',                # the service's push reached the compositor
+            '  <idle>-0 [000] dNH2 100.300: drm_vblank_event_delivered: file=0, crtc=0, seq=1',   # an idle tick between the two
+            '  <idle>-0 [000] dNH2 100.925: drm_vblank_event_delivered: file=0, crtc=0, seq=2',
+            '  <idle>-0 [000] dNH2 100.942: drm_vblank_event_delivered: file=0, crtc=0, seq=3',
+            '  <...>-1 [001] .... 108.000: tracing_mark_write: P:toast-open',                     # a window with the return only
+            '  <...>-1 [001] .... 108.050: tracing_mark_write: Q:toast-sent',
+            '  <idle>-0 [000] dNH2 108.100: drm_vblank_event_delivered: file=0, crtc=0, seq=4',
+            ''])
+        rep = {'windows': [{'name': 'toast-open', 'first_frame_ms': 1.0, 'burst_end_ms': None, 'burst_over20': 0},
+                           {'name': 'toast-open', 'first_frame_ms': 1.0, 'burst_end_ms': None, 'burst_over20': 0}]}
+        gate.apply_delivery(rep, trace, 'toast')
+        first, second = rep['windows']
+        self.assertEqual((first['sent_ms'], first['delivered_ms']), (50.0, 900.0))
+        self.assertAlmostEqual(first['first_frame_ms'], 25.0, places=1)        # 100.925 - 100.900, not the tick at 100.300 nor luna-send's 100.050
+        self.assertAlmostEqual(first['burst_end_ms'], 42.0, places=1)
+        self.assertEqual((second['sent_ms'], second['delivered_ms']), (50.0, None))
+        self.assertAlmostEqual(second['first_frame_ms'], 50.0, places=1)       # under LG's compositor: from luna-send's return
+
+    def test_a_panel_the_compositor_was_asked_for_says_when(self):
+        trace = '\n'.join([
+            '  <...>-1 [001] .... 100.000: tracing_mark_write: P:picker-open',
+            '  <...>-1 [001] .... 100.051: tracing_mark_write: Q:picker-show',
+            '  <...>-1 [001] .... 101.500: tracing_mark_write: P:picker-close',
+            '  <...>-1 [001] .... 103.000: tracing_mark_write: P:picker-open',
+            '  <...>-1 [001] .... 103.030: tracing_mark_write: Q:picker-show',
+            '  <...>-1 [001] .... 104.500: tracing_mark_write: P:picker-close',
+            '  <...>-1 [001] .... 106.000: tracing_mark_write: stop x',
+            ''])
+        names = ['picker-open', 'picker-close', 'picker-open', 'picker-close']
+        rep = {'windows': [{'name': n} for n in names]}
+        gate.annotate_shows(rep, trace, 'picker')
+        self.assertEqual([w['show_ms'] for w in rep['windows']], [51.0, None, 30.0, None])
+        # under LG's compositor there is no such marker: the windows say so
+        rep = {'windows': [{'name': n} for n in names]}
+        gate.annotate_shows(rep, trace.replace('Q:picker-show', 'Q:other'), 'picker')
+        self.assertEqual([w['show_ms'] for w in rep['windows']], [None] * 4)
+
+    def test_a_toast_without_markers_says_the_trace_lost_them(self):
+        s = gate.find(['toast'])[0]
+        r = {'windows': [window('toast-open', first=None, end=None) | {'sent_ms': None, 'delivered_ms': None} for _ in range(2)]}
+        c = {x['name']: x for x in gate.evaluate_windows(s, r, 3)}
+        self.assertEqual(c['windows']['value'], '2/3')
+        self.assertIn('no frame after the key in toast-open, toast-open', c['windows']['detail'])
+        self.assertIn("neither luna-send's return nor the compositor's delivery marker", c['windows']['detail'])
+        # a toast that was marked but never drawn is not blamed on the trace
+        r = {'windows': [window('toast-open', first=None, end=None) | {'sent_ms': 40.0, 'delivered_ms': None} for _ in range(3)]}
+        c = {x['name']: x for x in gate.evaluate_windows(s, r, 3)}
+        self.assertEqual(c['windows']['detail'], 'no frame after the key in toast-open, toast-open, toast-open')
+
+    def test_the_first_frame_check_says_when_the_shell_was_asked(self):
+        s = gate.find(['picker'], values={'INPUT': '241'})[0]
+        r = report('picker', 3)
+        r['windows'][0].update(first_frame_ms=82.0, show_ms=50.5)
+        c = {x['name']: x for x in gate.evaluate_windows(s, r, 3)}
+        self.assertFalse(c['first_frame_ms']['ok'])
+        self.assertEqual(c['first_frame_ms']['detail'], 'the compositor asked the shell 50.5 ms after the key at worst')
 
     def test_a_delivery_window_without_a_return_fails_the_surface(self):
         s = gate.find(['alert'])[0]

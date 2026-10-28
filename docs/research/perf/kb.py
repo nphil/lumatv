@@ -103,8 +103,10 @@ def mark(name):
 LUNA = {
     # The fields LG's view reads of every notification (`userData.id` of a toast, `readable` and `showTimeout` of an
     # alert): without them its own code logs a TypeError or a binding warning per notification, which the gate counts.
+    # {N} is made different for every call: a toast that repeats the text of one still up replaces it in place (LG's model and LumaTV's
+    # both do), and nothing then changes on the screen for the gate to time.
     'toast': ('luna://com.webos.notification/createToast',
-              '{"sourceId":"com.webos.app.home","message":"A toast for the gate","readable":"A toast for the gate","userData":{"id":"gate"}}'),
+              '{"sourceId":"com.webos.app.home","message":"A toast for the gate {N}","readable":"A toast for the gate {N}","userData":{"id":"gate"}}'),
     'alert': ('luna://com.webos.notification/createAlert',
               '{"sourceId":"com.webos.app.home","title":"An alert for the gate","message":"Closed by the gate with OK.","readable":"An alert for the gate",'
               '"showTimeout":false,"buttons":[{"label":"OK"}]}'),
@@ -114,6 +116,7 @@ LUNA = {
 def luna(name):
     import subprocess
     uri, payload = LUNA[name]
+    payload = payload.replace('{N}', str(int(time.time() * 1000) % 1000000))
     child = subprocess.Popen(['luna-send', '-n', '1', uri, payload], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL, close_fds=True)
 

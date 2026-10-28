@@ -22,9 +22,12 @@ the surface acts on: the press by default, the release for `act: 'release'` (LG'
 opens on the release of the settings key, so a marker at the press would count the 50 ms the
 injected tap is held). `still` switches the wallpaper's 10 Hz tick off for the surface (a tick
 frame could otherwise be taken for the response; the user's setting is put back). `delivery` is for
-a surface a luna call opens (toast, alert): its first frame is judged from the moment luna-send
-returned (kb.py's `Q:NAME-sent`), because the spawn, the hub and the service before that are not
-the compositor's. The run starts with 3
+a surface a luna call opens (toast, alert): its first frame is judged from the moment the shell was
+handed the notification, because the spawn, the hub and the service before that are not the
+compositor's: LumaTV's compositor marks the trace itself (`Q:NAME-delivered`, when the service's push
+reaches it), under LG's it is the return of luna-send (kb.py's `Q:NAME-sent`). Every window of a
+surface the compositor shows a panel for on a key (`Q:NAME-show`) says in `show_ms` when it was asked.
+The run starts with 3
 open/close cycles per surface in `full` captures (scheduler and GPU events, for root-causing a
 miss); then --cycles (default 10) cycles in `basic` captures (frame events only), whose 1 s
 sampler gives the compositor RSS. --soak is the release run: 500 cycles, split into traces of at
@@ -70,6 +73,8 @@ HDMI_TEARDOWN = [f"luna-send -n 1 {SAM}/closeByAppId '{{\"id\":\"com.webos.app.h
 #               one key token, and the gate presses the key 50 ms before the marker and releases
 #               it at the marker.
 # settle_s      seconds waited after open and after close before the next step
+# close_settle_s  seconds waited after the close when that is not settle_s (a full capture's ring holds about FULL_RING_S: a cycle
+#               longer than FULL_CAPTURE_MAX_S loses its first markers, and validate() says so)
 # transition    True: the close key is a measured response too (checked like the open); False
 #               for workloads on a surface that stays up (Home idle, D-pad, sweep)
 # setup         shell commands run on the set once before the surface, teardown after it
@@ -79,7 +84,7 @@ HDMI_TEARDOWN = [f"luna-send -n 1 {SAM}/closeByAppId '{{\"id\":\"com.webos.app.h
 # soak          False when cycling it says nothing about memory (Home idle)
 # act           'press' (default) or 'release': the edge of the key the surface acts on
 # still         True (default): the wallpaper's tick is off while the surface is measured
-# delivery      True: a luna call opens it; the first frame is timed from luna-send's return
+# delivery      True: a luna call opens it; the first frame is timed from the compositor's delivery marker, else luna-send's return
 # default       False: part of the gate only when named with --surfaces
 # full_budget_s seconds one full capture may hold (default FULL_TRACE_BUDGET_S): less over playback, where the ring fills faster
 # thresholds    per-surface overrides of THRESHOLDS; None switches a check off
@@ -138,12 +143,14 @@ SURFACES = [
     # The gallery is built by the theme flag, not by a key (Home polls theme.json within 2 s), and
     # BACK turns the flag off again. Each cycle sets it, waits for the build, then times the first
     # D-pad move inside the built gallery (open) and BACK (close).
-    # LG's own toast and alert, for the baseline the rebuilt ones (PLAN phase 2) must beat. A luna call
-    # opens them (`!toast`, `!alert` in kb.py) and nothing closes the toast but its own timer (about 5 s);
-    # the alert is closed by OK. Run on request (`--surfaces toast,alert`): the stock ones are not
-    # expected to pass.
+    # LG's own toast and alert, for the baseline the rebuilt ones (PLAN phase 2) must beat, and LumaTV's own under its compositor (the
+    # shell client's Notify.qml, `compositor-surfaces-result.md`). A luna call opens them (`!toast`, `!alert` in kb.py) and nothing closes
+    # the toast but its own timer (about 5 s); the alert is closed by OK. Run on request (`--surfaces toast,alert`): the stock ones are not
+    # expected to pass. A cycle of the toast is 7.8 s. With 8 s on each side of the close it was 16.3 s, longer than a full capture's ring
+    # holds: LG's toast on 2026-10-24 and LumaTV's on 2026-10-27 each found 2 windows of 3, the two of LumaTV's without any `Q:` marker
+    # and with the display's OSD interrupt "back" 281 and 582 ms into them (the oldest events of CPU 0's ring were gone).
     {'name': 'toast', 'default': False, 'delivery': True,
-     'open': '@toast-open !toast', 'close': '@toast-close', 'settle_s': 8, 'transition': False},
+     'open': '@toast-open !toast', 'close': '@toast-close', 'settle_s': 7, 'close_settle_s': 0.5, 'transition': False},
     {'name': 'alert', 'default': False, 'delivery': True,
      'open': '@alert-open !alert', 'close': '@alert-close OK', 'settle_s': 2.5},
     {'name': 'kit-gallery',
@@ -153,7 +160,7 @@ SURFACES = [
      'open': '@kit-gallery-open DOWN', 'close': '@kit-gallery-close BACK', 'settle_s': 1.5},
 ]
 
-SURFACE_DEFAULTS = {'setup': [], 'teardown': [], 'reopen': [], 'reopen_wait_s': 0, 'settle_s': 1.0,
+SURFACE_DEFAULTS = {'setup': [], 'teardown': [], 'reopen': [], 'reopen_wait_s': 0, 'settle_s': 1.0, 'close_settle_s': None,
                     'transition': True, 'soak': True, 'default': True, 'thresholds': {},
                     'act': 'press', 'still': True, 'delivery': False, 'full_budget_s': None, 'inputs_free': False}
 
@@ -180,6 +187,10 @@ SOAK_TRACE_MAX = 60       # cycles per basic trace in a soak
 # Quick Settings; a longer capture loses its first markers. A full capture is planned to stay
 # under this many seconds, so a long surface gets one cycle per capture.
 FULL_TRACE_BUDGET_S = 11.0
+# What the ring holds, and the longest one cycle may take: a cycle is the least a full capture is cut to, so one longer than this loses its
+# first markers whatever the plan does (the stock toast's 16.3 s did, validate() refuses it now).
+FULL_RING_S = 13.0
+FULL_CAPTURE_MAX_S = 12.0
 GAP_MS = 17.5             # analyse.py's gap listing threshold, as run.py uses
 # A capture whose burst held an app's own drawing (analyse.py `burst_app_jobs`: a film's player redrawing its controls at 60 Hz) measures
 # the app as well as the surface; it is kept under `discarded` and measured again, at most this many more times.
@@ -258,6 +269,9 @@ def validate(entries):
                 raise ValueError(f'{n}: act release needs open to be the marker and one plain key token')
         if s['delivery'] and '!' not in s['open']:
             raise ValueError(f'{n}: delivery needs a luna call (!NAME) in open')
+        if cycle_seconds(s) > FULL_CAPTURE_MAX_S:
+            raise ValueError(f'{n}: one cycle takes {cycle_seconds(s):.1f} s and a full capture of it overflows the trace ring (about '
+                             f'{FULL_RING_S:g} s) and loses its first markers: shorten the settles ({FULL_CAPTURE_MAX_S:g} s at most)')
     return True
 
 
@@ -331,7 +345,7 @@ def cycle_tokens(s):
     toks = open_tokens(s)
     toks.append(settle_token(s['settle_s']))
     toks += s['close'].split()
-    toks.append(settle_token(s['settle_s']))
+    toks.append(settle_token(s['settle_s'] if s['close_settle_s'] is None else s['close_settle_s']))
     return [t for t in toks if t]
 
 
@@ -503,16 +517,23 @@ def evaluate_windows(s, report, cycles, lg_compositor=False):
     expected = cycles * (2 if s['transition'] else 1)
     # A surface whose first frame is not checked has no key to answer (Home idle): an empty burst there is not a dead key.
     dead = [w['name'] for w in keyed if w['first_frame_ms'] is None and th['first_frame_ms'] is not None]
+    unmarked = [w['name'] for w in opens if s['delivery'] and w.get('sent_ms') is None and w.get('delivered_ms') is None] if dead else []
+    dead_note = ('no frame after the key in ' + ', '.join(dead)) if dead else ''
+    if unmarked:
+        dead_note += (f"; {len(unmarked)} of them have neither luna-send's return nor the compositor's delivery marker in the trace "
+                      '(the ring lost its oldest events, or the call never returned)')
     out = [check('windows', len(keyed) == expected and not dead, f'{len(keyed)}/{expected}', f'== {expected}',
-                 ('no frame after the key in ' + ', '.join(dead)) if dead else
-                 ('marker lost: trace overflow or key not delivered' if len(keyed) != expected else ''))]
+                 dead_note or ('marker lost: trace overflow or key not delivered' if len(keyed) != expected else ''))]
 
     if th['first_frame_ms'] is not None:
         v = _worst([w['first_frame_ms'] for w in keyed]) if not dead else None
         # a key that found the display's OSD path off waits for it, whatever the surface does (analyse.py `osd_wake_ms`)
         off = [w['osd_wake_ms'] for w in keyed if w.get('osd_wake_ms') is not None]
-        out.append(check('first_frame_ms', v is not None and v <= th['first_frame_ms'], v, f"<= {th['first_frame_ms']:g}",
-                         f'the OSD was off at {len(off)} key(s), on after {max(off):g} ms at worst' if off else ''))
+        # when the compositor asked the shell for the panel the key opens (its own marker, `Q:<name>-show`): the rest is the shell's
+        asked = [w['show_ms'] for w in keyed if w.get('show_ms') is not None]
+        notes = ([f'the OSD was off at {len(off)} key(s), on after {max(off):g} ms at worst'] if off else []) + \
+                ([f'the compositor asked the shell {max(asked):g} ms after the key at worst'] if asked else [])
+        out.append(check('first_frame_ms', v is not None and v <= th['first_frame_ms'], v, f"<= {th['first_frame_ms']:g}", '; '.join(notes)))
     if th['burst_end_ms'] is not None:
         ends = [w['burst_end_ms'] for w in keyed]
         v = None if any(e is None for e in ends) or not ends else max(ends)
@@ -622,7 +643,7 @@ def jsonable(v):
 
 
 WINDOW_KEYS = ('name', 'dur_s', 'frames', 'fps', 'over20', 'worst_ms', 'anim_frames', 'dropped', 'dropped_in_motion', 'anim_render_ms',
-               'first_frame_ms', 'burst_end_ms', 'burst_over20', 'burst_anim_p90_ms', 'sent_ms', 'osd_wake_ms',
+               'first_frame_ms', 'burst_end_ms', 'burst_over20', 'burst_anim_p90_ms', 'sent_ms', 'delivered_ms', 'show_ms', 'osd_wake_ms',
                'burst_first_render_ms', 'burst_anim_samples', 'burst_app_jobs', 'irq_counts', 'gaps')
 
 
@@ -769,27 +790,50 @@ def frame_times(text):
 
 
 def apply_delivery(report, text, name, window_s=2.0):
-    """For a surface a luna call opens: its `<name>-open` windows' first_frame_ms, burst_end_ms and
-    burst_over20 are measured from `Q:<name>-sent` (luna-send returned) instead of from the marker
-    at its spawn, and sent_ms (spawn to return) is recorded. A window with no `Q:` marker after it
-    (the call did not return) gets no first frame. Mutates the report's windows."""
+    """For a surface a luna call opens: its `<name>-open` windows' first_frame_ms, burst_end_ms and burst_over20 are measured from the
+    moment the shell was handed the notification instead of from the marker at the call's spawn: the compositor's own
+    `Q:<name>-delivered` (the service's push reached it) when it wrote one, else `Q:<name>-sent` (luna-send returned, which is all LG's
+    compositor offers). sent_ms and delivered_ms (spawn to each) are recorded. A window with neither marker after it gets no first
+    frame. Mutates the report's windows."""
     import analyse
     marks = parse_markers(text)
     opens = [t for t, txt in marks if txt == f'P:{name}-open']
     sents = [t for t, txt in marks if txt == f'Q:{name}-sent']
+    delivered = [t for t, txt in marks if txt == f'Q:{name}-delivered']
     frames = frame_times(text)
     windows = [w for w in report['windows'] if w['name'] == f'{name}-open']
     for w, t0 in zip(windows, opens):
         nxt = next((t for t in opens if t > t0), None)
-        sent = next((t for t in sents if t >= t0 and (nxt is None or t < nxt)), None)
-        if sent is None:
-            w['sent_ms'] = None
+
+        def first_in_window(times):
+            return next((t for t in times if t >= t0 and (nxt is None or t < nxt)), None)
+        sent, got = first_in_window(sents), first_in_window(delivered)
+        w['sent_ms'] = round((sent - t0) * 1000.0, 2) if sent is not None else None
+        w['delivered_ms'] = round((got - t0) * 1000.0, 2) if got is not None else None
+        start = got if got is not None else sent
+        if start is None:
             w['first_frame_ms'] = w['burst_end_ms'] = None
             continue
-        w['sent_ms'] = round((sent - t0) * 1000.0, 2)
-        later = [f for f in frames if sent <= f < sent + window_s and (nxt is None or f < nxt)]
-        b = analyse.burst(later, sent)
+        later = [f for f in frames if start <= f < start + window_s and (nxt is None or f < nxt)]
+        b = analyse.burst(later, start)
         w['first_frame_ms'], w['burst_end_ms'], w['burst_over20'] = b['first_frame_ms'], b['burst_end_ms'], b['over20']
+    return report
+
+
+def annotate_shows(report, text, name):
+    """For each window of surface `name` (`<name>-open`, `<name>-close`): show_ms, the time from its marker to the compositor's own
+    `Q:<name>-show` (the instant it asked the shell to show the panel the key opens), None when it wrote none inside the window (a
+    key that goes straight to the client, a compositor that is not LumaTV's). The first frame minus this is the shell's part.
+    Mutates the report's windows."""
+    marks = parse_markers(text)
+    phases = [(t, txt[2:]) for t, txt in marks if txt.startswith('P:')]
+    shows = [t for t, txt in marks if txt == f'Q:{name}-show']
+    for kind in ('open', 'close'):
+        windows = [w for w in report['windows'] if w['name'] == f'{name}-{kind}']
+        spans = [(t, phases[i + 1][0] if i + 1 < len(phases) else None) for i, (t, nm) in enumerate(phases) if nm == f'{name}-{kind}']
+        for w, (t0, t1) in zip(windows, spans):
+            at = next((t for t in shows if t >= t0 and (t1 is None or t < t1)), None)
+            w['show_ms'] = round((at - t0) * 1000.0, 2) if at is not None else None
     return report
 
 
@@ -828,8 +872,10 @@ def run_surface(rig, s, tag, soak_cycles, log):
                 if rc != 0:
                     checks.append(check('keys', False, rc, '== 0', f'kb.py exited {rc}: {err.strip()}'))
                 one = rig.analyse(name)
+                text = read(trace)
+                annotate_shows(one, text, s['name'])
                 if s['delivery']:
-                    apply_delivery(one, read(trace), s['name'])
+                    apply_delivery(one, text, s['name'])
                 drawn = app_drawn(one, s['name'])
                 if not drawn or attempt == APP_RETRIES:
                     break
