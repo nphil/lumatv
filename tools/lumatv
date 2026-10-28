@@ -31,6 +31,10 @@
 #   log [n]                -> last n log lines (default 20)
 #   systemui on|off|status -> Quick Settings from our staged QML tree, or stock
 #   webglass on|off|status -> glass stylesheet in the settings web apps
+#   store on [parts]|off|status -> LG's Content Store (com.webos.app.discovery) in the Lucent look: WAM's user script for the app, laid into
+#                            its directory (the firmware's read-only /mnt/otncabi) by an overlay mount (tools/store.sh); parts are look,
+#                            motion (the default) and lazy; off by default, `off` puts LG's store back exactly, re-mounted by apply at every
+#                            boot while on
 #   inputcommon on|off|status -> LG's input banners (com.webos.app.inputcommon) in the Lucent look: a patched copy of its QML
 #                            mounted over LG's (tools/inputcommon.sh); off by default, re-mounted by apply at every boot while on
 #   voice on|off|status    -> LG's Search app (com.webos.app.voice) in the Lucent look: a patched copy of its QML mounted over
@@ -222,6 +226,11 @@ VOICE_ON="$STATE/.voice-on"
 # (the one unit LG's lsm-ready.service restarts itself) so that the server reads the mounted QML; it never touches SAM.
 KEYS_TOOL="$APPDIR/tools/maliit.sh"
 KEYS_ON="$STATE/.keys-on"
+# LG's Content Store (com.webos.app.discovery), a web app of the firmware's read-only otncabi partition whose page is LG's cloud page:
+# WAM's user script for the app, built by tools/store_theme.py and laid into the app's directory by an overlay mount (tools/store.sh).
+# The flag holds the parts that are on. A mount does not survive a reboot, so apply asserts it again while the switch is on.
+STORE_TOOL="$APPDIR/tools/store.sh"
+STORE_ON="$STATE/.store-on"
 # The on-screen keyboard's window in the theme's layer motion instead of LG's 600 ms jelly: the shadow module's copy of
 # views/StarfishKeyboardView.qml is patched when the module is built. It matters only while LG's compositor is the live one. Off by
 # default like every other restyle of an LG process: `keyboard on` leaves the flag that build_shadow reads and the rebuild makes the patch.
@@ -1142,6 +1151,59 @@ verb_keys() {
         *) emit_error "tools/maliit.sh did not answer"; return 1 ;;
       esac ;;
     *) emit_error "usage: keys on|off|status"; return 1 ;;
+  esac
+  return 0
+}
+
+store_mounted() {
+  # Whether the overlay is in place, by the tool's own report. apply leaves one alone: `on` ends the store's running instance, and doing
+  # that at every launch of the app would cost the next open of the store a cold start.
+  sh "$STORE_TOOL" status < /dev/null 2>/dev/null | grep -q '"mounted":true'
+}
+
+store_set() {
+  # $1 = on|off, $2 = the parts (on only). tools/store.sh builds the script, mounts it and ends the store's instance (or the reverse)
+  # and prints one JSON object, kept in $st_out. It leaves what is in force alone when it cannot build or mount.
+  st_out=$(sh "$STORE_TOOL" "$1" "${2:-}" < /dev/null 2>>"$LOGFILE"); st_rc=$?
+  log_line "store $1: $(printf '%s' "$st_out" | cut -c1-200)"
+  [ "$st_rc" -eq 0 ] && printf '%s' "$st_out" | grep -q '"ok":true'
+}
+
+store_parts_on() {
+  # The parts the flag names, "" for the default (a flag made by `: >`).
+  sed -n 1p "$STORE_ON" 2>/dev/null
+}
+
+verb_store() {
+  case "${1:-status}" in
+    on)
+      take_mutation_lock || { emit_error "another apply or revert is still running"; return 1; }
+      if store_set on "${2:-}"; then
+        # The parts as the tool settled them, so that a boot mounts what was asked for.
+        st_parts=$(printf '%s' "$st_out" | sed -n 's/.*"parts":"\([^"]*\)".*/\1/p')
+        printf '%s\n' "$st_parts" > "$STORE_ON"
+        printf '%s\n' "$st_out"
+      else
+        case "$st_out" in '{'*'"ok":false'*) printf '%s\n' "$st_out" ;; *) emit_error "tools/store.sh did not answer" ;; esac
+        return 1
+      fi ;;
+    off)
+      take_mutation_lock || { emit_error "another apply or revert is still running"; return 1; }
+      if store_set off; then
+        rm -f "$STORE_ON"
+        printf '%s\n' "$st_out"
+      else
+        case "$st_out" in '{'*'"ok":false'*) printf '%s\n' "$st_out" ;; *) emit_error "tools/store.sh did not answer" ;; esac
+        return 1
+      fi ;;
+    status)
+      st_out=$(sh "$STORE_TOOL" status < /dev/null 2>>"$LOGFILE")
+      st_now=false; [ -f "$STORE_ON" ] && st_now=true
+      case "$st_out" in
+        '{"ok":true,'*) st_rest=${st_out#'{"ok":true,'}; printf '{"ok":true,"on":%s,%s\n' "$st_now" "$st_rest" ;;
+        *) emit_error "tools/store.sh did not answer"; return 1 ;;
+      esac ;;
+    *) emit_error "usage: store on [parts]|off|status"; return 1 ;;
   esac
   return 0
 }
@@ -2396,6 +2458,7 @@ do_revert_internal() {
   [ -f "$NOTI_ON" ] && { noti_set off; rm -f "$NOTI_ON"; }
   rm -f "$KEYBOARD_ON"
   [ -f "$INPUTCOMMON_ON" ] && { inputcommon_set off; rm -f "$INPUTCOMMON_ON"; }
+  [ -f "$STORE_ON" ] && { store_set off; rm -f "$STORE_ON"; }
   [ -f "$VOICE_ON" ] && { voice_set off; rm -f "$VOICE_ON"; }
   [ -f "$KEYS_ON" ] && { keys_set off; rm -f "$KEYS_ON"; }
   # Nothing of ours should run on the boot path after a revert, including the
@@ -2556,6 +2619,7 @@ verb_apply() {
   [ -f "$LOGO_ON" ] && { logo_set on || log_line "apply: could not point the logos at the staged windows"; }
   [ -f "$NOTI_ON" ] && { noti_set on || { rm -f "$NOTI_ON"; log_line "apply: the notification view fell back to LG's"; }; }
   [ -f "$INPUTCOMMON_ON" ] && { inputcommon_mounted || inputcommon_set on || log_line "apply: could not mount the patched input banners over LG's"; }
+  [ -f "$STORE_ON" ] && { store_mounted || store_set on "$(store_parts_on)" || log_line "apply: could not mount the theme over LG's Content Store"; }
   [ -f "$VOICE_ON" ] && { voice_mounted || voice_set on || log_line "apply: could not mount the patched Search app over LG's"; }
   [ -f "$KEYS_ON" ] && { keys_mounted || keys_set on || log_line "apply: could not mount the patched keyboard keys over LG's"; }
 
@@ -2937,6 +3001,7 @@ surfaces_json() {
   printf '{"id":"home","on":%s,"state":"%s","fallback":"LG'"'"'s Home: hold Home 650 ms, the guard, or `homestub off`"},' "$( [ "$hs_state" = stub ] || [ "$hs_state" = trial ] && echo true || echo false )" "$hs_state"
   printf '{"id":"quicksettings","on":%s,"fallback":"`systemui off` puts the stock entry back in configd"},' "$(b test -f "$SYSTEMUI_ON")"
   printf '{"id":"settings-theme","on":%s,"fallback":"`webglass off` unmounts the overlays"},' "$(b test -f "$WEBGLASS_ON")"
+  printf '{"id":"store","on":%s,"fallback":"`store off` unmounts the overlay; a reboot or revert clears it and LG'"'"'s Content Store returns exactly"},' "$(b test -f "$STORE_ON")"
   printf '{"id":"inputcommon","on":%s,"fallback":"`inputcommon off` unmounts the overlay; a reboot or revert clears it and LG'"'"'s input banners return"},' "$(b test -f "$INPUTCOMMON_ON")"
   printf '{"id":"voice","on":%s,"fallback":"`voice off` unmounts the overlay; a reboot or revert clears it and LG'"'"'s Search app returns"},' "$(b test -f "$VOICE_ON")"
   printf '{"id":"keys","on":%s,"fallback":"`keys off` unmounts the overlay and restarts the keyboard server; a reboot or revert clears it and LG'"'"'s keys return"},' "$(b test -f "$KEYS_ON")"
@@ -3385,7 +3450,7 @@ verb_version() {
 # ------------------------------------------------------------------- dispatch
 
 case "$VERB" in
-  status|apply|boot-bind|boot-restart|boot-ok|revert|persist|fps|standby|ntfy|log|theme|systemui|webglass|inputcommon|keyboard|voice|keys|homestub|homestub-boot|homestub-watch|helper|preload|logo|notifications|surfaces|compositor|compositor-boot)
+  status|apply|boot-bind|boot-restart|boot-ok|revert|persist|fps|standby|ntfy|log|theme|systemui|webglass|store|inputcommon|keyboard|voice|keys|homestub|homestub-boot|homestub-watch|helper|preload|logo|notifications|surfaces|compositor|compositor-boot)
     # Before ensure_config, which would create the new data dir and with it
     # hide the old one.
     if ! migrate_legacy; then
@@ -3477,6 +3542,7 @@ case "$VERB" in
   updateblock) verb_updateblock "${2:-status}"; exit $? ;;
   voice) verb_voice "${2:-status}"; exit $? ;;
   keys) verb_keys "${2:-status}"; exit $? ;;
+  store) verb_store "${2:-status}" "${3:-}"; exit $? ;;
   keyboard) verb_keyboard "${2:-status}"; exit $? ;;
   homestub) verb_homestub "${2:-status}"; exit $? ;;
   homestub-boot) verb_homestub_boot; exit $? ;;

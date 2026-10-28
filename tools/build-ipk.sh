@@ -84,6 +84,13 @@ tools/maliit.sh
 tools/maliit_patch.py
 tools/keyboard_patch.py
 tools/volume_patch.py
+tools/store.sh
+tools/store_theme.py
+tools/store_dump.py
+payload/store/store.css
+payload/store/store-light.css
+payload/store/userScript.js
+payload/store/Manrope-store.woff2
 payload/preload.json
 payload/homestub/appinfo.json
 payload/homestub/index.html
@@ -291,6 +298,10 @@ cp tools/tokens.py tools/systemui.py tools/systemui_patch.py tools/preload.py to
 # build_shadow): the tool calls them, and they import notification_patch and tokens, which are shipped above.
 # The volume popup's patch (build_shadow) imports notification_patch too.
 cp tools/inputcommon.sh tools/inputcommon_patch.py tools/voice.sh tools/voice_patch.py tools/maliit.sh tools/maliit_patch.py tools/keyboard_patch.py tools/volume_patch.py "$DATA_ROOT/tools/"
+# LG's Content Store theme (tools/lumatv store): the overlay tool and the builder of the script it mounts, which imports tokens (shipped above),
+# and the read-only page inventory the TV round makes its selectors from (run by hand, nothing calls it). The script's sources, payload/store,
+# go out with the rest of payload/ below.
+cp tools/store.sh tools/store_theme.py tools/store_dump.py "$DATA_ROOT/tools/"
 mkdir -p "$DATA_ROOT/payload/helper"
 cp helper/dist/lumatv-helper "$DATA_ROOT/payload/helper/"
 chmod 755 "$DATA_ROOT/payload/helper/lumatv-helper"
