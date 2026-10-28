@@ -51,6 +51,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   quick-panel choices and tile editing, the LumaTV startup cover, LG's launch splash and spinner
   in LumaTV's look, and an Always Ready off switch. Notification cards are opaque and name the
   HDMI port.
+- Cameras through Home Assistant's LumaShow integration: event pop-ups (person, vehicle,
+  animal, doorbell) in the top right over whatever plays, with a preview, OK to a full view and
+  a grid of the shared cameras; the TV pairs as one more LumaShow device and holds no token. Off
+  by default (`cameras.enabled`) until the TV check passes.
 - Settings lists: section heads grow with the text and read in the light theme; danger labels
   (Delete Device) and disabled-row text pass contrast at 100% and 200%. Segmented controls,
   status words, the AI access lock row and long page headers pass too: all 98 Settings scenes
