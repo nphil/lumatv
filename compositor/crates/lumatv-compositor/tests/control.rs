@@ -109,6 +109,13 @@ fn the_loop_reports_its_wakeups_its_memory_and_its_ring_and_the_ring_outlives_it
     let stopped = json(&dir, &["wake", "probe", "stop"]);
     assert!(stopped["probes"]["other"]["n"].as_u64().unwrap() >= 20, "{stopped}");
     assert_eq!(json(&dir, &["wake", "probe", "start", "nonsense"])["ok"], false);
+    // A probe can be kept on a CPU (`class@CPU`); one kept on a CPU that cannot exist measures nothing and says so by having no samples.
+    let pinned = json(&dir, &["wake", "probe", "start", "other@0,other@1023", "2000"]);
+    assert_eq!(pinned["started"], serde_json::json!(["other@0", "other@1023"]), "{pinned}");
+    std::thread::sleep(Duration::from_millis(150));
+    let stopped = json(&dir, &["wake", "probe", "stop"]);
+    assert_eq!(stopped["probes"]["other@1023"]["n"], 0, "{stopped}");
+    assert_eq!(json(&dir, &["wake", "probe", "start", "other@x"])["ok"], false);
 
     // Memory: malloc takes no mmap in this binary, and the lock line says what happened.
     let mem = json(&dir, &["mem"]);

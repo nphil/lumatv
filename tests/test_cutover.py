@@ -1342,6 +1342,16 @@ class GateDriver(unittest.TestCase):
         self.assertIn("sh /tmp/lumatv/gate.sh x1 60", calls, "without the flag the x1 run is untraced, as the rule has always been")
         self.assertNotIn("LUMATV_GATE_KWAIT=1 sh /tmp/lumatv/gate.sh x1 60", calls)
 
+    def test_after_the_frame_run_the_interrupts_and_wakeups_are_read_once_and_not_judged(self):
+        calls, code, _ = self.run_main(argv=["--only", "frames"])
+        self.assertEqual(code, 0)
+        probes = [c for c in calls if "lpc-probe.sh" in c]
+        self.assertEqual(probes, ["sh /tmp/lumatv/lpc-probe.sh irq 10 home", "sh /tmp/lumatv/lpc-probe.sh wakeups 10 home"])
+        self.assertLess(calls.index("sh /tmp/lumatv/gate.sh mem"), calls.index(probes[0]), "after the frame run and its reports, while the session is live")
+        self.assertIn("/tmp/lumatv/lpc-probe.sh", [c.args[1] for c in self.gate.tv.put.call_args_list])
+        calls, code, _ = self.run_main(argv=["--only", "x1"])
+        self.assertEqual([c for c in calls if "lpc-probe.sh" in c], [], "no frame run, no probe")
+
     STUB_ON = '{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"guard":true,"beat":true,"faults":0}'
 
     def stub_calls(self, calls):

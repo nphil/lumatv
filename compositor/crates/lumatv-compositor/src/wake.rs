@@ -184,21 +184,64 @@ impl Class {
     }
 }
 
+/// One probe: a class, and the CPU its thread is kept on (`fifo20@1`). Without one the scheduler places it as it places the loop;
+/// with one the same class is measured on each CPU in turn, which is what shows whether a CPU that serves a noisy interrupt wakes
+/// a real-time thread later than the others (the question of the IRQ placement in `docs/research/lpc-tv-result.md`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Spec {
+    pub class: Class,
+    pub cpu: Option<usize>,
+}
+
+impl Spec {
+    /// `other`, `fifo20`, `fifo20@1`: the class, and after an `@` the CPU.
+    pub fn parse(word: &str) -> Option<Spec> {
+        let (class, cpu) = match word.split_once('@') {
+            Some((class, cpu)) => (class, Some(cpu.parse::<usize>().ok().filter(|&n| n < libc::CPU_SETSIZE as usize)?)),
+            None => (word, None),
+        };
+        Some(Spec { class: Class::parse(class)?, cpu })
+    }
+
+    pub fn name(&self) -> String {
+        match self.cpu {
+            Some(cpu) => format!("{}@{cpu}", self.class.name()),
+            None => self.class.name(),
+        }
+    }
+}
+
+/// Keeps the calling thread on one CPU.
+fn pin(cpu: usize) -> std::io::Result<()> {
+    // SAFETY: a zeroed cpu_set_t is the empty set, `cpu` is below CPU_SETSIZE (`Spec::parse` says so) and the call only reads the set.
+    unsafe {
+        let mut set: libc::cpu_set_t = std::mem::zeroed();
+        libc::CPU_SET(cpu, &mut set);
+        if libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &set) == 0 { Ok(()) } else { Err(std::io::Error::last_os_error()) }
+    }
+}
+
 struct Probes {
     stop: std::sync::Arc<AtomicBool>,
-    threads: Vec<(Class, std::sync::Arc<Hist>, JoinHandle<()>)>,
+    threads: Vec<(Spec, std::sync::Arc<Hist>, JoinHandle<()>)>,
 }
 
 static PROBES: Mutex<Option<Probes>> = Mutex::new(None);
 
 /// Sleeps to an absolute time every `period` and records how late each wake-up ran, until `stop`.
-fn probe_thread(class: Class, period: Duration, hist: std::sync::Arc<Hist>, stop: std::sync::Arc<AtomicBool>) {
-    if let Class::Fifo(p) = class {
-        // A probe that cannot get its class measures another one: say so in its own distribution (a huge latency) rather than lie.
-        if crate::sched::fifo(p).is_err() {
-            log::warn!("wake probe {}: SCHED_FIFO refused; not measuring", class.name());
-            return;
-        }
+fn probe_thread(spec: Spec, period: Duration, hist: std::sync::Arc<Hist>, stop: std::sync::Arc<AtomicBool>) {
+    // A probe that cannot get its CPU or its class would measure another one: it measures nothing (`no samples`) rather than lie.
+    if let Some(cpu) = spec.cpu
+        && let Err(e) = pin(cpu)
+    {
+        log::warn!("wake probe {}: cannot be kept on CPU {cpu} ({e}); not measuring", spec.name());
+        return;
+    }
+    if let Class::Fifo(p) = spec.class
+        && crate::sched::fifo(p).is_err()
+    {
+        log::warn!("wake probe {}: SCHED_FIFO refused; not measuring", spec.name());
+        return;
     }
     let period_ns = period.as_nanos() as u64;
     let mut next = monotonic_ns() + period_ns;
@@ -216,20 +259,20 @@ fn probe_thread(class: Class, period: Duration, hist: std::sync::Arc<Hist>, stop
     }
 }
 
-/// Starts one probe thread per class, each waking every `period`. Replaces probes that run. Returns the classes started.
-pub fn probe_start(classes: &[Class], period: Duration) -> Vec<String> {
+/// Starts one probe thread per spec, each waking every `period`. Replaces probes that run. Returns the names started.
+pub fn probe_start(specs: &[Spec], period: Duration) -> Vec<String> {
     probe_stop();
     let stop = std::sync::Arc::new(AtomicBool::new(false));
     let mut threads = Vec::new();
-    for &class in classes {
+    for &spec in specs {
         let hist = std::sync::Arc::new(Hist::new());
         let (h, s) = (hist.clone(), stop.clone());
-        match std::thread::Builder::new().name(format!("wake-{}", class.name())).spawn(move || probe_thread(class, period, h, s)) {
-            Ok(t) => threads.push((class, hist, t)),
-            Err(e) => log::warn!("wake probe {}: {e}", class.name()),
+        match std::thread::Builder::new().name(format!("wake-{}", spec.name())).spawn(move || probe_thread(spec, period, h, s)) {
+            Ok(t) => threads.push((spec, hist, t)),
+            Err(e) => log::warn!("wake probe {}: {e}", spec.name()),
         }
     }
-    let names = threads.iter().map(|(c, _, _)| c.name()).collect();
+    let names = threads.iter().map(|(s, _, _)| s.name()).collect();
     *PROBES.lock().unwrap_or_else(PoisonError::into_inner) = Some(Probes { stop, threads });
     names
 }
@@ -240,9 +283,9 @@ pub fn probe_stop() -> Vec<(String, Summary)> {
     p.stop.store(true, Ordering::Relaxed);
     p.threads
         .into_iter()
-        .map(|(class, hist, t)| {
+        .map(|(spec, hist, t)| {
             let _ = t.join();
-            (class.name(), hist.summary())
+            (spec.name(), hist.summary())
         })
         .collect()
 }
@@ -403,8 +446,31 @@ mod tests {
     }
 
     #[test]
+    fn a_probe_names_its_cpu_after_an_at_sign_and_only_a_cpu_that_can_exist() {
+        assert_eq!(Spec::parse("fifo20@1"), Some(Spec { class: Class::Fifo(20), cpu: Some(1) }));
+        assert_eq!(Spec::parse("other@0"), Some(Spec { class: Class::Other, cpu: Some(0) }));
+        assert_eq!(Spec::parse("fifo20"), Some(Spec { class: Class::Fifo(20), cpu: None }));
+        for bad in ["fifo20@", "fifo20@x", "fifo20@-1", "fifo20@1024", "@1", "rr5@1", "other@1@2"] {
+            assert_eq!(Spec::parse(bad), None, "{bad}");
+        }
+        assert_eq!(Spec::parse("fifo19@3").unwrap().name(), "fifo19@3");
+        assert_eq!(Spec::parse("other").unwrap().name(), "other");
+    }
+
+    /// A CPU the test process may run on.
+    fn allowed_cpu() -> usize {
+        // SAFETY: a zeroed cpu_set_t is the empty set; sched_getaffinity fills the set it is given.
+        unsafe {
+            let mut set: libc::cpu_set_t = std::mem::zeroed();
+            assert_eq!(libc::sched_getaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &mut set), 0);
+            (0..libc::CPU_SETSIZE as usize).find(|&cpu| libc::CPU_ISSET(cpu, &set)).expect("the test runs on some CPU")
+        }
+    }
+
+    #[test]
     fn a_time_shared_probe_measures_a_sleeping_thread_and_stops() {
-        let started = probe_start(&[Class::Other], Duration::from_millis(2));
+        let _g = globals();
+        let started = probe_start(&[Spec { class: Class::Other, cpu: None }], Duration::from_millis(2));
         assert_eq!(started, vec!["other".to_string()]);
         std::thread::sleep(Duration::from_millis(120));
         let live = probe_read();
@@ -415,6 +481,21 @@ mod tests {
         assert!(done[0].1.n >= live[0].1.n);
         assert!(done[0].1.p50_us < 50_000, "a thread that sleeps to an absolute time wakes within 50 ms (p50 {} us)", done[0].1.p50_us);
         assert!(probe_read().is_empty() && probe_stop().is_empty());
+    }
+
+    #[test]
+    fn a_probe_kept_on_a_cpu_measures_there_and_one_that_cannot_be_says_so_by_having_no_samples() {
+        let _g = globals();
+        let cpu = allowed_cpu();
+        let here = Spec::parse(&format!("other@{cpu}")).unwrap();
+        let nowhere = Spec::parse("other@1023").unwrap();
+        let started = probe_start(&[here, nowhere], Duration::from_millis(2));
+        assert_eq!(started, vec![format!("other@{cpu}"), "other@1023".to_string()]);
+        std::thread::sleep(Duration::from_millis(150));
+        let done = probe_stop();
+        assert!(done[0].1.n >= 20, "{} wake-ups on CPU {cpu} in 150 ms at 2 ms", done[0].1.n);
+        assert_eq!(done[1].1.n, 0, "CPU 1023 does not exist: nothing was measured and nothing was made up");
+        assert!(describe(&done[1].1).contains("no samples"));
     }
 
     #[test]

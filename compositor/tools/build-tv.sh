@@ -7,6 +7,7 @@
 #   lib/                                            the private Debian bookworm arm64 loader and libraries plus the
 #                                                   64-bit Mali blob, as used by X2 r8b (docs/research/shell-architecture.md)
 #   run.sh                                          the on-set runner (tools/tv-run.sh)
+#   gate.sh, lpc-probe.sh                           the gate (tools/tv-gate.sh) and the read-only interrupt, wake-up and memory-limit probes (tools/tv-lpc-probe.sh)
 # The bundle is not committed; tools/tv-first-light.sh deploy copies it to /tmp/lumatv on the set. LUMATV_FEATURES names cargo
 # features for the compositor (`ui` for the engine host and --ui-demo; tools/tv_ui_measure.py sets it); FEATURES in the bundle
 # says which it was built with.
@@ -41,6 +42,7 @@ cp "$here/../tools/compositor.sh" "$out/compositor.sh"
 cp "$here/firmware/verified.list" "$out/verified.list"
 cp "$here/tools/tv-uinput-key.py" "$out/uinput-key.py"
 cp "$here/tools/tv-gate.sh" "$out/gate.sh"
+cp "$here/tools/tv-lpc-probe.sh" "$out/lpc-probe.sh"
 cp "$here/../docs/research/arch/wlproto_from_elf.py" "$out/wlproto_from_elf.py"
 chmod +x "$out/bin/"* "$out/run.sh"
 du -sh "$out"

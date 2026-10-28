@@ -188,19 +188,19 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
                 json!({"ok": true})
             }
             (Some("probe"), Some("start")) => {
-                let classes: Vec<crate::wake::Class> = words.next().unwrap_or("fifo20,fifo19,other").split(',').filter_map(crate::wake::Class::parse).collect();
+                let specs: Vec<crate::wake::Spec> = words.next().unwrap_or("fifo20,fifo19,other").split(',').filter_map(crate::wake::Spec::parse).collect();
                 let period_us = words.next().and_then(|w| w.parse::<u64>().ok()).unwrap_or(1000).clamp(200, 100_000);
-                if classes.is_empty() {
-                    json!({"ok": false, "error": "wake probe start [fifo1-fifo99|other, comma separated] [PERIOD_US 200-100000]"})
+                if specs.is_empty() {
+                    json!({"ok": false, "error": "wake probe start [fifo1-fifo99|other, each with an optional @CPU, comma separated] [PERIOD_US 200-100000]"})
                 } else {
-                    json!({"ok": true, "started": crate::wake::probe_start(&classes, std::time::Duration::from_micros(period_us)), "period_us": period_us})
+                    json!({"ok": true, "started": crate::wake::probe_start(&specs, std::time::Duration::from_micros(period_us)), "period_us": period_us})
                 }
             }
             (Some("probe"), Some("stop")) => {
                 let done = crate::wake::probe_stop();
                 json!({"ok": true, "probes": done.iter().map(|(c, s)| (c.clone(), crate::wake::summary_json(s))).collect::<serde_json::Map<_, _>>()})
             }
-            _ => json!({"ok": false, "error": "wake | wake reset | wake probe start [CLASSES] [PERIOD_US] | wake probe stop"}),
+            _ => json!({"ok": false, "error": "wake | wake reset | wake probe start [CLASS[@CPU],...] [PERIOD_US] | wake probe stop"}),
         },
         // The last lines of the trace ring (`ring`): what the loop did in its last seconds, the lines the crash bundle keeps.
         "ring" => {

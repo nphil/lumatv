@@ -99,14 +99,14 @@ class Wake(Fixture):
         self.assertEqual(self.gate("wake", "reset").strip(), "GATE wake: reset")
         self.assertIn("wake reset", self.ctl_calls())
 
-    def test_a_probe_run_starts_the_three_classes_reads_the_line_and_stops_them(self):
+    def test_a_probe_run_starts_the_classes_and_a_fifo_thread_on_cpu_0_and_on_cpu_1_reads_the_line_and_stops_them(self):
         self.ctl_reply("wake", {"ok": True, "line": self.LINE + "; probe fifo20 p50 0.06 p99 0.30 max 0.90 ms (n 10000)"})
         out = self.gate("wake", "probe", "5").strip()
         self.assertTrue(out.startswith("GATE wake: measured over 5 s with probes: tick p50 0.12"), out)
         self.assertIn("probe fifo20", out)
         calls = self.ctl_calls()
         self.assertEqual(calls[0], "wake reset")
-        self.assertEqual(calls[1], "wake probe start fifo20,fifo19,other 1000")
+        self.assertEqual(calls[1], "wake probe start fifo20,fifo19,other,fifo20@0,fifo20@1 1000")
         self.assertEqual(calls[-1], "wake probe stop")
 
 

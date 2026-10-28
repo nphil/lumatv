@@ -263,6 +263,7 @@ def main():
             ap.error("--only: unknown check(s) %s; the checks are %s" % (",".join(sorted(only - set(CHECKS))), ",".join(CHECKS)))
         skip |= set(CHECKS) - only
     tv.put(os.path.join(here, "tv-gate.sh"), "/tmp/lumatv/gate.sh")
+    tv.put(os.path.join(here, "tv-lpc-probe.sh"), "/tmp/lumatv/lpc-probe.sh")
     tv.put(os.path.join(here, "tv-cutover.sh"), "/tmp/lumatv/cutover.sh")
     tv.put(os.path.join(here, "tv-recover-home.sh"), "/tmp/lumatv/recover-home.sh")
     tv.put(os.path.join(here, "tv-uinput-key.py"), "/tmp/lumatv/uinput-key.py")
@@ -343,6 +344,9 @@ def main():
             # What the loop's wake-ups cost over the gate, and what the compositor holds in memory after it (reports, not rules).
             step("wake", "sh /tmp/lumatv/gate.sh wake frames", 60)
             step("mem", "sh /tmp/lumatv/gate.sh mem", 60)
+            # Where the interrupts are served and what wakes at Home just after the gate (docs/research/lpc-tv-result.md, items 5 and 7): reads of /proc, nothing changed.
+            print(pty("sh /tmp/lumatv/lpc-probe.sh irq 10 home", 60))
+            print(pty("sh /tmp/lumatv/lpc-probe.sh wakeups 10 home", 60))
             # How many of the shell's callbacks went out ahead of their flip during the gate: zero says the change was not in play.
             print(pty("sh /tmp/lumatv/gate.sh callbacks", 60))
         if run_load:

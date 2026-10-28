@@ -753,14 +753,15 @@ wd-hang|wd-crash)
     ;;
 wake)
     # The loop's wake-up latency: the frame timer, the page flip and the input events as the loop saw them (p50, p99, max in ms), and
-    # what the scheduler gives a thread of each class under the load of the moment. The distributions are the compositor's (`ctl wake`);
+    # what the scheduler gives a thread of each class under the load of the moment, and a FIFO 20 thread kept on CPU 0 (where the USB host's
+    # interrupt is served) against one kept on CPU 1 (`fifo20@0`, `fifo20@1`). The distributions are the compositor's (`ctl wake`);
     # a report with no rule until a baseline exists (docs/research/lpc-tv-result.md).
     case "${2:-}" in
     reset) ctl wake reset > /dev/null; echo "GATE wake: reset" ;;
     probe)
         secs=${3:-10}
         ctl wake reset > /dev/null
-        ctl wake probe start fifo20,fifo19,other 1000 > /dev/null
+        ctl wake probe start fifo20,fifo19,other,fifo20@0,fifo20@1 1000 > /dev/null
         sleep "$secs"
         line=$(ctl wake | jstr line)
         ctl wake probe stop > /dev/null
