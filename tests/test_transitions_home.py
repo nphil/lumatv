@@ -7,10 +7,13 @@ that has a window by then never shows it; one that is slow shows it, fading in, 
 compositor, nothing changes: the launch screen is up at once and no origin is sent. Nothing here measures time against a gate: the set does.
 """
 import json
+import os
 import re
+import tempfile
 import unittest
 
-from test_settings import HostCase
+from test_settings import OPEN_AT, RAIL, HostCase
+from test_settings import READY as SETTINGS_READY
 from xdisplay import DISPLAY, HAVE_QT
 
 READY = 7000
@@ -95,6 +98,21 @@ class LaunchOrigin(HostCase):
         ], 600)
         self.assertEqual(methods(got["calls"]), ["/launch"])
         self.assertEqual(got["splash"], "launch", "the launch screen is up at once")
+
+
+@unittest.skipUnless(DISPLAY and HAVE_QT, "needs Xvfb and PyQt5")
+class SwitchRow(HostCase):
+    def test_the_smooth_transitions_row_writes_the_switch_to_the_theme_file(self):
+        # Home & look, Look tab: Dynamic tint, Appearance, Clock, Wallpaper motion, Glass depth, then Smooth transitions (off by default): OK turns it on
+        with tempfile.TemporaryDirectory() as d:
+            data = os.path.join(d, "data")
+            rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.keys(SETTINGS_READY + 600, *(["down"] * RAIL["look"])),
+                                *self.keys(SETTINGS_READY + 1500, "right", *["down"] * 5, "ok"),
+                                "--eval", "%d:JSON.stringify(root.theme.motion)" % (SETTINGS_READY + 3200), "--wait", str(SETTINGS_READY + 3800), data=data)
+            self.assertEqual(rc, 0, out[-1500:])
+            self.assertIs(self.docs(out)[-1]["transitions"], True)
+            with open(os.path.join(data, "theme", "theme.json")) as f:
+                self.assertEqual(json.load(f)["motion"], {"transitions": True})
 
 
 if __name__ == "__main__":
