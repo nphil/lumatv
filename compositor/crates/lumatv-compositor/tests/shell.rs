@@ -523,3 +523,33 @@ fn a_frame_of_the_layer_that_came_250_ms_before_the_word_that_it_is_live_is_draw
     assert!(server.eval(|s| s.journal.iter().any(|l| l.contains("shell: system layer live; its last commit") && l.contains("join draws it"))));
     drop(app);
 }
+
+#[test]
+fn a_layer_that_wanted_the_keys_while_idle_gets_them_when_it_goes_live() {
+    // Full gate of 2026-10-28, the quick panel over an app: the layer had flickered idle, its `wants` word came before its
+    // `live` word, nothing moved the focus when it joined, and Back went to the app instead of the panel.
+    let mut server = Server::start();
+    let mut app = shown(&mut server, true, "_WEBOS_WINDOW_TYPE_CARD", "App", "org.test.app", 0xffff_0000);
+    assert!(app.client.wait_until(WAIT, |s| s.keyboard_enters >= 1));
+    let layer = shown(&mut server, false, "_WEBOS_WINDOW_TYPE_LUMATV_SYSTEM", "Layer", "org.nphil.lumatv.shell", 0x8000_0080);
+    server.eval(|s| s.shell_handle(Msg::Ui { can: None, wants: None, live: Some(false), state: None }));
+    server.eval(|s| s.shell_handle(Msg::Ui { can: None, wants: Some(true), live: None, state: None }));
+    assert_eq!(
+        server.eval(|s| {
+            s.tick();
+            focused_title(s)
+        }),
+        "App",
+        "an idle layer is not in the stack"
+    );
+    server.eval(|s| s.shell_handle(Msg::Ui { can: None, wants: None, live: Some(true), state: None }));
+    assert_eq!(
+        server.eval(|s| {
+            s.tick();
+            focused_title(s)
+        }),
+        "Layer",
+        "it has the keys it asked for once it is live"
+    );
+    drop((app, layer));
+}

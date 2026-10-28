@@ -616,6 +616,9 @@ impl State {
                     let now_ns = crate::output::monotonic_ns();
                     let age = self.scene.shell_system_commit_age_ms(now_ns);
                     let fresh = self.scene.set_shell_system_live(l, now_ns);
+                    // The focus is looked for among the windows in the stack, which has no idle layer: a layer that wanted the keys
+                    // while it was idle (the word `wants` came before the word `live`) has them only once it is back in the stack.
+                    crate::server::seat::refocus(self);
                     if l {
                         // Where a toast's first frame goes: the layer's last commit against the word that it is live.
                         self.journal(format!(
@@ -675,6 +678,9 @@ impl State {
         let tag = self.shell.luna_tags[i].tag;
         if let Some(feed) = notification_feed(&self.shell.luna_tags[i].uri, payload) {
             self.shell.mark(&format!("Q:{feed}-delivered"));
+            // The journal's clock against `shell: system layer live; its last commit N ms ago`: the time the client took from the
+            // delivery to its first frame of the toast or alert.
+            self.journal(format!("shell: {feed} delivered to the client"));
         }
         if !self.shell.luna_tags[i].subscribe {
             self.shell.luna_tags.remove(i);
