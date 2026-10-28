@@ -557,3 +557,33 @@ added to `compositor/firmware/verified.list` (10.2.1-5202, fingerprint `e34f8de9
 LumaTV's compositor: keys PASS, ime PASS (keyboard at the bottom), Netflix PASS (Dolby Vision, picture mode back to filmMaker),
 HDMI 2 PASS, one standby and wake PASS (`PreparePowerOff` 1, `PreparePowerOn` 1, mounted yes, Home on the panel). Not done:
 the reboot of the runbook's step 3 (needs Nitin), and the escape (not triggered after go-live). Rollback as in "Go-live steps".
+
+### Round 10, 2026-10-28 (set's clock 05:48-06:46), forge/main `48ee380` (`compositor/slot-2026-10-28-0600/`)
+
+The whole package of HEAD (ipk built by `build-ipk.sh`, bundle with the LPC memory and idle-tick work, hole order, own
+keyboard and wallpaper off by default) on the set. `cutover install` refuses while the compositor is mounted, so the live one
+was disabled first (`cutover disable`) and the install went through Main's grant; `/tmp/lumatv-r9` stayed as the rollback.
+
+- Full gate (`--skip volume`) and `--only keys,ime,shell,frames` x2, all under LumaTV's compositor: every BLOCKING check
+  passes in all three (firmware, homeheld, live, x1 [59.95 fps, no gap over 20 ms], netflix, hdmi, keys, ime [keyboard 1920x438
+  at (0, 642) every time], shell 11 of 11, standby, homekey, wd-hang, wd-crash with a crash bundle each, escape); the new lines
+  `wake` (tick p99 0.04 ms, max 0.38 ms) and `mem` (locked 547820 KiB, swapped 0) are readings.
+- `frames` fails on MINOR lines only: isolated single 33 ms intervals (`burst_over20` 1-3 in home-dpad, picker, toast), toast first
+  frame 68.2 ms (full gate) and 34.0 ms / 67.1 ms (the two runs), and once the quick panel's first frame 125.2 ms; picker burst end
+  165.8-176.8 ms (limit 180).
+- `tools/tvslot/r19_checks.py` under LG's compositor (`--no-standby`), no FAIL or ERROR: speed PASS (every threshold met);
+  settings, plugins, layout and ble EYES (20 Settings pages captured, none changed; the layout editor opened and discarded with
+  `layout.json` unchanged by md5; BLE read-only scan answered unknowns 1-3: `le/startScan` callable by `luna-send`, `scanRecord`
+  filled, `always` changes nothing seen); banners SKIPPED with `inputcommon` off (baseline). `lumatv inputcommon on`, then the
+  banner check alone: the dark glass pill shows (16 frames, 1.2-4.5 s after the launch call) and the INFO card is dark glass (EYES);
+  its two structural lines FAIL on stale expectations, not on the set: the script counts 30 `.qml` files and looks for
+  `upper/Components/LumaStyle.qml`, the tree has 35 and `LumaStyle.qml` is at `UserInterfaceLayer/Components/`. `inputcommon`
+  stays on.
+- GeForce NOW (`org.nphil.lumatv.gfn`) opened once: the sign-in screen (PIN, address, QR, "Back leaves"), no sign-in; closed.
+- The update-block read check is not in `r19_checks.py`. `lumatv status` and `lumatv updateblock status` fail on the set with
+  `updateblock_json: not found` / `verb_updateblock: not found`: in `tools/lumatv` the block that defines `updateblock_json`
+  (the "LG's system updates, blocked by the Homebrew Channel" comment up to the function) sits inside the body of
+  `capture_start()` (around line 2328), so the function exists only after `capture_start` has run, and `verb_updateblock`
+  is not defined where the dispatcher looks for it.
+- Re-enabled persistently (`cutover enable`): `enabled (persistent)`, `GATE live-enabled: PASS`, keys and ime PASS again,
+  `settled: two minutes healthy`, failures 0.

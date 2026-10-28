@@ -1,0 +1,277 @@
+power state: active
+home stub before the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+avr: left to the agent (True)
+GATE firmware: PASS Rockhopper release 10.2.1-5202 (ponytail-paparoa); fingerprint e34f8de94ef657a4; 10 files hashed in 0 s, unreadable: none; this set's entry: verified 10.2.1-5202; a flipped digit: 5; another release: 5; an empty list: 5; the set's own list: verified 10.2.1-5202; the supervisor: no off: not enabled (exit 3)
+
+GATE homeheld: PASS while held: exit 0 (0 = held); after the release: exit 1 (1 = not held); injector exit 0
+
+firmware: verified 10.2.1-5202
+safety timer: this session ends by itself after 32 min if it is still live ('cutover.sh disable' cancels the timer)
+mounted; restarting the unit
+t=5s unit=active exe=/usr/bin/surface-manager compositor=21247 mounted=yes wam=active
+   05:51:31 recover: WebAppMgr answering after 0s (active)
+   05:51:32 recover: Home running under LumaTV's compositor after 0s
+t=10s unit=active exe=/usr/bin/surface-manager compositor=21247 mounted=yes wam=active
+   05:51:31 recover: WebAppMgr answering after 0s (active)
+   05:51:32 recover: Home running under LumaTV's compositor after 0s
+t=15s unit=active exe=/usr/bin/surface-manager compositor=21247 mounted=yes wam=active
+   05:51:32 recover: Home running under LumaTV's compositor after 0s
+   05:51:42 recover: librdx reports swept; remaining 0
+t=20s unit=active exe=/usr/bin/surface-manager compositor=21247 mounted=yes wam=active
+   05:51:32 recover: Home running under LumaTV's compositor after 0s
+   05:51:42 recover: librdx reports swept; remaining 0
+t=25s unit=active exe=/usr/bin/surface-manager compositor=21247 mounted=yes wam=active
+   05:51:32 recover: Home running under LumaTV's compositor after 0s
+   05:51:42 recover: librdx reports swept; remaining 0
+t=30s unit=active exe=/usr/bin/surface-manager compositor=21247 mounted=yes wam=active
+   05:51:32 recover: Home running under LumaTV's compositor after 0s
+   05:51:42 recover: librdx reports swept; remaining 0
+enabled (session): LumaTV's compositor stays live (recovery done after 0s more); 'cutover.sh disable' restores LG's
+
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 394006 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+GATE x1: PASS 59.95 fps over 60.00 s, no gap over 20 ms, pacer late unchanged, nothing over 20 ms in the compositor's log
+
+avr: left to the agent (True)
+GATE netflix: PASS netflix windows 1 video "video":[{"context":"_0celCBN5m9MljM","displayOutput":{"height":1080,"width":1920,"x":0,"y":0},"fullScreen":true,"windowId":"_Window_Id_5"}] placements 1 protocol errors 0 pictureMode playing dolbyHdrCinema after filmMaker fg playing netflix now com.webos.app.home panel 11259 bytes stale-instance-closed 0 audio-port-held-before none
+
+GATE hdmi: PASS hdmi2 windows 1 mapped 1 bufferless commits 0 fg while open com.webos.app.hdmi2 now com.webos.app.home panel 8683 bytes audio-port-held-after-close none
+
+GATE keys: PASS gear-shell ok; input-shell ok; netflix-button ok; digit-tap ok; digit-hold ok; exit ok; (key table: gear=139 input=241 netflix=1037 amazon=1038; unnamed keys seen: [])
+
+avr: left to the agent (True)
+GATE ime: PASS before: maliit-server.service inactive, MaliitServer not running; after the keyboard came up: unit active, MaliitServer pid 9687; input methods bound 1; asked for one 1 time(s); OK pressed 0 time(s); keyboard up yes (panel y 642 h 438, capture 208949 bytes); context yes; typed 3; closed by Back | an input method bound, the field's context made, the keyboard's window at the bottom, a key typed on it reached the field, the keyboard closed
+
+GATE shell: PASS connected ok; home-loaded ok; idle-home(10/s,3%) ok; dpad ok; quick-home ok; picker-home ok; osd ok; toast ok; quick-app ok; idle-covered(0%) ok; saver ok; (shell pid 21716, starts 1, exits 0, luna calls 207, refused 1; foreground com.webos.app.home, windows mapped: com.webos.app.home org.nphil.lumatv.shell org.nphil.lumatv.shell)
+
+avr: left to the agent (True)
+evidence: 2 subscription(s) from SAM, 25 client lines, 6 loop stalls, 3 watchdog lines
+
+already mounted; 'cutover.sh status' says what runs
+
+GATE live-frames: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 390882 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+GATE wake: reset
+
+kernel 0.0 ms)
+    ... 11 more late frames
+PASS  quick           windows                6/6  (== 6)
+PASS  quick           first_frame_ms       32.36  (<= 50)  the compositor asked the shell 0.18 ms after the key at worst
+PASS  quick           burst_end_ms        150.33  (<= 180)
+PASS  quick           p90_render_ms         none  (< 3)  no animated frames
+PASS  quick           p90_window_ms         none  (< 4)  worst single window
+PASS  quick           dropped                  0  (<= 0)
+PASS  quick           burst_over20             0  (<= 0)
+PASS  quick           rss_growth_mb         0.00  (<= 1.01)  471 -> 471 pages over 1 cycles
+PASS  quick           log_errors               0  (== 0)
+PASS  quick           compositor_pid       20979  (== 20979)
+quick: kernel waits: 3 late frame(s): 0 kernel-caused, 0 waiting for a CPU, 3 unexplained
+    quick-close +1.45 s: 150.1 ms (overrun 133.5): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    quick-close +0.147 s: 200.2 ms (overrun 183.5): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    quick-close +0.145 s: 100.1 ms (overrun 83.4): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+PASS  picker          windows                6/6  (== 6)
+PASS  picker          first_frame_ms       33.24  (<= 50)  the compositor asked the shell 0.18 ms after the key at worst
+PASS  picker          burst_end_ms        165.84  (<= 180)
+PASS  picker          p90_render_ms         0.05  (< 3)  4 frames
+PASS  picker          p90_window_ms         0.05  (< 4)  worst single window
+PASS  picker          dropped                  0  (<= 0)
+FAIL  picker          burst_over20             3  (<= 0)
+PASS  picker          rss_growth_mb         0.00  (<= 1.01)  471 -> 471 pages over 1 cycles
+PASS  picker          log_errors               0  (== 0)
+PASS  picker          compositor_pid       20979  (== 20979)
+picker: kernel waits: 4 late frame(s): 0 kernel-caused, 0 waiting for a CPU, 4 unexplained
+    picker-open +0.05 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    picker-close +0.066 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    picker-close +0.116 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    picker-open +0.147 s: 150.1 ms (overrun 133.5): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+PASS  toast           windows                3/3  (== 3)
+FAIL  toast           first_frame_ms       68.15  (<= 50)
+FAIL  toast           burst_end_ms          none  (<= 180)  no burst at the key
+PASS  toast           p90_render_ms         none  (< 3)  no animated frames
+PASS  toast           p90_window_ms         none  (< 4)  worst single window
+PASS  toast           dropped                  0  (<= 0)
+FAIL  toast           burst_over20             2  (<= 0)
+PASS  toast           rss_growth_mb         0.00  (<= 1.01)  471 -> 471 pages over 1 cycles
+PASS  toast           log_errors               0  (== 0)
+PASS  toast           compositor_pid       20979  (== 20979)
+toast: kernel waits: 7 late frame(s): 0 kernel-caused, 0 waiting for a CPU, 7 unexplained
+    toast-open +0.166 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    toast-open +5.154 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    toast-open +5.187 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    toast-open +0.061 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    toast-open +0.128 s: 83.4 ms (overrun 66.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    toast-open +5.066 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    toast-open +5.099 s: 100.1 ms (overrun 83.4): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+VERDICT FAIL
+
+GATE wake (frames): measured tick p50 0.02 p99 0.04 max 0.38 ms (n 27298); flip p50 0.03 p99 0.05 max 0.09 ms (n 1641); input p50 0.02 p99 0.04 max 0.06 ms (n 530); tick waited on a busy loop p50 0.05 p99 0.37 max 0.37 ms (n 44)
+
+GATE mem: measured rss 51044 KiB, locked 547820 KiB, swapped 0 KiB, malloc mmapped blocks 0; lock: locked what is touched (MCL_CURRENT|MCL_FUTURE|MCL_ONFAULT) in 7.2 ms; VmRSS 16 MiB, MemAvailable 1036 MiB, RLIMIT_MEMLOCK 64 KiB, CAP_IPC_LOCK yes; the process's limit on locked memory: 65536 65536 bytes ; set: MemAvailable 595 MiB, CmaFree 138 MiB, swap in use 595 MiB
+
+lpc-probe irq: 10 s, home; CPUs online 0-3; default affinity f
+(* named in IRQ_NAMES)  IRQ  rate/s  per-CPU counts over the run  affinity  name
+ 10    5277.7   10821  24380   7226  10350  0-3       GICv2 30 Level arch_timer
+ IPI0   430.8    1122   1546   1314    326  ?         Rescheduling interrupts
+*175    127.1    1271      0      0      0  0-3       GICv2 175 Edge DE2VSYNC
+*104    126.5    1265      0      0      0  0-3       GICv2 104 Edge osd_irq
+*128     69.0     690      0      0      0  0-3       GICv2 128 Level ohci_hcd:usb8
+*176     43.5     435      0      0      0  0-3       GICv2 176 Level c4250000.gpu
+*178     42.4     424      0      0      0  0-3       GICv2 178 Level c4250000.gpu
+*124     36.5     365      0      0      0  0-3       GICv2 124 Level eth0
+ 127      1.4      14      0      0      0  0-3       GICv2 127 Level mmc0
+ IPI1     1.2       2      1      9      0  ?         Function call interrupts
+ 135      1.0      10      0      0      0  0-3       GICv2 135 Edge hdmicec
+ 113      1.0      10      0      0      0  0-3       GICv2 113 Edge TE_MCU[1]
+ 112      1.0      10      0      0      0  0-3       GICv2 112 Edge TE_MCU[0]
+*120      0.6       6      0      0      0  0-3       GICv2 120 Edge gfx_irq
+ 183      0.5       5      0      0      0  0-3       GICv2 183 Level aud1
+ 201      0.3       3      0      0      0  0-3       GICv2 201 Edge ipc_vdec
+*177      0.0       0      0      0      0  0-3       GICv2 177 Level c4250000.gpu
+*174      0.0       0      0      0      0  0-3       GICv2 174 Edge DE2IPC
+*132      0.0       0      0      0      0  0-3       GICv2 132 Level xhci-hcd:usb5
+*131      0.0       0      0      0      0  0-3       GICv2 131 Level xhci-hcd:usb3
+*130      0.0       0      0      0      0  0-3       GICv2 130 Level xhci-hcd:usb1
+*129      0.0       0      0      0      0  0-3       GICv2 129 Level ehci_hcd:usb7
+softirq TIMER      2638   2638   2430   1041
+softirq NET_RX      436     20     28      0
+softirq TASKLET    1274      0      0      0
+softirq SCHED      1649   1484   1551    583
+loop thread (pid 21247) ran on: CPU2 100 %, over 100 samples
+
+lpc-probe wakeups: 10 s, home
+pid 17238: 16.7 runs/s: http-conn 0.0, lumatv-helper 0.0, screen 0.0, framerate 0.1, receiver 4.2, ambient 0.0, receiver-telnet 12.2, framerate-sub 0.0, screen-sub 0.0, feeds 0.0, ai-listener 0.0, plugins 0.0, plugins-1p 0.0, preload 0.0, ble 0.1, cameras 0.1, http-accept 0.0,
+pid 21247: 151.7 runs/s: ld-linux-aarch6 111.9, mali-mem-purge 0.0, mali-utility-wo 0.0, mali-utility-wo 0.0, mali-utility-wo 0.0, mali-utility-wo 0.0, mali-cmar-backe 36.1, mali-compiler 0.0, luna-writer 2.1, lumatv-shell-ht 1.6, shell-spawn 0.0,
+pid 21716: 512.3 runs/s: qml-runner 62.2, tLibSystrim 0.0, tFragmentation 0.0, mali-mem-purge 10.2, mali-utility-wo -3.2, mali-utility-wo -3.2, mali-utility-wo -3.2, mali-utility-wo 0.0, mali-cmar-backe 35.5, QQmlThread 0.0, Qt_bearer_threa 0.4, QNetworkAccessM 413.4, QQuickPixmapRea 0.2, QNetworkAccessM 0.0, mali-compiler 0.0,
+system: 5759 interrupts/s, 10181 context switches/s
+
+shell callbacks: 3814 of 9163 sent ahead of their flip
+
+GATE standby: requested ({
+    "returnValue": true,
+    "state": "Active Standby"
+})
+
+power state: active standby
+power state after wake: active
+GATE standby: PASS rounds: PreparePowerOff 1 PreparePowerOn 1; fallbacks 0; state active; uptime before 80507.03 now 80577.01; mounted yes; panel 390091 bytes
+
+GATE homekey: PASS unmounted after 10s; [06:05:02] fallback: hold Home 650 ms (supervisor); escaped yes; failures 0 -> 0; panel 381564 bytes; injector exit 0; sam unchanged
+
+firmware: verified 10.2.1-5202
+safety timer: this session ends by itself after 6 min if it is still live ('cutover.sh disable' cancels the timer)
+mounted; restarting the unit
+t=5s unit=active exe=/usr/bin/surface-manager compositor=19973 mounted=yes wam=active
+   06:05:30 recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+   06:05:30 recover: WebAppMgr answering after 0s (active)
+t=10s unit=active exe=/usr/bin/surface-manager compositor=19973 mounted=yes wam=active
+   06:05:30 recover: WebAppMgr answering after 0s (active)
+   06:05:32 recover: Home running under LumaTV's compositor after 0s
+t=15s unit=active exe=/usr/bin/surface-manager compositor=19973 mounted=yes wam=active
+   06:05:32 recover: Home running under LumaTV's compositor after 0s
+   06:05:42 recover: librdx reports swept; remaining 0
+t=20s unit=active exe=/usr/bin/surface-manager compositor=19973 mounted=yes wam=active
+   06:05:32 recover: Home running under LumaTV's compositor after 0s
+   06:05:42 recover: librdx reports swept; remaining 0
+t=25s unit=active exe=/usr/bin/surface-manager compositor=19973 mounted=yes wam=active
+   06:05:32 recover: Home running under LumaTV's compositor after 0s
+   06:05:42 recover: librdx reports swept; remaining 0
+t=30s unit=active exe=/usr/bin/surface-manager compositor=19973 mounted=yes wam=active
+   06:05:32 recover: Home running under LumaTV's compositor after 0s
+   06:05:42 recover: librdx reports swept; remaining 0
+enabled (session): LumaTV's compositor stays live (recovery done after 0s more); 'cutover.sh disable' restores LG's
+
+GATE live-after-homekey: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 391254 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+GATE wd-hang: PASS unmounted after 3.5 s; reason: heartbeat: two beats missed; failures 0 -> 1; escaped no; compositor left: none; panel 381920 bytes; wam active; sam unchanged; crash bundle 20261028-060601-001 (pending yes; 200 log lines, 2608 ring lines, kind problem)
+
+firmware: verified 10.2.1-5202
+safety timer: this session ends by itself after 6 min if it is still live ('cutover.sh disable' cancels the timer)
+mounted; restarting the unit
+t=5s unit=active exe=/usr/bin/surface-manager compositor=23081 mounted=yes wam=active
+   06:06:29 recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+   06:06:29 recover: WebAppMgr answering after 0s (active)
+t=10s unit=active exe=/usr/bin/surface-manager compositor=23081 mounted=yes wam=active
+   06:06:29 recover: WebAppMgr answering after 0s (active)
+   06:06:30 recover: Home running under LumaTV's compositor after 0s
+t=15s unit=active exe=/usr/bin/surface-manager compositor=23081 mounted=yes wam=active
+   06:06:30 recover: Home running under LumaTV's compositor after 0s
+   06:06:40 recover: librdx reports swept; remaining 0
+t=20s unit=active exe=/usr/bin/surface-manager compositor=23081 mounted=yes wam=active
+   06:06:30 recover: Home running under LumaTV's compositor after 0s
+   06:06:40 recover: librdx reports swept; remaining 0
+t=25s unit=active exe=/usr/bin/surface-manager compositor=23081 mounted=yes wam=active
+   06:06:30 recover: Home running under LumaTV's compositor after 0s
+   06:06:40 recover: librdx reports swept; remaining 0
+t=30s unit=active exe=/usr/bin/surface-manager compositor=23081 mounted=yes wam=active
+   06:06:30 recover: Home running under LumaTV's compositor after 0s
+   06:06:40 recover: librdx reports swept; remaining 0
+enabled (session): LumaTV's compositor stays live (recovery done after 0s more); 'cutover.sh disable' restores LG's
+
+GATE live-after-wd-hang: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 391531 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+GATE wd-crash: PASS unmounted after 0.5 s; reason: compositor killed by signal 9; failures 0 -> 1; escaped no; compositor left: none; panel 381606 bytes; wam active; sam unchanged; crash bundle 20261028-060656-001 (pending yes; 200 log lines, 2655 ring lines, kind problem)
+
+firmware: verified 10.2.1-5202
+safety timer: this session ends by itself after 6 min if it is still live ('cutover.sh disable' cancels the timer)
+mounted; restarting the unit
+t=5s unit=active exe=/usr/bin/surface-manager compositor=26022 mounted=yes wam=active
+   06:07:23 recover: WebAppMgr answering after 0s (active)
+   06:07:25 recover: Home running under LumaTV's compositor after 0s
+t=10s unit=active exe=/usr/bin/surface-manager compositor=26022 mounted=yes wam=active
+   06:07:23 recover: WebAppMgr answering after 0s (active)
+   06:07:25 recover: Home running under LumaTV's compositor after 0s
+t=15s unit=active exe=/usr/bin/surface-manager compositor=26022 mounted=yes wam=active
+   06:07:25 recover: Home running under LumaTV's compositor after 0s
+   06:07:35 recover: librdx reports swept; remaining 0
+t=20s unit=active exe=/usr/bin/surface-manager compositor=26022 mounted=yes wam=active
+   06:07:25 recover: Home running under LumaTV's compositor after 0s
+   06:07:35 recover: librdx reports swept; remaining 0
+t=25s unit=active exe=/usr/bin/surface-manager compositor=26022 mounted=yes wam=active
+   06:07:25 recover: Home running under LumaTV's compositor after 0s
+   06:07:35 recover: librdx reports swept; remaining 0
+t=30s unit=active exe=/usr/bin/surface-manager compositor=26022 mounted=yes wam=active
+   06:07:25 recover: Home running under LumaTV's compositor after 0s
+   06:07:35 recover: librdx reports swept; remaining 0
+enabled (session): LumaTV's compositor stays live (recovery done after 0s more); 'cutover.sh disable' restores LG's
+
+GATE live-after-wd-crash: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 390976 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+GATE escape: PASS unmounted after 0s; [06:07:52] fallback: hold Home 650 ms; escaped yes; exe /usr/bin/surface-manager; recovery 16s; panel 381904 bytes; wam active; sam unchanged
+
+safety timer cancelled
+revert: active; mounted: no; exe: /usr/bin/surface-manager
+recover: surface-manager-daemon.service active after 0s; exe /usr/bin/surface-manager
+recover: compositor answering on the bus after 0s
+recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+recover: WebAppMgr answering after 0s (active)
+recover: Home on the panel after 0s (capture 61821 bytes)
+recover: librdx reports swept; remaining 0
+
+avr: left to the agent (False)
+{"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+
+home stub after the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+GATE firmware: PASS Rockhopper release 10.2.1-5202 (ponytail-paparoa); fingerprint e34f8de94ef657a4; 10 files hashed in 0 s, unreadable: none; this set's entry: verified 10.2.1-5202; a flipped digit: 5; another release: 5; an empty list: 5; the set's own list: verified 10.2.1-5202; the supervisor: no off: not enabled (exit 3)
+GATE homeheld: PASS while held: exit 0 (0 = held); after the release: exit 1 (1 = not held); injector exit 0
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 394006 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE x1: PASS 59.95 fps over 60.00 s, no gap over 20 ms, pacer late unchanged, nothing over 20 ms in the compositor's log
+GATE netflix: PASS netflix windows 1 video "video":[{"context":"_0celCBN5m9MljM","displayOutput":{"height":1080,"width":1920,"x":0,"y":0},"fullScreen":true,"windowId":"_Window_Id_5"}] placements 1 protocol errors 0 pictureMode playing dolbyHdrCinema after filmMaker fg playing netflix now com.webos.app.home panel 11259 bytes stale-instance-closed 0 audio-port-held-before none
+GATE hdmi: PASS hdmi2 windows 1 mapped 1 bufferless commits 0 fg while open com.webos.app.hdmi2 now com.webos.app.home panel 8683 bytes audio-port-held-after-close none
+GATE keys: PASS gear-shell ok; input-shell ok; netflix-button ok; digit-tap ok; digit-hold ok; exit ok; (key table: gear=139 input=241 netflix=1037 amazon=1038; unnamed keys seen: [])
+GATE ime: PASS before: maliit-server.service inactive, MaliitServer not running; after the keyboard came up: unit active, MaliitServer pid 9687; input methods bound 1; asked for one 1 time(s); OK pressed 0 time(s); keyboard up yes (panel y 642 h 438, capture 208949 bytes); context yes; typed 3; closed by Back | an input method bound, the field's context made, the keyboard's window at the bottom, a key typed on it reached the field, the keyboard closed
+GATE shell: PASS connected ok; home-loaded ok; idle-home(10/s,3%) ok; dpad ok; quick-home ok; picker-home ok; osd ok; toast ok; quick-app ok; idle-covered(0%) ok; saver ok; (shell pid 21716, starts 1, exits 0, luna calls 207, refused 1; foreground com.webos.app.home, windows mapped: com.webos.app.home org.nphil.lumatv.shell org.nphil.lumatv.shell)
+GATE live-frames: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 390882 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE frames: FAIL home-dpad ok [first_frame 31.02 p90_render None]; quick ok [first_frame 32.36 burst_end 150.33 p90_render None]; picker NOT burst_over20=3 [first_frame 33.24 burst_end 165.84 p90_render 0.05]; toast NOT first_frame_ms=68.15,burst_end_ms=None,burst_over20=2 [first_frame 68.15 burst_end None p90_render None] (surfaces home-dpad,quick,picker,toast, 3 cycles; /tmp/lumatv-tv-out/frames.json)
+GATE wake (frames): measured tick p50 0.02 p99 0.04 max 0.38 ms (n 27298); flip p50 0.03 p99 0.05 max 0.09 ms (n 1641); input p50 0.02 p99 0.04 max 0.06 ms (n 530); tick waited on a busy loop p50 0.05 p99 0.37 max 0.37 ms (n 44)
+GATE mem: measured rss 51044 KiB, locked 547820 KiB, swapped 0 KiB, malloc mmapped blocks 0; lock: locked what is touched (MCL_CURRENT|MCL_FUTURE|MCL_ONFAULT) in 7.2 ms; VmRSS 16 MiB, MemAvailable 1036 MiB, RLIMIT_MEMLOCK 64 KiB, CAP_IPC_LOCK yes; the process's limit on locked memory: 65536 65536 bytes ; set: MemAvailable 595 MiB, CmaFree 138 MiB, swap in use 595 MiB
+GATE standby: requested ({
+GATE standby: PASS rounds: PreparePowerOff 1 PreparePowerOn 1; fallbacks 0; state active; uptime before 80507.03 now 80577.01; mounted yes; panel 390091 bytes
+GATE homekey: PASS unmounted after 10s; [06:05:02] fallback: hold Home 650 ms (supervisor); escaped yes; failures 0 -> 0; panel 381564 bytes; injector exit 0; sam unchanged
+GATE live-after-homekey: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 391254 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE wd-hang: PASS unmounted after 3.5 s; reason: heartbeat: two beats missed; failures 0 -> 1; escaped no; compositor left: none; panel 381920 bytes; wam active; sam unchanged; crash bundle 20261028-060601-001 (pending yes; 200 log lines, 2608 ring lines, kind problem)
+GATE live-after-wd-hang: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 391531 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE wd-crash: PASS unmounted after 0.5 s; reason: compositor killed by signal 9; failures 0 -> 1; escaped no; compositor left: none; panel 381606 bytes; wam active; sam unchanged; crash bundle 20261028-060656-001 (pending yes; 200 log lines, 2655 ring lines, kind problem)
+GATE live-after-wd-crash: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 390976 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE escape: PASS unmounted after 0s; [06:07:52] fallback: hold Home 650 ms; escaped yes; exe /usr/bin/surface-manager; recovery 16s; panel 381904 bytes; wam active; sam unchanged
+GATE: FAIL
+wrote ../lumatv-r10/docs/research/compositor/gate-2026-10-28.txt

@@ -116,3 +116,51 @@ GATE live-after-wd-crash: PASS mounted yes registered 12 fallbacks 0 wam active 
 GATE escape: PASS unmounted after 0s; [05:38:25] fallback: hold Home 650 ms; escaped yes; exe /usr/bin/surface-manager; recovery 15s; panel 381969 bytes; wam active; sam unchanged
 GATE: FAIL
 
+
+# C4 gate 2026-10-28 03:08
+GATE firmware: PASS Rockhopper release 10.2.1-5202 (ponytail-paparoa); fingerprint e34f8de94ef657a4; 10 files hashed in 0 s, unreadable: none; this set's entry: verified 10.2.1-5202; a flipped digit: 5; another release: 5; an empty list: 5; the set's own list: verified 10.2.1-5202; the supervisor: no off: not enabled (exit 3)
+GATE homeheld: PASS while held: exit 0 (0 = held); after the release: exit 1 (1 = not held); injector exit 0
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 394006 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE x1: PASS 59.95 fps over 60.00 s, no gap over 20 ms, pacer late unchanged, nothing over 20 ms in the compositor's log
+GATE netflix: PASS netflix windows 1 video "video":[{"context":"_0celCBN5m9MljM","displayOutput":{"height":1080,"width":1920,"x":0,"y":0},"fullScreen":true,"windowId":"_Window_Id_5"}] placements 1 protocol errors 0 pictureMode playing dolbyHdrCinema after filmMaker fg playing netflix now com.webos.app.home panel 11259 bytes stale-instance-closed 0 audio-port-held-before none
+GATE hdmi: PASS hdmi2 windows 1 mapped 1 bufferless commits 0 fg while open com.webos.app.hdmi2 now com.webos.app.home panel 8683 bytes audio-port-held-after-close none
+GATE keys: PASS gear-shell ok; input-shell ok; netflix-button ok; digit-tap ok; digit-hold ok; exit ok; (key table: gear=139 input=241 netflix=1037 amazon=1038; unnamed keys seen: [])
+GATE ime: PASS before: maliit-server.service inactive, MaliitServer not running; after the keyboard came up: unit active, MaliitServer pid 9687; input methods bound 1; asked for one 1 time(s); OK pressed 0 time(s); keyboard up yes (panel y 642 h 438, capture 208949 bytes); context yes; typed 3; closed by Back | an input method bound, the field's context made, the keyboard's window at the bottom, a key typed on it reached the field, the keyboard closed
+GATE shell: PASS connected ok; home-loaded ok; idle-home(10/s,3%) ok; dpad ok; quick-home ok; picker-home ok; osd ok; toast ok; quick-app ok; idle-covered(0%) ok; saver ok; (shell pid 21716, starts 1, exits 0, luna calls 207, refused 1; foreground com.webos.app.home, windows mapped: com.webos.app.home org.nphil.lumatv.shell org.nphil.lumatv.shell)
+GATE live-frames: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 390882 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE frames: FAIL home-dpad ok [first_frame 31.02 p90_render None]; quick ok [first_frame 32.36 burst_end 150.33 p90_render None]; picker NOT burst_over20=3 [first_frame 33.24 burst_end 165.84 p90_render 0.05]; toast NOT first_frame_ms=68.15,burst_end_ms=None,burst_over20=2 [first_frame 68.15 burst_end None p90_render None] (surfaces home-dpad,quick,picker,toast, 3 cycles; /tmp/lumatv-tv-out/frames.json)
+GATE wake (frames): measured tick p50 0.02 p99 0.04 max 0.38 ms (n 27298); flip p50 0.03 p99 0.05 max 0.09 ms (n 1641); input p50 0.02 p99 0.04 max 0.06 ms (n 530); tick waited on a busy loop p50 0.05 p99 0.37 max 0.37 ms (n 44)
+GATE mem: measured rss 51044 KiB, locked 547820 KiB, swapped 0 KiB, malloc mmapped blocks 0; lock: locked what is touched (MCL_CURRENT|MCL_FUTURE|MCL_ONFAULT) in 7.2 ms; VmRSS 16 MiB, MemAvailable 1036 MiB, RLIMIT_MEMLOCK 64 KiB, CAP_IPC_LOCK yes; the process's limit on locked memory: 65536 65536 bytes ; set: MemAvailable 595 MiB, CmaFree 138 MiB, swap in use 595 MiB
+GATE standby: requested ({
+GATE standby: PASS rounds: PreparePowerOff 1 PreparePowerOn 1; fallbacks 0; state active; uptime before 80507.03 now 80577.01; mounted yes; panel 390091 bytes
+GATE homekey: PASS unmounted after 10s; [06:05:02] fallback: hold Home 650 ms (supervisor); escaped yes; failures 0 -> 0; panel 381564 bytes; injector exit 0; sam unchanged
+GATE live-after-homekey: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 391254 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE wd-hang: PASS unmounted after 3.5 s; reason: heartbeat: two beats missed; failures 0 -> 1; escaped no; compositor left: none; panel 381920 bytes; wam active; sam unchanged; crash bundle 20261028-060601-001 (pending yes; 200 log lines, 2608 ring lines, kind problem)
+GATE live-after-wd-hang: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 391531 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE wd-crash: PASS unmounted after 0.5 s; reason: compositor killed by signal 9; failures 0 -> 1; escaped no; compositor left: none; panel 381606 bytes; wam active; sam unchanged; crash bundle 20261028-060656-001 (pending yes; 200 log lines, 2655 ring lines, kind problem)
+GATE live-after-wd-crash: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 390976 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE escape: PASS unmounted after 0s; [06:07:52] fallback: hold Home 650 ms; escaped yes; exe /usr/bin/surface-manager; recovery 16s; panel 381904 bytes; wam active; sam unchanged
+GATE: FAIL
+
+# C4 gate 2026-10-28 03:20
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 391047 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE keys: PASS gear-shell ok; input-shell ok; netflix-button ok; digit-tap ok; digit-hold ok; exit ok; (key table: gear=139 input=241 netflix=1037 amazon=1038; unnamed keys seen: [])
+GATE ime: PASS before: maliit-server.service inactive, MaliitServer not running; after the keyboard came up: unit active, MaliitServer pid 3745; input methods bound 1; asked for one 1 time(s); OK pressed 0 time(s); keyboard up yes (panel y 642 h 438, capture 208224 bytes); context yes; typed 3; closed by Back | an input method bound, the field's context made, the keyboard's window at the bottom, a key typed on it reached the field, the keyboard closed
+GATE shell: PASS connected ok; home-loaded ok; idle-home(10/s,3%) ok; dpad ok; quick-home ok; picker-home ok; osd ok; toast ok; quick-app ok; idle-covered(0%) ok; saver ok; (shell pid 1024, starts 1, exits 0, luna calls 195, refused 1; foreground com.webos.app.home, windows mapped: org.nphil.lumatv.shell org.nphil.lumatv.shell com.webos.app.home)
+GATE live-frames: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 389758 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE frames: FAIL home-dpad NOT burst_over20=1 [first_frame 29.14 p90_render 0.06]; quick ok [first_frame 32.84 burst_end 149.61 p90_render None]; picker NOT burst_over20=1 [first_frame 30.01 burst_end 176.79 p90_render None]; toast NOT burst_over20=1 [first_frame 34.02 burst_end 86.25 p90_render 0.28] (surfaces home-dpad,quick,picker,toast, 3 cycles; /tmp/lumatv-tv-out/frames.json)
+GATE wake (frames): measured tick p50 0.02 p99 0.04 max 0.26 ms (n 28654); flip p50 0.03 p99 0.05 max 0.22 ms (n 1662); input p50 0.02 p99 0.04 max 0.05 ms (n 530); tick waited on a busy loop p50 0.05 p99 0.18 max 0.18 ms (n 51)
+GATE mem: measured rss 51188 KiB, locked 547820 KiB, swapped 0 KiB, malloc mmapped blocks 0; lock: locked what is touched (MCL_CURRENT|MCL_FUTURE|MCL_ONFAULT) in 7.5 ms; VmRSS 16 MiB, MemAvailable 1035 MiB, RLIMIT_MEMLOCK 64 KiB, CAP_IPC_LOCK yes; the process's limit on locked memory: 65536 65536 bytes ; set: MemAvailable 560 MiB, CmaFree 155 MiB, swap in use 587 MiB
+GATE: FAIL
+
+# C4 gate 2026-10-28 03:31
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 391192 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE keys: PASS gear-shell ok; input-shell ok; netflix-button ok; digit-tap ok; digit-hold ok; exit ok; (key table: gear=139 input=241 netflix=1037 amazon=1038; unnamed keys seen: [])
+GATE ime: PASS before: maliit-server.service inactive, MaliitServer not running; after the keyboard came up: unit active, MaliitServer pid 19774; input methods bound 1; asked for one 1 time(s); OK pressed 0 time(s); keyboard up yes (panel y 642 h 438, capture 208822 bytes); context yes; typed 3; closed by Back | an input method bound, the field's context made, the keyboard's window at the bottom, a key typed on it reached the field, the keyboard closed
+GATE shell: PASS connected ok; home-loaded ok; idle-home(10/s,3%) ok; dpad ok; quick-home ok; picker-home ok; osd ok; toast ok; quick-app ok; idle-covered(0%) ok; saver ok; (shell pid 17560, starts 1, exits 0, luna calls 195, refused 1; foreground com.webos.app.home, windows mapped: org.nphil.lumatv.shell org.nphil.lumatv.shell com.webos.app.home)
+GATE live-frames: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 390643 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE frames: FAIL home-dpad ok [first_frame 30.73 p90_render 0.06]; quick NOT first_frame_ms=125.15,burst_end_ms=None [first_frame 125.15 burst_end None p90_render None]; picker NOT burst_over20=2 [first_frame 31.53 burst_end 164.97 p90_render 0.16]; toast NOT first_frame_ms=67.12,burst_end_ms=None,burst_over20=1 [first_frame 67.12 burst_end None p90_render None] (surfaces home-dpad,quick,picker,toast, 3 cycles; /tmp/lumatv-tv-out/frames.json)
+GATE wake (frames): measured tick p50 0.02 p99 0.04 max 0.29 ms (n 28594); flip p50 0.03 p99 0.05 max 0.30 ms (n 1637); input p50 0.02 p99 0.04 max 0.06 ms (n 530); tick waited on a busy loop p50 0.06 p99 0.20 max 0.20 ms (n 39)
+GATE mem: measured rss 50808 KiB, locked 547820 KiB, swapped 0 KiB, malloc mmapped blocks 0; lock: locked what is touched (MCL_CURRENT|MCL_FUTURE|MCL_ONFAULT) in 4.9 ms; VmRSS 16 MiB, MemAvailable 1040 MiB, RLIMIT_MEMLOCK 64 KiB, CAP_IPC_LOCK yes; the process's limit on locked memory: 65536 65536 bytes ; set: MemAvailable 602 MiB, CmaFree 149 MiB, swap in use 598 MiB
+GATE: FAIL
+

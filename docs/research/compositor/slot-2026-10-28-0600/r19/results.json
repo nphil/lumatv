@@ -1,0 +1,558 @@
+{
+ "refused": null,
+ "results": [
+  {
+   "check": "speed",
+   "verdict": "PASS",
+   "items": [
+    {
+     "name": "quick windows",
+     "verdict": "PASS",
+     "detail": "6/6  (== 6)"
+    },
+    {
+     "name": "quick first_frame_ms",
+     "verdict": "PASS",
+     "detail": "32.18  (<= 50)"
+    },
+    {
+     "name": "quick burst_end_ms",
+     "verdict": "PASS",
+     "detail": "148.95  (<= 180)"
+    },
+    {
+     "name": "quick p90_render_ms",
+     "verdict": "PASS",
+     "detail": "2.56  (< 3)  31 frames"
+    },
+    {
+     "name": "quick p90_window_ms",
+     "verdict": "PASS",
+     "detail": "2.91  (< 4)  worst single window"
+    },
+    {
+     "name": "quick dropped_share",
+     "verdict": "PASS",
+     "detail": "0.00  (<= 0.17)  0 of 31 animated frames, LG's compositor floor"
+    },
+    {
+     "name": "quick burst_over20",
+     "verdict": "PASS",
+     "detail": "0  (<= 0)"
+    },
+    {
+     "name": "quick rss_growth_mb",
+     "verdict": "PASS",
+     "detail": "0.03  (<= 1.08)  66942 -> 66949 pages over 8 cycles"
+    },
+    {
+     "name": "quick log_errors",
+     "verdict": "PASS",
+     "detail": "0  (== 0)"
+    },
+    {
+     "name": "quick compositor_pid",
+     "verdict": "PASS",
+     "detail": "27522  (== 27522)"
+    },
+    {
+     "name": "picker windows",
+     "verdict": "PASS",
+     "detail": "6/6  (== 6)"
+    },
+    {
+     "name": "picker first_frame_ms",
+     "verdict": "PASS",
+     "detail": "23.54  (<= 50)"
+    },
+    {
+     "name": "picker burst_end_ms",
+     "verdict": "PASS",
+     "detail": "140.31  (<= 180)"
+    },
+    {
+     "name": "picker p90_render_ms",
+     "verdict": "PASS",
+     "detail": "2.87  (< 3)  26 frames"
+    },
+    {
+     "name": "picker p90_window_ms",
+     "verdict": "PASS",
+     "detail": "3.03  (< 4)  worst single window"
+    },
+    {
+     "name": "picker dropped_share",
+     "verdict": "PASS",
+     "detail": "0.00  (<= 0.17)  0 of 26 animated frames, LG's compositor floor"
+    },
+    {
+     "name": "picker burst_over20",
+     "verdict": "PASS",
+     "detail": "0  (<= 0)"
+    },
+    {
+     "name": "picker rss_growth_mb",
+     "verdict": "PASS",
+     "detail": "0.14  (<= 1.08)  68641 -> 68678 pages over 8 cycles"
+    },
+    {
+     "name": "picker log_errors",
+     "verdict": "PASS",
+     "detail": "0  (== 0)"
+    },
+    {
+     "name": "picker compositor_pid",
+     "verdict": "PASS",
+     "detail": "27522  (== 27522)"
+    }
+   ],
+   "detail": "every threshold met",
+   "files": [
+    "speed/r19.json",
+    "speed/gate-stdout.txt"
+   ],
+   "seconds": 155.7,
+   "planned_wait_s": 0.0,
+   "guard_after": {
+    "failed": 6,
+    "librdx": 0,
+    "aud_reset": "0"
+   }
+  },
+  {
+   "check": "settings",
+   "verdict": "EYES",
+   "items": [
+    {
+     "name": "rail: System",
+     "verdict": "EYES",
+     "detail": "the rail on System",
+     "file": "settings/system-rail.png"
+    },
+    {
+     "name": "System page",
+     "verdict": "EYES",
+     "detail": "System, General tab",
+     "file": "settings/system-general.png"
+    },
+    {
+     "name": "System > About",
+     "verdict": "EYES",
+     "detail": "About tab: the TV name, LumaTV, a Support row",
+     "file": "settings/system-about.png"
+    },
+    {
+     "name": "Support row focused",
+     "verdict": "EYES",
+     "detail": "the focus ring on the Support row (the last row)",
+     "file": "settings/system-about-support-focus.png"
+    },
+    {
+     "name": "Support page",
+     "verdict": "EYES",
+     "detail": "Support opens on TV info",
+     "file": "settings/support-open.png"
+    },
+    {
+     "name": "Support > Privacy tab",
+     "verdict": "EYES",
+     "detail": "Privacy tab: Do Not Sell, Limit AD Tracking, AD ID, App Permissions, Delete My Personal Information",
+     "file": "settings/support-privacy.png"
+    },
+    {
+     "name": "Delete row focused",
+     "verdict": "EYES",
+     "detail": "the focus ring on Delete My Personal Information (the last row)",
+     "file": "settings/privacy-bottom-focus.png"
+    },
+    {
+     "name": "Delete My Personal Information (opened only)",
+     "verdict": "EYES",
+     "detail": "two danger rows, a reason line when LG's terms or the network are missing; nothing is pressed",
+     "file": "settings/delete-data.png"
+    },
+    {
+     "name": "App Permissions row focused",
+     "verdict": "EYES",
+     "detail": "back on Privacy with the focus ring on App Permissions",
+     "file": "settings/privacy-permissions-focus.png"
+    },
+    {
+     "name": "App Permissions: Camera",
+     "verdict": "EYES",
+     "detail": "four tabs, the Camera list",
+     "file": "settings/permissions-camera.png"
+    },
+    {
+     "name": "App Permissions: Microphone",
+     "verdict": "EYES",
+     "detail": "Microphone tab",
+     "file": "settings/permissions-mic.png"
+    },
+    {
+     "name": "App Permissions: Nearby Devices",
+     "verdict": "EYES",
+     "detail": "Nearby Devices tab",
+     "file": "settings/permissions-nearby.png"
+    },
+    {
+     "name": "App Permissions: Access File",
+     "verdict": "EYES",
+     "detail": "Access File tab (empty when the TV hides it)",
+     "file": "settings/permissions-files.png"
+    },
+    {
+     "name": "rail: Home & look",
+     "verdict": "EYES",
+     "detail": "the rail on Home & look",
+     "file": "settings/look-rail.png"
+    },
+    {
+     "name": "Home & look page",
+     "verdict": "EYES",
+     "detail": "Look tab",
+     "file": "settings/look-look.png"
+    },
+    {
+     "name": "Home tab",
+     "verdict": "EYES",
+     "detail": "Home tab: Home widgets, 12-hour clock, Home Assistant, Greeting ...",
+     "file": "settings/look-home-tab.png"
+    },
+    {
+     "name": "Home Assistant row focused",
+     "verdict": "EYES",
+     "detail": "the focus ring on Home Assistant (third row)",
+     "file": "settings/look-home-ha-focus.png"
+    },
+    {
+     "name": "Home Assistant page",
+     "verdict": "EYES",
+     "detail": "Connection tab: address, whether a token is kept (never the token)",
+     "file": "settings/home-assistant.png"
+    },
+    {
+     "name": "Home Assistant: second tab",
+     "verdict": "EYES",
+     "detail": "the plugin's second tab (Room)",
+     "file": "settings/home-assistant-tab2.png"
+    },
+    {
+     "name": "Home Assistant: third tab",
+     "verdict": "EYES",
+     "detail": "the third tab (Doorbell)",
+     "file": "settings/home-assistant-tab3.png"
+    },
+    {
+     "name": "Just Scan",
+     "verdict": "SKIPPED",
+     "detail": "no HDMI input in front at the start (foreground com.webos.app.home); no input is switched for it"
+    },
+    {
+     "name": "no value changed by the walk",
+     "verdict": "PASS",
+     "detail": "picture mode, Limit AD Tracking, Do Not Sell and the theme file are as before"
+    }
+   ],
+   "detail": "20 pages captured, none changed a value; look at the images",
+   "seconds": 155.7,
+   "planned_wait_s": 95.4,
+   "guard_after": {
+    "failed": 6,
+    "librdx": 0,
+    "aud_reset": "0"
+   }
+  },
+  {
+   "check": "plugins",
+   "verdict": "EYES",
+   "items": [
+    {
+     "name": "helper answers on 127.0.0.1:18731",
+     "verdict": "PASS",
+     "detail": "version 0.1.0, pid 17238, rss 2688 kB, 29 topics"
+    },
+    {
+     "name": "no token or secret in /v1/state",
+     "verdict": "PASS",
+     "detail": "no key named token, access_token, password or secret holds a string"
+    },
+    {
+     "name": "owner's plugins (switched on)",
+     "verdict": "INFO",
+     "detail": "none"
+    },
+    {
+     "name": "plugin roster problem",
+     "verdict": "PASS",
+     "detail": "none"
+    },
+    {
+     "name": "approved plugins (enabled.json)",
+     "verdict": "INFO",
+     "detail": "no file (nothing approved)"
+    },
+    {
+     "name": "broker socket",
+     "verdict": "INFO",
+     "detail": "exists only while an owner plugin is on: ls: /run/lumashow-plugins/broker.sock: No such file or directory"
+    },
+    {
+     "name": "first-party plugins weather, news, clock",
+     "verdict": "PASS",
+     "detail": "listed: weather connected, news connected, clock connected"
+    },
+    {
+     "name": "first-party card: weather",
+     "verdict": "PASS",
+     "detail": "1 card(s)"
+    },
+    {
+     "name": "first-party card: news",
+     "verdict": "PASS",
+     "detail": "1 card(s)"
+    },
+    {
+     "name": "first-party card: clock",
+     "verdict": "PASS",
+     "detail": "1 card(s)"
+    },
+    {
+     "name": "first-party tiles: ambient",
+     "verdict": "INFO",
+     "detail": "0 tile(s) for the quick panel"
+    },
+    {
+     "name": "ha.link carries no token",
+     "verdict": "PASS",
+     "detail": "keys []"
+    },
+    {
+     "name": "Home Assistant plugin state",
+     "verdict": "PASS",
+     "detail": "Not switched on (expected until Nitin links it)"
+    },
+    {
+     "name": "Home At-home lane",
+     "verdict": "EYES",
+     "detail": "the chip says \"Home Assistant / Not switched on\" (or the plugins' cards); three captures of Home, focus moved with Down and back",
+     "file": "plugins/home-lane.png"
+    },
+    {
+     "name": "quick panel plugin tiles",
+     "verdict": "EYES",
+     "detail": "tiles of plugins sit between the built-in ones and AI access (ambient: 0); look at quick-mid and quick-low",
+     "file": "plugins/quick-mid.png"
+    }
+   ],
+   "detail": "helper, roster, first-party cards and the Home Assistant state read; captures need a look (Home Assistant: Not switched on)",
+   "files": [
+    "plugins/plugins.json"
+   ],
+   "seconds": 29.8,
+   "planned_wait_s": 109.3,
+   "guard_after": {
+    "failed": 6,
+    "librdx": 0,
+    "aud_reset": "0"
+   }
+  },
+  {
+   "check": "layout",
+   "verdict": "EYES",
+   "items": [
+    {
+     "name": "layout.json before",
+     "verdict": "INFO",
+     "detail": "md5 f77f511803e89aa845e2172d28b4f0ce, mtime 1792986859, customised"
+    },
+    {
+     "name": "Settings > Home & look > Home widgets",
+     "verdict": "EYES",
+     "detail": "the page on its first tab (a row per card, Off/Small/Half/Wide) and its second tab (the order); nothing was changed",
+     "file": "layout/home-widgets.png"
+    },
+    {
+     "name": "layout editor opens",
+     "verdict": "EYES",
+     "detail": "the grid over Home with the bar (Add, Remove, Undo, Cancel, Save); look at edit-grid.png",
+     "file": "layout/edit-grid.png"
+    },
+    {
+     "name": "pick up and move one cell",
+     "verdict": "INFO",
+     "detail": "no direction changed the picture (the card may fill its row and column, or the move was refused)"
+    },
+    {
+     "name": "resize one step",
+     "verdict": "EYES",
+     "detail": "sized with up: compare edit-size-mode and edit-size-up"
+    },
+    {
+     "name": "Cancel and confirm Discard",
+     "verdict": "EYES",
+     "detail": "the question was recognised and Discard (the last answer) was chosen; see edit-cancel.png and edit-discard-focus.png"
+    },
+    {
+     "name": "layout.json unchanged",
+     "verdict": "PASS",
+     "detail": "md5 f77f511803e89aa845e2172d28b4f0ce before and after (mtime 1792986859 then 1792986859)"
+    }
+   ],
+   "detail": "editor opened, a card moved and sized, discarded; layout.json unchanged; look at the captures",
+   "seconds": 97.1,
+   "planned_wait_s": 162.4,
+   "guard_after": {
+    "failed": 6,
+    "librdx": 0,
+    "aud_reset": "0"
+   }
+  },
+  {
+   "check": "ble",
+   "verdict": "EYES",
+   "items": [
+    {
+     "name": "baseline: adapter",
+     "verdict": "PASS",
+     "detail": "powered"
+    },
+    {
+     "name": "unknown 1: luna-send may call le/startScan",
+     "verdict": "PASS",
+     "detail": "first reply {'keys': ['adapterAddress', 'returnValue', 'subscribed'], 'returnValue': True, 'subscribed': True, 'errorCode': None, 'errorText': None}"
+    },
+    {
+     "name": "unknown 2: scanRecord",
+     "verdict": "PASS",
+     "detail": "filled for 334 reply entries, 8-62 bytes, 108 over 31 bytes (advertisement plus scan response when over 31) [INFERENCE], AD types ['0x1', '0x16', '0x2', '0x3', '0x6', '0x7', '0x9', '0xa', '0xff'], name in 145",
+     "scan_record": {
+      "with_record": 334,
+      "empty_or_unreadable": 30,
+      "length_min": 8,
+      "length_max": 62,
+      "records_over_31_bytes": 108,
+      "records_with_name": 145,
+      "ad_types_seen": [
+       "0x1",
+       "0x16",
+       "0x2",
+       "0x3",
+       "0x6",
+       "0x7",
+       "0x9",
+       "0xa",
+       "0xff"
+      ]
+     }
+    },
+    {
+     "name": "unknown 3: same advertisement, same RSSI",
+     "verdict": "EYES",
+     "detail": "without always: 0 replies for a device heard again, 0 of them with the same RSSI; with always: 0 and 0. Replies 31 vs 26. always changes nothing seen"
+    },
+    {
+     "name": "no luna-send left over",
+     "verdict": "PASS",
+     "detail": "left over: ['0', '0']"
+    },
+    {
+     "name": "cost (unknown 5, partial)",
+     "verdict": "EYES",
+     "detail": "ping round trip base {'min_ms': 0.152, 'avg_ms': 0.172, 'max_ms': 0.201, 'loss_pct': 0}, scan {'min_ms': 0.149, 'avg_ms': 0.166, 'max_ms': 0.201, 'loss_pct': 0}, always {'min_ms': 0.148, 'avg_ms': 0.181, 'max_ms': 0.23, 'loss_pct': 0}; load before ['top - 06:39:01 up 22:57,  0 users,  load average: 13.49, 13.86, 14.22', 'Tasks: 307 total,   1 running, 306 sleeping,   0 stopped,   0 zombie']"
+    }
+   ],
+   "detail": "unknowns 1-3 answered in ble/scan-shapes.json (unknown 3 and the cost read by eye)",
+   "files": [
+    "ble/scan-shapes.json"
+   ],
+   "seconds": 93.1,
+   "planned_wait_s": 212.4,
+   "guard_after": {
+    "failed": 6,
+    "librdx": 0,
+    "aud_reset": "0"
+   }
+  },
+  {
+   "check": "banners",
+   "verdict": "SKIPPED",
+   "items": [
+    {
+     "name": "inputcommon state",
+     "verdict": "INFO",
+     "detail": "OFF: nothing below can judge the patched banners; the burst is LG's own look (baseline). Main switches `lumatv inputcommon on` first.",
+     "status": {
+      "ok": true,
+      "on": false,
+      "qml": "/usr/palm/applications/com.webos.app.inputcommon/qml",
+      "staged": true,
+      "mounted": false,
+      "checkpoint": "present",
+      "criuEnabled": true
+     }
+    },
+    {
+     "name": "input process",
+     "verdict": "INFO",
+     "detail": "pid 7890, \"snapshot\":true False (7890 without the flag is the 04:04 dump; 2513/2517 with it LG's boot instances)",
+     "process": {
+      "pid": "7890",
+      "snapshot_flag": false,
+      "cmdline": "/usr/bin/com.webos.app.inputcommon {\"event\":\"launch\",\"reason\":\"undefined\",\"appId\":\"com.webos.app.hdmi2\",\"parameters\":{},\"interfaceVersion\":2,\"interfaceMethod\":\"registerApp\",\"@system_native_app\":true}"
+     }
+    },
+    {
+     "name": "pill (baseline, switch off)",
+     "verdict": "INFO",
+     "detail": "frame kinds {'grey': 21, 'none': 7, 'other': 13}; glass frames 0"
+    },
+    {
+     "name": "no-signal sheet / key-help line (at 7 s and later)",
+     "verdict": "EYES",
+     "detail": "frames ['pill-26', 'pill-27', 'pill-28']: dim ink words in Manrope on black expected; the key-help line (red bar and words) is INFO when not drawn"
+    },
+    {
+     "name": "INFO card (baseline, switch off)",
+     "verdict": "INFO",
+     "detail": "colour grey, samples [80.0, 81.0, 81.3, 82.3, 85.7]",
+     "file": "banners/info-1.png"
+    },
+    {
+     "name": "Live TV channel strip and card",
+     "verdict": "SKIPPED",
+     "detail": "tuning a channel plays audio; pass --livetv with the receiver muted"
+    },
+    {
+     "name": "prompts (Input Locked, set-top box question)",
+     "verdict": "SKIPPED",
+     "detail": "not reachable without locking an input; the host proof stands"
+    },
+    {
+     "name": "inputs closed",
+     "verdict": "PASS",
+     "detail": "inputs status running []"
+    }
+   ],
+   "detail": "inputcommon is off: baseline only, nothing judged",
+   "files": [
+    "banners/pill-montage.png",
+    "banners/pill-frames.json"
+   ],
+   "seconds": 27.2,
+   "planned_wait_s": 231.3,
+   "guard_after": {
+    "failed": 6,
+    "librdx": 0,
+    "aud_reset": "0"
+   }
+  }
+ ],
+ "end_state_checks": {
+  "home_in_front": true,
+  "picture_mode_filmMaker": true,
+  "inputs_running_empty": true,
+  "inputcommon_as_found": true,
+  "guard_as_found": true
+ }
+}

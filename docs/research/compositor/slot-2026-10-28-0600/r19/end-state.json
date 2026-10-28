@@ -1,0 +1,65 @@
+{
+ "time": "2026-10-28T03:41:01",
+ "power": "Active",
+ "foreground": "com.webos.app.home",
+ "picture_mode": "filmMaker",
+ "guard": {
+  "failed": 6,
+  "librdx": 0,
+  "aud_reset": "0"
+ },
+ "inputcommon": {
+  "ok": true,
+  "on": false,
+  "qml": "/usr/palm/applications/com.webos.app.inputcommon/qml",
+  "staged": true,
+  "mounted": false,
+  "checkpoint": "present",
+  "criuEnabled": true
+ },
+ "inputs": {
+  "ports": [
+   {
+    "port": 0,
+    "open": false,
+    "connect": "UNKNOWN"
+   },
+   {
+    "port": 1,
+    "open": false,
+    "connect": "UNKNOWN"
+   }
+  ],
+  "running": [],
+  "held": ""
+ },
+ "theme_md5": "52a787431517d8b3e53528001b9c7922",
+ "general_flags": {
+  "doNotSellMyPersonalInformation": "on",
+  "lmt": "on"
+ },
+ "receiver_as_read_by_the_helper": {
+  "enabled": true,
+  "error": null,
+  "fresh": true,
+  "host": "192.168.1.93",
+  "input": "TV",
+  "mute": false,
+  "polling": true,
+  "power": "on",
+  "reachable": true,
+  "signal": "PCM",
+  "soundMode": "DOLBY AUDIO-DSUR",
+  "updatedAt": 1793184060078,
+  "volumeAbs": 57.5,
+  "volumeDb": -22.5,
+  "volumeDisplay": "absolute",
+  "volumeText": "57.5"
+ },
+ "lumatv_compositor_running": 0,
+ "running_apps": [
+  "com.webos.app.home"
+ ],
+ "notes": [],
+ "final_power": "Active"
+}

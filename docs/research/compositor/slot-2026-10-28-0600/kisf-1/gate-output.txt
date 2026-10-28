@@ -1,0 +1,159 @@
+power state: active
+home stub before the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+avr: left to the agent (True)
+firmware: verified 10.2.1-5202
+safety timer: this session ends by itself after 32 min if it is still live ('cutover.sh disable' cancels the timer)
+mounted; restarting the unit
+t=5s unit=active exe=/usr/bin/surface-manager compositor=540 mounted=yes wam=active
+   06:08:57 recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+   06:08:57 recover: WebAppMgr answering after 0s (active)
+t=10s unit=active exe=/usr/bin/surface-manager compositor=540 mounted=yes wam=active
+   06:08:57 recover: WebAppMgr answering after 0s (active)
+   06:08:59 recover: Home running under LumaTV's compositor after 0s
+t=15s unit=active exe=/usr/bin/surface-manager compositor=540 mounted=yes wam=active
+   06:08:57 recover: WebAppMgr answering after 0s (active)
+   06:08:59 recover: Home running under LumaTV's compositor after 0s
+t=20s unit=active exe=/usr/bin/surface-manager compositor=540 mounted=yes wam=active
+   06:08:59 recover: Home running under LumaTV's compositor after 0s
+   06:09:09 recover: librdx reports swept; remaining 0
+t=25s unit=active exe=/usr/bin/surface-manager compositor=540 mounted=yes wam=active
+   06:08:59 recover: Home running under LumaTV's compositor after 0s
+   06:09:09 recover: librdx reports swept; remaining 0
+t=30s unit=active exe=/usr/bin/surface-manager compositor=540 mounted=yes wam=active
+   06:08:59 recover: Home running under LumaTV's compositor after 0s
+   06:09:09 recover: librdx reports swept; remaining 0
+enabled (session): LumaTV's compositor stays live (recovery done after 0s more); 'cutover.sh disable' restores LG's
+
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 391047 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+GATE keys: PASS gear-shell ok; input-shell ok; netflix-button ok; digit-tap ok; digit-hold ok; exit ok; (key table: gear=139 input=241 netflix=1037 amazon=1038; unnamed keys seen: [])
+
+avr: left to the agent (True)
+GATE ime: PASS before: maliit-server.service inactive, MaliitServer not running; after the keyboard came up: unit active, MaliitServer pid 3745; input methods bound 1; asked for one 1 time(s); OK pressed 0 time(s); keyboard up yes (panel y 642 h 438, capture 208224 bytes); context yes; typed 3; closed by Back | an input method bound, the field's context made, the keyboard's window at the bottom, a key typed on it reached the field, the keyboard closed
+
+GATE shell: PASS connected ok; home-loaded ok; idle-home(10/s,3%) ok; dpad ok; quick-home ok; picker-home ok; osd ok; toast ok; quick-app ok; idle-covered(0%) ok; saver ok; (shell pid 1024, starts 1, exits 0, luna calls 195, refused 1; foreground com.webos.app.home, windows mapped: org.nphil.lumatv.shell org.nphil.lumatv.shell com.webos.app.home)
+
+avr: left to the agent (True)
+evidence: 2 subscription(s) from SAM, 15 client lines, 3 loop stalls, 3 watchdog lines
+
+already mounted; 'cutover.sh status' says what runs
+
+GATE live-frames: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 389758 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+GATE wake: reset
+
+ more; kernel 0.0 ms)
+    home-dpad-open +0.029 s: 166.8 ms (overrun 150.1): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    home-dpad-open +3.232 s: 116.8 ms (overrun 100.1): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    home-dpad-open +3.349 s: 50.0 ms (overrun 33.4): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    ... 10 more late frames
+PASS  quick           windows                6/6  (== 6)
+PASS  quick           first_frame_ms       32.84  (<= 50)  the compositor asked the shell 0.16 ms after the key at worst
+PASS  quick           burst_end_ms        149.61  (<= 180)
+PASS  quick           p90_render_ms         none  (< 3)  no animated frames
+PASS  quick           p90_window_ms         none  (< 4)  worst single window
+PASS  quick           dropped                  0  (<= 0)
+PASS  quick           burst_over20             0  (<= 0)
+PASS  quick           rss_growth_mb         0.00  (<= 1.01)  462 -> 462 pages over 1 cycles
+PASS  quick           log_errors               0  (== 0)
+PASS  quick           compositor_pid       32731  (== 32731)
+quick: kernel waits: 1 late frame(s): 0 kernel-caused, 0 waiting for a CPU, 1 unexplained
+    quick-close +0.983 s: 50.0 ms (overrun 33.4): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+PASS  picker          windows                6/6  (== 6)
+PASS  picker          first_frame_ms       30.01  (<= 50)  the compositor asked the shell 0.17 ms after the key at worst
+PASS  picker          burst_end_ms        176.79  (<= 180)
+PASS  picker          p90_render_ms         none  (< 3)  no animated frames
+PASS  picker          p90_window_ms         none  (< 4)  worst single window
+PASS  picker          dropped                  0  (<= 0)
+FAIL  picker          burst_over20             1  (<= 0)
+PASS  picker          rss_growth_mb         0.00  (<= 1.01)  462 -> 462 pages over 1 cycles
+PASS  picker          log_errors               0  (== 0)
+PASS  picker          compositor_pid       32731  (== 32731)
+picker: kernel waits: 2 late frame(s): 0 kernel-caused, 0 waiting for a CPU, 2 unexplained
+    picker-close +0.145 s: 133.5 ms (overrun 116.8): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    picker-close +0.143 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+PASS  toast           windows                3/3  (== 3)
+PASS  toast           first_frame_ms       34.02  (<= 50)
+PASS  toast           burst_end_ms         86.25  (<= 180)
+PASS  toast           p90_render_ms         0.28  (< 3)  1 frames
+PASS  toast           p90_window_ms         0.28  (< 4)  worst single window
+PASS  toast           dropped                  0  (<= 0)
+FAIL  toast           burst_over20             1  (<= 0)
+PASS  toast           rss_growth_mb         0.00  (<= 1.01)  462 -> 462 pages over 1 cycles
+PASS  toast           log_errors               0  (== 0)
+PASS  toast           compositor_pid       32731  (== 32731)
+toast: kernel waits: 8 late frame(s): 0 kernel-caused, 0 waiting for a CPU, 8 unexplained
+    toast-open +0.129 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    toast-open +0.195 s: 83.4 ms (overrun 66.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    toast-open +5.133 s: 150.1 ms (overrun 133.5): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    toast-open +0.052 s: 50.0 ms (overrun 33.4): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    toast-open +0.135 s: 200.2 ms (overrun 183.5): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    toast-open +5.073 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    toast-open +5.106 s: 233.5 ms (overrun 216.9): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    toast-open +0.129 s: 50.0 ms (overrun 33.4): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+VERDICT FAIL
+
+GATE wake (frames): measured tick p50 0.02 p99 0.04 max 0.26 ms (n 28654); flip p50 0.03 p99 0.05 max 0.22 ms (n 1662); input p50 0.02 p99 0.04 max 0.05 ms (n 530); tick waited on a busy loop p50 0.05 p99 0.18 max 0.18 ms (n 51)
+
+GATE mem: measured rss 51188 KiB, locked 547820 KiB, swapped 0 KiB, malloc mmapped blocks 0; lock: locked what is touched (MCL_CURRENT|MCL_FUTURE|MCL_ONFAULT) in 7.5 ms; VmRSS 16 MiB, MemAvailable 1035 MiB, RLIMIT_MEMLOCK 64 KiB, CAP_IPC_LOCK yes; the process's limit on locked memory: 65536 65536 bytes ; set: MemAvailable 560 MiB, CmaFree 155 MiB, swap in use 587 MiB
+
+lpc-probe irq: 10 s, home; CPUs online 0-2; default affinity f
+(* named in IRQ_NAMES)  IRQ  rate/s  per-CPU counts over the run  affinity  name
+*175    127.0    1270      0      0      0  0-3       175 Edge DE2VSYNC
+*104    126.4    1264      0      0      0  0-3       104 Edge osd_irq
+*128     67.2     672      0      0      0  0-3       128 Level ohci_hcd:usb8
+*176     43.5     435      0      0      0  0-3       176 Level c4250000.gpu
+*178     42.3     423      0      0      0  0-3       178 Level c4250000.gpu
+*124     32.0     320      0      0      0  0-3       124 Level eth0
+ 60       2.0      20      0      0      0  0-3       60 Level fe500000.i2c
+ 135      1.2      12      0      0      0  0-3       135 Edge hdmicec
+ 113      1.0      10      0      0      0  0-3       113 Edge TE_MCU[1]
+ 112      1.0      10      0      0      0  0-3       112 Edge TE_MCU[0]
+*120      0.6       6      0      0      0  0-3       120 Edge gfx_irq
+ 127      0.5       5      0      0      0  0-3       127 Level mmc0
+ 183      0.4       4      0      0      0  0-3       183 Level aud1
+ 201      0.3       3      0      0      0  0-3       201 Edge ipc_vdec
+*177      0.0       0      0      0      0  0-3       177 Level c4250000.gpu
+*174      0.0       0      0      0      0  0-3       174 Edge DE2IPC
+*132      0.0       0      0      0      0  0-3       132 Level xhci-hcd:usb5
+*131      0.0       0      0      0      0  0-3       131 Level xhci-hcd:usb3
+*130      0.0       0      0      0      0  0-3       130 Level xhci-hcd:usb1
+*129      0.0       0      0      0      0  0-3       129 Level ehci_hcd:usb7
+softirq TIMER      2419   2636   1896   1647
+softirq NET_RX      395      9      8     15
+softirq TASKLET    1272      0      0      0
+softirq SCHED      1479   1579   1165   1041
+loop thread (pid 540) ran on: CPU0 58 %, CPU1 12 %, CPU2 30 %, over 100 samples
+
+lpc-probe wakeups: 10 s, home
+pid 1024: 493.4 runs/s: qml-runner 76.7, tLibSystrim 0.0, tFragmentation 0.1, mali-mem-purge 10.2, mali-utility-wo -2.0, mali-utility-wo -2.0, mali-utility-wo -2.0, mali-utility-wo 0.0, mali-cmar-backe 33.3, QQmlThread 0.0, Qt_bearer_threa 0.4, QNetworkAccessM 378.6, QQuickPixmapRea 0.1, QNetworkAccessM 0.0,
+pid 17238: 16.6 runs/s: http-conn -0.1, lumatv-helper 0.0, screen 0.0, framerate 0.0, receiver 3.7, ambient 0.0, receiver-telnet 12.6, framerate-sub 0.0, screen-sub 0.0, feeds 0.0, ai-listener 0.0, plugins 0.0, plugins-1p 0.0, preload 0.0, ble 0.2, cameras 0.1, http-accept 0.1,
+pid 540: 163.4 runs/s: shell-spawn 0.0, ld-linux-aarch6 114.5, mali-mem-purge 0.0, mali-utility-wo 0.0, mali-utility-wo 0.0, mali-utility-wo 0.0, mali-utility-wo 0.0, mali-cmar-backe 45.6, mali-compiler 0.0, luna-writer 2.0, lumatv-shell-ht 1.3,
+system: 5865 interrupts/s, 10274 context switches/s
+
+shell callbacks: 3315 of 4314 sent ahead of their flip
+
+safety timer cancelled
+umount: /usr/bin/surface-manager: target is busy.
+revert: active; mounted: no; exe: /usr/bin/surface-manager
+recover: surface-manager-daemon.service active after 0s; exe /usr/bin/surface-manager
+recover: compositor answering on the bus after 0s
+recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+recover: WebAppMgr answering after 0s (active)
+recover: Home on the panel after 0s (capture 60890 bytes)
+recover: librdx reports swept; remaining 0
+
+avr: left to the agent (False)
+{"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+
+home stub after the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 391047 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE keys: PASS gear-shell ok; input-shell ok; netflix-button ok; digit-tap ok; digit-hold ok; exit ok; (key table: gear=139 input=241 netflix=1037 amazon=1038; unnamed keys seen: [])
+GATE ime: PASS before: maliit-server.service inactive, MaliitServer not running; after the keyboard came up: unit active, MaliitServer pid 3745; input methods bound 1; asked for one 1 time(s); OK pressed 0 time(s); keyboard up yes (panel y 642 h 438, capture 208224 bytes); context yes; typed 3; closed by Back | an input method bound, the field's context made, the keyboard's window at the bottom, a key typed on it reached the field, the keyboard closed
+GATE shell: PASS connected ok; home-loaded ok; idle-home(10/s,3%) ok; dpad ok; quick-home ok; picker-home ok; osd ok; toast ok; quick-app ok; idle-covered(0%) ok; saver ok; (shell pid 1024, starts 1, exits 0, luna calls 195, refused 1; foreground com.webos.app.home, windows mapped: org.nphil.lumatv.shell org.nphil.lumatv.shell com.webos.app.home)
+GATE live-frames: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 389758 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE frames: FAIL home-dpad NOT burst_over20=1 [first_frame 29.14 p90_render 0.06]; quick ok [first_frame 32.84 burst_end 149.61 p90_render None]; picker NOT burst_over20=1 [first_frame 30.01 burst_end 176.79 p90_render None]; toast NOT burst_over20=1 [first_frame 34.02 burst_end 86.25 p90_render 0.28] (surfaces home-dpad,quick,picker,toast, 3 cycles; /tmp/lumatv-tv-out/frames.json)
+GATE wake (frames): measured tick p50 0.02 p99 0.04 max 0.26 ms (n 28654); flip p50 0.03 p99 0.05 max 0.22 ms (n 1662); input p50 0.02 p99 0.04 max 0.05 ms (n 530); tick waited on a busy loop p50 0.05 p99 0.18 max 0.18 ms (n 51)
+GATE mem: measured rss 51188 KiB, locked 547820 KiB, swapped 0 KiB, malloc mmapped blocks 0; lock: locked what is touched (MCL_CURRENT|MCL_FUTURE|MCL_ONFAULT) in 7.5 ms; VmRSS 16 MiB, MemAvailable 1035 MiB, RLIMIT_MEMLOCK 64 KiB, CAP_IPC_LOCK yes; the process's limit on locked memory: 65536 65536 bytes ; set: MemAvailable 560 MiB, CmaFree 155 MiB, swap in use 587 MiB
+GATE: FAIL
+wrote ../lumatv-r10/docs/research/compositor/gate-2026-10-28.txt

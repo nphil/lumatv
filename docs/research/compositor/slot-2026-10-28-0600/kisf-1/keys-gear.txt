@@ -1,0 +1,1 @@
+input: gear tap: Quick Settings -> LumaTV's quick panel

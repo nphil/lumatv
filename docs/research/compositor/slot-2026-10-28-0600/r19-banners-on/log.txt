@@ -1,0 +1,21 @@
+03:41:15 round 19 checks, evidence in /tmp/r10out/r19b
+03:41:18 start state: {"power": "Active", "foreground": "com.webos.app.home", "picture_mode": "filmMaker", "guard": {"failed": 6, "librdx": 0, "aud_reset": "0"}, "running_apps": ["com.webos.app.home"]}
+03:41:18 ==== check banners: start
+03:41:19   INFO    inputcommon state on (staged and mounted) - the PASS/FAIL below judges the patched banners
+03:41:20   PASS    overlay mounted 7 inputcommon lines in /proc/mounts
+03:41:20   FAIL    patched tree: 30 .qml files 35 files in /var/lib/lumatv/inputcommon/upper
+03:41:20   FAIL    LumaStyle.qml present missing
+03:41:20   PASS    LG dump set aside .lumatv-aside.com.webos.app.inputcommon error hash_check_com.webos.app.inputcommon manager_pid
+03:41:20 launch com.webos.app.hdmi2 (the burst script launches it)
+03:41:36   INFO    input process pid 7890, "snapshot":true False (7890 without the flag is the 04:04 dump; 2513/2517 with it LG's boot instances)
+03:41:36   PASS    pill: the dark glass pill shows 16 frames, 1210 ms to 4500 ms after the launch call (44 px high at x 32 expected); other frames {'grey': 15, 'glass': 16, 'other': 6}
+03:41:36   EYES    no-signal sheet / key-help line (at 7 s and later) frames ['pill-25', 'pill-26', 'pill-27']: dim ink words in Manrope on black expected; the key-help line (red bar and words) is INFO when not drawn
+03:41:38 shot pre-info
+03:41:42 shot info-1
+03:41:44 shot info-2
+03:41:45   EYES    INFO card colour: dark glass samples [21.7, 22.3, 22.3, 23.0, 24.0]: dark. Still by eye: 34 px corners, hairline, "HDMI 2" dim over the device name, chips as light-wash tiles, about 550 px wide
+03:41:45   SKIPPED Live TV channel strip and card tuning a channel plays audio; pass --livetv with the receiver muted
+03:41:45   SKIPPED prompts (Input Locked, set-top box question) not reachable without locking an input; the host proof stands
+03:41:49   PASS    inputs closed inputs status running []
+03:41:49 ==== check banners: FAIL in 31 s: failed: patched tree: 30 .qml files, LumaStyle.qml present
+03:42:01 final power state: Active

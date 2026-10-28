@@ -1,0 +1,240 @@
+03:31:29 round 19 checks, evidence in /tmp/r10out/r19
+03:31:32 start state: {"power": "Active", "foreground": "com.webos.app.home", "picture_mode": "filmMaker", "guard": {"failed": 6, "librdx": 0, "aud_reset": "0"}, "running_apps": ["com.webos.app.home"]}
+03:31:32 ==== check speed: start
+03:31:32 speed: /usr/bin/python3 /tmp/lumatv-r10/docs/research/perf/gate.py --surfaces quick,picker --input-key 241 --tag r19 --json /tmp/r10out/r19/speed/r19.json (the gate alone: about 88 s of key cycles; it also waits until the compositor is 90 s old)
+03:34:08 ==== check speed: PASS in 156 s: every threshold met
+03:34:08 ==== check settings: start
+03:34:10 shot w1-home-a
+03:34:13 shot w1-home-b
+03:34:16 shot w1-quick-1
+03:34:16 quick panel seen=True (change 19.68, idle noise 1.27)
+03:34:24 shot w1-quick-foot
+03:34:28 shot w1-settings
+03:34:28 settings seen=True (change 16.97)
+03:34:36 shot system-rail
+03:34:36   EYES    rail: System the rail on System
+03:34:38 shot system-general
+03:34:38   EYES    System page System, General tab
+03:34:46 shot system-about
+03:34:46   EYES    System > About About tab: the TV name, LumaTV, a Support row
+03:34:51 shot system-about-support-focus
+03:34:51   EYES    Support row focused the focus ring on the Support row (the last row)
+03:34:55 shot support-open
+03:34:55   EYES    Support page Support opens on TV info
+03:35:03 shot support-privacy
+03:35:03   EYES    Support > Privacy tab Privacy tab: Do Not Sell, Limit AD Tracking, AD ID, App Permissions, Delete My Personal Information
+03:35:09 shot privacy-bottom-focus
+03:35:09   EYES    Delete row focused the focus ring on Delete My Personal Information (the last row)
+03:35:13 shot delete-data
+03:35:13   EYES    Delete My Personal Information (opened only) two danger rows, a reason line when LG's terms or the network are missing; nothing is pressed
+03:35:20 shot privacy-permissions-focus
+03:35:20   EYES    App Permissions row focused back on Privacy with the focus ring on App Permissions
+03:35:24 shot permissions-camera
+03:35:24   EYES    App Permissions: Camera four tabs, the Camera list
+03:35:29 shot permissions-mic
+03:35:29   EYES    App Permissions: Microphone Microphone tab
+03:35:32 shot permissions-nearby
+03:35:32   EYES    App Permissions: Nearby Devices Nearby Devices tab
+03:35:36 shot permissions-files
+03:35:36   EYES    App Permissions: Access File Access File tab (empty when the TV hides it)
+03:35:42 shot w1-closed
+03:35:43 shot w2-home-a
+03:35:46 shot w2-home-b
+03:35:50 shot w2-quick-1
+03:35:50 quick panel seen=True (change 19.11, idle noise 0.79)
+03:35:57 shot w2-quick-foot
+03:36:02 shot w2-settings
+03:36:02 settings seen=True (change 14.53)
+03:36:08 shot look-rail
+03:36:08   EYES    rail: Home & look the rail on Home & look
+03:36:11 shot look-look
+03:36:11   EYES    Home & look page Look tab
+03:36:19 shot look-home-tab
+03:36:19   EYES    Home tab Home tab: Home widgets, 12-hour clock, Home Assistant, Greeting ...
+03:36:23 shot look-home-ha-focus
+03:36:23   EYES    Home Assistant row focused the focus ring on Home Assistant (third row)
+03:36:27 shot home-assistant
+03:36:27   EYES    Home Assistant page Connection tab: address, whether a token is kept (never the token)
+03:36:33 shot home-assistant-tab2
+03:36:33   EYES    Home Assistant: second tab the plugin's second tab (Room)
+03:36:36 shot home-assistant-tab3
+03:36:36   EYES    Home Assistant: third tab the third tab (Doorbell)
+03:36:43 shot w2-closed
+03:36:43   SKIPPED Just Scan no HDMI input in front at the start (foreground com.webos.app.home); no input is switched for it
+03:36:44   PASS    no value changed by the walk picture mode, Limit AD Tracking, Do Not Sell and the theme file are as before
+03:36:44 ==== check settings: EYES in 156 s: 20 pages captured, none changed a value; look at the images
+03:36:44 ==== check plugins: start
+03:36:44   PASS    helper answers on 127.0.0.1:18731 version 0.1.0, pid 17238, rss 2688 kB, 29 topics
+03:36:44   PASS    no token or secret in /v1/state no key named token, access_token, password or secret holds a string
+03:36:44   INFO    owner's plugins (switched on) none
+03:36:44   PASS    plugin roster problem none
+03:36:45   INFO    approved plugins (enabled.json) no file (nothing approved)
+03:36:45   INFO    broker socket exists only while an owner plugin is on: ls: /run/lumashow-plugins/broker.sock: No such file or directory
+03:36:45   PASS    first-party plugins weather, news, clock listed: weather connected, news connected, clock connected
+03:36:45   PASS    first-party card: weather 1 card(s)
+03:36:45   PASS    first-party card: news 1 card(s)
+03:36:45   PASS    first-party card: clock 1 card(s)
+03:36:46   INFO    first-party tiles: ambient 0 tile(s) for the quick panel
+03:36:46   PASS    ha.link carries no token keys []
+03:36:46   PASS    Home Assistant plugin state Not switched on (expected until Nitin links it)
+03:36:47 shot home-lane
+03:36:50 shot home-lane-down
+03:36:53 shot home-lane-down2
+03:36:55   EYES    Home At-home lane the chip says "Home Assistant / Not switched on" (or the plugins' cards); three captures of Home, focus moved with Down and back
+03:36:56 shot q-home-a
+03:36:58 shot q-home-b
+03:37:02 shot q-quick-1
+03:37:02 quick panel seen=True (change 18.88, idle noise 0.97)
+03:37:07 shot quick-mid
+03:37:11 shot quick-low
+03:37:12   EYES    quick panel plugin tiles tiles of plugins sit between the built-in ones and AI access (ambient: 0); look at quick-mid and quick-low
+03:37:14 ==== check plugins: EYES in 30 s: helper, roster, first-party cards and the Home Assistant state read; captures need a look (Home Assistant: Not switched on)
+03:37:14 ==== check layout: start
+03:37:14   INFO    layout.json before md5 f77f511803e89aa845e2172d28b4f0ce, mtime 1792986859, customised
+03:37:15 shot l1-home-a
+03:37:18 shot l1-home-b
+03:37:22 shot l1-quick-1
+03:37:22 quick panel seen=True (change 18.92, idle noise 0.84)
+03:37:29 shot l1-quick-foot
+03:37:34 shot l1-settings
+03:37:34 settings seen=True (change 16.45)
+03:37:51 shot home-widgets
+03:37:57 shot home-widgets-order
+03:37:58   EYES    Settings > Home & look > Home widgets the page on its first tab (a row per card, Off/Small/Half/Wide) and its second tab (the order); nothing was changed
+03:38:06 shot edit-row-focus
+03:38:10 shot edit-grid
+03:38:11 shot edit-grid-b
+03:38:11   EYES    layout editor opens the grid over Home with the bar (Add, Remove, Undo, Cancel, Save); look at edit-grid.png
+03:38:14 shot edit-pickup
+03:38:16 shot edit-move-right
+03:38:19 shot edit-move-left
+03:38:22 shot edit-move-down
+03:38:24 shot edit-move-up
+03:38:24   INFO    pick up and move one cell no direction changed the picture (the card may fill its row and column, or the move was refused)
+03:38:27 shot edit-size-mode
+03:38:30 shot edit-size-right
+03:38:32 shot edit-size-left
+03:38:35 shot edit-size-down
+03:38:38 shot edit-size-up
+03:38:38   EYES    resize one step sized with up: compare edit-size-mode and edit-size-up
+03:38:40 shot edit-changed
+03:38:42 shot edit-cancel
+03:38:46 shot edit-discard-focus
+03:38:48   EYES    Cancel and confirm Discard the question was recognised and Discard (the last answer) was chosen; see edit-cancel.png and edit-discard-focus.png
+03:38:49 shot edit-left
+03:38:51   PASS    layout.json unchanged md5 f77f511803e89aa845e2172d28b4f0ce before and after (mtime 1792986859 then 1792986859)
+03:38:51 ==== check layout: EYES in 97 s: editor opened, a card moved and sized, discarded; layout.json unchanged; look at the captures
+03:38:51 ==== check ble: start
+03:38:52   PASS    baseline: adapter powered
+03:38:52 le/getStatus keys: ['adapterAddress', 'advertising', 'returnValue']
+03:39:02 baseline ping {'min_ms': 0.152, 'avg_ms': 0.172, 'max_ms': 0.201, 'loss_pct': 0}, load ['top - 06:39:01 up 22:57,  0 users,  load average: 13.49, 13.86, 14.22', 'Tasks: 307 total,   1 running, 306 sleeping,   0 stopped,   0 zombie']
+03:39:33 scan1: 31 replies, 18 addresses, ping {'min_ms': 0.149, 'avg_ms': 0.166, 'max_ms': 0.201, 'loss_pct': 0}, left over 0, dropped lines 0
+03:40:24 scan2: 26 replies, 11 addresses, ping {'min_ms': 0.148, 'avg_ms': 0.181, 'max_ms': 0.23, 'loss_pct': 0}, left over 0, dropped lines 0
+03:40:24   PASS    unknown 1: luna-send may call le/startScan first reply {'keys': ['adapterAddress', 'returnValue', 'subscribed'], 'returnValue': True, 'subscribed': True, 'errorCode': None, 'errorText': None}
+03:40:24   PASS    unknown 2: scanRecord filled for 334 reply entries, 8-62 bytes, 108 over 31 bytes (advertisement plus scan response when over 31) [INFERENCE], AD types ['0x1', '0x16', '0x2', '0x3', '0x6', '0x7', '0x9', '0xa', '0xff'], name in 145
+03:40:24   EYES    unknown 3: same advertisement, same RSSI without always: 0 replies for a device heard again, 0 of them with the same RSSI; with always: 0 and 0. Replies 31 vs 26. always changes nothing seen
+03:40:24   PASS    no luna-send left over left over: ['0', '0']
+03:40:24   EYES    cost (unknown 5, partial) ping round trip base {'min_ms': 0.152, 'avg_ms': 0.172, 'max_ms': 0.201, 'loss_pct': 0}, scan {'min_ms': 0.149, 'avg_ms': 0.166, 'max_ms': 0.201, 'loss_pct': 0}, always {'min_ms': 0.148, 'avg_ms': 0.181, 'max_ms': 0.23, 'loss_pct': 0}; load before ['top - 06:39:01 up 22:57,  0 users,  load average: 13.49, 13.86, 14.22', 'Tasks: 307 total,   1 running, 306 sleeping,   0 stopped,   0 zombie']
+03:40:24 ==== check ble: EYES in 93 s: unknowns 1-3 answered in ble/scan-shapes.json (unknown 3 and the cost read by eye)
+03:40:24 ==== check banners: start
+03:40:25   INFO    inputcommon state OFF: nothing below can judge the patched banners; the burst is LG's own look (baseline). Main switches `lumatv inputcommon on` first.
+03:40:25 launch com.webos.app.hdmi2 (the burst script launches it)
+03:40:40   INFO    input process pid 7890, "snapshot":true False (7890 without the flag is the 04:04 dump; 2513/2517 with it LG's boot instances)
+03:40:40   INFO    pill (baseline, switch off) frame kinds {'grey': 21, 'none': 7, 'other': 13}; glass frames 0
+03:40:40   EYES    no-signal sheet / key-help line (at 7 s and later) frames ['pill-26', 'pill-27', 'pill-28']: dim ink words in Manrope on black expected; the key-help line (red bar and words) is INFO when not drawn
+03:40:42 shot pre-info
+03:40:45 shot info-1
+03:40:47 shot info-2
+03:40:48   INFO    INFO card (baseline, switch off) colour grey, samples [80.0, 81.0, 81.3, 82.3, 85.7]
+03:40:48   SKIPPED Live TV channel strip and card tuning a channel plays audio; pass --livetv with the receiver muted
+03:40:48   SKIPPED prompts (Input Locked, set-top box question) not reachable without locking an input; the host proof stands
+03:40:52   PASS    inputs closed inputs status running []
+03:40:52 ==== check banners: SKIPPED in 27 s: inputcommon is off: baseline only, nothing judged
+03:41:04 final power state: Active
+round 19 checks, 2026-10-28 03:41:04
+speed     PASS       156 s  every threshold met
+    PASS     quick windows: 6/6  (== 6)
+    PASS     quick first_frame_ms: 32.18  (<= 50)
+    PASS     quick burst_end_ms: 148.95  (<= 180)
+    PASS     quick p90_render_ms: 2.56  (< 3)  31 frames
+    PASS     quick p90_window_ms: 2.91  (< 4)  worst single window
+    PASS     quick dropped_share: 0.00  (<= 0.17)  0 of 31 animated frames, LG's compositor floor
+    PASS     quick burst_over20: 0  (<= 0)
+    PASS     quick rss_growth_mb: 0.03  (<= 1.08)  66942 -> 66949 pages over 8 cycles
+    PASS     quick log_errors: 0  (== 0)
+    PASS     quick compositor_pid: 27522  (== 27522)
+    PASS     picker windows: 6/6  (== 6)
+    PASS     picker first_frame_ms: 23.54  (<= 50)
+    PASS     picker burst_end_ms: 140.31  (<= 180)
+    PASS     picker p90_render_ms: 2.87  (< 3)  26 frames
+    PASS     picker p90_window_ms: 3.03  (< 4)  worst single window
+    PASS     picker dropped_share: 0.00  (<= 0.17)  0 of 26 animated frames, LG's compositor floor
+    PASS     picker burst_over20: 0  (<= 0)
+    PASS     picker rss_growth_mb: 0.14  (<= 1.08)  68641 -> 68678 pages over 8 cycles
+    PASS     picker log_errors: 0  (== 0)
+    PASS     picker compositor_pid: 27522  (== 27522)
+settings  EYES       156 s  20 pages captured, none changed a value; look at the images
+    EYES     rail: System: the rail on System
+    EYES     System page: System, General tab
+    EYES     System > About: About tab: the TV name, LumaTV, a Support row
+    EYES     Support row focused: the focus ring on the Support row (the last row)
+    EYES     Support page: Support opens on TV info
+    EYES     Support > Privacy tab: Privacy tab: Do Not Sell, Limit AD Tracking, AD ID, App Permissions, Delete My Personal Information
+    EYES     Delete row focused: the focus ring on Delete My Personal Information (the last row)
+    EYES     Delete My Personal Information (opened only): two danger rows, a reason line when LG's terms or the network are missing; nothing is pressed
+    EYES     App Permissions row focused: back on Privacy with the focus ring on App Permissions
+    EYES     App Permissions: Camera: four tabs, the Camera list
+    EYES     App Permissions: Microphone: Microphone tab
+    EYES     App Permissions: Nearby Devices: Nearby Devices tab
+    EYES     App Permissions: Access File: Access File tab (empty when the TV hides it)
+    EYES     rail: Home & look: the rail on Home & look
+    EYES     Home & look page: Look tab
+    EYES     Home tab: Home tab: Home widgets, 12-hour clock, Home Assistant, Greeting ...
+    EYES     Home Assistant row focused: the focus ring on Home Assistant (third row)
+    EYES     Home Assistant page: Connection tab: address, whether a token is kept (never the token)
+    EYES     Home Assistant: second tab: the plugin's second tab (Room)
+    EYES     Home Assistant: third tab: the third tab (Doorbell)
+    SKIPPED  Just Scan: no HDMI input in front at the start (foreground com.webos.app.home); no input is switched for it
+    PASS     no value changed by the walk: picture mode, Limit AD Tracking, Do Not Sell and the theme file are as before
+plugins   EYES        30 s  helper, roster, first-party cards and the Home Assistant state read; captures need a look (Home Assistant: Not switched on)
+    PASS     helper answers on 127.0.0.1:18731: version 0.1.0, pid 17238, rss 2688 kB, 29 topics
+    PASS     no token or secret in /v1/state: no key named token, access_token, password or secret holds a string
+    INFO     owner's plugins (switched on): none
+    PASS     plugin roster problem: none
+    INFO     approved plugins (enabled.json): no file (nothing approved)
+    INFO     broker socket: exists only while an owner plugin is on: ls: /run/lumashow-plugins/broker.sock: No such file or directory
+    PASS     first-party plugins weather, news, clock: listed: weather connected, news connected, clock connected
+    PASS     first-party card: weather: 1 card(s)
+    PASS     first-party card: news: 1 card(s)
+    PASS     first-party card: clock: 1 card(s)
+    INFO     first-party tiles: ambient: 0 tile(s) for the quick panel
+    PASS     ha.link carries no token: keys []
+    PASS     Home Assistant plugin state: Not switched on (expected until Nitin links it)
+    EYES     Home At-home lane: the chip says "Home Assistant / Not switched on" (or the plugins' cards); three captures of Home, focus moved with Down and back
+    EYES     quick panel plugin tiles: tiles of plugins sit between the built-in ones and AI access (ambient: 0); look at quick-mid and quick-low
+layout    EYES        97 s  editor opened, a card moved and sized, discarded; layout.json unchanged; look at the captures
+    INFO     layout.json before: md5 f77f511803e89aa845e2172d28b4f0ce, mtime 1792986859, customised
+    EYES     Settings > Home & look > Home widgets: the page on its first tab (a row per card, Off/Small/Half/Wide) and its second tab (the order); nothing was changed
+    EYES     layout editor opens: the grid over Home with the bar (Add, Remove, Undo, Cancel, Save); look at edit-grid.png
+    INFO     pick up and move one cell: no direction changed the picture (the card may fill its row and column, or the move was refused)
+    EYES     resize one step: sized with up: compare edit-size-mode and edit-size-up
+    EYES     Cancel and confirm Discard: the question was recognised and Discard (the last answer) was chosen; see edit-cancel.png and edit-discard-focus.png
+    PASS     layout.json unchanged: md5 f77f511803e89aa845e2172d28b4f0ce before and after (mtime 1792986859 then 1792986859)
+ble       EYES        93 s  unknowns 1-3 answered in ble/scan-shapes.json (unknown 3 and the cost read by eye)
+    PASS     baseline: adapter: powered
+    PASS     unknown 1: luna-send may call le/startScan: first reply {'keys': ['adapterAddress', 'returnValue', 'subscribed'], 'returnValue': True, 'subscribed': True, 'errorCode': None, 'errorText': None}
+    PASS     unknown 2: scanRecord: filled for 334 reply entries, 8-62 bytes, 108 over 31 bytes (advertisement plus scan response when over 31) [INFERENCE], AD types ['0x1', '0x16', '0x2', '0x3', '0x6', '0x7', '0x9', '0xa', '0xff'], name in 145
+    EYES     unknown 3: same advertisement, same RSSI: without always: 0 replies for a device heard again, 0 of them with the same RSSI; with always: 0 and 0. Replies 31 vs 26. always changes nothing seen
+    PASS     no luna-send left over: left over: ['0', '0']
+    EYES     cost (unknown 5, partial): ping round trip base {'min_ms': 0.152, 'avg_ms': 0.172, 'max_ms': 0.201, 'loss_pct': 0}, scan {'min_ms': 0.149, 'avg_ms': 0.166, 'max_ms': 0.201, 'loss_pct': 0}, always {'min_ms': 0.148, 'avg_ms': 0.181, 'max_ms': 0.23, 'loss_pct': 0}; load before ['top - 06:39:01 up 22:57,  0 users,  load average: 13.49, 13.86, 14.22', 'Tasks: 307 total,   1 running, 306 sleeping,   0 stopped,   0 zombie']
+banners   SKIPPED     27 s  inputcommon is off: baseline only, nothing judged
+    INFO     inputcommon state: OFF: nothing below can judge the patched banners; the burst is LG's own look (baseline). Main switches `lumatv inputcommon on` first.
+    INFO     input process: pid 7890, "snapshot":true False (7890 without the flag is the 04:04 dump; 2513/2517 with it LG's boot instances)
+    INFO     pill (baseline, switch off): frame kinds {'grey': 21, 'none': 7, 'other': 13}; glass frames 0
+    EYES     no-signal sheet / key-help line (at 7 s and later): frames ['pill-26', 'pill-27', 'pill-28']: dim ink words in Manrope on black expected; the key-help line (red bar and words) is INFO when not drawn
+    INFO     INFO card (baseline, switch off): colour grey, samples [80.0, 81.0, 81.3, 82.3, 85.7]
+    SKIPPED  Live TV channel strip and card: tuning a channel plays audio; pass --livetv with the receiver muted
+    SKIPPED  prompts (Input Locked, set-top box question): not reachable without locking an input; the host proof stands
+    PASS     inputs closed: inputs status running []
+end state: {"home_in_front": true, "picture_mode_filmMaker": true, "inputs_running_empty": true, "inputcommon_as_found": true, "guard_as_found": true}
+FINAL POWER STATE: Active
