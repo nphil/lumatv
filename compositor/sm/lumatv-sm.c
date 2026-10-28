@@ -499,6 +499,195 @@ static void spawn_recovery(void) {
     logline("recover-home.sh started");
 }
 
+// ---- crash evidence (LPC 2026: a crash record shown at the next start) ----
+// A fallback that is a problem (the compositor died, hung, drew nothing the panel showed) leaves a bundle where the next start can show it:
+// <state>/../crash/<time>/ holds the reason, the compositor's last log lines, this process's own, the compositor's trace ring (a file in the
+// runtime directory the compositor writes through a mapping, src/ring.rs, so it is whole after a SIGKILL or a signal from the GPU blob) and a few
+// numbers of the system. At most CRASH_KEEP bundles are kept and each is a few hundred KiB at the most. `latest` names the newest and `pending` the
+// newest one a problem made that nobody has looked at: the helper shows "LumaTV recovered from a problem" in Settings while it exists and removes it
+// when the owner has read it. A hand-back the owner asked for (the hold-Home escape) leaves a bundle too, and no `pending`.
+#define CRASH_KEEP 8
+#define CRASH_LOG_LINES 200
+#define CRASH_LOG_BYTES (64 * 1024)
+#define RING_HEADER 64
+#define RING_MAX (1024 * 1024)
+static const char *crash_root = NULL;                    // tests; else <state>/../crash
+
+static const char *crash_dir(void) {
+    static char buf[600];
+    if (crash_root) return crash_root;
+    snprintf(buf, sizeof buf, "%s/../crash", state_dir);
+    return buf;
+}
+
+static void mkdir_p(const char *path) {
+    char tmp[600];
+    snprintf(tmp, sizeof tmp, "%s", path);
+    for (char *p = tmp + 1; *p; p++) {
+        if (*p == '/') { *p = 0; mkdir(tmp, 0755); *p = '/'; }
+    }
+    mkdir(tmp, 0755);
+}
+
+// Copies the last `max_lines` lines of `src`, of its last `max_bytes` bytes at the most, to `dst`. False when `src` cannot be read.
+static bool copy_tail(const char *src, const char *dst, int max_lines, size_t max_bytes) {
+    FILE *f = fopen(src, "r");
+    if (!f) return false;
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    long start = size > (long)max_bytes ? size - (long)max_bytes : 0;
+    fseek(f, start, SEEK_SET);
+    char *buf = malloc(max_bytes + 1);
+    if (!buf) { fclose(f); return false; }
+    size_t n = fread(buf, 1, max_bytes, f);
+    fclose(f);
+    char *from = buf, *end = buf + n;
+    if (start > 0) { char *nl = memchr(buf, '\n', n); from = nl ? nl + 1 : end; }   // the cut began inside a line
+    char *scan = end;
+    if (scan > from && scan[-1] == '\n') scan--;                                    // a last newline ends a line, it does not start one
+    for (int seen = 0; scan > from;) {
+        scan--;
+        if (*scan == '\n' && ++seen == max_lines) { from = scan + 1; break; }
+    }
+    FILE *o = fopen(dst, "w");
+    if (o) { fwrite(from, 1, (size_t)(end - from), o); fclose(o); }
+    free(buf);
+    return o != NULL;
+}
+
+static uint64_t le64(const unsigned char *p) {
+    uint64_t v = 0;
+    for (int i = 7; i >= 0; i--) v = v << 8 | p[i];
+    return v;
+}
+
+// A trace ring file's text in order, oldest line first, to `dst`: the format of src/ring.rs ("LTVRING1", the text area's size and the bytes ever written, both
+// little endian, at 8 and 16, the text from 64 on). Once it has wrapped, the oldest line is left out (the bytes that began it were overwritten).
+// False when `src` is not a ring.
+static bool ring_to_text(const char *src, const char *dst) {
+    FILE *f = fopen(src, "r");
+    if (!f) return false;
+    unsigned char hdr[RING_HEADER];
+    if (fread(hdr, 1, RING_HEADER, f) != RING_HEADER || memcmp(hdr, "LTVRING1", 8) != 0) { fclose(f); return false; }
+    uint64_t size = le64(hdr + 8), head = le64(hdr + 16);
+    if (size == 0 || size > RING_MAX) { fclose(f); return false; }
+    char *area = malloc((size_t)size), *out = malloc((size_t)size + 1);
+    if (!area || !out || fread(area, 1, (size_t)size, f) != (size_t)size) { fclose(f); free(area); free(out); return false; }
+    fclose(f);
+    size_t n = 0;
+    if (head <= size) { memcpy(out, area, (size_t)head); n = (size_t)head; }
+    else {
+        size_t at = (size_t)(head % size);
+        memcpy(out, area + at, (size_t)size - at);
+        memcpy(out + ((size_t)size - at), area, at);
+        n = (size_t)size;
+    }
+    char *from = out, *end = out + n;
+    if (head > size) { char *nl = memchr(out, '\n', n); from = nl ? nl + 1 : end; }
+    FILE *o = fopen(dst, "w");
+    if (o) { fwrite(from, 1, (size_t)(end - from), o); fclose(o); }
+    free(area); free(out);
+    return o != NULL;
+}
+
+// The few numbers of the system at the time: uptime, load, and the memory lines the stalls of the frame path are read against.
+static void crash_system_text(const char *dst) {
+    FILE *o = fopen(dst, "w");
+    if (!o) return;
+    char line[256];
+    FILE *f = fopen("/proc/uptime", "r");
+    if (f) { if (fgets(line, sizeof line, f)) fprintf(o, "uptime: %s", line); fclose(f); }
+    f = fopen("/proc/loadavg", "r");
+    if (f) { if (fgets(line, sizeof line, f)) fprintf(o, "loadavg: %s", line); fclose(f); }
+    f = fopen("/proc/meminfo", "r");
+    if (f) {
+        while (fgets(line, sizeof line, f)) {
+            if (!strncmp(line, "MemTotal:", 9) || !strncmp(line, "MemFree:", 8) || !strncmp(line, "MemAvailable:", 13) || !strncmp(line, "SwapFree:", 9) || !strncmp(line, "CmaFree:", 8)) fputs(line, o);
+        }
+        fclose(f);
+    }
+    fclose(o);
+}
+
+static void remove_bundle(const char *root, const char *name) {
+    char dir[700], file[900];
+    snprintf(dir, sizeof dir, "%s/%s", root, name);
+    DIR *d = opendir(dir);
+    if (d) {
+        struct dirent *e;
+        while ((e = readdir(d))) {
+            if (e->d_name[0] == '.') continue;
+            snprintf(file, sizeof file, "%s/%s", dir, e->d_name);
+            unlink(file);
+        }
+        closedir(d);
+    }
+    rmdir(dir);
+}
+
+static int cmp_names(const void *a, const void *b) { return strcmp((const char *)a, (const char *)b); }
+
+// Keeps the newest `keep` bundles (the names sort by time).
+static void rotate_crash_bundles(int keep) {
+    DIR *d = opendir(crash_dir());
+    if (!d) return;
+    static char names[64][64];
+    int n = 0;
+    struct dirent *e;
+    while ((e = readdir(d)) && n < 64) {
+        if (e->d_name[0] == '.' || !strcmp(e->d_name, "latest") || !strcmp(e->d_name, "pending")) continue;
+        snprintf(names[n++], 64, "%s", e->d_name);
+    }
+    closedir(d);
+    qsort(names, (size_t)n, 64, cmp_names);
+    for (int i = 0; i < n - keep; i++) remove_bundle(crash_dir(), names[i]);
+}
+
+// Saves the evidence of a fallback; the bundle's directory name goes to `name` ("" when none was made).
+static void crash_bundle(const char *reason, bool problem, char *name, size_t namesz) {
+    char dir[700], path[800], stamp[48];
+    name[0] = 0;
+    time_t t = time(NULL);
+    if (t > 1577836800) strftime(stamp, sizeof stamp, "%Y%m%d-%H%M%S", localtime(&t));
+    else snprintf(stamp, sizeof stamp, "boot-%06ld", (long)mono_now());     // a clock that is not set yet
+    mkdir_p(crash_dir());
+    // <time>-<n>: the time orders bundles across starts, n within one second (a name freed by rotation is never made again in that second).
+    static int bundle_seq;
+    for (int k = 0; k < 100; k++) {
+        snprintf(name, namesz, "%s-%03d", stamp, ++bundle_seq);
+        snprintf(dir, sizeof dir, "%s/%s", crash_dir(), name);
+        if (mkdir(dir, 0755) == 0) break;
+        if (errno != EEXIST || k == 99) { name[0] = 0; return; }
+    }
+    snprintf(path, sizeof path, "%s/reason.txt", dir);
+    FILE *f = fopen(path, "w");
+    if (f) {
+        char boot[64] = "";
+        current_boot_id(boot, sizeof boot);
+        fprintf(f, "reason: %s\nkind: %s\ntime: %s\ncompositor uptime: %.0f s\nboot: %s\nfailures: %ld\n", reason, problem ? "problem" : "escape", stamp,
+                mono_now() - started_mono, boot, read_number(path_in_state("failures"), 0));
+        fclose(f);
+    }
+    snprintf(path, sizeof path, "%s/compositor.log.tail", dir);
+    copy_tail(path_in_state("compositor.log"), path, CRASH_LOG_LINES, CRASH_LOG_BYTES);
+    snprintf(path, sizeof path, "%s/sm.log.tail", dir);
+    copy_tail(path_in_state("sm.log"), path, 60, 16 * 1024);
+    snprintf(path, sizeof path, "%s/trace.txt", dir);
+    char ring[600];
+    snprintf(ring, sizeof ring, "%s/lumatv-trace.ring", runtime_dir);
+    if (!ring_to_text(ring, path)) write_text(path, "no trace ring\n");
+    snprintf(path, sizeof path, "%s/system.txt", dir);
+    crash_system_text(path);
+    snprintf(path, sizeof path, "%s/latest", crash_dir());
+    write_text(path, name);
+    if (problem) {
+        snprintf(path, sizeof path, "%s/pending", crash_dir());
+        write_text(path, name);
+    }
+    rotate_crash_bundles(CRASH_KEEP);
+    logline("crash evidence saved in %s/%s", crash_dir(), name);
+}
+
 // ---- fallback to LG's compositor ----
 static void release_for_exec(void);
 static void fallback(const char *reason, bool count_failure) {
@@ -517,6 +706,11 @@ static void fallback(const char *reason, bool count_failure) {
     if (dry_run || probe) {
         logline("%s: would unmount %s and exec LG's compositor", dry_run ? "dry run" : "probe", lg_binary);
         exit(75);
+    }
+    // The evidence, with the compositor gone and its log and ring as it left them. Not for the decision at start-up: nothing had run.
+    if (supervising) {
+        char bundle[64];
+        crash_bundle(reason, count_failure, bundle, sizeof bundle);
     }
     // A fallback after the unit started under this supervisor (not the decision at start-up, where nothing of
     // LG's was disturbed yet) needs WebAppMgr and Home brought back once LG's compositor is up.
@@ -1807,6 +2001,119 @@ static void test_bridge_gone(void) {
     close(sv[0]);
 }
 
+// ---- the crash bundle: the reason, the last log lines, the trace ring in order, rotation ----
+static char big[32768];
+
+static void put_raw(const char *path, const char *text) {
+    FILE *f = fopen(path, "w");
+    if (f) { fputs(text, f); fclose(f); }
+}
+
+static void slurp_path(const char *p, char *out, size_t n) {
+    FILE *f = fopen(p, "r");
+    size_t r = 0;
+    if (f) { r = fread(out, 1, n - 1, f); fclose(f); }
+    out[r] = 0;
+}
+
+static int count_lines(const char *s) { int n = 0; for (; *s; s++) if (*s == '\n') n++; return n; }
+
+// A trace ring file as src/ring.rs writes it: "LTVRING1", the area's size and the bytes ever written (little endian), text from 64 on, five-byte lines t000...
+static void make_ring(const char *path, size_t area, int lines) {
+    unsigned char *img = calloc(1, RING_HEADER + area);
+    memcpy(img, "LTVRING1", 8);
+    uint64_t head = 0;
+    for (int i = 0; i < lines; i++) {
+        char l[16];
+        int n = snprintf(l, sizeof l, "t%03d\n", i);
+        for (int k = 0; k < n; k++) img[RING_HEADER + (head++ % area)] = (unsigned char)l[k];
+    }
+    for (int i = 0; i < 8; i++) { img[8 + i] = (unsigned char)((uint64_t)area >> (8 * i)); img[16 + i] = (unsigned char)(head >> (8 * i)); }
+    FILE *f = fopen(path, "w");
+    if (f) { fwrite(img, 1, RING_HEADER + area, f); fclose(f); }
+    free(img);
+}
+
+static int count_bundles(const char *root) {
+    int n = 0;
+    DIR *d = opendir(root);
+    struct dirent *e;
+    while (d && (e = readdir(d))) if (e->d_name[0] != '.' && strcmp(e->d_name, "latest") && strcmp(e->d_name, "pending")) n++;
+    if (d) closedir(d);
+    return n;
+}
+
+static void test_crash_bundle(void) {
+    fresh_state();
+    char root[400], file[600], dir[800], name[64], first[64], text[512];
+    snprintf(root, sizeof root, "%s/crash", tdir);
+    crash_root = strdup(root);
+    runtime_dir = tdir;
+    started_mono = mono_now() - 42;
+    FILE *f = fopen(path_in_state("compositor.log"), "w");
+    for (int i = 1; i <= 300; i++) fprintf(f, "[srv %d.000] info line %d\n", i, i);
+    fclose(f);
+    put("sm.log", "[00:00:01] start\n[00:00:02] registered com.webos.x\n");
+    snprintf(file, sizeof file, "%s/lumatv-trace.ring", tdir);
+    make_ring(file, 64, 20);                              // 100 bytes written into 64: wrapped, the newest twelve and a half lines are there
+
+    crash_bundle("compositor killed by signal 11", true, name, sizeof name);
+    snprintf(first, sizeof first, "%s", name);
+    CHECK(name[0] != 0);
+    snprintf(dir, sizeof dir, "%s/%s", root, name);
+    snprintf(file, sizeof file, "%s/reason.txt", dir); slurp_path(file, text, sizeof text);
+    CHECK(strstr(text, "reason: compositor killed by signal 11\n") && strstr(text, "kind: problem\n") && strstr(text, "compositor uptime: 42 s\n") && strstr(text, "boot: BOOT-A"));
+    snprintf(file, sizeof file, "%s/compositor.log.tail", dir); slurp_path(file, big, sizeof big);
+    CHECK(count_lines(big) == CRASH_LOG_LINES);
+    CHECK(!strncmp(big, "[srv 101.000] info line 101\n", 28) && strstr(big, "info line 300\n") != NULL);
+    snprintf(file, sizeof file, "%s/sm.log.tail", dir); slurp_path(file, text, sizeof text);
+    CHECK(strstr(text, "registered com.webos.x") != NULL);
+    snprintf(file, sizeof file, "%s/trace.txt", dir); slurp_path(file, text, sizeof text);
+    CHECK(!strcmp(text, "t008\nt009\nt010\nt011\nt012\nt013\nt014\nt015\nt016\nt017\nt018\nt019\n"));    // in order; the line the wrap cut is left out
+    snprintf(file, sizeof file, "%s/system.txt", dir); slurp_path(file, text, sizeof text);
+    CHECK(text[0] != 0);
+    snprintf(file, sizeof file, "%s/latest", root); slurp_path(file, text, sizeof text);
+    CHECK(!strcmp(text, name));
+    snprintf(file, sizeof file, "%s/pending", root); slurp_path(file, text, sizeof text);
+    CHECK(!strcmp(text, name));
+
+    // A hand-back the owner asked for leaves a bundle and no `pending` of its own: the first problem is still the one waiting.
+    crash_bundle("hold Home 650 ms", false, name, sizeof name);
+    CHECK(name[0] != 0 && strcmp(name, first) != 0);
+    snprintf(file, sizeof file, "%s/%s/reason.txt", root, name); slurp_path(file, text, sizeof text);
+    CHECK(strstr(text, "kind: escape\n") != NULL);
+    snprintf(file, sizeof file, "%s/latest", root); slurp_path(file, text, sizeof text);
+    CHECK(!strcmp(text, name));
+    snprintf(file, sizeof file, "%s/pending", root); slurp_path(file, text, sizeof text);
+    CHECK(!strcmp(text, first));
+
+    // Only the newest CRASH_KEEP are kept, bounded in size, and the newest is the last made.
+    for (int i = 0; i < 12; i++) crash_bundle("heartbeat: two beats missed", true, name, sizeof name);
+    CHECK(count_bundles(root) == CRASH_KEEP);
+    snprintf(file, sizeof file, "%s/%s", root, first);
+    CHECK(!file_exists(file));
+    snprintf(file, sizeof file, "%s/%s/reason.txt", root, name);
+    CHECK(file_exists(file));
+    snprintf(file, sizeof file, "%s/pending", root); slurp_path(file, text, sizeof text);
+    CHECK(!strcmp(text, name));
+
+    // No ring, no log: the bundle still says why.
+    snprintf(file, sizeof file, "%s/lumatv-trace.ring", tdir); unlink(file);
+    unlink(path_in_state("compositor.log"));
+    crash_bundle("compositor exited with 3", true, name, sizeof name);
+    snprintf(file, sizeof file, "%s/%s/trace.txt", root, name); slurp_path(file, text, sizeof text);
+    CHECK(!strcmp(text, "no trace ring\n"));
+    snprintf(file, sizeof file, "%s/%s/reason.txt", root, name); slurp_path(file, text, sizeof text);
+    CHECK(strstr(text, "compositor exited with 3") != NULL);
+    // A file that is no ring is no ring.
+    snprintf(file, sizeof file, "%s/lumatv-trace.ring", tdir); put_raw(file, "not a ring at all, just text, and long enough to hold a header of sixty-four bytes");
+    crash_bundle("compositor exited with 4", true, name, sizeof name);
+    snprintf(file, sizeof file, "%s/%s/trace.txt", root, name); slurp_path(file, text, sizeof text);
+    CHECK(!strcmp(text, "no trace ring\n"));
+    crash_root = NULL;
+    runtime_dir = "/tmp/xdg";
+}
+
 int main(void) {
     test_json();
     test_decide();
@@ -1818,6 +2125,7 @@ int main(void) {
     test_input_reads();
     test_bridge_gone();
     test_log_rotation();
+    test_crash_bundle();
     for (int i = 0; i < nmade; i++) { char cmd[300]; snprintf(cmd, sizeof cmd, "rm -rf %s", made[i]); if (system(cmd) != 0) failures_seen++; }
     printf("lumatv-sm json tests: %s\n", failures_seen ? "FAILED" : "ok");
     return failures_seen ? 1 : 0;
