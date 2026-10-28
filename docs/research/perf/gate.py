@@ -37,12 +37,15 @@ Home must be on screen when the gate starts. The set needs python3 for kb.py; kb
 capture.sh are copied to /tmp on the set at the start, so nothing else has to be installed.
 
 Screens walked with the D-pad and apps launched from Home (`settings-scroll`, `apps-grid`, `home-widgets`, `switcher`, `keyboard-luma`, `keyboard-lg`,
-`transitions-netflix`, `transitions-settings`; named with --surfaces, under LumaTV's compositor, Home at rest in front) put Home's focus in a known place
-before every cycle (`prep`, a window of its own), are timed from the key that enters the screen and hold the whole walk in the open window: the same
-bars as every surface, the burst-end check off, and the key-to-first-frame check off for a launch, whose first frame is the app's resume. A surface that
-needs a setting for its run (`switches`: the app switcher, smooth transitions, which keyboard serves a field) sets it, reads it back at the end whatever
-happened and fails if it is not the owner's again; `transitions-*` also read the compositor's counters (`ctl transitions`) around the measured cycles.
-tv_gate.py runs them in its frames check: all of them by default, the ones that change no setting and start no app with --frames-quick.
+`transitions-netflix`, `transitions-settings`; named with --surfaces, under LumaTV's compositor, Home at rest in front) run on the owner's own Home
+layout, which they never ask to be reset: they reach Settings through the quick panel, a dock tile by its number key (its place read off the dock's own
+list) and Home's top by keys that clamp. They put Home's focus in a known place before every cycle (`prep`, a window of its own), are timed from the key
+that enters the screen and hold the whole walk in the open window: the same bars as every surface, the burst-end check off, and the key-to-first-frame
+check off for a launch, whose first frame is the app's resume. A surface that needs a setting for its run (`switches`: the app switcher, the number
+keys, smooth transitions, which keyboard serves a field) sets it, reads it back at the end whatever happened and fails if it is not the owner's again;
+`transitions-*` also read the compositor's counters (`ctl transitions`) around the measured cycles. Errors that another app's own QML logs (LG
+Search's) are not counted against a surface; at 120 Hz the shell's `[FrameMotion]` lines are read from the same log and printed as `slides:`.
+tv_gate.py runs them in its frames check: all of them by default, the ones that start no app (and change a setting only when the number keys are off or Quick Access on) with --frames-quick.
 
 Adding a surface is one entry in SURFACES (see the field list there).
 """
@@ -89,17 +92,20 @@ HDMI_TEARDOWN = [f"luna-send -n 1 {SAM}/closeByAppId '{{\"id\":\"com.webos.app.h
                  f"luna-send -n 1 {SAM}/launch '{{\"id\":\"com.webos.app.home\"}}'", 'sleep 6']
 
 # The surfaces that walk a screen (settings-scroll, apps-grid, home-widgets, switcher, keyboard-*) and the ones that launch an app (transitions-*).
-# Home's focus is put in a known place before each cycle (`prep`, outside the measured windows, under its own `<name>-prep` marker): Up eight times
-# leaves the dock and the widgets and stops on the status bar (Up does nothing there), Left three times is its first item, the profile. From
-# there Right twice is the gear's popover and Down three times is the dock again (the clock, the At-home card, then the dock at about its second
-# column), Left four times its first tile, the Apps tile. Home's own layout (payload/theme/layout.json) is what this counts on.
+# None of them counts on where the owner put Home's cards, status bar items or dock tiles: the layout is the owner's and nothing here asks for a reset.
+# - Home's top (`HOME_TOP`, home-widgets): Up eight times leaves the dock and the cards and stops on the status bar (Up does nothing there), Left six
+#   times is its first item.
+# - LumaTV's Settings (`QUICK_PANEL_FOOT`): the gear's tap is the compositor's, which shows LumaTV's quick panel over whatever Home has focused; Down
+#   held down its list ends on its "All settings" button (Down does nothing there), and OK on it opens Settings with its rail focused. The panel has
+#   about fifteen rows, so twenty Downs end on the button whatever the owner arranged.
+# - A dock tile (`{DIGIT}` in `open`, with `tile: {'app': id}`): Home's number keys open the dock's tile of that number (1 to 9, 0 the tenth) from any
+#   focus, as OK on it does (Dock.openTile: the tile's launch origin, the launch screen, SAM's launch; the Apps tile opens the library). The number
+#   comes from the dock's own list (the set's launch points, not hidden ones), so a tile the owner moved is found where it is. It needs the number keys
+#   on and Quick Access off (the surface switches them for its run and puts them back, `number-keys` and `quick-access`).
 KB = '/tmp/kb.py'
-HOME_TOP = 'UPx8@0.1 LEFTx3@0.1'
-HOME_DOCK = HOME_TOP + ' DOWNx3@0.1 LEFTx4@0.08'
-# The tiles of the dock are 12 to a row (Dock.qml's formula over layout.json, and the host's dock, in tests/test_gate_surfaces.py): a tile is reached
-# with Down by its row and Right by its column.
-DOCK_COLS = 12
-TILE_PATH_S = 2.0       # the longest `{TILE}` takes: two rows down and eleven tiles along at the keys' pace; Netflix is the second tile, so about 0.15
+HOME_TOP = 'UPx8@0.1 LEFTx6@0.06'
+QUICK_PANEL_FOOT = 'MENU s1.3 DOWNx20@0.03 s0.2'
+DOCK_NUMBERS = 10       # the number keys reach the dock's first ten tiles
 HOME_ID = 'com.webos.app.home'
 
 
@@ -171,14 +177,32 @@ def _write_flag(sh, args):
         raise RuntimeError(f'lumatv {args} failed: {err.strip() or out.strip()}')
 
 
+def _read_theme_remote(sh, key, default):
+    return ((_tool_json(sh, 'theme get').get('theme') or {}).get('remote') or {}).get(key, default)
+
+
+def _read_number_keys(sh):
+    return _read_theme_remote(sh, 'numberKeys', True) is not False                 # on unless the owner's file says off
+
+
+def _read_quick_access(sh):
+    q = _read_theme_remote(sh, 'quickAccess', None)
+    return isinstance(q, dict) and q.get('on') is True                             # off unless the owner's file says on
+
+
 SWITCHES = {
     'app-switcher': {'read': _read_app_switcher, 'wait_s': 3,
                      'write': lambda sh, on: _theme_set(sh, {'remote': {'appSwitcher': bool(on)}})},
+    'number-keys': {'read': _read_number_keys, 'wait_s': 3,
+                    'write': lambda sh, on: _theme_set(sh, {'remote': {'numberKeys': bool(on)}})},
+    'quick-access': {'read': _read_quick_access, 'wait_s': 3,              # the deep merge keeps the owner's own number choices
+                     'write': lambda sh, on: _theme_set(sh, {'remote': {'quickAccess': {'on': bool(on)}}})},
     'transitions': {'read': _read_transitions, 'wait_s': 3,
                     'write': lambda sh, on: _write_flag(sh, 'transitions ' + ('on' if on else 'off'))},
     'keyboard': {'read': _read_keyboard, 'wait_s': 0,
                  'write': lambda sh, who: _write_flag(sh, f'keyboard {who}')},
 }
+NUMBER_KEYS = {'number-keys': True, 'quick-access': False}      # what a surface that presses a dock tile's number key switches (see QUICK_PANEL_FOOT's note)
 
 # The compositor's own account of its transitions (`ctl transitions`, docs/research/transitions-result.md): the counters a surface that launches an app
 # reads before and after its measured cycles. The tool is the one the bundle carries (LOADGEN's loader and library path).
@@ -211,16 +235,14 @@ KEYBOARD_WALK = 'RIGHTx6@0.12 DOWNx2@0.12 LEFTx6@0.12 UPx2@0.12 RIGHT:900 s0.2 L
 # reopen        shell commands run before every cycle, outside the measured windows, for a
 #               surface the close key tears down for good (reopen_wait_s waits for it to build)
 # prep          kb.py tokens run at the start of every cycle under the marker "@<name>-prep", which ends the window of the
-#               cycle before: the keys that put Home's focus where the surface starts (HOME_TOP, HOME_DOCK). `{TILE}` in it is the
-#               keys to the dock tile of the app in `tile` ({'app': id, 'fallback': tokens}), read off the set's launch points
-#               when the surface starts; with no such tile the fallback tokens stand in
+#               cycle before: the keys that put Home's focus where the surface starts (HOME_TOP, QUICK_PANEL_FOOT)
+# tile          {'app': id}: `{DIGIT}` in `open` is the number key of that app's dock tile, read off the set's launch points when
+#               the surface starts (resolve_tile); an app with no tile among the first ten fails the surface before a key is pressed
 # switches      {name: value} of SWITCHES: set for the surface, read first and put back at the end whatever happened
 # ctl_transitions  True: the compositor's own transition counters (`ctl transitions`) are read around the measured cycles; at least
 #               one launch and one leave a cycle must show, and no frame over 20 ms apart while one ran
 # app_retries   the captures of a surface whose burst held an app's own drawing that are measured again (default APP_RETRIES);
 #               0 for a surface that is the app's drawing (a launch, the keyboard LG's process draws)
-# home_layout   True: the keys count on Home's rows and status bar as the shipped layout has them (an OK lands on the Apps tile, the gear):
-#               the surface fails before it presses a key if the owner's layout differs
 # soak          False when cycling it says nothing about memory (Home idle)
 # act           'press' (default) or 'release': the edge of the key the surface acts on
 # still         True (default): the wallpaper's tick is off while the surface is measured
@@ -300,26 +322,27 @@ SURFACES = [
      'transition': False, 'soak': False,
      'thresholds': {'burst_end_ms': None}},
     # The screens of LumaTV's shell walked with the D-pad, one cycle a surface (`--surfaces settings-scroll,apps-grid,home-widgets,switcher,
-    # transitions-netflix,transitions-settings,keyboard-luma,keyboard-lg`, LumaTV's compositor, Home at rest in front). Each puts Home's focus in
-    # a known place first (`prep`, HOME_TOP and HOME_DOCK) and ends on Home. The window of a walk is the key that enters the screen (timed from its
-    # release, first frame within 50 ms), the walk and the way out, so the frames over 20 ms inside a running animation and the p90 of the render
-    # cost are those of everything the walk moves; a walk's burst never ends at a point of its own, so the burst-end check is off as for `home-dpad`.
-    # A walk presses no OK inside a screen and no key that changes a value: Settings is entered by Right and moved with Up and Down, which on a
-    # row of a page only move focus (Left and Right there would change a slider, so Back leaves a page), the library's OK launches an app and is not
-    # pressed, the switcher's Down and OK quit an app and are not pressed.
-    # `settings-scroll`: LumaTV's Settings from the gear's popover ("All settings"), the Picture page's long list down and up with a held key, the rail
-    # down through every section to System (each Down switches the page beside it), that page's list, the rail back up to Picture, Back.
-    # Settings' rail stays where it was left, so the walk ends on Picture, where the next open starts.
+    # transitions-netflix,transitions-settings,keyboard-luma,keyboard-lg`, LumaTV's compositor, Home at rest in front), on the owner's own Home layout:
+    # none counts on where a card, a status bar item or a dock tile is (see HOME_TOP, QUICK_PANEL_FOOT and the dock's number keys above). Each
+    # ends on Home. The window of a walk is the key that enters the screen (first frame within 50 ms), the walk and the way out, so the frames over
+    # 20 ms inside a running animation and the p90 of the render cost are those of everything the walk moves; a walk's burst never ends at a point
+    # of its own, so the burst-end check is off as for `home-dpad`.
+    # A walk presses no OK inside a screen and no key that changes a value: Settings is entered by the quick panel's "All settings" and moved with
+    # Up and Down, which on a row of a page only move focus (Left and Right there would change a slider, so Back leaves a page), the library's OK
+    # launches an app and is not pressed, the switcher's Down and OK quit an app and are not pressed.
+    # `settings-scroll`: LumaTV's Settings from the quick panel's "All settings" (timed from the release of OK on it), the Picture page's long list
+    # down and up with a held key, the rail down through every section to System (each Down switches the page beside it), that page's list, the rail
+    # back up to Picture, Back. Settings' rail stays where it was left, so the walk ends on Picture, where the next open starts.
     {'name': 'settings-scroll', 'default': False, 'act': 'release', 'transition': False,
-     'prep': HOME_TOP + ' RIGHTx2@0.08 OK s0.5', 'home_layout': True,
+     'prep': QUICK_PANEL_FOOT,
      'open': '@settings-scroll-open OK s0.6 ' + SETTINGS_PAGE + ' DOWNx8@0.06 ' + SETTINGS_PAGE + ' UPx9@0.06 BACK',
      'close': '@settings-scroll-close', 'settle_s': 0.6, 'close_settle_s': 0.5,
      'thresholds': {'burst_end_ms': None}},
-    # `apps-grid`: the library from the Apps tile (the dock's first), across its first row, down the grid with a held key and up, out to the rail,
-    # down and up its sections (the grid is rebuilt for each), back in, Back. Nothing is launched: OK is only pressed on the tile.
-    {'name': 'apps-grid', 'default': False, 'act': 'release', 'transition': False,
-     'prep': HOME_DOCK, 'home_layout': True,
-     'open': '@apps-grid-open OK s0.7 RIGHTx4@0.12 DOWN:600 s0.15 UP:600 s0.15 LEFTx5@0.12 DOWNx3@0.12 UPx3@0.12 RIGHT BACK',
+    # `apps-grid`: the library from the Apps tile's number key (the tile is wherever the dock's list has it), across its first row, down the grid
+    # with a held key and up, out to the rail, down and up its sections (the grid is rebuilt for each), back in, Back. Nothing is launched.
+    {'name': 'apps-grid', 'default': False, 'transition': False,
+     'switches': NUMBER_KEYS, 'tile': {'app': 'com.webos.app.discovery'},
+     'open': '@apps-grid-open {DIGIT} s0.7 RIGHTx4@0.12 DOWN:600 s0.15 UP:600 s0.15 LEFTx5@0.12 DOWNx3@0.12 UPx3@0.12 RIGHT BACK',
      'close': '@apps-grid-close', 'settle_s': 0.7, 'close_settle_s': 0.5,
      'thresholds': {'burst_end_ms': None}},
     # `home-widgets`: every row of Home, from the status bar's four items down through the clock, the At-home card, the news and the weather
@@ -338,22 +361,23 @@ SURFACES = [
      'open': '@switcher-open HOME s0.9 RIGHTx2@0.2 LEFTx2@0.2 RIGHT:700 s0.2 LEFT:700 s0.2 BACK',
      'close': '@switcher-close', 'settle_s': 0.8, 'close_settle_s': 0.5,
      'thresholds': {'burst_end_ms': None}},
-    # `transitions-netflix`, `transitions-settings`: an app launched from its tile and Home pressed in it, with smooth transitions on for the run
-    # (`lumatv transitions on`, put back). The app is running already (setup), so the launch is a resume and the compositor's grow out of the tile
-    # (220 ms) and shrink into it (180 ms) are what the windows hold; the key-to-first-frame and burst-end checks measure the app's resume and SAM's
-    # round trip, not the compositor, and are off; the frames over 20 ms apart, the render cost, and the compositor's own counters (`ctl transitions`:
-    # a launch and a leave per cycle, none of its frames late) are what is asked. The tile is read off the set's launch points (`{TILE}`). LG's
-    # Settings has a tile only if the owner put it on the dock; without it the launch is the gear popover's "TV settings", which grows from the middle.
-    {'name': 'transitions-netflix', 'default': False, 'act': 'release',
-     'switches': {'transitions': True}, 'setup': app_warm('netflix', 12), 'teardown': app_gone('netflix'),
-     'tile': {'app': 'netflix'}, 'prep': HOME_DOCK + ' {TILE}', 'home_layout': True,
-     'open': '@transitions-netflix-open OK', 'close': '@transitions-netflix-close HOME', 'settle_s': 4, 'close_settle_s': 2.5,
+    # `transitions-netflix`, `transitions-settings`: an app launched and Home pressed in it, with smooth transitions on for the run (`lumatv
+    # transitions on`, put back). The app is running already (setup), so the launch is a resume and the compositor's grow out of the tile (220 ms)
+    # and shrink into it (180 ms) are what the windows hold; the key-to-first-frame and burst-end checks measure the app's resume and SAM's round
+    # trip, not the compositor, and are off; the frames over 20 ms apart, the render cost, and the compositor's own counters (`ctl transitions`: a
+    # launch and a leave per cycle, none of its frames late) are what is asked. Netflix is launched from its tile by its number key (the tile is
+    # wherever the dock's list has it). LG's Settings has no tile: it is the last row of LumaTV's Settings rail ("More in LG settings", reached
+    # through the quick panel as in `settings-scroll`), a launch with no tile known, which grows from the screen's middle; Back leaves it.
+    {'name': 'transitions-netflix', 'default': False,
+     'switches': dict(NUMBER_KEYS, transitions=True), 'setup': app_warm('netflix', 12), 'teardown': app_gone('netflix'),
+     'tile': {'app': 'netflix'},
+     'open': '@transitions-netflix-open {DIGIT}', 'close': '@transitions-netflix-close HOME', 'settle_s': 3, 'close_settle_s': 2,
      'ctl_transitions': True, 'app_retries': 0,
      'thresholds': {'first_frame_ms': None, 'burst_end_ms': None}},
     {'name': 'transitions-settings', 'default': False, 'act': 'release',
      'switches': {'transitions': True}, 'setup': app_warm('com.palm.app.settings', 6), 'teardown': app_gone('com.palm.app.settings'),
-     'tile': {'app': 'com.palm.app.settings', 'fallback': HOME_TOP + ' RIGHTx2@0.08 OK s0.5 DOWNx14@0.04'}, 'prep': HOME_DOCK + ' {TILE}', 'home_layout': True,
-     'open': '@transitions-settings-open OK', 'close': '@transitions-settings-close BACK', 'settle_s': 4, 'close_settle_s': 2.5,
+     'prep': QUICK_PANEL_FOOT + ' OK s1.0 DOWNx12@0.04 s0.3',
+     'open': '@transitions-settings-open OK', 'close': '@transitions-settings-close BACK', 'settle_s': 3, 'close_settle_s': 2,
      'ctl_transitions': True, 'app_retries': 0,
      'thresholds': {'first_frame_ms': None, 'burst_end_ms': None}},
     # `keyboard-luma`, `keyboard-lg`: LG's Search app with its keyboard up (setup opens it cold, the keyboard comes with it), the D-pad across the keys
@@ -399,7 +423,7 @@ SURFACES = [
 SURFACE_DEFAULTS = {'setup': [], 'teardown': [], 'reopen': [], 'reopen_wait_s': 0, 'settle_s': 1.0, 'close_settle_s': None,
                     'transition': True, 'soak': True, 'default': True, 'thresholds': {},
                     'act': 'press', 'still': True, 'delivery': False, 'full_budget_s': None, 'inputs_free': False,
-                    'prep': '', 'switches': {}, 'tile': None, 'ctl_transitions': False, 'app_retries': None, 'home_layout': False}
+                    'prep': '', 'switches': {}, 'tile': None, 'ctl_transitions': False, 'app_retries': None}
 
 # The PLAN gate. An override in a surface may set any of these to None to turn the check off.
 THRESHOLDS = {
@@ -449,12 +473,17 @@ RSS_PER_100_CYCLES_MB = 1.0
 RSS_NOISE_MB = 1.0
 PAGE_KB = 4
 
-# A line of /var/log/messages that matches any of these fails the surface.
-LOG_FAIL_PATTERNS = [
-    r'TypeError', r'ReferenceError', r'is not a type', r'Binding loop', r'Unable to assign',
-    r'Cannot assign', r'\[LumaKeys\].*failed', r'\[LumaHome\].*(invalid|unreadable|failed)',
-    r'crash', r'segfault', r'ShaderEffectSource',
-]
+# A line of /var/log/messages that matches any of these fails the surface. The QML ones count only from our processes (LOG_OWN_PROGRAM_RE): LG's
+# apps that the gate drives (Search, Settings, the Content Store) log their own QML warnings there (LG Search's `SearchView.qml:294:13: Unable to
+# assign [undefined] to QQuickItem*`, which round 15 counted against `keyboard-luma`), and a surface is not failed for another app's code.
+LOG_QML_PATTERNS = [r'TypeError', r'ReferenceError', r'is not a type', r'Binding loop', r'Unable to assign', r'Cannot assign', r'ShaderEffectSource']
+LOG_ANY_PROCESS_PATTERNS = [r'\[LumaKeys\].*failed', r'\[LumaHome\].*(invalid|unreadable|failed)', r'crash', r'segfault']
+LOG_FAIL_PATTERNS = LOG_QML_PATTERNS + LOG_ANY_PROCESS_PATTERNS
+# The program of a PmLog line (`<time> [<monotonic>] user.info <program> [] <context> ...`): LumaTV's shell client (`org.nphil.lumatv.shell`, the
+# runner's name for its app id) and its other apps, LG's compositor (which hosts LumaHome under it), the runner and the kernel. A line whose
+# program cannot be read is counted, as before.
+LOG_PROGRAM_RE = re.compile(r'\buser\.\w+\s+(\S+)')
+LOG_OWN_PROGRAM_RE = re.compile(r'^(org\.nphil\.lumatv|lumatv|surface-manager$|qml-runner$|kernel$)')
 # Known stock-LG noise that the patterns would otherwise flag on every run: Quick Settings' own
 # response callback throws when the foreground-app array changes (surfaces-p1-result.md); Netflix
 # reports the instance the `-netflix` setup closed (closeByAppId) as a crash report of a user kill;
@@ -465,7 +494,11 @@ LOG_IGNORE_PATTERNS = [r'Controllers/ScreenOffInterfaces/Interfaces\.qml:52',
                        r'\[CrashReporter\] Previous CrashReport.*REASON_USER_KILL',
                        r"SystemUI/Notification/Services\.qml:513: TypeError: (Cannot read property 'id' of undefined|Type error)$"]
 LOG_FAIL_RE = re.compile('|'.join(LOG_FAIL_PATTERNS))
+LOG_ANY_PROCESS_RE = re.compile('|'.join(LOG_ANY_PROCESS_PATTERNS))
 LOG_IGNORE_RE = re.compile('|'.join(LOG_IGNORE_PATTERNS))
+# What the shell's FrameMotion logs at the end of each 120 Hz slide (`[FrameMotion] 17 steps in 150 ms for 110`): the frames a slide got and the
+# time it took, against the time it was asked for. QML's console.info goes to PmLog, so this is read from the same log as the errors.
+LOG_SLIDE_RE = re.compile(r'\[FrameMotion\] (\d+) steps in (\d+) ms for (\d+)')
 LOG_FILE = '/var/log/messages'
 LOG_TS = re.compile(r'\[\s*(\d+\.\d+)\s*\]')
 LOG_REPORT_MAX = 20
@@ -514,8 +547,8 @@ def validate(entries):
         preps = s['prep'].split()
         if any(t[0] in '@!' for t in preps):
             raise ValueError(f'{n}: prep is keys; its marker @{n}-prep is put before it')
-        if bool(s['tile']) != ('{TILE}' in preps):
-            raise ValueError(f'{n}: tile and the {{TILE}} token of prep go together')
+        if bool(s['tile']) != ('{DIGIT}' in s['open'].split()):
+            raise ValueError(f'{n}: tile and the {{DIGIT}} token of open go together')
         unknown = set(s['switches']) - set(SWITCHES)
         if unknown:
             raise ValueError(f'{n}: unknown switches {sorted(unknown)}')
@@ -567,8 +600,6 @@ def token_seconds(token):
         return 0.0
     if token[0] == 's' and token[1:].replace('.', '').isdigit():
         return float(token[1:])
-    if token == '{TILE}':
-        return TILE_PATH_S
     if token.endswith('+') or token.endswith('-'):
         return 0.0
     if 'x' in token:
@@ -733,16 +764,28 @@ def lines_since(text, uptime):
     return out, True
 
 
+def foreign_qml(line):
+    """True for a QML error that another app's process logged (LG Search's, LG Settings'): a line whose program is not LumaTV's, LG's compositor's or
+    the runner's, and which only the QML patterns match (a crash or a LumaTV line from any process still counts)."""
+    m = LOG_PROGRAM_RE.search(line)
+    return bool(m) and not LOG_OWN_PROGRAM_RE.match(m.group(1)) and not LOG_ANY_PROCESS_RE.search(line)
+
+
 def log_failures(lines):
-    """(failing lines, ignored count): lines matching LOG_FAIL_PATTERNS, less the known stock noise."""
+    """(failing lines, ignored count): lines matching LOG_FAIL_PATTERNS, less the known stock noise and other apps' own QML errors."""
     bad, ignored = [], 0
     for ln in lines:
         if LOG_FAIL_RE.search(ln):
-            if LOG_IGNORE_RE.search(ln):
+            if LOG_IGNORE_RE.search(ln) or foreign_qml(ln):
                 ignored += 1
             else:
                 bad.append(ln)
     return bad, ignored
+
+
+def slides_in(lines):
+    """[(steps, ms, asked_ms)] of the `[FrameMotion]` lines in `lines`: what each slide of the 120 Hz mode got, in the order they were logged."""
+    return [tuple(int(x) for x in m.groups()) for m in map(LOG_SLIDE_RE.search, lines) if m]
 
 
 # ----------------------------------------------------------------- checks
@@ -888,52 +931,23 @@ def restore_switches(rig, saved):
     return '; '.join(problems)
 
 
-def tile_keys(points, app, cols=DOCK_COLS):
-    """The keys from the dock's first tile to the tile of `app`, and its place in the dock: ('DOWNx1@0.1 RIGHTx3@0.1', 15), None when the dock has
-    none. The dock lists the launch points that are not hidden, in the order the service gives them (Dock.qml refresh())."""
+def tile_digit(points, app):
+    """(the evdev code of the number key that opens `app`'s dock tile, its place in the dock), None when it has none among the first ten. The dock
+    lists the launch points that are not hidden, in the order the service gives them (Dock.qml refresh()); Home's number keys open the tile of that
+    number: 1 to 9 the first nine, 0 the tenth (LumaHome.tileForKey). The keys' evdev codes are KEY_1 = 2 to KEY_9 = 10 and KEY_0 = 11."""
     shown = [p for p in points if not p.get('hidden')]
-    for i, p in enumerate(shown):
+    for i, p in enumerate(shown[:DOCK_NUMBERS]):
         if p.get('id') == app:
-            row, col = divmod(i, cols)
-            keys = ([f'DOWNx{row}@0.1'] if row else []) + ([f'RIGHTx{col}@0.1'] if col else [])
-            return ' '.join(keys), i + 1
+            return (i + 2), i + 1
     return None
 
 
-SHIPPED_LAYOUT = os.path.join(HERE, '..', '..', '..', 'payload', 'theme', 'layout.json')
-
-
-def layout_signature(layout, shipped):
-    """What the keys of a walk count on in a Home layout: the cards (place and size) and the status bar's items. A layout is what the owner
-    wrote over the shipped one: a key they left out is the shipped one's, a list they wrote replaces the shipped list."""
-    widgets = layout.get('widgets', shipped.get('widgets', []))
-    bar = dict(shipped.get('statusBar', {}), **(layout.get('statusBar') or {}))
-    return ([(w.get('id'), w.get('type'), w.get('col'), w.get('row'), w.get('span'), w.get('rows')) for w in widgets],
-            [i.get('type') for i in bar.get('left', [])], [i.get('type') for i in bar.get('right', [])])
-
-
-def check_home_layout(rig, shipped_path=None):
-    """RuntimeError, before any key is pressed, when the owner's Home layout is not the shipped one in what a walk's keys count on: the dock under
-    the At-home card, the four status bar items. Otherwise an OK could land on another tile or item."""
-    with open(shipped_path or SHIPPED_LAYOUT) as f:
-        shipped = json.load(f)
-    rc, out, err = rig.sh(f'{TOOL} layout get')
-    try:
-        if rc != 0:
-            raise ValueError(err.strip() or out.strip())
-        owner = json.loads(out)['layout']
-    except (ValueError, KeyError, TypeError) as e:
-        raise RuntimeError(f"Home's layout could not be read: {e}")
-    if layout_signature(owner, shipped) != layout_signature({}, shipped):
-        raise RuntimeError("Home's layout is not the shipped one (cards or status bar items moved): the keys of this surface count on it, "
-                           'and an OK could land on another tile; nothing was pressed')
-
-
 def resolve_tile(rig, s):
-    """The surface with the keys to its app's dock tile in place of `{TILE}`, or, when the dock has no such tile, with the surface's fallback keys
-    as its whole prep. Returns (surface, what it did)."""
+    """The surface with the number key of its app's dock tile in place of `{DIGIT}`, and what it did ('' for a surface with no tile). RuntimeError,
+    before any key is pressed, when the dock's list cannot be read or has no tile of the app among the first ten."""
     if not s['tile']:
         return s, ''
+    app = s['tile']['app']
     rc, out, err = rig.sh("luna-send -n 1 luna://com.webos.service.homelaunchpoints/listLaunchPoints '{}'")
     if rc != 0:
         raise RuntimeError(f'the dock\'s launch points could not be read: {err.strip()}')
@@ -941,13 +955,11 @@ def resolve_tile(rig, s):
         points = json.loads(out)['launchPoints']
     except (ValueError, KeyError, TypeError):
         raise RuntimeError(f'the launch points answered {out.strip()[:80]!r}')
-    found = tile_keys(points, s['tile']['app'])
-    if found is not None:
-        keys, number = found
-        return dict(s, prep=' '.join(s['prep'].replace('{TILE}', keys).split())), f"from the dock's tile {number} ({keys or 'the first'})"
-    if s['tile'].get('fallback'):
-        return dict(s, prep=s['tile']['fallback']), 'no tile on the dock: through the gear popover'
-    raise RuntimeError(f"{s['tile']['app']} has no tile on the dock")
+    found = tile_digit(points, app)
+    if found is None:
+        raise RuntimeError(f"{app} has no tile among the dock's first {DOCK_NUMBERS}, which the number keys open: nothing was pressed")
+    code, number = found
+    return dict(s, open=s['open'].replace('{DIGIT}', str(code))), f"{app}: the dock's tile {number}, number key (evdev {code})"
 
 
 def parse_transitions(out):
@@ -991,7 +1003,20 @@ def format_lines(results):
             lines.append(f"      log: {ln}")
         if len(r.get('log_lines', [])) > LOG_REPORT_MAX:
             lines.append(f"      log: ... {len(r['log_lines']) - LOG_REPORT_MAX} more")
+        if r.get('slides'):
+            lines.append(f"      slides: {slides_summary(r['slides'])}")
     return '\n'.join(lines)
+
+
+def slides_summary(slides):
+    """`N slide(s), fewest steps S: 17 steps in 150 ms for 110; ...`: what the 120 Hz mode logged, the distinct slides in the order they came (six
+    at most). A slide of D ms at 120 Hz has about D / 8.33 steps; at 60, half that."""
+    seen = []
+    for steps, ms, asked in slides:
+        item = f'{steps} steps in {ms} ms for {asked}'
+        if item not in seen:
+            seen.append(item)
+    return f'{len(slides)} slide(s), fewest steps {min(s[0] for s in slides)}: ' + '; '.join(seen[:6])
 
 
 def format_results(results):
@@ -1130,9 +1155,9 @@ class Rig:
 
 
 class LogWatch:
-    """What /var/log/messages gained since mark(). The file rotates within minutes: when the
-    inode changed or the file shrank, the whole file is read and cut by the bracketed monotonic
-    timestamp against /proc/uptime at the mark."""
+    """What /var/log/messages gained since mark(). The file rotates about every minute: when the inode changed or the file shrank, the file and
+    the ones it rotated to (not the compressed ones) are read, oldest first, and cut by the bracketed monotonic timestamp against /proc/uptime at the
+    mark, so that what was logged before the rotation is not lost with it."""
 
     def __init__(self, rig):
         self.rig = rig
@@ -1157,7 +1182,7 @@ class LogWatch:
         if inode == mark['inode'] and size >= mark['size']:
             _, text, _ = self.rig.sh(f"tail -c +{mark['size'] + 1} {LOG_FILE}")
             return text.splitlines(), True
-        _, text, _ = self.rig.sh(f'cat {LOG_FILE}')
+        _, text, _ = self.rig.sh(f"for f in $(ls -tr {LOG_FILE} {LOG_FILE}.* 2>/dev/null); do case $f in *.gz|*.xz|*.bz2) ;; *) cat $f ;; esac; done")
         return lines_since(text, mark['uptime'])
 
 
@@ -1233,7 +1258,7 @@ def annotate_shows(report, text, name):
 def run_surface(rig, s, tag, soak_cycles, log):
     base = f'gate-{tag}-{s["name"]}'
     res = {'name': s['name'], 'checks': [], 'traces': [], 'windows': [], 'log_lines': [], 'log_ignored': 0,
-           'log_unfiltered': False, 'rss': None, 'discarded': []}
+           'log_unfiltered': False, 'rss': None, 'discarded': [], 'slides': []}
     checks = res['checks']
     pid0 = rig.compositor_pid()
     saved = []
@@ -1241,18 +1266,17 @@ def run_surface(rig, s, tag, soak_cycles, log):
     def scan(mark):
         lines, filtered = log.since(mark)
         bad, ignored = log_failures(lines)
+        res['slides'] += slides_in(lines)
         res['log_lines'] += bad
         res['log_ignored'] += ignored
         res['log_unfiltered'] = res['log_unfiltered'] or not filtered
 
     try:
         mark = log.mark()
-        if s['home_layout']:
-            check_home_layout(rig)
-        set_switches(rig, s['switches'], saved)
         s, how = resolve_tile(rig, s)
         if how:
             checks.append(check('launch_path', True, None, '', how))
+        set_switches(rig, s['switches'], saved)
         for cmd in s['setup']:
             rc, _, err = rig.sh(cmd)
             if rc != 0:

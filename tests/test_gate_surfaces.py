@@ -38,13 +38,13 @@ def surface(name):
 
 
 def key_names(tokens):
-    """The keys a token list presses, in order, once for each token (a marker, a sleep and a luna call press none)."""
-    return [re.match(r"[A-Z]+", t).group(0) for t in tokens if t[0] not in "@!" and not re.fullmatch(r"s[\d.]+", t)]
+    """The keys a token list presses, in order, once for each token (a marker, a sleep, a luna call and a number key press none of them)."""
+    return [re.match(r"[A-Z]+", t).group(0) for t in tokens if t[0] not in "@!{0123456789" and not re.fullmatch(r"s[\d.]+", t)]
 
 
 def walk_of(s):
     """What a walk does after the key that enters its screen."""
-    return gate.open_tokens(s)[4:] if s["act"] == "release" else s["open"].split()[1:]
+    return gate.open_tokens(s)[4:] if s["act"] == "release" else s["open"].split()[2 if s["tile"] else 1:]
 
 
 class Table(unittest.TestCase):
@@ -79,7 +79,7 @@ class Table(unittest.TestCase):
         for n in LAUNCHES:
             s = surface(n)
             self.assertTrue(s["transition"] and s["ctl_transitions"] and s["app_retries"] == 0, n)
-            self.assertEqual(s["switches"], {"transitions": True})
+            self.assertIs(s["switches"]["transitions"], True)
 
     def test_a_walk_presses_no_ok_inside_a_screen_and_no_key_that_changes_a_value(self):
         # OK in the library launches an app, in Settings it flips a row, in the switcher it opens a card and Down is a card's Quit; Left and Right
@@ -96,7 +96,9 @@ class Table(unittest.TestCase):
     def test_a_screen_that_was_entered_is_left_by_the_walk(self):
         for n in ("settings-scroll", "apps-grid", "switcher"):
             self.assertEqual(key_names(walk_of(surface(n)))[-1], "BACK", n)
-            self.assertEqual(surface(n)["act"], "release", n)
+        for n in ("settings-scroll", "switcher"):
+            self.assertEqual(surface(n)["act"], "release", n)               # entered by a key acted on at its release
+        self.assertEqual(surface("apps-grid")["act"], "press")             # a number key is acted on at its press
 
     def test_prep_is_a_window_of_its_own_and_comes_before_the_cycle(self):
         toks = gate.cycle_tokens(surface("settings-scroll"))
@@ -109,40 +111,48 @@ class Table(unittest.TestCase):
             gate.validate([{"name": "x", "prep": "@x-prep UP", "open": "@x-open UP", "close": "@x-close"}])
 
     def test_the_release_entry_keeps_its_walk_inside_the_open_window(self):
-        s = surface("apps-grid")
+        s = surface("settings-scroll")
         toks = gate.open_tokens(s)
-        self.assertEqual(toks[:4], ["OK+", "s0.05", "@apps-grid-open", "OK-"])
+        self.assertEqual(toks[:4], ["OK+", "s0.05", "@settings-scroll-open", "OK-"])
         self.assertEqual(toks[4:], s["open"].split()[2:])
         for bad in ("@x-open", "@x-open RIGHTx2 UP", "@x-open s1 UP"):
             with self.assertRaises(ValueError):
                 gate.validate([{"name": "x", "act": "release", "open": bad, "close": "@x-close"}])
         self.assertTrue(gate.validate([{"name": "x", "act": "release", "open": "@x-open OK s1 RIGHT", "close": "@x-close"}]))
 
-    def test_the_dock_columns_are_what_the_dock_lays_out(self):
-        # Dock.qml: cols = floor((width - 2 * minPadX + gap) / (tile + gap)), minPadX 40 unless the entry names one
-        with open(os.path.join(ROOT, "payload", "theme", "layout.json")) as f:
-            layout = json.load(f)
-        dock = [w for w in layout["widgets"] if w["type"] == "dock"][0]
-        self.assertEqual(dock["span"], 12)
-        cols = int((1920 - 2 * layout["safe"]["x"] - 2 * dock.get("padX", 40) + dock["gap"]) // (dock["tile"] + dock["gap"]))
-        self.assertEqual(cols, gate.DOCK_COLS)
+    def test_nothing_counts_on_where_the_owner_put_a_card_a_status_bar_item_or_a_tile(self):
+        # the keys that start a cycle: Home's top (Up until the status bar, Left to its first item: it clamps there), the gear's quick panel (Down
+        # to its last button, which Down does not leave), and a dock tile's number; no count of Right or Down hops over Home's rows
+        self.assertEqual(gate.HOME_TOP.split(), ["UPx8@0.1", "LEFTx6@0.06"])
+        self.assertEqual(key_names(gate.QUICK_PANEL_FOOT.split()), ["MENU", "DOWN"])
+        self.assertEqual(surface("settings-scroll")["prep"], gate.QUICK_PANEL_FOOT)
+        self.assertEqual(surface("transitions-settings")["prep"], gate.QUICK_PANEL_FOOT + " OK s1.0 DOWNx12@0.04 s0.3")
+        for n in ("apps-grid", "transitions-netflix"):
+            self.assertEqual(surface(n)["prep"], "", n)
+        for n in ("settings-scroll", "apps-grid", "transitions-netflix", "transitions-settings"):
+            self.assertNotIn("home_layout", surface(n), n)
 
-    def test_a_tile_is_reached_by_its_row_and_column_among_the_tiles_that_are_shown(self):
+    def test_a_dock_tile_is_opened_by_its_number_among_the_tiles_that_are_shown(self):
+        # the evdev codes: KEY_1 = 2 ... KEY_9 = 10, KEY_0 = 11
         points = [{"id": "a"}, {"id": "hidden", "hidden": True}] + [{"id": "p%d" % i} for i in range(20)] + [{"id": "netflix"}]
-        self.assertEqual(gate.tile_keys(points, "a"), ("", 1))
-        self.assertEqual(gate.tile_keys(points, "p0"), ("RIGHTx1@0.1", 2))                # the hidden one takes no place
-        self.assertEqual(gate.tile_keys(points, "p9"), ("RIGHTx10@0.1", 11))
-        self.assertEqual(gate.tile_keys(points, "netflix"), ("DOWNx1@0.1 RIGHTx9@0.1", 22))
-        self.assertIsNone(gate.tile_keys(points, "missing"))
-        self.assertEqual(gate.tile_keys(points, "p10", cols=4), ("DOWNx2@0.1 RIGHTx3@0.1", 12))
+        self.assertEqual(gate.tile_digit(points, "a"), (2, 1))
+        self.assertEqual(gate.tile_digit(points, "p0"), (3, 2))                            # the hidden one takes no place
+        self.assertEqual(gate.tile_digit(points, "p7"), (10, 9))
+        self.assertEqual(gate.tile_digit(points, "p8"), (11, 10))                          # the tenth is the 0 key
+        self.assertIsNone(gate.tile_digit(points, "p9"))                                   # the eleventh has no number
+        self.assertIsNone(gate.tile_digit(points, "netflix"))
+        self.assertIsNone(gate.tile_digit(points, "missing"))
 
-    def test_a_launch_surface_has_the_tile_token_its_tile_needs_and_the_two_go_together(self):
-        for n in LAUNCHES:
+    def test_a_launch_surface_has_the_digit_token_its_tile_needs_and_the_two_go_together(self):
+        for n in ("apps-grid", "transitions-netflix"):
             s = surface(n)
-            self.assertIn("{TILE}", s["prep"].split())
-            self.assertTrue(s["prep"].startswith(gate.HOME_DOCK), n)
+            self.assertIn("{DIGIT}", s["open"].split())
+            self.assertEqual(s["switches"]["number-keys"], True)
+            self.assertEqual(s["switches"]["quick-access"], False)
+        self.assertEqual(surface("apps-grid")["tile"], {"app": "com.webos.app.discovery"})
+        self.assertNotIn("tile", [k for k, v in surface("transitions-settings").items() if v])
         with self.assertRaises(ValueError):
-            gate.validate([{"name": "x", "prep": "{TILE}", "open": "@x-open UP", "close": "@x-close"}])
+            gate.validate([{"name": "x", "open": "@x-open {DIGIT}", "close": "@x-close"}])
         with self.assertRaises(ValueError):
             gate.validate([{"name": "x", "tile": {"app": "a"}, "open": "@x-open UP", "close": "@x-close"}])
         with self.assertRaises(ValueError):
@@ -167,12 +177,8 @@ class Switches(unittest.TestCase):
                 return 1, "", "refused"
             if args == "theme get":
                 return 0, json.dumps({"ok": True, "theme": self.theme}), ""
-            if args == "layout get":
-                return 0, json.dumps({"ok": True, "layout": {}}), ""
             if args.startswith("theme set "):
-                patch = json.loads(args[len("theme set "):].strip("'"))
-                for k, v in patch.items():
-                    self.theme.setdefault(k, {}).update(v)
+                self.merge(self.theme, json.loads(args[len("theme set "):].strip("'")))      # tools/theme.py merges objects key by key
                 return 0, "{}", ""
             if args == "transitions status":
                 return 0, json.dumps({"ok": True, "transitions": {"on": self.transitions, "compositor": "own"}}), ""
@@ -185,6 +191,14 @@ class Switches(unittest.TestCase):
                 self.keyboard = args.split()[1]
                 return 0, "{}", ""
             raise AssertionError(cmd)
+
+        @classmethod
+        def merge(cls, base, over):
+            for k, v in over.items():
+                if isinstance(v, dict) and isinstance(base.get(k), dict):
+                    cls.merge(base[k], v)
+                else:
+                    base[k] = v
 
     def rig(self, **kw):
         rig = Mock()
@@ -205,6 +219,22 @@ class Switches(unittest.TestCase):
         saved, during, problems = self.during_and_after(rig, {"app-switcher": True})
         self.assertEqual((saved, during[0], problems), ([("app-switcher", False)], True, ""))
         self.assertIs(rig.set.theme["remote"]["appSwitcher"], False)
+
+    def test_the_number_keys_are_on_and_quick_access_off_for_the_run_and_the_owners_own_choices_are_kept(self):
+        own = {"remote": {"numberKeys": False, "quickAccess": {"on": True, "slots": {"4": "com.example.app"}}}}
+        rig = self.rig(theme=json.loads(json.dumps(own)))
+        saved = []
+        with mock.patch.object(gate.time, "sleep"):
+            gate.set_switches(rig, gate.NUMBER_KEYS, saved)
+            during = json.loads(json.dumps(rig.set.theme))
+            problems = gate.restore_switches(rig, saved)
+        self.assertEqual(during, {"remote": {"numberKeys": True, "quickAccess": {"on": False, "slots": {"4": "com.example.app"}}}})
+        self.assertEqual((problems, rig.set.theme), ("", own), "back as the owner had them, the slot included")
+        # the shipped defaults (nothing in the file) need no write: the keys are on and Quick Access is off
+        rig = self.rig(theme={})
+        saved, during, problems = self.during_and_after(rig, gate.NUMBER_KEYS)
+        self.assertEqual((rig.set.theme, problems), ({}, ""))
+        self.assertEqual([c for c in rig.set.log if "theme set" in c], [])
 
     def test_what_the_owner_had_on_stays_on_and_is_not_written(self):
         rig = self.rig(theme={"remote": {"appSwitcher": True}}, transitions=True, keyboard="luma")
@@ -308,7 +338,7 @@ class Transitions(unittest.TestCase):
         rig = Mock()
         rig.compositor_pid.return_value = 17
         rig.lg_compositor.return_value = False
-        rig.sh.side_effect = lambda cmd, timeout=120: (0, json.dumps({"ok": True, "layout": {}} if "layout get" in cmd else {"launchPoints": [{"id": "netflix"}]}), "")
+        rig.sh.side_effect = lambda cmd, timeout=120: (0, json.dumps({"launchPoints": [{"id": "netflix"}]}), "")
         rig.stop.return_value = ("/dev/null", "/dev/null")
         one = {"trace": "t", "windows": [{"name": "transitions-netflix-%s" % k, "first_frame_ms": 30.0, "burst_end_ms": 100.0, "burst_over20": 0, "dropped": 0,
                             "burst_anim_p90_ms": 2.0, "anim_render_ms": None, "burst_app_jobs": 3} for k in ("open", "close")]}
@@ -318,7 +348,7 @@ class Transitions(unittest.TestCase):
         by = {c["name"]: c for c in res["checks"]}
         self.assertEqual(rig.transitions_stats.call_count, 2)
         self.assertTrue(by["transitions_ran"]["ok"] and by["transitions_late_gaps"]["ok"], by)
-        self.assertEqual(len(res["traces"]), 3, "a launch is the app drawing: a capture whose burst held the app's jobs is not measured again")
+        self.assertEqual(len(res["traces"]), len(gate.plan_full(s, gate.MEASURE_CYCLES)), "a launch is the app drawing: a capture whose burst held the app's jobs is not measured again")
         self.assertEqual(res["discarded"], [])
         self.assertEqual(res["transitions"]["after"]["launches"], 7)
         # a compositor that does not answer fails the surface and says why
@@ -326,19 +356,22 @@ class Transitions(unittest.TestCase):
         by = {c["name"]: c for c in gate.run_surface(rig, s, "t", 0, Mock(since=Mock(return_value=([], True))))["checks"]}
         self.assertIn("ctl transitions failed", by["run"]["detail"])
 
-    def test_the_tile_is_resolved_on_the_set_and_the_fallback_stands_in_when_the_dock_has_none(self):
-        s = surface("transitions-settings")
+    def test_the_tile_is_resolved_on_the_set_to_its_number_key(self):
+        s = surface("transitions-netflix")
         rig = Mock()
         rig.sh.return_value = (0, json.dumps({"launchPoints": [{"id": "com.webos.app.discovery"}, {"id": "netflix"}, {"id": "com.palm.app.settings"}]}), "")
         got, how = gate.resolve_tile(rig, s)
-        self.assertEqual(got["prep"], gate.HOME_DOCK + " RIGHTx2@0.1")
-        self.assertIn("tile 3", how)
-        rig.sh.return_value = (0, json.dumps({"launchPoints": [{"id": "netflix"}]}), "")
-        got, how = gate.resolve_tile(rig, s)
-        self.assertEqual(got["prep"], s["tile"]["fallback"])
-        self.assertIn("gear popover", how)
-        with self.assertRaisesRegex(RuntimeError, "no tile"):
-            gate.resolve_tile(rig, surface("transitions-netflix") | {"tile": {"app": "missing"}})
+        self.assertEqual(got["open"], "@transitions-netflix-open 3")
+        self.assertIn("tile 2", how)
+        self.assertEqual(gate.resolve_tile(rig, surface("apps-grid"))[0]["open"].split()[1], "2")            # the Apps tile: KEY_1
+        self.assertNotIn("{DIGIT}", gate.cycle_command(got, 1))
+        # the owner moved Netflix to the tenth place: the 0 key; to the eleventh: it has no key, the surface stops before it presses one
+        points = [{"id": "p%d" % i} for i in range(9)] + [{"id": "netflix"}, {"id": "x"}]
+        rig.sh.return_value = (0, json.dumps({"launchPoints": points}), "")
+        self.assertEqual(gate.resolve_tile(rig, s)[0]["open"], "@transitions-netflix-open 11")
+        rig.sh.return_value = (0, json.dumps({"launchPoints": points[:9] + [{"id": "x"}, {"id": "netflix"}]}), "")
+        with self.assertRaisesRegex(RuntimeError, "no tile among the dock's first 10.*nothing was pressed"):
+            gate.resolve_tile(rig, s)
         rig.sh.return_value = (1, "", "luna down")
         with self.assertRaisesRegex(RuntimeError, "launch points could not be read"):
             gate.resolve_tile(rig, s)
@@ -347,66 +380,16 @@ class Transitions(unittest.TestCase):
             gate.resolve_tile(rig, s)
         self.assertEqual(gate.resolve_tile(rig, surface("home-widgets")), (surface("home-widgets"), ""))
 
-    def test_a_tile_in_the_second_row_still_fits_a_cycle_and_nothing_is_left_to_fill(self):
-        rig = Mock()
-        rig.sh.return_value = (0, json.dumps({"launchPoints": [{"id": "p%d" % i} for i in range(13)] + [{"id": "netflix"}]}), "")
-        got, how = gate.resolve_tile(rig, surface("transitions-netflix"))
-        self.assertIn("DOWNx1@0.1 RIGHTx1@0.1", got["prep"])
-        self.assertLessEqual(gate.cycle_seconds(got), gate.FULL_CAPTURE_MAX_S)
-        self.assertNotIn("{TILE}", gate.cycle_command(got, 1))
-
-
-class HomeLayout(unittest.TestCase):
-    """The walks count on Home's cards and status bar as shipped: an owner's layout that moves them stops the surface before a key is pressed."""
-    SHIPPED = os.path.join(ROOT, "payload", "theme", "layout.json")
-
-    def rig(self, answer):
-        rig = Mock()
-        rig.sh.return_value = answer
-        return rig
-
-    def owner(self, layout):
-        return self.rig((0, json.dumps({"ok": True, "layout": layout}), ""))
-
-    def test_the_shipped_layout_and_one_the_owner_never_changed_pass(self):
-        with open(self.SHIPPED) as f:
-            shipped = json.load(f)
-        gate.check_home_layout(self.owner({}))
-        gate.check_home_layout(self.owner(shipped))
-        gate.check_home_layout(self.owner({"safe": {"x": 80, "y": 60}, "grid": shipped["grid"]}))         # what the signature does not read
-
-    def test_a_moved_card_a_dock_that_is_not_under_the_cards_or_another_status_bar_stops_the_surface(self):
-        with open(self.SHIPPED) as f:
-            shipped = json.load(f)
-        moved = json.loads(json.dumps(shipped))
-        moved["widgets"][1]["col"] = 4                        # the At-home card beside the clock
-        gone = json.loads(json.dumps(shipped))
-        gone["widgets"] = [w for w in gone["widgets"] if w["id"] != "home"]
-        bar = json.loads(json.dumps(shipped))
-        bar["statusBar"]["right"] = bar["statusBar"]["right"][1:]
-        for layout in (moved, gone, bar):
-            with self.assertRaisesRegex(RuntimeError, "nothing was pressed"):
-                gate.check_home_layout(self.owner(layout))
-
-    def test_an_unreadable_layout_stops_it_too(self):
-        for answer in ((1, "", "no tool"), (0, "garbage", ""), (0, json.dumps({"ok": True}), "")):
-            with self.assertRaisesRegex(RuntimeError, "could not be read"):
-                gate.check_home_layout(self.rig(answer))
-
-    def test_the_surfaces_whose_ok_lands_on_a_tile_or_the_gear_ask_for_it_and_the_others_do_not(self):
-        for n in ("settings-scroll", "apps-grid", "transitions-netflix", "transitions-settings"):
-            self.assertTrue(surface(n)["home_layout"], n)
-        for n in ("home-widgets", "switcher", "keyboard-luma", "keyboard-lg"):
-            self.assertFalse(surface(n)["home_layout"], n)
-
-    def test_a_surface_with_another_layout_presses_nothing_and_switches_nothing(self):
+    def test_a_surface_whose_tile_has_no_number_presses_nothing_and_changes_nothing(self):
         rig = Mock()
         rig.compositor_pid.return_value = 17
-        rig.sh.return_value = (0, json.dumps({"ok": True, "layout": {"statusBar": {"left": []}}}), "")
-        res = gate.run_surface(rig, surface("apps-grid"), "t", 0, Mock(since=Mock(return_value=([], True))))
+        rig.sh.return_value = (0, json.dumps({"launchPoints": [{"id": "p%d" % i} for i in range(12)] + [{"id": "netflix"}]}), "")
+        res = gate.run_surface(rig, surface("transitions-netflix"), "t", 0, Mock(since=Mock(return_value=([], True))))
         by = {c["name"]: c for c in res["checks"]}
-        self.assertIn("not the shipped one", by["run"]["detail"])
-        self.assertEqual([c.args[0] for c in rig.sh.call_args_list], [gate.TOOL + " layout get"])
+        self.assertIn("no tile among the dock's first 10", by["run"]["detail"])
+        commands = [c.args[0] for c in rig.sh.call_args_list]
+        self.assertEqual(commands[0], "luna-send -n 1 luna://com.webos.service.homelaunchpoints/listLaunchPoints '{}'")
+        self.assertFalse([c for c in commands if "theme set" in c or "transitions" in c or "kb.py" in c], commands)    # no setting changed, no key pressed
         rig.capture.assert_not_called()
 
 
@@ -472,7 +455,9 @@ class Setups(unittest.TestCase):
 
 # ------------------------------------------------------------------------------------------------------------ the host
 
-KEYS = {"UP": "Qt.Key_Up", "DOWN": "Qt.Key_Down", "LEFT": "Qt.Key_Left", "RIGHT": "Qt.Key_Right", "OK": "Qt.Key_Return", "BACK": "Qt.Key_Back"}
+KEYS = {"UP": "Qt.Key_Up", "DOWN": "Qt.Key_Down", "LEFT": "Qt.Key_Left", "RIGHT": "Qt.Key_Right", "OK": "Qt.Key_Return", "BACK": "Qt.Key_Back",
+        # the number keys by evdev code (KEY_1 = 2 ... KEY_9 = 10, KEY_0 = 11), as kb.py takes them
+        **{str(code): "Qt.Key_%d" % (code - 1 if code < 11 else 0) for code in range(2, 12)}}
 STATE = ("JSON.stringify({fl: root.focusLayer, si: root.statusFocusIndex, so: root.settingsOpen, po: root.popoverOpen, wf: root.widgetFocusId,"
          " dr: root.dockRow, dc: root.dockCol, lo: root.layerOpen, ed: root.editing})")
 # the calls of the luna stand-in that are not reads: a launch, a close, a write of a setting or of the dock's order, a reset or a shutdown
@@ -506,7 +491,10 @@ def events(token):
 
 
 def home_js(token):
-    """The token as calls of Home's key handler (the key filter's `key(code, pressed, autoRepeat, device)`)."""
+    """The token as calls of Home's key handler (the key filter's `key(code, pressed, autoRepeat, device)`). The gear is not a key of Home's under LumaTV's
+    compositor: its tap is the compositor's, which asks the shell for the quick panel (Shell.show, Bus.panel); over Home that is HomePanels.open."""
+    if token == "MENU":
+        return "root.openLayer('quick');"
     return "".join("root.key(%s,%s,%s,0);" % (KEYS[k], str(p).lower(), str(r).lower()) for k, p, r in events(token))
 
 
@@ -542,39 +530,68 @@ class HomeKeys(Home):
         """The state after the nth occurrence of `token`."""
         return states[[i for i, t in enumerate(tokens) if t == token][nth]]
 
-    def test_the_keys_to_the_dock_find_its_first_tile_from_anywhere_on_home(self):
+    @staticmethod
+    def fixture_points():
+        """The launch points the offline host's make-believe TV (a capture of the owner's) lists, in order."""
+        with open(os.path.join(ROOT, "tests", "qmlhost", "stubs", "WebOSServices", "FakeApps.js")) as f:
+            text = f.read()
+        rows = re.findall(r'^    \["([^"]+)", "[^"]*", "[^"]*", \{([^}]*)\}\]', text, re.M)
+        return [{"id": i, "hidden": "hidden: true" in o} for i, o in rows] + [{"id": "com.webos.app.hdmi2"}]
+
+    def resolved(self, name):
+        """The surface with its tile's number key worked out from the host's launch points, as the gate does on the set."""
+        rig = Mock()
+        rig.sh.return_value = (0, json.dumps({"launchPoints": self.fixture_points()}), "")
+        return gate.resolve_tile(rig, surface(name))[0]
+
+    def test_home_top_finds_the_status_bars_first_item_from_anywhere_on_home(self):
         tokens, marks = [], []
-        for start in ("RIGHTx4@0.1 DOWN", "UPx2@0.1 RIGHTx2@0.1", "UPx8@0.1 RIGHTx3@0.1", "DOWNx2@0.1"):
-            tokens += start.split() + gate.HOME_DOCK.split()
+        for start in ("RIGHTx4@0.1 DOWN", "UPx2@0.1 RIGHTx2@0.1", "DOWNx3@0.1 LEFTx2@0.1", "DOWNx2@0.1"):
+            tokens += start.split() + gate.HOME_TOP.split()
             marks.append(len(tokens) - 1)
         states, calls = self.replay(tokens)
         for i in marks:
-            self.assertEqual((states[i]["fl"], states[i]["dr"], states[i]["dc"]), ("dock", 0, 0), (i, states[i]))
+            self.assertEqual((states[i]["fl"], states[i]["si"]), ("statusbar", 0), (i, states[i]))
         self.assertEqual(calls, [])
 
-    def test_settings_opens_from_the_gear_popover_walks_and_closes_again_twice(self):
+    def test_settings_opens_from_the_quick_panels_last_button_walks_and_closes_again_twice(self):
         s = surface("settings-scroll")
         tokens = gate.cycle_tokens(s) * 2
         states, calls = self.replay(tokens)
         for n in (0, 1):
-            popover = self.after(tokens, states, "s0.5", n * 2)            # prep's settle, then (the second one) the close's
-            self.assertEqual((popover["fl"], popover["si"], popover["po"], popover["so"]), ("popover", 2, True, False), (n, popover))
-            self.assertTrue(self.after(tokens, states, "OK-", n)["so"], "the release of OK opens Settings: the marker is on its edge")
+            panel = self.after(tokens, states, "s0.2", n)                  # the end of prep
+            self.assertEqual((panel["lo"], panel["so"]), ("quick", False), (n, panel))
+            opened = self.after(tokens, states, "OK-", n)
+            self.assertEqual((opened["so"], opened["lo"]), (True, ""), "the release of OK on the button opens Settings and the panel goes: the marker is on its edge")
             end = self.after(tokens, states, "@settings-scroll-close", n)
-            self.assertEqual((end["so"], end["po"], end["fl"], end["si"], end["lo"]), (False, False, "statusbar", 2, ""), "the walk ends on Home")
-        self.assertTrue(all(st["lo"] == "" and not st["ed"] for st in states))
+            self.assertEqual((end["so"], end["po"], end["lo"], end["ed"]), (False, False, "", False), "the walk ends on Home")
         self.assertEqual(calls, [], "no app launched, no setting written")
 
-    def test_the_library_opens_from_the_apps_tile_and_closes_with_nothing_launched_twice(self):
-        s = surface("apps-grid")
+    def test_the_library_opens_from_the_apps_tiles_number_and_closes_with_nothing_launched_twice(self):
+        s = self.resolved("apps-grid")
+        self.assertEqual(s["open"].split()[1], "2")                          # the Apps tile is the first: KEY_1
         tokens = gate.cycle_tokens(s) * 2
         states, calls = self.replay(tokens)
         for n in (0, 1):
-            tile = self.after(tokens, states, "LEFTx4@0.08", n)
-            self.assertEqual((tile["fl"], tile["dr"], tile["dc"]), ("dock", 0, 0), "the Apps tile, the dock's first")
-            self.assertEqual(self.after(tokens, states, "OK-", n)["lo"], "apps")
+            opened = self.after(tokens, states, "2", n)
+            self.assertEqual((opened["lo"], opened["fl"]), ("apps", "dock"), (n, opened))
             end = self.after(tokens, states, "@apps-grid-close", n)
-            self.assertEqual((end["lo"], end["fl"], end["dr"], end["dc"]), ("", "dock", 0, 0))
+            self.assertEqual((end["lo"], end["fl"], end["dr"], end["dc"]), ("", "dock", 0, 0), "Back from the library: the dock's first tile, which has the focus")
+        self.assertEqual(calls, [])
+
+    def test_the_library_opens_wherever_the_focus_is_and_whichever_place_the_apps_tile_has(self):
+        # the number key is the dock's, whatever Home's focus: after the status bar and after a card, and with the Apps tile moved to the fourth place
+        points = self.fixture_points()
+        moved = [points[1], points[2], points[3], points[0]] + points[4:]
+        rig = Mock()
+        rig.sh.return_value = (0, json.dumps({"launchPoints": moved}), "")
+        number = gate.resolve_tile(rig, surface("apps-grid"))[0]["open"].split()[1]
+        self.assertEqual(number, "5")                                          # KEY_4
+        tokens = ["UPx8@0.1", number, "BACK", "DOWN", "DOWN", "RIGHT", number, "BACK"]
+        # the host's own list has the Apps tile first, so it is the first tile's key that opens it there: this walk is about the focus
+        tokens = [t if t != number else "2" for t in tokens]
+        states, calls = self.replay(tokens)
+        self.assertEqual([st["lo"] for i, st in enumerate(states) if tokens[i] == "2"], ["apps", "apps"])
         self.assertEqual(calls, [])
 
     def test_the_home_walk_visits_every_row_and_opens_nothing_twice(self):
@@ -591,35 +608,33 @@ class HomeKeys(Home):
         self.assertEqual((states[len(tokens) // 2 - 1]["fl"], states[-1]["fl"]), ("statusbar", "statusbar"), "each cycle ends where it can start again")
         self.assertEqual(calls, [])
 
-    @staticmethod
-    def fixture_points():
-        """The launch points the offline host's make-believe TV (a capture of the owner's) lists, in order."""
-        with open(os.path.join(ROOT, "tests", "qmlhost", "stubs", "WebOSServices", "FakeApps.js")) as f:
-            text = f.read()
-        rows = re.findall(r'^    \["([^"]+)", "[^"]*", "[^"]*", \{([^}]*)\}\]', text, re.M)
-        points = [{"id": i, "hidden": "hidden: true" in o} for i, o in rows]
-        return points + [{"id": "com.webos.app.hdmi2"}]
-
-    def test_a_tile_found_by_its_keys_is_the_one_that_opens_and_the_popover_ends_on_the_tvs_settings(self):
+    def test_a_tile_found_by_its_number_is_the_one_that_opens(self):
         points = self.fixture_points()
-        tokens, expect = [], []
-        for app in ("netflix", "com.lgtvod.us.app", "com.webos.app.hdmi2"):
-            keys, number = gate.tile_keys(points, app)
-            tokens += gate.HOME_DOCK.split() + keys.split() + ["OK"]
-            expect.append((app, number, len(tokens) - 1))
-            tokens += ["UPx8@0.1"]                       # the tile launched: Home is still up in the host, the next starts from anywhere
-        fallback = surface("transitions-settings")["tile"]["fallback"].split()
-        tokens += fallback + ["OK"]
+        tokens, apps = [], []
+        for app in ("netflix", "com.webos.app.browser", "com.lighting.huesync"):      # the second tile, the ninth, the tenth (the 0 key)
+            code, number = gate.tile_digit(points, app)
+            tokens += [str(code), "UPx8@0.1"]
+            apps.append((app, number))
+        self.assertEqual(apps, [("netflix", 2), ("com.webos.app.browser", 9), ("com.lighting.huesync", 10)])
         states, calls = self.replay(tokens)
-        self.assertEqual(expect[0][1], 2, "Netflix is the second tile")
-        self.assertGreater(expect[1][1], gate.DOCK_COLS, "one of the tiles is in the dock's second row")
-        launched = [c for c in calls if " /launch " in c or c.startswith("/launch ")]
-        ids = [re.search(r'"id":\s*"([^"]+)"', c).group(1) for c in launched]
-        self.assertEqual(ids, ["netflix", "com.lgtvod.us.app", "com.webos.app.hdmi2", "com.palm.app.settings"], calls)
-        popover = states[len(tokens) - 2]
-        self.assertEqual((popover["fl"], popover["po"]), ("popover", True), "the last row of the popover is the one the walk's OK acts on")
-        self.assertEqual(states[-1]["po"], False)
+        ids = [re.search(r'"id":\s*"([^"]+)"', c).group(1) for c in calls if c.startswith("/launch ")]
+        self.assertEqual(ids, [a for a, _ in apps], calls)
+        self.assertEqual([states[i]["dc"] for i in (0, 2, 4)], [1, 8, 9], "the dock's cursor is on the tile that opened")
         self.assertFalse([c for c in calls if "setSystemSettings" in c or "moveLaunchPoint" in c])
+
+    def test_lgs_settings_is_the_last_row_of_lumatvs_settings_rail_reached_through_the_quick_panel(self):
+        s = surface("transitions-settings")
+        tokens = gate.cycle_tokens(s) * 2
+        states, calls = self.replay(tokens)
+        launched = [c for c in calls if c.startswith("/launch ")]
+        self.assertEqual(len(launched), 2, calls)
+        self.assertTrue(all('"com.palm.app.settings"' in c for c in launched), launched)
+        for n in (0, 1):
+            before = self.after(tokens, states, "@transitions-settings-open", n)
+            self.assertEqual((before["so"], before["lo"]), (True, ""), "Settings is up with its rail on the last row when OK is pressed")
+            after = self.after(tokens, states, "OK-", n)
+            self.assertEqual((after["so"], after["lo"]), (False, ""), "and the launch closes it: Home is under the app that comes")
+        self.assertFalse([c for c in calls if "setSystemSettings" in c])
 
 
 @unittest.skipUnless(DISPLAY and HAVE_QT, "needs Xvfb and PyQt5")

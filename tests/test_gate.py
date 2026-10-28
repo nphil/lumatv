@@ -295,6 +295,68 @@ class Log(unittest.TestCase):
         self.assertEqual(gate.log_failures([toast, bare, other, ours]), ([other, ours], 2))
 
 
+    VOICE = ('2026-10-28T20:25:52.340589Z [23544.986540980] user.info com.webos.app.voice [] voice voice_app {} (null), '
+             'file:///usr/palm/applications/com.webos.app.voice/qml/Views/SearchView.qml:294:13: Unable to assign [undefined] to QQuickItem*')
+
+    def test_another_apps_qml_error_is_not_ours_to_fail_a_surface_for(self):
+        # round 15: LG Search's own warning failed keyboard-luma
+        self.assertEqual(gate.log_failures([self.VOICE]), ([], 1))
+        for program in ('org.nphil.lumatv.shell', 'surface-manager', 'qml-runner', 'lumatv-compositor'):
+            ours = self.VOICE.replace('com.webos.app.voice', program)
+            self.assertEqual(gate.log_failures([ours]), ([ours], 0), program)
+        # a line whose program cannot be read is counted, as before
+        bare = 'file:///x/Panel.qml:12:3: Unable to assign [undefined] to QQuickItem*'
+        self.assertEqual(gate.log_failures([bare]), ([bare], 0))
+
+    def test_a_crash_or_a_lumatv_line_counts_from_any_process(self):
+        crash = '2026-10-28T20:25:52Z [100.0] user.info com.webos.app.voice [] voice {} the app crash report: SIGSEGV'
+        luma = '2026-10-28T20:25:52Z [100.0] user.info com.webos.app.voice [] voice {} [LumaKeys] bridge failed'
+        both = self.VOICE + ' crash'
+        self.assertEqual(gate.log_failures([crash, luma, both]), ([crash, luma, both], 0))
+
+    def test_the_stock_noise_list_still_applies_to_our_own_programs(self):
+        toast = ('2026-10-28T20:25:52Z [100.0] user.info surface-manager [] LSM {} file:///usr/lib/qt5/qml/SystemUI/Notification/Services.qml:513: '
+                 "TypeError: Cannot read property 'id' of undefined")
+        self.assertEqual(gate.log_failures([toast]), ([], 1))
+
+    def test_the_shells_slides_are_read_from_the_log_lines(self):
+        lines = ['x [FrameMotion] 17 steps in 150 ms for 110', 'noise', 'y user.info org.nphil.lumatv.shell [FrameMotion] 9 steps in 97 ms for 90']
+        self.assertEqual(gate.slides_in(lines), [(17, 150, 110), (9, 97, 90)])
+        self.assertEqual(gate.slides_in(['nothing']), [])
+        self.assertEqual(gate.slides_summary(gate.slides_in(lines + lines)), '4 slide(s), fewest steps 9: 17 steps in 150 ms for 110; 9 steps in 97 ms for 90')
+        r = {'name': 'quick', 'checks': [], 'log_lines': [], 'slides': gate.slides_in(lines)}
+        self.assertIn('      slides: 2 slide(s), fewest steps 9:', gate.format_lines([r]))
+        self.assertNotIn('slides', gate.format_lines([dict(r, slides=[])]))
+
+    def test_a_surface_keeps_the_slides_and_counts_nobody_elses_qml_errors(self):
+        rig = Mock()
+        rig.compositor_pid.return_value = 17
+        rig.capture.side_effect = RuntimeError('capture failed')
+        rig.sh.return_value = (0, '', '')
+        log = Mock(mark=Mock(return_value={}), since=Mock(return_value=([self.VOICE, 'a [FrameMotion] 17 steps in 150 ms for 110'], True)))
+        res = gate.run_surface(rig, gate.find(['home-dpad'])[0], 't', 0, log)
+        self.assertEqual(res['slides'], [])        # the capture failed before the first scan: nothing yet
+        rig.capture.side_effect = None
+        rig.stop.return_value = ('/dev/null', '/dev/null')
+        one = {'trace': 't', 'windows': [window('home-dpad-open'), window('home-dpad-open')]}
+        rig.analyse.return_value = one
+        rig.lg_compositor.return_value = False
+        res = gate.run_surface(rig, gate.find(['home-dpad'])[0], 't', 0, log)
+        self.assertEqual(res['slides'], [(17, 150, 110)])
+        self.assertEqual((res['log_lines'], res['log_ignored']), ([], 1))
+
+    def test_the_log_since_a_rotation_reads_the_rotated_files_too_oldest_first(self):
+        rig = Mock()
+        answers = iter([(0, '4096 99', ''), (0, 'x [ 10.0] before\ny [ 55.0] [FrameMotion] 17 steps in 150 ms for 110\nz [ 90.0] after\n', '')])
+        rig.sh.side_effect = lambda cmd, timeout=120: next(answers)
+        lines, filtered = gate.LogWatch(rig).since({'size': 9000, 'inode': '12', 'uptime': 50.0})
+        self.assertEqual(lines, ['y [ 55.0] [FrameMotion] 17 steps in 150 ms for 110', 'z [ 90.0] after'])
+        self.assertTrue(filtered)
+        command = rig.sh.call_args.args[0]
+        self.assertIn('ls -tr /var/log/messages /var/log/messages.*', command)
+        self.assertIn('*.gz', command)
+
+
 class Windows(unittest.TestCase):
     def evaluate(self, surface='quick-settings', cycles=3, **kw):
         s = gate.find([surface])[0]

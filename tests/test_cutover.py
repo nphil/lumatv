@@ -970,7 +970,8 @@ elif method == "closeByAppId":
 elif method == "executeOneShot":
     out({"returnValue": True, "writtenBytes": 4321})
 elif method == "running":
-    out({"returnValue": True, "running": [{"appType": "native", "id": a, "processid": str(pid_of(a))} for a, t in s["windows"]]})
+    # `luna-send -f` prints the answer indented, with a space after each colon: the check must read it so
+    print(json.dumps({"returnValue": True, "running": [{"appType": "native", "id": a, "processid": str(pid_of(a))} for a, t in s["windows"]]}, indent=4, sort_keys=True))
 else:
     out({"returnValue": True})
 save()
@@ -1156,6 +1157,51 @@ class GateKeysAndIme(FakeSet):
         self.assertEqual(sim["closed"], ["youtube.leanback.v4", "com.beb.plxnative"])
         self.assertEqual(sim["windows"], [["com.webos.app.home", "Card"]], "Home alone is left")
         self.assertTrue(os.path.exists(os.path.join(self.out, "apps-com.beb.plxnative.txt")))
+
+    def test_sams_list_is_read_as_luna_send_prints_it_with_spaces_and_lines(self):
+        # the app is on SAM's list while it runs and off it after the close: an app_running that never matches passed every app as "not alive"
+        script = ". %s\nls1() { cat \"$LIST\"; }\napp_running netflix && echo up; app_running youtube.leanback.v4 || echo not-listed" % GATE
+        listing = os.path.join(self.tmp.name, "running.json")
+        write(listing, '{\n    "returnValue": true,\n    "running": [\n        {\n            "appType": "native",\n            "id": "netflix",\n'
+                       '            "processid": "812"\n        }\n    ]\n}\n')
+        r = subprocess.run(["sh", "-c", script], env=dict(self.env, GATE_LIB="1", LIST=listing), capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.stdout.split(), ["up", "not-listed"], r.stdout + r.stderr)
+
+    def test_the_refresh_line_reads_the_slides_from_the_pmlog_the_shell_logs_to_and_the_file_it_rotated_to(self):
+        # round 15 read only the shell's stdout file and printed `slides: none logged` at 120 Hz while the slides stepped per refresh
+        messages = os.path.join(self.tmp.name, "messages")
+        write(messages + ".1", "2026-10-28T20:00:01Z [100.1] user.info org.nphil.lumatv.shell [] qml-runner {} onStep, [FrameMotion] 17 steps in 150 ms for 110\n")
+        write(messages, "2026-10-28T20:01:05Z [165.1] user.info org.nphil.lumatv.shell [] qml-runner {} onStep, [FrameMotion] 10 steps in 90 ms for 110\n"
+                        "2026-10-28T20:01:06Z [166.1] user.info something [] other, nothing here\n")
+        write(messages + ".2.gz", "not text [FrameMotion] 99 steps in 1 ms for 1\n")
+        write(os.path.join(self.state, "shell.log"), "[FrameMotion] 20 steps in 160 ms for 110\n")
+        rc, out = self.gate("refresh", "read", "1", env={"LUMATV_MESSAGES": messages})
+        line = [ln for ln in out.splitlines() if ln.startswith("GATE refresh:")][0]
+        self.assertIn("slides: 20 steps in 160 ms for 110;17 steps in 150 ms for 110;10 steps in 90 ms for 110;", line)
+        self.assertNotIn("99 steps", line)
+        write(messages, "")
+        os.remove(messages + ".1")
+        rc, out = self.gate("refresh", "read", "1", env={"LUMATV_MESSAGES": messages})
+        self.assertIn("slides: 20 steps in 160 ms for 110;", out)
+
+    def test_an_exit_status_survives_the_log_rotating_under_a_long_check(self):
+        # /var/log/messages rotates about every minute: the check copies the lines out from before the launch instead of reading the file at its end
+        messages = os.path.join(self.tmp.name, "messages")
+        write(messages, 'old APP_CLOSED {"app_id":"com.beb.plxnative","type":"native","pid":"100","exit_status":11}\n')
+        saved = os.path.join(self.tmp.name, "exit")
+        real_sleep = shutil.which("sleep")
+        script = (". %s\nexit_watch_start com.beb.plxnative %s\n"
+                  "echo 'x APP_CLOSED {\"app_id\":\"com.beb.plxnative\",\"type\":\"native\",\"pid\":\"200\",\"exit_status\":11} y' >> %s\n"
+                  "echo 'x APP_CLOSED {\"app_id\":\"youtube.leanback.v4\",\"type\":\"native\",\"pid\":\"300\",\"exit_status\":9} y' >> %s\n"
+                  "%s 0.6\n: > %s\nrm -f %s.1\n%s 0.3\nexit_watch_stop com.beb.plxnative %s\n"
+                  "echo \"of 200: $(exit_status_of %s 200)\"\necho \"of 100: $(exit_status_of %s 100)\"\necho \"of any: $(exit_status_of %s)\"\n"
+                  % (GATE, saved, messages, messages, real_sleep, messages, messages, real_sleep, saved, saved, saved, saved))
+        r = subprocess.run(["sh", "-c", script], env=dict(self.env, GATE_LIB="1", LUMATV_MESSAGES=messages), capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(read(messages), "", "the log was emptied under the watcher")
+        self.assertIn('of 200: APP_CLOSED {"app_id":"com.beb.plxnative","type":"native","pid":"200","exit_status":11', r.stdout)
+        self.assertIn("of 100: \n", r.stdout, "a line that was there before the launch is not this run's")
+        self.assertNotIn("youtube", r.stdout, "another app's exit is not copied")
 
     def test_an_app_that_dies_after_its_map_fails_the_apps_check_by_name_with_sams_exit_status(self):
         messages = os.path.join(self.tmp.name, "messages")
@@ -1430,8 +1476,9 @@ class GateDriver(unittest.TestCase):
             sys.path.pop(0)
         for n in full:
             self.assertIn(n, table, n)
-        for n in quick:                    # a regular round changes no setting and starts no app
-            self.assertFalse(table[n]["switches"] or table[n]["setup"], n)
+        for n in quick:                    # a regular round starts no app, and changes a setting only if the owner has the number keys off or Quick Access on
+            self.assertFalse(table[n]["setup"], n)
+            self.assertLessEqual(set(table[n]["switches"]), {"number-keys", "quick-access"}, n)
         for n in full[len(quick):]:
             self.assertTrue(table[n]["switches"] or table[n]["setup"], n)
         self.assertLess(g.FRAMES_QUICK_SESSION_MINUTES, g.FRAMES_SESSION_MINUTES)

@@ -14,7 +14,7 @@ step-1 test of the remote's keys and the keyboard is `--only keys,ime`. --frames
 the shell client's frame callbacks at the flip like every client's (`ctl callbacks shell landing`), against the default of a frame
 ahead of it inside a run of its frames, so that a round says what the change made. The surface frame gate runs the whole set of surfaces
 (Home's D-pad, the panels, the screens walked with the D-pad, the switcher, the keyboards and the launches with smooth transitions); --frames-quick
-runs the quick set, which touches no setting and starts no app, for a regular round.
+runs the quick set, which starts no app and changes a setting only if the owner has the remote's number keys off or Quick Access on, for a regular round.
 --refresh 120 runs the surface frame gate in the compositor's refresh test mode (docs/research/ui120-result.md): `gate.sh refresh 120`
 before it (the OSD vblank divider at 1, the pacer at 8.33 ms; a GATE refresh line with the rate measured three ways, Mali busy and the
 temperature at idle Home), the gate's dropped-frame threshold at 10 ms, idle Home measured again after the surfaces, then
@@ -136,7 +136,7 @@ def frames_check(cycles, load=False, refresh=60, quick=False):
     """The surface frame gate (`docs/research/perf/gate.py`) over LumaTV's own surfaces under its compositor: Home's D-pad, the quick
     panel and the input picker (the gear and Input through the shell client), a toast, and the screens walked with the D-pad (Settings, the
     Apps library, Home's rows, the app switcher, the keyboard) and the app launches with smooth transitions on (FRAMES_SURFACES; `quick` runs
-    FRAMES_SURFACES_QUICK, the ones that touch no setting and start no app). Its verdict line, with each surface's
+    FRAMES_SURFACES_QUICK, the ones that start no app and change a setting only when the number keys are off or Quick Access on). Its verdict line, with each surface's
     failed checks, becomes `GATE frames:`. With `load` the same surfaces are measured under synthetic background load (a camera-like
     decode, Home Assistant websocket chatter, a BLE scan stand-in, a low-priority download: `lumatv-loadgen`, started and stopped by
     the gate), and the line is `GATE frames-load:`, a report: no baseline of loaded numbers exists yet, so the unloaded thresholds'
@@ -169,6 +169,9 @@ def frames_check(cycles, load=False, refresh=60, quick=False):
             failed = ["%s=%s" % (c["name"], c.get("value")) for c in checks if not c.get("ok")]
             key = [c for c in checks if c["name"] in ("p90_render_ms", "first_frame_ms", "burst_end_ms")]
             numbers = " ".join("%s %s" % (c["name"].replace("_ms", ""), c.get("value")) for c in key)
+            slides = res.get("slides") or []
+            if slides:      # the shell's FrameMotion lines the gate read from the log while this surface ran (120 Hz): how many slides, the fewest steps one got
+                numbers += " slides %d fewest-steps %d" % (len(slides), min(x[0] for x in slides))
             parts.append("%s %s%s%s" % (res.get("name"), "ok" if not failed else "NOT", (" " + ",".join(failed)) if failed else "", (" [" + numbers + "]") if numbers else ""))
         detail = "; ".join(parts)
     except (OSError, ValueError, AttributeError):

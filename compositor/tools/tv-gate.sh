@@ -80,8 +80,8 @@ fg() { ls1 com.webos.applicationManager/getForegroundAppInfo '{}' | tr -d ' \n' 
 key_tap() { ctl remote "$1" tap > /dev/null; }
 key_hold() { ctl remote "$1" press > /dev/null; sleep "$2"; ctl remote "$1" release > /dev/null; }
 close_app() { ls1 com.webos.applicationManager/closeByAppId "{\"id\":\"$1\"}" > /dev/null; }
-# Whether SAM lists APP as running, and a wait of SECS at most for it to stop.
-app_running() { ls1 com.webos.applicationManager/running '{}' | grep -q "\"id\":\"$1\""; }
+# Whether SAM lists APP as running, and a wait of SECS at most for it to stop. `luna-send -f` prints the answer indented, `"id": "APP"`.
+app_running() { ls1 com.webos.applicationManager/running '{}' | tr -d ' \n' | grep -q "\"id\":\"$1\""; }
 wait_app_gone() { w=0; while [ "$w" -lt "$2" ]; do app_running "$1" || return 0; sleep 1; w=$((w+1)); done; ! app_running "$1"; }
 # The app ids of the compositor's mapped windows, one a line. SAM's foreground answer names the front card only: LG's Settings and Search are
 # overlays, which it never names (round 11), so an app a key launched is looked for in the compositor's own window list.
@@ -89,6 +89,24 @@ mapped_apps() { ctl windows | sed 's/{"appId"/\n&/g' | grep '"mapped":true' | se
 app_mapped() { mapped_apps | grep -qx "$1"; }
 # Waits, SECS at most, for a window of APP to be mapped.
 wait_app() { w=0; while [ "$w" -lt "$2" ]; do app_mapped "$1" && return 0; sleep 1; w=$((w+1)); done; app_mapped "$1"; }
+# SAM logs how an app ended: `APP_CLOSED {"app_id":"APP","type":"native","pid":"N","exit_status":S}`, in /var/log/messages, which rotates about every
+# minute, so a line is gone before a check that runs 30 s and more reads it at its end. exit_watch_start APP FILE copies each such line out every
+# second (the file and the one it rotated to) from before the launch, until exit_watch_stop; exit_status_of FILE [PID] is the nonzero status
+# of that pid in what was copied (a signal is one: SIGSEGV 11, SIGKILL 9), no output for none. FILE.before holds the lines that were there already.
+exit_lines() { for f in $MESSAGES*; do case $f in *.gz|*.xz|*.bz2) ;; *) cat "$f" 2>/dev/null ;; esac; done | grep -o "APP_CLOSED {\"app_id\":\"$1\"[^}]*}" | sort -u; }
+exit_watch_start() {
+    exit_lines "$1" > "$2.before"
+    : > "$2"
+    ( while :; do exit_lines "$1" >> "$2"; sleep 1; done ) > /dev/null 2>&1 &
+    EXIT_WATCH=$!
+}
+exit_watch_stop() {
+    kill "$EXIT_WATCH" 2> /dev/null; wait "$EXIT_WATCH" 2> /dev/null
+    exit_lines "$1" >> "$2"
+}
+exit_status_of() {
+    sort -u "$1" | grep -vxFf "$1.before" | grep "\"pid\":\"${2:-[0-9]*}\"" | sed -n 's/.*"app_id":"\([^"]*\)".*"pid":"\([0-9]*\)".*"exit_status":\([1-9][0-9]*\).*/APP_CLOSED {"app_id":"\1","type":"native","pid":"\2","exit_status":\3/p' | head -n 1
+}
 # Where the screen stands, for a check's failure line.
 where_now() { echo "foreground $(fg), windows mapped: $(mapped_apps | tr '\n' ' ' | sed 's/ $//')"; }
 # The compositor's journal after the line a `ctl note` left (the journal is one JSON array of strings), one entry a line; the quotes
@@ -393,7 +411,7 @@ apps)
     for app in youtube.leanback.v4 com.beb.plxnative; do
         if app_running "$app"; then close_app "$app"; wait_app_gone "$app" 15; sleep 3; fi
         ctl note apps-$app > /dev/null
-        mark=$(wc -l < $MESSAGES 2>/dev/null)
+        exit_watch_start "$app" $OUT/apps-$app.exit
         ls1 com.webos.applicationManager/launch "{\"id\":\"$app\"}" > /dev/null
         n=0; up=none
         while [ $n -lt 10 ]; do
@@ -408,7 +426,8 @@ apps)
         dropped=$(journal_after apps-$app | grep -c "client disconnected: pid ${pid:-none} ")
         close_app "$app"
         gone=no; wait_app_gone "$app" 15 && gone=yes
-        died=$(tail -n +$((${mark:-0} + 1)) $MESSAGES 2>/dev/null | grep -o "APP_CLOSED {\"app_id\":\"$app\"[^}]*\"exit_status\":[1-9][0-9]*" | head -n 1)
+        exit_watch_stop "$app" $OUT/apps-$app.exit
+        died=$(exit_status_of $OUT/apps-$app.exit "$pid")
         journal_after apps-$app > $OUT/apps-$app.txt
         what="$app pid ${pid:-none} foreground-in-ms ${up} alive-at-10s $alive connection-lost $dropped closed-in-15s $gone${died:+ $died}"
         if [ "$up" != none ] && [ "$alive" = yes ] && [ "$dropped" = 0 ] && [ "$gone" = yes ] && [ -z "$died" ]; then kd="$kd $what;"; else bad="$bad $what;"; fi
@@ -675,8 +694,10 @@ refresh)
     temp=$(tr -d '\n' < /proc/lg/pm/temperature 2>/dev/null | head -c 40)
     m=$(ctl refresh)
     shell_hz=$(ctl shell | grep -o '"refreshHz":[0-9]*' | head -n 1 | cut -d: -f2)
-    # the per-frame motions' own count (kit/FrameMotion.qml logs one line per slide): the last few, from the shell client's log
-    slides=$(grep -o '\[FrameMotion\] [0-9]* steps in [0-9]* ms for [0-9]*' $STATE/shell.log 2>/dev/null | tail -n 6 | sed 's/\[FrameMotion\] //' | tr '\n' ';')
+    # the per-frame motions' own count (kit/FrameMotion.qml logs one line per slide with console.info): the last few. QML's console of a runner app
+    # goes to PmLog, /var/log/messages (round 15 read the shell's stdout file only and found none), which rotates about every minute, so the file
+    # and the ones it rotated to are read, oldest first, after the shell's own log. `gate.py` reads the same lines per surface (`slides:`).
+    slides=$( { cat $STATE/shell.log 2>/dev/null; for f in $(ls -tr $MESSAGES $MESSAGES.* 2>/dev/null); do case $f in *.gz|*.xz|*.bz2) ;; *) cat "$f" ;; esac; done; } | grep -o '\[FrameMotion\] [0-9]* steps in [0-9]* ms for [0-9]*' | tail -n 6 | sed 's/\[FrameMotion\] //' | tr '\n' ';')
     echo "$m" > $OUT/refresh-${r_hz:-x}-${2:-read}.json
     echo "GATE refresh: measured hz ${r_hz:-?} divider ${r_div:-unreadable} shell ${shell_hz:-?} over ${r_secs} s: OSD flips/s $(per_s "$f0" "$f1"), DE2VSYNC/s $(per_s "$v0" "$v1"), osd_irq/s $(per_s "$o0" "$o1"); compositor: $(echo "$m" | grep -o '"intervals":{[^}]*}') $(echo "$m" | grep -o '"frames":{[^}]*}') $(echo "$m" | grep -o '"pipeline_ms":{[^}]*}') flips/s $(echo "$m" | grep -o '"flips_per_second":[0-9.]*' | cut -d: -f2); mali busy ${mali} %; temperature ${temp:-unreadable}; slides: ${slides:-none logged}"
     ;;
