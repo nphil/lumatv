@@ -2324,9 +2324,6 @@ verb_helper() {
   return 0
 }
 
-# The colour reader. Not fatal: without it the ambient light has no picture and says so; everything else is as it was.
-capture_start() {
-  [ -f "$CAPTURE_SRC" ] || return 0   # a package built before it existed
 # LG's system updates, blocked by the Homebrew Channel: its flag file (`blockUpdates`, read at boot) and, while the flag exists, a
 # bind-mounted /etc/hosts that maps LG's update servers to loopback (its startup.sh). The two can differ until a restart, and another
 # mod's hosts file once hid the block, so both are read. The same fields and rules as the helper's `updateblock` topic
@@ -2361,6 +2358,9 @@ verb_updateblock() {
   esac
 }
 
+# The colour reader. Not fatal: without it the ambient light has no picture and says so; everything else is as it was.
+capture_start() {
+  [ -f "$CAPTURE_SRC" ] || return 0   # a package built before it existed
   out=$(sh "$CAPTURE_SH" install "$CAPTURE_SRC" "$CAPTURE_ROLE" "$STATE" 2>&1) \
     && out=$(sh "$CAPTURE_SH" start "$STATE" "$CAPTURE_SOCKET" 2>&1) && return 0
   log_line "capture: $(printf '%s' "$out" | tr -d '\n' | cut -c1-200)"

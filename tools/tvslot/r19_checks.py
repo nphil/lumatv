@@ -11,6 +11,7 @@ Checks (each timed and isolated: one failing never stops the others; each leaves
   banners   the input banner restyle (pill, INFO card, no-signal line); never switches inputcommon, it reports what is on
   plugins   the helper's plugin broker (127.0.0.1:18731, plugin API level 1): GET routes only; who is on, first-party cards, the Home
             Assistant plugin's state, captures of Home's At-home lane and the quick panel's tiles. Never links, enables or installs.
+  updateblock LG's system-update block, read only: the Homebrew Channel's blockUpdates, the flag file, /etc/hosts, the helper's topic
   layout    Home's layout editor, opened from Settings > Home & look > Home widgets > Edit on Home: capture the grid, move and size a
             card, Cancel and Discard; layout.json must have the same md5 afterwards (FAIL otherwise). Captures the Home widgets page.
 
@@ -51,8 +52,8 @@ R = '/tmp/r19'                       # scratch directory on the set, removed at 
 KB = '/tmp/kb.py'
 SPLASH_MD5 = '3dcd88495b38ef186f728b4c3d3d2a0c'   # the launch splash (HDMI glyph on grey), docs/research/lg-restyles-result.md round 11
 IC_UPPER = '/var/lib/lumatv/inputcommon/upper'    # tools/inputcommon.sh: $STATE/inputcommon/upper, dataDir from brand.json
-IC_FILES = 30                        # the patched tree's .qml count (lg-restyles-result.md, round 18 "Next TV check" 1)
-CHECK_ORDER = ['speed', 'settings', 'plugins', 'layout', 'ble', 'banners']   # banners last: it puts an HDMI input in front
+CENSUS_QML = [d for d in ('/data/home/lgtv/uiinv/inputcommon/qml', '/tmp/tvsrc/inputcommon/qml') if os.path.isdir(d)]
+CHECK_ORDER = ['speed', 'settings', 'plugins', 'layout', 'updateblock', 'ble', 'banners']   # banners last: it puts an HDMI input in front
 LAYOUT_FILE = '/var/lib/lumatv/theme/layout.json'    # tools/lumatv: $STATE/theme, dataDir from brand.json
 MEDIA_APPS = re.compile(r'^(netflix|youtube|amazon|spotify|com\.webos\.app\.(lgchannels|music|discovery)|.*plex.*|.*disney.*|.*hulu.*)')
 HDMI_APP = re.compile(r'^com\.webos\.app\.hdmi\d$')
@@ -399,6 +400,34 @@ def ha_words(owner_plugins, link):
     return {'offline': 'Offline', 'connecting': 'Connecting'}.get(s, 'Connected')
 
 
+def banner_tree():
+    """What the staged inputcommon overlay must hold, derived from tools/inputcommon_patch.py (never typed in here): `files`, the paths
+    under LG's qml directory that the patch always writes (every entry of its FILES, the style sheet, LumaStyle.qml, its own screens);
+    `count`, the number of .qml files the stage keeps, from running the real patch on the census copy of LG's tree when this host has
+    one (the stage keeps every file the patch rewrote, among them the ones it finds reading a style value), else None, and then
+    `at_least` is len(files)."""
+    spec = importlib.util.spec_from_file_location('r19_inputcommon_patch', os.path.join(REPO, 'tools', 'inputcommon_patch.py'))
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    files = [m.STYLE_FILE] + [rel for rel, _ in m.FILES] + [m.LUMA_STYLE_FILE] + [m.BG + n for n in m.NEW_FILES]
+    count = None
+    if CENSUS_QML:
+        import shutil
+        work = tempfile.mkdtemp(prefix='r19-ic-')
+        try:
+            shutil.copytree(CENSUS_QML[0], os.path.join(work, 'q'))
+            pal = subprocess.run([sys.executable, os.path.join(REPO, 'tools', 'tokens.py'), os.path.join(REPO, 'payload', 'theme', 'theme.json'),
+                                  os.path.join(work, 'none.json'), 'qml'], capture_output=True, text=True)
+            if pal.returncode == 0:
+                done = m.patch_tree(os.path.join(work, 'q'), json.loads(pal.stdout), os.path.join(REPO, 'payload', 'fonts'))
+                count = sum(1 for f in done if f.endswith('.qml'))
+        except (ValueError, OSError):
+            count = None
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+    return {'files': files, 'count': count, 'at_least': len(files)}
+
+
 def ping_summary(text):
     m = re.search(r'min/avg/max\S*\s*=\s*([\d.]+)/([\d.]+)/([\d.]+)', text)
     loss = re.search(r'(\d+)% packet loss', text)
@@ -433,6 +462,20 @@ def synth_png(kind):
 
 
 def canned(cmd):
+    if 'updateblock status' in cmd:
+        return '{"ok":true,"updateBlock":{"flag":true,"hosts":{"snu.lge.com":true,"su.lge.com":true,"su-ssl.lge.com":true,"su-dev.lge.com":true},"live":true,"blocking":true,"state":"blocked"}}'
+    if cmd.endswith(TOOL + ' status 2>&1'):
+        return '{"ok":true,"version":"0.4.0","updateBlock":{"flag":true,"state":"blocked"}}'
+    if 'org.webosbrew.hbchannel.service/getConfiguration' in cmd:
+        return '{"returnValue":true,"root":true,"blockUpdates":true}'
+    if 'webosbrew_block_updates' in cmd:
+        return 'yes\n'
+    if "grep -n 'lge.com' /etc/hosts" in cmd:
+        return '3:127.0.0.1 snu.lge.com su-dev.lge.com su.lge.com su-ssl.lge.com\n4:::1 snu.lge.com su-dev.lge.com su.lge.com su-ssl.lge.com\n\n1\n'
+    if 'getent hosts su.lge.com' in cmd:
+        return '127.0.0.1       su.lge.com\n'
+    if 'curl' in cmd and '/v1/state/updateblock' in cmd:
+        return '{"value":{"flag":true,"live":true,"blocking":true,"state":"blocked"},"seq":2}'
     if 'base64.b64encode' in cmd:
         out = []
         for path in shlex.split(cmd.split("' ", 1)[1]) if "' " in cmd else []:
@@ -462,9 +505,9 @@ def canned(cmd):
     if '/proc/$p/cmdline' in cmd or 'cmdline' in cmd:
         return '/usr/bin/com.webos.app.inputcommon {"event":"launch","appId":"com.webos.app.hdmi2"}\n'
     if 'upper' in cmd and '*.qml' in cmd:
-        return '%d\n' % IC_FILES
-    if 'LumaStyle.qml' in cmd:
-        return 'present\n'
+        return '%d\n' % (banner_tree()['count'] or banner_tree()['at_least'])
+    if 'missing-files' in cmd:
+        return 'none\n'
     if '/proc/mounts' in cmd:
         return '7\n'
     if 'ls -A /tmp/checkpoint' in cmd:
@@ -967,6 +1010,65 @@ class Slot:
         return {'verdict': 'FAIL' if bad else 'EYES', 'items': items,
                 'detail': ('%d step(s) failed: %s' % (len(bad), ', '.join(i['name'] for i in bad))) if bad else '%d pages captured, none changed a value; look at the images' % len(looked)}
 
+    # ========================================================================================= check: LG system-update block
+    # Read only: `lumatv updateblock status` and `lumatv status`, the Homebrew Channel's getConfiguration, the flag file, /etc/hosts, the helper's
+    # `updateblock` topic. Nothing is written, nothing is pressed; the setting is changed only in Settings, by a person.
+
+    def check_updateblock(self):
+        items = []
+        d = os.path.join(self.out, 'updateblock')
+        os.makedirs(d, exist_ok=True)
+        ev = {}
+        names = ('snu.lge.com', 'su.lge.com', 'su-ssl.lge.com', 'su-dev.lge.com')
+        # (a) the switch's state: the channel's own setting, the flag file behind it, and what lumatv and the helper say
+        ub = self.jl(self.sh(TOOL + ' updateblock status 2>&1', 30))
+        u = ub.get('updateBlock') or {}
+        ev['lumatv_updateblock'] = u
+        self.item(items, 'lumatv updateblock status answers', 'PASS' if u else 'FAIL', json.dumps(u)[:200] if u else 'no updateBlock in the reply: %r' % str(ub)[:160])
+        st_raw = self.sh(TOOL + ' status 2>&1', 60)
+        st = self.jl(st_raw)
+        self.item(items, 'lumatv status carries updateBlock, no shell error', 'PASS' if st.get('updateBlock') and 'not found' not in st_raw else 'FAIL',
+                  'state %s' % (st.get('updateBlock') or {}).get('state') if st.get('updateBlock') else 'missing from `lumatv status`' + (' ("not found" in the output)' if 'not found' in st_raw else ''))
+        hbc = self.jl(self.luna('luna://org.webosbrew.hbchannel.service/getConfiguration', '{}'))
+        ev['hbchannel_getConfiguration'] = {k: hbc.get(k) for k in ('returnValue', 'root', 'blockUpdates', 'errorText')}
+        if isinstance(hbc.get('blockUpdates'), bool):
+            self.item(items, "Homebrew Channel's blockUpdates (the switch)", 'PASS' if hbc['blockUpdates'] else 'FAIL',
+                      'blockUpdates %s: %s' % (str(hbc['blockUpdates']).lower(), 'the switch reads ON' if hbc['blockUpdates'] else 'the switch reads OFF: LG\'s update can reach this TV'))
+        else:
+            self.item(items, "Homebrew Channel's blockUpdates (the switch)", 'INFO', 'luna-send got no setting from the channel (%s); Settings asks as the compositor, which may differ' % (hbc.get('errorText') or 'no answer'))
+        flag = self.sh('[ -e /var/luna/preferences/webosbrew_block_updates ] && echo yes || echo no', 15).strip()
+        self.item(items, 'flag file /var/luna/preferences/webosbrew_block_updates', 'PASS' if flag == 'yes' else 'FAIL', flag)
+        # (b) the hosts block itself, as the TV resolves it now
+        hosts = self.sh("grep -n 'lge.com' /etc/hosts 2>&1; echo; grep -c ' /etc/hosts ' /proc/mounts", 15)
+        ev['etc_hosts_lge_lines'] = hosts.strip().splitlines()
+        with open(os.path.join(d, 'etc-hosts-lge.txt'), 'w') as fh:
+            fh.write(hosts)
+        mapped = [n for n in names if re.search(r'^\s*\d+:\s*(127\.0\.0\.1|::1)\s[^#]*\b%s\b' % re.escape(n), hosts, re.M)]
+        self.item(items, '/etc/hosts maps LG\'s four update servers to loopback', 'PASS' if len(mapped) == 4 else 'FAIL',
+                  'mapped: %s%s' % (', '.join(mapped) or 'none', '' if len(mapped) == 4 else '; missing: ' + ', '.join(n for n in names if n not in mapped)))
+        binds = hosts.strip().splitlines()[-1].strip() if hosts.strip() else ''
+        self.item(items, '/etc/hosts bind mounts', 'INFO', '%s in /proc/mounts (more than one stacks, as Starfish\'s once hid the block; the mapping above is what is read through the top one)' % binds)
+        name = 'hosts-block'
+        res = self.sh('getent hosts su.lge.com 2>/dev/null | head -n1; ping -c1 -W1 su.lge.com 2>&1 | head -n1', 15).strip()
+        ev['resolution'] = res.splitlines()[:2]
+        self.item(items, 'su.lge.com resolves to this TV', 'PASS' if re.search(r'127\.0\.0\.1|::1', res) else 'FAIL', res[:160] or 'no answer')
+        # the helper's topic, read the same way as the page does
+        doc, _ = self.api('/v1/state/updateblock')
+        topic = (doc or {}).get('value') or {}
+        ev['helper_topic'] = topic
+        agree = bool(topic) and topic.get('state') == u.get('state')
+        self.item(items, "helper's updateblock topic agrees with lumatv", 'PASS' if agree else 'FAIL',
+                  'both say %s' % topic.get('state') if agree else 'helper %s, lumatv %s' % (topic.get('state'), u.get('state')))
+        state = u.get('state') or topic.get('state')
+        self.item(items, 'updates are blocked now', 'PASS' if state == 'blocked' else 'FAIL',
+                  {'blocked': 'flag on and all four names mapped', 'armed': 'flag on, hosts not mapped yet (applies at the next restart)',
+                   'hosts-only': 'flag off but still mapped until the next restart', 'open': 'neither: LG\'s update can reach this TV'}.get(state, 'state %r' % state))
+        with open(os.path.join(d, 'updateblock.json'), 'w') as fh:
+            json.dump(ev, fh, indent=1)
+        bad = [i['name'] for i in items if i['verdict'] in ('FAIL', 'ERROR')]
+        return {'verdict': 'FAIL' if bad else 'PASS', 'items': items, 'files': ['updateblock/updateblock.json', 'updateblock/etc-hosts-lge.txt'],
+                'detail': ('failed: ' + ', '.join(bad)) if bad else 'blocked: flag on, four names mapped, helper and lumatv agree'}
+
     # ================================================================================================= check: BLE scans
 
     # ============================================================================================= check: layout editor
@@ -1208,13 +1310,21 @@ class Slot:
         self.tv.put(os.path.join(HERE, 'burst.sh'), R + '/burst.sh')
         if on:
             mounts = self.sh("grep -c inputcommon /proc/mounts", 15).strip()
+            want = banner_tree()
             count = self.sh("find %s -name '*.qml' 2>/dev/null | wc -l" % IC_UPPER, 15).strip()
-            style = self.sh("[ -f %s/Components/LumaStyle.qml ] && echo present || echo missing" % IC_UPPER, 15).strip()
+            absent = self.sh('echo missing-files; for f in %s; do [ -f %s/$f ] || echo "$f"; done' % (' '.join(shlex.quote(f) for f in want['files']), IC_UPPER), 15).replace('missing-files', '').split()
+            absent = [a for a in absent if a != 'none']
             aside = self.sh('ls -A /tmp/checkpoint 2>/dev/null', 15)
             ok_aside = '.lumatv-aside.com.webos.app.inputcommon' in aside and not re.search(r'(^|\n)com\.webos\.app\.inputcommon(\n|$)', aside)
             self.item(items, 'overlay mounted', 'PASS' if mounts.isdigit() and int(mounts) > 0 else 'FAIL', '%s inputcommon lines in /proc/mounts' % mounts)
-            self.item(items, 'patched tree: %d .qml files' % IC_FILES, 'PASS' if count == str(IC_FILES) else 'FAIL', '%s files in %s' % (count, IC_UPPER))
-            self.item(items, 'LumaStyle.qml present', 'PASS' if style == 'present' else 'FAIL', style)
+            if want['count'] is not None:
+                self.item(items, 'patched tree: %d .qml files' % want['count'], 'PASS' if count == str(want['count']) else 'FAIL',
+                          '%s files in %s; %d expected from running tools/inputcommon_patch.py on the census copy of LG\'s tree' % (count, IC_UPPER, want['count']))
+            else:
+                self.item(items, 'patched tree: at least %d .qml files' % want['at_least'], 'PASS' if count.isdigit() and int(count) >= want['at_least'] else 'FAIL',
+                          '%s files in %s; no census copy of LG\'s tree on this host, so only the lower bound from tools/inputcommon_patch.py' % (count, IC_UPPER))
+            self.item(items, 'patch files present (incl. LumaStyle.qml)', 'PASS' if not absent else 'FAIL',
+                      '%d of %d from tools/inputcommon_patch.py%s' % (len(want['files']) - len(absent), len(want['files']), ('; missing: ' + ', '.join(absent)) if absent else ''))
             self.item(items, 'LG dump set aside', 'PASS' if ok_aside else 'FAIL', aside.strip().replace('\n', ' ')[:200])
         # the pill and the no-signal sheet: one burst of HDMI N
         frames, proc, launch_ms = self.burst('pill', app, 12000, sub)
@@ -1380,7 +1490,7 @@ class Slot:
         self.sh('mkdir -p %s' % R, 15)
         self.tv.put(os.path.join(PERF, 'kb.py'), KB)
         chosen = [c for c in CHECK_ORDER if (not self.args.only or c in self.args.only) and c not in self.args.skip]
-        fns = {'speed': self.check_speed, 'settings': self.check_settings, 'plugins': self.check_plugins, 'layout': self.check_layout, 'ble': self.check_ble, 'banners': self.check_banners}
+        fns = {'speed': self.check_speed, 'settings': self.check_settings, 'plugins': self.check_plugins, 'layout': self.check_layout, 'updateblock': self.check_updateblock, 'ble': self.check_ble, 'banners': self.check_banners}
         aborted = None
         try:
             for name in chosen:

@@ -5,6 +5,7 @@ Channel's flag file and what /etc/hosts maps), by the same rules as the helper's
 """
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -84,6 +85,59 @@ class UpdateBlock(unittest.TestCase):
         self.assertIn('"updateBlock":%s}', text)
         self.assertIn('"$compositor" "$updateblock"', text)
         self.assertIn("updateblock) verb_updateblock", text)
+
+
+class WholeTool(unittest.TestCase):
+    """The real tools/lumatv run as a command, in a copy of the app tree whose data directory is a temporary one: the verbs must find
+    their functions (a paste into the middle of another function once made `updateblock_json: not found` and `verb_updateblock: not found`)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.app = os.path.join(self.tmp.name, "app")
+        os.makedirs(os.path.join(self.app, "tools"))
+        for f in os.listdir(os.path.join(ROOT, "tools")):
+            src = os.path.join(ROOT, "tools", f)
+            if os.path.isfile(src):
+                shutil.copy(src, os.path.join(self.app, "tools", f))
+        shutil.copy(os.path.join(ROOT, "appinfo.json"), self.app)
+        shutil.copy(os.path.join(ROOT, "brand.json"), self.app)
+        # brand.sh insists on a data directory under /var/lib; the copy of the tool keeps every line but this one, which points at a temporary one
+        tool = os.path.join(self.app, "tools", "lumatv")
+        with open(tool) as f:
+            text = f.read()
+        self.assertEqual(text.count('\nSTATE="$BRAND_DATA_DIR"\n'), 1)
+        with open(tool, "w") as f:
+            f.write(text.replace('\nSTATE="$BRAND_DATA_DIR"\n', '\nSTATE="%s"\n' % os.path.join(self.tmp.name, "data")))
+        self.flag = os.path.join(self.tmp.name, "flag")
+        self.hosts = os.path.join(self.tmp.name, "hosts")
+        with open(self.hosts, "w") as f:
+            f.write(HBC)
+        open(self.flag, "w").close()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_tool(self, *args):
+        env = dict(os.environ, UB_FLAG=self.flag, UB_HOSTS=self.hosts)
+        p = subprocess.run(["sh", os.path.join(self.app, "tools", "lumatv")] + list(args), env=env, capture_output=True, text=True, timeout=120)
+        return p.returncode, p.stdout, p.stderr
+
+    def test_the_verb_answers(self):
+        rc, out, err = self.run_tool("updateblock", "status")
+        self.assertEqual((rc, "not found" in err), (0, False), err)
+        u = json.loads(out)["updateBlock"]
+        self.assertEqual((u["state"], u["live"], u["flag"]), ("blocked", True, True))
+
+    def test_status_carries_the_key_and_prints_no_shell_error(self):
+        rc, out, err = self.run_tool("status")
+        self.assertNotIn("not found", err)
+        self.assertEqual(json.loads(out)["updateBlock"]["state"], "blocked")
+        os.remove(self.flag)
+        self.assertEqual(json.loads(self.run_tool("status")[1])["updateBlock"]["state"], "hosts-only")
+
+    def test_a_bad_argument_is_refused(self):
+        rc, out, err = self.run_tool("updateblock", "on")
+        self.assertEqual((rc, json.loads(out)["ok"]), (1, False))
 
 
 if __name__ == "__main__":

@@ -96,6 +96,55 @@ class DryRun(unittest.TestCase):
             self.assertTrue(os.path.exists(os.path.join(d, 'plugins', 'plugins.json')))
 
 
+class BannerTree(unittest.TestCase):
+    def test_expectations_come_from_the_patch_not_from_constants(self):
+        t = r19.banner_tree()
+        self.assertIn("UserInterfaceLayer/Components/LumaStyle.qml", t["files"])      # one level deeper than the first guess
+        self.assertIn("UserInterfaceLayer/GlobalStyle.qml", t["files"])
+        self.assertEqual(len(t["files"]), len(set(t["files"])))
+        self.assertGreaterEqual(t["at_least"], 20)
+        self.assertFalse(hasattr(r19, "IC_FILES"))
+        if t["count"] is not None:                                                    # with the census copy of LG's tree on this host
+            self.assertGreaterEqual(t["count"], t["at_least"])
+
+    def test_the_banner_check_asks_the_set_for_every_derived_file(self):
+        d = tempfile.mkdtemp()
+        tv = r19.DryTv()
+        r19.Slot(r19.parse_args(["--dry-run", "--out", d]), tv).check_banners()
+        cmd = next(c for c in tv.commands if "missing-files" in c)
+        for rel in r19.banner_tree()["files"]:
+            self.assertIn(rel, cmd)
+
+
+class UpdateBlockCheck(unittest.TestCase):
+    def run_check(self):
+        d = tempfile.mkdtemp()
+        tv = r19.DryTv()
+        return r19.Slot(r19.parse_args(["--dry-run", "--out", d]), tv).check_updateblock(), tv, d
+
+    def test_passes_on_a_blocked_set_and_writes_nothing_to_it(self):
+        res, tv, d = self.run_check()
+        by = {i["name"]: i["verdict"] for i in res["items"]}
+        self.assertEqual(res["verdict"], "PASS", res)
+        self.assertEqual(by["/etc/hosts maps LG's four update servers to loopback"], "PASS")
+        self.assertEqual(by["Homebrew Channel's blockUpdates (the switch)"], "PASS")
+        self.assertEqual(tv.problems, [])
+        for banned in ("setConfiguration", "POST", "> /etc", ">> /etc", "rm ", "mount "):
+            self.assertFalse([c for c in tv.commands if banned in c], banned)
+        self.assertTrue(os.path.exists(os.path.join(d, "updateblock", "etc-hosts-lge.txt")))
+
+    def test_fails_when_the_switch_reads_off(self):
+        d = tempfile.mkdtemp()
+
+        class Off(r19.DryTv):
+            def sh(self, cmd, timeout=60):
+                out = super().sh(cmd, timeout)
+                return out.replace('"blockUpdates":true', '"blockUpdates":false') if "getConfiguration" in cmd else out
+        res = r19.Slot(r19.parse_args(["--dry-run", "--out", d]), Off()).check_updateblock()
+        self.assertEqual(res["verdict"], "FAIL")
+        self.assertIn("Homebrew Channel's blockUpdates (the switch)", res["detail"])
+
+
 class Layout(unittest.TestCase):
     def slot(self):
         d = tempfile.mkdtemp()
