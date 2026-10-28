@@ -69,8 +69,10 @@ clear and the card's own pixels.
 ## The tile, the splash and the shell
 
 Home tells the compositor where the tile is, in Home's coordinates, before it asks the app manager for the app
-(`luna://com.webos.surfacemanager/setLaunchOrigin {appId, tile: {x, y, width, height, radius}, from: {…} | null}`, in the shell's allowlist; the
-tile's plate, inset 19 for floating tiles, radius `radii.tile`). The compositor remembers it for the way back (48 apps). A launch screen
+(`luna://com.webos.surfacemanager/setLaunchOrigin {appId, tile: {x, y, width, height, radius}, from: {…} | null}`, in the shell's allowlist and in the
+bridge's method table (`compositor/sm/lumatv-sm.c`, `m_surfacemanager`: **the TV needs the rebuilt `lumatv-sm`**; without it the call is refused as an
+unknown method and every card grows from the middle of the screen, `ctl transitions` `origins` stays empty); the tile is the lifted, focused one
+(plate inset 19 for floating tiles, `focus.tileScale` 1.12 about its centre, radius `radii.tile` times that). The compositor remembers it for the way back (48 apps). A launch screen
 (`Splash`) over the tile hides what the card grows from, so with transitions on it waits 400 ms (`LumaHome.splashWaitMs`): an app that has
 a window by then (`appFronted`, from the `foreground` topic) never shows it; a slow one gets it fading in over `labelMs`, and 50 ms later
 Home tells the compositor where its icon is (`from`), which is where the card grows from then; the way back is always the tile. Without the
@@ -122,7 +124,7 @@ with its brightness, the card with its mask); a veil adds a flat one. Pictures a
 Counters from `ctl transitions` read before and after; the frame gate's rule is the one in `compositor/tools/tv-gate.sh`.
 
 1. Off by default: `ctl transitions` says `enabled: false`; `lumatv transitions status` says `on: false, compositor: own`; a launch of Plex from its tile cuts as before.
-2. `lumatv transitions on`; within 3 s `ctl transitions` says `enabled: true` and the shell has the topic (a launch now sends `/setLaunchOrigin`: `ctl journal`).
+2. `lumatv transitions on`; within 3 s `ctl transitions` says `enabled: true`. Launch Plex from its tile: `origins` then lists `com.beb.plxnative` with a tile of about 134 square (if it stays empty the bridge is the old `lumatv-sm`: rebuild and deploy it, `compositor/tools/build-tv.sh`).
 3. Warm launch from a tile (Plex, YouTube): no launch screen; the card grows out of the tile in 220 ms from the first frame of the app; `launches` +1, `lateGaps` 0, `maxGapMs` 20 or less; the frame gate's probe over the launch has no frame over 20 ms; the app has the keys from its first frame (press a key at 100 ms: it arrives).
 4. Slow launch (Apple TV, about 20 s): the launch screen fades in at 400 ms; when the app maps the card grows out of the icon; Home's launch screen is gone after the move.
 5. Home from an app: the card shrinks into its tile in 180 ms, Home brightens; `leaves` +1; the first Home frame after has no stale launch screen.

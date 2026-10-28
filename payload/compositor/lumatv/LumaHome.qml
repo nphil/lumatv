@@ -287,12 +287,16 @@ Item {
     property bool smoothLaunch: false
     readonly property int splashWaitMs: 400
     property string launchingId: ""
-    function noteLaunchOrigin(appId, tile) {
+    readonly property real focusedTileLift: (theme.focus && theme.focus.tileScale) || 1
+    // `lift` is how much bigger the tile is drawn than its place on the dock: the focused tile is lifted (`focus.tileScale`) about its centre, and the
+    // card grows out of what is on the screen, not out of the place.
+    function noteLaunchOrigin(appId, tile, lift) {
         launchingId = appId
         if (!smoothLaunch || !tile) return
-        var r = tile.rect, inset = tile.floating ? ((theme.tiles && theme.tiles.inset) || 19) : 0
+        var r = tile.rect, inset = tile.floating ? ((theme.tiles && theme.tiles.inset) || 19) : 0, k = lift || 1
+        var w = (r.width - 2 * inset) * k, h = (r.height - 2 * inset) * k
         LS.adhoc.call("luna://com.webos.surfacemanager", "/setLaunchOrigin", JSON.stringify({ appId: appId, from: null,
-            tile: { x: r.x + inset, y: r.y + inset, width: r.width - 2 * inset, height: r.height - 2 * inset, radius: Lu.radius("tile") } }))
+            tile: { x: r.x + r.width / 2 - w / 2, y: r.y + r.height / 2 - h / 2, width: w, height: h, radius: Lu.radius("tile") * k } }))
     }
     function noteSplashOrigin(rect, radius) {
         if (!smoothLaunch || launchingId === "") return
@@ -1257,7 +1261,7 @@ Item {
             rested: root.focusRested
             onRowChanged: root.dockRow = row
             onColChanged: root.dockCol = col
-            onLaunchingFrom: root.noteLaunchOrigin(appId, tile)
+            onLaunchingFrom: root.noteLaunchOrigin(appId, tile, root.focusedTileLift)
             onLaunching: layers.launchSplash(title, iconUrl)
             onAppsRequested: root.openApps()
             onMenuRequested: root.openTileMenu()

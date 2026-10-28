@@ -475,6 +475,11 @@ impl Transitions {
         }
     }
 
+    /// The tiles remembered, by app.
+    pub fn origins(&self) -> &[(String, Origin)] {
+        &self.origins
+    }
+
     pub fn origin_of(&self, app_id: &str) -> Option<&Origin> {
         self.origins.iter().find(|(a, _)| a == app_id).map(|(_, o)| o)
     }
@@ -1008,6 +1013,7 @@ impl crate::State {
             "theme": {"on": self.motion.on, "reduced": self.motion.reduced},
             "forced": self.motion.forced,
             "active": t.active(),
+            "origins": t.origins().iter().map(|(app, o)| serde_json::json!({"app": app, "tile": {"x": o.tile.x, "y": o.tile.y, "w": o.tile.w, "h": o.tile.h, "radius": o.radius}, "from": o.from.is_some()})).collect::<Vec<_>>(),
             "tracks": tracks,
             "stats": {
                 "launches": t.stats.launches, "leaves": t.stats.leaves, "switches": t.stats.switches, "interrupted": t.stats.interrupted,

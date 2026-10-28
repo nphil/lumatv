@@ -65,7 +65,9 @@ class LaunchOrigin(HostCase):
         self.assertIsNone(first["from"], "a launch starts from its tile: a splash origin left from before is taken back")
         t = first["tile"]
         self.assertTrue(t["width"] > 40 and t["height"] > 40 and t["x"] >= 0 and t["y"] > 300, t)
-        self.assertEqual(t["radius"], 22)
+        # the focused tile is lifted (theme focus.tileScale, 1.12), and what the card grows out of is what is on the screen
+        self.assertAlmostEqual(t["radius"], 22 * 1.12, places=3)
+        self.assertAlmostEqual(t["width"], t["height"], places=3)
         self.assertEqual(got["splash_early"], "", "no launch screen yet: the tile is what the card grows from")
         # the app is slow: the launch screen came (400 ms), and its icon is where the card grows from now
         self.assertEqual(got["splash_late"], "launch")
