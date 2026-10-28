@@ -19,14 +19,18 @@ fi
 probe=$b/lumatv-npu-probe
 stub=$b/libstub-npu-delegate.so
 # The NNAPI route loads libneuralnetworks.so by name: NN_LIB is the directory the stub runtime is picked from, NN_ENV its switches
-# (stub/stub_nnapi.cc), both applied inside the subshell that runs the probe.
+# (stub/stub_nnapi.cc), both applied inside the subshell that runs the probe. GPU_ENV is the same for the switches of the GPU stubs
+# (stub/stub_gpu_delegate.cc, stub/stub_opencl.cc) and any other variable a test needs; values hold no spaces.
 NN_LIB=
 NN_ENV=
+GPU_ENV=
 nnenv() {
   [ -n "$NN_LIB" ] && export LD_LIBRARY_PATH="$NN_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-  for kv in $NN_ENV; do export "$kv"; done
+  for kv in $NN_ENV $GPU_ENV; do export "$kv"; done
 }
-[ -x "$probe" ] && [ -f "$stub" ] && [ -f "$b/libnot-a-delegate.so" ] || { echo "build first: build.sh $target" >&2; exit 2; }
+gpu_stub=$b/libstub-gpu-delegate.so
+cl_stub=$b/opencl-stub/libOpenCL.so.1
+[ -x "$probe" ] && [ -f "$stub" ] && [ -f "$b/libnot-a-delegate.so" ] && [ -f "$gpu_stub" ] && [ -f "$cl_stub" ] || { echo "build first: build.sh $target" >&2; exit 2; }
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -146,6 +150,101 @@ NN_ENV=
 t "nnapi: no libneuralnetworks.so, exit 3" 3 'libneuralnetworks.so is not loadable' 'nnapi_applied=0' -- --model "$m/float_net.tflite" $nnc --require-delegate
 t "nnapi: --nnapi-list without a runtime" 0 'libneuralnetworks.so is not loadable' -- --nnapi-list
 
+# --- the GPU route. --gpu-lib takes the stub's three entry points (stub/stub_gpu_delegate.cc: it claims the ops of STUB_GPU_OPS, the
+# largest `partitions` pieces of them, and computes by running the whole model in a nested interpreter); the built-in TFLite delegate and
+# --gpu-coverage need no GPU and run the real selection code; --opencl-lib takes the stand-in ICD loader (stub/stub_opencl.cc).
+gc="--runs 8 --warmup 1 --threads $T --cpu-backend builtin --gpu --gpu-lib $gpu_stub"
+gc_builtin="--runs 8 --warmup 1 --threads $T --cpu-backend builtin --gpu"
+: > "$tmp/gpu.log"
+# gl NAME TEXT : the option line the stub delegate logged last must contain TEXT
+gl() { if tail -n 1 "$tmp/gpu.log" | grep -Fq -- "$2"; then ok "$1"; else bad "$1 (logged: $(tail -n 1 "$tmp/gpu.log"))"; fi; }
+GPU_ENV="STUB_GPU_MODEL=$m/float_net.tflite STUB_GPU_LOG=$tmp/gpu.log"
+t "gpu: the stub takes the whole float graph, outputs identical" 0 'delegate: .*libstub-gpu-delegate.so' '1 delegate kernel\(s\) took 3 node\(s\), 0 left on the CPU' \
+  'delegated ops: ADD x1, CONV_2D x1, DEPTHWISE_CONV_2D x1' 'set-up [0-9.]+ ms \(delegate and tensors\), first invoke' 'outputs vs CPU: identical' \
+  'gpu_applied=1' 'gpu_init_ms=' 'gpu_first_ms=' 'gpu_outputs=identical' -- --model "$m/float_net.tflite" $gc --require-delegate
+gl "gpu: default options reach the delegate (fp32, sustained, one partition, OpenCL only, quantised ops on)" 'precision_loss=0 pref=1 p1=1 p2=0 p3=0 flags=3 partitions=1 dir=(none) token=(none)'
+t "gpu: fp16, fast start, three partitions, quant off, any backend" 0 'GPU delegate \(precision=fp16 quant=false pref=fast partitions=3 backend=any\)' 'gpu_applied=1' -- \
+  --model "$m/float_net.tflite" $gc --gpu-opt precision=fp16 --gpu-opt pref=fast --gpu-opt partitions=3 --gpu-opt quant=false --gpu-opt backend=any
+gl "gpu: those options reach the delegate (precision loss on, MIN_LATENCY, FAST_SINGLE_ANSWER, no flags, 3 partitions)" 'precision_loss=1 pref=0 p1=2 p2=0 p3=0 flags=0 partitions=3'
+t "gpu: balanced preference" 0 'gpu_applied=1' -- --model "$m/float_net.tflite" $gc --gpu-opt pref=balanced
+gl "gpu: balanced is BALANCED (2)" 'pref=2'
+t "gpu: a kernel cache directory is created, fingerprinted per model and reported" 0 'kernel cache .*: 0 file\(s\), 0 KiB' 'gpu_applied=1' -- --model "$m/float_net.tflite" $gc --gpu-opt cache="$tmp/kcache"
+gl "gpu: the cache reaches the delegate (serialisation on, directory, 16-digit token)" "flags=11 partitions=1 dir=$tmp/kcache token="
+if tail -n 1 "$tmp/gpu.log" | grep -Eq 'token=[0-9a-f]{16}$' && [ -d "$tmp/kcache" ]; then ok "gpu: the token is 16 hex digits and the directory exists"; else bad "gpu: cache token or directory"; fi
+GPU_ENV="STUB_GPU_MODEL=$m/float_net.tflite STUB_GPU_LOG=$tmp/gpu.log STUB_GPU_OPS=ADD"
+t "gpu: the support list can be narrowed" 0 '1 delegate kernel\(s\) took 1 node\(s\), 2 left on the CPU' 'delegated ops: ADD x1$' 'outputs vs CPU: identical' -- --model "$m/float_net.tflite" $gc --require-delegate
+GPU_ENV="STUB_GPU_MODEL=$m/float_net.tflite STUB_GPU_LOG=$tmp/gpu.log STUB_GPU_OPS=CONV_2D,ADD"
+t "gpu: two pieces, one partition: the first of the largest takes one node" 0 '1 delegate kernel\(s\) took 1 node\(s\), 2 left on the CPU' 'outputs vs CPU: identical' -- --model "$m/float_net.tflite" $gc
+t "gpu: two pieces, partitions=2: two kernels take two nodes" 0 '2 delegate kernel\(s\) took 2 node\(s\), 1 left on the CPU' 'delegated ops: ADD x1, CONV_2D x1' 'outputs vs CPU: identical' -- \
+  --model "$m/float_net.tflite" $gc --gpu-opt partitions=2
+GPU_ENV="STUB_GPU_MODEL=$m/float_net.tflite STUB_GPU_LOG=$tmp/gpu.log STUB_GPU_COMPUTE=none"
+t "gpu: a delegate that takes the nodes and computes nothing is caught, exit 5" 5 'WARNING: every output value is zero' 'gpu_applied=1' 'gpu_outputs=zero' -- --model "$m/float_net.tflite" $gc --require-delegate
+# a detector: rows sorted by score come back in another order with slightly other scores and boxes (what a GPU's arithmetic does); the raw tensors differ, the detections are the same
+GPU_ENV="STUB_GPU_MODEL=$m/det_b.tflite STUB_GPU_LOG=$tmp/gpu.log"
+t "gpu: the same detections in another order and with other scores are close, not different" 0 '1 delegate kernel\(s\) took 4 node\(s\), 0 left on the CPU' 'outputs vs CPU: max \|difference\| .*\(differ\)' \
+  'detections vs CPU: the same \(2 against 2 at or above 0.30\)' 'gpu_outputs=close' -- --model "$m/det_a.tflite" $gc --require-delegate
+GPU_ENV="STUB_GPU_MODEL=$m/det_c.tflite STUB_GPU_LOG=$tmp/gpu.log"
+t "gpu: a detector that loses a detection is caught, exit 5" 5 'detections vs CPU: class 0 score 0.80 .* of the CPU.s list has no partner in the other' 'WARNING: the accelerator.s outputs are not the CPU.s' \
+  'gpu_outputs=differ' -- --model "$m/det_a.tflite" $gc --require-delegate
+GPU_ENV="STUB_GPU_MODEL=$m/float_net.tflite STUB_GPU_LOG=$tmp/gpu.log STUB_GPU_OPS=none"
+t "gpu: a delegate that supports nothing takes no node, exit 3" 3 'claimed no node' 'GPU delegate NOT APPLIED' 'gpu_applied=0' -- --model "$m/float_net.tflite" $gc --require-delegate
+GPU_ENV="STUB_GPU_MODEL=$m/float_net.tflite STUB_GPU_LOG=$tmp/gpu.log STUB_GPU_FAIL=prepare"
+t "gpu: a delegate that cannot start refuses the graph, the CPU path runs, exit 3" 3 'delegate is not initialized' 'GPU delegate refused the graph' 'outputs vs CPU: identical' 'gpu_applied=0' -- \
+  --model "$m/float_net.tflite" $gc --require-delegate
+GPU_ENV="STUB_GPU_MODEL=$m/float_net.tflite STUB_GPU_LOG=$tmp/gpu.log STUB_GPU_FAIL=create"
+t "gpu: a delegate that cannot be created, exit 3" 3 'GPU delegate not created: TfLiteGpuDelegateV2Create returned null' 'gpu_ran=0' -- --model "$m/float_net.tflite" $gc --require-delegate
+GPU_ENV="STUB_GPU_MODEL=$m/float_net.tflite STUB_GPU_LOG=$tmp/gpu.log STUB_GPU_DELAY_US=3000"
+t "gpu: a 3 ms device" 0 'gpu_applied=1' 'outputs vs CPU: identical' -- --model "$m/float_net.tflite" $gc
+ms=$(printf '%s\n' "$last" | sed -n 's/.*gpu_mean_ms=\([0-9.]*\).*/\1/p')
+if [ -n "$ms" ] && [ "$(echo "$ms" | awk '{print ($1 >= 3.0 && $1 < 20.0)}')" = 1 ]; then ok "gpu: the timed phase includes the device's 3 ms ($ms)"; else bad "gpu: timing ($ms)"; fi
+# the Mali counters (LG's debugfs file) as a file a background loop keeps moving: 30 busy to 70 idle in every step
+mali=$tmp/dvfs_utilization
+printf 'busy_time: 0\nidle_time: 0\n' > "$mali"
+( i=0; while [ $i -lt 400 ]; do i=$((i + 1)); printf 'busy_time: %d\nidle_time: %d\n' $((i * 30)) $((i * 70)) > "$mali.new"; mv "$mali.new" "$mali"; sleep 0.02; done ) &
+writer=$!
+t "gpu: the Mali counters give the busy share while the probe waits and while it runs, and the cost per inference" 0 'Mali busy with nothing of the probe.s running: 30.0%' \
+  'Mali busy: 30.0% over the timed loop' 'gpu_mali_pct=30.0' 'mali_idle_pct=30.0' 'gpu_ms_per_inference=0.0' -- --model "$m/float_net.tflite" $gc --runs 30 --gpu-proc "$mali"
+kill "$writer" 2>/dev/null; wait "$writer" 2>/dev/null
+t "gpu: counters that are not there are skipped without noise" 0 'gpu_applied=1' -- --model "$m/float_net.tflite" $gc --gpu-proc "$tmp/no-such-file"
+n "gpu: no Mali line without counters" 'Mali busy'
+GPU_ENV=
+t "gpu-lib: a missing library" 3 'GPU delegate not created: dlopen failed' 'gpu_ran=0' -- --model "$m/float_net.tflite" --runs 2 --cpu-backend none --gpu --gpu-lib /nonexistent/libgpu.so --require-delegate
+t "gpu-lib: a library that is not a GPU delegate" 3 'is not a GPU delegate library' -- --model "$m/float_net.tflite" --runs 2 --cpu-backend none --gpu --gpu-lib "$b/libnot-a-delegate.so" --require-delegate
+# the delegate built into the probe, on a machine whose ICD loader has no driver (an empty vendor directory): TFLite's own refusal, and the CPU path runs
+mkdir "$tmp/noicd"
+GPU_ENV="OCL_ICD_VENDORS=$tmp/noicd"
+t "gpu: no OpenCL driver: the built-in delegate refuses the graph, exit 3" 3 'no OpenCL device' 'GPU delegate coverage' 'the GPU delegate can take 3 of them' 'GPU delegate refused the graph' \
+  'gpu_applied=0' 'outputs vs CPU: identical' -- --model "$m/float_net.tflite" $gc_builtin --require-delegate
+GPU_ENV=
+
+# the coverage report: the delegate's own selection code on the generated models, no device
+t "gpu-coverage: the whole float graph is taken" 0 'GPU delegate coverage' 'nodes: 3; the GPU delegate can take 3 of them in 1 piece\(s\) of 3' 'on the GPU: ADD x1, CONV_2D x1, DEPTHWISE_CONV_2D x1' 'on the CPU: \(none\)' -- \
+  --model "$m/float_net.tflite" --gpu-coverage
+n "gpu-coverage runs nothing" '== '
+t "gpu-coverage: LG's op set is taken whole with quantised ops on" 0 'nodes: 7; the GPU delegate can take 7 of them in 1 piece\(s\) of 7' 'on the CPU: \(none\)' -- --model "$m/int8_net.tflite" --gpu-coverage
+t "gpu-coverage: quant=false leaves the quantised graph to the CPU and says why" 0 'can take 0 of them' 'QUANTIZE: Operation is not supported' 'No operations will run on the GPU, and all 7 operations will run on the CPU' -- \
+  --model "$m/int8_net.tflite" --gpu-coverage --gpu-opt quant=false
+t "gpu-coverage: a model without nodes" 0 'nodes: 0; the GPU delegate can take 0 of them' -- --model "$m/ssd_const.tflite" --gpu-coverage
+
+# --gpu-info through the stand-in ICD loader
+t "gpu-info: the stand-in loader's platform and device" 0 'OpenCL: ICD loader .*libOpenCL.so.1' 'platform \[0\] Stub ARM Platform' 'device \[0.0\] Stub GPU \(Mali-G52 shaped\) \(GPU\)' \
+  '3 compute units at up to 800 MHz, global memory 1024 MiB' 'fp16 arithmetic yes, images yes, int8 dot product yes, priority hints yes' 'Mali counters .*: not readable' -- --gpu-info --opencl-lib "$cl_stub"
+GPU_ENV="STUB_OPENCL_NO_FP16=1"
+t "gpu-info: a device without cl_khr_fp16" 0 'fp16 arithmetic no' -- --gpu-info --opencl-lib "$cl_stub"
+GPU_ENV="STUB_OPENCL_NONE=1"
+t "gpu-info: a loader that finds no platform, exit 3" 3 'no OpenCL platform \(clGetPlatformIDs -1001, CL_PLATFORM_NOT_FOUND_KHR\)' -- --gpu-info --opencl-lib "$cl_stub"
+GPU_ENV=
+t "gpu-info: --opencl-icd reaches the environment before the loader is used" 0 'OCL_ICD_FILENAMES=/usr/lib/libmali.so.0' 'Stub ARM Platform \[OCL_ICD_FILENAMES=/usr/lib/libmali.so.0\]' -- \
+  --gpu-info --opencl-lib "$cl_stub" --opencl-icd /usr/lib/libmali.so.0
+mkdir "$tmp/icd"
+printf 'libm.so.6\n' > "$tmp/icd/a.icd"
+printf '/nonexistent/libmali.so\n' > "$tmp/icd/b.icd"
+GPU_ENV="OCL_ICD_VENDORS=$tmp/icd"
+t "gpu-info: the .icd files are listed with what they point at and whether that loads" 0 'a.icd -> libm.so.6 \(that library loads\)' 'b.icd -> /nonexistent/libmali.so \(does not load' -- --gpu-info --opencl-lib "$cl_stub"
+GPU_ENV=
+t "gpu-info: no loader at all, exit 3" 3 'ICD loader not loaded' -- --gpu-info --opencl-lib /nonexistent/libOpenCL.so.1
+t "gpu-info needs no model" 0 'GPU delegate: TFLite [0-9.]+ GPU delegate V2 built into the probe' -- --gpu-info --opencl-lib "$cl_stub"
+
 t "detections are decoded, sorted, thresholded and named" 0 'person +0.910 +box y 0.100..0.600 x 0.200..0.500' 'dog +0.620' -- --model "$m/ssd_const.tflite" --runs 2 --warmup 0 --cpu-backend builtin
 n "detection below the threshold is hidden" 'cat +0.120'
 t "threshold and top-k" 0 'person +0.910' 'cat +0.120' -- --model "$m/ssd_const.tflite" --runs 1 --warmup 0 --cpu-backend builtin --min-score 0.1 --top 3
@@ -155,7 +254,14 @@ t "labels file" 0 'thing-zero +0.910' 'class 17 +0.620' -- --model "$m/ssd_const
 t "bad usage" 2 'usage:' -- --runs 3
 t "delegate option without a value" 2 'wants KEY=VALUE' -- --model "$m/float_net.tflite" --delegate-opt novalue
 t "system info without a model" 0 'probe runtime: TFLite [0-9]+\.[0-9]+\.[0-9]+' 'delegate: ' -- --system-info --delegate "$stub"
-t "nnapi and a delegate plugin are two routes" 2 'two routes' -- --model "$m/float_net.tflite" --nnapi --delegate "$stub"
+t "nnapi and a delegate plugin are separate routes" 2 'separate routes' -- --model "$m/float_net.tflite" --nnapi --delegate "$stub"
+t "gpu and nnapi are separate routes" 2 'separate routes' -- --model "$m/float_net.tflite" --gpu --nnapi
+t "gpu and a delegate plugin are separate routes" 2 'separate routes' -- --model "$m/float_net.tflite" --gpu --delegate "$stub"
+t "gpu option without a value" 2 'wants KEY=VALUE' -- --model "$m/float_net.tflite" --gpu-opt novalue
+t "gpu option with a bad choice" 2 'precision is one of fp32, fp16' -- --model "$m/float_net.tflite" --gpu-opt precision=fp8
+t "gpu option partitions out of range" 2 'partitions is a whole number from 1 to 64' -- --model "$m/float_net.tflite" --gpu-opt partitions=0
+t "gpu option quant is a boolean" 2 'quant is true or false' -- --model "$m/float_net.tflite" --gpu-opt quant=maybe
+t "gpu option with an unknown key" 2 'unknown --gpu-opt key' -- --model "$m/float_net.tflite" --gpu-opt bogus=1
 t "nnapi option without a value" 2 'wants KEY=VALUE' -- --model "$m/float_net.tflite" --nnapi-opt novalue
 t "nnapi option with a bad number" 2 'sdk is not a whole number' -- --model "$m/float_net.tflite" --nnapi-opt sdk=x
 t "nnapi option with an unknown key" 2 'unknown --nnapi-opt key' -- --model "$m/float_net.tflite" --nnapi-opt bogus=1
@@ -171,8 +277,28 @@ if [ -f "$det" ] && [ -f "$pics/5people.jpg" ]; then
   t "EfficientDet-Lite0 finds the people in LG's 5people.jpg" 0 'XNNPACK: [0-9]+ delegate kernel' -- --model "$det" --image "$pics/5people.jpg" $runs --top 10 --min-score 0.4 --labels "$models/coco_labels.txt"
   people=$(printf '%s\n' "$last" | grep -c '^  person ')
   if [ "$people" -ge 4 ]; then ok "5people.jpg: $people person detections"; else bad "5people.jpg: only $people person detections" "$last"; fi
+  # what TFLite 2.13.1's GPU delegate takes of the detector, by its own selection code (no GPU): everything but the post-processing op
+  t "EfficientDet-Lite0 int8: the GPU delegate takes 266 of 267 nodes in one piece" 0 'nodes: 267; the GPU delegate can take 266 of them in 1 piece\(s\) of 266' 'on the CPU: TFLite_Detection_PostProcess x1$' \
+    'CUSTOM TFLite_Detection_PostProcess' -- --model "$det" --gpu-coverage
+  ssd=$models/tf2_ssd_mobilenet_v2_coco17_ptq.tflite
+  if [ -f "$ssd" ]; then
+    t "SSD-MobileNetV2 int8: the GPU delegate takes 101 of 102 nodes in one piece" 0 'nodes: 102; the GPU delegate can take 101 of them in 1 piece\(s\) of 101' 'on the CPU: TFLite_Detection_PostProcess x1$' -- --model "$ssd" --gpu-coverage
+  fi
+  for f32 in mp_efficientdet_lite0_float32:263 mp_ssd_mobilenet_v2_float32:199; do
+    f=$models/${f32%%:*}.tflite
+    [ -f "$f" ] && t "${f32%%:*}: all ${f32##*:} nodes go to the GPU" 0 "nodes: ${f32##*:}; the GPU delegate can take ${f32##*:} of them in 1 piece" 'on the CPU: \(none\)' -- --model "$f" --gpu-coverage
+  done
 else
   echo "skip real-model test (run fetch-model.sh, and point NPU_TV_ROOT at a copy of the TV's files)"
+fi
+
+# --- gpu-ui-impact.py (the page-flip cadence sampler of the TV slot) against fake counter files
+if [ "$target" = host ]; then
+  if command -v python3 >/dev/null 2>&1; then
+    uiout=$(python3 "$here/test_ui_impact.py" 2>&1) && ok "gpu-ui-impact.py: 5 checks on fake counters" || bad "gpu-ui-impact.py" "$uiout"
+  else
+    echo "skip gpu-ui-impact.py tests (no python3)"
+  fi
 fi
 
 echo "$pass passed, $fail failed ($target)"

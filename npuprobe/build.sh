@@ -49,7 +49,7 @@ build() {
   esac
   cmake -S "$here" -B "$out/$target" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$toolchain" \
     -DTFLITE_SRC="$src" -DSTB_DIR="$stb" -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-  ninja -C "$out/$target" -j "$jobs" lumatv-npu-probe stub-npu-delegate stub-neuralnetworks stub-neuralnetworks-12 not-a-delegate make-test-models
+  ninja -C "$out/$target" -j "$jobs" lumatv-npu-probe stub-npu-delegate stub-gpu-delegate stub-opencl stub-neuralnetworks stub-neuralnetworks-12 not-a-delegate make-test-models
   echo "built $out/$target/lumatv-npu-probe"
 }
 

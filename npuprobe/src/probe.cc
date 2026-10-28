@@ -1,14 +1,18 @@
 // lumatv-npu-probe: time a .tflite model on the CPU and through an accelerator route, and say which nodes the accelerator
-// took: a TFLite external delegate (LG's libtflite-npu-delegate) or TFLite's NNAPI delegate over the device's NN HAL.
-// Built for the TV's 32-bit ARM userland and for the build host (stub-delegate and stub-NNAPI tests).
+// took: a TFLite external delegate (LG's libtflite-npu-delegate), TFLite's NNAPI delegate over the device's NN HAL, or TFLite's GPU
+// delegate on OpenCL (the TV's Mali-G52). Built for the TV's 32-bit ARM userland and for the build host (stub-delegate, stub-NNAPI and
+// stub-OpenCL tests).
 //
 //   lumatv-npu-probe --model m.tflite --image person.jpg --runs 100
 //       [--delegate /usr/lib/libtflite-npu-delegate.so.1 --delegate-opt min_freq=30]
 //       [--nnapi --nnapi-opt accelerator=lgnpu]
+//       [--gpu --gpu-opt precision=fp16]        --gpu-info: what OpenCL offers; --gpu-coverage: what the GPU delegate would take
 //
 // Output is plain text; the last line, SUMMARY, repeats the headline numbers as key=value pairs.
+#include <dirent.h>
 #include <dlfcn.h>
 #include <signal.h>
+#include <sys/stat.h>
 #include <ucontext.h>
 #include <unistd.h>
 
@@ -25,8 +29,10 @@
 
 #include "delegate_loader.h"
 #include "detect.h"
+#include "gpu_path.h"
 #include "image.h"
 #include "nnapi_path.h"
+#include "opencl_info.h"
 #include "sysinfo.h"
 #include "tensorflow/lite/builtin_ops.h"
 #include "tensorflow/lite/c/c_api.h"
@@ -63,6 +69,13 @@ struct Args {
   bool nnapi = false;
   bool nnapi_list = false;
   probe::NnapiOptions nnapi_opts;
+  bool gpu = false;
+  bool gpu_info = false;
+  bool gpu_coverage = false;
+  probe::GpuOptions gpu_opts;
+  std::string opencl_lib;  // the OpenCL ICD loader to open (default: the device's libOpenCL.so.1)
+  std::string opencl_icd;  // the vendor driver the loader should use without an .icd file (OCL_ICD_FILENAMES)
+  std::string mali_proc = "/sys/kernel/debug/mali0/dvfs_utilization";
 };
 
 void Usage() {
@@ -80,6 +93,14 @@ void Usage() {
       "  --nnapi                 instead of --delegate: TFLite's NNAPI delegate over the device's libneuralnetworks.so (the NN HAL route)\n"
       "  --nnapi-opt K=V         accelerator=NAME (lgnpu), sdk=N (Android level to assume), pref=low|fast|sustained, partitions=3, allow_cpu=true, allow_fp16=true\n"
       "  --nnapi-list            load libneuralnetworks.so, list its devices and exit\n"
+      "  --gpu                   instead of --delegate: TFLite's GPU delegate V2 on OpenCL (the delegate built into the probe)\n"
+      "  --gpu-opt K=V           precision=fp32|fp16, quant=true|false, pref=fast|sustained|balanced, partitions=N, backend=cl|gl|any, cache=DIR\n"
+      "  --gpu-lib LIB.so        take the GPU delegate from a library with TfLiteGpuDelegateV2Create/Delete/OptionsV2Default instead\n"
+      "  --opencl-lib LIB.so     the OpenCL ICD loader to open (default libOpenCL.so.1)\n"
+      "  --opencl-icd LIB.so     vendor driver for the loader to use without an .icd file (sets OCL_ICD_FILENAMES; e.g. /usr/lib/libmali.so.0)\n"
+      "  --gpu-info              list the OpenCL platforms and devices, the .icd files and the Mali counters, and exit (3: no device)\n"
+      "  --gpu-coverage          which nodes of the model the GPU delegate takes (needs no GPU) and exit\n"
+      "  --gpu-proc FILE         Mali busy/idle counters (/sys/kernel/debug/mali0/dvfs_utilization)\n"
       "  --labels FILE           class names, one per line (default: COCO)\n"
       "  --min-score X --top K   detection filter and count (0.3, 5)\n"
       "  --print-output          first values of every output tensor\n"
@@ -110,6 +131,12 @@ bool ParseArgs(int argc, char** argv, Args* a) {
       a->nnapi = true;
     } else if (f == "--nnapi-list") {
       a->nnapi_list = true;
+    } else if (f == "--gpu") {
+      a->gpu = true;
+    } else if (f == "--gpu-info") {
+      a->gpu_info = true;
+    } else if (f == "--gpu-coverage") {
+      a->gpu_coverage = true;
     } else if (f == "--print-output") {
       a->print_output = true;
     } else if (f == "-h" || f == "--help") {
@@ -117,7 +144,8 @@ bool ParseArgs(int argc, char** argv, Args* a) {
       std::exit(0);
     } else if (f == "--model" || f == "--image" || f == "--labels" || f == "--delegate" || f == "--delegate-opt" ||
                f == "--cpu-backend" || f == "--norm" || f == "--fill" || f == "--proc-dir" || f == "--runs" ||
-               f == "--warmup" || f == "--threads" || f == "--top" || f == "--min-score" || f == "--nnapi-opt") {
+               f == "--warmup" || f == "--threads" || f == "--top" || f == "--min-score" || f == "--nnapi-opt" ||
+               f == "--gpu-opt" || f == "--gpu-lib" || f == "--opencl-lib" || f == "--opencl-icd" || f == "--gpu-proc") {
       v = need(i, f.c_str());
       if (v == nullptr) return false;
       if (f == "--model") a->model = v;
@@ -135,7 +163,17 @@ bool ParseArgs(int argc, char** argv, Args* a) {
           std::fprintf(stderr, "%s\n", why.c_str());
           return false;
         }
-      } else if (f == "--cpu-backend") a->cpu_backend = v;
+      } else if (f == "--gpu-opt") {
+        std::string why;
+        if (!probe::ParseGpuOption(v, &a->gpu_opts, &why)) {
+          std::fprintf(stderr, "%s\n", why.c_str());
+          return false;
+        }
+      } else if (f == "--gpu-lib") a->gpu_opts.lib = v;
+      else if (f == "--opencl-lib") a->opencl_lib = v;
+      else if (f == "--opencl-icd") a->opencl_icd = v;
+      else if (f == "--gpu-proc") a->mali_proc = v;
+      else if (f == "--cpu-backend") a->cpu_backend = v;
       else if (f == "--norm") a->norm = v;
       else if (f == "--fill") a->fill = v;
       else if (f == "--proc-dir") a->proc_dir = v;
@@ -149,12 +187,12 @@ bool ParseArgs(int argc, char** argv, Args* a) {
       return false;
     }
   }
-  if (a->model.empty() && !a->system_info && !a->nnapi_list) {
+  if (a->model.empty() && !a->system_info && !a->nnapi_list && !a->gpu_info) {
     std::fputs("--model is required\n", stderr);
     return false;
   }
-  if (a->nnapi && !a->delegate.empty()) {
-    std::fputs("--nnapi and --delegate are two routes: one per run\n", stderr);
+  if ((a->nnapi ? 1 : 0) + (a->gpu ? 1 : 0) + (a->delegate.empty() ? 0 : 1) > 1) {
+    std::fputs("--delegate, --nnapi and --gpu are separate routes: one route per run\n", stderr);
     return false;
   }
   if (a->cpu_backend != "xnnpack" && a->cpu_backend != "builtin" && a->cpu_backend != "none") {
@@ -363,6 +401,9 @@ struct Phase {
   std::vector<double> ms;
   double cpu_ms_per_inference = 0;
   double cpu_percent = 0;
+  double init_ms = -1;       // delegate set-up: ModifyGraphWithDelegate and AllocateTensors (-1: not timed)
+  double first_ms = -1;      // the first invoke, where lazy set-up lands (-1: no warm-up run)
+  double mali_percent = -1;  // Mali busy share over the timed loop, from the debugfs counters (-1: not readable)
   probe::NpuSampler::Result npu;
   bool npu_sampled = false;
   std::vector<std::vector<float>> outputs;
@@ -489,6 +530,8 @@ void PrintStats(const Phase& p) {
               s.median, s.p95, s.max, s.stddev);
   std::printf("  process CPU: %.3f ms per inference, %.0f%% of one core over the timed loop\n", p.cpu_ms_per_inference,
               p.cpu_percent);
+  if (p.init_ms >= 0) std::printf("  set-up %.1f ms (delegate and tensors), first invoke %.1f ms\n", p.init_ms, p.first_ms < 0 ? 0.0 : p.first_ms);
+  if (p.mali_percent >= 0) std::printf("  Mali busy: %.1f%% over the timed loop\n", p.mali_percent);
   if (p.npu_sampled) {
     std::printf("  npu_utilization: %d samples, max %d, mean %.1f, non-zero %d\n", p.npu.samples, p.npu.max,
                 p.npu.mean, p.npu.nonzero);
@@ -498,12 +541,15 @@ void PrintStats(const Phase& p) {
 // Runs warm-up and timed loops on an interpreter whose tensors are allocated and whose input is filled.
 bool TimedRuns(tflite::Interpreter* in, const Args& args, Phase* p, std::string* error) {
   for (int i = 0; i < args.warmup; ++i) {
+    const double w0 = probe::WallSeconds();
     if (in->Invoke() != kTfLiteOk) {
       *error = "Invoke failed during warm-up";
       return false;
     }
+    if (i == 0) p->first_ms = (probe::WallSeconds() - w0) * 1e3;
   }
   probe::NpuSampler sampler(args.proc_dir);
+  const probe::MaliCounters mali0 = probe::ReadMaliCounters(args.mali_proc);
   const double cpu0 = probe::CpuSeconds(), wall0 = probe::WallSeconds();
   for (int i = 0; i < args.runs; ++i) {
     const double t0 = probe::WallSeconds();
@@ -516,6 +562,7 @@ bool TimedRuns(tflite::Interpreter* in, const Args& args, Phase* p, std::string*
     p->ms.push_back((t1 - t0) * 1e3);
   }
   const double cpu1 = probe::CpuSeconds(), wall1 = probe::WallSeconds();
+  p->mali_percent = probe::MaliBusyPercent(mali0, probe::ReadMaliCounters(args.mali_proc));
   p->npu_sampled = sampler.available();
   p->npu = sampler.Stop();
   p->cpu_ms_per_inference = (cpu1 - cpu0) * 1e3 / args.runs;
@@ -562,10 +609,40 @@ void ShowDetections(const Phase& p, const Args& args, const probe::Labels& label
     std::printf("  (%zu detections at or above %.2f, top %d shown)\n", p.detections.size(), args.min_score, args.top);
 }
 
+// Detector outputs are cut at a count and sorted by score, so a small change in a score moves rows and the raw tensors differ a lot while the
+// detections are the same. Compares the decoded lists: every detection a list holds with a score at least 0.1 above the threshold has a partner of
+// the same class in the other list (intersection over union at least 0.5), and partners' scores are within 0.15.
+float BoxIou(const probe::Detection& a, const probe::Detection& b) {
+  const float inter = std::max(0.f, std::min(a.ymax, b.ymax) - std::max(a.ymin, b.ymin)) * std::max(0.f, std::min(a.xmax, b.xmax) - std::max(a.xmin, b.xmin));
+  const float uni = (a.ymax - a.ymin) * (a.xmax - a.xmin) + (b.ymax - b.ymin) * (b.xmax - b.xmin) - inter;
+  return uni > 0 ? inter / uni : 0.f;
+}
+
+bool Covered(const std::vector<probe::Detection>& from, const std::vector<probe::Detection>& to, float strong, const char* from_name, std::string* why) {
+  for (const probe::Detection& d : from) {
+    if (d.score < strong) continue;
+    bool found = false;
+    for (const probe::Detection& e : to)
+      if (e.cls == d.cls && BoxIou(d, e) >= 0.5f && std::fabs(e.score - d.score) <= 0.15f) found = true;
+    if (!found) {
+      char buf[160];
+      std::snprintf(buf, sizeof buf, "class %d score %.2f box y %.2f..%.2f x %.2f..%.2f of the %s has no partner in the other", d.cls, d.score, d.ymin, d.ymax, d.xmin, d.xmax, from_name);
+      *why = buf;
+      return false;
+    }
+  }
+  return true;
+}
+
+bool SameDetections(const std::vector<probe::Detection>& cpu, const std::vector<probe::Detection>& dlg, float min_score, std::string* why) {
+  const float strong = min_score + 0.1f;
+  return Covered(cpu, dlg, strong, "CPU's list", why) && Covered(dlg, cpu, strong, "delegate's list", why);
+}
+
 // Where an accelerator's outputs stand against the CPU's: "identical"; "close" (every tensor within 2% of its largest CPU value, a
-// quantisation step or two); "zero" (all zero while the CPU's are not: a device that returned without computing); "differ".
-// "n/a" when there is nothing to compare with. An accelerator's time means nothing if it did not compute the answer.
-std::string CompareOutputs(const Phase& cpu, const Phase& dlg) {
+// quantisation step or two; or, for a detector, the same detections); "zero" (all zero while the CPU's are not: a device that returned
+// without computing); "differ". "n/a" when there is nothing to compare with. An accelerator's time means nothing if it did not compute the answer.
+std::string CompareOutputs(const Phase& cpu, const Phase& dlg, bool applied, float min_score) {
   if (!cpu.ran || !dlg.ran) return "n/a";
   if (cpu.outputs.size() != dlg.outputs.size()) {
     std::printf("  outputs: different tensor counts\n");
@@ -602,12 +679,24 @@ std::string CompareOutputs(const Phase& cpu, const Phase& dlg) {
     std::printf("  outputs vs CPU: identical (%zu values)\n", total);
     return "identical";
   }
-  const std::string verdict = (dlg_zero && !cpu_zero) ? "zero" : worst_ratio <= 0.02 ? "close" : "differ";
+  std::string verdict = (dlg_zero && !cpu_zero) ? "zero" : worst_ratio <= 0.02 ? "close" : "differ";
   std::printf("  outputs vs CPU: max |difference| %.6g in %s, %zu of %zu values differ (%s)\n", worst, worst_name.c_str(),
               differing, total, verdict.c_str());
-  if (verdict == "zero")
+  if (verdict == "differ" && cpu.detections_ok && dlg.detections_ok) {
+    std::string why;
+    if (SameDetections(cpu.detections, dlg.detections, min_score, &why)) {
+      std::printf("  detections vs CPU: the same (%zu against %zu at or above %.2f): the raw tensors differ because the rows are sorted by score\n",
+                  cpu.detections.size(), dlg.detections.size(), min_score);
+      verdict = "close";
+    } else {
+      std::printf("  detections vs CPU: %s\n", why.c_str());
+    }
+  }
+  // With no node taken the second phase is the CPU again (builtin kernels against the first phase's XNNPACK): a difference says nothing
+  // about the accelerator, and the "NOT APPLIED" line already says what the run was.
+  if (verdict == "zero" && applied)
     std::printf("  WARNING: every output value is zero: the accelerator returned without computing, so its time is not a measurement of this model\n");
-  else if (verdict == "differ")
+  else if (verdict == "differ" && applied)
     std::printf("  WARNING: the accelerator's outputs are not the CPU's: its time is not a measurement of this model\n");
   return verdict;
 }
@@ -748,6 +837,62 @@ static int NnapiList() {
   return 0;
 }
 
+// --gpu-info: what the device's OpenCL offers, the Mali counters, the delegate on hand. Read only; 3 when no device is listed.
+static int GpuInfo(const Args& args) {
+  const probe::OpenClInfo cl = probe::QueryOpenCl(args.opencl_lib, args.opencl_icd);
+  probe::PrintOpenClInfo(cl);
+  const probe::MaliCounters mali = probe::ReadMaliCounters(args.mali_proc);
+  std::printf("Mali counters %s: %s\n", args.mali_proc.c_str(),
+              mali.ok ? "readable (busy_time and idle_time)" : "not readable (debugfs not mounted, or not root)");
+  std::printf("GPU delegate: TFLite %s GPU delegate V2 built into the probe, OpenCL backend only\n", TfLiteVersion());
+  return probe::HasUsableDevice(cl) ? 0 : 3;
+}
+
+// The nodes of the model the GPU delegate takes, by the delegate's own selection code (needs no device).
+static bool ReportGpuCoverage(const Args& args, const ModelFacts& facts, bool opencl) {
+  probe::CaptureReporter reporter;
+  auto model = tflite::FlatBufferModel::BuildFromFile(args.model.c_str(), &reporter);
+  Interp it;
+  std::string error;
+  if (!model || !Build(*model, 1, facts.custom_ops, &it, &error)) {
+    std::printf("  coverage not computed: %s\n", model ? error.c_str() : "cannot load the model");
+    return false;
+  }
+  probe::GpuCoverage cov;
+  if (!probe::ComputeGpuCoverage(*it.interp, args.gpu_opts, opencl, reporter, &cov, &error)) {
+    std::printf("  coverage not computed: %s\n", error.c_str());
+    return false;
+  }
+  probe::PrintGpuCoverage(cov);
+  return true;
+}
+
+// Busy share of the Mali over |seconds| with nothing of the probe's running: what the UI and LG's services leave.
+static double MaliIdleShare(const Args& args, double seconds) {
+  const probe::MaliCounters a = probe::ReadMaliCounters(args.mali_proc);
+  if (!a.ok) return -1;
+  usleep(static_cast<useconds_t>(seconds * 1e6));
+  return probe::MaliBusyPercent(a, probe::ReadMaliCounters(args.mali_proc));
+}
+
+// What the kernel cache directory holds after a run.
+static void PrintKernelCache(const std::string& dir) {
+  DIR* d = opendir(dir.c_str());
+  if (d == nullptr) return;
+  int files = 0;
+  long long bytes = 0;
+  while (const dirent* e = readdir(d)) {
+    if (e->d_name[0] == '.') continue;
+    struct stat st;
+    if (stat((dir + "/" + e->d_name).c_str(), &st) == 0 && S_ISREG(st.st_mode)) {
+      ++files;
+      bytes += st.st_size;
+    }
+  }
+  closedir(d);
+  std::printf("  kernel cache %s: %d file(s), %lld KiB\n", dir.c_str(), files, bytes >> 10);
+}
+
 
 int main(int argc, char** argv) {
   InstallCrashReporter();
@@ -762,6 +907,7 @@ int main(int argc, char** argv) {
               sizeof(void*) * 8);
   if (args.system_info) return SystemInfo(args);
   if (args.nnapi_list) return NnapiList();
+  if (args.gpu_info) return GpuInfo(args);
 
   auto model = tflite::FlatBufferModel::BuildFromFile(args.model.c_str());
   if (!model) {
@@ -793,6 +939,13 @@ int main(int argc, char** argv) {
   }
   PrintIo(*shape.interp);
   if (args.info) return 0;
+  if (args.gpu_coverage) {
+    const probe::OpenClInfo cl = probe::QueryOpenCl(args.opencl_lib, args.opencl_icd);
+    std::printf("GPU delegate coverage (the delegate's own selection code; an OpenCL device is %s here, no run is made)\n",
+                probe::HasUsableDevice(cl) ? "present" : "absent");
+    std::printf("  %s\n", probe::DescribeGpuOptions(args.gpu_opts).c_str());
+    return ReportGpuCoverage(args, facts, probe::HasUsableDevice(cl)) ? 0 : 1;
+  }
 
   // ---- input picture
   probe::Image src, fitted;
@@ -893,13 +1046,16 @@ int main(int argc, char** argv) {
     if (!cpu.ran) std::printf("  CPU phase did not run: %s\n", cpu.note.c_str());
   }
 
-  // ---- phase 2: through an accelerator route: LG's external delegate plugin, or TFLite's NNAPI delegate over the NN HAL
-  const bool route = !args.delegate.empty() || args.nnapi;
-  const char* const key = args.nnapi ? "nnapi" : "delegate";  // SUMMARY prefix
-  const char* const label = args.nnapi ? "NNAPI delegate" : "delegate";
+  // ---- phase 2: through an accelerator route: LG's external delegate plugin, TFLite's NNAPI delegate over the NN HAL, or TFLite's GPU delegate
+  const bool route = !args.delegate.empty() || args.nnapi || args.gpu;
+  const char* const key = args.nnapi ? "nnapi" : args.gpu ? "gpu" : "delegate";  // SUMMARY prefix
+  const char* const label = args.nnapi ? "NNAPI delegate" : args.gpu ? "GPU delegate" : "delegate";
+  double mali_idle = -1;
   if (route) {
     if (args.nnapi) {
       std::printf("\n== NNAPI delegate (%s)\n", probe::DescribeNnapiOptions(args.nnapi_opts).c_str());
+    } else if (args.gpu) {
+      std::printf("\n== GPU delegate (%s)\n", probe::DescribeGpuOptions(args.gpu_opts).c_str());
     } else {
       std::printf("\n== delegate %s", args.delegate.c_str());
       for (const auto& kv : args.delegate_opts) std::printf(" %s=%s", kv.first.c_str(), kv.second.c_str());
@@ -908,6 +1064,7 @@ int main(int argc, char** argv) {
     const std::string procs_before = probe::ReadSmall(args.proc_dir + "/npu_process_list");
     probe::ExternalDelegate plugin;  // declared before the interpreter: destroyed after it
     probe::NnapiDelegate nnapi;
+    probe::GpuDelegate gpu;  // likewise
     TfLiteDelegate* dg = nullptr;
     Interp it;
     bool ok = true;
@@ -918,6 +1075,23 @@ int main(int argc, char** argv) {
         ok = false;
       }
       dg = nnapi.get();
+    } else if (args.gpu) {
+      if (args.gpu_opts.lib.empty()) {
+        const probe::OpenClInfo cl = probe::QueryOpenCl(args.opencl_lib, args.opencl_icd);
+        probe::PrintOpenClInfo(cl);
+        if (!probe::HasUsableDevice(cl)) std::printf("  no OpenCL device: the delegate cannot start; it is tried all the same so that its own message is shown\n");
+        std::printf("  GPU delegate coverage (its own selection code; it does not need the device):\n");
+        if (!ReportGpuCoverage(args, facts, probe::HasUsableDevice(cl))) std::printf("  (coverage unavailable, the run goes on)\n");
+      }
+      mali_idle = MaliIdleShare(args, 1.0);
+      if (mali_idle >= 0) std::printf("  Mali busy with nothing of the probe's running: %.1f%% (1 s)\n", mali_idle);
+      if (!gpu.Create(args.gpu_opts, args.model, &error)) {
+        dlg.note = "GPU delegate not created: " + error;
+        ok = false;
+      } else {
+        std::printf("  delegate: %s\n", gpu.source().c_str());
+      }
+      dg = gpu.get();
     } else {
       if (!plugin.Load(args.delegate, args.delegate_opts)) {
         dlg.note = "delegate not created: " + plugin.error();
@@ -931,6 +1105,7 @@ int main(int argc, char** argv) {
       ok = false;
     }
     if (ok) {
+      const double init0 = probe::WallSeconds();
       const std::vector<PlanOp> before = Plan(*it.interp);
       const TfLiteStatus st = it.interp->ModifyGraphWithDelegate(dg);
       if (st != kTfLiteOk) {
@@ -938,6 +1113,7 @@ int main(int argc, char** argv) {
                    std::to_string(static_cast<int>(st)) + ")";
         std::printf("  %s; the interpreter is back to its pre-delegation state\n", dlg.note.c_str());
         if (args.nnapi) std::printf("  (TFLite's reason is on stderr, above; NNAPI errno %d)\n", nnapi.Errno());
+        else if (args.gpu) std::printf("  (TFLite's reason is on stderr, above: with no OpenCL driver the delegate stops while it builds its kernels)\n");
         else std::printf("  (the plugin logs its reason to PmLog, not stderr: see /var/log/messages)\n");
       } else {
         const std::vector<PlanOp> after = Plan(*it.interp);
@@ -968,6 +1144,7 @@ int main(int argc, char** argv) {
         dlg.note = "AllocateTensors failed after delegation";
         ok = false;
       }
+      dlg.init_ms = (probe::WallSeconds() - init0) * 1e3;
       if (ok && !FillInput(it.interp.get(), fitted, args, &error)) {
         dlg.note = error;
         ok = false;
@@ -981,7 +1158,8 @@ int main(int argc, char** argv) {
         std::printf("  top detections:\n");
         if (dlg.detections_ok) ShowDetections(dlg, args, labels, src);
         else std::printf("  not a post-processed detector output (%s)\n", dlg.detections_why.c_str());
-        dlg.verdict = CompareOutputs(cpu, dlg);
+        dlg.verdict = CompareOutputs(cpu, dlg, dlg.delegate_applied, args.min_score);
+        if (args.gpu && !args.gpu_opts.cache_dir.empty()) PrintKernelCache(args.gpu_opts.cache_dir);
       } else if (ok) {
         dlg.note = error;
       }
@@ -1003,6 +1181,7 @@ int main(int argc, char** argv) {
     std::printf(" cpu_backend=%s cpu_mean_ms=%.3f cpu_median_ms=%.3f cpu_p95_ms=%.3f cpu_busy_pct=%.0f",
                 args.cpu_backend.c_str(), s.mean, s.median, s.p95, cpu.cpu_percent);
     if (cpu.npu_sampled) std::printf(" cpu_npu_util_max=%d", cpu.npu.max);
+    if (cpu.mali_percent >= 0) std::printf(" cpu_mali_pct=%.1f", cpu.mali_percent);
   } else {
     std::printf(" cpu_ran=0");
   }
@@ -1013,6 +1192,11 @@ int main(int argc, char** argv) {
       std::printf(" %s_mean_ms=%.3f %s_median_ms=%.3f %s_p95_ms=%.3f %s_busy_pct=%.0f", key, s.mean, key, s.median, key, s.p95, key,
                   dlg.cpu_percent);
       if (dlg.npu_sampled) std::printf(" %s_npu_util_max=%d %s_npu_util_mean=%.1f", key, dlg.npu.max, key, dlg.npu.mean);
+      if (dlg.init_ms >= 0) std::printf(" %s_init_ms=%.1f", key, dlg.init_ms);
+      if (dlg.first_ms >= 0) std::printf(" %s_first_ms=%.1f", key, dlg.first_ms);
+      if (dlg.mali_percent >= 0) std::printf(" %s_mali_pct=%.1f", key, dlg.mali_percent);
+      if (args.gpu && mali_idle >= 0 && dlg.mali_percent >= 0)
+        std::printf(" mali_idle_pct=%.1f gpu_ms_per_inference=%.1f", mali_idle, std::max(0.0, (dlg.mali_percent - mali_idle) / 100.0 * s.mean));
       std::printf(" %s_outputs=%s", key, dlg.verdict.c_str());
     } else {
       std::printf(" %s_ran=0", key);

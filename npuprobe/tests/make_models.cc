@@ -256,6 +256,42 @@ bool SsdConst(const std::string& dir) {
   return b.Write(dir + "/ssd_const.tflite");
 }
 
+// A detector-shaped graph whose four outputs (boxes, classes, scores, count) are ADDs of constants and zeros, so that a delegate can take nodes
+// and the detection decoder has something to read: det_a is the reference, det_b the same two detections with the rows in the other order
+// and slightly different scores and boxes (what a GPU's arithmetic does to a sorted result), det_c has lost one.
+bool DetAdd(const std::string& dir, const char* file, const std::vector<float>& boxes, const std::vector<float>& classes,
+            const std::vector<float>& scores, float count) {
+  Builder b("detector from ADDs");
+  int in = b.Tensor("input", TensorType_FLOAT32, {1, 2, 2, 3});
+  int add_code = b.Code(BuiltinOperator_ADD);
+  std::vector<int> outs;
+  auto output = [&](const char* name, std::vector<int32_t> shape, const std::vector<float>& values) {
+    const size_t n = values.size();
+    int c = b.Tensor(std::string(name) + "_const", TensorType_FLOAT32, shape, ConstBuffer(b, values));
+    int z = b.Tensor(std::string(name) + "_zero", TensorType_FLOAT32, shape, ConstBuffer(b, std::vector<float>(n, 0.f)));
+    int o = b.Tensor(name, TensorType_FLOAT32, shape);
+    OperatorT* add = b.Op(add_code, {c, z}, {o});
+    AddOptionsT ao;
+    add->builtin_options.Set(std::move(ao));
+    outs.push_back(o);
+  };
+  output("TFLite_Detection_PostProcess", {1, 3, 4}, boxes);
+  output("TFLite_Detection_PostProcess:1", {1, 3}, classes);
+  output("TFLite_Detection_PostProcess:2", {1, 3}, scores);
+  output("TFLite_Detection_PostProcess:3", {1}, {count});
+  b.Io({in}, outs);
+  return b.Write(dir + "/" + file);
+}
+
+bool DetModels(const std::string& dir) {
+  // person 0.80, dog 0.78, cat 0.12 (below the default 0.3 threshold)
+  return DetAdd(dir, "det_a.tflite", {0.10f, 0.20f, 0.60f, 0.50f, 0.30f, 0.40f, 0.90f, 0.95f, 0.00f, 0.00f, 0.10f, 0.10f}, {0, 17, 16}, {0.80f, 0.78f, 0.12f}, 3) &&
+         // dog 0.82 first, person 0.77 second, boxes a hundredth off
+         DetAdd(dir, "det_b.tflite", {0.31f, 0.41f, 0.91f, 0.94f, 0.11f, 0.21f, 0.61f, 0.51f, 0.00f, 0.00f, 0.10f, 0.10f}, {17, 0, 16}, {0.82f, 0.77f, 0.10f}, 3) &&
+         // the person is gone
+         DetAdd(dir, "det_c.tflite", {0.30f, 0.40f, 0.90f, 0.95f, 0.00f, 0.00f, 0.10f, 0.10f, 0.00f, 0.00f, 0.10f, 0.10f}, {17, 16, 16}, {0.78f, 0.12f, 0.10f}, 3);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -264,7 +300,7 @@ int main(int argc, char** argv) {
     return 2;
   }
   const std::string dir = argv[1];
-  bool ok = FloatNet(dir) && Int8Net(dir) && NpuCustom(dir) && NpuOnly(dir) && SsdConst(dir);
+  bool ok = FloatNet(dir) && Int8Net(dir) && NpuCustom(dir) && NpuOnly(dir) && SsdConst(dir) && DetModels(dir);
   if (!ok) std::fprintf(stderr, "write failed in %s\n", dir.c_str());
   return ok ? 0 : 1;
 }

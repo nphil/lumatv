@@ -39,6 +39,35 @@ int FirstInt(const std::string& text) {
   return std::atoi(text.c_str() + i);
 }
 
+MaliCounters ReadMaliCounters(const std::string& path) {
+  MaliCounters c;
+  const std::string text = ReadSmall(path);
+  bool have_busy = false, have_idle = false;
+  size_t pos = 0;
+  while (pos < text.size()) {
+    size_t nl = text.find('\n', pos);
+    if (nl == std::string::npos) nl = text.size();
+    const std::string line = text.substr(pos, nl - pos);
+    unsigned long long v = 0;
+    if (std::sscanf(line.c_str(), "busy_time: %llu", &v) == 1) {
+      c.busy = v;
+      have_busy = true;
+    } else if (std::sscanf(line.c_str(), "idle_time: %llu", &v) == 1) {
+      c.idle = v;
+      have_idle = true;
+    }
+    pos = nl + 1;
+  }
+  c.ok = have_busy && have_idle;
+  return c;
+}
+
+double MaliBusyPercent(const MaliCounters& before, const MaliCounters& after) {
+  if (!before.ok || !after.ok || after.busy < before.busy || after.idle < before.idle) return -1;
+  const double busy = static_cast<double>(after.busy - before.busy), idle = static_cast<double>(after.idle - before.idle);
+  return busy + idle > 0 ? busy / (busy + idle) * 100.0 : -1;
+}
+
 NpuSampler::NpuSampler(const std::string& proc_dir, int period_ms)
     : path_(proc_dir + "/npu_utilization"), period_ms_(period_ms) {
   available_ = !ReadSmall(path_).empty();

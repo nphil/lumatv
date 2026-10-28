@@ -12,7 +12,9 @@ endif()
 
 set(TFLITE_ENABLE_XNNPACK ON CACHE BOOL "")
 set(TFLITE_ENABLE_NNAPI ON CACHE BOOL "" FORCE)  # built on Linux by patch_tflite.py; the device's libneuralnetworks.so is dlopen'ed
-set(TFLITE_ENABLE_GPU OFF CACHE BOOL "")
+# TFLite's GPU delegate V2, OpenCL backend only (its CMake defines CL_DELEGATE_NO_GL), is built in: --gpu then needs nothing of the
+# device's TFLite but an OpenCL ICD loader.
+set(TFLITE_ENABLE_GPU ON CACHE BOOL "" FORCE)
 set(TFLITE_ENABLE_EXTERNAL_DELEGATE ON CACHE BOOL "")
 add_subdirectory("${TFLITE_SRC}/tensorflow/lite" "${CMAKE_CURRENT_BINARY_DIR}/tensorflow-lite" EXCLUDE_FROM_ALL)
 
@@ -23,7 +25,8 @@ add_compile_options(-Wall -Wextra)
 # Delegates are shared libraries that leave TfLiteDelegateCreate, TfLiteIntArray* and
 # tflite::Subgraph::SetCustomAllocationForTensor undefined (libtflite-npu-delegate.so has no DT_NEEDED on the
 # runtime); the probe exports its static TFLite so they bind to it, as they bind to libtensorflow-lite.so on the TV.
-add_executable(lumatv-npu-probe src/probe.cc src/delegate_loader.cc src/detect.cc src/image.cc src/nnapi_path.cc src/sysinfo.cc)
+add_executable(lumatv-npu-probe src/probe.cc src/delegate_loader.cc src/detect.cc src/gpu_path.cc src/image.cc src/nnapi_path.cc src/opencl_info.cc
+               src/sysinfo.cc)
 target_include_directories(lumatv-npu-probe PRIVATE src)
 target_include_directories(lumatv-npu-probe SYSTEM PRIVATE "${TFLITE_SRC}" "${STB_DIR}")
 target_link_libraries(lumatv-npu-probe PRIVATE tensorflow-lite ${CMAKE_DL_LIBS} pthread)
@@ -42,6 +45,17 @@ target_include_directories(stub-npu-delegate SYSTEM PRIVATE "${TFLITE_SRC}" $<TA
 target_compile_options(stub-npu-delegate PRIVATE -fvisibility=hidden)
 # TFLite's own symbols come from the executable; nothing may be linked in here.
 target_link_options(stub-npu-delegate PRIVATE -Wl,--allow-shlib-undefined)
+
+# The same for the GPU route: a library with TFLite's GPU delegate V2 entry points (--gpu-lib), and a stand-in OpenCL ICD loader (--opencl-lib)
+# that answers the four query calls --gpu-info makes; opencl-stub/libOpenCL.so.1 has the real loader's name.
+add_library(stub-gpu-delegate SHARED stub/stub_gpu_delegate.cc)
+target_include_directories(stub-gpu-delegate SYSTEM PRIVATE "${TFLITE_SRC}" $<TARGET_PROPERTY:flatbuffers,INTERFACE_INCLUDE_DIRECTORIES>)
+target_compile_options(stub-gpu-delegate PRIVATE -fvisibility=hidden)
+target_link_options(stub-gpu-delegate PRIVATE -Wl,--allow-shlib-undefined)
+add_library(stub-opencl SHARED stub/stub_opencl.cc)
+target_compile_options(stub-opencl PRIVATE -fvisibility=hidden)
+set_target_properties(stub-opencl PROPERTIES OUTPUT_NAME OpenCL VERSION 1 SOVERSION 1
+                      LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/opencl-stub")
 
 # Stand-ins for the Android NN runtime the NNAPI route loads (libneuralnetworks.so), one per directory so that LD_LIBRARY_PATH picks it:
 # nnapi-stub/ is a 1.3 runtime, nnapi-stub-12/ an Android 10 one without ANeuralNetworksDevice_getFeatureLevel.
