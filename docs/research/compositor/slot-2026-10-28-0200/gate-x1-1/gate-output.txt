@@ -1,0 +1,50 @@
+power state: active
+home stub before the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+avr: left to the agent (True)
+firmware: unverified: verified.list has no entry (this boot only: a reboot goes back to LG's compositor)
+safety timer: this session ends by itself after 12 min if it is still live ('cutover.sh disable' cancels the timer)
+mounted; restarting the unit
+t=5s unit=active exe=/usr/bin/surface-manager compositor=14985 mounted=yes wam=active
+   02:41:17 recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+   02:41:17 recover: WebAppMgr answering after 0s (active)
+t=10s unit=active exe=/usr/bin/surface-manager compositor=14985 mounted=yes wam=active
+   02:41:17 recover: WebAppMgr answering after 0s (active)
+   02:41:18 recover: Home running under LumaTV's compositor after 0s
+t=15s unit=active exe=/usr/bin/surface-manager compositor=14985 mounted=yes wam=active
+   02:41:18 recover: Home running under LumaTV's compositor after 0s
+   02:41:28 recover: librdx reports swept; remaining 0
+t=20s unit=active exe=/usr/bin/surface-manager compositor=14985 mounted=yes wam=active
+   02:41:18 recover: Home running under LumaTV's compositor after 0s
+   02:41:28 recover: librdx reports swept; remaining 0
+t=25s unit=active exe=/usr/bin/surface-manager compositor=14985 mounted=yes wam=active
+   02:41:18 recover: Home running under LumaTV's compositor after 0s
+   02:41:28 recover: librdx reports swept; remaining 0
+t=30s unit=active exe=/usr/bin/surface-manager compositor=14985 mounted=yes wam=active
+   02:41:18 recover: Home running under LumaTV's compositor after 0s
+   02:41:28 recover: librdx reports swept; remaining 0
+enabled (session): LumaTV's compositor stays live (recovery done after 0s more); 'cutover.sh disable' restores LG's
+
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 391215 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+GATE x1: FAIL 2 gap(s) over 20 ms in the client's swaps (worst 20.8 ms) | [x1] RESULT frames=3596 in 60.00 s = 59.93 fps; gaps: <=17.5 ms 3567, 17.5-20 26, 20-33.5 2, >33.5 0; worst 20.8 ms; ended at monotonic 68448.360 | pacer before: flips 531 late 1 lost 2 after: flips 4136 late 1 lost 2 | compositor: loop stalls 0, frame gaps 0, clients connected 0, over 20 ms 0; major faults +0, run-queue wait +4.4 ms, loop thread SCHED_FIFO prio -21, mali-cmar-backe run-queue wait +3.4 ms SCHED_FIFO
+
+evidence: 2 subscription(s) from SAM, 7 client lines, 1 loop stalls, 2 watchdog lines
+
+safety timer cancelled
+umount: /usr/bin/surface-manager: target is busy.
+revert: active; mounted: no; exe: /usr/bin/surface-manager
+recover: surface-manager-daemon.service active after 0s; exe /usr/bin/surface-manager
+recover: compositor answering on the bus after 0s
+recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+recover: WebAppMgr answering after 0s (active)
+recover: Home on the panel after 0s (capture 61816 bytes)
+recover: librdx reports swept; remaining 0
+
+avr: left to the agent (False)
+{"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+
+home stub after the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 391215 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE x1: FAIL 2 gap(s) over 20 ms in the client's swaps (worst 20.8 ms) | [x1] RESULT frames=3596 in 60.00 s = 59.93 fps; gaps: <=17.5 ms 3567, 17.5-20 26, 20-33.5 2, >33.5 0; worst 20.8 ms; ended at monotonic 68448.360 | pacer before: flips 531 late 1 lost 2 after: flips 4136 late 1 lost 2 | compositor: loop stalls 0, frame gaps 0, clients connected 0, over 20 ms 0; major faults +0, run-queue wait +4.4 ms, loop thread SCHED_FIFO prio -21, mali-cmar-backe run-queue wait +3.4 ms SCHED_FIFO
+GATE: FAIL
+wrote ../lumatv-r6b/docs/research/compositor/gate-2026-10-27.txt

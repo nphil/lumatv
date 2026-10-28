@@ -7,6 +7,12 @@ compositor. Under LG's compositor nothing changes: the shadow module keeps runni
 
 ## Resume here
 
+Round 6 (2026-10-28, `1fadfcb`, `compositor/slot-2026-10-28-0200/`; details and classification in `compositor-gate9-result.md`,
+"Round 6"): the shell client runs again after a fix (a per-start spawn thread's PR_SET_PDEATHSIG killed it 0 s after every
+start on 4198076). With the shell up: keys, ime PASS; shell 9 of 11 (`saver`: tvpower refuses `turnOnScreenSaver` with -100,
+also under LG's compositor; `osd` once in three runs); frames: home-dpad, quick ok, picker ok in the full gate (burst_over20 3
+in the earlier run), toast first frame 61-118 ms (round 5: 28-52 ms), so the toast item below is still open and worse.
+
 State (2026-10-27, after round 5 on 12a1d0b, `compositor/slot-2026-10-27-2100/`): the picker passes the frame gate (first frame
 27-34 ms, `burst_over20` 0, callbacks ahead 3522 of 4272); keys, ime and shell pass; the full gate passed every check
 except x1 (`compositor-gate9-result.md`, "Round 5") and, in that run only, standby and homekey (a harness timer, fixed;

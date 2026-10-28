@@ -157,27 +157,27 @@ steady frames, with its `flip reached 3.4 ms after it landed` line beside it.
 
 ### Resume here
 
-State (2026-10-27): rounds 1 to 5 are on the set (below; round 5 is 12a1d0b, `compositor/slot-2026-10-27-2100/`); round 6's
-changes ("Round 6 changes" at the end) are built and host-tested, not on the set. The go-live configuration has CompShell's
-shell client up (`org.nphil.lumatv.shell`, run by the compositor from the state dir's `shell/Shell.qml`). X1_PRIME stays 4
-(round 4's parity run). Round 6 checks, in one slot (`python3 compositor/tools/tv_next_slot.py`, or by hand in this order):
+State (2026-10-28): rounds 1 to 6 are on the set (round 6: `4198076`, whose shell client never ran, then `1fadfcb`;
+`compositor/slot-2026-10-28-0200/`). With the shell up: trial 120 s clean (0 missed refreshes), x1 passes the PLAN rule in
+three runs (compositor side clean), and every safety and function check of the full gate passes (firmware, homeheld, live,
+x1, netflix, hdmi, keys, ime, standby, homekey, wd-hang, wd-crash, escape). Open, as Main's classification asked
+(BLOCKING = a safety/function check or anything a viewer sees; MINOR = isolated, a few ms over a limit, start-up only):
 
-1. `tv_gate.py --only keys,ime,shell,frames`: keys, ime and shell PASS as in round 5; `ctl shell` reads `systemMapped true`
-   and `systemLive false` with nothing of the layer up; frames PASS with the toast's `first_frame_ms` under 50 (40 wanted)
-   and `burst_over20 0`. The session's log has `egl: context priority realtime (asked for realtime)` (or `high`), `loop
-   thread: SCHED_FIFO 20`, and at the shell's start `shell: client started` with no `loop:` line beside it; the system
-   layer's three buffers warm (`warm:` lines) in the seconds after `shell: system layer window mapped`, not at the toast.
-2. `cutover.sh trial 120` with the shell up: `odd stamps N (0 missed)`, no `loop:` line over 8 ms in the first 10 s. A
-   `page-flip stamp` left in the first 6 s is read against its `trace:` lines: `gpu done` over 8 ms is the GPU still
-   shared with qml-runner's start (the context priority did not take), a frame drawn 5-7 ms before its refresh is the
-   plan's optimism (`plan()` in `vendor/pacer.rs`, left as it is).
-3. x1 three times (separate sessions): no `page-flip stamp` at x1's mapping (at most one `late` there, from the first
-   frame's GPU time), `late` unchanged mid-run, the client's gaps over 20 ms no more than LG's 4-7. A gap at about 55 s
-   again, with the compositor's flips on the grid, is outside LumaTV (the shell client no longer outranks the probe).
-4. The full gate (`tv_gate.py --skip volume`): everything of round 5 again; standby and homekey in their own run as in
-   round 5 if the first session's timer ends before them.
+- MINOR: `shell` step `saver`: tvpower refuses `turnOnScreenSaver` (`-100`), also under LG's compositor; the step needs a
+  set state in which tvpower accepts it (round 5 had one).
+- MINOR, regression against round 5: the toast's first frame 61-118 ms in two runs of the frame gate (round 5: 28-52 ms).
+  A toast shows 4-7 refreshes after it is handed over; start-up of a notification, not an animation.
+- MINOR: picker `burst_over20` 3 in one of two frame-gate runs (single 33 ms intervals in 6 windows), 0 in the other.
+- MINOR: one `loop: 11.1 ms in one pass (clients)` at the shell client's start (2 s in); no refresh lost.
+- BLOCKING until understood: `shell` step `osd` (the volume display) failed once in three runs (`osd false` with the
+  system window mapped, after Volume+), passed twice. The volume display is what a viewer sees on every volume key.
+- Not repeated in round 6: the held digit's browser (the gate closes it); `escaped` is left set by the gate's escape step
+  (the next `cutover.sh enable` clears it).
 
-Read `gate/x1-compositor.txt` (`trace:`, `warm:`, `standin:`) against `x1.log` (`swap N returned`, `priming swap`, `gap`).
+Next: the `osd` flake (read `shell-result.txt` of `gate-full/` against the journal's `shell: system layer` lines and the
+client's `report()`: with the window kept mapped, `osd` is the UI's state and `systemLive` the compositor's), then the toast's
+first frame (`warm:` lines after `shell: system layer window mapped`, `delivered_ms` against the first draw of the system
+window), then x1 and the frame gate again. Read `gate/x1-compositor.txt` (`trace:`, `warm:`, `standin:`) against `x1.log`.
 
 ### What the ninth gate's lines were
 
@@ -469,3 +469,36 @@ missed`. Expected on the set: the trial without the start-up misses (the client'
 x1 without the second stamp at its mapping (the first is a late frame, not a skip, once the GPU takes the compositor's
 draw first), the toast's first frame at a frame's cost (20-35 ms from the delivery: the client's render, the compositor's
 draw at once, the refresh).
+
+**Round 6, 2026-10-28 (set's clock 02:06-03:10), commits `4198076` then `1fadfcb` (`compositor/slot-2026-10-28-0200/`).**
+
+*First run (4198076): the shell client never ran.* `shell: client exited (signal: 9 (SIGKILL)) after 0 s` at every one of 5
+starts, then `giving up`; shell FAIL (connected false), frames FAIL (no frames), keys and ime PASS on their non-shell paths.
+Cause, from round 6's own change: the client is forked on a per-start thread (`shell-spawn`) and carries
+`PR_SET_PDEATHSIG` SIGKILL, which Linux fires when the forking THREAD exits, not the process. Fixed in `1fadfcb` (one spawn
+thread for the life of the process); the host test `the_client_outlives_the_start_that_forked_it` fails on the old code (the
+client is dead 300 ms after its start) and passes on the fix. The bundle of `1fadfcb` was installed by Main (standing grant).
+
+*Second run (1fadfcb).* `egl: context priority realtime (asked for realtime)`, `loop thread: SCHED_FIFO 20`.
+
+- Trial 120 s with the shell up: settled, `odd stamps 70 (0 missed)`, `late 0`, `held ticks 1`, `reached late 1 (over 1 ms 3,
+  worst 7.9 ms)`. Round 5 had 6 missed refreshes at the start; now none. One `loop: 11.1 ms in one pass (clients)` at the
+  shell's start (2.0 s in), over the 8 ms the Resume asked for; no refresh lost with it.
+- x1, three runs of 60 s in separate sessions: client gaps over 20 ms 2, 1 and 1 (worst 20.8, 21.3, 21.8 ms; 59.93, 59.95,
+  59.93 fps); the compositor's side clean in all three: `late` unchanged (1 to 1 each), no `page-flip stamp`, no `frame
+  gap`, no loop stall, run-queue waits 2.3-4.4 ms. The gap at the first measured swap is back in two of three (20.8 and 21.8
+  ms, the swapchain filling) and one mid-run gap each in runs 1 and 2 (20.6 at swap 3337, 21.3 at swap 3179). By the rule of
+  PLAN "Decided" (no late flip of the compositor's own; probe gaps no more than LG's 4-7) all three PASS; by the old rule of
+  zero they FAIL. The full gate's own x1 run: PASS by the old rule too (59.95 fps, no gap over 20 ms).
+- Full gate (`tv_gate.py --skip volume`): firmware, homeheld, live, x1, netflix, hdmi, keys, ime, standby, homekey, wd-hang,
+  wd-crash and escape PASS (standby and homekey now run in the first session: the timer fix held). shell FAIL on two steps
+  and frames FAIL on the toast; see the classification in the Resume.
+- `shell`: `saver` fails in every run (`saver false after turnOnScreenSaver`): `tvpower/power2/turnOnScreenSaver` answers
+  `-100 Invalid State change Request`, and it answers the same under LG's compositor with the shell not involved (probed
+  by hand, TV `Active`, Home in front). Round 5 passed this step the same evening. Not LumaTV's. `osd` failed once in
+  three runs (full gate: `osd false, system window mapped true after Volume+`), passed in the other two.
+- `frames` (3 cycles): home-dpad ok (first frame 30.8 ms), quick ok (28.0 ms, burst end 161.3), picker ok in the full gate
+  (31.3 ms, burst end 148.1, `burst_over20` 0; `shell callbacks: 3492 of 8941 ahead`) and `burst_over20` 3 in the earlier
+  run (single 33 ms intervals in the opens and closes; first frames 17.9-35.9 ms); toast first frame 61-71 ms in the
+  earlier run (61.4, 63.1, 70.7) and 60.8, 82.1, 118.0 ms in the full gate, `delivered_ms` 29-107. Round 5 had 28-52 ms.
+  The window staying mapped did not bring the toast's first frame down to the 20-35 ms expected; it is longer than round 5's.

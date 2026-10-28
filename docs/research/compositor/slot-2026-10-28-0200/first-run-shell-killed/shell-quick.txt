@@ -1,0 +1,9 @@
+input: gear tap: Quick Settings has no window of its own here yet, launching com.palm.app.settings in its place
+window 15 created on surface 228 by pid 28020
+webOS shell surface on window 15 (surface 228) by pid 28020
+window 15 committed without a buffer (Card app '' state Default)
+window 15: _WEBOS_WINDOW_TYPE = _WEBOS_WINDOW_TYPE_OVERLAY (Overlay)
+window 15: appId = com.palm.app.settings (Overlay)
+window 15: title = Settings (Overlay)
+foreign: surface 228 exported as _Window_Id_9 (type 0)
+luna: com.palm.app.settings-28020 subscribed to com.webos.surfacemanager/getLastInputType

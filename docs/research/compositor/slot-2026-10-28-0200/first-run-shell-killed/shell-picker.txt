@@ -1,0 +1,26 @@
+input: Input tap: the input picker has no window of its own here yet, launching com.webos.app.homeconnect in its place
+window 16 created on surface 229 by pid 28020
+webOS shell surface on window 16 (surface 229) by pid 28020
+window 16 committed without a buffer (Card app '' state Default)
+window 16: appId = com.webos.app.homeconnect (Card)
+window 16: title = Home Hub (Card)
+foreign: surface 229 exported as _Window_Id_10 (type 0)
+window 16 mapped (Card app 'com.webos.app.homeconnect' title 'Home Hub' size Some((1920, 1080)))
+window 4: minimized (covered by a newer card)
+window 16: fullscreen (the front card)
+window 4: exposed nothing (covered)
+window 16: exposed 1920x1080
+focus -> surface 229
+luna: foreground ['com.webos.app.homeconnect'] pushed to 2 subscriber(s) (com.webos.applicationManager, com.webos.service.ime.globalplugin)
+luna: com.webos.app.homeconnect-28020 subscribed to com.webos.surfacemanager/getLastInputType
+foreign: surface 229 exported as _Window_Id_11 (type 0)
+window 15 mapped (Overlay app 'com.palm.app.settings' title 'Settings' size Some((1920, 1080)))
+focus -> surface 228
+luna: foreground ['com.webos.app.homeconnect', 'com.palm.app.settings'] pushed to 2 subscriber(s) (com.webos.applicationManager, com.webos.service.ime.globalplugin)
+client connected: pid 3474 uid 0 cmd '/usr/sbin/extinput-integration'
+foreign: _Window_Id_10 imported (type 0)
+foreign: punch-through 27uousw9x4w3ig66 attached to _Window_Id_10
+luna: setDisplayWindow {'context':'27uousw9x4w3ig66','displayOutput':{'height':550,'width':1096,'x':162,'y':430},'fullScreen':false,'sourceInput':{'height':1080,'width':1920,'x':0,'y':0}}
+foreign: punch-through 27uousw9x4w3ig66 attached to _Window_Id_10
+luna: setDisplayWindow {'context':'27uousw9x4w3ig66','displayOutput':{'height':550,'width':1096,'x':162,'y':430},'fullScreen':false,'sourceInput':{'height':1080,'width':1920,'x':0,'y':0}}
+luna: setDisplayWindow {'context':'27uousw9x4w3ig66','displayOutput':{'height':618,'width':1096,'x':162,'y':430},'fullScreen':false,'sourceInput':{'height':1080,'width':1920,'x':0,'y':0}}

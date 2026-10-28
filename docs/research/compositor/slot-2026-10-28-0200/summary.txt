@@ -1,0 +1,6 @@
+Round 6 (set's clock 02:06-03:10). First run on 4198076: qml-runner killed 0 s after each start (spawn thread's PR_SET_PDEATHSIG), see first-run-shell-killed/. Rest on 1fadfcb (the fix), installed by Main through a standing grant.
+gate-keys-ime-shell-frames/  keys, ime PASS; shell FAIL on saver (tvpower refuses turnOnScreenSaver, also under LG's compositor); frames FAIL (picker burst_over20 3, toast 70.7 ms)
+gate-shell/                  --only shell: saver FAIL again, other 10 ok
+trial/                       120 s: odd stamps 70 (0 missed), late 0; one 11.1 ms loop pass at the client's start
+gate-x1-1..3/                x1 60 s each, 3 separate sessions
+gate-full/                   tv_gate.py --skip volume; frames.json

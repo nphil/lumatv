@@ -1,0 +1,11 @@
+115:[srv  66421.402] info shell: client started, pid 27916 (/usr/bin/qml-runner /var/lib/lumatv/compositor/shell/Shell.qml)
+182:[srv  66421.605] info shell: client exited (signal: 9 (SIGKILL)) after 0 s
+769:[srv  66425.624] info shell: client started, pid 28423 (/usr/bin/qml-runner /var/lib/lumatv/compositor/shell/Shell.qml)
+772:[srv  66425.641] info shell: client exited (signal: 9 (SIGKILL)) after 0 s
+1741:[srv  66433.661] info shell: client started, pid 28540 (/usr/bin/qml-runner /var/lib/lumatv/compositor/shell/Shell.qml)
+1754:[srv  66433.761] info shell: client exited (signal: 9 (SIGKILL)) after 0 s
+3679:[srv  66449.794] info shell: client started, pid 28742 (/usr/bin/qml-runner /var/lib/lumatv/compositor/shell/Shell.qml)
+3706:[srv  66450.011] info shell: client exited (signal: 9 (SIGKILL)) after 0 s
+7848:[srv  66482.038] info shell: client started, pid 29694 (/usr/bin/qml-runner /var/lib/lumatv/compositor/shell/Shell.qml)
+7853:[srv  66482.071] info shell: client exited (signal: 9 (SIGKILL)) after 0 s
+10602:[srv  66514.080] info shell: 5 starts in 10 min, giving up (ctl shell restart tries again)
