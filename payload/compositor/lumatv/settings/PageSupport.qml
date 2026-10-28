@@ -136,10 +136,10 @@ PageList {
         if (blockError !== "") return blockError
         if (blockFlag === null && blockLive === null) return "Homebrew Channel not answering"
         if (blockLive === null) return blockOn ? "On" : "Off"
-        if (blockLive.state === "blocked") return "Active: LG's update servers are blocked"
+        if (blockLive.state === "blocked") return "Active; LG updates blocked"
         if (blockLive.state === "armed") return "On; active once the TV restarts"
-        if (blockLive.state === "hosts-only") return "Off; still blocked until the TV restarts"
-        return "Off; LG's update can reach this TV"
+        if (blockLive.state === "hosts-only") return "Off; blocked until restart"
+        return "Off; updates can reach this TV"
     }
     function blockAnswered(tag, doc) {
         if (!doc || doc.returnValue === false) {
@@ -227,7 +227,7 @@ PageList {
                { enabled: function() { return Sio.usable("support.automaticUpdate") && (String(Sio.get("support.automaticUpdate")) === "on" || page.termsOk) },
                  detail: function() { return !Sio.has("support.automaticUpdate") ? "TV not answering" : String(Sio.get("support.automaticUpdate")) !== "on" && !page.termsOk ? "Needs LG's terms" : "" } }),
         { kind: "toggle", tab: 1, id: "blockupdates", icon: "shield-check", label: "Block LG system updates",
-          help: "Keeps LG's update servers out of reach, so the TV is not updated by accident: LG's update can remove root and LumaTV. This is the Homebrew Channel's own setting; a change applies when the TV restarts.",
+          help: "Keeps LG's update servers out of reach, so a surprise update cannot remove root or LumaTV. A change applies when the TV restarts.",
           on: function() { return page.blockOn }, enabled: function() { return page.blockFlag !== null },
           detail: function() { return page.blockWords }, act: function(v) { page.setBlock(v) } },
         page.checkUpdatesRow(),

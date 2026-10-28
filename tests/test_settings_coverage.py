@@ -928,7 +928,7 @@ class Coverage(unittest.TestCase):
     # ---- Support > Update: Block LG system updates
     def test_the_block_switch_reads_the_channels_setting_and_says_what_is_live(self):
         d = self.probe("block_state")["res"]
-        self.assertEqual(d, {"on": True, "enabled": True, "detail": "Active: LG's update servers are blocked", "checkEnabled": False, "checkValue": "Updates blocked"})
+        self.assertEqual(d, {"on": True, "enabled": True, "detail": "Active; LG updates blocked", "checkEnabled": False, "checkValue": "Updates blocked"})
 
     def test_check_for_updates_does_nothing_while_updates_are_blocked(self):
         self.assertEqual(self.probe("block_check_inert")["res"], 0)                  # LG's Software Update screen was not launched
@@ -948,9 +948,9 @@ class Coverage(unittest.TestCase):
 
     def test_off_in_the_channel_but_still_mapped_is_blocked_until_the_restart_and_open_lets_the_check_through(self):
         d = self.probe("block_hosts_still_rows")["res"]
-        self.assertEqual((d["on"], d["detail"], d["checkEnabled"], d["checkValue"]), (False, "Off; still blocked until the TV restarts", False, "Updates blocked"))
+        self.assertEqual((d["on"], d["detail"], d["checkEnabled"], d["checkValue"]), (False, "Off; blocked until restart", False, "Updates blocked"))
         d = self.probe("block_open_rows")["res"]
-        self.assertEqual((d["on"], d["detail"], d["checkEnabled"], d["checkValue"]), (False, "Off; LG's update can reach this TV", True, ""))
+        self.assertEqual((d["on"], d["detail"], d["checkEnabled"], d["checkValue"]), (False, "Off; updates can reach this TV", True, ""))
         self.assertEqual(self.probe("block_open_check")["res"], 1)
 
     def test_turning_it_on_needs_no_question_and_applies_at_the_restart(self):
