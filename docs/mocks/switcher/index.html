@@ -21,10 +21,10 @@
   [data-text="200"] { --ts: 2; }
   .stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; overflow: hidden; transform-origin: 0 0; background: var(--pal-canvas); }
   .stage .home-behind { position: absolute; inset: 0; background: url("../img/home.jpg") center / cover no-repeat; }
-  /* the dim is .92 (dark) and .94 (light): words sit on it, and what Home says behind them would read through a lighter veil (the .74 of the
-     first recents mock let "Locked" and "Playing" run into the names). Home stays as a shape of colour, not as words. */
-  .stage .scrim { position: absolute; inset: 0; background: rgba(11,9,20,.92); }
-  [data-theme="light"] .stage .scrim { background: rgba(250,244,237,.94); }
+  /* the dim is the palette's own scrimHide (.973, Lucent scrim.hidesMin): words sit on it, and what Home says behind them would read through a lighter
+     veil (the .74 of the first recents mock let "Locked" and "Playing" run into the names). Home stays as a shape of colour, not as words. */
+  .stage .scrim { position: absolute; inset: 0; background: rgba(18,14,26,.973); }
+  [data-theme="light"] .stage .scrim { background: rgba(250,244,237,.973); }
 
   .sw-head { position: absolute; left: 96px; right: 96px; top: 54px; min-height: 64px; display: flex; align-items: center; gap: 24px; }
   .sw-head .title { font-size: calc(40px * var(--ts)); font-weight: 600; letter-spacing: -.01em; line-height: 1.25; white-space: nowrap; }
