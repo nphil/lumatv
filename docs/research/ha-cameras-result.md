@@ -17,9 +17,14 @@ default, until the TV check below passes.
   bus and Home's key routing. Mocks `docs/mocks/cameras/`. Tests below.
 - **The LumaShow checkout moved.** The helper's path dependencies now point at the worktree `/data/home/LumaShow/wt/lumatv` (branch
   `tv-cameras`, from `g2-0809d` b008b004, 2026-10-23), because `/data/home/LumaShow/lumashow` is a 10-09 branch that predates `ha-bridge`.
-  Nothing of LumaShow's is edited there; the plugin API moved to level 2 and the helper follows it (builders for its non-exhaustive structs,
-  the new `Status::Waiting`/`Bridged`, `Plan::new` with the held permissions, `net.lan:<host>:<port>`). The HA plugin's manifest changed with it,
-  so its approval code is a new one.
+  Nothing of LumaShow's is edited there. The plugin API there is level 2; **this TV keeps speaking level 1** (`session::TV_LEVEL`): the helper
+  negotiates with `negotiate_with(min, target, 1, 1)`, holds a plugin to the permissions level 1 grants, and the roster no longer marks a
+  plugin inert for a lease or a permission of a later level (the decoder, widgets): a plugin whose `min` is 1 runs without them. The HA
+  plugin is now LumaShow's 0.2.0 (`api 1..2`, class L, `lease:decoder` and widgets it does not get here): the host tests show it still makes
+  the lane's cards, the tiles, the doorbell and the pickers at level 1 (`tests/qmlhost/fixtures/ha-plugin.json` regenerated: two more
+  Doorbell rows, *Doorbell camera* and *Live video camera*, which pick nothing on the TV; its icons are now `base.icons/home`, drawn as
+  `house`). Its manifest changed, so **its approval code is a new one**: `plugin-consent` prints it, and Nitin approves it again with
+  `plugin-enable` (ha-plugin-result.md, Nitin's steps).
 
 Open, in this order: Nitin's steps (below), the TV check list (below), then the video-plane stream path (section "Not built").
 

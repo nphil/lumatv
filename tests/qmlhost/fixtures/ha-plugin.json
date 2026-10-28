@@ -73,6 +73,14 @@
           "event.front_doorbell"
         ]
       },
+      "doorbell_camera": {
+        "type": "ordered",
+        "value": []
+      },
+      "doorbell_video": {
+        "type": "ordered",
+        "value": []
+      },
       "hold": {
         "type": "integer",
         "value": 60
@@ -185,6 +193,40 @@
                 "type": "ordered-set"
               },
               "label": "Doorbell"
+            },
+            {
+              "apply": "on-commit",
+              "default": {
+                "type": "ordered",
+                "value": []
+              },
+              "help": "The camera at your door. The Doorbell widget shows its last picture: the Show asks for one when the bell rings and once when you place the widget, and never in between. Leave it empty for no picture.",
+              "key": "doorbell_camera",
+              "kind": {
+                "max_items": 1,
+                "options": {
+                  "provider": "cameras"
+                },
+                "type": "ordered-set"
+              },
+              "label": "Doorbell camera"
+            },
+            {
+              "apply": "on-commit",
+              "default": {
+                "type": "ordered",
+                "value": []
+              },
+              "help": "One of this Show's cameras, picked by name from its list (the camera list file of the Show, which the Camera tile of the home uses too). When the bell rings, the Doorbell widget plays its live video for a minute, over the last picture, and goes back to the picture. Leave it empty for pictures only. The camera's address stays in the Show's list: this plugin never sees it.",
+              "key": "doorbell_video",
+              "kind": {
+                "max_items": 1,
+                "options": {
+                  "provider": "show-cameras"
+                },
+                "type": "ordered-set"
+              },
+              "label": "Live video camera"
             },
             {
               "apply": "on-commit",
@@ -325,7 +367,7 @@
                   "value": "1"
                 }
               ],
-              "icon": "base.icons/home-assistant",
+              "icon": "base.icons/home",
               "role": "accent",
               "title": "Living room",
               "type": "facts"
@@ -355,7 +397,7 @@
       "items": [
         {
           "channel": "ha",
-          "channelIcon": "base.icons/home-assistant",
+          "channelIcon": "base.icons/home",
           "channelTitle": "Home Assistant",
           "expiresAt": null,
           "id": "ha-battery",
@@ -421,7 +463,7 @@
         },
         {
           "action": "activate",
-          "icon": "base.icons/home-assistant",
+          "icon": "base.icons/home",
           "id": "scene.movie",
           "label": "Movie night",
           "state": {
@@ -472,12 +514,12 @@
       ],
       "plugins": [
         {
-          "class": "S",
+          "class": "L",
           "id": "home-assistant",
           "name": "Home Assistant",
           "registered": true,
           "state": "connected",
-          "version": "0.1.0"
+          "version": "0.2.0"
         }
       ],
       "problem": null

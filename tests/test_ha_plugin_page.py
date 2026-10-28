@@ -35,7 +35,7 @@ class Panels(HaCase):
         rows = tiles["rows"]
         self.assertEqual([t["label"] for t in rows], ["Lamp", "Shelf light", "Movie night"])
         self.assertEqual([(t["kind"], t["on"]) for t in rows][:2], [("toggle", True), ("toggle", False)], "a light is a switch that shows its state")
-        self.assertEqual([t["icon"] for t in rows], ["sun", "sun", "house-wifi"], "the plugin's own icon names are drawn with the closest this TV has")
+        self.assertEqual([t["icon"] for t in rows], ["sun", "sun", "house"], "the plugin's own icon names are drawn with the closest this TV has")
         self.assertEqual([t["detail"] for t in rows], ["", "", ""], "a tile says its name and its state, not which plugin it is")
         self.assertEqual(sorted(self.plugin_posts(out)), [("/v1/plugins/home-assistant/actions/activate", {"target": "scene.movie"}),
                                                           ("/v1/plugins/home-assistant/actions/toggle", {"target": "light.lamp"})],
@@ -56,7 +56,7 @@ class Panels(HaCase):
         shape = probes(out)["shape"]
         self.assertEqual(shape["heads"], ["Home Assistant:2"], "one group, the plugin's")
         self.assertIn("Doorbell|bell", shape["titles"], "the channel's icon, drawn with the closest this TV has")
-        self.assertIn("Low battery|house-wifi", shape["titles"])
+        self.assertIn("Low battery|house", shape["titles"])
         self.assertIn(["Clear"], shape["buttons"])
         self.assertEqual(probes(out)["toward"], "Doorbell")
         self.assertEqual(self.plugin_posts(out), [("/v1/plugins/home-assistant/actions/clear_doorbell", {"target": "ring-1"})])
@@ -159,8 +159,8 @@ class Page(HaCase):
             *self.keys(READY, "ok"),
             *self.keys(READY + 2300, "up", "right", "right", "down", "down"),    # Doorbell: under its title, the doorbell picked is the first row
             *probe(READY + 2800, "doorbell", self.PICK, find="root"),
-            *self.keys(READY + 2900, "ok", "down", "ok"),                        # take it off, then the switch below it
-            *self.keys(READY + 3500, "up", "up", "up", "right", "down", "down", "right"),   # Presence: no sensors in this room; the number, +10 s
+            *self.keys(READY + 2900, "ok", "down", "down", "down", "ok"),        # take it off, then the switch below the two camera pickers
+            *self.keys(READY + 3500, "up", "up", "up", "up", "up", "right", "down", "down", "right"),   # Presence: no sensors in this room; the number, +10 s
             *probe(READY + 4200, "presence", self.PICK, find="root"),
             *self.keys(READY + 4300, "up", "up", "right", "down", "ok"),         # Alerts: the switch
             *js(READY + 4800, GET % ("posts", "__posts")),

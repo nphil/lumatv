@@ -46,6 +46,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
+/// The plugin API level this TV speaks (`docs/research/plugins-slice-result.md`): the one before widgets and the decoder lease.
+pub const TV_LEVEL: u32 = 1;
 pub const MAX_CARDS: usize = service_api::limits::MAX_CARDS_PER_OWNER;
 pub const MAX_TILES: usize = service_api::limits::MAX_QUICK_TILES_PER_OWNER;
 pub const MAX_NOTES: usize = service_api::limits::MAX_NOTIFICATIONS_PER_OWNER;
@@ -733,7 +735,9 @@ impl Session {
         if self.phase != Phase::Fresh {
             return Reply::fatal("hello_twice", "hello was already said on this connection");
         }
-        let api = match level::negotiate(hello.min, hello.target) {
+        // This TV speaks level 1 whatever the crate's own level: it has no widgets, no decoder lease and no pane host. A plugin whose
+        // `min` is 1 runs with the level-1 permissions of its manifest; the rest are not granted, as the plugin API's rule says.
+        let api = match level::negotiate_with(hello.min, hello.target, TV_LEVEL, TV_LEVEL) {
             Ok(api) => api,
             Err(refusal) => {
                 let code = match refusal {
@@ -939,7 +943,16 @@ impl Session {
         let tiles = register.tiles.clone();
         let has_page = register.settings.is_some();
         let schema = register.settings.clone();
-        let plan = match Plan::new(register, &key, &self.member.manifest.permissions) {
+        // the permissions this level grants: a level-2 one in the manifest (a widget) is not held on this TV
+        let held = self
+            .member
+            .manifest
+            .permissions
+            .iter()
+            .filter(|p| p.available_at(TV_LEVEL))
+            .cloned()
+            .collect();
+        let plan = match Plan::new(register, &key, &held) {
             Ok(plan) => plan,
             Err(e) => return Reply::refused("register", "invalid", e),
         };
@@ -1601,7 +1614,7 @@ mod tests {
         let reply = say(&mut early, json!({"t": "card.remove", "id": "x"}));
         assert!(reply.hangup, "{reply:?}");
         let mut newer = Session::new(member(), shared.clone(), 2, Arc::new(Quiet));
-        let too_new = plugin_api::API_LEVEL + 1;
+        let too_new = TV_LEVEL + 1;
         let reply = say(
             &mut newer,
             json!({"t": "hello", "min": too_new, "target": too_new + 1}),

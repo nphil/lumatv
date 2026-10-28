@@ -201,10 +201,11 @@ Item {
                 size: 36
                 y: 0
             }
+            // the name has the whole line; what was seen and when share the second (little copy, nothing competing with the name at 200 %)
             LuText {
                 id: nameText
                 x: glyph.width + Lu.space(4)
-                width: head.width - x - agoText.width - Lu.space(4)
+                width: head.width - x
                 role: "body"
                 font.weight: Font.DemiBold
                 elide: Text.ElideRight
@@ -218,15 +219,7 @@ Item {
                 role: "label"
                 color: Lu.ink2
                 elide: Text.ElideRight
-                text: cams.kindWord(cams.popup)
-            }
-            LuText {
-                id: agoText
-                anchors.right: parent.right
-                y: Math.round((nameText.implicitHeight - implicitHeight) / 2)
-                role: "label"
-                color: Lu.ink2
-                text: cams.ago
+                text: cams.kindWord(cams.popup) + (cams.ago !== "" ? "  \u00b7  " + cams.ago : "")
             }
         }
         CameraFrame {
@@ -246,15 +239,18 @@ Item {
             x: cams.padX
             y: preview.y + preview.height + Lu.space(3)
             width: cams.previewW
-            height: hint.implicitHeight
+            // the hint sits at the end of the state's line, or on a line of its own when the text is large (never at the card's edge)
+            readonly property bool twoLines: stateText.x + stateText.implicitWidth + Lu.space(4) + hint.implicitWidth > width
+            height: stateText.implicitHeight + (twoLines ? Lu.space(1) + hint.implicitHeight : 0)
             Rectangle {
                 id: liveDot
                 width: 12; height: 12; radius: 6
-                y: Math.round((parent.height - height) / 2)
+                y: Math.round((stateText.implicitHeight - height) / 2)
                 color: Lu.live
                 visible: preview.ready
             }
             LuText {
+                id: stateText
                 x: liveDot.visible ? liveDot.width + Lu.space(2) : 0
                 role: "caption"
                 color: Lu.ink2
@@ -262,7 +258,8 @@ Item {
             }
             LuText {
                 id: hint
-                anchors.right: parent.right
+                x: foot.twoLines ? 0 : foot.width - implicitWidth
+                y: foot.twoLines ? stateText.implicitHeight + Lu.space(1) : 0
                 role: "caption"
                 color: Lu.ink3
                 text: "OK expands  \u00b7  Back dismisses"

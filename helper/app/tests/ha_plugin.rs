@@ -24,7 +24,7 @@ const TOKEN: &str = "eyJhbGciOiJIUzI1NiJ9.the-token-nothing-may-say.signature-pa
 const WAIT: Duration = Duration::from_secs(20);
 /// LumaShow's own manifest of the plugin, read where it lives: the approval is of exactly what the Show approves.
 const MANIFEST: &str =
-    include_str!("../../../../LumaShow/lumashow/plugins/home-assistant/plugin.json");
+    include_str!("../../../../LumaShow/wt/lumatv/plugins/home-assistant/plugin.json");
 const ID: &str = "home-assistant";
 
 fn my_uid() -> u32 {
@@ -204,9 +204,10 @@ fn the_plugin_is_approved_connects_and_is_told_where_the_lease_is() {
         .iter()
         .find(|p| p["id"] == ID)
         .unwrap();
+    // the manifest's class (L since the plugin's widgets of 0.2.0); the ceilings follow it (`runner.rs`)
     assert_eq!(
         (me["name"].as_str(), me["class"].as_str()),
-        (Some("Home Assistant"), Some("S"))
+        (Some("Home Assistant"), Some("L"))
     );
     let link = home.until("ha.link", "a connected lease", connected);
     assert_eq!(link["address"], home.ha.url());

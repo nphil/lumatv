@@ -93,15 +93,21 @@ pub fn approval(manifest: &Manifest) -> String {
 /// What LumaTV does not serve at level 1. A plugin that asks for any of it is inert, and says so, instead of connecting to be
 /// refused message by message: the TV has no timeline, no pane host and no network or Bluetooth brokering. It does serve the Home
 /// Assistant lease (`ha.rs`) with `ha.read` and `ha.call`, and the occupancy signal, but never a call on what is the owner's to
-/// operate ([`super::ha::NEVER_CALLED`]).
+/// operate ([`super::ha::NEVER_CALLED`]). A lease or a permission of a later level (the decoder, a widget) is not refused: this TV
+/// speaks level 1 (`session::TV_LEVEL`) and a plugin whose `min` is 1 runs without them, as the plugin API's level rule says.
 fn unserved(manifest: &Manifest) -> Vec<String> {
+    let level = super::session::TV_LEVEL;
     let mut found: Vec<String> = manifest
         .requires
         .iter()
-        .filter(|l| **l != Lease::Ha)
+        .filter(|l| **l != Lease::Ha && l.available_at(level))
         .map(|l| l.name().to_owned())
         .collect();
-    for permission in &manifest.permissions {
+    for permission in manifest
+        .permissions
+        .iter()
+        .filter(|p| p.available_at(level))
+    {
         match permission {
             Permission::Settings
             | Permission::Cards
@@ -318,13 +324,16 @@ mod tests {
             "{:?}",
             roster.inert
         );
-        // Other leases and the network are still not served.
-        let roster = on(r#""settings","net.lan:192.168.1.5:80""#, "");
+        // Other leases and the network are still not served; a permission of a later level (the LAN, level 2) is not granted at level 1
+        // and makes nothing inert.
+        let roster = on(r#""settings","net.mdns""#, "");
         assert!(
-            roster.inert[0].reason.contains("net.lan"),
+            roster.inert[0].reason.contains("net.mdns"),
             "{:?}",
             roster.inert
         );
+        let roster = on(r#""settings","net.lan:192.168.1.5:80""#, "");
+        assert_eq!((roster.members.len(), roster.inert.len()), (1, 0));
         let roster = on(r#""settings""#, r#""lease:camera""#);
         assert!(
             roster.inert[0].reason.contains("lease:camera"),

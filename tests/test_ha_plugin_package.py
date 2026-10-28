@@ -44,7 +44,7 @@ class Package(unittest.TestCase):
         build = text(BUILD)
         self.assertIn("PLUGIN=lumatv-plugin-home-assistant", build)
         self.assertIn('-p lumatv-helper -p "$PLUGIN"', build, "the release build makes the helper and the plugin's program together")
-        self.assertIn('PLUGIN_MANIFEST="$HERE/../../LumaShow/lumashow/plugins/home-assistant/plugin.json"', build)
+        self.assertIn('PLUGIN_MANIFEST="$HERE/../../LumaShow/wt/lumatv/plugins/home-assistant/plugin.json"', build)
         self.assertIn('cp -f "$PLUGIN_MANIFEST" "$pkg/plugin.json"', build, "copied, never rewritten: the approval is the hash of its text")
         self.assertIn('pkg="dist/plugins/home-assistant"', build)
         self.assertIn("bin/home-assistant", build)

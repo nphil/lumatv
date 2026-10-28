@@ -337,12 +337,11 @@ fn an_event_from_the_integration_is_a_popup_within_the_budget_and_the_picture_is
 
     // Bye: the cameras go with the session; the bridge waits again.
     ha.bye("unloaded").unwrap();
-    let topic = rig
-        .wait_topic("cameras", Duration::from_secs(5), |t| {
-            t["cameras"].as_array().is_some_and(Vec::is_empty)
-        })
-        .expect("the cameras are gone");
-    assert_eq!(topic["state"], "waiting");
+    // the mirror empties and the link says waiting; the two are published one after the other, so both are waited for
+    rig.wait_topic("cameras", Duration::from_secs(5), |t| {
+        t["cameras"].as_array().is_some_and(Vec::is_empty) && t["state"] == "waiting"
+    })
+    .expect("the cameras are gone and the bridge waits again");
     let gone = get(rig.addr, &format!("/v1/cameras/{CAMERA}/frame"));
     assert_eq!(gone.status, 404);
     let status = get(rig.addr, "/v1/cameras").json();
