@@ -341,10 +341,6 @@ static int vt_ext(struct fd_state *s, int set, struct v4l2_ext_controls *cs)
         i->active_region = s->prop.plane;
         return 0;
     }
-    case V4L2_CID_EXT_CAPTURE_DIVIDE_FRAMERATE:
-        s->divide = *(uint32_t *)c->ptr;
-        logcall("vt divide %u", s->divide);
-        return 0;
     case V4L2_CID_EXT_CAPTURE_PHYSICAL_MEMORY_INFO: {
         struct v4l2_ext_capture_physical_memory_info *pm = c->ptr;
         if (pm->buf_index < 0 || pm->buf_index >= (int)s->nbuf || !s->bufs[pm->buf_index].y) { errno = EINVAL; return -1; }
@@ -366,6 +362,13 @@ static int vt_ioctl(struct fd_state *s, unsigned long req, void *arg)
     switch (req) {
     case VIDIOC_S_EXT_CTRLS: return vt_ext(s, 1, arg);
     case VIDIOC_G_EXT_CTRLS: return vt_ext(s, 0, arg);
+    case VIDIOC_S_CTRL: {
+        struct v4l2_control *ctl = arg;
+        if (ctl->id != V4L2_CID_EXT_CAPTURE_DIVIDE_FRAMERATE) { errno = EINVAL; return -1; }
+        s->divide = (uint32_t)ctl->value;
+        logcall("vt divide %u", s->divide);
+        return 0;
+    }
     case VIDIOC_S_FMT: {
         struct v4l2_format *f = arg;
         if (f->type != V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) { errno = EINVAL; return -1; }

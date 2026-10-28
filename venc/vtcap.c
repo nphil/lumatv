@@ -114,9 +114,11 @@ int vtcap_open(struct vtcap *c, const struct sysops *sys, enum v4l2_ext_capture_
         goto fail;
     }
     if (divide > 1) {
-        uint32_t d = divide;
-        if (ext_ctrl(sys, c->fd, VIDIOC_S_EXT_CTRLS, V4L2_CID_EXT_CAPTURE_DIVIDE_FRAMERATE, &d, sizeof(d)) < 0) {
-            sys_fail(err, errlen, "S_EXT_CTRLS DIVIDE_FRAMERATE");
+        /* a plain control, as LG's setCaptureFrameRate issues it (VIDIOC_S_CTRL); the driver ignores it
+         * silently when more than one process has the device open */
+        struct v4l2_control ctl = { .id = V4L2_CID_EXT_CAPTURE_DIVIDE_FRAMERATE, .value = (int32_t)divide };
+        if (sys->ioctl(c->fd, VIDIOC_S_CTRL, &ctl) < 0) {
+            sys_fail(err, errlen, "S_CTRL DIVIDE_FRAMERATE");
             goto fail;
         }
     }
