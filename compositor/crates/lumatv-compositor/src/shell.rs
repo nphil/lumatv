@@ -211,6 +211,9 @@ pub struct Shell {
     child: Option<Child>,
     /// A start on its thread (`spawn_client`) whose child has not arrived yet.
     spawning: Option<Receiver<Result<Child, SpawnFailure>>>,
+    /// The thread that forks the client (`spawn_thread`), made at the first start and kept for the life of the compositor: the
+    /// client's PR_SET_PDEATHSIG fires when the thread that forked it ends, so a thread per start killed the client at once.
+    spawner: Option<Sender<SpawnRequest>>,
     child_started: Option<Instant>,
     starts: VecDeque<Instant>,
     next_start: Option<Instant>,
@@ -245,6 +248,7 @@ impl Default for Shell {
             link: None,
             child: None,
             spawning: None,
+            spawner: None,
             child_started: None,
             starts: VecDeque::new(),
             next_start: None,
@@ -434,11 +438,14 @@ impl State {
             socket: self.config.socket.clone(),
         };
         let (tx, rx) = channel();
-        match std::thread::Builder::new().name("shell-spawn".into()).spawn(move || {
-            let _ = tx.send(spawn_client(job));
-        }) {
-            Ok(_) => self.shell.spawning = Some(rx),
+        let spawner = match &self.shell.spawner {
+            Some(s) => Ok(s.clone()),
+            None => spawn_thread().inspect(|s| self.shell.spawner = Some(s.clone())),
+        };
+        match spawner.and_then(|s| s.send((job, tx)).map_err(|_| std::io::Error::other("the spawn thread ended"))) {
+            Ok(()) => self.shell.spawning = Some(rx),
             Err(e) => {
+                self.shell.spawner = None;
                 self.journal(format!("shell: no thread to start the client: {e}"));
                 self.shell.error = Some(format!("start: {e}"));
                 self.shell.next_start = Some(now + Duration::from_secs(10));
@@ -795,6 +802,21 @@ struct SpawnJob {
     data_dir: PathBuf,
     runtime_dir: PathBuf,
     socket: String,
+}
+
+/// A start asked of the spawn thread, and where its child goes.
+type SpawnRequest = (SpawnJob, Sender<Result<Child, SpawnFailure>>);
+
+/// The thread that forks every client start (`Shell::spawner`). It lives until the compositor drops its sender, which is the
+/// end of the process: the client's PR_SET_PDEATHSIG is tied to this thread, so the thread must outlive the client.
+fn spawn_thread() -> std::io::Result<Sender<SpawnRequest>> {
+    let (tx, rx) = channel::<SpawnRequest>();
+    std::thread::Builder::new().name("shell-spawn".into()).spawn(move || {
+        for (job, reply) in rx {
+            let _ = reply.send(spawn_client(job));
+        }
+    })?;
+    Ok(tx)
 }
 
 /// Starts the client: the module lookup, the log file and the fork and exec of the runner, on the spawn thread.
@@ -1284,6 +1306,38 @@ mod tests {
         // No second start while one was on its way, and the pass that asked for it was not held for the exec.
         assert_eq!(state.shell.starts.len(), 1);
         assert!(pass < Duration::from_millis(50), "the tick took {pass:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_client_outlives_the_start_that_forked_it() {
+        // PR_SET_PDEATHSIG fires when the thread that forked the client ends: on the set the client was killed 0 s after
+        // its start (round 6) while the spawn thread of each start ended. The runner here is a script that sleeps.
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("lumatv-shell-outlive-{}", std::process::id()));
+        let module = dir.join("qml/WebOSCompositor/lumatv");
+        std::fs::create_dir_all(&module).unwrap();
+        std::fs::write(module.join("LumaHome.qml"), "").unwrap();
+        let runner = dir.join("runner.sh");
+        std::fs::write(&runner, "#!/bin/sh\nexec sleep 30\n").unwrap();
+        std::fs::set_permissions(&runner, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let display: wayland_server::Display<State> = wayland_server::Display::new().unwrap();
+        let config = crate::config::Config { data_dir: dir.clone(), runtime_dir: dir.clone(), ..crate::config::Config::default() };
+        let mut state = State::new(display.handle(), config, Box::new(crate::render::software::Software::new(64, 64)), Box::new(crate::luna::Null::default()));
+        state.shell.launch = Some(Launch { runner, main_qml: dir.join("Shell.qml"), port: 1, token_path: dir.join("token"), log: dir.join("shell.log") });
+        state.shell.next_start = Some(Instant::now());
+        for _ in 0..200 {
+            state.shell_tick(Instant::now());
+            if state.shell.child.is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        std::thread::sleep(Duration::from_millis(300));
+        let child = state.shell.child.as_mut().expect("the client started");
+        assert!(child.try_wait().unwrap().is_none(), "the client is still running 300 ms after its start");
+        let _ = child.kill();
+        let _ = child.wait();
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
