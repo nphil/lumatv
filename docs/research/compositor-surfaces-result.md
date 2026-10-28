@@ -7,23 +7,34 @@ compositor. Under LG's compositor nothing changes: the shadow module keeps runni
 
 ## Resume here
 
-State (2026-10-27, round 4 on f0d3cb4, `compositor/slot-2026-10-27-1900/`): ipk, bundle and `cutover install` of f0d3cb4 are
-on the set (one HomeLabber plan). `gate.sh shell` passes 11 of 11 alone, and in `--only keys,ime,shell,frames` keys,
-ime and shell pass; the frame gate fails on two surfaces (picker, toast; "TV runs" below). Next, in order:
+State (2026-10-27, after round 4 on f0d3cb4, `compositor/slot-2026-10-27-1900/`): the picker's and the toast's frame-gate
+failures have a cause and a fix ("The picker and the toast of the frame gate" below: f903648, bc25983), host-tested and not yet
+on the set. `gate.sh shell` passed 11 of 11 alone in round 4, and keys, ime and shell passed in `--only keys,ime,shell,frames`.
+Next, in order:
 
-1. The picker and the toast of the frame gate (numbers in "TV runs", round 4): the picker's open misses the 50 ms first
-   frame in 2 of 3 cycles (82.1, 80.2 ms, no burst at the key) and the toast's open has no frame after the key in 2 of
-   3 (the volume display's window off at the key, woke after 281 and 582 ms).
-2. The held digit: its press also reaches SAM, which launches the Quick Access slot's app (`com.webos.app.browser`, 0.6 s
+1. One TV round of `tv_gate.py --only keys,ime,shell,frames` with the bundle of HEAD installed. The frame gate must show:
+   - picker: `first_frame_ms` about 31 ms (limit 50), `burst_end_ms` about 148 (limit 180), `windows` 6/6, and `show_ms` under
+     1 ms on the opens (the compositor asks the shell at the press). `burst_over20` is the open question: round 4 had 5
+     intervals of 33.4 ms in its six windows (opens 1, 2 and 0, closes 1, 0 and 1). Where any remain, read the GPU busy time
+     of those intervals in `frames.json` (12.1-13.5 ms in round 4, against 11.0 ms for a plain frame of Home) and cut the
+     picker's GPU work per frame (its glass quad is 1.0 Mpx, the quick panel's 0.7) before touching the pacing.
+   - toast: `windows` 3/3, and per window `sent_ms`, `delivered_ms` and `first_frame_ms` (now from the compositor's
+     `Q:toast-delivered`): the shell's own time from being handed the toast (limit 50). If it is over, read the journal's
+     `shell: system layer window mapped` line against `delivered_ms`: the system window's first showing after its last hide is
+     the candidate.
+   - the keys gate's `input-shell` line (journal `Input tap: ... LumaTV's input picker`) now comes at the press.
+2. Input on Nitin's remote, once: a tap shows the picker at the press; a hold of 1 s opens the Home Hub and the picker goes
+   with it.
+3. The held digit: its press also reaches SAM, which launches the Quick Access slot's app (`com.webos.app.browser`, 0.6 s
    into the hold) beside the compositor's own Quick Access (`com.webos.app.magicnum`, at 1.0 s). The gate now closes
    the browser; whether `keys.rs` should keep the press from SAM is open.
-3. The full gate (not run in round 4), then idle Home ("Open" below): the tick held while nothing visible changes.
+4. The full gate (not run in round 4), then idle Home ("Open" below): the tick held while nothing visible changes.
 
-Likeliest failures on the set now: the frame gate's picker and toast (above), an app left open by a key (`gate.sh shell`
-starts with Home not in front: `connected` fails with `drawn false`, and the frame gate's session then covers Home), the
-idle cost over the threshold (a client CPU over a third of a core at nice 10 would be the Qt render of the full scene
-per tick), keys not arriving (`ctl shell` `ui.keys` stays 0 while `ctl keys` counts them delivered: the focus went
-elsewhere, `ctl windows` and the journal's `focus ->` lines say where).
+Likeliest failures on the set now: the picker's 33.4 ms frame intervals (above), the toast's first frame from the compositor's
+marker, an app left open by a key (`gate.sh shell` starts with Home not in front: `connected` fails with `drawn false`, and
+the frame gate's session then covers Home), the idle cost over the threshold (a client CPU over a third of a core at nice 10
+would be the Qt render of the full scene per tick), keys not arriving (`ctl shell` `ui.keys` stays 0 while `ctl keys` counts
+them delivered: the focus went elsewhere, `ctl windows` and the journal's `focus ->` lines say where).
 
 ## What was built
 
@@ -63,7 +74,8 @@ elsewhere, `ctl windows` and the journal's `focus ->` lines say where).
   shell window with the focus gets every key but Home, Volume and Mute, Back and Exit included, and `back_pressed`
   leaves the shell's windows alone. The gear's tap, Input and the gear's hold ask the shell first (`system_ui.rs`, by
   its `can`); the interim app launches of step 1 stay the fallback. The gear's press sends `show {warm: true}` so the
-  panel joins the scene before the tap. `showQuickSettings`, `showInputPicker` and `systemUIManager/launch` of the two
+  panel joins the scene before the tap; Input's tap is acted on at its press while `can` has the picker (at the release
+  otherwise). `showQuickSettings`, `showInputPicker` and `systemUIManager/launch` of the two
   panels reach the shell too. A Home tap while LumaTV's Home has the keys sends `homekey` (the client goes back to the
   top of Home).
 - `ctl shell [restart|show KIND]`: connected, pid, `can`, `wants`, the windows' mapping, the client's `state` report
@@ -191,13 +203,64 @@ Second run, same checks: keys, ime and shell PASS (shell 11 of 11: 10 commits/s,
 - `picker` NOT: the open's first frame is 82.1 and 80.2 ms (limit 50) in two cycles, with no render burst at the key in
   those two (burst end none); the third cycle's open is 47.7 ms with its burst ending at 197.8 ms (limit 180) and 3
   frames over 20 ms; the closes are 30.7-31.3 ms to first frame, burst end 130.8-131.4 ms. `burst_over20` 5.
-- `toast` NOT: `windows` 2 of 3: two of the three opens have no frame after the key (the volume display's window was
-  off at the key and came up after 281 and 582 ms), so no first frame; the closes' first frames are 421.9, 55.5 and
-  980.3 ms.
+- `toast` NOT: `windows` 2 of 3: two of the three opens have no frame after the key (the display's OSD interrupt, which the
+  analysis reports as `osd_wake_ms`, was silent at the key and came back 281 and 582 ms into those windows), so no first
+  frame; the closes' first frames are 421.9, 55.5 and 980.3 ms.
+
+## The picker and the toast of the frame gate
+
+Cause and fix, read offline from `gate-keys-ime-shell-frames/frames.json` (the window numbers and the gaps between frames)
+and the code; round 4's trace files are not kept, so what a gap leaves out is marked [INFERENCE].
+
+**The picker: the Input tap is decided at its release, and the gate's tap holds the key for 50 ms.** The three opens differ in
+their first frame (82.07, 47.65, 80.19 ms) and not in their slide: the sheet's frames run from 82.1, 81.0 and 80.2 ms to
+198.8, 197.8 and 196.9 ms after the key, 117 ms each (the 110 ms slide and a frame). The 47.65 ms frame of the second open is
+a Home tick ahead of the slide (its next frames are at 81.05, 97.7, 114.4, 131.0, 164.4 and 197.8 ms); it alone starts a
+burst, which chains from any frame within 50 ms of the key, so the other two have none. The compositor's router decides
+Input's tap at the key's release (`keys.rs`: LG's chain swallows the press and decides at the release or at 1 s), `kb.py`'s
+tap releases it 50 ms after the press, and the shell then needs 30-32 ms from the `show` event to the first flip (the quick
+panel, shown at its release, needs 19-21 ms). Back, which reaches the client at its press, has its first frame 30.7-31.3 ms
+after it. LumaTV's key filter under LG's compositor acted on Input's press ("as LG's does", `payload/keyfilter/lumatv.js`),
+and the gate times the picker from the press.
+
+Fix (f903648): while the shell's `can` holds the picker, Input's tap is acted on at its press (`keys::Ctx::picker_ready`).
+Expected: first frame about 31 ms after the press and burst end about 148 ms (were 81 and 198). A press that found no picker
+still waits for its release, since the interim Hub launch must not run at the press of a hold. A hold still opens the Home Hub
+once at 1 s; the picker the press opened goes with the app switch (Home's layers close with `hostActive`; the system layer's
+panels with `Shell.qml`'s new `fgApp` handler). The compositor writes `Q:<panel>-show` into the kernel's trace buffer when it
+asks the shell for a panel (not for the gear's warm-up); the gate reads it as `show_ms`, the key to that instant, beside
+`first_frame_ms`.
+
+**The picker's 33.4 ms intervals, not changed.** The slides have 5 of them in about 34 intervals: opens 1, 2 and 0, closes 1, 0
+and 1. The gate counted `burst_over20` 5 (open 2's burst, 3 with the interval after its stray frame, and one in each of two
+closes); the opens with no burst counted none, and will count theirs once the first frame is in time. Each interval has the
+GPU busy 13.0-13.5 ms in its 4 jobs, the compositor's thread 0.0-0.27 ms (the client's buffer goes to the plane whole) and
+qml-runner 2.2-3.5 ms; one plain frame of Home in the D-pad's windows measured 11.0 ms. The quick panel's slides had none in
+about 48 intervals in round 4 (1 in the first run). [INFERENCE: a frame of Home with the 1792 px sheet is at the pipeline's
+limit (the client's CPU, about 13 ms of GPU, the flip within a refresh of the compositor's latch); the sheet's glass quad is
+1.0 Mpx against the quick panel's 0.7.]
+
+**The toast: the capture lost its first events, and the surface is not the volume display.** The gate's `toast` is LG's
+`createToast` through the notification service (`kb.py` `!toast`). Its cycle was 16.3 s (8 s settle on each side of the close),
+longer than a full capture's ring holds (about 13 s). The two windows that were found have no `Q:toast-sent` marker and the
+display's OSD interrupt silent for their first 281 and 582 ms (930 and 892 interrupts in 8.03 and 8.02 s against 965 in the
+closes' 8.05 s: 34 and 70 missing at 120 a second), and the third capture has no open window at all: the oldest events of
+CPU 0's ring were gone, with luna-send's return and the first frames. The stock toast's gate of 2026-10-25 (the same cycle)
+also found 2 of 3 windows, and the browser run of round 4 (a busier set) read the OSD back after 1979 ms. The numbers say
+nothing of the shell. What the frames do show [INFERENCE]: besides the 1 Hz ticks (1.001 s apart) the first window has frames
+at 0.915, 5.135 and 5.452 s and the second at 4.994 and 5.144 s, with its first frame at 1.007 s: a toast up for about 4 s,
+handed over about 0.9-1.0 s after the gate's marker (luna-send's start, the hub and the service) and drawn in the frame after.
+
+Fix (bc25983, f903648): a cycle of the toast is 7.8 s (`settle_s` 7, `close_settle_s` 0.5) and `validate()` refuses a cycle
+over 12 s; each toast has its own text (a repeated text replaces the one on the screen and leaves nothing to time); the
+compositor writes `Q:toast-delivered` (and `Q:alert-delivered`) when the service's push reaches it, and the gate times a
+delivery surface from that marker, else from luna-send's return, and keeps both (`sent_ms`, `delivered_ms`). The service
+hands a toast over at its own pace (2-4 s after luna-send's return in the gate of 2026-10-25 under LG's compositor), which no
+change of the shell touches; the shell's part is what the marker measures.
 
 ## Open
 
-- The picker and the toast of the frame gate (round 4 below); the full gate.
+- The picker's 33.4 ms frame intervals and the toast's first frame from the compositor's marker, on the set (Resume); the full gate.
 - Idle Home commits at the live wallpaper's tick (10 a second, 3 % of a core at nice 10). Parity with LG's compositor:
   there too idle Home presents one frame per tick while `wallpaperMotion.enabled` is on (`LumaHome.qml`: the phase and
   the clock's hands advance on the one 10 Hz tick, "idle Home presents one frame per tick"; the gate's `home-idle`

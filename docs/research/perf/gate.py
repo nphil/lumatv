@@ -147,7 +147,7 @@ SURFACES = [
     # shell client's Notify.qml, `compositor-surfaces-result.md`). A luna call opens them (`!toast`, `!alert` in kb.py) and nothing closes
     # the toast but its own timer (about 5 s); the alert is closed by OK. Run on request (`--surfaces toast,alert`): the stock ones are not
     # expected to pass. A cycle of the toast is 7.8 s. With 8 s on each side of the close it was 16.3 s, longer than a full capture's ring
-    # holds: LG's toast on 2026-10-24 and LumaTV's on 2026-10-27 each found 2 windows of 3, the two of LumaTV's without any `Q:` marker
+    # holds: LG's toast on 2026-10-25 and LumaTV's on 2026-10-27 each found 2 windows of 3, the two of LumaTV's without any `Q:` marker
     # and with the display's OSD interrupt "back" 281 and 582 ms into them (the oldest events of CPU 0's ring were gone).
     {'name': 'toast', 'default': False, 'delivery': True,
      'open': '@toast-open !toast', 'close': '@toast-close', 'settle_s': 7, 'close_settle_s': 0.5, 'transition': False},
