@@ -121,9 +121,11 @@ Item {
         if (!enabled || !spec) return false
         var cls = Q.CLASSES.indexOf(spec["class"]) >= 0 ? spec["class"] : "alert"
         var now = Date.now()
-        take(Q.fromNote({ pluginId: "door", plugin: "Door", id: String(spec.id || "d" + now), channel: cls, channelTitle: String(spec.source || ""), channelIcon: "",
-                          revision: (spec.revision | 0) || 1, expiresAt: spec.ttl > 0 ? now / 1000 + spec.ttl : 0, title: String(spec.title || ""), body: String(spec.body || ""),
-                          actions: spec.actions || [], kind: cls, level: String(spec.level || ""), score: spec.score || null }, cfg, now))
+        var e = Q.fromNote({ pluginId: "door", plugin: "Door", id: String(spec.id || "d" + now), channel: cls, channelTitle: String(spec.source || ""), channelIcon: "",
+                             revision: (spec.revision | 0) || 1, expiresAt: spec.ttl > 0 ? now / 1000 + spec.ttl : 0, title: String(spec.title || ""), body: String(spec.body || ""),
+                             actions: spec.actions || [], kind: cls, level: String(spec.level || ""), score: spec.score || null }, cfg, now)
+        if (e) e.src = "door"                          // no record of the hub stands behind it: the hub's lists do not end it
+        take(e)
         return true
     }
 

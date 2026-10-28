@@ -16,7 +16,8 @@ Tokens:
   sS        sleep S seconds
   @NAME     trace marker "P:NAME" (a phase boundary for analyse.py) written at this instant
   !NAME     a luna call from LUNA below, started at this instant without waiting for its answer
-            (a surface that no key opens: a toast, an alert). When the call returns, the marker
+            (a surface that no key opens: a toast, an alert), or a file written to a door from DOOR below (an overlay
+            card: LumaOverlay reads it once a second while an app is in front). When the call returns, the marker
             "Q:NAME-sent" is written (kb.py waits up to 10 s for it at the end): the time from the
             "P:" marker to it is luna-send's start, the hub and the service; what the compositor
             then does is what the surface costs. analyse.py ignores "Q:" markers.
@@ -113,7 +114,24 @@ LUNA = {
 }
 
 
+# A card made by hand for the overlay system (docs/research/overlays-result.md): LumaOverlay reads this file once a second while an app is in front,
+# so the card is up within a second of the write. {N} is made different for every call: the same text twice is not shown twice.
+DOOR = {
+    'overlay': ('/tmp/lumatv-overlay',
+                '{"card":{"class":"timer","id":"gate{N}","title":"A timer for the gate {N}","body":"Time is up","source":"The gate","ttl":60}}'),
+}
+
+
+def door(name):
+    path, text = DOOR[name]
+    with open(path, 'w') as f:
+        f.write(text.replace('{N}', str(int(time.time() * 1000) % 1000000)))
+    mark_text('Q:%s-sent' % name)
+
+
 def luna(name):
+    if name in DOOR:
+        return door(name)
     import subprocess
     uri, payload = LUNA[name]
     payload = payload.replace('{N}', str(int(time.time() * 1000) % 1000000))

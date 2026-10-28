@@ -105,6 +105,8 @@ HDMI_TEARDOWN = [f"luna-send -n 1 {SAM}/closeByAppId '{{\"id\":\"com.webos.app.h
 # full_budget_s seconds one full capture may hold (default FULL_TRACE_BUDGET_S): less over playback, where the ring fills faster
 # thresholds    per-surface overrides of THRESHOLDS; None switches a check off
 # inputs_free   verify that teardown released every input decoder port and input app
+OVERLAYS_ON = [TOOL + " theme set '{\"overlays\":{\"enabled\":true}}'", 'sleep 3']
+OVERLAYS_OFF = [TOOL + " theme set '{\"overlays\":{\"enabled\":false}}'"]
 SURFACES = [
     {'name': 'home-idle', 'still': False,
      'open': '@home-idle-open s3', 'close': '@home-idle-close', 'settle_s': 3,
@@ -186,6 +188,16 @@ SURFACES = [
      'open': '@toast-open !toast', 'close': '@toast-close', 'settle_s': 7, 'close_settle_s': 0.5, 'transition': False},
     {'name': 'alert', 'default': False, 'delivery': True,
      'open': '@alert-open !alert', 'close': '@alert-close OK', 'settle_s': 2.5},
+    # The overlay cards over a film and over an input (`--surfaces overlay-netflix,overlay-hdmi`, docs/research/overlays-result.md): `overlays.enabled`
+    # is set for the run, a card is made through the door file (`!overlay` in kb.py: a timer that finished) and BACK dismisses it once it has been up
+    # 0.6 s. LumaOverlay reads the door once a second, so the first frame is not timed from the write; the burst (the fade in, 180 ms) and the frames
+    # over 20 ms while the card is up and while it goes are what is judged, and with the app playing the playback must not stutter.
+    {'name': 'overlay-netflix', 'default': False, 'setup': OVERLAYS_ON + NETFLIX_SETUP, 'teardown': NETFLIX_TEARDOWN + OVERLAYS_OFF,
+     'open': '@overlay-netflix-open !overlay', 'close': '@overlay-netflix-close BACK', 'settle_s': 3.5, 'close_settle_s': 1, 'transition': False,
+     'full_budget_s': NETFLIX_FULL_BUDGET_S, 'thresholds': {'first_frame_ms': None}},
+    {'name': 'overlay-hdmi', 'default': False, 'setup': OVERLAYS_ON + HDMI_SETUP, 'teardown': HDMI_TEARDOWN + OVERLAYS_OFF,
+     'open': '@overlay-hdmi-open !overlay', 'close': '@overlay-hdmi-close BACK', 'settle_s': 3.5, 'close_settle_s': 1, 'transition': False,
+     'inputs_free': True, 'thresholds': {'first_frame_ms': None}},
     {'name': 'kit-gallery',
      'setup': [TOOL + " theme set '{\"kitGallery\":true}'", 'sleep 3'],
      'teardown': [TOOL + " theme set '{\"kitGallery\":false}'"],

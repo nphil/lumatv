@@ -8,10 +8,14 @@ layer asks the compositor for OK and Back only while a card has them; a dismisse
 is there and the notification is the toast it always was.
 """
 import json
+import os
 import unittest
 
 from test_settings import HostCase
-from xdisplay import DISPLAY, HAVE_QT
+from xdisplay import DISPLAY, HAVE_QT, own_tmp
+
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+DOOR = "%s-overlay" % json.load(open(os.path.join(ROOT, "brand.json")))["shortId"]       # a name in the host's /tmp (own_tmp)
 
 READY = 7000                                      # Home has presented and built the chain; the overlay is warm
 OK, BACK, LEFT, RIGHT = 0x01000004, 0x01000061, 0x01000012, 0x01000014
@@ -275,6 +279,19 @@ class Overlays(HostCase):
         self.assertFalse(off["hubOwns"])
         self.assertEqual(off["takes"], [])
         self.assertIn("[luna] 1", out, "the toast LG's notification service draws")
+
+    def test_the_door_makes_a_card_by_hand_for_the_gate_and_the_tv_steps(self):
+        score = {"league": "NBA", "status": "Q4 2:31", "live": True, "home": {"name": "Celtics", "score": 99}, "away": {"name": "Lakers", "score": 102}}
+        door = {"card": {"class": "score", "id": "g1", "title": "Lakers 102, Celtics 99", "body": "Q4 2:31", "source": "Scores", "score": score, "ttl": 60}}
+        with open(os.path.join(own_tmp(self), DOOR), "w") as f:
+            json.dump(door, f)
+        # the door's own timer ticks once a second from the moment an app is in front; the step reads it itself
+        steps = [(READY, "overlay.readDoor();"), self.at(READY + 800, "door")]
+        doc, out = self.run_overlay(steps, READY + 1400)
+        door = self.tagged(out, "door")[0]
+        self.assertEqual(door["ids"], ["g1"], out[-2000:])
+        self.assertEqual(door["cls"], ["score"])
+        self.assertEqual(door["queued"], 1)
 
     def test_over_home_the_cards_show_too_and_the_keys_come_through_the_bus(self):
         steps = [(READY, publish("plugins", ROSTER) + notes("ha")),

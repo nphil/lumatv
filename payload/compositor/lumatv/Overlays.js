@@ -245,7 +245,7 @@ function select(q, ctx, cfg, now) {
         e = q.list[i]
         var over = e.expiresAt > 0 && now >= e.expiresAt
         var used = shownFor(e, now) >= e.dwellMs
-        var stale = !e.visible && e.src === "note" && e.waitMs > 0 && now - (e.hiddenAt || e.arrivedAt) >= e.waitMs
+        var stale = !e.visible && e.src !== "card" && e.waitMs > 0 && now - (e.hiddenAt || e.arrivedAt) >= e.waitMs
         if (over || used || stale) {
             if (e.visible) q.lastShown[e.key] = now
             // a card that had its time is done with: this revision is not news again (a ringing card that is still there is not shown a second time)
@@ -294,7 +294,7 @@ function select(q, ctx, cfg, now) {
         e = q.list[i]
         if (e.expiresAt > 0) soon(e.expiresAt)
         if (e.visible) { soon(e.shownAt + (e.dwellMs - e.shownMs)); soon(e.armAt + cfg.armMs) }
-        else if (e.src === "note" && e.waitMs > 0) soon((e.hiddenAt || e.arrivedAt) + e.waitMs)
+        else if (e.src !== "card" && e.waitMs > 0) soon((e.hiddenAt || e.arrivedAt) + e.waitMs)
     }
     return { visible: chosen, wakeAt: wake }
 }
