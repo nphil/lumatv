@@ -24,6 +24,10 @@ between this build and go-live. Next, in order:
    into the hold) beside the compositor's own Quick Access (`com.webos.app.magicnum`, at 1.0 s). The gate closes the
    browser; whether `keys.rs` should keep the press from SAM is open.
 4. Idle Home ("Open" below): the tick held while nothing visible changes.
+5. The keyboard's place (section "The keyboard's place"): open LG's Search 5 times (a fresh MaliitServer on the first, a warm one after);
+   the keyboard must be at the bottom each time. Per open read `ime-journal.txt`: the `the keyboard is on the screen` line (the panel
+   should be 1920x438 at (0, 642) whatever `its window` and `input region` say) and `ime-up.json`'s `panel`; the gate's `ime` now fails a
+   panel 540 rows or more high. A run with a full-screen window and no input region is not covered by the fix: the journal line says.
 
 Likeliest failures on the set now: the toast's first frame (above), an app left open by a key (`gate.sh shell` starts with Home
 not in front: `connected` fails with `drawn false`, and the frame gate's session then covers Home), the idle cost over the
@@ -297,6 +301,35 @@ compositor writes `Q:toast-delivered` (and `Q:alert-delivered`) when the service
 delivery surface from that marker, else from luna-send's return, and keeps both (`sent_ms`, `delivered_ms`). The service
 hands a toast over at its own pace (2-4 s after luna-send's return in the gate of 2026-10-25 under LG's compositor), which no
 change of the shell touches; the shell's part is what the marker measures.
+
+## The keyboard's place
+
+Under LumaTV's compositor LG's keyboard (maliit, through `input_panel`) came at the top of the screen once and at the bottom once in
+Search. The gate's `panel y .. h ..` lines over six runs are 1920x438 at y 642 twice (the first TV run, `compositor-step1-result.md`, and
+`slot-2026-10-27-2100/gate-full`) and
+1920x1080 at y 0 four times (`gate-2026-10-26`, `slot-2026-10-27-1900`, `slot-2026-10-27-2100/gate-keys-ime-shell-frames`), the keyboard
+drawn in the top 438 rows of a transparent full-screen window (Main's read of `ime.png`). The gate called both "at the bottom": it only
+checked that y plus h is 1080, which a window 1080 high at y 0 meets.
+
+Cause: the compositor placed the keyboard by the size of maliit's window (bottom edge of the output minus the window's height, as LG's
+`KeyboardView.qml` does with its item), and the window's size is maliit's: the QML's states set it with `PluginProxy.setPanelSize`
+(`view-global/main.qml`, 1920x438 for the normal keyboard), and the root item sits at y 0 of the window. When the window stays at the
+screen's size the whole window is "the keyboard" and its content is at the top. What decides 1080 over 438 on a run is on the set's side
+of the wire: nothing in the compositor's events, text-model fields or input-panel geometry differs between the runs (the app's
+`set_input_panel_rect` was not journaled; LG's `WaylandInputPanel` sends maliit no geometry and `set_toplevel`'s position is "not
+supported" there too). Maliit's own wayland plugin is open-source upstream and makes a full-screen window whose input region is the
+keyboard's area; KWin reads that region as the window's geometry for the same quirk. [INFERENCE: the webOS fork sets the same region; the
+journal's new line says.]
+
+Fix: the keyboard is the bounding box of the window's input region (the whole window when it sets none, or one that misses it), and the
+window is placed, and the field told (`input_panel_rect`, `ctl ime` `panel`), by that box: full-width centre, bottom edge of the output,
+or the corner of the rectangle the app asked for (`scene::keyboard_geometry`, `keyboard_origin`; `ime::panel_rect`). A window of the
+keyboard's own size is placed as before. The panel is re-read at every commit of a keyboard window, so a region changing alone moves it.
+The journal's `the keyboard is on the screen` line now gives the window's size, its input region, the part taken as the keyboard and the
+field's asked-for rectangle, and `set_input_panel_rect` is journaled, so a run that still comes out wrong shows why. The gate's `ime`
+needs the panel under 540 rows as well as ending at 1080. Host test `tests/ime.rs`
+`the_keyboard_is_at_the_bottom_whatever_size_maliit_makes_its_window` (five window shapes; before the change the full-screen window at y 0
+with the keyboard in its top rows came out as a 1920x1080 panel at (0, 0)).
 
 ## Open
 

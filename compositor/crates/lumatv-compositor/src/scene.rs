@@ -24,6 +24,26 @@ pub const HOME_APP: &str = "com.webos.app.home";
 /// How recent a commit of the shell's idle system layer must be to count as the frame its `live` announces.
 const JOIN_FRESH_NS: u64 = 100_000_000;
 
+/// The part of a keyboard window that is the keyboard, in the window's own coordinates: the bounding box of its input region, or the whole
+/// window when it set none. maliit's window is not always the keyboard's size: on the TV it came 1920x1080 (the keyboard drawn in the top
+/// 438 rows) in four runs of six and 1920x438 in two, and sizing the keyboard by the window put it at the top in the first case. KWin reads the
+/// same maliit the same way (the input shape is the window's geometry). The box is clipped to the window; a region that misses it is none.
+pub fn keyboard_geometry(size: (i32, i32), input: Option<&[Rect]>) -> Rect {
+    let whole = Rect::new(0, 0, size.0, size.1);
+    let Some(rects) = input else { return whole };
+    let bounds = rects.iter().map(|r| r.intersect(&whole)).fold(Rect::default(), |a, r| a.union(&r));
+    if bounds.is_empty() { whole } else { bounds }
+}
+
+/// Where a keyboard window's origin goes so that its keyboard (`g`, from [`keyboard_geometry`]) is LG's `KeyboardView` panel: the full
+/// width's centre and the bottom edge of the output, or the corner of the rectangle the app asked for (`preferred`).
+pub fn keyboard_origin(g: Rect, preferred: Option<Rect>) -> (i32, i32) {
+    match preferred {
+        Some(r) => (r.x - g.x, r.y - g.y),
+        None => ((OUTPUT_WIDTH as i32 - g.w) / 2 - g.x, OUTPUT_HEIGHT as i32 - g.h - g.y),
+    }
+}
+
 /// A named `wl_webos_surface_group`, owned by one surface.
 pub struct Group {
     pub name: String,
@@ -406,11 +426,8 @@ impl Scene {
             } else if w.kind == WindowType::Keyboard {
                 // LG's KeyboardView: anchored at the bottom of the output, as high as the window, the window centred in that width; the
                 // rectangle the app asked for when it asked for one.
-                let (sw, sh) = surfaces.get(w.surface).map(|s| s.size()).unwrap_or((0, 0));
-                match self.keyboard_pref {
-                    Some(r) => (r.x, r.y),
-                    None => ((OUTPUT_WIDTH as i32 - sw) / 2, OUTPUT_HEIGHT as i32 - sh),
-                }
+                let g = surfaces.get(w.surface).map(|s| keyboard_geometry(s.size(), s.current.input.as_deref())).unwrap_or_default();
+                keyboard_origin(g, self.keyboard_pref)
             } else {
                 w.position
             };

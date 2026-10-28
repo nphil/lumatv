@@ -480,7 +480,9 @@ ime)
         methods=$(grep -o '"display":[0-9]' $OUT/ime-up.json | wc -l)
         ctx=no; grep -q '"context":true' $OUT/ime-up.json && ctx=yes
         ph=$(jnum h < $OUT/ime-up.json); py=$(jnum y < $OUT/ime-up.json); asked=$(jnum asked < $OUT/ime-up.json)
-        bottom=no; if [ -n "$ph" ] && [ -n "$py" ] && [ $((py + ph)) -eq 1080 ]; then bottom=yes; fi
+        # y plus h at the bottom edge is not enough: a full-screen window at y 0 is "at the bottom" too (1080 high, in four of six runs,
+        # with the keyboard drawn at its top), so the keyboard must also be shorter than half the screen.
+        bottom=no; if [ -n "$ph" ] && [ -n "$py" ] && [ $((py + ph)) -eq 1080 ] && [ "$ph" -lt 540 ]; then bottom=yes; fi
         typed=0; closed=no; by=none
         if [ $up = yes ]; then
             before=$(ime_typed $OUT/ime-up.json)

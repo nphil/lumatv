@@ -271,6 +271,48 @@ fn the_keyboard_going_off_the_screen_is_told_and_the_app_can_ask_where_it_goes()
     drop(buf);
 }
 
+/// maliit's window: `w` x `h` with `region` (x, y, w, h) as its input region when it has one, as an input panel surface.
+fn maliit_window(k: &mut Keyboard, w: i32, h: i32, region: Option<(i32, i32, i32, i32)>) -> (WlSurface, InputPanelSurface, WlBuffer) {
+    let surface = k.client.compositor.create_surface(&k.client.qh, ());
+    let ps = k.panel.get_input_panel_surface(&surface, &k.client.qh, ());
+    if let Some((x, y, rw, rh)) = region {
+        let r = k.client.region(x, y, rw, rh);
+        surface.set_input_region(Some(&r));
+    }
+    let buf = k.client.shm_buffer(w, h, 0xff20_2020);
+    k.client.present(&surface, &buf);
+    (surface, ps, buf)
+}
+
+#[test]
+fn the_keyboard_is_at_the_bottom_whatever_size_maliit_makes_its_window() {
+    // On the TV maliit's window was 1920x438 in two runs of six and 1920x1080 in the other four, the keyboard drawn in the top 438 rows
+    // and the rest transparent, and the keyboard was at the top of the screen whenever the window was the full size. Its input region
+    // is the keyboard's area; the keyboard is placed, and told to the field, by that.
+    let bottom = (0, 642, 1920, 438);
+    let bottom_u = (0, 642, 1920u32, 438u32);
+    for (name, w, h, region, window_at) in [
+        ("the keyboard's own size", 1920, 438, None, (0, 642, 1920, 438)),
+        ("the whole screen, the keyboard in its top rows", 1920, 1080, Some((0, 0, 1920, 438)), (0, 642, 1920, 1080)),
+        ("the whole screen, the keyboard in its bottom rows", 1920, 1080, Some((0, 642, 1920, 438)), (0, 0, 1920, 1080)),
+        ("the keyboard's own size with the region the whole window", 1920, 438, Some((0, 0, 1920, 438)), (0, 642, 1920, 438)),
+        ("a region that is not on the window at all", 1920, 438, Some((0, 5000, 10, 10)), (0, 642, 1920, 438)),
+    ] {
+        let mut server = Server::start();
+        let mut a = app(&mut server, "Search");
+        let mut k = keyboard(&mut server);
+        a.activate();
+        assert!(a.client.wait_until(WAIT, |s| s.ime.model_enters == 1), "{name}");
+        let (_surface, _ps, _buf) = maliit_window(&mut k, w, h, region);
+        assert!(a.client.wait_until(WAIT, |s| s.ime.panel_states == vec![1]), "{name}");
+        assert_eq!(a.client.state.ime.panel_rects.last(), Some(&bottom_u), "{name}: the field is told the keyboard's rectangle");
+        let (_, items) = server.eval(surfaces);
+        assert_eq!(items.last().unwrap().1, window_at, "{name}: the window");
+        let panel = server.eval(|s| s.ime.panel);
+        assert_eq!(panel.map(|r| (r.x, r.y, r.w, r.h)), Some(bottom), "{name}: the control socket's panel");
+    }
+}
+
 #[test]
 fn a_window_of_type_keyboard_is_placed_and_kept_off_the_focus_whichever_way_it_was_made() {
     // maliit's window may come through the webOS shell with the type set, not through input_panel.

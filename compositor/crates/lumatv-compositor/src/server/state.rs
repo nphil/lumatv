@@ -301,10 +301,8 @@ impl State {
                     super::seat::refocus(self);
                 }
             }
-            // The keyboard's window came, went or changed size: the field that holds the activation is told.
-            if (eff.new_buffer || eff.mapped_changed.is_some())
-                && self.scene.window_of(sid).and_then(|w| self.scene.window(w)).is_some_and(|w| w.kind == crate::window::WindowType::Keyboard)
-            {
+            // The keyboard's window came, went, changed size or changed its input region: the field that holds the activation is told.
+            if self.scene.window_of(sid).and_then(|w| self.scene.window(w)).is_some_and(|w| w.kind == crate::window::WindowType::Keyboard) {
                 super::ime::refresh_panel(self);
             }
             if eff.new_buffer {

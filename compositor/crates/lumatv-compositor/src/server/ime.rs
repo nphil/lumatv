@@ -30,6 +30,7 @@ use lumatv_wl_protocols::text::server::text_model_factory::{self, TextModelFacto
 
 use super::compositor::surface_id;
 use super::seat::{live, send_keymap};
+use crate::scene::keyboard_geometry;
 use crate::surface::{Role, SurfaceId};
 use crate::window::{WindowId, WindowType};
 use crate::{OUTPUT_HEIGHT, OUTPUT_WIDTH, Rect, State, plain_global};
@@ -340,6 +341,7 @@ impl Dispatch<TextModel, ModelData> for State {
                 if let Some(m) = state.ime.model_mut(mid) {
                     m.preferred = Some(rect);
                 }
+                state.journal(format!("ime: text model {mid} asked for the keyboard at ({x}, {y}) {width}x{height}"));
                 if state.ime.active == Some(mid) {
                     state.scene.keyboard_pref = Some(rect);
                     refresh_panel(state);
@@ -673,31 +675,42 @@ pub fn surface_gone(state: &mut State, sid: SurfaceId) {
     refresh_panel(state);
 }
 
-/// The keyboard window's rectangle as LG's `KeyboardView` has it: the full width, anchored at the bottom, as high as the window; the
-/// rectangle the app asked for (`set_input_panel_rect`) when it asked for one.
-pub fn panel_rect(size: (i32, i32), preferred: Option<Rect>) -> Rect {
-    preferred.unwrap_or(Rect::new(0, OUTPUT_HEIGHT as i32 - size.1, OUTPUT_WIDTH as i32, size.1))
+/// The keyboard's rectangle on the screen as LG's `KeyboardView` has it: the full width, anchored at the bottom, as high as the keyboard
+/// (`keyboard_geometry`: the window, or the part of it the window marks as its input region); the rectangle the app asked for
+/// (`set_input_panel_rect`) when it asked for one.
+pub fn panel_rect(size: (i32, i32), input: Option<&[Rect]>, preferred: Option<Rect>) -> Rect {
+    let g = keyboard_geometry(size, input);
+    preferred.unwrap_or(Rect::new(0, OUTPUT_HEIGHT as i32 - g.h, OUTPUT_WIDTH as i32, g.h))
 }
 
 /// Compares the keyboard on the screen with what the active field was last told, and tells it what changed: it is shown or gone
 /// (`input_panel_state`) and where (`input_panel_rect`).
 pub fn refresh_panel(state: &mut State) {
-    let now = state
+    let shown = state
         .scene
         .windows()
         .filter(|w| w.kind == WindowType::Keyboard && w.map_serial > 0)
         .filter_map(|w| state.surfaces.get(w.surface))
-        .find(|s| s.is_mapped() && s.size().1 > 0)
-        .map(|s| panel_rect(s.size(), state.scene.keyboard_pref));
+        .find(|s| s.is_mapped() && s.size().1 > 0);
+    let now = shown.map(|s| panel_rect(s.size(), s.current.input.as_deref(), state.scene.keyboard_pref));
     if now == state.ime.panel {
         return;
     }
+    let line = match (shown, now) {
+        (Some(s), Some(r)) => {
+            // The window's own size and input region are what a keyboard that is not where LG puts it is read from.
+            let (size, input) = (s.size(), s.current.input.as_deref());
+            let g = keyboard_geometry(size, input);
+            format!(
+                "ime: the keyboard is on the screen: {}x{} at ({}, {}); its window {}x{}, input region {:?} (keyboard {}x{} at ({}, {}) in it), the field asked for {:?}",
+                r.w, r.h, r.x, r.y, size.0, size.1, input, g.w, g.h, g.x, g.y, state.scene.keyboard_pref
+            )
+        }
+        _ => "ime: the keyboard is off the screen".into(),
+    };
     let was_up = state.ime.panel.is_some();
     state.ime.panel = now;
-    match now {
-        Some(r) => state.journal(format!("ime: the keyboard is on the screen: {}x{} at ({}, {})", r.w, r.h, r.x, r.y)),
-        None => state.journal("ime: the keyboard is off the screen".into()),
-    }
+    state.journal(line);
     let Some(res) = state.ime.active.and_then(|id| state.ime.model(id)).map(|m| m.res.clone()).filter(live) else { return };
     match now {
         Some(r) => {
