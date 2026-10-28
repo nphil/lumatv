@@ -12,7 +12,7 @@ Done (host-tested; counts under "Checks run"):
 - The player's window is double-buffered (`vpl_wl.c`): one pool of two 1920x1080 ARGB buffers (2 x 8,294,400 = 16,588,800 bytes), each frame painted whole into the buffer the compositor has released and committed; a buffer is never written between its commit and its `wl_buffer.release`. Before, one shared buffer was repainted in place and a compositor that read it late could take a half-painted frame (veil filled, caption not yet laid: CaptionFlake). With both buffers held the frame waits for a release and is painted from the state as it is then, and the print is not switched under the black until the black frame has been committed. Host-tested with a stand-in compositor that reads late, holds a buffer until the next commit replaces it and flags every write to a held buffer; the TV check is step 16 of "TV steps".
 - The art saver's shuffle bag is kept across restarts (`ArtDeck.js`, `/var/lib/lumatv/theme/saver-deck.json`), on by default, off with `theme.screensaver.art.keepOrder: false`.
 - After the set's run: the role carries every name LG's library registers (the hub refused its nameless handle), the player sets `XDG_RUNTIME_DIR` and `WAYLAND_DISPLAY` itself (LG's AV connector needs them), the window is opaque black around the picture (the margins showed Home's wallpaper), and the twelve hour clock is twelve hours in both savers (Qt's `h:mm` alone is 0-23).
-- The moving wallpaper (host-tested only): the player's `wall` role, `tools/vplane_wall.py` and `wall-silk.vpc`, the compositor's wallpaper layer with LG's hole order, `WallVideo.qml` and the gating in `LumaHome.qml`, the tint-glass mode, `lumatv wallpaper video|gpu`.
+- The moving wallpaper (host-tested; the set's round 13 found it installed and playing but never on the plane, "After round 13" has the three faults and the fixes, run again next): the player's `wall` role (its decoder opened for Home's app id), `tools/vplane_wall.py` with `wall-silk` and `wall-silk-tuned` (the owner's look), the compositor's wallpaper layer with LG's hole order, `WallVideo.qml` (the manifest is read again every 5 s) and the gating in `LumaHome.qml`, the tint-glass mode, `lumatv wallpaper video|gpu`.
 
 On the set (TV, `--once great-wave 20`, Active state): the print on the video plane (1856x1024, placed by the exported window, drifting), caption and corner clock in the window, Home stays foreground, exit 0. In the Screen Saver state (`power2/turnOnScreenSaver`): the player plays (60 units a second, queue 0-1, nothing skipped) and LG's Flutter saver is evicted by the screensaver-type window, with Mali 1.9 % against LG's saver at 21.9 %, flips 12.3/s, `DE2VSYNC` 121.7/s, the player at 3.6 % of a core and 25 MB RSS, `CmaFree` 149-158 MB; but the display and graphic captures are black while the video capture shows the print and the output is connected and not muted [INFERENCE: LG blanks the output in its Screen Saver power state]. A key wakes to Home in about a second; `MemAvailable` fell 772 to 739 MB (over the 20 MB bar). Also seen: under LG's compositor LumaTV's own GPU saver is not visible in the Screen Saver state, LG's Flutter saver draws its clock over it.
 
@@ -125,9 +125,11 @@ The window is in the stack only while Home is the drawn front (`build_stack`). A
 
 ### Clip
 
-`tools/vplane_wall.py wall` makes `wall-silk.vpc`: `liveWall`'s vertex warp (the shader's own mesh, scrim and light) of the shipped wallpaper over 30 s, whole turns of every phase so the end meets the start, 20 pictures a second each shown three times at 60 Hz (1800 units), HEVC Main10 at constant QP 18: 651,239 bytes, 10,233 for the key unit. `wall.json` carries the look, the poster frames' tint and luma and the glass opacity. `check --deep` decodes the clip and bounds the seam (mean step under 0.6 of a level, 90th percentile under 2) and the stability of repeated pictures.
+`tools/vplane_wall.py wall` makes `wall-silk.vpc`: `liveWall`'s vertex warp (the shader's own mesh, scrim and light) of the shipped wallpaper over 30 s, whole turns of every phase so the end meets the start, 20 pictures a second each shown three times at 60 Hz (1800 units), HEVC Main10 at constant QP 18: 564,378 bytes, 9,553 for the key unit (`wall-silk-tuned`, the owner's look: 926,015 and 11,633). `wall.json` carries the look, the poster frames' tint and luma and the glass opacity. `check --deep` decodes the clip and bounds the seam (mean step under 0.6 of a level, 90th percentile under 2) and the stability of repeated pictures.
 
 On 6 s of the loop, the same pictures: 8 bit CRF 14, 10.7 MB; 10 bit CRF 18, 2.2 MB; 10 bit constant QP 18, 133 KB, mean error 0.108 of a level and 0.76 at worst between neighbouring pictures; 8 bit QP 16, 342 KB, steps up to 1.3. Constant QP because constant quality spends bits refining the repeated pictures; 10 bit because the picture is a dark gradient that bands at 8. If the set's pipeline refuses Main10: `vplane_wall.py wall --bit-depth 8 --qp 16`.
+
+A clip bakes everything the GPU wallpaper's shader does to the picture for one look (`theme.wallpaperMotion`): the warp and light, the grade (saturation, contrast), the vignette, the specular lobe, the bloom and the dark material's scrim; the glass over it is Home's. `wall-silk` is the shipped look; a look of the owner's own is another clip (`wall.json` lists them, Home picks the one whose look equals its own): `vplane_wall.py wall --id NAME --look '{"amplitude": 12}'`, see "After round 13". Sizes and times are the encoder's: `preset slow`, one thread, about 1800 pictures, so a clip takes some 20 to 40 minutes.
 
 ### Player
 
@@ -149,9 +151,9 @@ A request carries `role`: `saver` (also what a request without one means) or `wa
 
 ### Glass
 
-The GPU cannot sample the plane, so there is no blur-behind and a pane has two looks (`wallpaperMotion.glass`). `backdrop` (default): panes keep the blurred still of the same wallpaper, so the hand-over from the GPU wallpaper is invisible (`home-gpu.jpg`, `home-video-backdrop.jpg`). `tint`: flat translucent panes at the clip's `glass.alpha` (`Lu.homeFill`): 0.80 for `wall-silk`, which keeps the ink at 8.4:1 over the brightest plane the clip reaches (worst luminance 0.4423, Lucent's distance rule is 7:1); `home-video-tint-worst.jpg` is Home over the per-pixel brightest of the poster frames, where every flat pane pixel measures 9.5:1 or more.
+The GPU cannot sample the plane, so there is no blur-behind and a pane has two looks (`wallpaperMotion.glass`). `backdrop` (default): panes keep the blurred still of the same wallpaper, so the hand-over from the GPU wallpaper is invisible (`home-gpu.jpg`, `home-video-backdrop.jpg`). `tint`: flat translucent panes at the clip's `glass.alpha` (`Lu.homeFill`): 0.80 for `wall-silk`, which keeps the ink at 8.4:1 over the brightest plane the clip reaches (worst luminance 0.4423, Lucent's distance rule is 7:1), and 0.80 at 8.0:1 for `wall-silk-tuned` (worst luminance 0.6949: its contrast and bloom reach brighter); `home-video-tint-worst.jpg` is Home over the per-pixel brightest of the poster frames of `wall-silk`, where every flat pane pixel measures 9.5:1 or more.
 
-The tint sampler (`Tint.js`, the accent tokens) is unchanged and samples the wallpaper PNG; the poster frames' tint (`#505070`, luma 0.294) agrees with it (0.297).
+The tint sampler (`Tint.js`, the accent tokens) is unchanged and samples the wallpaper PNG; the poster frames' tint of `wall-silk` (`#505070`, luma 0.295) agrees with it (0.297).
 
 ### LG's compositor
 
@@ -195,8 +197,8 @@ The way back is `lumatv vplane remove` (the role, the manifest, the binary and t
 - `tests/test_vplane_saver.py`, `tests/test_saver_deck.py`, `tests/artdeck.test.js`: the saver against a stand-in player on the QML host, and against the real player (the request the QML writes is the one the C reads); the shuffle bag across restarts.
 - `tests/test_vplane_install.py` (12), `tests/test_vplane_measure.py` (9).
 - `compositor/crates/lumatv-compositor/tests/vplane_host.rs` (5): the player against the real wayland-server and compositor, the wallpaper hole under Home included; `tests/protocol.rs` takes the new hole order (what an app draws over its own video stays).
-- `tests/test_vplane_wall_clips.py` (22) and `tools/vplane_wall.py check --deep`: the clip's formats, geometry, look against the QML, the seam, the poster numbers, the encoder options. `tests/test_vplane_player.py`'s `Wall` class (9), `tests/test_lumatv_wallpaper.py` (8), `tests/wallvideo.test.js` (7).
-- `tests/test_vplane_wall.py` (16, QML host): the controller against a stand-in player (start, hole, hand-overs, failure inside a second, retry, ttl, the saver taking the player), Home's gating, the tint glass, the shell's `wall` topic, and the renders asserted (the plane shows through where Home draws nothing, the glass is the GPU wallpaper's, 7:1 over the worst plane).
+- `tests/test_vplane_wall_clips.py` (26) and `tools/vplane_wall.py check --deep`: the clip's formats, geometry, look against the QML, the seam, the poster numbers, the encoder options, vignette, specular and bloom against the shader's terms, the edge pixels, a look of its own. `tests/test_vplane_player.py`'s `Wall` class (11, the decoder's app id included), `tests/test_lumatv_wallpaper.py` (8), `tests/wallvideo.test.js` (8, the owner's tuned look picks its clip).
+- `tests/test_vplane_wall.py` (17, QML host): the controller against a stand-in player (start, hole, hand-overs, failure inside a second, retry, ttl, the saver taking the player, clips installed after the shell started), Home's gating, the tint glass, the shell's `wall` topic, and the renders asserted (the plane shows through where Home draws nothing, the glass is the GPU wallpaper's, 7:1 over the worst plane).
 
 ## Tonight's check (TvRound8, Nitin's OK to install)
 
@@ -264,3 +266,32 @@ LumaTV's compositor live (`0f2190c`), Home in front, receiver muted, Nitin's OK 
   playing: Mali 12.5 % (12.7 % on the GPU wallpaper), 12.1 flips a second, `DE2VSYNC` 120.5, CPU 15.8 % in all (the player 4.1 %, the compositor 3.1 %, the shell
   client 5.2 %), `CmaFree` lowest 3.3 MB. No saving, and 3 MB of CMA left. FAIL; steps 5 to 10 not run.
 - End: `lumatv wallpaper gpu` (`source gpu`), Nitin's look back, player stopped, `vplane` left installed. `lumatv wallpaper video` is not turned on.
+
+#### After round 13: the three faults and what was changed (host-tested; the plane itself is not re-run)
+
+What the compositor's journal and the player's log (`keyboard/log.txt` of the slot) show for the wallpaper window: window `_WEBOS_WINDOW_TYPE_LUMATV_WALLPAPER` mapped, exported (`_Window_Id_7`) and imported by the library, so the compositor's
+side (the new layer, the export, the import) works. Then the library says `setPunchThrough 1`, `setDecodeInfo`, `avc.impl tryConnect "No render_status. [125] [0]"`; no `foreign: punch-through ... attached` line follows, so
+`video` stays empty and the hole is never made. The decoder was opened for the player's own app id (`org.nphil.lumatv.vplane`), which SAM does not know as a foreground app. [INFERENCE] LG's video path hands the
+plane to the foreground app's decoders: the compositor's own note (`luna_methods.rs`, `foreground_app_info`) records videooutputd disconnecting a video whose app is not in SAM's list ("main appId Error"), and the saver of
+round 8 worked because LG's compositor treats a screen-saver window with `playVideo` as the video's owner; the wallpaper is no card and no overlay, so nothing makes its app the foreground one. The library's own
+text for the missing piece, `render_status`, is not in the firmware snapshot (it is in LG's closed library), so this is a cause from the evidence, not a proof; the TV step below settles it.
+
+1. **The wallpaper's decoder is opened for Home's app id** (`com.webos.app.home`, the foreground app under the wallpaper), the window keeps the player's own (`vplane.c`, `wall_app_id`; `-H APP_ID` changes it, `-H ''` is the old behaviour; `STATE/vplane/args`
+   takes it like the other options). Host test: the stand-in library's `Init` line names Home's id for the wall role, the player's own for the saver, and `-H` is honoured (`test_vplane_player.py`, `Wall`). If the set still says
+   `No render_status` with Home's id, the next levers, in this order: (a) list the wallpaper window in `getForegroundAppInfo` as an overlay-type entry so SAM publishes the player's app as foreground (not built: it changes
+   what SAM believes is on screen), (b) serve `getOverlayPlayVideoState` (LG's mechanism for an overlay or Home view that plays video; a `playVideo` window property) from the wallpaper window, (c) the Home stub's own
+   `<video>` (the design for LG's compositor, below), whose decoder is Home's by construction.
+2. **The manifest is read again** while the video wall is switched on and Home is shown (`WallVideo.manifestTimer`, every 5 s, at once when the switch goes on, only when the text changed): clips or a player installed after
+   the shell started are seen without a restart. Host test: the manifest is written while Home runs and the clip is asked for and plays.
+3. **A clip per look.** Home plays a clip only while everything it baked is what Home would draw, and the owner's look (`amplitude 12, depth 0.45, scale 1.2, detail 0.5, vignette 0.9, bloom 0.25, saturation 1.25,
+   contrast 1.25`) is not the shipped one, so the GPU wallpaper drew it. The generator now bakes vignette, specular and bloom (it refused them before) and takes a look of its own: `tools/vplane_wall.py wall --id NAME --look
+   '{"amplitude": 12, ...}'` lays the given `wallpaperMotion` keys over the theme's, records them as the entry's `override`, and `check` makes the same look from the theme again. The package ships `wall-silk` (the shipped
+   look) and `wall-silk-tuned` (the owner's look above); Home picks the entry whose look equals its own, so changing a slider away from both draws the GPU wallpaper again (`lumatv wallpaper status` is `ready` either way;
+   the shell's `wall.up` says which). Another look means another clip made on the workstation and shipped with `lumatv vplane install`: the set has no HEVC encoder to make one itself. Still not baked: `speed` other than 1
+   (the loop's pace is the clip's). The bloom's glow texture is PIL's blur and a luma mix standing in for Qt's `GaussianBlur` and `HueSaturation`: a soft term, within a few levels of the GPU's (a capture of both
+   measures it). Also fixed in the generator (version 2): where the warp pulls the picture's edge inward the picture's edge pixels now repeat, as the GPU's clamp-to-edge sampling does; they were black, a fringe of a
+   few pixels at the screen's edge that would have shown at the hand-over.
+
+Next TV check (the wallpaper's steps 3 and 4 again, `lumatv vplane install` first so the new player and both clips are there): with the owner's own look and `lumatv wallpaper video`, no shell restart: `lumatv wallpaper
+status` `ready`, within 10 s `status.json` `playing` and the compositor's journal `foreign: punch-through ... attached to _Window_Id_N`, `wall` `hole true`, `ctl windows` `video` with one entry, the pipeline's log without
+`No render_status`, and the GPU wallpaper gone from the frame. Then the measurements of the steps above.

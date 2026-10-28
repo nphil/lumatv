@@ -46,6 +46,9 @@ QtObject {
     property string reason: ""
     property var status: null
     property var manifest: null                 // the clips' manifest (wall.json), read by `loadManifest`
+    property bool watch: false                  // the video wall is switched on and Home is shown: the manifest is read again every `manifestMs`
+    property int manifestMs: 5000               // (the file is the package's, and `lumatv vplane install` puts it there while the shell runs)
+    property string manifestText: ""
     property bool settled: false
     readonly property bool busy: state === "starting" || state === "playing"
     readonly property bool playing: state === "playing"
@@ -64,6 +67,8 @@ QtObject {
     function pick(wallpaper, motion, scrim) { return Pick.pick(manifest, wallpaper, motion, scrim) }
     function loadManifest() {
         var t = manifestFile.exists ? manifestFile.read() : ""
+        if (t === manifestText && manifest !== null) return         // unchanged: the picks stay as they are
+        manifestText = t
         try { manifest = t ? JSON.parse(t) : null } catch (e) { manifest = null }
     }
 
@@ -143,5 +148,8 @@ QtObject {
         repeat: true
         onTriggered: wv.begin()
     }
-    readonly property bool timersRunning: poll.running || renewer.running || settle.running || stopper.running || retry.running
+    // Reads the manifest at once when the switch goes on and then every `manifestMs` while it is on: installing the player or the clips after the
+    // shell started (TV round 13) needed a shell restart before.
+    property var manifestTimer: Timer { interval: wv.manifestMs; running: wv.watch; repeat: true; triggeredOnStart: true; onTriggered: wv.loadManifest() }
+    readonly property bool timersRunning: poll.running || renewer.running || settle.running || stopper.running || retry.running || manifestTimer.running
 }

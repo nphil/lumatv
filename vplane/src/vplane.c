@@ -164,7 +164,7 @@ static const char *const ROLE_NAME[] = {"saver", "wall"};
 static int role_of(const char *name) { return name && !strcmp(name, "wall") ? ROLE_WALL : ROLE_SAVER; }
 
 struct options {
-    const char *dir, *clips, *ndl_lib, *app_id, *window, *wall_window, *wake_cmd;
+    const char *dir, *clips, *ndl_lib, *app_id, *wall_app_id, *window, *wall_window, *wake_cmd;
     int export_first, mem_floor_kb, open_timeout_ms;
     const char *once_clip;
     int once_seconds;
@@ -515,7 +515,12 @@ static void begin(struct player *p, const char *req, size_t n) {
     p->my = (SCREEN_H - (int)p->clip.height) / 2;
     p->dx = p->dy = 0;
     place_video(p);
-    if (vpl_ndl_start(p->ndl, p->o.app_id, p->window_id, p->clip.codec, (int)p->clip.width, (int)p->clip.height, err, sizeof err) != 0) {
+    /* The wallpaper plays under Home, not as an app of its own: LG's video path gives the plane to the foreground app's decoders (videooutputd
+     * disconnects a video whose app is not in SAM's foreground list: "main appId Error"), so its decoder is opened for Home's app id while its window
+     * keeps the player's own. The set's first run (TV round 13) opened it for the player's own id: the library imported the window, then
+     * "No render_status" and no punch-through was ever attached. */
+    const char *ndl_app = p->role == ROLE_WALL && p->o.wall_app_id && *p->o.wall_app_id ? p->o.wall_app_id : p->o.app_id;
+    if (vpl_ndl_start(p->ndl, ndl_app, p->window_id, p->clip.codec, (int)p->clip.width, (int)p->clip.height, err, sizeof err) != 0) {
         char why[300];
         snprintf(why, sizeof why, "%s", err);
         vpl_ndl_stop(p->ndl);
@@ -1069,7 +1074,7 @@ int main(int argc, char **argv) {
     static struct player p;
     p.o = (struct options){.dir = getenv("LUMATV_VPLANE_DIR") ? getenv("LUMATV_VPLANE_DIR") : "/tmp/lumatv-vplane",
                            .clips = getenv("LUMATV_VPLANE_CLIPS") ? getenv("LUMATV_VPLANE_CLIPS") : "/var/lib/lumatv/vplane/clips",
-                           .app_id = "org.nphil.lumatv.vplane", .window = "screensaver", .wall_window = "_WEBOS_WINDOW_TYPE_LUMATV_WALLPAPER", .export_first = 1,
+                           .app_id = "org.nphil.lumatv.vplane", .wall_app_id = "com.webos.app.home", .window = "screensaver", .wall_window = "_WEBOS_WINDOW_TYPE_LUMATV_WALLPAPER", .export_first = 1,
                            .mem_floor_kb = 100 * 1024, .open_timeout_ms = 8000,
                            .wake_cmd = "luna-send -n 1 luna://com.webos.service.tvpower/power/turnOnScreen '{}'"};
     int do_probe = 0;
@@ -1081,6 +1086,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "-a") && i + 1 < argc) p.o.app_id = argv[++i];
         else if (!strcmp(a, "-w") && i + 1 < argc) p.o.window = argv[++i];
         else if (!strcmp(a, "-P") && i + 1 < argc) p.o.wall_window = argv[++i];
+        else if (!strcmp(a, "-H") && i + 1 < argc) p.o.wall_app_id = argv[++i];
         else if (!strcmp(a, "-m") && i + 1 < argc) p.o.mem_floor_kb = atoi(argv[++i]);
         else if (!strcmp(a, "-e") && i + 1 < argc) p.o.export_first = !strcmp(argv[++i], "first");
         else if (!strcmp(a, "-o") && i + 1 < argc) p.o.open_timeout_ms = atoi(argv[++i]);
@@ -1093,7 +1099,7 @@ int main(int argc, char **argv) {
             p.o.once_seconds = atoi(argv[i + 2]);
             i += 2;
         } else {
-            fprintf(stderr, "usage: lumatv-vplane [-d MAILBOX] [-c CLIPS] [-L NDL_LIB] [-a APP_ID] [-w screensaver|card|overlay|default] [-P WALL_WINDOW_TYPE] [-m MEMFLOOR_KB] [-e first|after] [-o OPEN_MS] [-W WAKE_CMD]\n"
+            fprintf(stderr, "usage: lumatv-vplane [-d MAILBOX] [-c CLIPS] [-L NDL_LIB] [-a APP_ID] [-H WALL_DECODER_APP_ID] [-w screensaver|card|overlay|default] [-P WALL_WINDOW_TYPE] [-m MEMFLOOR_KB] [-e first|after] [-o OPEN_MS] [-W WAKE_CMD]\n"
                             "       lumatv-vplane -n | --once CLIP SECONDS | --vpc-info FILE | --calc WHAT ARGS...\n");
             return 2;
         }

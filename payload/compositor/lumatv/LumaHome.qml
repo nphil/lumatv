@@ -289,7 +289,9 @@ Item {
                                             && hostActive && !idleHold && !saverUp && !!wallPick.entry
     readonly property bool videoWallUp: wallVideo.up
     readonly property alias videoWall: wallVideo       // the controller (state, reason, status): the host's tests and the TV steps read it
-    WallVideo { id: wallVideo; want: root.videoWallWanted; clip: WallPick.clipName(root.wallPick.entry); hole: root.videoWallHole; Component.onCompleted: loadManifest() }
+    // The switch is on and Home is shown: the clips' manifest is read again every few seconds (a player or clips installed after the shell started).
+    readonly property bool videoWallWatch: videoWallBackend === "own" && wallMotion.source === "video" && wallMotionOn && !isLight && hostActive && !idleHold && !saverUp
+    WallVideo { id: wallVideo; want: root.videoWallWanted; watch: root.videoWallWatch; clip: WallPick.clipName(root.wallPick.entry); hole: root.videoWallHole; Component.onCompleted: loadManifest() }
     Connections { target: root; onHostActiveChanged: if (root.hostActive) wallVideo.loadManifest() }
     // The GPU wallpaper fades out over the plane's first pictures (the plane shows the same one) and is back the moment the plane goes.
     property real gpuWall: 1

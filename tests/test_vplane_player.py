@@ -1086,6 +1086,31 @@ class Wall(unittest.TestCase):
         self.assertTrue(buffers)
         self.assertEqual({(a[2], a[3]) for a in buffers}, {(16, 16)}, "a small surface: it draws nothing, the video's rectangle is the element's")
 
+    def test_the_wallpapers_decoder_is_opened_for_homes_app_and_the_savers_for_the_players_own(self):
+        """TV round 13: opened for the player's own id the decoder never reached the plane under Home ("No render_status"); LG's video path gives the plane to
+        the foreground app's decoders, and the foreground app under the wallpaper is Home. The window keeps the player's own id."""
+        init = lambda r: [ln for ln in r.ndl() if ln[2] == "Init"][0][3]
+        r = self.rig()
+        r.send("start", role="wall", clip="wall-0")
+        self.assertTrue(r.wait_state("playing"), r.log())
+        self.assertEqual(init(r), "com.webos.app.home", "the wallpaper's decoder is Home's")
+        self.assertEqual(r.fc.props["appId"], "org.nphil.lumatv.vplane", "its window is the player's")
+        r.close()
+        r = self.rig(args=("-H", "org.example.other"))
+        r.send("start", role="wall", clip="wall-0")
+        self.assertTrue(r.wait_state("playing"), r.log())
+        self.assertEqual(init(r), "org.example.other", "-H names another")
+        r.close()
+        r = self.rig(args=("-H", ""))
+        r.send("start", role="wall", clip="wall-0")
+        self.assertTrue(r.wait_state("playing"), r.log())
+        self.assertEqual(init(r), "org.nphil.lumatv.vplane", "an empty -H is the player's own id again")
+        r.close()
+        r = self.rig()
+        r.send("start", clip=r.status().get("clip") or "great-wave")
+        self.assertTrue(r.wait_state("playing"), r.log())
+        self.assertEqual(init(r), "org.nphil.lumatv.vplane", "the saver's decoder is the player's own, as on the set in round 8")
+
     def test_nothing_is_drawn_nothing_moves_and_the_clip_loops_for_as_long_as_it_is_renewed(self):
         r = self.rig(units=30)
         r.send("start", role="wall", clip="wall-0", ttlMs=3000, moveMs=100, auto=True, drift=True, clock=True, dim=True)

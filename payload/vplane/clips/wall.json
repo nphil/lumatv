@@ -11,9 +11,9 @@
       "units": 1800,
       "loopSec": 30,
       "contentFps": 20,
-      "keyBytes": 10233,
-      "bytes": 651239,
-      "sha256": "784da115c76ec16a61e9635c775f629ea53dac73948a64295e108e1736eb7230",
+      "keyBytes": 9553,
+      "bytes": 564378,
+      "sha256": "a00a05d2b526fd14d0aeca2af51edaf34a33acb38c9afa963cee1c3a4b0caa19",
       "source": {
         "file": "wall_1080.png",
         "sha256": "f43d641139d670525b943c895b0c85316dd9ef525110d4f62956ebbea84d0fd3"
@@ -47,76 +47,76 @@
         "v": 2
       },
       "tint": {
-        "luma": 0.294,
-        "lumaMin": 0.2918,
-        "lumaMax": 0.2975,
+        "luma": 0.2947,
+        "lumaMin": 0.2926,
+        "lumaMax": 0.2982,
         "tint": "#505070",
         "posters": [
           {
             "at": 0.0,
-            "luma": 0.2939,
+            "luma": 0.2945,
             "tint": "#505070"
           },
           {
             "at": 2.5,
-            "luma": 0.295,
+            "luma": 0.2957,
             "tint": "#505070"
           },
           {
             "at": 5.0,
-            "luma": 0.293,
+            "luma": 0.2933,
             "tint": "#505070"
           },
           {
             "at": 7.5,
-            "luma": 0.2927,
+            "luma": 0.2933,
             "tint": "#505070"
           },
           {
             "at": 10.0,
-            "luma": 0.2928,
+            "luma": 0.2938,
             "tint": "#505070"
           },
           {
             "at": 12.5,
-            "luma": 0.2949,
+            "luma": 0.2956,
             "tint": "#505070"
           },
           {
             "at": 15.0,
-            "luma": 0.2975,
+            "luma": 0.2982,
             "tint": "#505070"
           },
           {
             "at": 17.5,
-            "luma": 0.2959,
+            "luma": 0.2964,
             "tint": "#505070"
           },
           {
             "at": 20.0,
-            "luma": 0.2953,
+            "luma": 0.2959,
             "tint": "#505070"
           },
           {
             "at": 22.5,
-            "luma": 0.2918,
+            "luma": 0.2926,
             "tint": "#505070"
           },
           {
             "at": 25.0,
-            "luma": 0.2922,
+            "luma": 0.2928,
             "tint": "#505070"
           },
           {
             "at": 27.5,
-            "luma": 0.2933,
+            "luma": 0.2941,
             "tint": "#505070"
           }
         ]
       },
       "glass": {
         "alpha": 0.8,
-        "ratio": 8.41,
+        "ratio": 8.4,
         "need": 7.0,
         "worstLuminance": 0.4423,
         "pane": "#282937",
@@ -130,8 +130,149 @@
         "contentFps": 20,
         "fps": 60
       },
-      "inputs": "0679c1d9eca9f21c"
+      "inputs": "1ca6fec2d1d25baa"
+    },
+    {
+      "id": "silk-tuned",
+      "file": "wall-silk-tuned.vpc",
+      "codec": "hevc",
+      "width": 1920,
+      "height": 1080,
+      "fps": 60,
+      "units": 1800,
+      "loopSec": 30,
+      "contentFps": 20,
+      "keyBytes": 11633,
+      "bytes": 926015,
+      "sha256": "2180076eb423e85c4bbb516cb4528637721c35238d37622ea621d990ed27f416",
+      "source": {
+        "file": "wall_1080.png",
+        "sha256": "f43d641139d670525b943c895b0c85316dd9ef525110d4f62956ebbea84d0fd3"
+      },
+      "look": {
+        "motion": {
+          "amplitude": 12,
+          "speed": 1,
+          "depth": 0.45,
+          "scale": 1.2,
+          "detail": 0.5,
+          "vignette": 0.9,
+          "specular": 0,
+          "bloom": 0.25,
+          "saturation": 1.25,
+          "contrast": 1.25
+        },
+        "scrim": [
+          0.1,
+          0.18,
+          0.46
+        ],
+        "material": "dark",
+        "wallpaper": "wall_1080.png"
+      },
+      "turns": {
+        "x": 3,
+        "y": 2,
+        "z": 2,
+        "w": 4,
+        "v": 2
+      },
+      "tint": {
+        "luma": 0.2401,
+        "lumaMin": 0.2344,
+        "lumaMax": 0.2443,
+        "tint": "#303050",
+        "posters": [
+          {
+            "at": 0.0,
+            "luma": 0.2344,
+            "tint": "#101030"
+          },
+          {
+            "at": 2.5,
+            "luma": 0.2427,
+            "tint": "#303050"
+          },
+          {
+            "at": 5.0,
+            "luma": 0.2443,
+            "tint": "#303050"
+          },
+          {
+            "at": 7.5,
+            "luma": 0.2442,
+            "tint": "#303050"
+          },
+          {
+            "at": 10.0,
+            "luma": 0.2415,
+            "tint": "#303050"
+          },
+          {
+            "at": 12.5,
+            "luma": 0.2366,
+            "tint": "#101030"
+          },
+          {
+            "at": 15.0,
+            "luma": 0.24,
+            "tint": "#303050"
+          },
+          {
+            "at": 17.5,
+            "luma": 0.2407,
+            "tint": "#303050"
+          },
+          {
+            "at": 20.0,
+            "luma": 0.2436,
+            "tint": "#303050"
+          },
+          {
+            "at": 22.5,
+            "luma": 0.2416,
+            "tint": "#303050"
+          },
+          {
+            "at": 25.0,
+            "luma": 0.2355,
+            "tint": "#303050"
+          },
+          {
+            "at": 27.5,
+            "luma": 0.2361,
+            "tint": "#303050"
+          }
+        ]
+      },
+      "glass": {
+        "alpha": 0.8,
+        "ratio": 8.02,
+        "need": 7.0,
+        "worstLuminance": 0.6949,
+        "pane": "#202337",
+        "flat": "#29314b"
+      },
+      "opts": {
+        "codec": "hevc",
+        "bits": 10,
+        "qp": 18,
+        "loopSec": 30,
+        "contentFps": 20,
+        "fps": 60
+      },
+      "inputs": "51125d3637ba1c56",
+      "override": {
+        "amplitude": 12,
+        "depth": 0.45,
+        "scale": 1.2,
+        "detail": 0.5,
+        "vignette": 0.9,
+        "bloom": 0.25,
+        "saturation": 1.25,
+        "contrast": 1.25
+      }
     }
   ],
-  "generator": 1
+  "generator": 2
 }

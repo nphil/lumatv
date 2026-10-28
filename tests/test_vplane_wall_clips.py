@@ -58,7 +58,10 @@ class Warp(unittest.TestCase):
                      "vLight = 1.0 + params.y * (0.3 * (w1 - 0.5 * w2) + params.w * 0.25 * w3)",
                      "y < 0.55 ? mix(scrimA, scrimB, y / 0.55) : mix(scrimB, scrimC, (y - 0.55) / 0.45)", "c = mix(c, sc.rgb, sc.a)",
                      "GridMesh { resolution: Qt.size(64, 36) }", "Qt.vector4d(t * 0.70, t * 0.50, t * 0.40, t * 0.90)",
-                     "property real amp: (root.wallMotion.amplitude || 4) / 1920", "texture2D(src, vUv).rgb * vLight + vAdd"):
+                     "property real amp: (root.wallMotion.amplitude || 4) / 1920", "texture2D(src, vUv).rgb * vLight + vAdd",
+                     "mediump float crest = clamp(0.5 + 0.5 * (w1 + 0.4 * w3), 0.0, 1.0)", "look.y * 0.35 * crest * crest * crest * crest * crest * crest",
+                     "highp vec2 q = (uv - 0.5) * vec2(1.0, 0.5625)", "vLight *= 1.0 - look.x * 0.75 * smoothstep(0.12, 0.42, dot(q, q))",
+                     "max(texture2DLod(glow, vUv, 0.0).rgb - 0.3, 0.0) * look.z", "vAdd = vec3(spec) + bl"):
             self.assertIn(expr, q, expr)
         self.assertEqual(vw.GRID, (64, 36))
 
@@ -100,11 +103,57 @@ class Warp(unittest.TestCase):
             theta = vw.loop_angle(k, 600)
             for iy in range(0, 37, 3):
                 for ix in range(0, 65, 4):
-                    ux, uy, light = vw.vertex(ix / 64, iy / 36, theta, look)
+                    ux, uy, light, _ = vw.vertex(ix / 64, iy / 36, theta, look)
                     worst_shift = max(worst_shift, abs(ux - ix / 64) * 1920, abs(uy - iy / 36) * 1920)
                     worst_light = max(worst_light, abs(light - 1.0))
         self.assertLessEqual(worst_shift, 4 * 2.0, "a few pixels (the amplitude 4, the fields add to under 2)")
         self.assertLessEqual(worst_light, 0.25 * (0.3 * 1.5 + 0.35 * 0.25) + 1e-9)
+
+    def test_vignette_specular_and_bloom_are_the_shaders_terms(self):
+        base = dict(vw.LOOK_DEFAULTS)
+        tuned = dict(base, vignette=0.9, specular=0.5, bloom=0.25)
+        # the vignette is on the undisplaced position: nothing at the centre, the shader's smoothstep at a corner
+        c0, c1 = vw.vertex(0.5, 0.5, 0.0, base)[2], vw.vertex(0.5, 0.5, 0.0, tuned)[2]
+        self.assertAlmostEqual(c0, c1, places=12)
+        d = 0.5 ** 2 + (0.5 * 0.5625) ** 2
+        t = (d - 0.12) / (0.42 - 0.12)
+        fall = 1.0 - 0.9 * 0.75 * t * t * (3.0 - 2.0 * t)
+        self.assertAlmostEqual(vw.vertex(0.0, 0.0, 1.3, tuned)[2] / vw.vertex(0.0, 0.0, 1.3, base)[2], fall, places=12)
+        # the lobe is the sixth power of the crest, scaled by the look
+        w1, w2, w3 = vw.fields(0.3, 0.6, 2.0, base)
+        crest = min(max(0.5 + 0.5 * (w1 + 0.4 * w3), 0.0), 1.0)
+        self.assertAlmostEqual(vw.vertex(0.3, 0.6, 2.0, tuned)[3], 0.5 * 0.35 * crest ** 6, places=12)
+        self.assertEqual(vw.vertex(0.3, 0.6, 2.0, base)[3], 0.0)
+        # the bloom is what a glow texture has over 0.3, times the look; a dim one adds nothing
+        bright = Image.new("RGB", (960, 540), (204, 204, 204))
+        dim = Image.new("RGB", (960, 540), (51, 51, 51))
+        self.assertEqual(vw.glow_at(bright, 0.3, 0.4, 0.25), tuple([(0.8 - 0.3) * 0.25] * 3))
+        self.assertEqual(vw.glow_at(dim, 0.3, 0.4, 0.25), (0.0, 0.0, 0.0))
+
+    def test_a_tuned_look_is_baked_and_the_default_looks_picture_has_no_additive_part(self):
+        base = Image.open(vw.wallpaper_path("wall_1080.png")).convert("RGB")
+        plain = {"motion": dict(vw.LOOK_DEFAULTS), "scrim": [0.1, 0.18, 0.46], "material": "dark", "wallpaper": "wall_1080.png"}
+        self.assertIsNone(vw.grid(0.4, plain["motion"], plain["scrim"])[2], "no specular and no bloom: nothing is added")
+        vignette = dict(plain, motion=dict(vw.LOOK_DEFAULTS, vignette=0.9))
+        a, b = vw.render(base, 0.4, plain), vw.render(base, 0.4, vignette)
+        self.assertLess(sum(b.getpixel((4, 4))), sum(a.getpixel((4, 4))), "the vignette darkens the corner")
+        self.assertEqual(b.getpixel((960, 540)), a.getpixel((960, 540)), "and leaves the centre")
+        bloom = vw.render(base, 0.4, dict(plain, motion=dict(vw.LOOK_DEFAULTS, bloom=0.25)))
+        self.assertGreater(sum(bloom.getpixel((960, 540))), sum(a.getpixel((960, 540))), "the bloom adds the glow's light")
+
+    def test_where_the_warp_pulls_the_edge_in_the_picture_repeats_its_edge_pixels_and_is_not_black(self):
+        flat = Image.new("RGB", vw.SCREEN, (100, 100, 100))
+        look = {"motion": dict(vw.LOOK_DEFAULTS, amplitude=12, depth=0), "scrim": [0.0, 0.0, 0.0], "material": "dark", "wallpaper": "wall_1080.png"}
+        for theta in (0.0, 1.0, 2.5, 4.0):
+            for band in vw.render_float(flat, theta, look):
+                self.assertEqual(band.getextrema(), (100.0, 100.0), theta)
+
+    def test_a_look_of_its_own_is_laid_over_the_themes_and_is_named_by_an_id_of_its_own(self):
+        theme = vw.read_theme()
+        self.assertEqual(vw.look_of(theme, {"amplitude": 12, "vignette": 0.9})["motion"]["amplitude"], 12)
+        self.assertEqual(vw.look_of(theme, {"amplitude": 12})["motion"]["depth"], 0.25, "what is not given is the theme's")
+        with self.assertRaises(SystemExit):
+            vw.look_of(theme, {"amplitude": 12, "colour": 3})
 
     def test_with_nothing_to_apply_the_picture_is_the_wallpaper(self):
         base = Image.open(vw.wallpaper_path("wall_1080.png")).convert("RGB")
@@ -303,14 +352,19 @@ class Encode(unittest.TestCase):
         import argparse
         from unittest import mock
         theme = vw.read_theme()
-        args = argparse.Namespace(out=tempfile.mkdtemp(), id="x", loop_sec=30, content_fps=20, bit_depth=10, qp=0, jobs=1, frames_only=1, reuse=False)
+        args = argparse.Namespace(out=tempfile.mkdtemp(), id="x", loop_sec=30, content_fps=20, bit_depth=10, qp=0, jobs=1, frames_only=1, reuse=False, look="")
         self.addCleanup(shutil.rmtree, args.out, True)
-        for key, value in (("bloom", 1), ("vignette", 0.3), ("specular", 0.2), ("speed", 2)):
-            bent = json.loads(json.dumps(theme))
-            bent["wallpaperMotion"][key] = value
-            with mock.patch.object(vw, "read_theme", return_value=bent), self.assertRaises(SystemExit) as cm:
+        bent = json.loads(json.dumps(theme))
+        bent["wallpaperMotion"]["speed"] = 2                      # the pace is the clip's own: the only setting a clip cannot follow
+        with mock.patch.object(vw, "read_theme", return_value=bent), self.assertRaises(SystemExit) as cm:
+            vw.cmd_wall(args)
+        self.assertIn("speed", str(cm.exception))
+        for look, why in (('{"amplitude": 12}', "id of its own"), ("not json", "JSON"), ("{}", "at least one")):
+            args.id = "silk" if why == "id of its own" else "x"
+            args.look = look
+            with self.assertRaises(SystemExit) as cm:
                 vw.cmd_wall(args)
-            self.assertIn("theme.wallpaperMotion", str(cm.exception), key)
+            self.assertIn(why, str(cm.exception), look)
 
     def test_a_wallpaper_that_is_not_the_packages_is_refused(self):
         with self.assertRaises(SystemExit):

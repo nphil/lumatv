@@ -15,6 +15,18 @@ test("the shipped theme's look and wallpaper pick the shipped clip", () => {
   expect(Wall.clipName(got.entry)).toBe("wall-silk");
 });
 
+// TV round 13: the owner's look (set through `lumatv theme set`) is not the shipped one; it has a clip of its own, and a look between the two has none.
+const tuned = { amplitude: 12, depth: 0.45, scale: 1.2, detail: 0.5, vignette: 0.9, bloom: 0.25, saturation: 1.25, contrast: 1.25, enabled: true };
+
+test("the owner's tuned look picks the clip made for it, and a look between the two picks none", () => {
+  const got = Wall.pick(shipped, theme.wallpaper, tuned, scrim);
+  expect(got.why).toBe("");
+  expect(got.entry.id).toBe("silk-tuned");
+  expect(Wall.clipName(got.entry)).toBe("wall-silk-tuned");
+  expect(Wall.pick(shipped, theme.wallpaper, Object.assign({}, tuned, { amplitude: 11 }), scrim).entry).toBeNull();
+  expect(shipped.walls.map((w) => w.id)).toEqual(["silk", "silk-tuned"]);
+});
+
 test("a setting the theme leaves out is the QML's own default, as the generator takes it", () => {
   expect(Wall.look({})).toEqual(Wall.DEFAULTS);
   expect(Wall.pick(shipped, theme.wallpaper, {}, scrim).entry).not.toBeNull();

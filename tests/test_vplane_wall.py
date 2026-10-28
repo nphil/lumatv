@@ -127,7 +127,7 @@ SNAP = ("var w = s.videoWall; return {state: w.state, reason: w.reason, up: s.vi
 class WallVideo(Surfaces):
     MINE = Surfaces.MINE + ("WallVideo.qml", "LumaHome.qml")
     VIDEO = {"wallpaperMotion": {"source": "video"}}
-    PROPS = {"startMs": 1500, "renewMs": 700, "staleMs": 2500, "settleMs": 150, "endMs": 150, "retryMs": 700}
+    PROPS = {"startMs": 1500, "renewMs": 700, "staleMs": 2500, "settleMs": 150, "endMs": 150, "retryMs": 700, "manifestMs": 400}
     ARGS = ("--prop", "videoWallBackend=own", "--prop", "videoWallHole=true")
 
     def setUp(self):
@@ -187,6 +187,19 @@ class WallVideo(Surfaces):
     def test_no_player_is_off_and_asked_again(self):
         got = self.host(self.VIDEO, lambda at: probe(at + 600, "none", SNAP))
         self.assertEqual((got["none"]["state"], got["none"]["reason"], got["none"]["gpu"]), ("off", "no player", 1))
+
+    def test_clips_installed_after_the_shell_started_are_seen_without_a_restart(self):
+        """TV round 13: the manifest was read once, at the shell's start, so `lumatv vplane install` afterwards needed a shell restart."""
+        self.player()
+        for name in os.listdir(self.clips):
+            os.remove(os.path.join(self.clips, name))
+        with open(os.path.join(SHIPPED, "wall.json")) as f:
+            text = f.read()
+        late = js(READY + 300 + 1500, "root.videoWall.manifestFile.write(%s);" % json.dumps(text))
+        got = self.host(self.VIDEO, lambda at: [*probe(at + 1000, "before", SNAP), *late, *probe(at + 5000, "after", SNAP)])
+        self.assertEqual((got["before"]["pick"], got["before"]["state"], got["before"]["gpu"]), (False, "off", 1), "no clips yet: the GPU wallpaper draws")
+        self.assertTrue(got["after"]["pick"], got["after"])
+        self.assertEqual((got["after"]["state"], got["after"]["up"]), ("playing", True), "the clip is asked for and the plane takes over, with no restart")
 
     def test_a_player_that_goes_quiet_is_given_up(self):
         p = self.player(mode="quiet")

@@ -51,7 +51,7 @@ THEME = vc.THEME
 WALLPAPER_DIR = os.path.join(ROOT, "payload", "wallpaper")
 OUT = vc.OUT
 
-WALL_VERSION = 1                # part of what `check` compares: a change here asks for new clips
+WALL_VERSION = 2                # part of what `check` compares: a change here asks for new clips (2: the warp's edge pixels repeat, were black)
 SCREEN = vc.SCREEN
 GRID = (64, 36)                 # LumaHome.qml's GridMesh resolution: cells of 30 x 30 pixels
 FPS = 60
@@ -73,9 +73,13 @@ def read_theme():
         return json.load(f)
 
 
-def look_of(theme):
-    """The wallpaper's motion settings as LumaHome.qml reads them (a missing one is the QML's own default), and the dark material's scrim."""
-    wm = theme.get("wallpaperMotion", {})
+def look_of(theme, override=None):
+    """The wallpaper's motion settings as LumaHome.qml reads them (a missing one is the QML's own default), and the dark material's scrim.
+    `override` is a partial `wallpaperMotion` laid over the theme's: the look of a clip made for a look the owner has tuned."""
+    wm = dict(theme.get("wallpaperMotion", {}), **(override or {}))
+    unknown = sorted(set(override or {}) - set(LOOK_KEYS))
+    if unknown:
+        raise SystemExit("not wallpaperMotion settings a clip bakes: %s (they are %s)" % (", ".join(unknown), ", ".join(LOOK_KEYS)))
     look = {k: wm.get(k, LOOK_DEFAULTS[k]) for k in LOOK_KEYS}
     scrim = [float(v) for v in theme["dark"]["wallScrim"]]
     return {"motion": look, "scrim": scrim, "material": "dark", "wallpaper": theme["wallpaper"]}
@@ -100,15 +104,27 @@ def fields(u, v, theta, look):
     return w1, w2, w3
 
 
+def smoothstep(e0, e1, x):
+    t = min(max((x - e0) / (e1 - e0), 0.0), 1.0)
+    return t * t * (3.0 - 2.0 * t)
+
+
 def vertex(u, v, theta, look):
-    """The shader's vUv and vLight for one vertex."""
+    """The shader's vUv, vLight (the vignette folded in) and the specular lobe for one vertex."""
     w1, w2, w3 = fields(u, v, theta, look)
     amp = look["amplitude"] / 1920.0
     detail, depth = look["detail"], look["depth"]
     dx = w1 + 0.5 * w2 + detail * 0.5 * w3
     dy = 0.7 * w2 - 0.5 * w1 - detail * 0.5 * w3
     light = 1.0 + depth * (0.3 * (w1 - 0.5 * w2) + detail * 0.25 * w3)
-    return u + amp * dx, v + amp * dy, light
+    spec = 0.0
+    if look["specular"]:
+        crest = min(max(0.5 + 0.5 * (w1 + 0.4 * w3), 0.0), 1.0)      # a narrow lobe on the crest of the main field
+        spec = look["specular"] * 0.35 * crest ** 6
+    if look["vignette"]:
+        qx, qy = (u - 0.5), (v - 0.5) * 0.5625                        # quadratic falloff, aspect-corrected, on the undisplaced position
+        light *= 1.0 - look["vignette"] * 0.75 * smoothstep(0.12, 0.42, qx * qx + qy * qy)
+    return u + amp * dx, v + amp * dy, light, spec
 
 
 def scrim_alpha(y, stops):
@@ -117,19 +133,57 @@ def scrim_alpha(y, stops):
     return a + (b - a) * (y / 0.55) if y < 0.55 else b + (c - b) * ((y - 0.55) / 0.45)
 
 
-def grid(theta, look, scrim):
-    """The vertices of one picture: (vUv.x, vUv.y) and the brightness multiplier (light times the scrim's remainder), 65 x 37 of each."""
+def grid(theta, look, scrim, glow=None):
+    """The vertices of one picture: (vUv.x, vUv.y), the brightness multiplier (light times the scrim's remainder) and, when the look has specular
+    or bloom, the additive RGB (0..255, through the scrim), 65 x 37 of each; `add` is None otherwise."""
     gw, gh = GRID
-    pts, mult = [], []
+    pts, mult, add = [], [], []
+    bloom = look["bloom"]
+    lit = bool(bloom or look["specular"])
     for iy in range(gh + 1):
-        row_p, row_m = [], []
+        row_p, row_m, row_a = [], [], []
         for ix in range(gw + 1):
-            ux, uy, light = vertex(ix / gw, iy / gh, theta, look)
+            ux, uy, light, spec = vertex(ix / gw, iy / gh, theta, look)
+            keep = 1.0 - scrim_alpha(uy, scrim)
             row_p.append((ux, uy))
-            row_m.append(light * (1.0 - scrim_alpha(uy, scrim)))
+            row_m.append(light * keep)
+            if lit:
+                bl = glow_at(glow, ux, uy, bloom) if bloom else (0.0, 0.0, 0.0)
+                row_a.append(tuple((spec + b) * keep * 255.0 for b in bl))
         pts.append(row_p)
         mult.append(row_m)
-    return pts, mult
+        add.append(row_a)
+    return pts, mult, (add if lit else None)
+
+
+def glow_of(base):
+    """The texture the GPU wallpaper's bloom reads (`blurTex`): the graded wallpaper at half size, blurred (QtGraphicalEffects' deviation (radius + 1) / 3.3333 at
+    the theme's blur radius over two) and saturated by the theme's `saturation`. The blur is PIL's and the saturation a mix with the luma: the glow is a
+    soft term (`max(glow - 0.3, 0) * bloom`), so this is within a few levels of the shader's, which the TV's capture measures."""
+    from PIL import Image, ImageEnhance, ImageFilter
+    theme = read_theme()
+    radius = (theme.get("blurRadius") or 30) / 2
+    half = base.resize((SCREEN[0] // 2, SCREEN[1] // 2), Image.BOX)
+    half = half.filter(ImageFilter.GaussianBlur((radius + 1) / 3.3333))
+    sat = theme.get("saturation")
+    return ImageEnhance.Color(half).enhance(1.0 + (0.25 if sat is None else sat))
+
+
+def glow_at(glow, u, v, bloom):
+    """`max(texture2DLod(glow, vUv, 0).rgb - 0.3, 0) * bloom` for one vertex: bilinear, clamped at the edges, in 0..1."""
+    w, h = glow.size
+    x = min(max(u * w - 0.5, 0.0), w - 1.0)
+    y = min(max(v * h - 0.5, 0.0), h - 1.0)
+    x0, y0 = int(x), int(y)
+    x1, y1 = min(x0 + 1, w - 1), min(y0 + 1, h - 1)
+    fx, fy = x - x0, y - y0
+    px = glow.load()
+    out = []
+    for c in range(3):
+        top = px[x0, y0][c] * (1 - fx) + px[x1, y0][c] * fx
+        bot = px[x0, y1][c] * (1 - fx) + px[x1, y1][c] * fx
+        out.append(max((top * (1 - fy) + bot * fy) / 255.0 - 0.3, 0.0) * bloom)
+    return tuple(out)
 
 
 def fmath(fn, **images):
@@ -159,27 +213,62 @@ def graded(base, motion):
     return Image.merge("RGB", out)
 
 
-def render_float(base, theta, look_doc):
-    """One picture of the loop as three float bands (R, G, B in 0..255, not rounded): the mesh warp, then the brightness multiplier."""
+_PADDED = {}
+
+
+def clamp_pad(base, pad):
+    """`base` with its edge pixels repeated `pad` pixels outward on every side: what the GPU's clamp-to-edge sampling reads outside the picture (PIL's
+    mesh transform reads black there, a fringe of a few pixels where the warp pulls the edge inward). Kept for the picture it was made for."""
+    from PIL import Image
+    key = (id(base), pad)
+    if _PADDED.get("key") == key:
+        return _PADDED["img"]
+    w, h = base.size
+    big = Image.new("RGB", (w + 2 * pad, h + 2 * pad))
+    big.paste(base, (pad, pad))
+    big.paste(base.crop((0, 0, 1, h)).resize((pad, h), Image.NEAREST), (0, pad))
+    big.paste(base.crop((w - 1, 0, w, h)).resize((pad, h), Image.NEAREST), (pad + w, pad))
+    big.paste(big.crop((0, pad, w + 2 * pad, pad + 1)).resize((w + 2 * pad, pad), Image.NEAREST), (0, 0))
+    big.paste(big.crop((0, pad + h - 1, w + 2 * pad, pad + h)).resize((w + 2 * pad, pad), Image.NEAREST), (0, pad + h))
+    _PADDED.update(key=key, img=big, base=base)
+    return big
+
+
+def render_float(base, theta, look_doc, glow=None):
+    """One picture of the loop as three float bands (R, G, B in 0..255, not rounded): the mesh warp, the brightness multiplier, then the additive
+    specular and bloom of the look (`glow`: the bloom's texture, made from `base` when the look has bloom and none is given)."""
     from PIL import Image
     motion, scrim = look_doc["motion"], look_doc["scrim"]
     gw, gh = GRID
     cw, ch = SCREEN[0] // gw, SCREEN[1] // gh
-    pts, mult = grid(theta, motion, scrim)
+    if glow is None and motion["bloom"]:
+        glow = glow_of(base)
+    pts, mult, add = grid(theta, motion, scrim, glow)
+    pad = int(math.ceil(motion["amplitude"] * 2.5)) + 4          # the warp moves a point by at most about amplitude x 1.75
+    source = clamp_pad(base, pad)
     mesh = []
     for iy in range(gh):
         for ix in range(gw):
             quad = []
             for jx, jy in ((ix, iy), (ix, iy + 1), (ix + 1, iy + 1), (ix + 1, iy)):      # NW, SW, SE, NE: PIL's order
                 ux, uy = pts[jy][jx]
-                quad += [ux * SCREEN[0], uy * SCREEN[1]]
+                quad += [ux * SCREEN[0] + pad, uy * SCREEN[1] + pad]
             mesh.append(((ix * cw, iy * ch, (ix + 1) * cw, (iy + 1) * ch), quad))
-    warped = base.transform(SCREEN, Image.MESH, mesh, Image.BILINEAR)
+    warped = source.transform(SCREEN, Image.MESH, mesh, Image.BILINEAR)
     # the multiplier is the vertices' values interpolated across the picture: a 65 x 37 float image stretched with its centres on the vertices
     m = Image.new("F", (gw + 1, gh + 1))
     m.putdata([v for row in mult for v in row])
     m = m.resize(SCREEN, Image.BILINEAR, box=(0.5, 0.5, 0.5 + gw, 0.5 + gh))
-    return [fmath(lambda a: a["c"] * a["m"], c=band.convert("F"), m=m) for band in warped.split()]
+    bands = [band.convert("F") for band in warped.split()]
+    if add is None:
+        return [fmath(lambda a: a["c"] * a["m"], c=band, m=m) for band in bands]
+    out = []
+    for c, band in enumerate(bands):
+        s = Image.new("F", (gw + 1, gh + 1))
+        s.putdata([v[c] for row in add for v in row])
+        s = s.resize(SCREEN, Image.BILINEAR, box=(0.5, 0.5, 0.5 + gw, 0.5 + gh))
+        out.append(fmath(lambda a: a["c"] * a["m"] + a["s"], c=band, m=m, s=s))
+    return out
 
 
 def render(base, theta, look_doc):
@@ -211,12 +300,13 @@ _WORK = {}
 def _init(base_path, look_doc, n):
     from PIL import Image
     _WORK["base"] = graded(Image.open(base_path).convert("RGB"), look_doc["motion"])
+    _WORK["glow"] = glow_of(_WORK["base"]) if look_doc["motion"]["bloom"] else None
     _WORK["look"], _WORK["n"] = look_doc, n
     _WORK["bare"] = dict(look_doc, scrim=[0.0, 0.0, 0.0])       # the picture without the scrim: what the wallpaper sampler is shown
 
 
 def _planes(i):
-    return planes16(render_float(_WORK["base"], loop_angle(i, _WORK["n"]), _WORK["look"]))
+    return planes16(render_float(_WORK["base"], loop_angle(i, _WORK["n"]), _WORK["look"], _WORK["glow"]))
 
 
 def _poster(i):
@@ -224,7 +314,7 @@ def _poster(i):
     from PIL import Image
     out = []
     for doc in (_WORK["look"], _WORK["bare"]):
-        out.append(Image.merge("RGB", [fmath(lambda a: to_bytes(a, a["f"]), f=band) for band in render_float(_WORK["base"], loop_angle(i, _WORK["n"]), doc)]).tobytes())
+        out.append(Image.merge("RGB", [fmath(lambda a: to_bytes(a, a["f"]), f=band) for band in render_float(_WORK["base"], loop_angle(i, _WORK["n"]), doc, _WORK["glow"])]).tobytes())
     return tuple(out)
 
 
@@ -406,10 +496,18 @@ def cmd_wall(a):
     if not shutil.which("ffmpeg"):
         raise SystemExit("ffmpeg (with libx265, 10 bits) is needed to write clips")
     theme = read_theme()
-    look_doc = look_of(theme)
+    override = None
+    if a.look:
+        try:
+            override = json.loads(a.look)
+        except ValueError as e:
+            raise SystemExit("--look is JSON, a wallpaperMotion object such as '{\"amplitude\": 12}': %s" % e)
+        if not isinstance(override, dict) or not override:
+            raise SystemExit("--look is a wallpaperMotion object with at least one setting")
+        if a.id == "silk":
+            raise SystemExit("a clip for a look of its own needs an id of its own (--id): `silk` is the shipped look's")
+    look_doc = look_of(theme, override)
     m = look_doc["motion"]
-    if m["vignette"] or m["specular"] or m["bloom"]:
-        raise SystemExit("the clip does not bake vignette, specular or bloom (theme.wallpaperMotion has them on): the GPU wallpaper draws those")
     if m["speed"] != 1:
         raise SystemExit("the loop's pace is the clip's own: theme.wallpaperMotion.speed must be 1")
     src = wallpaper_path(look_doc["wallpaper"])
@@ -456,6 +554,8 @@ def cmd_wall(a):
              "loopSec": a.loop_sec, "contentFps": a.content_fps, "keyBytes": len(units[0][0]), "bytes": os.path.getsize(path), "sha256": vc.sha(path),
              "source": {"file": look_doc["wallpaper"], "sha256": vc.sha(src)}, "look": look_doc, "turns": TURNS, "tint": tint,
              "glass": glass_numbers(theme, worst, mean), "opts": opts, "inputs": inputs}
+    if override:
+        entry["override"] = override                           # the owner's look is laid over the theme's: `check` makes the same look from the theme again
     doc["generator"] = WALL_VERSION
     doc["walls"] = sorted([w for w in doc["walls"] if w["id"] != a.id] + [entry], key=lambda w: w["id"])
     with open(os.path.join(a.out, "wall.json"), "w") as f:
@@ -468,7 +568,7 @@ def cmd_wall(a):
 
 def cmd_frame(a):
     from PIL import Image
-    look_doc = look_of(read_theme())
+    look_doc = look_of(read_theme(), json.loads(a.look) if a.look else None)
     base = graded(Image.open(wallpaper_path(look_doc["wallpaper"])).convert("RGB"), look_doc["motion"])
     render(base, 2.0 * math.pi * (a.t % a.loop_sec) / a.loop_sec, look_doc).save(a.out)
     return 0
@@ -484,8 +584,9 @@ def check(directory, deep=False):
     bad = []
     if doc.get("generator") != WALL_VERSION:
         bad.append("the wall clips were written by generator %s, this is %s" % (doc.get("generator"), WALL_VERSION))
-    want = look_of(read_theme())
+    theme = read_theme()
     for w in doc["walls"]:
+        want = look_of(theme, w.get("override"))
         wid = w["id"]
         path = os.path.join(directory, w["file"])
         if not os.path.exists(path):
@@ -591,10 +692,12 @@ def main():
     wl.add_argument("--jobs", type=int, default=max(1, min(8, (os.cpu_count() or 2) - 1)))
     wl.add_argument("--frames-only", type=int, default=0, help="tests: render only this many pictures of the loop")
     wl.add_argument("--reuse", action="store_true", help="keep the clip file when it was written from these inputs; make the numbers about it again")
+    wl.add_argument("--look", default="", help="a wallpaperMotion object laid over the theme's, for a clip of a look the owner has tuned (needs its own --id)")
     fr = sub.add_parser("frame")
     fr.add_argument("--out", required=True)
     fr.add_argument("--t", type=float, default=0.0)
     fr.add_argument("--loop-sec", type=int, default=LOOP_SEC)
+    fr.add_argument("--look", default="", help="a wallpaperMotion object laid over the theme's")
     ck = sub.add_parser("check")
     ck.add_argument("--dir", default=OUT)
     ck.add_argument("--deep", action="store_true")

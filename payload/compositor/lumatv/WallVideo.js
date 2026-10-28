@@ -45,12 +45,18 @@ function pick(manifest, wallpaper, motion, scrim) {
     var same = []
     for (var i = 0; i < manifest.walls.length; i++) if (manifest.walls[i].source && manifest.walls[i].source.file === name) same.push(manifest.walls[i])
     if (!same.length) return { entry: null, why: "no clip for this wallpaper" }
-    var why = ""
+    // With several clips the reason is the nearest one's: the clip whose look is the owner's but for the scrim, else the one that differs in the fewest settings.
+    var why = "", fewest = Infinity
     for (var j = 0; j < same.length; j++) {
         var w = same[j], bad = differs(w.look, motion)
-        if (bad.length) { why = "the look is not the clip's (" + bad.join(", ") + ")"; continue }
-        if (!sameScrim(w.look.scrim, scrim)) { why = "the scrim is not the clip's"; continue }
-        return { entry: w, why: "" }
+        if (!bad.length) {
+            if (sameScrim(w.look.scrim, scrim)) return { entry: w, why: "" }
+            why = "the scrim is not the clip's"
+            fewest = 0
+        } else if (bad.length < fewest) {
+            why = "the look is not the clip's (" + bad.join(", ") + ")"
+            fewest = bad.length
+        }
     }
     return { entry: null, why: why }
 }
