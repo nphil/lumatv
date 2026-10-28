@@ -246,6 +246,7 @@ Item {
                 width: head.width - x
                 role: "body"
                 font.weight: Font.DemiBold
+                textFormat: Text.PlainText               // a camera's name is Home Assistant's words, never markup
                 elide: Text.ElideRight
                 text: cams.popup ? (cams.popup.name || cams.popup.camera) : ""
             }

@@ -25,6 +25,10 @@
 //! text field that holds the activation and whether it wants the keyboard), the event `imekey` (the remote's keys while the keyboard is up)
 //! and `POST /v1/ime` (what it typed, the keys it pressed, where it is on the screen), and `keyboard` in `can`.
 //!
+//! The overlay cards (the doorbell, a finished timer, an alert, a score) take two keys without the keyboard focus: the report's `takes`
+//! (`["ok", "back"]`, [`TAKEABLE`]) asks for them by name while an app has the focus, they reach the shell as `syskey` events
+//! (`{k, d, r}` as `imekey`) and the app never sees them (`State::shell_takes_key`, called from `input.rs`); every other key stays the app's.
+//!
 //! The server runs on a thread of its own and never touches the compositor's state: requests come to the loop as
 //! [`Msg`]s through a channel and an eventfd ([`State::shell_fd`]), events go out through the shared [`Outbox`].
 

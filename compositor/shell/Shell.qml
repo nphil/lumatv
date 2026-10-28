@@ -21,7 +21,9 @@ import "imports/LumaShell/Keymap.js" as Keymap
 // Keys come on wl_keyboard after the compositor's own routing (Home, Volume, Mute, the gear and Input never arrive) and
 // are handed to LumaBus.js through the module's own LumaKeyBridge.qml, as the key filter hands them under LG's
 // compositor. The gear's tap, Input and the gear's hold come as `show` events once this client said it `can` show the
-// panel; the compositor otherwise launches LG's app for the key, as it did before this client existed.
+// panel; the compositor otherwise launches LG's app for the key, as it did before this client existed. The overlay's cards (the doorbell,
+// a finished timer, an alert, a score: panels/Overlays.qml) do not want the keyboard focus, since that would take the arrows from the app: the
+// report's `takes` asks the compositor for OK and Back by name while a card is up and has been for a moment, and they come as `syskey` events.
 WebOSWindow {
     id: homeWin
     objectName: "homeWin"

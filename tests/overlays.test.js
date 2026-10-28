@@ -5,7 +5,7 @@ import { test, expect, beforeEach } from "bun:test";
 import { readFileSync } from "node:fs";
 
 const SRC = readFileSync(new URL("../payload/compositor/lumatv/Overlays.js", import.meta.url), "utf8").replace(/^\.pragma library$/m, "");
-const NAMES = ["CLASSES", "DEFAULTS", "config", "classOf", "fromNote", "fromCard", "create", "offer", "withdraw", "dismiss", "cameraShown", "select", "armed", "okOf", "keysOf"];
+const NAMES = ["MAX_QUEUE", "CLASSES", "DEFAULTS", "config", "classOf", "fromNote", "fromCard", "create", "offer", "withdraw", "dismiss", "cameraShown", "select", "armed", "okOf", "keysOf"];
 const O = new Function(SRC + "\nreturn { " + NAMES.join(", ") + " };")();
 
 const cfg = O.config({ enabled: true })
@@ -309,4 +309,22 @@ test("a withdrawn record's card goes at once", () => {
   expect(keys(now())).toEqual(["a"])
   expect(O.withdraw(q, "n:ha/a")).toBe(true)
   expect(keys(now())).toEqual([])
+})
+
+test("a plugin that floods the queue does not grow it for ever: the oldest of the least important class that is not shown goes", () => {
+  take(note("first", { channel: "doorbell", title: "Doorbell" }))
+  now()                                                  // on the screen
+  for (let i = 0; i < 40; i++) take(note("s" + i, { channel: "scores", title: "Game " + i }))
+  take(note("last", { title: "Alert" }))
+  expect(q.list.length).toBe(O.MAX_QUEUE)
+  expect(q.list.some((e) => e.id === "first")).toBe(true)           // what is shown stays
+  expect(q.list.some((e) => e.id === "last")).toBe(true)            // so does the newest
+  expect(q.list.some((e) => e.id === "s0")).toBe(false)             // the oldest score is the one that went
+  expect(q.list.filter((e) => e.cls === "score").length).toBe(O.MAX_QUEUE - 2)
+})
+
+test("a long button word is cut for the hint", () => {
+  const long = O.fromNote(note("a", { actions: [{ action: "x", label: "Turn off every light in the house now please" }] }), cfg, t)
+  expect(O.okOf(long, true).label.length).toBe(24)
+  expect(O.okOf(long, true).label.endsWith("\u2026")).toBe(true)
 })

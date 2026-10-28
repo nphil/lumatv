@@ -71,6 +71,7 @@ Item {
             width: card.whoW
             role: "body"
             font.weight: Font.DemiBold
+            textFormat: Text.PlainText                 // what a plugin says is words, never markup
             wrapMode: Text.WordWrap
             maximumLineCount: 2
             elide: Text.ElideRight
@@ -83,6 +84,7 @@ Item {
             width: card.whoW
             role: "label"
             color: Lu.ink2
+            textFormat: Text.PlainText
             wrapMode: Text.WordWrap
             maximumLineCount: 2
             elide: Text.ElideRight
@@ -120,6 +122,7 @@ Item {
                 width: board.width - (liveDot.visible ? liveText.implicitWidth + Lu.space(2) + liveDot.width + Lu.space(3) : 0)
                 role: "label"
                 color: Lu.ink2
+                textFormat: Text.PlainText
                 wrapMode: Text.WordWrap
                 maximumLineCount: 2
                 elide: Text.ElideRight
@@ -130,7 +133,7 @@ Item {
                 y: metaText.height + Lu.space(2)
                 width: board.width
                 height: Math.max(firstName.implicitHeight, firstScore.implicitHeight)
-                LuText { id: firstName; y: Math.round((parent.height - implicitHeight) / 2); width: parent.width - firstScore.implicitWidth - Lu.space(4); role: "body"; elide: Text.ElideRight
+                LuText { id: firstName; y: Math.round((parent.height - implicitHeight) / 2); width: parent.width - firstScore.implicitWidth - Lu.space(4); role: "body"; elide: Text.ElideRight; textFormat: Text.PlainText
                          font.weight: board.firstN > board.secondN ? Font.DemiBold : Font.Medium; color: board.firstN > board.secondN ? Lu.ink : Lu.ink2
                          text: card.score ? card.score.away.name : "" }
                 LuText { id: firstScore; x: parent.width - implicitWidth; y: Math.round((parent.height - implicitHeight) / 2); role: "title"; text: card.score ? card.score.away.score : "" }
@@ -140,7 +143,7 @@ Item {
                 y: firstRow.y + firstRow.height
                 width: board.width
                 height: Math.max(secondName.implicitHeight, secondScore.implicitHeight)
-                LuText { id: secondName; y: Math.round((parent.height - implicitHeight) / 2); width: parent.width - secondScore.implicitWidth - Lu.space(4); role: "body"; elide: Text.ElideRight
+                LuText { id: secondName; y: Math.round((parent.height - implicitHeight) / 2); width: parent.width - secondScore.implicitWidth - Lu.space(4); role: "body"; elide: Text.ElideRight; textFormat: Text.PlainText
                          font.weight: board.secondN > board.firstN ? Font.DemiBold : Font.Medium; color: board.secondN > board.firstN ? Lu.ink : Lu.ink2
                          text: card.score ? card.score.home.name : "" }
                 LuText { id: secondScore; x: parent.width - implicitWidth; y: Math.round((parent.height - implicitHeight) / 2); role: "title"; text: card.score ? card.score.home.score : "" }
@@ -167,11 +170,15 @@ Item {
                 width: Math.min(implicitWidth, foot.width)
                 role: "caption"
                 color: Lu.ink2
+                textFormat: Text.PlainText
                 elide: Text.ElideRight
                 text: card.score ? "" : (card.e.source || "")
             }
             LuText {
                 id: k1
+                width: Math.min(implicitWidth, foot.width)
+                elide: Text.ElideRight
+                textFormat: Text.PlainText
                 x: foot.oneLine && !foot.stacked ? foot.width - foot.keysW : 0
                 y: foot.hasSrc && !foot.oneLine ? src.implicitHeight + Lu.space(1) : 0
                 role: "caption"
@@ -180,6 +187,8 @@ Item {
             }
             LuText {
                 id: k2
+                width: Math.min(implicitWidth, foot.width)
+                elide: Text.ElideRight
                 x: foot.stacked ? 0 : k1.x + k1.implicitWidth + foot.sp
                 y: foot.stacked ? k1.y + k1.implicitHeight + Lu.space(1) : k1.y
                 role: "caption"

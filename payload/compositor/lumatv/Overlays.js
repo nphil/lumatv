@@ -21,6 +21,7 @@
 // not taken.
 
 var CLASSES = ["doorbell", "alarm", "timer", "alert", "score"]
+var MAX_QUEUE = 24               // cards waiting or shown, all classes
 
 var DEFAULTS = {
     enabled: false,
@@ -190,6 +191,17 @@ function offer(q, e, cfg, now) {
     e.arrivedAt = now
     e.seqNo = ++q.seq
     q.list.push(e)
+    // a plugin that floods the queue does not grow it for ever: past the cap the oldest of the least important class that is not on the screen goes
+    while (q.list.length > MAX_QUEUE) {
+        var drop = null
+        for (var i = 0; i < q.list.length; i++) {
+            var c = q.list[i]
+            if (c.visible || c === e) continue
+            if (!drop || c.priority > drop.priority || (c.priority === drop.priority && c.seqNo < drop.seqNo)) drop = c
+        }
+        if (!drop) break
+        remove(q, drop)
+    }
     return "new"
 }
 
@@ -305,9 +317,10 @@ function armed(visible, cfg, now) {
 }
 
 // ---- what a card says ------------------------------------------------------------------------------------------------------------
+function clip(text, max) { return text.length > max ? text.substring(0, max - 1) + "\u2026" : text }
 // What OK does on a card, in one word, and the button it runs: the record's first action, else the drawer (when it can be opened here).
 function okOf(e, drawerReady) {
-    if (e.actions && e.actions.length) return { label: String(e.actions[0].label || "OK"), action: e.actions[0] }
+    if (e.actions && e.actions.length) return { label: clip(String(e.actions[0].label || "OK"), 24), action: e.actions[0] }
     if (drawerReady) return { label: "Open", action: null }
     return { label: "Dismiss", action: null }
 }
