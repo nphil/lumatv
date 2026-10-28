@@ -32,6 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GeForce NOW: the controller reader threads run at real-time priority off CPU 0 while a
   stream is in front (only the app's own reader threads, granted by the helper and undone when
   the stream ends); the stats line shows press latency, and `lumatv-gfn-latency` measures it.
+- Settings › System › Support › Update gains "Block LG system updates" (the Homebrew Channel's
+  own switch, with the live hosts state shown); while it is on, Check for Updates does nothing;
+  `lumatv status` and `lumatv updateblock status` report the block.
 - Settings lists: section heads grow with the text and read in the light theme; danger labels
   (Delete Device) and disabled-row text pass contrast at 100% and 200%. Segmented controls,
   status words, the AI access lock row and long page headers pass too: all 98 Settings scenes
