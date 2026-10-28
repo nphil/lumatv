@@ -258,6 +258,10 @@ def main(argv=None):
 
     def key(target, code):
         win = home if target == 'home' else sysw
+        # The compositor gives the keyboard focus to one window; the offscreen platform gives it to the last window made visible, which is
+        # the system layer once its window is kept mapped (2 s after Home loaded), so the window the key is for is made active first.
+        win.requestActivate()
+        app.processEvents()
         qt = {103: QtCore.Qt.Key_Up, 108: QtCore.Qt.Key_Down, 105: QtCore.Qt.Key_Left, 106: QtCore.Qt.Key_Right, 28: QtCore.Qt.Key_Return}.get(code, QtCore.Qt.Key_unknown)
         for typ in (QtCore.QEvent.KeyPress, QtCore.QEvent.KeyRelease):
             app.sendEvent(win, QtGui.QKeyEvent(typ, qt, QtCore.Qt.NoModifier, code + 8, 0, 0))
