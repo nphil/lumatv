@@ -497,9 +497,9 @@ class KeyboardVerb(unittest.TestCase):
         def fp(flag):
             script = f'SHADOW_PATCH_FILES="{a} {b}"\nKEYBOARD_ON="{flag}"\n' + function("shadow_patch_fp") + "shadow_patch_fp\n"
             return subprocess.run(["sh", "-c", script], capture_output=True, text=True, timeout=30).stdout.strip()
-        self.assertEqual(fp(self.flag), hashlib.md5((body + "keyboard off\n").encode()).hexdigest())
+        self.assertEqual(fp(self.flag), hashlib.md5((body + "keyboard off\ncover off\nsplash off\n").encode()).hexdigest())
         open(self.flag, "w").close()
-        self.assertEqual(fp(self.flag), hashlib.md5((body + "keyboard on\n").encode()).hexdigest())
+        self.assertEqual(fp(self.flag), hashlib.md5((body + "keyboard on\ncover off\nsplash off\n").encode()).hexdigest())
 
     def test_the_verb_is_dispatched_documented_and_in_the_registry(self):
         t = text()

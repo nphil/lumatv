@@ -84,6 +84,8 @@ tools/maliit.sh
 tools/maliit_patch.py
 tools/keyboard_patch.py
 tools/volume_patch.py
+tools/cover_patch.py
+tools/splash_patch.py
 tools/store.sh
 tools/store_theme.py
 tools/store_dump.py
@@ -296,8 +298,8 @@ cp tools/tokens.py tools/systemui.py tools/systemui_patch.py tools/preload.py to
 # The input banners' restyle, LG's Search app's (voice.sh runs inputcommon.sh for its tree), the keyboard's keys (maliit.sh is its own
 # script: a service restart in place of a process snapshot) and the keyboard's motion (tools/lumatv inputcommon, voice, keys,
 # build_shadow): the tool calls them, and they import notification_patch and tokens, which are shipped above.
-# The volume popup's patch (build_shadow) imports notification_patch too.
-cp tools/inputcommon.sh tools/inputcommon_patch.py tools/voice.sh tools/voice_patch.py tools/maliit.sh tools/maliit_patch.py tools/keyboard_patch.py tools/volume_patch.py "$DATA_ROOT/tools/"
+# The volume popup's patch, the startup cover's and the launch splash and spinner's (build_shadow) import notification_patch too.
+cp tools/inputcommon.sh tools/inputcommon_patch.py tools/voice.sh tools/voice_patch.py tools/maliit.sh tools/maliit_patch.py tools/keyboard_patch.py tools/volume_patch.py tools/cover_patch.py tools/splash_patch.py "$DATA_ROOT/tools/"
 # LG's Content Store theme (tools/lumatv store): the overlay tool and the builder of the script it mounts, which imports tokens (shipped above),
 # and the read-only page inventory the TV round makes its selectors from (run by hand, nothing calls it). The script's sources, payload/store,
 # go out with the rest of payload/ below.

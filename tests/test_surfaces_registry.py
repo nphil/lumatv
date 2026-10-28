@@ -27,22 +27,23 @@ def function(name):
 
 
 class Registry(unittest.TestCase):
-    def run_registry(self, flags=(), helper='{"running":false}', home="off", live=False):
+    def run_registry(self, flags=(), helper='{"running":false}', home="off", live=False, general=""):
         with tempfile.TemporaryDirectory() as d:
-            paths = {k: os.path.join(d, k) for k in ("SYSTEMUI_ON", "WEBGLASS_ON", "NOTI_ON", "LOGO_ON", "PRELOAD_STATE", "INPUTCOMMON_ON", "VOICE_ON", "KEYS_ON", "KEYBOARD_ON", "STORE_ON")}
+            paths = {k: os.path.join(d, k) for k in ("SYSTEMUI_ON", "WEBGLASS_ON", "NOTI_ON", "LOGO_ON", "PRELOAD_STATE", "INPUTCOMMON_ON", "VOICE_ON", "KEYS_ON", "KEYBOARD_ON", "STORE_ON", "COVER_ON", "SPLASH_ON")}
             for k in flags:
                 open(paths[k], "w").close()
             script = "".join(f'{k}="{v}"\n' for k, v in paths.items())
             script += (f"homestub_json() {{ printf '{{\"state\":\"{home}\"}}'; }}\n"
                        f"helper_json() {{ printf '{helper}'; }}\n"
-                       f"comp_live() {{ return {0 if live else 1}; }}\n" + function("surfaces_json") + "surfaces_json\n")
+                       f"comp_live() {{ return {0 if live else 1}; }}\n"
+                       f"get_general_setting() {{ printf '%s' '{general}'; }}\n" + function("surfaces_json") + "surfaces_json\n")
             r = subprocess.run(["sh", "-c", script], capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stderr)
             return {e["id"]: e for e in json.loads(r.stdout)}
 
     def test_every_switch_has_an_entry_that_names_its_way_back(self):
         reg = self.run_registry()
-        self.assertEqual(sorted(reg), ["compositor", "helper", "home", "inputcommon", "keyboard", "keys", "logos", "notifications", "preload", "quicksettings", "settings-theme", "store", "voice"])
+        self.assertEqual(sorted(reg), ["compositor", "cover", "helper", "home", "inputcommon", "keyboard", "keys", "logos", "notifications", "preload", "quicksettings", "settings-theme", "splash", "standbyscreen", "store", "voice"])
         for e in reg.values():
             self.assertIsInstance(e["on"], bool)
             self.assertGreater(len(e["fallback"]), 20, e["id"])
@@ -52,9 +53,15 @@ class Registry(unittest.TestCase):
 
     def test_each_entry_reads_its_own_flag(self):
         for flag, ident in (("SYSTEMUI_ON", "quicksettings"), ("WEBGLASS_ON", "settings-theme"), ("NOTI_ON", "notifications"),
-                            ("LOGO_ON", "logos"), ("PRELOAD_STATE", "preload"), ("INPUTCOMMON_ON", "inputcommon"), ("VOICE_ON", "voice"), ("KEYS_ON", "keys"), ("KEYBOARD_ON", "keyboard"), ("STORE_ON", "store")):
+                            ("LOGO_ON", "logos"), ("PRELOAD_STATE", "preload"), ("INPUTCOMMON_ON", "inputcommon"), ("VOICE_ON", "voice"), ("KEYS_ON", "keys"), ("KEYBOARD_ON", "keyboard"), ("STORE_ON", "store"),
+                            ("COVER_ON", "cover"), ("SPLASH_ON", "splash")):
             reg = self.run_registry(flags=[flag])
             self.assertEqual([k for k, e in reg.items() if e["on"]], [ident], flag)
+
+    def test_standbyscreen_is_on_when_the_tv_says_always_ready_is_off(self):
+        # read from the TV's own setting, not from a flag: the panel is dark in standby exactly when lifeOnScreenMode reads off
+        for mode, on in (("off", True), ("alwaysReady", False), ("allEnabled", False), ("", False)):
+            self.assertEqual(self.run_registry(general=mode)["standbyscreen"]["on"], on, mode)
 
     def test_home_is_on_for_the_stub_and_a_trial_only(self):
         for state, on in (("stub", True), ("trial", True), ("lg", False), ("off", False)):

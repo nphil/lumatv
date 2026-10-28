@@ -45,6 +45,12 @@
 #                            default, re-mounted by apply at every boot while on
 #   keyboard on|off|status -> the on-screen keyboard's window in the theme's layer motion (shadow module, tools/keyboard_patch.py);
 #                            off by default; a change is one rebuild and, under LG's compositor, one restart
+#   cover on|off|status    -> LG's startup cover (CoverUI) in the Lucent look, LG's sequencing kept (shadow module, tools/cover_patch.py);
+#                            off by default; a change is one rebuild and, under LG's compositor, one restart
+#   splash on|off|status   -> LG's launch splash (an app with no picture of its own) and launch spinner in the Lucent look (shadow module,
+#                            tools/splash_patch.py); off by default; a change is one rebuild and, under LG's compositor, one restart
+#   standbyscreen on|off|status -> LG's Always Ready (the art and clock on the panel in standby, `general.lifeOnScreenMode`) off, so the panel
+#                            goes dark (Nitin, 2026-10-23); `on` puts back the mode that was there; read from the TV's own setting
 #   homestub on|off|confirm|status -> LumaHome as the only Home: a stub in LG's Home's place
 #   version                -> version string from appinfo.json
 #
@@ -246,6 +252,18 @@ SHADOW_PATCH_FILES="$KEYBOARD_TOOL $NOTI_PATCH_TOOL $TOKENS_TOOL $THEME_SRC/them
 # that module is not the one loaded (`revert`, a stock compositor); nothing persistent is written to configd.
 VOLUME_TOOL="$APPDIR/tools/volume_patch.py"
 SHADOW_PATCH_FILES="$SHADOW_PATCH_FILES $VOLUME_TOOL"
+# LG's startup cover, the CoverUI module the compositor imports (`import CoverUI 1.0`), with LumaTV's picture on LG's sequencing (tools/cover_patch.py):
+# a copy of the module in the shadow, made when it is built. Off by default; `cover on` leaves the flag that build_shadow reads and the rebuild
+# makes the patch. LG's launch splash and spinner (tools/splash_patch.py) are the same kind of switch over two views of the compositor module.
+COVER_TOOL="$APPDIR/tools/cover_patch.py"
+COVER_SRC="$APPDIR/payload/cover"
+COVER_ON="$STATE/.cover-on"
+STOCK_COVER_MODULE=/usr/lib/qt5/qml/CoverUI
+SHADOW_PATCH_FILES="$SHADOW_PATCH_FILES $COVER_TOOL $APPDIR/payload/cover/block.qml $APPDIR/payload/cover/cover-input.png $APPDIR/payload/cover/cover-app.png"
+SPLASH_TOOL="$APPDIR/tools/splash_patch.py"
+SPLASH_SRC="$APPDIR/payload/splash"
+SPLASH_ON="$STATE/.splash-on"
+SHADOW_PATCH_FILES="$SHADOW_PATCH_FILES $SPLASH_TOOL $APPDIR/payload/splash/card.qml $APPDIR/payload/splash/spinner.qml"
 
 # The compositor resolves QML modules through QML2_IMPORT_PATH, and its unit
 # reads an optional environment file from /var - which is writable and
@@ -1245,6 +1263,69 @@ verb_keyboard() {
   return 0
 }
 
+shadow_switch() {
+  # $1 = the surface's name, $2 = its flag file, $3 = on|off. A restyle of an LG process that is made when the shadow module is built
+  # (tools/cover_patch.py, tools/splash_patch.py): the flag is what build_shadow reads, so a change of the switch is a rebuild. apply does it,
+  # once, and restarts LG's compositor if that is the live one (the picture flashes). A set that was never applied has no module yet: the flag is
+  # all there is to change and the first apply reads it. When the apply fails the flag goes back with the set.
+  ss_name=$1; ss_flag=$2
+  ss_was=off; [ -f "$ss_flag" ] && ss_was=on
+  mkdir -p "$STATE" 2>/dev/null
+  if [ "$3" = on ]; then : > "$ss_flag" || { emit_error "could not write $ss_flag"; return 1; }; else rm -f "$ss_flag"; fi
+  ss_applied=false
+  if [ -d "$SHADOW_ROOT" ]; then
+    ss_out=$(sh "$APPDIR/tools/lumatv" apply < /dev/null 2>>"$LOGFILE")
+    case "$ss_out" in
+      '{"ok":true'*) ss_applied=true ;;
+      *)
+        if [ "$ss_was" = on ]; then : > "$ss_flag"; else rm -f "$ss_flag"; fi
+        case "$ss_out" in '{'*'"ok":false'*) printf '%s\n' "$ss_out" ;; *) emit_error "apply did not answer" ;; esac
+        return 1 ;;
+    esac
+  fi
+  log_line "$ss_name $3 (applied: $ss_applied)"
+  return 0
+}
+
+cover_patched() {
+  if grep -q 'Luma: patched' "$SHADOW_ROOT/CoverUI/UserInterfaceLayer/Containers/MainView.qml" 2>/dev/null; then printf true; else printf false; fi
+}
+
+verb_cover() {
+  # The startup cover in LumaTV's look (docs/mocks/26-startup-cover); LG's sequencing is untouched. `status` says whether the switch is on and
+  # whether the shadow module holds the patched copy.
+  case "${1:-status}" in
+    on|off)
+      shadow_switch cover "$COVER_ON" "$1" || return 1
+      printf '{"ok":true,"cover":"%s","applied":%s,"patched":%s}\n' "$1" "$ss_applied" "$(cover_patched)" ;;
+    status)
+      cv_now=false; [ -f "$COVER_ON" ] && cv_now=true
+      printf '{"ok":true,"on":%s,"patched":%s}\n' "$cv_now" "$(cover_patched)" ;;
+    *) emit_error "usage: cover on|off|status"; return 1 ;;
+  esac
+  return 0
+}
+
+splash_patched() {
+  if grep -q 'Luma: patched' "$SHADOW_ROOT/WebOSCompositor/views/StarfishImageSplash.qml" 2>/dev/null \
+     && grep -q 'Luma: patched' "$SHADOW_ROOT/WebOSCompositor/views/StarfishSpinnerView.qml" 2>/dev/null; then printf true; else printf false; fi
+}
+
+verb_splash() {
+  # The launch splash and the launch spinner of LG's compositor in LumaTV's look (docs/mocks/15-launch-splash, 15-spinner): an app with no
+  # splash picture of its own gets LumaTV's launch screen, and the grey disc is LumaTV's ring. The Home launch screen (panels/Splash.qml) is LumaHome's own.
+  case "${1:-status}" in
+    on|off)
+      shadow_switch splash "$SPLASH_ON" "$1" || return 1
+      printf '{"ok":true,"splash":"%s","applied":%s,"patched":%s}\n' "$1" "$ss_applied" "$(splash_patched)" ;;
+    status)
+      sp_now=false; [ -f "$SPLASH_ON" ] && sp_now=true
+      printf '{"ok":true,"on":%s,"patched":%s}\n' "$sp_now" "$(splash_patched)" ;;
+    *) emit_error "usage: splash on|off|status"; return 1 ;;
+  esac
+  return 0
+}
+
 logo_set() {
   # $1 = on|off. The staged windows are laid down first, so a redirect never points at a file that
   # is not there. The windows are preloaded surfaces: closed after the redirect, the next launch
@@ -1426,6 +1507,8 @@ shadow_patch_fp() {
       cat "$sp_f" 2>/dev/null
     done
     if [ -f "${KEYBOARD_ON:-}" ]; then printf 'keyboard on\n'; else printf 'keyboard off\n'; fi
+    if [ -f "${COVER_ON:-}" ]; then printf 'cover on\n'; else printf 'cover off\n'; fi
+    if [ -f "${SPLASH_ON:-}" ]; then printf 'splash on\n'; else printf 'splash off\n'; fi
   } | md5sum | cut -c1-32
 }
 
@@ -1459,6 +1542,28 @@ build_shadow() {
   vv="$SHADOW_ROOT.next/WebOSCompositor/views/StarfishVolumeView.qml"
   if [ -f "$vv" ] && [ -f "$VOLUME_TOOL" ]; then
     python3 "$VOLUME_TOOL" "$vv" < /dev/null 2>>"$LOGFILE" || log_line "build_shadow: the volume patch was refused, LG's volume popup stays"
+  fi
+
+  # The startup cover and the launch splash and spinner, when their switches are on: the cover is a copy of LG's CoverUI module beside the
+  # compositor's, the other two are views of the compositor module. Each tool writes nothing when an anchor of LG's files is missing (a firmware
+  # update changed it): the shadow then keeps LG's, and the log says so.
+  if [ -f "${COVER_ON:-}" ] && [ -d "${STOCK_COVER_MODULE:-}" ] && [ -f "${COVER_TOOL:-}" ]; then
+    cv_pal=$(python3 "$TOKENS_TOOL" "$THEME_SRC/theme.json" "$THEME_DIR/theme.json" qml < /dev/null 2>>"$LOGFILE")
+    rm -rf "$SHADOW_ROOT.next/CoverUI" 2>/dev/null
+    if [ -n "$cv_pal" ] && cp -a "$STOCK_COVER_MODULE" "$SHADOW_ROOT.next/CoverUI" 2>/dev/null \
+       && python3 "$COVER_TOOL" "$SHADOW_ROOT.next/CoverUI" "$cv_pal" "$DISPLAY_NAME" "$COVER_SRC" < /dev/null 2>>"$LOGFILE"; then
+      :
+    else
+      rm -rf "$SHADOW_ROOT.next/CoverUI" 2>/dev/null
+      log_line "build_shadow: the cover patch was refused, LG's startup cover stays"
+    fi
+  fi
+  sv="$SHADOW_ROOT.next/WebOSCompositor/views"
+  if [ -f "${SPLASH_ON:-}" ] && [ -f "$sv/StarfishImageSplash.qml" ] && [ -f "$sv/StarfishSpinnerView.qml" ] && [ -f "${SPLASH_TOOL:-}" ]; then
+    sp_pal=$(python3 "$TOKENS_TOOL" "$THEME_SRC/theme.json" "$THEME_DIR/theme.json" qml < /dev/null 2>>"$LOGFILE")
+    if [ -z "$sp_pal" ] || ! python3 "$SPLASH_TOOL" "$sv" "$sp_pal" "$SPLASH_SRC" < /dev/null 2>>"$LOGFILE"; then
+      log_line "build_shadow: the splash patch was refused, LG's launch splash and spinner stay"
+    fi
   fi
 
   # Get the contents on disk BEFORE the rename publishes them. /var is ext4
@@ -2457,6 +2562,7 @@ do_revert_internal() {
   [ -f "$LOGO_ON" ] && logo_set off
   [ -f "$NOTI_ON" ] && { noti_set off; rm -f "$NOTI_ON"; }
   rm -f "$KEYBOARD_ON"
+  rm -f "$COVER_ON" "$SPLASH_ON"
   [ -f "$INPUTCOMMON_ON" ] && { inputcommon_set off; rm -f "$INPUTCOMMON_ON"; }
   [ -f "$STORE_ON" ] && { store_set off; rm -f "$STORE_ON"; }
   [ -f "$VOICE_ON" ] && { voice_set off; rm -f "$VOICE_ON"; }
@@ -3006,6 +3112,9 @@ surfaces_json() {
   printf '{"id":"voice","on":%s,"fallback":"`voice off` unmounts the overlay; a reboot or revert clears it and LG'"'"'s Search app returns"},' "$(b test -f "$VOICE_ON")"
   printf '{"id":"keys","on":%s,"fallback":"`keys off` unmounts the overlay and restarts the keyboard server; a reboot or revert clears it and LG'"'"'s keys return"},' "$(b test -f "$KEYS_ON")"
   printf '{"id":"keyboard","on":%s,"fallback":"`keyboard off` rebuilds the shadow module with LG'"'"'s own keyboard view; revert drops the module"},' "$(b test -f "$KEYBOARD_ON")"
+  printf '{"id":"cover","on":%s,"fallback":"`cover off` rebuilds the shadow module without the patched CoverUI; revert drops the module"},' "$(b test -f "$COVER_ON")"
+  printf '{"id":"splash","on":%s,"fallback":"`splash off` rebuilds the shadow module with LG'"'"'s own splash and spinner views; revert drops the module"},' "$(b test -f "$SPLASH_ON")"
+  printf '{"id":"standbyscreen","on":%s,"fallback":"`standbyscreen on` puts back the Always Ready mode that was set; Settings > Home & look > Standby has the same switch"},' "$( [ "$(get_general_setting lifeOnScreenMode)" = off ] && echo true || echo false )"
   printf '{"id":"notifications","on":%s,"fallback":"`notifications off`, a failed stage, or revert point the view back at LG'"'"'s file"},' "$(b test -f "$NOTI_ON")"
   printf '{"id":"logos","on":%s,"fallback":"`logo off`; a logo that will not load answers tvpowerd at once"},' "$(b test -f "$LOGO_ON")"
   printf '{"id":"helper","on":%s,"fallback":"Home draws the last saved weather and news; `helper stop`"},' "$hp_on"
@@ -3319,6 +3428,47 @@ set_option_setting() {
     | tr -d '\n' | grep -q '"returnValue"[ ]*:[ ]*true'
 }
 
+set_general_setting() {
+  # $1 = key, $2 = value, in the "general" category: the set's own settings service, as the TV's menus write it.
+  luna-send -n 1 "$SETTINGS_SET_URI" \
+    "{\"category\":\"general\",\"settings\":{\"$1\":\"$2\"}}" 2>/dev/null \
+    | tr -d '\n' | grep -q '"returnValue"[ ]*:[ ]*true'
+}
+
+# What `general.lifeOnScreenMode` was before `standbyscreen off` turned it off, so `standbyscreen on` can put exactly that back.
+STANDBYSCREEN_PREV="$STATE/standbyscreen.prev"
+
+verb_standbyscreen() {
+  # LG's Always Ready (art and clock on the panel while the set is "off") is `general.lifeOnScreenMode`: "off", "allEnabled" or "alwaysReady".
+  # The plan is a panel that goes fully dark in standby, with the instant wake kept (PLAN, Surfaces; Nitin, 2026-10-23). The same switch is in
+  # Settings > Home & look > Standby; this is the one a TV step can run and read back. Nothing else is touched.
+  sb_mode=$(get_general_setting lifeOnScreenMode)
+  case "${1:-status}" in
+    off)
+      take_mutation_lock || { emit_error "another mutation is in progress"; return 1; }
+      if [ "$sb_mode" != off ]; then
+        [ -n "$sb_mode" ] && { mkdir -p "$STATE" 2>/dev/null; printf '%s\n' "$sb_mode" > "$STANDBYSCREEN_PREV"; }
+        set_general_setting lifeOnScreenMode off || { emit_error "the settings service did not take lifeOnScreenMode off"; return 1; }
+      fi
+      sb_now=$(get_general_setting lifeOnScreenMode)
+      [ "$sb_now" = off ] || { emit_error "lifeOnScreenMode reads '$sb_now' after the change"; return 1; }
+      log_line "standbyscreen off (was: ${sb_mode:-unknown})"
+      printf '{"ok":true,"standbyscreen":"off","was":"%s"}\n' "$(json_escape "$sb_mode")" ;;
+    on)
+      take_mutation_lock || { emit_error "another mutation is in progress"; return 1; }
+      sb_prev=$(cat "$STANDBYSCREEN_PREV" 2>/dev/null); [ -n "$sb_prev" ] || sb_prev=allEnabled
+      set_general_setting lifeOnScreenMode "$sb_prev" || { emit_error "the settings service did not take lifeOnScreenMode $sb_prev"; return 1; }
+      rm -f "$STANDBYSCREEN_PREV"
+      log_line "standbyscreen on (back to $sb_prev)"
+      printf '{"ok":true,"standbyscreen":"on","mode":"%s"}\n' "$(json_escape "$sb_prev")" ;;
+    status)
+      sb_dark=false; [ "$sb_mode" = off ] && sb_dark=true
+      printf '{"ok":true,"on":%s,"mode":"%s","prev":"%s"}\n' "$sb_dark" "$(json_escape "$sb_mode")" "$(json_escape "$(cat "$STANDBYSCREEN_PREV" 2>/dev/null)")" ;;
+    *) emit_error "usage: standbyscreen on|off|status"; return 1 ;;
+  esac
+  return 0
+}
+
 standby_mode() {
   # What the set will do at the next power-off, read from the live settings
   # rather than from anything stored here. "warm": stays in active standby
@@ -3450,7 +3600,7 @@ verb_version() {
 # ------------------------------------------------------------------- dispatch
 
 case "$VERB" in
-  status|apply|boot-bind|boot-restart|boot-ok|revert|persist|fps|standby|ntfy|log|theme|systemui|webglass|store|inputcommon|keyboard|voice|keys|homestub|homestub-boot|homestub-watch|helper|preload|logo|notifications|surfaces|compositor|compositor-boot)
+  status|apply|boot-bind|boot-restart|boot-ok|revert|persist|fps|standby|ntfy|log|theme|systemui|webglass|store|inputcommon|keyboard|voice|keys|homestub|homestub-boot|homestub-watch|helper|preload|logo|notifications|surfaces|compositor|compositor-boot|cover|splash|standbyscreen)
     # Before ensure_config, which would create the new data dir and with it
     # hide the old one.
     if ! migrate_legacy; then
@@ -3544,6 +3694,9 @@ case "$VERB" in
   keys) verb_keys "${2:-status}"; exit $? ;;
   store) verb_store "${2:-status}" "${3:-}"; exit $? ;;
   keyboard) verb_keyboard "${2:-status}"; exit $? ;;
+  cover) verb_cover "${2:-status}"; exit $? ;;
+  splash) verb_splash "${2:-status}"; exit $? ;;
+  standbyscreen) verb_standbyscreen "${2:-status}"; exit $? ;;
   homestub) verb_homestub "${2:-status}"; exit $? ;;
   homestub-boot) verb_homestub_boot; exit $? ;;
   homestub-watch) verb_homestub_watch; exit $? ;;
