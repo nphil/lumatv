@@ -1,7 +1,9 @@
 // WAM runs webOSUserScripts/userScript.js from an app's own directory in every document the app's view loads, before the
 // page's own scripts: in the Content Store's loader page and in the cloud pages the loader sends the view to (upstream:
 // webosose/wam, WebPageBase::setCustomUserScript, which also covers pages on origins outside the app's directory).
-// tools/store_theme.py fills the two markers below and writes the result into the overlay's upper layer.
+// tools/store_theme.py fills the two markers below (OPTIONS_MARKER and CSS_MARKER in it) and writes the result into the overlay's upper
+// layer. They are not brand placeholders in double braces: tools/build-ipk.sh fills those from brand.json and fails the package on any
+// it leaves.
 //
 // The script changes how the page looks and how long its transitions take, and nothing else: it makes no request, reads
 // nothing from the page, writes none of its words and clicks nothing, and every step is guarded, so that a failure leaves
@@ -9,8 +11,8 @@
 (function () {
     "use strict";
     try {
-        var OPT = /*{{OPTIONS}}*/ null;
-        var CSS = /*{{CSS}}*/ "";
+        var OPT = /*@@OPTIONS@@*/ null;
+        var CSS = /*@@CSS@@*/ "";
         if (!OPT) return;
 
         // The top document, and frames on the app's own origins (its files and the cloud page's domain); a trailer or an ad

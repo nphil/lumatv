@@ -36,6 +36,10 @@ UNDERLINE_PX = 4
 GLOW = {"dark": 0.10, "light": 0.14}
 # languages/lucent/tokens.json shadow.rest
 SHEET_SHADOW = {"dark": "0 24px 60px rgba(0, 0, 0, 0.28)", "light": "0 24px 60px rgba(0, 0, 0, 0.18)"}
+# What payload/store/userScript.js has in the two places this builder fills. Not a double-brace placeholder: tools/build-ipk.sh fills
+# the brand's in every staged file, and fails the package on any it finds left, in this file as much as in the template.
+OPTIONS_MARKER = '/*@@OPTIONS@@*/ null'
+CSS_MARKER = '/*@@CSS@@*/ ""'
 
 
 def parse_parts(text):
@@ -142,11 +146,11 @@ def build_script(payload, shipped, user, parts, wanted_material="auto"):
     css = build_css(payload, theme, accent, accent_ink, material) if "look" in parts else ""
     with open(os.path.join(payload, "userScript.js"), encoding="utf-8") as f:
         text = f.read()
-    for marker in ('/*{{OPTIONS}}*/ null', '/*{{CSS}}*/ ""'):
+    for marker in (OPTIONS_MARKER, CSS_MARKER):
         if text.count(marker) != 1:
             raise ValueError("payload/store/userScript.js lost the marker %s" % marker)
     # str.replace inserts the text as it is, whatever backslashes and dollar signs the CSS carries.
-    text = text.replace('/*{{OPTIONS}}*/ null', json.dumps(options)).replace('/*{{CSS}}*/ ""', json.dumps(css))
+    text = text.replace(OPTIONS_MARKER, json.dumps(options)).replace(CSS_MARKER, json.dumps(css))
     return text, options
 
 

@@ -12,6 +12,7 @@ import base64
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -26,6 +27,7 @@ import tokens  # noqa: E402
 PAYLOAD = os.path.join(ROOT, "payload", "store")
 SHIPPED = os.path.join(ROOT, "payload", "theme", "theme.json")
 TOOL = os.path.join(ROOT, "tools", "store_theme.py")
+BUILD = os.path.join(ROOT, "tools", "build-ipk.sh")
 PLAYWRIGHT = "/data/home/lucent-ha/node_modules/playwright-core/index.mjs"
 CHROMIUM = "/usr/bin/chromium"
 BROWSER = os.path.exists(PLAYWRIGHT) and os.path.exists(CHROMIUM)
@@ -66,7 +68,9 @@ class Parts(unittest.TestCase):
 class Build(unittest.TestCase):
     def test_the_markers_are_filled_and_the_script_parses(self):
         text, options = build()
-        self.assertNotIn("/*{{", text)
+        for marker in (store_theme.OPTIONS_MARKER, store_theme.CSS_MARKER):
+            self.assertNotIn(marker, text)
+        self.assertNotIn("@@", text)
         self.assertEqual(options["parts"], ["look", "motion"])
         self.assertEqual(options["capMs"], 180)
         with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
@@ -150,7 +154,7 @@ class Build(unittest.TestCase):
             with open(os.path.join(PAYLOAD, "userScript.js")) as f:
                 text = f.read()
             with open(os.path.join(d, "userScript.js"), "w") as f:
-                f.write(text.replace('/*{{CSS}}*/ ""', '""'))
+                f.write(text.replace(store_theme.CSS_MARKER, '""'))
             with self.assertRaises(ValueError):
                 store_theme.build_script(d, SHIPPED, "/dev/null", ("look",))
 
@@ -170,6 +174,84 @@ class Build(unittest.TestCase):
         self.assertEqual((r.returncode, r.stdout.strip()), (0, "look,motion"))
         r = subprocess.run([sys.executable, TOOL, "parts", "x"], capture_output=True, text=True)
         self.assertEqual(r.returncode, 2)
+
+
+def shell_function(path, name):
+    """One shell function of a script, from its `name() {` line to the closing brace in column 0."""
+    out, on = [], False
+    with open(path) as f:
+        for line in f:
+            if line.startswith(name + "() {"):
+                on = True
+            if on:
+                out.append(line)
+                if line.rstrip() == "}":
+                    return "".join(out)
+    raise AssertionError(name + " not found in " + path)
+
+
+def store_files():
+    """What the package carries for the store, as paths under the repository: payload/ goes out whole, the tools are copied by name."""
+    tools = os.path.join(ROOT, "tools")
+    return (["payload/store/" + n for n in sorted(os.listdir(PAYLOAD))] +
+            ["tools/" + n for n in sorted(os.listdir(tools)) if n.startswith("store") and os.path.isfile(os.path.join(tools, n))])
+
+
+class Packaged(unittest.TestCase):
+    """What tools/build-ipk.sh does to every file it stages (its `render`): fills the brand's double-brace placeholders and fails the whole
+    package on any name in double braces it finds left, in a comment or a string as much as in code. The store's builder fills markers of its
+    own in its template, so neither may be spelt that way; this runs the build's own function on the store's files, as the package build
+    would, and not the build's regular expression as a copy."""
+
+    def render(self, d):
+        script = ("BRAND_DISPLAY_NAME=LumaTV SHORT_ID=lumatv APP_ID=org.nphil.lumatv BRAND_DATA_DIR=/var/lib/lumatv QML_MODULE=lumatv\n"
+                  + shell_function(BUILD, "render") + 'render "$1"\n')
+        return subprocess.run(["sh", "-c", script, "sh", d], capture_output=True, text=True, timeout=60)
+
+    def stage(self, d):
+        for rel in store_files():
+            dst = os.path.join(d, rel)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copy(os.path.join(ROOT, rel), dst)
+
+    def test_the_store_files_pass_the_package_builds_placeholder_check(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.stage(d)
+            r = self.render(d)
+            self.assertEqual((r.returncode, r.stderr), (0, ""))
+            # nothing the build fills was there to fill: the files are as they were checked in
+            for rel in store_files():
+                with open(os.path.join(ROOT, rel), "rb") as a, open(os.path.join(d, rel), "rb") as b:
+                    self.assertEqual(a.read(), b.read(), rel)
+
+    def test_the_check_is_live_a_placeholder_the_brand_does_not_have_fails_it(self):
+        # the old markers of userScript.js, and a name spelt in a comment: both were found only when the package was built
+        for name, body in (("tools/store_theme.py", "x = '/*{{OPTIONS}}*/ null'\n"), ("payload/store/userScript.js", "// {{name}} placeholders\n")):
+            with tempfile.TemporaryDirectory() as d:
+                self.stage(d)
+                with open(os.path.join(d, name), "a") as f:
+                    f.write(body)
+                r = self.render(d)
+                self.assertEqual(r.returncode, 1, name)
+                self.assertIn("unresolved placeholders", r.stderr)
+                self.assertIn(os.path.basename(name), r.stderr)
+
+    def test_a_brand_placeholder_is_filled_and_not_an_error(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.stage(d)
+            with open(os.path.join(d, "payload/store/userScript.js"), "a") as f:
+                f.write("// {{shortId}}\n")
+            self.assertEqual(self.render(d).returncode, 0)
+            with open(os.path.join(d, "payload/store/userScript.js")) as f:
+                self.assertTrue(f.read().rstrip().endswith("// lumatv"))
+
+    def test_every_store_tool_is_one_the_build_copies(self):
+        with open(BUILD) as f:
+            build = f.read()
+        tools = [rel for rel in store_files() if rel.startswith("tools/")]
+        self.assertGreaterEqual(len(tools), 3)
+        for rel in tools:
+            self.assertIn(rel, build, "tools/build-ipk.sh does not name " + rel)
 
 
 class StoreCss(unittest.TestCase):

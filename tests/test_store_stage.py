@@ -145,7 +145,7 @@ class StoreTool(unittest.TestCase):
         with open(path) as f:
             text = f.read()
         self.assertIn("data:font/woff2;base64,", text)
-        self.assertNotIn("{{", text)
+        self.assertNotIn("@@", text, "a marker the builder fills was left in the script")
 
     def test_parts_are_kept_in_canonical_order_and_unknown_ones_are_refused(self):
         rc, out = self.run_tool("stage", "lazy, look")
