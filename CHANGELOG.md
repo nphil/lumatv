@@ -68,8 +68,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   under synthetic background load; a crash bundle is shown in Settings › Support after a
   fallback; the idle tick runs 10 times a second instead of 60.
 - `npuprobe/`: times a TFLite model on the CPU and through LG's NPU delegate; TV probe script.
-- Cameras: the full view plays the camera live on the video plane through Home Assistant's
-  stream (`cameras.live`, off by default); no camera password reaches the TV.
+- Cameras: the full view plays the camera live on the video plane, relayed by Home Assistant
+  from its own go2rtc with sub-second latency (HLS as the fallback); no camera password reaches
+  the TV (`cameras.live`, off by default).
 - Settings lists: section heads grow with the text and read in the light theme; danger labels
   (Delete Device) and disabled-row text pass contrast at 100% and 200%. Segmented controls,
   status words, the AI access lock row and long page headers pass too: all 98 Settings scenes
