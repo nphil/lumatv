@@ -1,18 +1,23 @@
 # LG Content Store: what it is, what a theme can reach, what it costs, what the TV round checks
 
 Owner: StoreTheme. Facts are from the set (LG OLED65C4PUA, webOS 10.2.1, firmware 33.22.52) or from its firmware snapshot unless marked
-[INFERENCE]. "Host" is this workstation (headless Chromium 156), never the set. Sections 1 to 8 are from before the set was used; section 9 is the first TV
-round (2026-10-28): the store opened under the theme and its open time measured, and the look failed on focused tiles, so the theme is off.
+[INFERENCE]. "Host" is this workstation (headless Chromium 156), never the set. Sections 1 to 3 are from before the set was used; section 9 is the first TV
+round (2026-10-28): the store opened under the theme and its open time measured, and the look failed on focused tiles, so the theme was off. Section 10
+is the theme rebuilt after it; sections 4 to 6 and 8 describe the rebuilt one.
 
 ## Resume here
 
-- Built, host-proven, **off by default**: `lumatv store on [parts]|off|status` (`tools/store.sh`, `tools/store_theme.py`, `payload/store/`).
-  Parts: `look` (the skin), `motion` (no transition longer than 180 ms), `lazy` (lazy pictures, off unless named, see 6). `on` alone is
-  look and motion. `off`, `revert` and a reboot give LG's store back exactly. Registry id `store`; `apply` mounts it again at boot while on.
-- Next on the set: the colour of the words on LG's focused plate and the header's background (section 9, step 2); the skin's selectors are Sandstone's by
-  inference from one capture, the page is LG's cloud page (not in the firmware snapshot), and WAM's inspector does not listen on this firmware, so its markup cannot be read from the set.
-- Host proof: `python3 -m unittest tests.test_store_theme tests.test_store_stage tests.test_store_dump`, previews and audit in
-  `docs/mocks/store/` (`node render.mjs`, `node bench.mjs`).
+- Rebuilt after the first TV round (section 10), host-proven, **off by default**: `lumatv store on [parts]|off|status|probe [parts]`
+  (`tools/store.sh`, `tools/store_theme.py`, `tools/store_probe.py`, `payload/store/`). Parts: `look` (Manrope behind LG's family names; glass
+  plate, ring and ink on the plate LG draws under a focused item, found by what it computes and not by class name), `motion` (no transition
+  longer than 180 ms), `canvas` and `lazy` (opt-in), `probe` (diagnostic, only through `probe`). `on` alone is look and motion. `off`, `revert`
+  and a reboot give LG's store back exactly. Registry id `store`; `apply` mounts it again at boot while on; a probe is never kept.
+- Next on the set: `lumatv store probe`, open the store and move the focus over a tile, a tab and a button on each page, then
+  `python3 /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/store_probe.py report /var/lib/lumatv/store-probe`: the page's real class
+  names, its `--sand-*` variables and where its focus plate is (section 10.4). WAM's inspector does not listen on this firmware, so the page posts
+  that to the set itself. Then `store on` and section 8.
+- Host proof: `python3 -m unittest tests.test_store_theme tests.test_store_stage tests.test_store_probe`; previews and audit in
+  `docs/mocks/store/` (`node render.mjs`, `node bench.mjs --v1 <first version's script>`).
 
 ## 1. What the store is
 
@@ -63,9 +68,10 @@ set `USER_SCRIPT_PATH`. That is the one injection point; the rest follow from it
 - **The page is on a cloud origin**, so the settings theme's `<link href="webOSUserScripts/lumatv.css">` (relative to the page) and its
   font beside the stylesheet (a page on https cannot load file://) cannot work. The store's script carries everything: one constructable
   stylesheet (adopted by the document, which a page's content security policy for inline `<style>` does not govern; host-proven with a
-  CSP that forbids inline styles) and the one font as data (Manrope cut to weights 400-700 and Latin, Greek and Cyrillic: 39 KB,
-  `generators/gen-store-font.py`). The script is 76 KB; host run time of its evaluation median 1.6 ms, p90 2.8 ms (the set's CPU is slower).
-- **The script runs before `<html>` exists**; it needs no root, and the light material is chosen at build time, not by an attribute.
+  CSP that forbids inline styles) and the one font as base64 (Manrope cut to Latin and to weights 300-700 as one variable face: 21 KB,
+  `generators/gen-store-font.py`, declared behind LG's own family names). The default script is 52 KB (the first version's was 76 KB); host run time of its
+  evaluation median 3.7 ms (section 6; the set's CPU is slower).
+- **The script runs before `<html>` exists**; it needs no root, and its stylesheet is one constructable sheet, so a page policy that forbids inline styles does not see it.
 - **Frames**: the top document, frames of the app's own files and of `lgwebostv.com` are themed; an anonymous frame (a trailer, an ad)
   is not. Whether the cloud page replaces the loader's document or sits in a frame of it is not established; the script covers both.
 - Not used: editing LG's `index.html` or `Loader.js` in the upper layer (that changes what the app loads), any interception of the cloud
@@ -92,7 +98,7 @@ Measured on this set or in LG's own files:
   no `backdrop-filter`, no blur. A focus move in it is a pseudo-element fill plus a 200 ms transform with a shadow. LG's scroller also
   animates in script, which no stylesheet reaches.
 
-[INFERENCE], to be settled by `store_dump.py` and the open-time runs below:
+[INFERENCE], to be settled by the probe (section 10.4) and the open-time runs of section 8:
 
 - The open is a chain of serial phases: SAM launch and the memory check, the loader's calls for device info (`sdx` among them), DNS and TLS
   to `*.lgwebostv.com`, the page and its bundle, the catalogue's JSON (`*.nextlgsdp.com`), then the pictures (`ngfts.lge.com`). The network
@@ -105,51 +111,86 @@ Measured on this set or in LG's own files:
 
 | Wanted | Possible? | Evidence |
 |---|---|---|
-| A Lucent skin on the store | yes, as far as the selectors meet LG's markup | WAM user script in every document and origin (section 2); host: 20 renders pass the audit |
-| Without touching LG's files, reversibly | yes | overlay mount; `off` unmounts, 26 tests on the tool and the verb, with a fake overlay |
+| A Lucent skin on the store | yes, as far as the theme can find LG's focus plate | WAM user script in every document and origin (section 2); host: 30 renders in six ways of building the plate pass the pixel audit (section 5) |
+| Without touching LG's files, reversibly | yes | overlay mount; `off` unmounts, 41 tests on the tool and the verb, with a fake overlay |
 | Shorter transitions | yes (transitions and `Element.animate`); not the script-driven scroll | host: 600 ms transition ends in 218 ms; `transitionend` still fires |
-| Cheaper focus | yes | the sheet replaces the shadow, `will-change` and fill of a focus move with a ring and a wash; host numbers in section 6 |
+| Cheaper focus | not claimed | the markup is unknown, so the theme recolours the plate and leaves LG's own effects (shadows, `will-change`, scale); a focus move costs the page one look at the item (section 6) |
 | Keep the store alive after leaving it | it already is (`closeOnBackground` false) until LG's memory manager closes it; making it permanent through `keepAliveApps` is not available | the list is configd's `com.webos.applicationManager` (the store is not in it); read at SAM's start [INFERENCE]; no shipped tool may restart SAM (`tests/test_tool_rules.py`) |
 | Preload it hidden | possible in principle, not shipped | LG preloads LG Channels, a cloud-driven WAM web app that declares the same `supportQuickStart` and `allowCrossDomain`; the store has no entry in `supportAppList` (census `preload.json`); LG Channels' preloaded renderer holds 12 MB PSS and 21 MB in swap (`memory-result.md`), but it also sets `useAppHibernation` and the store does not [INFERENCE: that is part of why it is small]; whether the manager accepts a new id is unverified. Experiment E1 below |
 | Make the cloud page faster (network, server, bundle) | no | not on the set |
 | Smaller pictures | no | the sizes come from LG's CDN; rewriting what the page requests would change what it loads |
 | Change what is sold, installed, priced, signed in | never | the script and sheet make no request, click, or text change; a test fails any rule that hides, moves or adds anything |
-| Stay right when LG changes the page | no | the page is LG's and changes server-side; a selector that stops matching leaves that part LG's |
+| Stay right when LG changes the page | partly | the page is LG's and changes server-side; the theme matches nothing by class, so a markup it does not understand stays LG's, with LG's own words, and is never made unreadable |
 
 ## 5. The theme
 
-`payload/store/store.css` (the skin), `store-light.css` (the light material only: ink on every word, since LG draws white), `userScript.js`
-(the code), `Manrope-store.woff2`; `tools/store_theme.py` builds the one script from them and the live `theme.json` (the material:
-the theme's own, else what Home decided from the wallpaper, else dark); `tools/store.sh` stages and mounts it; `tools/lumatv` holds the
-switch (`.store-on` holds the parts, `apply` mounts it again at boot, `revert` takes it away, `surfaces` lists it).
+Files: `payload/store/store.css` (nine attribute rules, two more for `canvas`), `userScript.js` (the code), `Manrope-store.woff2` (the face);
+`tools/store_theme.py` builds the one script from them and the live `theme.json` (the dark material only: LG's pictures, banners and words are made for
+black, so the light material of the first version is gone); `tools/store.sh` stages and mounts it; `tools/store_probe.py` is the probe's receiver and
+report; `tools/lumatv` holds the switch (`.store-on` holds the parts, `apply` mounts it at boot, `revert` takes it away, `surfaces` lists it).
 
-Lucent (TV profile, Rosé Pine): the canvas is the palette's quiet base with one static glow from the upper left; no full-screen glass
-slab; Manrope on the page's text components (never on icon glyphs); tiles take the tile radius; popups and confirmations get one
-opaque sheet; the focus rule is the highlight at once and the lift (1.02 rows, 1.03 + 4 px cards, 1.04 buttons) after 150 ms of rest,
-cancelled by the next move because the element that lost focus has no transition to finish; the ring is 3 px and its alpha is derived
-per material so that it is at least 3.3:1 against the canvas and against the tile's own fill. Sizes are LG's.
+What `look` does, by what the page computes and never by a class name:
 
-Audit of the stand-in pages with the real built script (`docs/mocks/store/render.mjs`, `audit.json`): 5 pages (home, category, detail,
-search, install popup) x dark and light x 100 % and 200 % text = 20 renders, **0 overlapping text, 0 text under 4.5:1** (lowest 6.86:1
-dark, 5.68:1 light), ring 3.39-3.79:1. The pages are stand-ins in Sandstone's compiled class names with an LG-like stock look
-(`stock.css`), drawn from the capture and from LG's Settings CSS; the pictures are generated gradients. They prove the mechanism and the
-sheet's own contributions, not that every selector meets LG's page. Previews: `docs/mocks/store/shots/<page>-<dark|light>-<100|200>.jpg`
-and `<page>-stock.jpg` for LG's look.
+- **Face.** Manrope is declared behind the names Sandstone, MuseoSans, LG Smart UI and LG Display, one `@font-face` per weight LG's build declares
+  (a single face for a range of weights loses to the page's own at each exact weight: measured), so every text component takes it with no selector.
+  One Latin variable face, 300 to 700, 21 KB, one blob URL decoded once; a character it lacks falls to LG's face of the name.
+- **Plate.** On focus the script looks in the focused element and five levels below it for a light (luminance 0.35 and up), opaque background on the
+  element, its `::before` or its `::after`, that has words on it and covers 12 % of the item to 70 % of the screen; a colour transition on its way in
+  is judged by where it ends. It looks at the focus event, at the mutation of a class LG adds after it and at the start of a transition, all before the
+  frame is drawn (1 to 5 ms on the stand-ins), and at 60, 200 and 460 ms as the last resort.
+- **Glass, ring, ink.** The plate becomes the palette's focus glass (opaque `#2C263A`) with a 2 px ring (the ink at 40 %: 3.3:1 against black and against
+  the glass; where the page around the plate is lighter than black, a popup's panel, the script raises the alpha until the ring is 3.3:1 on both sides) and a row's radius; its words take the ink in the tier LG gave them (full, 80 %, 66 %: all over 4.5:1 on the glass), and words LG had made
+  translucent are made solid so the tier is what is seen. Words on a surface of their own (a badge) and the white tile behind an icon are left alone.
+  An item with no plate (a poster, an icon button) gets the ring alone, outside its edge. Nothing scales or lifts.
+- **Way back.** When the focus leaves, every mark comes off at once; a plate LG hides by fading its opacity keeps its glass for the fade, so LG's light
+  plate is never seen fading out under the dark one.
+- **`canvas`** (opt-in): the palette's canvas in place of LG's black, with every large near-black band painted like it (the header's: TV round 11 saw two
+  blacks side by side). Off by default, because LG's pictures are made for black.
+
+Audit of the stand-in pages with the real built script (`docs/mocks/store/render.mjs`, `audit.json`). The pages (`gen_pages.py`) are LG's page as the
+TV showed it (`docs/research/store/off-*.jpg`: black canvas and header, 416 px tiles whose caption row's focus plate is rgb(230, 230, 230), the Install plate,
+the grey-blue "more" buttons), in six ways LG might build the plate, none readable from the set: `pseudo` (a `::before` faded in by opacity), `child` (a child
+element whose colour transitions in), `self` (the item's own background), `tile` (the plate is the caption below a focused tile), `opaque` (as `child`, class
+names that mean nothing) and `late` (as `child`, switched by a class the page's own focus handler adds after the event). The five pages (home, category,
+detail, search, install popup) in `pseudo` and home and detail in the five others, at 100 % and 200 % text, are 30 renders; each focuses one item and is
+measured from its pixels: **every word on the plate the theme drew is over 4.5:1 (lowest 4.57:1, a lower bound: thin strokes never reach their colour),
+every other word is no worse than LG drew it, no text overlaps, the ring is over 3:1 against the page and against the plate, the plate is found within
+5 ms of the focus, the face is Manrope, the icon tile is not taken for a plate, and 60 ms into LG's fade-out (its transitions slowed to a tenth) the
+plate's place is not light**, where LG's own plate is. Previews: `docs/mocks/store/shots/<page>-pseudo-<100|200>.jpg`, `<page>-pseudo-stock.jpg`
+for LG's look and `focus-<dialect>.jpg` (LG's focused tile beside the themed one) for each of the six.
 
 ## 6. The levers
 
+Host numbers from `docs/mocks/store/bench.mjs`: a 2,174-element stand-in page that a script renders 300 ms after the document, as the store's cloud page
+renders, with each script as WAM would run it; median of 15 runs at full speed and of 11 with the CPU slowed 4x (the set's is slower still). Each cell is
+full speed / slowed. These say what a script costs relative to the page, not what the set does: the TV round decides.
+
+| Script | Bytes | Style recalculation at load, ms | Main-thread busy to load + 1 s, ms | First paint, ms | One full style recalculation, ms | One focus move, ms |
+|---|---|---|---|---|---|---|
+| none (LG's page) | 0 | 13.9 / 56.7 | 65.4 / 269.4 | 32 / 84 | 0.1 / 0.4 | 0.27 / 1.15 |
+| first version (`look,motion`) | 76,432 | 21.3 / 87.1 | 83.0 / 344.9 | 40 / 108 | 11.2 / 49.2 | 0.29 / 1.30 |
+| `look,motion` (now) | 51,839 | 13.2 / 56.0 | 73.3 / 300.9 | 40 / 104 | 0.1 / 0.7 | 1.10 / 4.75 |
+| `motion` alone | 6,073 | 13.1 / 54.3 | 63.8 / 270.5 | 28 / 84 | 0.1 / 0.5 | 0.27 / 1.13 |
+
+- **The first version cost** 17.6 / 75.5 ms of load (+27 % on this page) and a full style recalculation of 11.2 / 49.2 ms against 0.1 / 0.4: forty-five
+  `[class*=...]` selectors are tested against every element.
+- **Now** 7.9 / 31.5 ms (+12 %), about 0.45 of the first version's. All that is left is the face: the same script without it is within noise of LG's page (265.8 ms against 269.4
+  slowed). The face is 21 KB (the first version's 39 KB) and is made at once and not when the page is idle: a face that arrives after the page's words have
+  been laid out costs a second layout (about 50 ms for 2,200 elements in the markup, measured); made with the `FontFace` API instead it takes 43 ms to parse
+  sixteen times (slowed), which is worse. [INFERENCE] On the set, scaled by that ratio from the round's +220 ms (+9.3 %): about +95 ms, +4 %, under the 10 % bar and
+  inside the run-to-run spread (2.14 to 2.96 s).
+- **A focus move** costs 0.8 / 3.6 ms more: one look at the item (its few big descendants' styles, its words' boxes) before the frame is drawn. A look of 3.6 ms with the CPU
+  slowed 4x is a fifth of a 60 fps frame [INFERENCE: the set's factor is not known]; the gate's `store-scroll` (section 8, step 5) shows whether it matters.
+- `canvas` adds 7 / 10 ms of load for the observer that finds LG's black bands; opt-in.
+
 | Lever (part) | What it does | Host evidence | On the set |
 |---|---|---|---|
-| Transition cap (`motion`) | a transition longer than 180 ms is played faster (not cut), a script's `Element.animate` is asked for 180 ms, repeating animations are left alone | a 600 ms transform ends in 218 ms (stock 614); 800 ms and 500 ms animations become 180; a spinner's rate stays 1 | [INFERENCE]: LG's Sandstone is mostly 200 ms, so the cap saves about 20 ms per transition where it applies and more on 300-400 ms ones |
-| One ring and one wash for focus (`look`) | removes `box-shadow` and `will-change` on rows, buttons and tiles, the focus fill's pseudo-element, the picture's own scale | main-thread time per focus move on the stand-in, median of 3, 179 and 1814 elements: 10.5 and 14.8 ms stock, 8.4 and 8.3 ms themed; style recalculation per move 1.4 to 0.8 ms | [INFERENCE] |
-| The cost of `look` | about 45 substring selectors are tested on every element | a full style recalculation of 1814 elements: 14.3 ms stock, 39.6 ms themed (23.7-65, a busy workstation) | [INFERENCE]: paid at first layout and when a class changes high in the tree; if the set shows it at load, run `store on motion` alone |
-| No `backdrop-filter`, no text shadow | a guard | LG's Settings build has none | no gain expected |
+| Transition cap (`motion`) | a transition longer than 180 ms is played faster (not cut), a script's `Element.animate` is asked for 180 ms, repeating animations are left alone | a 600 ms transform ends in 213 ms (stock 625); 800 ms and 500 ms animations become 180; a spinner's rate stays 1; costs 6 KB and nothing measurable at load | [INFERENCE]: LG's Sandstone is mostly 200 ms, so the cap saves about 20 ms per transition where it applies and more on 300 to 400 ms ones |
 | Lazy pictures (`lazy`) | images made by script wait until near the screen | the mechanism works; `new Image()` is untouched | **off, and risky**: a page that loads through a hidden `<img>` to learn it is ready would wait for ever. A switch of its own, judged on the set |
-| Script cost | 76 KB parsed at each document | 1.6 ms median on the host | [INFERENCE]: tens of ms on the set, at each of the loader and the cloud page |
+| No `backdrop-filter`, no text shadow, no filter | a guard: the sheet has none, a test fails one | LG's Settings build has none | no gain expected |
 
-Expected gain, honestly: **none expected on a cold open** (the open is the network's and the server's); **none on a warm one** (a raise);
-a modest one in how a focus move and a long transition feel, and it comes from `motion` and the cheaper focus; `look` is about looks and
-costs a little at load. The set's numbers decide.
+Expected gain, honestly: **none expected on a cold open** (the open is the network's and the server's; the theme costs a little); **none on a warm one**; a
+modest one in how a long transition feels, from `motion`. `look` is about looks and costs a little at load and at each focus move. The set's numbers decide.
 
 ## 7. The Apps grid (mock 12)
 
@@ -163,41 +204,40 @@ remote key still opens LG's store directly, so installs go through LG's store, a
 
 ## 8. The next TV round
 
-Order matters; each step says what PASS is. Default state at the start: `lumatv store status` reports `"on":false,"mounted":false`.
+Order matters; each step says what PASS is. Default state at the start: `lumatv store status` reports `"on":false,"mounted":false,"probe":{"running":false,...}`.
+`T` below is `python3 /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/store_probe.py`.
 
-0. **LG's store works, theme off** (Nitin's pending "LG store check", declutter `lean` on): open it, see the catalogue, install and remove
-   a small free app (`APP_INSTALL_REQ` and `APP_REMOVE_REQ` with `caller: com.webos.app.discovery` in `/var/log/messages`). Then read the
-   markup, read-only: `cat /mnt/otncabi/usr/palm/applications/com.webos.app.discovery/index.html js/Loader.js` (the cloud page's address
-   and what is posted), `curl -s http://127.0.0.1:9998/json/list` (or `wget -qO-`; WAM's inspector, the store page listed or not), and with the store
-   open on each page type `python3 /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/store_dump.py --out /tmp/store-<page>.json` (class names and the Sandstone components,
-   effects counted, pictures and their sizes, stylesheets, fonts, timings; none of the page's words). **PASS**: the dump names
-   `enact_sandstone_*` parts; the selectors of `store.css` that match nothing are listed and fixed before any theme run.
-   If the inspector does not list the store (it is `inspectable: false`), say so and take the page by the loader's own request from the set.
-1. **The script runs.** `lumatv store on`; open the store. **PASS**: `store_dump.py` reports `marker: "look,motion"` and `styles.adopted: 1`
-   on the loader's and the cloud page's documents; `mount | grep discovery` shows one overlay; `ls .../webOSUserScripts` holds only
-   `userScript.js`. If the marker is null: WAM does not run it from an overlay on `/mnt/otncabi`, and the theme stops here.
-2. **Every page type, both materials, dark first**: home (each tab), a category (`{query:"category/GAME_APPS"}` [INFERENCE: the form of a plain category link] and the New key's
-   `category/THEME/20411`), an app's detail page, search with the keyboard, the update list (`category/GAME_APPS/APPUPDATES`), the
-   account page, a confirmation popup, and the offline page (`network_error.html`, network off). **PASS**: canvas, ink, Manrope; the focus
-   ring visible and moving; nothing clipped, nothing unreadable; icons are icons (no boxes); the spinner visible; Back and Exit as before.
-   A screenshot of each (`com.webos.service.capture`) goes to `docs/research/store/`. Light: set `theme.json` `material` to `light`,
-   `lumatv store on`, repeat the home page and the detail page.
-3. **Install works under the theme**: from the detail page, install the same small free app, then remove it from LumaTV's library
-   (`APP_INSTALL_REQ`/`APP_REMOVE_REQ` as in step 0). **PASS**: identical outcome, the button and its states as LG's.
-4. **Open time, before and after**, five runs each, `luna-send .../launch {"id":"com.webos.app.discovery"}`, time to the foreground
-   (`getForegroundAppInfo` polled every 50 ms) and to the first shelf's pictures (captures as fast as the service allows). **Cold**: `closeByAppId`, then
-   `killApp`, wait 5 s, launch. **Warm**: open, Home, launch again after 5 s, and after 60 s. States: `store off`; `store on motion`;
-   `store on look`; `store on` (both). `MemAvailable` and the WAM renderer's RSS before and after the five runs. **PASS**: p50 of each
-   state no worse than `off` by more than 10 %; report each number. A `look` that costs at load shows in the cold open.
-5. **Scroll and focus, before and after**: `python3 docs/research/perf/gate.py --surfaces store-scroll` (opt-in surface: cold start, five
-   D-pad moves down and five up on the home page) with `store off`, then with `store on`; for the page as it is, then `motion` alone.
-   **PASS**: the first frame after each key within 50 ms; frames over 20 ms in the window not more than with `off`. The burst-end
-   threshold is not asked of LG's page.
-6. **The way back**: `lumatv store off`; `grep discovery /proc/mounts` is empty; the store opens as LG's (a screenshot of the home page
-   against step 0's); `lumatv surfaces` shows `store` off. Then `on`, a reboot, and `status`: `apply` has mounted it again; `lumatv revert`
-   clears it. Other apps (the settings theme's, Netflix, the browser) open as before.
-7. **Lazy pictures** (only if step 4 shows the pictures are the cost): `store on look,motion,lazy`; **PASS** only if every picture still
-   loads on the home page and on a category; any missing picture ends the test and `lazy` stays off.
+0. **The probe** (it replaces the page dump the closed inspector port made impossible). `lumatv store probe`; the store is ended by the command, so open it
+   again, and on each page type (home and each tab, a category, a detail page, search, an update list, a confirmation popup) wait 3 s, then move the focus over a
+   tile, a tab and a button. `T report /var/lib/lumatv/store-probe > /tmp/probe.txt`, copied to `docs/research/store/probe-<page>.txt` (class names and styles,
+   none of the page's words). **PASS**: the report has `env`, `dom` and `focus` posts and says what the page's components are called, which light plates it
+   has at rest and under each focus, its black bands, its `--sand-*` variables and its font families. If nothing arrives, `receiver.log` in that directory says
+   whether the page reached the receiver; a page policy that forbids the post [INFERENCE: not seen] shows in no post at all, and then the markup is read from
+   the capture by eye and the theme's plate-finder is what the next step tests.
+1. **The finder on LG's own page.** `lumatv store probe look`, the same walk, and a capture of each focused item (`com.webos.service.capture`,
+   `docs/research/store/probe-look-*.jpg`). Each `focus` record's "the theme found" line says which plate it found, in which of its three forms, how many words
+   it took and after how many ms. **PASS**: on every focused tile, tab and button LG's light plate is the dark glass with the ring and its words read
+   (compare `on-scroll.jpg` and `on-detail-tabs-account.jpg`); no light plate is seen fading out when the focus moves on; the Install and "more" buttons read;
+   poster and icon buttons have the ring; nothing is scaled or moved. A focused item the finder did not find stays LG's, a light plate with dark words: that is
+   a finding for the probe's report, not a fault of the way back.
+2. **The theme on.** `lumatv store off`, then `lumatv store on`; the pages of step 0 again (the account panel is another app and is not themed). **PASS** as step 1,
+   and: Manrope on the page's text, icons are icons, the spinner visible, Back and Exit as before. Once, `store on look,motion,canvas`: the header and the page
+   are the same canvas.
+3. **Install works under the theme**: from the detail page, install the same small free app, then remove it from LumaTV's library (`APP_INSTALL_REQ` and
+   `APP_REMOVE_REQ` with `caller: com.webos.app.discovery` in `/var/log/messages`). **PASS**: the outcome identical to the theme off, the button and its states as LG's.
+4. **Open time, before and after**, five runs each, `luna-send .../launch {"id":"com.webos.app.discovery"}`, time to the foreground (`getForegroundAppInfo`
+   polled every 50 ms) and to the first shelf's pictures (captures as fast as the service allows). **Cold**: `closeByAppId`, then `killApp`, wait 5 s, launch.
+   **Warm**: open, Home, launch again after 5 s and after 60 s. States: `store off`; `store on motion`; `store on look`; `store on`. `MemAvailable` and the WAM
+   renderer's RSS before and after the five runs. **PASS**: the p50 of each state no worse than `off` by more than 10 %; report each number (the first version:
+   +9.3 %, cold, 2,360 to 2,580 ms). A cost of `look` shows in the cold open.
+5. **Scroll and focus, before and after**: `python3 docs/research/perf/gate.py --surfaces store-scroll` (opt-in surface: cold start, five D-pad moves down and five
+   up on the home page) with `store off`, then with `store on`. **PASS**: the first frame after each key within 50 ms (LG's page does not meet it either way:
+   362 ms off, 330 ms on in round 11); frames over 20 ms in the window not more than with `off`.
+6. **The way back**: `lumatv store off`; `grep discovery /proc/mounts` is empty; the store opens as LG's (a capture of the home page against step 0's);
+   `lumatv surfaces` shows `store` off and `lumatv store status` no receiver. Then `on`, a reboot and `status`: `apply` has mounted it again; `lumatv revert`
+   clears it. After a reboot with only a probe run, LG's store is what opens. Other apps (the settings theme's, Netflix, the browser) open as before.
+7. **Lazy pictures** (only if step 4 shows the pictures are the cost): `store on look,motion,lazy`; **PASS** only if every picture still loads on the home page and
+   on a category; any missing picture ends the test and `lazy` stays off.
 8. **Experiment E1, preload** (only if step 4's cold open is the problem and memory allows): save
    `luna-send -n 1 luna://com.webos.service.config/getConfigs '{"configNames":["com.webos.service.preloadmanager.supportAppList"]}'`,
    add `{"id":"com.webos.app.discovery","isEnabled":true,"preloadMode":"partial","preloadType":"oneshot","requiredMemory":60,"staticPriority":10}`
@@ -219,7 +259,58 @@ Evidence in `docs/research/store/` (JPEGs). `48ee380` on the set, LumaTV's compo
 
 The theme stays off. To fix before another run: the words' colour on LG's focused plate (follow the plate, or draw the ring and wash on the right elements) and the header's background; naming LG's focus classes needs the page's DOM, which this firmware gives no way to read from the set.
 
+## 10. After the first TV round: the rebuilt theme
+
+### 10.1 What the TV showed, and why
+
+- Focused tiles and buttons kept LG's light plate and took light words (section 9, step 2). The first version matched forty-five substring selectors of
+  Sandstone's class names, taken from LG's Settings build and one capture of the store; LG's focus markup is none of them, while the blanket rule that
+  turned words light matched. The failure was the worst one available: light on light.
+- The header stayed black over the navy canvas: its band is a container LG paints itself.
+- The cold open was +9.3 % and the scroll gate's first frame did not improve: the selectors cost a full style recalculation at every load (11 ms on the host's
+  2,200 elements, section 6) and the script carried a 39 KB face inside 76 KB.
+- WAM's inspector does not listen on this firmware, so the page's markup cannot be read from the set, and a theme that needs it cannot be right on the first try.
+
+### 10.2 What changed
+
+- **No selector names the page.** The face is put behind LG's family names (one rule per weight), and the plate is found by what the page computes (section 5). A
+  markup the finder does not understand stays LG's, with LG's words: the words are only ever recoloured together with a plate that is recoloured with them.
+- **Ink follows the plate**, tier by tier; words on a surface of their own and the white tile behind an icon are left alone; an item with no plate gets a ring.
+- **Dark only.** LG's pictures, banners and words are made for black; the light material of the first version is gone (`store-light.css`, `light_skin`).
+- **The canvas is opt-in** (`canvas`): the default no longer repaints LG's black, so there is no second black beside the header's.
+- **Cheaper.** A 21 KB Latin variable face (the first version's 39 KB), nine rules, no recalculation (section 6).
+- **Fewer fades.** The plate comes without LG's transition and goes without a light plate fading out (section 5).
+- **A probe instead of the page dump** (10.4). `tools/store_dump.py` is removed: it needed the inspector.
+
+### 10.3 What the host proves, and what it cannot
+
+`tests.test_store_theme` runs the real built script in Chromium against pages in six ways of building the plate and one more for each thing that must not be
+taken for one (an icon's white tile, a badge, a panel the size of the screen, an item with no plate); `render.mjs` audits 30 stand-in renders from their pixels
+(section 5). It cannot prove LG's real markup is one of the six, or that the cloud page's policy lets the probe's post out. The finder fails towards LG's look
+and not towards an unreadable one, and the probe says what the real markup is.
+
+### 10.4 The probe
+
+`lumatv store probe [parts]` starts `tools/store_probe.py serve` (stdlib sockets, loopback only, 30 minutes, bounded in posts and bytes) and mounts the script with
+its `probe` part and that receiver's port, then ends the store so its next launch loads it; with no parts the page is LG's as it is, with `look` the theme and the
+probe together. The page posts, to `http://127.0.0.1:<port>/p` (an image beacon to `/b` when the post is refused), the following, never its words (a text node
+is posted as its length, a URL as its host and path, any attribute but class, id and role as the length of its value): `env` (families used, font faces
+declared, stylesheets, `--sand-*` variables, meta policy), `dom` (up to 3,500 nodes: tag, classes, rectangle, the computed styles that matter, the `::before`
+and `::after` of each; at load and after a navigation), `focus` (400 ms after a focus: the item, its ancestors and its subtree with the plates the theme found),
+`classes` (the classes that change within 700 ms of a key press, and the kind of key: how the page marks the item the remote moved to when it is not by the browser's
+focus) and `csp` and `error`. `python3 tools/store_probe.py report /var/lib/lumatv/store-probe` prints what a person needs to fix the finder. Never persisted: a reboot,
+`lumatv store on` and `lumatv store off` end the receiver, and the last session's files stay (`store-probe.prev` once a new one starts).
+
+### 10.5 What is still unknown
+
+- The page's real markup and which of the six ways its plate is built: step 0 of section 8.
+- Whether the cloud page's content security policy lets the probe's post out (not seen on the host, where the page's own policy is a stand-in).
+- The cost of the face and of a focus move on the set: the cold-open and scroll-gate steps of section 8.
+- Whether `store on` as a whole is the right default for LG's store once the look reads: if the cold open is not within 5 %, `store on motion` is the cheap part.
+
 ## Changelog line
 
-- `lumatv store on|off|status`: LG's Content Store in the Lucent look and with transitions capped at 180 ms, off by default, as WAM's user
-  script mounted over LG's read-only app directory; `off` and `revert` give LG's store back exactly. Host-checked only.
+- `lumatv store on|off|status|probe`: LG's Content Store in the Lucent look, rebuilt after the first TV round: Manrope behind Sandstone's names, a glass plate with a ring
+  and ink on the plate LG draws under a focused item (found by what the page computes, not by class), transitions capped at 180 ms; off by default, as WAM's user
+  script mounted over LG's read-only app directory, `off` and `revert` give LG's store back exactly. `probe` posts the page's structure to a receiver on the set for the
+  next round. Host-checked only.

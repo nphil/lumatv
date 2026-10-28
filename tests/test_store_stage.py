@@ -9,15 +9,24 @@ webOSUserScripts/userScript.js, in the upper layer and nothing else; never write
 a failed mount; take the directory SAM names only when it is the store's; end a running instance only when it changes what the next
 launch loads, and with the second ask (WAM's killApp) only when the close left it listed; and give LG's directory back exactly on `off`.
 
-`Verb` runs the `store` verb with a stand-in for the tool: the flag keeps the parts the tool settled, `off` removes it, `status` merges it.
+`Probe` runs the same script's `probe` verb with the real receiver (tools/store_probe.py) on a free loopback port: the receiver starts before
+the script is staged and its port is in the script, nothing but the mount changes in LG's directory, `off` and `on` end it and keep what it
+wrote, a receiver that cannot start leaves LG's store in place.
+
+`Verb` runs the `store` verb with a stand-in for the tool: the flag keeps the parts the tool settled, `off` removes it, `status` merges it,
+and `probe` never writes the flag.
 """
 import hashlib
 import json
 import os
 import shutil
+import signal
+import socket
 import subprocess
 import tempfile
+import time
 import unittest
+import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -70,7 +79,9 @@ def tree_hash(path, skip=()):
     return h.hexdigest()
 
 
-class StoreTool(unittest.TestCase):
+class ToolCase(unittest.TestCase):
+    """The stand-ins: LG's directory, a fake /proc/mounts with mount and umount that edit it, a luna-send that plays SAM and WAM."""
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         d = self.d = self.tmp.name
@@ -129,6 +140,8 @@ class StoreTool(unittest.TestCase):
         base = os.path.join(self.state, "store", "upper")
         return sorted(os.path.relpath(os.path.join(b, f), base) for b, _, fs in os.walk(base) for f in fs)
 
+
+class StoreTool(ToolCase):
     # ---- staging
 
     def test_stage_builds_the_one_file_and_mounts_nothing(self):
@@ -144,18 +157,26 @@ class StoreTool(unittest.TestCase):
         self.assertEqual(os.stat(path).st_mode & 0o777, 0o644)
         with open(path) as f:
             text = f.read()
-        self.assertIn("data:font/woff2;base64,", text)
+        self.assertIn("d09GMg", text, "the face (a woff2 file, base64) is in the script")
         self.assertNotIn("@@", text, "a marker the builder fills was left in the script")
 
     def test_parts_are_kept_in_canonical_order_and_unknown_ones_are_refused(self):
-        rc, out = self.run_tool("stage", "lazy, look")
-        self.assertEqual((rc, out["parts"]), (0, "look,lazy"))
+        rc, out = self.run_tool("stage", "lazy, canvas look")
+        self.assertEqual((rc, out["parts"]), (0, "look,canvas,lazy"))
         rc, out = self.run_tool("stage", "look sparkle")
         self.assertEqual(rc, 1)
         self.assertFalse(out["ok"])
         self.assertIn("sparkle", out["error"])
         # the failed request left the last good stage as it was
         self.assertEqual(self.upper_files(), ["webOSUserScripts/userScript.js"])
+
+    def test_the_probe_part_is_for_the_probe_verb_alone(self):
+        for verb in ("stage", "on"):
+            rc, out = self.run_tool(verb, "look,probe")
+            self.assertEqual(rc, 1, verb)
+            self.assertIn("probe", out["error"])
+        self.assertFalse(self.mounted())
+        self.assertFalse(os.path.exists(os.path.join(self.state, "store", "upper")))
 
     # ---- on
 
@@ -264,6 +285,7 @@ class StoreTool(unittest.TestCase):
     def test_status_reports_where_what_and_whether(self):
         rc, out = self.run_tool("status")
         self.assertEqual((out["dir"], out["staged"], out["mounted"], out["parts"], out["running"]), (self.lg, False, False, "", False))
+        self.assertEqual((out["probe"]["running"], out["probe"]["port"], out["probe"]["files"]), (False, 0, 0))
         self.run_tool("on", "look")
         self.running(True)
         rc, out = self.run_tool("status")
@@ -283,6 +305,178 @@ class StoreTool(unittest.TestCase):
         self.assertNotIn("killall", text)
 
 
+def post(port, body, path="/p", method="POST"):
+    req = urllib.request.Request("http://127.0.0.1:%d%s" % (port, path), data=body, method=method, headers={"Content-Type": "text/plain"})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        return r.status, r.read()
+
+
+class Probe(ToolCase):
+    """The probe verb, on the same stand-ins and the real receiver."""
+
+    def setUp(self):
+        super().setUp()
+        self.env.update(STORE_PROBE_PORT="0", STORE_PROBE_SECONDS="60", PROBE_STEP="0.05")
+        self.pidfile = os.path.join(self.state, ".store-probe.pid")
+        self.portfile = os.path.join(self.state, ".store-probe.port")
+
+    def tearDown(self):
+        try:
+            with open(self.pidfile) as f:
+                os.kill(int(f.read().strip()), signal.SIGKILL)
+        except (OSError, ValueError):
+            pass
+        super().tearDown()
+
+    def script(self):
+        with open(os.path.join(self.state, "store", "upper", "webOSUserScripts", "userScript.js")) as f:
+            return f.read()
+
+    def alive(self, pid):
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        try:
+            with open("/proc/%d/stat" % pid) as f:
+                return f.read().split(") ")[-1][0] != "Z"
+        except OSError:
+            return False
+
+    def test_probe_starts_the_receiver_first_and_mounts_the_script_that_posts_to_it(self):
+        self.running(True)
+        rc, out = self.run_tool("probe")
+        self.assertEqual((rc, out["ok"], out["store"], out["parts"], out["closed"]), (0, True, "probe", "probe", True))
+        port = out["probe"]["port"]
+        self.assertTrue(out["probe"]["running"] and port > 0)
+        self.assertIn('"url": "http://127.0.0.1:%d/p"' % port, self.script())
+        self.assertTrue(self.mounted())
+        self.assertEqual(tree_hash(self.lg, skip=("webOSUserScripts",)), self.before, "only the mount is laid over LG's files")
+        self.assertEqual(post(port, b"", "/ping", "GET")[1], b"ok", "the receiver answers where the script says it is")
+        # the receiver was up before the page could post, and the store was ended after the mount, as for `on`
+        calls = self.calls()
+        self.assertLess([i for i, c in enumerate(calls) if c.startswith("mount ")][0], [i for i, c in enumerate(calls) if c.startswith("closeByAppId")][0])
+
+    def test_the_receiver_does_not_keep_the_callers_lock_descriptors(self):
+        # lumatv takes its mutation lock on descriptor 9 and the children it starts inherit it: a receiver that kept it would hold every
+        # apply, revert and `store off` out for the half hour it runs
+        lock = os.path.join(self.d, "lock")
+        r = subprocess.run(["sh", "-c", 'exec 9>"$LOCK"; flock -x 9; sh "$SCRIPT" probe'], capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL,
+                           env=dict(self.env, LOCK=lock, SCRIPT=SCRIPT))
+        self.assertEqual(json.loads(r.stdout)["ok"], True, r.stdout)
+        self.assertEqual(subprocess.run(["flock", "-n", lock, "true"]).returncode, 0, "the lock was released with the caller")
+        with open(self.pidfile) as f:
+            self.assertTrue(self.alive(int(f.read())), "and the receiver is still running")
+
+    def test_the_stock_page_is_what_a_bare_probe_shows_and_parts_add_the_theme(self):
+        rc, out = self.run_tool("probe")
+        self.assertEqual(out["parts"], "probe")
+        self.assertNotIn("@font-face", self.script(), "no look: LG's page as it is")
+        rc, out = self.run_tool("probe", "look")
+        self.assertEqual((rc, out["parts"]), (0, "look,probe"))
+        self.assertIn("font-face", self.script())
+
+    def test_the_receiver_listens_on_loopback_only(self):
+        rc, out = self.run_tool("probe")
+        port = out["probe"]["port"]
+        with open("/proc/net/tcp") as f:
+            rows = [l.split() for l in f.readlines()[1:]]
+        mine = [r for r in rows if r[1].endswith(":%04X" % port) and r[3] == "0A"]
+        self.assertEqual([r[1].split(":")[0] for r in mine], ["0100007F"], "127.0.0.1 and nothing wider")
+
+    def test_status_shows_the_receiver_and_what_it_has_written(self):
+        rc, out = self.run_tool("probe")
+        port = out["probe"]["port"]
+        post(port, json.dumps({"kind": "hello", "data": {}}).encode())
+        rc, out = self.run_tool("status")
+        self.assertEqual((out["probe"]["running"], out["probe"]["port"], out["probe"]["files"], out["parts"]), (True, port, 1, "probe"))
+
+    def test_off_ends_the_receiver_and_keeps_what_it_wrote(self):
+        rc, out = self.run_tool("probe")
+        port = out["probe"]["port"]
+        post(port, json.dumps({"kind": "dom", "data": {}}).encode())
+        with open(self.pidfile) as f:
+            pid = int(f.read())
+        rc, out = self.run_tool("off")
+        self.assertEqual((rc, out["wasMounted"]), (0, True))
+        deadline = time.time() + 5
+        while self.alive(pid) and time.time() < deadline:
+            time.sleep(0.05)
+        self.assertFalse(self.alive(pid))
+        self.assertFalse(os.path.exists(self.pidfile))
+        self.assertTrue(os.path.exists(os.path.join(self.state, "store-probe", "001-dom.json")), "the round's files are for reading afterwards")
+        with self.assertRaises(OSError):
+            post(port, b"{}")
+        self.assertEqual(tree_hash(self.lg), self.before)
+
+    def test_on_ends_a_receiver_left_by_an_earlier_probe_and_the_script_then_has_no_probe(self):
+        rc, out = self.run_tool("probe")
+        with open(self.pidfile) as f:
+            pid = int(f.read())
+        rc, out = self.run_tool("on", "look")
+        self.assertEqual((rc, out["parts"]), (0, "look"))
+        deadline = time.time() + 5
+        while self.alive(pid) and time.time() < deadline:
+            time.sleep(0.05)
+        self.assertFalse(self.alive(pid))
+        self.assertNotIn("127.0.0.1", self.script())
+
+    def test_a_new_probe_replaces_the_receiver_and_keeps_the_last_files(self):
+        rc, first = self.run_tool("probe")
+        post(first["probe"]["port"], json.dumps({"kind": "env", "data": {}}).encode())
+        with open(self.pidfile) as f:
+            pid = int(f.read())
+        rc, second = self.run_tool("probe", "look")
+        deadline = time.time() + 5
+        while self.alive(pid) and time.time() < deadline:
+            time.sleep(0.05)
+        self.assertFalse(self.alive(pid), "one receiver at a time")
+        self.assertEqual(second["probe"]["files"], 0, "the new session starts empty")
+        self.assertTrue(os.path.exists(os.path.join(self.state, "store-probe.prev", "001-env.json")))
+        with open("/proc/net/tcp") as f:
+            listening = [r.split()[1] for r in f.readlines()[1:] if r.split()[3] == "0A"]
+        self.assertNotIn("0100007F:%04X" % first["probe"]["port"], listening)
+        self.assertIn("0100007F:%04X" % second["probe"]["port"], listening)
+
+    def test_a_receiver_that_cannot_start_leaves_lgs_store_in_place(self):
+        busy = socket.socket()
+        busy.bind(("127.0.0.1", 0))
+        busy.listen(1)
+        try:
+            self.running(True)
+            rc, out = self.run_tool("probe", env={"STORE_PROBE_PORT": str(busy.getsockname()[1])})
+        finally:
+            busy.close()
+        self.assertEqual(rc, 1)
+        self.assertFalse(out["ok"])
+        self.assertIn("receiver", out["error"])
+        self.assertFalse(self.mounted())
+        self.assertFalse(os.path.exists(os.path.join(self.state, "store", "upper")))
+        self.assertFalse(any(c.startswith(("mount ", "closeByAppId")) for c in self.calls()), "nothing was changed, so nothing is closed")
+
+    def test_a_failed_build_stops_the_receiver_it_started(self):
+        bad = os.path.join(self.d, "bad-build.py")
+        with open(bad, "w") as f:
+            f.write('import sys\nif sys.argv[1] == "parts":\n    print("probe")\n    sys.exit(0)\nprint(\'{"ok": false}\')\nsys.exit(1)\n')
+        rc, out = self.run_tool("probe", env={"STORE_BUILD_TOOL": bad})
+        self.assertEqual(rc, 1)
+        self.assertFalse(os.path.exists(self.pidfile), "no receiver is left running for a page that will never post")
+        self.assertFalse(self.mounted())
+
+    def test_a_failed_mount_stops_the_receiver_and_leaves_lgs_store_in_place(self):
+        open(os.path.join(self.fake, "mount-fails"), "w").close()
+        rc, out = self.run_tool("probe")
+        self.assertEqual(rc, 1)
+        self.assertFalse(os.path.exists(self.pidfile))
+        self.assertFalse(self.mounted())
+
+    def test_an_unknown_part_is_refused_before_anything_starts(self):
+        rc, out = self.run_tool("probe", "sparkle")
+        self.assertEqual(rc, 1)
+        self.assertIn("sparkle", out["error"])
+        self.assertFalse(os.path.exists(self.pidfile))
+
+
 FAKE_STORE_TOOL = """#!/bin/sh
 echo "$*" >> "$FAKE/tool-calls"
 case "$1" in
@@ -290,6 +484,9 @@ case "$1" in
       [ -e "$FAKE/silent" ] && exit 0
       p="${2:-look,motion}"; [ -n "$p" ] || p=look,motion
       echo '{"ok":true,"store":"on","dir":"/x","parts":"'$p'","closed":false,"build":{"parts": ["look"], "ok": true}}' ;;
+  probe) if [ -e "$FAKE/on-fails" ]; then echo '{"ok":false,"error":"could not start the probe'"'"'s receiver; LG'"'"'s store is in place"}'; exit 1; fi
+         [ -e "$FAKE/silent" ] && exit 0
+         echo '{"ok":true,"store":"probe","dir":"/x","parts":"'"${2:+$2,}probe"'","closed":false,"probe":{"running":true,"port":18742,"files":0,"dir":"/s"}}' ;;
   off) if [ -e "$FAKE/off-fails" ]; then echo '{"ok":false,"error":"could not unmount the overlay"}'; exit 1; fi
        echo '{"ok":true,"store":"off","wasMounted":true,"closed":false}' ;;
   status) [ -e "$FAKE/silent" ] && exit 0
@@ -390,10 +587,33 @@ class Verb(unittest.TestCase):
             self.assertIn("another apply or revert", json.loads(out)["error"])
         self.assertEqual(self.calls(), [])
 
+    def test_probe_asks_the_tool_and_never_writes_the_flag(self):
+        rc, out = self.run_verb("probe", "")
+        self.assertEqual((rc, json.loads(out)["store"], json.loads(out)["parts"]), (0, "probe", "probe"))
+        rc, out = self.run_verb("probe", "look")
+        self.assertEqual(json.loads(out)["parts"], "look,probe")
+        self.assertFalse(os.path.exists(self.flag), "a reboot returns to what the flag says: LG's store unless `store on` was run")
+        self.assertEqual(self.calls(), ["probe", "probe look"])
+
+    def test_probe_leaves_the_flag_of_a_store_that_is_on_as_it_was(self):
+        self.run_verb("on", "look")
+        self.run_verb("probe", "")
+        with open(self.flag) as f:
+            self.assertEqual(f.read().strip(), "look")
+
+    def test_a_refused_probe_passes_the_tools_reason_on_and_takes_the_lock_like_on(self):
+        open(os.path.join(self.d, "on-fails"), "w").close()
+        rc, out = self.run_verb("probe", "")
+        self.assertEqual(rc, 1)
+        self.assertIn("LG's store is in place", json.loads(out)["error"])
+        rc, out = self.run_verb("probe", "", lock=False)
+        self.assertIn("another apply or revert", json.loads(out)["error"])
+
     def test_usage(self):
         rc, out = self.run_verb("sideways")
         self.assertEqual(rc, 1)
         self.assertIn("usage", json.loads(out)["error"])
+        self.assertIn("probe", json.loads(out)["error"])
 
     def test_the_store_is_part_of_apply_and_revert_and_off_by_default(self):
         with open(TOOL) as f:

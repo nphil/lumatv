@@ -1,9 +1,0 @@
-/* Added to store.css for the light material only (tools/store_theme.py).
- *
- * LG draws its words white. On the dark canvas that is already ink, and the colours the page gives its own words (a price, a rating,
- * a notice) are left as the page made them; on the light canvas every white word would vanish, so here the ink is put on all of them.
- * Zero specificity, so every rule of store.css after it wins without a fight; the page's own `!important` is the only thing that beats it.
- */
-:where(body, body *) {
-  color: var(--lu-ink) !important;
-}

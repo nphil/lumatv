@@ -1,285 +1,1578 @@
 {
  "ok": true,
+ "failing": [],
  "results": [
   {
    "page": "home",
-   "material": "dark",
+   "dialect": "pseudo",
    "scale": 1,
-   "texts": 21,
-   "overlaps": [],
+   "words": 22,
    "lowContrast": [],
-   "ring": {
-    "width": 3,
-    "vsCanvas": 3.79,
-    "vsFill": 3.42
+   "worseThanLG": [],
+   "overlaps": [],
+   "minContrast": 4.56627879697509,
+   "plate": {
+    "count": 1,
+    "words": 3,
+    "kinds": [
+     "pb"
+    ],
+    "ms": 2
    },
-   "minContrast": 6.856937068743573
+   "ring": {
+    "vsPage": 4.77,
+    "vsPlate": 3.3,
+    "plateColour": [
+     44,
+     38,
+     58
+    ]
+   },
+   "fonts": {
+    "title": [
+     "Manrope ExtraLight"
+    ],
+    "tab": [
+     "Manrope ExtraLight"
+    ],
+    "name": [
+     "Manrope ExtraLight"
+    ]
+   },
+   "errors": [],
+   "iconTilesKept": true,
+   "minWord": {
+    "tag": "span",
+    "size": 22,
+    "bg": [
+     116,
+     100,
+     220
+    ],
+    "fg": [
+     255,
+     255,
+     255
+    ]
+   },
+   "fade": {
+    "themed": 0.05,
+    "lg": 0.79
+   }
   },
   {
    "page": "home",
-   "material": "dark",
+   "dialect": "pseudo",
    "scale": 2,
-   "texts": 13,
-   "overlaps": [],
+   "words": 21,
    "lowContrast": [],
-   "ring": {
-    "width": 3,
-    "vsCanvas": 3.79,
-    "vsFill": 3.42
+   "worseThanLG": [],
+   "overlaps": [],
+   "minContrast": 4.56627879697509,
+   "plate": {
+    "count": 1,
+    "words": 3,
+    "kinds": [
+     "pb"
+    ],
+    "ms": 2
    },
-   "minContrast": 7.321733884652846
+   "ring": {
+    "vsPage": 4.77,
+    "vsPlate": 3.3,
+    "plateColour": [
+     44,
+     38,
+     58
+    ]
+   },
+   "fonts": {
+    "title": [
+     "Manrope ExtraLight"
+    ],
+    "tab": [
+     "Manrope ExtraLight"
+    ],
+    "name": [
+     "Manrope ExtraLight"
+    ]
+   },
+   "errors": [],
+   "iconTilesKept": true,
+   "minWord": {
+    "tag": "span",
+    "size": 22,
+    "bg": [
+     116,
+     100,
+     220
+    ],
+    "fg": [
+     255,
+     255,
+     255
+    ]
+   },
+   "fade": {
+    "themed": 0.08,
+    "lg": 0.84
+   }
+  },
+  {
+   "page": "category",
+   "dialect": "pseudo",
+   "scale": 1,
+   "words": 32,
+   "lowContrast": [],
+   "worseThanLG": [],
+   "overlaps": [],
+   "minContrast": 4.56627879697509,
+   "plate": {
+    "count": 1,
+    "words": 3,
+    "kinds": [
+     "pb"
+    ],
+    "ms": 2
+   },
+   "ring": {
+    "vsPage": 4.77,
+    "vsPlate": 3.3,
+    "plateColour": [
+     44,
+     38,
+     58
+    ]
+   },
+   "fonts": {
+    "title": [
+     "Manrope ExtraLight"
+    ],
+    "tab": [
+     "Manrope ExtraLight"
+    ],
+    "name": [
+     "Manrope ExtraLight"
+    ]
+   },
+   "errors": [],
+   "iconTilesKept": true,
+   "minWord": {
+    "tag": "span",
+    "size": 22,
+    "bg": [
+     116,
+     100,
+     220
+    ],
+    "fg": [
+     255,
+     255,
+     255
+    ]
+   }
+  },
+  {
+   "page": "category",
+   "dialect": "pseudo",
+   "scale": 2,
+   "words": 24,
+   "lowContrast": [],
+   "worseThanLG": [],
+   "overlaps": [],
+   "minContrast": 4.56627879697509,
+   "plate": {
+    "count": 1,
+    "words": 3,
+    "kinds": [
+     "pb"
+    ],
+    "ms": 1
+   },
+   "ring": {
+    "vsPage": 4.77,
+    "vsPlate": 3.3,
+    "plateColour": [
+     44,
+     38,
+     58
+    ]
+   },
+   "fonts": {
+    "title": [
+     "Manrope ExtraLight"
+    ],
+    "tab": [
+     "Manrope ExtraLight"
+    ],
+    "name": [
+     "Manrope ExtraLight"
+    ]
+   },
+   "errors": [],
+   "iconTilesKept": true,
+   "minWord": {
+    "tag": "span",
+    "size": 22,
+    "bg": [
+     116,
+     100,
+     220
+    ],
+    "fg": [
+     255,
+     255,
+     255
+    ]
+   }
+  },
+  {
+   "page": "detail",
+   "dialect": "pseudo",
+   "scale": 1,
+   "words": 15,
+   "lowContrast": [],
+   "worseThanLG": [],
+   "overlaps": [],
+   "minContrast": 3.3883203289441814,
+   "plate": {
+    "count": 1,
+    "words": 1,
+    "kinds": [
+     "pb"
+    ],
+    "ms": 1
+   },
+   "ring": {
+    "vsPage": 4.77,
+    "vsPlate": 3.3,
+    "plateColour": [
+     44,
+     38,
+     58
+    ]
+   },
+   "fonts": {
+    "title": [
+     "Manrope ExtraLight"
+    ]
+   },
+   "errors": [],
+   "iconTilesKept": true,
+   "minWord": {
+    "tag": "span",
+    "size": 28,
+    "bg": [
+     124,
+     132,
+     140
+    ],
+    "fg": [
+     242,
+     242,
+     242
+    ]
+   }
+  },
+  {
+   "page": "detail",
+   "dialect": "pseudo",
+   "scale": 2,
+   "words": 14,
+   "lowContrast": [],
+   "worseThanLG": [],
+   "overlaps": [],
+   "minContrast": 4.56627879697509,
+   "plate": {
+    "count": 1,
+    "words": 1,
+    "kinds": [
+     "pb"
+    ],
+    "ms": 2
+   },
+   "ring": {
+    "vsPage": 4.77,
+    "vsPlate": 3.3,
+    "plateColour": [
+     44,
+     38,
+     58
+    ]
+   },
+   "fonts": {
+    "title": [
+     "Manrope ExtraLight"
+    ]
+   },
+   "errors": [],
+   "iconTilesKept": true,
+   "minWord": {
+    "tag": "span",
+    "size": 22,
+    "bg": [
+     116,
+     100,
+     220
+    ],
+    "fg": [
+     255,
+     255,
+     255
+    ]
+   }
+  },
+  {
+   "page": "search",
+   "dialect": "pseudo",
+   "scale": 1,
+   "words": 15,
+   "lowContrast": [],
+   "worseThanLG": [],
+   "overlaps": [],
+   "minContrast": 4.56627879697509,
+   "plate": {
+    "count": 1,
+    "words": 2,
+    "kinds": [
+     "pb"
+    ],
+    "ms": 1
+   },
+   "ring": {
+    "vsPage": 4.77,
+    "vsPlate": 3.3,
+    "plateColour": [
+     44,
+     38,
+     58
+    ]
+   },
+   "fonts": {
+    "title": [
+     "Manrope ExtraLight"
+    ]
+   },
+   "errors": [],
+   "iconTilesKept": true,
+   "minWord": {
+    "tag": "span",
+    "size": 22,
+    "bg": [
+     116,
+     100,
+     220
+    ],
+    "fg": [
+     255,
+     255,
+     255
+    ]
+   }
+  },
+  {
+   "page": "search",
+   "dialect": "pseudo",
+   "scale": 2,
+   "words": 15,
+   "lowContrast": [],
+   "worseThanLG": [],
+   "overlaps": [],
+   "minContrast": 4.56627879697509,
+   "plate": {
+    "count": 1,
+    "words": 2,
+    "kinds": [
+     "pb"
+    ],
+    "ms": 2
+   },
+   "ring": {
+    "vsPage": 4.77,
+    "vsPlate": 3.3,
+    "plateColour": [
+     44,
+     38,
+     58
+    ]
+   },
+   "fonts": {
+    "title": [
+     "Manrope ExtraLight"
+    ]
+   },
+   "errors": [],
+   "iconTilesKept": true,
+   "minWord": {
+    "tag": "span",
+    "size": 22,
+    "bg": [
+     116,
+     100,
+     220
+    ],
+    "fg": [
+     255,
+     255,
+     255
+    ]
+   }
+  },
+  {
+   "page": "popup",
+   "dialect": "pseudo",
+   "scale": 1,
+   "words": 4,
+   "lowContrast": [],
+   "worseThanLG": [],
+   "overlaps": [],
+   "minContrast": 3.3883203289441814,
+   "plate": {
+    "count": 1,
+    "words": 1,
+    "kinds": [
+     "pb"
+    ],
+    "ms": 1
+   },
+   "ring": {
+    "vsPage": 3.97,
+    "vsPlate": 10.62,
+    "plateColour": [
+     44,
+     38,
+     58
+    ]
+   },
+   "fonts": {
+    "title": [
+     "Manrope ExtraLight"
+    ]
+   },
+   "errors": [],
+   "iconTilesKept": true,
+   "minWord": {
+    "tag": "span",
+    "size": 28,
+    "bg": [
+     124,
+     132,
+     140
+    ],
+    "fg": [
+     242,
+     242,
+     242
+    ]
+   }
+  },
+  {
+   "page": "popup",
+   "dialect": "pseudo",
+   "scale": 2,
+   "words": 4,
+   "lowContrast": [],
+   "worseThanLG": [],
+   "overlaps": [],
+   "minContrast": 3.3883203289441814,
+   "plate": {
+    "count": 1,
+    "words": 1,
+    "kinds": [
+     "pb"
+    ],
+    "ms": 1
+   },
+   "ring": {
+    "vsPage": 3.97,
+    "vsPlate": 10.62,
+    "plateColour": [
+     44,
+     38,
+     58
+    ]
+   },
+   "fonts": {
+    "title": [
+     "Manrope ExtraLight"
+    ]
+   },
+   "errors": [],
+   "iconTilesKept": true,
+   "minWord": {
+    "tag": "span",
+    "size": 56,
+    "bg": [
+     124,
+     132,
+     140
+    ],
+    "fg": [
+     242,
+     242,
+     242
+    ]
+   }
   },
   {
    "page": "home",
-   "material": "light",
+   "dialect": "child",
    "scale": 1,
-   "texts": 21,
-   "overlaps": [],
+   "words": 22,
    "lowContrast": [],
-   "ring": {
-    "width": 3,
-    "vsCanvas": 3.43,
-    "vsFill": 3.66
+   "worseThanLG": [],
+   "overlaps": [],
+   "minContrast": 4.56627879697509,
+   "plate": {
+    "count": 1,
+    "words": 3,
+    "kinds": [
+     "ps"
+    ],
+    "ms": 2
    },
-   "minContrast": 5.677067691627886
+   "ring": {
+    "vsPage": 4.77,
+    "vsPlate": 3.3,
+    "plateColour": [
+     44,
+     38,
+     58
+    ]
+   },
+   "fonts": {
+    "title": [
+     "Manrope ExtraLight"
+    ],
+    "tab": [
+     "Manrope ExtraLight"
+    ],
+    "name": [
+     "Manrope ExtraLight"
+    ]
+   },
+   "errors": [],
+   "iconTilesKept": true,
+   "minWord": {
+    "tag": "span",
+    "size": 22,
+    "bg": [
+     116,
+     100,
+     220
+    ],
+    "fg": [
+     255,
+     255,
+     255
+    ]
+   },
+   "fade": {
+    "themed": 0.05,
+    "lg": 0.79
+   }
   },
   {
    "page": "home",
-   "material": "light",
+   "dialect": "child",
    "scale": 2,
-   "texts": 13,
-   "overlaps": [],
+   "words": 21,
    "lowContrast": [],
-   "ring": {
-    "width": 3,
-    "vsCanvas": 3.43,
-    "vsFill": 3.66
-   },
-   "minContrast": 5.677067691627886
-  },
-  {
-   "page": "category",
-   "material": "dark",
-   "scale": 1,
-   "texts": 31,
+   "worseThanLG": [],
    "overlaps": [],
-   "lowContrast": [],
-   "ring": {
-    "width": 3,
-    "vsCanvas": 3.79,
-    "vsFill": 3.42
+   "minContrast": 4.56627879697509,
+   "plate": {
+    "count": 1,
+    "words": 3,
+    "kinds": [
+     "ps"
+    ],
+    "ms": 2
    },
-   "minContrast": 6.856937068743573
-  },
-  {
-   "page": "category",
-   "material": "dark",
-   "scale": 2,
-   "texts": 19,
-   "overlaps": [],
-   "lowContrast": [],
    "ring": {
-    "width": 3,
-    "vsCanvas": 3.79,
-    "vsFill": 3.42
+    "vsPage": 4.77,
+    "vsPlate": 3.3,
+    "plateColour": [
+     44,
+     38,
+     58
+    ]
    },
-   "minContrast": 7.321733884652846
-  },
-  {
-   "page": "category",
-   "material": "light",
-   "scale": 1,
-   "texts": 31,
-   "overlaps": [],
-   "lowContrast": [],
-   "ring": {
-    "width": 3,
-    "vsCanvas": 3.43,
-    "vsFill": 3.66
+   "fonts": {
+    "title": [
+     "Manrope ExtraLight"
+    ],
+    "tab": [
+     "Manrope ExtraLight"
+    ],
+    "name": [
+     "Manrope ExtraLight"
+    ]
    },
-   "minContrast": 5.677067691627886
-  },
-  {
-   "page": "category",
-   "material": "light",
-   "scale": 2,
-   "texts": 19,
-   "overlaps": [],
-   "lowContrast": [],
-   "ring": {
-    "width": 3,
-    "vsCanvas": 3.43,
-    "vsFill": 3.66
+   "errors": [],
+   "iconTilesKept": true,
+   "minWord": {
+    "tag": "span",
+    "size": 22,
+    "bg": [
+     116,
+     100,
+     220
+    ],
+    "fg": [
+     255,
+     255,
+     255
+    ]
    },
-   "minContrast": 5.677067691627886
+   "fade": {
+    "themed": 0.08,
+    "lg": 0.84
+   }
   },
   {
    "page": "detail",
-   "material": "dark",
+   "dialect": "child",
    "scale": 1,
-   "texts": 14,
-   "overlaps": [],
+   "words": 15,
    "lowContrast": [],
-   "ring": {
-    "width": 3,
-    "vsCanvas": 3.79,
-    "vsFill": 3.42
+   "worseThanLG": [],
+   "overlaps": [],
+   "minContrast": 3.3883203289441814,
+   "plate": {
+    "count": 1,
+    "words": 1,
+    "kinds": [
+     "ps"
+    ],
+    "ms": 2
    },
-   "minContrast": 7.321733884652846
+   "ring": {
+    "vsPage": 4.77,
+    "vsPlate": 3.3,
+    "plateColour": [
+     44,
+     38,
+     58
+    ]
+   },
+   "fonts": {
+    "title": [
+     "Manrope ExtraLight"
+    ]
+   },
+   "errors": [],
+   "iconTilesKept": true,
+   "minWord": {
+    "tag": "span",
+    "size": 28,
+    "bg": [
+     124,
+     132,
+     140
+    ],
+    "fg": [
+     242,
+     242,
+     242
+    ]
+   }
   },
   {
    "page": "detail",
-   "material": "dark",
+   "dialect": "child",
    "scale": 2,
-   "texts": 14,
-   "overlaps": [],
+   "words": 14,
    "lowContrast": [],
-   "ring": {
-    "width": 3,
-    "vsCanvas": 3.79,
-    "vsFill": 3.42
+   "worseThanLG": [],
+   "overlaps": [],
+   "minContrast": 4.56627879697509,
+   "plate": {
+    "count": 1,
+    "words": 1,
+    "kinds": [
+     "ps"
+    ],
+    "ms": 1
    },
-   "minContrast": 7.321733884652846
+   "ring": {
+    "vsPage": 4.77,
+    "vsPlate": 3.3,
+    "plateColour": [
+     44,
+     38,
+     58
+    ]
+   },
+   "fonts": {
+    "title": [
+     "Manrope ExtraLight"
+    ]
+   },
+   "errors": [],
+   "iconTilesKept": true,
+   "minWord": {
+    "tag": "span",
+    "size": 22,
+    "bg": [
+     116,
+     100,
+     220
+    ],
+    "fg": [
+     255,
+     255,
+     255
+    ]
+   }
+  },
+  {
+   "page": "home",
+   "dialect": "self",
+   "scale": 1,
+   "words": 22,
+   "lowContrast": [],
+   "worseThanLG": [],
+   "overlaps": [],
+   "minContrast": 4.56627879697509,
+   "plate": {
+    "count": 1,
+    "words": 3,
+    "kinds": [
+     "ps"
+    ],
+    "ms": 2
+   },
+   "ring": {
+    "vsPage": 4.77,
+    "vsPlate": 3.3,
+    "plateColour": [
+     44,
+     38,
+     58
+    ]
+   },
+   "fonts": {
+    "title": [
+     "Manrope ExtraLight"
+    ],
+    "tab": [
+     "Manrope ExtraLight"
+    ],
+    "name": [
+     "Manrope ExtraLight"
+    ]
+   },
+   "errors": [],
+   "iconTilesKept": true,
+   "minWord": {
+    "tag": "span",
+    "size": 22,
+    "bg": [
+     116,
+     100,
+     220
+    ],
+    "fg": [
+     255,
+     255,
+     255
+    ]
+   },
+   "fade": {
+    "themed": 0.05,
+    "lg": 0.06
+   }
+  },
+  {
+   "page": "home",
+   "dialect": "self",
+   "scale": 2,
+   "words": 21,
+   "lowContrast": [],
+   "worseThanLG": [],
+   "overlaps": [],
+   "minContrast": 4.56627879697509,
+   "plate": {
+    "count": 1,
+    "words": 3,
+    "kinds": [
+     "ps"
+    ],
+    "ms": 2
+   },
+   "ring": {
+    "vsPage": 4.77,
+    "vsPlate": 3.3,
+    "plateColour": [
+     44,
+     38,
+     58
+    ]
+   },
+   "fonts": {
+    "title": [
+     "Manrope ExtraLight"
+    ],
+    "tab": [
+     "Manrope ExtraLight"
+    ],
+    "name": [
+     "Manrope ExtraLight"
+    ]
+   },
+   "errors": [],
+   "iconTilesKept": true,
+   "minWord": {
+    "tag": "span",
+    "size": 22,
+    "bg": [
+     116,
+     100,
+     220
+    ],
+    "fg": [
+     255,
+     255,
+     255
+    ]
+   },
+   "fade": {
+    "themed": 0.08,
+    "lg": 0.09
+   }
   },
   {
    "page": "detail",
-   "material": "light",
+   "dialect": "self",
    "scale": 1,
-   "texts": 14,
-   "overlaps": [],
+   "words": 15,
    "lowContrast": [],
-   "ring": {
-    "width": 3,
-    "vsCanvas": 3.43,
-    "vsFill": 3.66
+   "worseThanLG": [],
+   "overlaps": [],
+   "minContrast": 3.3883203289441814,
+   "plate": {
+    "count": 1,
+    "words": 1,
+    "kinds": [
+     "ps"
+    ],
+    "ms": 1
    },
-   "minContrast": 5.677067691627886
+   "ring": {
+    "vsPage": 4.77,
+    "vsPlate": 3.3,
+    "plateColour": [
+     44,
+     38,
+     58
+    ]
+   },
+   "fonts": {
+    "title": [
+     "Manrope ExtraLight"
+    ]
+   },
+   "errors": [],
+   "iconTilesKept": true,
+   "minWord": {
+    "tag": "span",
+    "size": 28,
+    "bg": [
+     124,
+     132,
+     140
+    ],
+    "fg": [
+     242,
+     242,
+     242
+    ]
+   }
   },
   {
    "page": "detail",
-   "material": "light",
+   "dialect": "self",
    "scale": 2,
-   "texts": 14,
-   "overlaps": [],
+   "words": 14,
    "lowContrast": [],
-   "ring": {
-    "width": 3,
-    "vsCanvas": 3.43,
-    "vsFill": 3.66
+   "worseThanLG": [],
+   "overlaps": [],
+   "minContrast": 4.56627879697509,
+   "plate": {
+    "count": 1,
+    "words": 1,
+    "kinds": [
+     "ps"
+    ],
+    "ms": 1
    },
-   "minContrast": 5.677067691627886
+   "ring": {
+    "vsPage": 4.77,
+    "vsPlate": 3.3,
+    "plateColour": [
+     44,
+     38,
+     58
+    ]
+   },
+   "fonts": {
+    "title": [
+     "Manrope ExtraLight"
+    ]
+   },
+   "errors": [],
+   "iconTilesKept": true,
+   "minWord": {
+    "tag": "span",
+    "size": 22,
+    "bg": [
+     116,
+     100,
+     220
+    ],
+    "fg": [
+     255,
+     255,
+     255
+    ]
+   }
   },
   {
-   "page": "search",
-   "material": "dark",
+   "page": "home",
+   "dialect": "tile",
    "scale": 1,
-   "texts": 14,
-   "overlaps": [],
+   "words": 22,
    "lowContrast": [],
-   "ring": {
-    "width": 3,
-    "vsCanvas": 3.79,
-    "vsFill": 3.42
+   "worseThanLG": [],
+   "overlaps": [],
+   "minContrast": 4.56627879697509,
+   "plate": {
+    "count": 1,
+    "words": 3,
+    "kinds": [
+     "ps"
+    ],
+    "ms": 2
    },
-   "minContrast": 6.856937068743573
+   "ring": {
+    "vsPage": 4.77,
+    "vsPlate": 3.3,
+    "plateColour": [
+     44,
+     38,
+     58
+    ]
+   },
+   "fonts": {
+    "title": [
+     "Manrope ExtraLight"
+    ],
+    "tab": [
+     "Manrope ExtraLight"
+    ],
+    "name": [
+     "Manrope ExtraLight"
+    ]
+   },
+   "errors": [],
+   "iconTilesKept": true,
+   "minWord": {
+    "tag": "span",
+    "size": 22,
+    "bg": [
+     116,
+     100,
+     220
+    ],
+    "fg": [
+     255,
+     255,
+     255
+    ]
+   },
+   "fade": {
+    "themed": 0.05,
+    "lg": 0.24
+   }
   },
   {
-   "page": "search",
-   "material": "dark",
+   "page": "home",
+   "dialect": "tile",
    "scale": 2,
-   "texts": 14,
-   "overlaps": [],
+   "words": 21,
    "lowContrast": [],
-   "ring": {
-    "width": 3,
-    "vsCanvas": 3.79,
-    "vsFill": 3.42
+   "worseThanLG": [],
+   "overlaps": [],
+   "minContrast": 4.56627879697509,
+   "plate": {
+    "count": 1,
+    "words": 3,
+    "kinds": [
+     "ps"
+    ],
+    "ms": 2
    },
-   "minContrast": 6.856937068743573
+   "ring": {
+    "vsPage": 4.77,
+    "vsPlate": 3.3,
+    "plateColour": [
+     44,
+     38,
+     58
+    ]
+   },
+   "fonts": {
+    "title": [
+     "Manrope ExtraLight"
+    ],
+    "tab": [
+     "Manrope ExtraLight"
+    ],
+    "name": [
+     "Manrope ExtraLight"
+    ]
+   },
+   "errors": [],
+   "iconTilesKept": true,
+   "minWord": {
+    "tag": "span",
+    "size": 22,
+    "bg": [
+     116,
+     100,
+     220
+    ],
+    "fg": [
+     255,
+     255,
+     255
+    ]
+   },
+   "fade": {
+    "themed": 0.08,
+    "lg": 0.3
+   }
   },
   {
-   "page": "search",
-   "material": "light",
+   "page": "detail",
+   "dialect": "tile",
    "scale": 1,
-   "texts": 14,
-   "overlaps": [],
+   "words": 15,
    "lowContrast": [],
-   "ring": {
-    "width": 3,
-    "vsCanvas": 3.43,
-    "vsFill": 3.66
+   "worseThanLG": [],
+   "overlaps": [],
+   "minContrast": 3.3883203289441814,
+   "plate": {
+    "count": 1,
+    "words": 1,
+    "kinds": [
+     "ps"
+    ],
+    "ms": 1
    },
-   "minContrast": 5.677067691627886
+   "ring": {
+    "vsPage": 4.77,
+    "vsPlate": 3.3,
+    "plateColour": [
+     44,
+     38,
+     58
+    ]
+   },
+   "fonts": {
+    "title": [
+     "Manrope ExtraLight"
+    ]
+   },
+   "errors": [],
+   "iconTilesKept": true,
+   "minWord": {
+    "tag": "span",
+    "size": 28,
+    "bg": [
+     124,
+     132,
+     140
+    ],
+    "fg": [
+     242,
+     242,
+     242
+    ]
+   }
   },
   {
-   "page": "search",
-   "material": "light",
+   "page": "detail",
+   "dialect": "tile",
    "scale": 2,
-   "texts": 14,
-   "overlaps": [],
+   "words": 14,
    "lowContrast": [],
-   "ring": {
-    "width": 3,
-    "vsCanvas": 3.43,
-    "vsFill": 3.66
+   "worseThanLG": [],
+   "overlaps": [],
+   "minContrast": 4.56627879697509,
+   "plate": {
+    "count": 1,
+    "words": 1,
+    "kinds": [
+     "ps"
+    ],
+    "ms": 1
    },
-   "minContrast": 5.677067691627886
+   "ring": {
+    "vsPage": 4.77,
+    "vsPlate": 3.3,
+    "plateColour": [
+     44,
+     38,
+     58
+    ]
+   },
+   "fonts": {
+    "title": [
+     "Manrope ExtraLight"
+    ]
+   },
+   "errors": [],
+   "iconTilesKept": true,
+   "minWord": {
+    "tag": "span",
+    "size": 22,
+    "bg": [
+     116,
+     100,
+     220
+    ],
+    "fg": [
+     255,
+     255,
+     255
+    ]
+   }
   },
   {
-   "page": "popup",
-   "material": "dark",
+   "page": "home",
+   "dialect": "opaque",
    "scale": 1,
-   "texts": 4,
-   "overlaps": [],
+   "words": 22,
    "lowContrast": [],
-   "ring": {
-    "width": 3,
-    "vsCanvas": 3.63,
-    "vsFill": 3.39
+   "worseThanLG": [],
+   "overlaps": [],
+   "minContrast": 4.56627879697509,
+   "plate": {
+    "count": 1,
+    "words": 3,
+    "kinds": [
+     "ps"
+    ],
+    "ms": 2
    },
-   "minContrast": 7.011959362751179
+   "ring": {
+    "vsPage": 4.77,
+    "vsPlate": 3.3,
+    "plateColour": [
+     44,
+     38,
+     58
+    ]
+   },
+   "fonts": {
+    "title": [
+     "Manrope ExtraLight"
+    ],
+    "tab": [
+     "Manrope ExtraLight"
+    ],
+    "name": [
+     "Manrope ExtraLight"
+    ]
+   },
+   "errors": [],
+   "iconTilesKept": true,
+   "minWord": {
+    "tag": "span",
+    "size": 22,
+    "bg": [
+     116,
+     100,
+     220
+    ],
+    "fg": [
+     255,
+     255,
+     255
+    ]
+   },
+   "fade": {
+    "themed": 0.05,
+    "lg": 0.79
+   }
   },
   {
-   "page": "popup",
-   "material": "dark",
+   "page": "home",
+   "dialect": "opaque",
    "scale": 2,
-   "texts": 4,
-   "overlaps": [],
+   "words": 21,
    "lowContrast": [],
-   "ring": {
-    "width": 3,
-    "vsCanvas": 3.63,
-    "vsFill": 3.39
+   "worseThanLG": [],
+   "overlaps": [],
+   "minContrast": 4.56627879697509,
+   "plate": {
+    "count": 1,
+    "words": 3,
+    "kinds": [
+     "ps"
+    ],
+    "ms": 2
    },
-   "minContrast": 7.011959362751179
+   "ring": {
+    "vsPage": 4.77,
+    "vsPlate": 3.3,
+    "plateColour": [
+     44,
+     38,
+     58
+    ]
+   },
+   "fonts": {
+    "title": [
+     "Manrope ExtraLight"
+    ],
+    "tab": [
+     "Manrope ExtraLight"
+    ],
+    "name": [
+     "Manrope ExtraLight"
+    ]
+   },
+   "errors": [],
+   "iconTilesKept": true,
+   "minWord": {
+    "tag": "span",
+    "size": 22,
+    "bg": [
+     116,
+     100,
+     220
+    ],
+    "fg": [
+     255,
+     255,
+     255
+    ]
+   },
+   "fade": {
+    "themed": 0.08,
+    "lg": 0.84
+   }
   },
   {
-   "page": "popup",
-   "material": "light",
+   "page": "detail",
+   "dialect": "opaque",
    "scale": 1,
-   "texts": 4,
-   "overlaps": [],
+   "words": 15,
    "lowContrast": [],
-   "ring": {
-    "width": 3,
-    "vsCanvas": 3.57,
-    "vsFill": 3.67
+   "worseThanLG": [],
+   "overlaps": [],
+   "minContrast": 3.3883203289441814,
+   "plate": {
+    "count": 1,
+    "words": 1,
+    "kinds": [
+     "ps"
+    ],
+    "ms": 1
    },
-   "minContrast": 5.794431319757046
+   "ring": {
+    "vsPage": 4.77,
+    "vsPlate": 3.3,
+    "plateColour": [
+     44,
+     38,
+     58
+    ]
+   },
+   "fonts": {
+    "title": [
+     "Manrope ExtraLight"
+    ]
+   },
+   "errors": [],
+   "iconTilesKept": true,
+   "minWord": {
+    "tag": "span",
+    "size": 28,
+    "bg": [
+     124,
+     132,
+     140
+    ],
+    "fg": [
+     242,
+     242,
+     242
+    ]
+   }
   },
   {
-   "page": "popup",
-   "material": "light",
+   "page": "detail",
+   "dialect": "opaque",
    "scale": 2,
-   "texts": 4,
-   "overlaps": [],
+   "words": 14,
    "lowContrast": [],
-   "ring": {
-    "width": 3,
-    "vsCanvas": 3.57,
-    "vsFill": 3.67
+   "worseThanLG": [],
+   "overlaps": [],
+   "minContrast": 4.56627879697509,
+   "plate": {
+    "count": 1,
+    "words": 1,
+    "kinds": [
+     "ps"
+    ],
+    "ms": 2
    },
-   "minContrast": 5.794431319757046
+   "ring": {
+    "vsPage": 4.77,
+    "vsPlate": 3.3,
+    "plateColour": [
+     44,
+     38,
+     58
+    ]
+   },
+   "fonts": {
+    "title": [
+     "Manrope ExtraLight"
+    ]
+   },
+   "errors": [],
+   "iconTilesKept": true,
+   "minWord": {
+    "tag": "span",
+    "size": 22,
+    "bg": [
+     116,
+     100,
+     220
+    ],
+    "fg": [
+     255,
+     255,
+     255
+    ]
+   }
+  },
+  {
+   "page": "home",
+   "dialect": "late",
+   "scale": 1,
+   "words": 22,
+   "lowContrast": [],
+   "worseThanLG": [],
+   "overlaps": [],
+   "minContrast": 4.56627879697509,
+   "plate": {
+    "count": 1,
+    "words": 3,
+    "kinds": [
+     "ps"
+    ],
+    "ms": 3
+   },
+   "ring": {
+    "vsPage": 4.77,
+    "vsPlate": 3.3,
+    "plateColour": [
+     44,
+     38,
+     58
+    ]
+   },
+   "fonts": {
+    "title": [
+     "Manrope ExtraLight"
+    ],
+    "tab": [
+     "Manrope ExtraLight"
+    ],
+    "name": [
+     "Manrope ExtraLight"
+    ]
+   },
+   "errors": [],
+   "iconTilesKept": true,
+   "minWord": {
+    "tag": "span",
+    "size": 22,
+    "bg": [
+     116,
+     100,
+     220
+    ],
+    "fg": [
+     255,
+     255,
+     255
+    ]
+   },
+   "fade": {
+    "themed": 0.05,
+    "lg": 0.79
+   }
+  },
+  {
+   "page": "home",
+   "dialect": "late",
+   "scale": 2,
+   "words": 21,
+   "lowContrast": [],
+   "worseThanLG": [],
+   "overlaps": [],
+   "minContrast": 4.56627879697509,
+   "plate": {
+    "count": 1,
+    "words": 3,
+    "kinds": [
+     "ps"
+    ],
+    "ms": 3
+   },
+   "ring": {
+    "vsPage": 4.77,
+    "vsPlate": 3.3,
+    "plateColour": [
+     44,
+     38,
+     58
+    ]
+   },
+   "fonts": {
+    "title": [
+     "Manrope ExtraLight"
+    ],
+    "tab": [
+     "Manrope ExtraLight"
+    ],
+    "name": [
+     "Manrope ExtraLight"
+    ]
+   },
+   "errors": [],
+   "iconTilesKept": true,
+   "minWord": {
+    "tag": "span",
+    "size": 22,
+    "bg": [
+     116,
+     100,
+     220
+    ],
+    "fg": [
+     255,
+     255,
+     255
+    ]
+   },
+   "fade": {
+    "themed": 0.08,
+    "lg": 0.84
+   }
+  },
+  {
+   "page": "detail",
+   "dialect": "late",
+   "scale": 1,
+   "words": 15,
+   "lowContrast": [],
+   "worseThanLG": [],
+   "overlaps": [],
+   "minContrast": 3.3883203289441814,
+   "plate": {
+    "count": 1,
+    "words": 1,
+    "kinds": [
+     "ps"
+    ],
+    "ms": 3
+   },
+   "ring": {
+    "vsPage": 4.77,
+    "vsPlate": 3.3,
+    "plateColour": [
+     44,
+     38,
+     58
+    ]
+   },
+   "fonts": {
+    "title": [
+     "Manrope ExtraLight"
+    ]
+   },
+   "errors": [],
+   "iconTilesKept": true,
+   "minWord": {
+    "tag": "span",
+    "size": 28,
+    "bg": [
+     124,
+     132,
+     140
+    ],
+    "fg": [
+     242,
+     242,
+     242
+    ]
+   }
+  },
+  {
+   "page": "detail",
+   "dialect": "late",
+   "scale": 2,
+   "words": 14,
+   "lowContrast": [],
+   "worseThanLG": [],
+   "overlaps": [],
+   "minContrast": 4.56627879697509,
+   "plate": {
+    "count": 1,
+    "words": 1,
+    "kinds": [
+     "ps"
+    ],
+    "ms": 3
+   },
+   "ring": {
+    "vsPage": 4.77,
+    "vsPlate": 3.3,
+    "plateColour": [
+     44,
+     38,
+     58
+    ]
+   },
+   "fonts": {
+    "title": [
+     "Manrope ExtraLight"
+    ]
+   },
+   "errors": [],
+   "iconTilesKept": true,
+   "minWord": {
+    "tag": "span",
+    "size": 22,
+    "bg": [
+     116,
+     100,
+     220
+    ],
+    "fg": [
+     255,
+     255,
+     255
+    ]
+   }
   }
  ]
 }

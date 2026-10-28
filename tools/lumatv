@@ -34,10 +34,11 @@
 #   log [n]                -> last n log lines (default 20)
 #   systemui on|off|status -> Quick Settings from our staged QML tree, or stock
 #   webglass on|off|status -> glass stylesheet in the settings web apps
-#   store on [parts]|off|status -> LG's Content Store (com.webos.app.discovery) in the Lucent look: WAM's user script for the app, laid into
-#                            its directory (the firmware's read-only /mnt/otncabi) by an overlay mount (tools/store.sh); parts are look,
-#                            motion (the default) and lazy; off by default, `off` puts LG's store back exactly, re-mounted by apply at every
-#                            boot while on
+#   store on [parts]|off|status|probe [parts] -> LG's Content Store (com.webos.app.discovery) in the Lucent look: WAM's user script for the app,
+#                            laid into its directory (the firmware's read-only /mnt/otncabi) by an overlay mount (tools/store.sh); parts are
+#                            look, motion (the default), canvas and lazy; off by default, `off` puts LG's store back exactly, re-mounted by apply
+#                            at every boot while on. `probe` mounts LG's page (or the parts given) with the probe part and starts the receiver
+#                            it posts its structure to (tools/store_probe.py); never persisted, `off` or a reboot ends it
 #   inputcommon on|off|status -> LG's input banners (com.webos.app.inputcommon) in the Lucent look: a patched copy of its QML
 #                            mounted over LG's (tools/inputcommon.sh); off by default, re-mounted by apply at every boot while on
 #   voice on|off|status    -> LG's Search app (com.webos.app.voice) in the Lucent look: a patched copy of its QML mounted over
@@ -1189,8 +1190,9 @@ store_mounted() {
 }
 
 store_set() {
-  # $1 = on|off, $2 = the parts (on only). tools/store.sh builds the script, mounts it and ends the store's instance (or the reverse)
-  # and prints one JSON object, kept in $st_out. It leaves what is in force alone when it cannot build or mount.
+  # $1 = on|off|probe, $2 = the parts (on and probe). tools/store.sh builds the script, mounts it and ends the store's instance (or the
+  # reverse; probe also starts the receiver the page posts to) and prints one JSON object, kept in $st_out. It leaves what is in force
+  # alone when it cannot build or mount.
   st_out=$(sh "$STORE_TOOL" "$1" "${2:-}" < /dev/null 2>>"$LOGFILE"); st_rc=$?
   log_line "store $1: $(printf '%s' "$st_out" | cut -c1-200)"
   [ "$st_rc" -eq 0 ] && printf '%s' "$st_out" | grep -q '"ok":true'
@@ -1230,7 +1232,17 @@ verb_store() {
         '{"ok":true,'*) st_rest=${st_out#'{"ok":true,'}; printf '{"ok":true,"on":%s,%s\n' "$st_now" "$st_rest" ;;
         *) emit_error "tools/store.sh did not answer"; return 1 ;;
       esac ;;
-    *) emit_error "usage: store on [parts]|off|status"; return 1 ;;
+    probe)
+      # The page's structure to a receiver on the set, for the next round's selectors. Never written to the flag: a boot returns to what
+      # the flag says, which is LG's store unless `store on` was run.
+      take_mutation_lock || { emit_error "another apply or revert is still running"; return 1; }
+      if store_set probe "${2:-}"; then
+        printf '%s\n' "$st_out"
+      else
+        case "$st_out" in '{'*'"ok":false'*) printf '%s\n' "$st_out" ;; *) emit_error "tools/store.sh did not answer" ;; esac
+        return 1
+      fi ;;
+    *) emit_error "usage: store on [parts]|off|status|probe [parts]"; return 1 ;;
   esac
   return 0
 }

@@ -1,14 +1,14 @@
 """Run with: python3 -m unittest tests.test_store_theme
 
-The Content Store theme (tools/store_theme.py, payload/store): what the builder writes, what the stylesheet may contain, what the script
-does in a real browser, and the stand-in pages of docs/mocks/store drawn with the theme on and checked for overlapping text, contrast and
-the focus ring at 100 % and 200 % text in both materials.
+The Content Store theme (tools/store_theme.py, payload/store): what the builder writes and cuts, what the stylesheet may contain, what the
+script does in a real browser (the face behind LG's family names, the plate found by what it computes, the ink on it, the way back when
+the focus leaves, the canvas, the motion), and the stand-in pages of docs/mocks/store drawn with the theme on and audited from their
+pixels for overlapping text, contrast, the ring, the fade-out and the face, in six ways LG's plate might be built.
 
 The browser parts need the system Chromium and playwright-core (the ones docs/mocks/render.mjs uses) and are skipped without them. The
-pages are stand-ins: the store's page is LG's cloud page and is not in the firmware snapshot, so what these prove is the mechanism and the
-sheet's own contributions, and not that every selector meets LG's markup (docs/research/store-result.md, step 0).
+store's markup is LG's cloud page and is not in the firmware snapshot, so the theme names none of it; what these prove is the mechanism
+against every way the plate might be drawn, and the probe (tests/test_store_probe.py) is how the TV round reads the real one.
 """
-import base64
 import json
 import os
 import re
@@ -33,8 +33,12 @@ CHROMIUM = "/usr/bin/chromium"
 BROWSER = os.path.exists(PLAYWRIGHT) and os.path.exists(CHROMIUM)
 
 
-def build(parts="", material="auto", user="/dev/null"):
-    return store_theme.build_script(PAYLOAD, SHIPPED, user, store_theme.parse_parts(parts), material)
+def build(parts="", probe_port=None, user="/dev/null"):
+    return store_theme.build_script(PAYLOAD, SHIPPED, user, store_theme.parse_parts(parts), probe_port)
+
+
+def theme():
+    return tokens.resolve(SHIPPED, "/dev/null")[0]
 
 
 def css_of(text):
@@ -48,6 +52,10 @@ def strip_comments(css):
     return re.sub(r"/\*.*?\*/", "", css, flags=re.S)
 
 
+def rgb(c):
+    return "rgb(%d, %d, %d)" % tuple(c[:3])
+
+
 class Parts(unittest.TestCase):
     def test_the_default_is_look_and_motion(self):
         self.assertEqual(store_theme.parse_parts(""), ("look", "motion"))
@@ -55,20 +63,33 @@ class Parts(unittest.TestCase):
 
     def test_parts_come_back_in_canonical_order_commas_or_spaces(self):
         self.assertEqual(store_theme.parse_parts("lazy, look"), ("look", "lazy"))
-        self.assertEqual(store_theme.parse_parts("motion look lazy"), ("look", "motion", "lazy"))
+        self.assertEqual(store_theme.parse_parts("motion look lazy canvas"), ("look", "canvas", "motion", "lazy"))
+        self.assertEqual(store_theme.parse_parts("probe"), ("probe",))
 
     def test_an_unknown_part_is_refused(self):
         with self.assertRaises(ValueError):
             store_theme.parse_parts("look,sparkle")
 
-    def test_lazy_pictures_are_never_on_by_default(self):
-        self.assertNotIn("lazy", store_theme.DEFAULT_PARTS)
+    def test_the_opt_in_parts_are_never_on_by_default(self):
+        for part in ("lazy", "canvas", "probe"):
+            self.assertNotIn(part, store_theme.DEFAULT_PARTS)
+
+    def test_cut_keeps_a_block_for_any_part_it_names_and_drops_the_rest(self):
+        text = "a\n//@@part x y\nxy\n//@@end\nb\n/*@@part z*/\nz\n/*@@end*/\nc"
+        self.assertEqual(store_theme.cut(text, ("x",)), "a\nxy\nb\nc")
+        self.assertEqual(store_theme.cut(text, ("y", "z")), "a\nxy\nb\nz\nc")
+        self.assertEqual(store_theme.cut(text, ()), "a\nb\nc")
+
+    def test_cut_refuses_blocks_that_do_not_close_or_nest(self):
+        for bad in ("//@@part x\na", "//@@end\na", "//@@part x\n//@@part y\n//@@end\n//@@end"):
+            with self.assertRaises(ValueError, msg=bad):
+                store_theme.cut(bad, ("x",))
 
 
 class Build(unittest.TestCase):
     def test_the_markers_are_filled_and_the_script_parses(self):
         text, options = build()
-        for marker in (store_theme.OPTIONS_MARKER, store_theme.CSS_MARKER):
+        for marker in (store_theme.OPTIONS_MARKER, store_theme.CSS_MARKER, store_theme.FONT_MARKER):
             self.assertNotIn(marker, text)
         self.assertNotIn("@@", text)
         self.assertEqual(options["parts"], ["look", "motion"])
@@ -81,76 +102,133 @@ class Build(unittest.TestCase):
         finally:
             os.unlink(f.name)
 
-    def test_the_font_is_data_and_the_four_static_faces_are_gone(self):
-        css = css_of(build()[0])
-        self.assertNotIn('url("Manrope-', css)
-        m = re.search(r"url\(data:font/woff2;base64,([A-Za-z0-9+/=]+)\)", css)
-        self.assertTrue(m)
-        data = base64.b64decode(m.group(1))
+    def test_every_combination_of_parts_parses(self):
+        import itertools
+        names = [p for p in store_theme.PARTS if p != "probe"]
+        for n in range(1, len(names) + 1):
+            for combo in itertools.combinations(names, n):
+                text, _ = build(",".join(combo))
+                with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
+                    f.write(text)
+                try:
+                    r = subprocess.run(["node", "--check", f.name], capture_output=True, text=True)
+                    self.assertEqual(r.returncode, 0, "%s: %s" % (combo, r.stderr))
+                finally:
+                    os.unlink(f.name)
+        text, _ = build("probe", 18742)
+        self.assertIn("lumatv-probe", text)
+
+    def test_the_default_script_stays_small(self):
+        # TV round 11: the first version's 76 KB script, with 45 substring selectors, put the page's cold open at +9.3 %. The sheet is
+        # a few KB now and the face 21 KB; the budget is for the script the page reads at every load.
+        text, _ = build()
+        self.assertLess(len(text.encode("utf-8")), 56 * 1024)
+        motion, _ = build("motion")
+        self.assertLess(len(motion.encode("utf-8")), 8 * 1024, "the motion part alone is the cap and nothing else")
+
+    def test_the_face_is_one_latin_variable_font_carried_once(self):
+        import base64
+        path = os.path.join(PAYLOAD, "Manrope-store.woff2")
+        with open(path, "rb") as f:
+            data = f.read()
         self.assertEqual(data[:4], b"wOF2")
-        self.assertLess(len(data), 64 * 1024, "the face rides in the script on every page the store loads")
-        self.assertEqual(css.count("@font-face"), 1)
+        self.assertLess(len(data), 24 * 1024, "the face rides in the script on every page the store loads (the first version's was 39 KB)")
+        text, _ = build()
+        self.assertEqual(text.count(base64.b64encode(data[:60]).decode().rstrip("=")), 1)
 
-    def test_the_ink_is_put_on_every_word_of_the_page_in_the_light_material_only(self):
-        dark, light = css_of(build(material="dark")[0]), css_of(build(material="light")[0])
-        self.assertNotIn(":where(body, body *)", dark, "the dark canvas keeps the colours the page gave its own words")
-        self.assertIn(":where(body, body *)", light)
-
-    def test_the_light_material_is_chosen_by_the_build_not_by_an_attribute(self):
-        dark, light = css_of(build(material="dark")[0]), css_of(build(material="light")[0])
-        self.assertNotIn('[data-theme="light"]', light)
-        self.assertGreater(light.count(":root {"), dark.count(":root {"))
-        self.assertIn("color-scheme: light;", light)
-        # the dark blocks stay in front: the light ones come after and win where both name a property
-        self.assertLess(light.index("color-scheme: dark;"), light.index("color-scheme: light;"))
-
-    def test_the_material_follows_the_theme_then_what_home_decided_then_dark(self):
-        with tempfile.TemporaryDirectory() as d:
-            user = os.path.join(d, "theme.json")
-            with open(user, "w") as f:
-                json.dump({"material": "auto"}, f)
-            self.assertEqual(build(user=user)[1]["material"], "dark")
-            with open(os.path.join(d, "tint.json"), "w") as f:
-                json.dump({"light": True, "luma": 0.8}, f)
-            self.assertEqual(build(user=user)[1]["material"], "light")
-            with open(user, "w") as f:
-                json.dump({"material": "dark"}, f)
-            self.assertEqual(build(user=user)[1]["material"], "dark")
-            self.assertEqual(build(material="light", user=user)[1]["material"], "light")
+    def test_the_face_has_latin_and_not_the_scripts_the_page_falls_back_for(self):
+        try:
+            from fontTools.ttLib import TTFont
+            import brotli  # noqa: F401
+        except ImportError:
+            self.skipTest("fontTools and brotli read a woff2 file")
+        font = TTFont(os.path.join(PAYLOAD, "Manrope-store.woff2"))
+        cmap = font.getBestCmap()
+        for ch in "AZaz09 .,:;!?&()-_/'\"%+=@#$\u00e9\u00fc\u00f1\u00df\u2013\u2014\u2019\u20ac\u2122":
+            self.assertIn(ord(ch), cmap, ch)
+        for ch in "\u65e5\u0416\u0627\u05d0":
+            self.assertNotIn(ord(ch), cmap, ch)
+        axes = {a.axisTag: (a.minValue, a.maxValue) for a in font["fvar"].axes}
+        self.assertEqual(axes["wght"], (300.0, 700.0))
 
     def test_without_look_nothing_is_painted_and_no_face_is_carried(self):
         text, options = build("motion")
         self.assertEqual(css_of(text), "")
-        self.assertEqual(options["parts"], ["motion"])
-        self.assertLess(len(text), 8000)
+        self.assertIn('var FONT = "";', text)
+        self.assertNotIn("function plateOf", text, "no focus layer without the look part")
+        self.assertNotIn("data-lu-ps", text)
 
-    def test_lazy_is_in_the_script_only_when_named(self):
-        self.assertNotIn("lazy", build()[1]["parts"])
-        self.assertIn("lazy", build("look,lazy")[1]["parts"])
+    def test_the_parts_are_cut_out_of_the_script_they_are_not_in(self):
+        look, motion, canvas, lazy = build("look")[0], build("motion")[0], build("look,canvas")[0], build("look,lazy")[0]
+        self.assertIn("function plateOf", look)
+        self.assertNotIn("transitionrun\", function (e) {\n            var d", look)
+        self.assertNotIn("Element.prototype.animate", look)
+        self.assertIn("Element.prototype.animate", motion)
+        self.assertNotIn("data-lu-bare", look)
+        self.assertIn("data-lu-bare", canvas)
+        self.assertNotIn("loading", look.replace("loading=", ""))
+        self.assertIn('"lazy"', lazy)
+        for text in (look, motion, canvas, lazy, build()[0]):
+            self.assertNotIn("lumatv-probe", text, "the probe is in a build only when it is asked for")
 
-    def test_the_focus_ring_keeps_lucents_three_to_one_in_both_materials(self):
-        theme, _menu, accent, _ink = tokens.resolve(SHIPPED, "/dev/null")
-        for scheme in ("dark", "light"):
-            m = theme[scheme]
-            ink, canvas, raised = tokens.parse(m["ink"])[:3], tokens.parse(m["canvas"])[:3], tokens.parse(m["glassFocus"])
-            a = store_theme.ring_alpha(ink, canvas, raised)
-            fill = store_theme.composite(raised[:3], raised[3], canvas)
-            ring = store_theme.composite(ink, a, fill)
-            self.assertGreaterEqual(tokens.contrast(ring, canvas), 3.0, scheme)
-            self.assertGreaterEqual(tokens.contrast(ring, fill), 3.0, scheme)
-            self.assertLess(a, 0.8, "a ring that is not nearly the full ink is a ring and not a pill")
+    def test_the_probe_needs_the_receivers_port_and_has_it_in_the_script(self):
+        with self.assertRaises(ValueError):
+            build("probe")
+        text, options = build("look,probe", 31337)
+        self.assertEqual(options["probe"], {"url": "http://127.0.0.1:31337/p", "max": store_theme.PROBE_MAX})
+        self.assertIn("http://127.0.0.1:31337/p", text)
 
-    def test_the_popup_sheet_is_opaque(self):
-        css = css_of(build()[0])
-        for scheme_block in re.findall(r"--st-sheet-solid: (#[0-9A-Fa-f]{6});", css):
-            self.assertEqual(len(scheme_block), 7)
-        self.assertEqual(len(re.findall(r"--st-sheet-solid:", css)), 2)
+    def test_the_script_names_no_class_of_the_page(self):
+        # TV round 11: the first version's forty-five selectors on Sandstone's class names missed LG's focus markup. The script and the
+        # sheet match nothing by class, so a markup that is not what was assumed leaves LG's colours, never light words on a light plate.
+        for name in ("userScript.js", "store.css"):
+            with open(os.path.join(PAYLOAD, name), encoding="utf-8") as f:
+                body = f.read()
+            code = strip_comments(body) if name.endswith(".css") else re.sub(r"//[^\n]*|/\*.*?\*/", "", body, flags=re.S)
+            for banned in ("ImageItem", "TabGroup", "Header_", "Button_", "[class*", "[class^", "[class$", "querySelector(\".", "querySelectorAll(\"."):
+                self.assertNotIn(banned, code, "%s names the page's markup: %s" % (name, banned))
+
+    def test_the_tokens_hold_the_contrast_floors_on_the_glass(self):
+        t = theme()
+        dark = t["dark"]
+        ink, plate = tokens.parse(dark["ink"])[:3], tokens.parse(dark["glassFocus"])[:3]
+        for alpha in store_theme.INK_TIERS:
+            text = store_theme.composite(ink, alpha, plate)
+            self.assertGreaterEqual(tokens.contrast(text, plate), 4.5, "ink at %.2f on the plate" % alpha)
+        css = build()[0]
+        sheet = css_of(css)
+        self.assertIn("--st-plate: %s;" % tokens.hexrgb(*plate), sheet)
+        ring = re.search(r"--st-ring: rgba\((\d+), (\d+), (\d+), ([\d.]+)\)", sheet)
+        self.assertTrue(ring)
+        ring_c = store_theme.composite(tuple(int(ring.group(i)) for i in (1, 2, 3)), float(ring.group(4)), plate)
+        self.assertGreaterEqual(tokens.contrast(ring_c, (0, 0, 0)), 3.0)
+        self.assertGreaterEqual(tokens.contrast(ring_c, plate), 3.0)
+        out = re.search(r"--st-ring-out: rgba\((\d+), (\d+), (\d+), ([\d.]+)\)", sheet)
+        self.assertGreaterEqual(tokens.contrast(store_theme.composite(tuple(int(out.group(i)) for i in (1, 2, 3)), float(out.group(4)), (0, 0, 0)), (0, 0, 0)), 3.0)
+
+    def test_a_palette_that_would_break_a_floor_is_an_error(self):
+        t = theme()
+        t["dark"]["ink"] = "#6a6a78"
+        with self.assertRaises(ValueError):
+            store_theme.tokens_css(t, ("look",))
+
+    def test_the_options_carry_the_families_the_cap_and_the_plate_threshold(self):
+        _, options = build()
+        families = dict((n, w) for n, w in options["faces"])
+        self.assertEqual(families["Sandstone"], [300, 400, 600, 700])
+        self.assertEqual(families["MuseoSans"], [100, 300, 400, 500, 700, 900])
+        self.assertIn("LG Smart UI", families)
+        self.assertEqual(options["plateLum"], 0.35)
+        ring = options["ring"]
+        self.assertEqual((ring["floor"], ring["ink"], ring["plate"]), (3.3, list(tokens.parse(theme()["dark"]["ink"])[:3]), list(tokens.parse(theme()["dark"]["glassFocus"])[:3])))
+        self.assertTrue(0.2 <= ring["base"] <= 1.0 and 0.2 <= ring["baseOut"] <= 1.0)
+        self.assertEqual(options["capMs"], theme()["motion"]["cardMs"])
+        self.assertTrue(options["range"].startswith("U+0020-007E"))
 
     def test_a_broken_payload_is_an_error_and_not_a_script(self):
         with tempfile.TemporaryDirectory() as d:
             for name in ("store.css", "Manrope-store.woff2"):
-                with open(os.path.join(PAYLOAD, name), "rb") as src, open(os.path.join(d, name), "wb") as dst:
-                    dst.write(src.read())
+                shutil.copy(os.path.join(PAYLOAD, name), os.path.join(d, name))
             with open(os.path.join(PAYLOAD, "userScript.js")) as f:
                 text = f.read()
             with open(os.path.join(d, "userScript.js"), "w") as f:
@@ -167,6 +245,12 @@ class Build(unittest.TestCase):
             self.assertEqual((info["ok"], info["parts"], info["bytes"]), (True, ["look"], os.path.getsize(out)))
             bad = subprocess.run([sys.executable, TOOL, "build", PAYLOAD, SHIPPED, "/dev/null", out, "--parts", "nope"], capture_output=True, text=True)
             self.assertEqual(bad.returncode, 2)
+            noport = subprocess.run([sys.executable, TOOL, "build", PAYLOAD, SHIPPED, "/dev/null", out, "--parts", "probe"], capture_output=True, text=True)
+            self.assertEqual(noport.returncode, 1)
+            self.assertFalse(json.loads(noport.stdout)["ok"])
+            withport = subprocess.run([sys.executable, TOOL, "build", PAYLOAD, SHIPPED, "/dev/null", out, "--parts", "look,probe", "--probe-port", "4242"], capture_output=True, text=True)
+            self.assertEqual(withport.returncode, 0, withport.stderr)
+            self.assertEqual(json.loads(withport.stdout)["probe"]["url"], "http://127.0.0.1:4242/p")
             self.assertEqual([f for f in os.listdir(d)], ["userScript.js"], "no half-written file stays")
 
     def test_the_tool_prints_the_parts_it_would_use(self):
@@ -174,6 +258,8 @@ class Build(unittest.TestCase):
         self.assertEqual((r.returncode, r.stdout.strip()), (0, "look,motion"))
         r = subprocess.run([sys.executable, TOOL, "parts", "x"], capture_output=True, text=True)
         self.assertEqual(r.returncode, 2)
+        r = subprocess.run([sys.executable, TOOL, "parts", "probe look"], capture_output=True, text=True)
+        self.assertEqual(r.stdout.strip(), "look,probe")
 
 
 def shell_function(path, name):
@@ -226,7 +312,8 @@ class Packaged(unittest.TestCase):
 
     def test_the_check_is_live_a_placeholder_the_brand_does_not_have_fails_it(self):
         # the old markers of userScript.js, and a name spelt in a comment: both were found only when the package was built
-        for name, body in (("tools/store_theme.py", "x = '/*{{OPTIONS}}*/ null'\n"), ("payload/store/userScript.js", "// {{name}} placeholders\n")):
+        for name, body in (("tools/store_theme.py", "x = '/*{{OPTIONS}}*/ null'\n"), ("payload/store/userScript.js", "// {{name}} placeholders\n"),
+                           ("tools/store_probe.py", "# {{port}}\n")):
             with tempfile.TemporaryDirectory() as d:
                 self.stage(d)
                 with open(os.path.join(d, name), "a") as f:
@@ -245,87 +332,91 @@ class Packaged(unittest.TestCase):
             with open(os.path.join(d, "payload/store/userScript.js")) as f:
                 self.assertTrue(f.read().rstrip().endswith("// lumatv"))
 
-    def test_every_store_tool_is_one_the_build_copies(self):
+    def test_every_store_file_is_one_the_build_requires_and_copies(self):
         with open(BUILD) as f:
-            build = f.read()
-        tools = [rel for rel in store_files() if rel.startswith("tools/")]
-        self.assertGreaterEqual(len(tools), 3)
-        for rel in tools:
-            self.assertIn(rel, build, "tools/build-ipk.sh does not name " + rel)
+            build_text = f.read()
+        files = store_files()
+        self.assertGreaterEqual(len(files), 6)
+        for rel in files:
+            self.assertIn(rel, build_text, "tools/build-ipk.sh does not name " + rel)
+        # nothing it names is gone from the tree
+        for rel in re.findall(r"^((?:tools/store\S*|payload/store/\S+))$", build_text, flags=re.M):
+            self.assertTrue(os.path.exists(os.path.join(ROOT, rel)), rel)
+        self.assertNotIn("store_dump", build_text)
+        self.assertNotIn("store-light", build_text)
 
 
 class StoreCss(unittest.TestCase):
-    """The rules the sheet keeps: presentation only, nothing hidden, nothing heavy, tokens and not constants."""
+    """The rules the sheet keeps: presentation only, nothing hidden, nothing heavy, tokens and not constants, no class of the page."""
 
     @classmethod
     def setUpClass(cls):
         with open(os.path.join(PAYLOAD, "store.css")) as f:
-            cls.sheet = strip_comments(f.read())
-        with open(os.path.join(PAYLOAD, "store-light.css")) as f:
-            cls.light_sheet = strip_comments(f.read())
+            cls.source = f.read()
+        cls.sheet = strip_comments(cls.source)
+        cls.look = strip_comments(store_theme.cut(cls.source, ("look",)))
+        cls.canvas = strip_comments(store_theme.cut(cls.source, ("canvas",)))
         cls.built = css_of(build()[0])
 
+    @staticmethod
+    def rules(css):
+        return [(sel.strip(), body.strip()) for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css)]
+
+    def test_every_selector_is_an_attribute_the_script_sets_and_never_a_class_of_the_page(self):
+        selectors = [sel for sel, _ in self.rules(self.look)]
+        self.assertGreaterEqual(len(selectors), 8)
+        self.assertLessEqual(len(selectors), 10)
+        for sel in selectors:
+            self.assertRegex(sel, r'^\[data-lu-(ps|pb|pa|fr|root|ink="[123]"|solid)\](::before|::after)?$', sel)
+        self.assertEqual([sel for sel, _ in self.rules(self.canvas)], ["html, body", "[data-lu-bare]"])
+        for css in (self.look, self.canvas):
+            self.assertNotRegex(css, r"[.#]\w|\[class|\*\s*[{,]")
+
+    def test_the_script_sets_exactly_the_attributes_the_sheet_reads(self):
+        with open(os.path.join(PAYLOAD, "userScript.js")) as f:
+            js = f.read()
+        read = set(re.findall(r"data-lu-([a-z]+)", self.sheet))
+        for attr in read:
+            self.assertIn("data-lu-" + attr, js, "the sheet reads data-lu-%s and nothing sets it" % attr)
+        for attr in set(re.findall(r'"data-lu-([a-z]+)"', js)):
+            self.assertIn(attr, read, "the script sets data-lu-%s and the sheet never reads it" % attr)
+
     def test_nothing_is_hidden_removed_moved_or_added(self):
-        for bad in (r"display\s*:\s*none", r"visibility\s*:\s*hidden", r"opacity\s*:\s*0\s*[;!]", r"pointer-events", r"@import", r"url\(",
-                    r"\bposition\s*:\s*fixed", r"\bvisibility\b", r"\bz-index\b", r"\bfloat\b"):
-            self.assertIsNone(re.search(bad, self.sheet), bad)
-        # nothing is sized but the tab's underline bar, whose height is the token's
-        self.assertEqual(re.findall(r"(?<![-\w])(?:min-|max-)?(?:width|height)\s*:\s*([^;]+);", self.sheet), ["var(--st-underline)"])
-        # the one generated box is the tab's underline: it carries no words
-        self.assertEqual([m.strip() for m in re.findall(r"\bcontent\s*:\s*([^;]+);", self.sheet)], ['""'])
+        for banned in ("display:", "visibility:", "content:", "position:", "width:", "height:", "margin", "padding", "transform", "top:", "left:", "inset"):
+            self.assertNotIn(banned, self.sheet.replace("outline-offset", "OO"), banned)
 
-    def test_nothing_costs_a_blur_a_filter_or_an_animation(self):
-        for bad in (r"(?<![-\w])filter\s*:", r"mix-blend-mode", r"@keyframes", r"\banimation"):
-            self.assertIsNone(re.search(bad, self.sheet), bad)
-        # will-change only ever says auto: no layer is promoted for a row, and the ones LG promotes for its focus are let go
-        for value in re.findall(r"will-change\s*:\s*([^;]+);", self.sheet):
-            self.assertTrue(value.strip().startswith("auto"), value)
-        # the one backdrop-filter in the sheet takes the page's away
-        self.assertEqual([v.strip() for v in re.findall(r"backdrop-filter\s*:\s*([^;!]+)", self.sheet)], ["none", "none"])
+    def test_nothing_costs_a_blur_a_filter_a_shadow_or_an_animation(self):
+        for banned in ("blur(", "filter", "backdrop", "animation", "will-change", "@keyframes", "text-shadow"):
+            self.assertNotIn(banned, self.sheet, banned)
+        for sel, body in self.rules(self.sheet):
+            for value in re.findall(r"box-shadow:\s*([^;!]+)", body):
+                self.assertEqual(value.strip(), "none", sel)
 
-    def test_transitions_are_on_transform_alone_and_never_longer_than_the_card_settle(self):
-        for m in re.finditer(r"transition\s*:\s*([^;]+);", self.sheet):
-            value = m.group(1).replace("!important", "").strip()
-            self.assertTrue(value == "none" or value.startswith("transform "), value)
-        theme, *_ = tokens.resolve(SHIPPED, "/dev/null")
-        m = theme["motion"]
-        self.assertLessEqual(max(m["focusMs"], m["pressMs"], m["restMs"] + m["focusMs"]), m["cardMs"] + m["restMs"])
-
-    def test_the_focus_rule_the_highlight_at_once_and_the_lift_after_the_rest(self):
-        # the focused state declares the delayed transition; the resting state declares none, so losing focus cancels a pending lift
-        self.assertRegex(self.sheet, r":focus,?[^{]*\{[^}]*transition:\s*transform var\(--lu-focus-ms\) var\(--lu-ease-focus\) var\(--lu-rest-ms\)")
-        self.assertRegex(self.sheet, r"a, button \{\s*transition: none;")
-        # no colour or outline of the highlight is part of that transition
-        for m in re.finditer(r"transition\s*:\s*([^;]+);", self.sheet):
-            self.assertNotRegex(m.group(1), r"(background|color|outline|shadow)")
+    def test_a_declaration_beats_the_pages_and_a_transition_is_only_ever_taken_away(self):
+        for sel, body in self.rules(self.sheet):
+            if sel == ":root":
+                continue
+            for decl in [d.strip() for d in body.split(";") if d.strip()]:
+                self.assertTrue(decl.endswith("!important"), "%s { %s } does not beat the page's own rule" % (sel, decl))
+        self.assertEqual({v.strip() for v in re.findall(r"transition:\s*([^;!]+)", self.sheet)}, {"none"})
 
     def test_no_colour_or_size_is_a_constant_in_a_rule(self):
-        self.assertIsNone(re.search(r"#[0-9A-Fa-f]{3,8}\b", self.sheet))
-        for m in re.finditer(r"rgba?\(([^)]*)\)", self.sheet):
-            self.fail("a colour constant: " + m.group(0))
-        for m in re.finditer(r"border-radius\s*:\s*([^;]+);", self.sheet):
-            self.assertIn("var(--lu-radius-", m.group(1))
+        for sel, body in self.rules(self.sheet):
+            self.assertNotRegex(body, r"#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(", sel)
+            for px in re.findall(r"(-?\d+(?:\.\d+)?)px", body):
+                self.assertIn(px, ("2", "-2"), "%s: a size that is not the ring's" % sel)
 
-    def test_every_variable_the_sheet_reads_is_defined_by_the_build_or_the_sheet(self):
-        defined = set(re.findall(r"(--[a-z0-9-]+)\s*:", self.built))
-        used = set(re.findall(r"var\((--[a-z0-9-]+)", self.sheet + self.light_sheet))
-        self.assertEqual(sorted(used - defined), [])
-        self.assertIsNone(re.search(r"#[0-9A-Fa-f]{3,8}\b|rgba?\(", self.light_sheet))
+    def test_every_variable_the_sheet_reads_is_defined_by_the_build(self):
+        read = set(re.findall(r"var\((--[a-z0-9-]+)\)", self.sheet))
+        defined = set(re.findall(r"(--[a-z0-9-]+):", self.built))
+        self.assertEqual(sorted(read - defined), [])
+        self.assertLessEqual(len(defined), 10, "a handful of tokens, not a copy of the theme")
 
-    def test_the_sandstone_names_it_matches_are_ones_lgs_own_build_has(self):
-        """The class parts the selectors name, against the compiled CSS of LG's webOS 10 Settings build when this workstation has it."""
-        path = "/data/home/lgtv/research/lgsettings/main.css"
-        if not os.path.exists(path):
-            self.skipTest("LG's Settings stylesheet is not on this workstation")
-        with open(path, errors="replace") as f:
-            lg = f.read()
-        wanted = set(re.findall(r'\[class\*="([A-Za-z]+_[A-Za-z]+)__"\]', self.sheet))
-        # components LG's Settings build does not draw but the store's own page might (TabGroup's tabs, Header's title and subtitle,
-        # the layer's scrim, a contextual popup): named for the cloud page, [INFERENCE], not checked here
-        for_the_cloud_page = {"TabGroup_tab", "TabGroup_bg", "Header_title", "Header_subtitle", "Marquee_text", "ContextualPopup_contextualPopup",
-                              "FloatingLayer_scrim", "scrimTranslucent_", "RadioItem_bg", "CheckboxItem_bg", "SwitchItem_bg", "Input_inputArea"}
-        missing = sorted(n for n in wanted if n not in for_the_cloud_page and ("_" + n.split("_")[1] + "__") not in lg and n not in lg)
-        self.assertEqual(missing, [], "selectors that match nothing in LG's own Sandstone build")
+    def test_the_built_sheet_is_the_tokens_and_the_look_rules_and_nothing_else(self):
+        self.assertTrue(self.built.startswith(":root { --st-plate:"))
+        self.assertLess(len(self.built), 4 * 1024)
+        self.assertNotIn("html, body", self.built, "the canvas rules are in a build only with the canvas part")
+        self.assertIn("html, body", css_of(build("look,canvas")[0]))
 
 
 @unittest.skipUnless(BROWSER, "needs the system Chromium and playwright-core (docs/mocks/render.mjs uses the same)")
@@ -335,34 +426,131 @@ class InTheBrowser(unittest.TestCase):
         cls.tmp = tempfile.TemporaryDirectory()
         d = cls.tmp.name
         files = {}
-        for name, args in (("dark", ["--material", "dark"]), ("light", ["--material", "light"]), ("look", ["--parts", "look"]), ("lazy", ["--parts", "look,motion,lazy"])):
+        for name, parts in (("default", "look,motion"), ("look", "look"), ("motion", "motion"), ("lazy", "look,motion,lazy"), ("canvas", "look,motion,canvas")):
             files[name] = os.path.join(d, name + ".js")
-            subprocess.run([sys.executable, TOOL, "build", PAYLOAD, SHIPPED, "/dev/null", files[name]] + args, check=True, capture_output=True)
-        r = subprocess.run(["node", os.path.join(HERE, "store_behaviour.mjs"), files["dark"], files["light"], files["look"], files["lazy"]],
-                           capture_output=True, text=True, timeout=180)
+            subprocess.run([sys.executable, TOOL, "build", PAYLOAD, SHIPPED, "/dev/null", files[name], "--parts", parts], check=True, capture_output=True)
+        r = subprocess.run(["node", os.path.join(HERE, "store_behaviour.mjs"), files["default"], files["look"], files["motion"], files["lazy"], files["canvas"]],
+                           capture_output=True, text=True, timeout=240)
         if r.returncode != 0:
             raise AssertionError("the browser run failed: " + r.stderr[-1500:])
         cls.r = json.loads(r.stdout)
+        t = theme()["dark"]
+        cls.plate = rgb(tokens.parse(t["glassFocus"]))
+        cls.ink = rgb(tokens.parse(t["ink"]))
+        cls.canvas = rgb(tokens.parse(t["canvas"]))
+        cls.ink_rgb = tuple(tokens.parse(t["ink"])[:3])
 
     @classmethod
     def tearDownClass(cls):
         cls.tmp.cleanup()
 
-    def test_the_look_is_in_place_before_the_page_runs_and_the_face_is_loaded(self):
+    def test_the_marker_is_there_and_the_page_runs_without_an_error(self):
         d = self.r["dark"]
         self.assertEqual((d["mark"], d["attr"], d["sheets"]), ("look,motion", "look,motion", 1))
-        self.assertEqual((d["htmlBg"], d["h1"]), ("rgb(25, 23, 36)", "rgb(242, 239, 246)"))
-        self.assertEqual(d["bodyBg"], "rgba(0, 0, 0, 0)", "the page paints nothing of its own; the canvas is the root's")
-        self.assertTrue(d["family"].startswith("Manrope"))
-        self.assertEqual(d["loaded"], 1)
+        self.assertEqual(self.r["focus"]["errors"], [])
         self.assertEqual(d["errors"], [])
 
-    def test_the_light_material_needs_no_attribute_on_the_page(self):
-        light = self.r["light"]
-        self.assertEqual((light["htmlBg"], light["h1"], light["scheme"], light["theme"]), ("rgb(250, 244, 237)", "rgb(23, 19, 31)", "light", None))
+    def test_the_default_leaves_the_pages_own_canvas_and_colours(self):
+        d = self.r["dark"]
+        self.assertEqual((d["htmlBg"], d["bodyBg"], d["h1"]), ("rgb(0, 0, 0)", "rgb(0, 0, 0)", "rgb(236, 236, 236)"), "LG's black and LG's ink: the canvas is the opt-in part")
+        self.assertEqual(self.r["canvasOff"]["header"], "rgb(0, 0, 0)")
+        self.assertFalse(self.r["canvasOff"]["marked"])
+
+    def test_the_face_is_behind_lgs_family_names_at_every_weight_and_nothing_else_is_touched(self):
+        f = self.r["fonts"]
+        for ident in ("p-sand", "p-300", "p-700", "p-museo", "p-lg"):
+            self.assertTrue(any("Manrope" in n for n in f[ident]), (ident, f[ident]))
+        self.assertNotIn("Manrope", " ".join(f["p-arial"]), "a family that is not LG's keeps its face")
+        self.assertNotIn("Manrope", " ".join(f["p-cjk"]), "a character the face lacks falls back")
+        self.assertEqual(self.r["dark"]["sandstone"], 8, "the page's four faces and ours, one per weight")
 
     def test_a_page_that_forbids_inline_styles_takes_the_theme_all_the_same(self):
-        self.assertEqual((self.r["csp"]["htmlBg"], self.r["csp"]["h1"]), ("rgb(25, 23, 36)", "rgb(242, 239, 246)"))
+        self.assertEqual((self.r["csp"]["sheets"], self.r["csp"]["mark"]), (1, "look,motion"))
+
+    def test_a_plate_drawn_by_a_pseudo_element_becomes_the_glass_and_its_words_the_ink_in_their_tiers(self):
+        s = self.r["focus"]["plate"]
+        self.assertEqual(s["found"]["plates"][0].split(":")[0], "pb")
+        self.assertEqual(s["plate"], {"before": self.plate, "ring": "solid", "radius": "%dpx" % theme()["radii"]["row"]})
+        self.assertEqual(s["marks"]["pa"], ["pb", "root"])
+        self.assertEqual((s["marks"]["pa1"], s["marks"]["pa2"], s["marks"]["pa3"]), (["ink=1"], ["ink=2", "solid"], ["ink=3", "solid"]))
+        self.assertEqual(s["color"]["pa1"], self.ink)
+        a2, a3 = s["color"]["pa2"], s["color"]["pa3"]
+        self.assertTrue(a2.startswith("rgba(") and a2.endswith(", 0.8)"), a2)
+        self.assertTrue(a3.endswith(", 0.66)"), a3)
+        self.assertEqual((s["opacity"]["pa2"], s["opacity"]["pa3"]), ("1", "1"), "LG's translucent words are made solid so that the tier is what is seen")
+
+    def test_the_plate_is_found_before_the_first_frame_whatever_way_it_arrives(self):
+        self.assertLessEqual(self.r["focus"]["plate"]["found"]["ms"], 30)
+        late = self.r["focus"]["late"]
+        self.assertEqual(late["found"]["plates"][0].split(":")[0], "ps", "a class the page adds after the focus event, and a colour transition")
+        self.assertLessEqual(late["found"]["ms"], 30)
+        self.assertEqual(late["color"]["lt1"], self.ink)
+
+    def test_the_ring_holds_its_contrast_on_a_surface_that_is_not_lgs_black(self):
+        def parse(c):
+            nums = [float(x) for x in re.findall(r"[\d.]+", c)]
+            return nums[:3], (nums[3] if len(nums) > 3 else 1.0)
+
+        def drawn(colour, over):
+            rgba, a = parse(colour)
+            return store_theme.composite(rgba, a, over)
+
+        plate, panel, black = tuple(tokens.parse(theme()["dark"]["glassFocus"])[:3]), (95, 107, 122), (0, 0, 0)
+        floor = store_theme.RING_FLOOR
+        black_ring = self.r["focus"]["plate"]["ring"]
+        self.assertIsNone(black_ring["onBlack"]["style"], "on black the sheet's own ring is used and nothing is written to the element")
+        self.assertIsNone(black_ring["buttonOnBlack"]["style"])
+        # the plate on the panel: the ring is over the plate and against the panel, both at the floor
+        s = self.r["focus"]["ringPanel"]["ring"]["onPanel"]
+        self.assertIn("--st-ring", s["style"], "the script raised the ring's alpha for this surface")
+        ring = drawn(s["outline"], plate)
+        self.assertGreaterEqual(tokens.contrast(ring, plate), floor)
+        self.assertGreaterEqual(tokens.contrast(ring, panel), floor)
+        # the ring of an item with no plate, outside its edge, against the panel
+        b = self.r["focus"]["ringButton"]["ring"]["buttonOnPanel"]
+        self.assertIn("--st-ring-out", b["style"])
+        self.assertGreaterEqual(tokens.contrast(drawn(b["outline"], panel), panel), floor)
+        # and it comes off when the focus leaves
+        self.assertEqual(self.r["focus"]["after"]["ring"]["onPanel"]["style"] in (None, ""), True)
+        self.assertEqual(self.r["focus"]["after"]["ring"]["buttonOnPanel"]["style"].count("--st-ring"), 0)
+
+    def test_an_item_with_no_plate_keeps_lgs_colours_and_gets_the_ring_alone(self):
+        for name, ident, words in (("button", "bt", ["bt"]), ("icon", "ic", ["ic1"])):
+            s = self.r["focus"][name]
+            self.assertIsNone(s["found"], name)
+            self.assertEqual(s["marks"][ident], ["fr"], name)
+            for w in words:
+                self.assertEqual(s["color"][w], self.r["focus"]["before"]["color"][w], "LG's colour stays: light on light is never made")
+        self.assertEqual(self.r["focus"]["icon"]["marks"]["ic-icon"], [], "the white tile behind an icon is not a plate: no words are on it")
+
+    def test_words_on_a_surface_of_their_own_keep_their_colour(self):
+        s = self.r["focus"]["badge"]
+        self.assertEqual((s["marks"]["bd1"], s["marks"]["badge"]), (["ink=1"], []))
+        self.assertEqual(s["color"]["badge"], "rgb(255, 255, 255)")
+
+    def test_a_panel_the_size_of_the_screen_is_not_a_plate(self):
+        s = self.r["focus"]["panel"]
+        self.assertIsNone(s["found"])
+        self.assertEqual(s["marks"]["big"], [])
+
+    def test_when_the_focus_leaves_everything_the_theme_set_comes_off(self):
+        a = self.r["focus"]["after"]
+        self.assertEqual([i for i, m in a["marks"].items() if m], [])
+        self.assertIsNone(a["found"])
+        self.assertEqual(a["color"]["pa1"], self.r["focus"]["before"]["color"]["pa1"])
+        again = self.r["focus"]["again"]
+        self.assertEqual([i for i, m in again["marks"].items() if m], ["pa", "pa1", "pa2", "pa3"], "the item focused last is marked and nothing before it is")
+
+    def test_without_the_look_part_the_focus_is_lgs(self):
+        s = self.r["focusOff"]
+        self.assertIsNone(s["found"])
+        self.assertEqual(s["marks"], {"pa": [], "pa1": []})
+
+    def test_the_canvas_part_paints_the_palettes_canvas_and_the_black_band_with_it(self):
+        c = self.r["canvasOn"]
+        self.assertEqual((c["html"], c["body"], c["header"]), (self.canvas, self.canvas, self.canvas))
+        self.assertTrue(c["marked"])
+        self.assertFalse(c["row"], "a row is not a band")
 
     def test_a_long_transition_is_played_faster_and_still_ends(self):
         self.assertGreater(self.r["stockMs"], 560)
@@ -391,20 +579,28 @@ class InTheBrowser(unittest.TestCase):
 
 @unittest.skipUnless(BROWSER, "needs the system Chromium and playwright-core (docs/mocks/render.mjs uses the same)")
 class StandInPages(unittest.TestCase):
-    def test_every_page_in_both_materials_and_both_text_sizes_has_no_overlap_no_weak_contrast_and_a_ring(self):
-        r = subprocess.run(["node", os.path.join(ROOT, "docs", "mocks", "store", "render.mjs"), "--audit-only"], capture_output=True, text=True, timeout=300)
+    def test_every_page_in_every_way_the_plate_might_be_built_at_both_text_sizes_passes_the_pixel_audit(self):
+        r = subprocess.run(["node", os.path.join(ROOT, "docs", "mocks", "store", "render.mjs"), "--audit-only"], capture_output=True, text=True, timeout=600)
         try:
             summary = json.loads(r.stdout.strip().splitlines()[-1])
         except (ValueError, IndexError):
             self.fail("no audit: " + r.stderr[-1500:])
-        self.assertEqual(len(summary["results"]), 20, "five pages, two materials, two text sizes")
-        bad = [(x["page"], x["material"], x["scale"], x["overlaps"][:2], x["lowContrast"][:2]) for x in summary["results"] if x["overlaps"] or x["lowContrast"]]
-        self.assertEqual(bad, [])
-        for x in summary["results"]:
-            self.assertGreaterEqual(x["ring"]["width"], 2, (x["page"], x["material"]))
-            self.assertGreaterEqual(x["ring"]["vsCanvas"], 3.0, (x["page"], x["material"]))
-            self.assertGreaterEqual(x["ring"]["vsFill"], 3.0, (x["page"], x["material"]))
-            self.assertGreaterEqual(x["minContrast"], 4.5, (x["page"], x["material"]))
+        results = summary["results"]
+        # five pages in the primary dialect, the home and detail pages in the other five, at 100 % and 200 % text
+        self.assertEqual(len(results), (5 + 5 * 2) * 2)
+        self.assertEqual(summary["failing"], [])
+        self.assertEqual(sorted({x["dialect"] for x in results}), ["child", "late", "opaque", "pseudo", "self", "tile"])
+        for x in results:
+            where = (x["page"], x["dialect"], x["scale"])
+            self.assertGreaterEqual(x["plate"]["count"], 1, where)
+            self.assertLessEqual(x["plate"]["ms"], 50, where)
+            self.assertGreaterEqual(x["ring"]["vsPage"], 3.0, where)
+            self.assertGreaterEqual(x["ring"]["vsPlate"], 3.0, where)
+            self.assertEqual(x["lowContrast"], [], where)
+            self.assertEqual(x["overlaps"], [], where)
+            self.assertTrue(x["iconTilesKept"], where)
+            if "fade" in x:
+                self.assertLessEqual(x["fade"]["themed"], 0.25, "LG's light plate shows while it fades out: %s" % (where,))
 
 
 if __name__ == "__main__":

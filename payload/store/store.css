@@ -1,278 +1,68 @@
-/* LG's Content Store in the Lucent look.
+/* LG's Content Store in the Lucent look: the rules a page's elements are matched against.
  *
- * The store is a thin loader that sends the view to LG's cloud page (docs/research/store-result.md), so this sheet is
- * delivered inside the theme's script (tools/store_theme.py) and styles whatever page the app shows. It paints colour,
- * type, shape and the focus rule and nothing else: no rule here hides, moves, adds or rewrites anything the page
- * says, sells or does, and none touches a price, an install button's label or an account control except for its look.
+ * Nine attribute rules and nothing else per element (two more with the canvas part). The first version matched forty-five substring
+ * selectors of Sandstone's class names against every element: they missed LG's focus markup on the set (TV round 11: a light plate under
+ * light words) and cost the page a full style recalculation of 12 ms on a 2,200-element page (0.1 ms now: docs/mocks/store/bench.mjs). The
+ * store's markup is LG's cloud page and cannot be read from the set, so this sheet names none of it: tools/store_theme.py builds the tokens
+ * at the top, userScript.js finds the plate LG draws under a focused item by what it computes (a light, opaque background that carries
+ * words), sets the attributes below on it and on the words, and clears them when the focus leaves. A plate it does not find stays LG's,
+ * with LG's words: light on light is never produced, since the words are only ever recoloured together with a plate that is recoloured
+ * with them.
  *
- * The cloud page's markup is not in the firmware snapshot. The selectors below are Sandstone's (Enact's component
- * set, whose compiled class names carry the component and part, enact_sandstone_ImageItem_ImageItem_image__x7Kd2, so
- * they match on a substring and survive a rebuild; the parts named here are the ones in LG's webOS 10 Settings build).
- * That the store is built from it is read from the one capture of its home page (caps/store_crunchyroll.jpg) and is
- * [INFERENCE] until docs/research/store-result.md step 0 is run. Where a selector does not match, that part of the
- * page stays LG's and nothing breaks. A trailing `__` in a selector names the component's own element and not a part
- * whose name begins the same way (Item_item__ is the row, Item_itemContent__ is inside it).
- *
- * Cost rules, because the page scrolls long shelves of pictures on a TV SoC (the same as payload/webapps/lumatv.css):
- * no backdrop-filter, no shadow at rest on anything that repeats, transitions on transform alone, the highlight at
- * once and the lift after the focus has rested (PLAN: "the highlight at once, the lift after 150 ms of rest"; a
- * further move cancels the pending lift, because the element that lost focus has no transition to finish).
- * Sandstone's own focus is a pseudo-element fill with `will-change: box-shadow` (LG's Settings build has 76 will-change
- * declarations, 49 of them naming box-shadow, and 382 box-shadow declarations); this sheet replaces it with one ring
- * and one wash.
+ * Parts are cut out by the builder (a block between the part markers below stays only when that part is asked for).
+ * Cost rules: no filter, no blur, no shadow, no animation, no will-change, no size, no position: colours, one outline and one radius.
  */
 
-/* ------------------------------------------------------------------ canvas */
-
-:root, [class*="ThemeDecorator_theme"] {
-  /* Sandstone fills a dozen nested containers from these. The page paints nothing of its own: the canvas below is the only
-   * fill, and a surface comes back where it means something (focus, selection, a popup). */
-  --sand-bg-color: transparent;
-  --sand-fullscreen-bg-color: transparent;
-  --sand-component-bg-color: transparent;
-  --sand-text-color-rgb: var(--st-ink-rgb);
-  --sand-text-sub-color: var(--lu-ink-2);
-  --sand-component-text-color-rgb: var(--st-ink-rgb);
-  --sand-component-text-sub-color-rgb: var(--st-ink-rgb);
-  /* A component this sheet does not name still gets a lifted-glass focus fill, not Sandstone's light pill, and its text stays ink. */
-  --sand-focus-bg-color: var(--lu-glass-raised);
-  --sand-focus-bg-color-rgb: var(--st-focus-fill-rgb);
-  --sand-component-focus-text-color-rgb: var(--st-ink-rgb);
-  --sand-selected-color-rgb: var(--st-accent-rgb);
-  --sand-toggle-on-bg-color: var(--lu-accent);
-  --sand-toggle-on-color: var(--lu-accent-ink);
-  --sand-toggle-off-bg-color: var(--lu-track-off);
-  --sand-checkbox-color: var(--lu-accent);
-  --sand-spinner-color: var(--lu-accent);
-  --sand-progress-color-rgb: var(--st-accent-rgb);
-  --sand-progress-bg-color-rgb: var(--st-ink-rgb);
-  --sand-progress-bg-color-alpha: 0.16;
-  --sand-overlay-bg-color-rgb: var(--st-sheet-rgb);
-  --sand-alert-overlay-bg-color-rgb: var(--st-sheet-rgb);
-  --sand-overlay-outline-color: var(--lu-edge);
-  --sand-shadow-color-rgb: 0, 0, 0;
-}
-
-html {
-  /* One static layer: a quiet palette base with the light arriving from the upper left (Lucent, material system). */
-  background: radial-gradient(1400px 800px at 10% -12%, var(--st-glow), transparent 70%), var(--lu-canvas) !important;
-  color: var(--lu-ink) !important;
-}
-
-body, #root, [class*="ThemeDecorator_theme"], [class*="ThemeDecorator_root"] {
-  background: transparent !important;
-}
-
-/* ------------------------------------------------------------------- type */
-
-/* Named per text component rather than applied to everything: LG's icons are glyphs at private-use codepoints in
- * its own font, and a blanket family turns every one of them into a box (payload/webapps/lumatv.css). The document
- * root and body carry the face for text that inherits it. */
-html, body,
-[class*="Item_content__"],
-[class*="Item_itemContent__"],
-[class*="Item_label__"],
-[class*="Heading_heading__"],
-[class*="BodyText_bodyText__"],
-[class*="Header_title__"],
-[class*="Header_subtitle__"],
-[class*="Button_client__"],
-[class*="ImageItem_caption__"],
-[class*="ImageItem_label__"],
-[class*="Marquee_text__"],
-[class*="TabGroup_tab__"],
-[class*="Input_inputArea__"],
-[class*="Input_textField__"],
-[class*="Alert_content__"],
-[class*="Alert_title__"] {
-  font-family: var(--lu-font) !important;
-  letter-spacing: var(--lu-type-body-tracking) !important;
-}
-
-[class*="Item_content__"],
-[class*="Item_itemContent__"],
-[class*="Button_client__"],
-[class*="ImageItem_caption__"],
-[class*="Marquee_text__"],
-[class*="TabGroup_tab__"] {
-  font-weight: var(--lu-weight-medium) !important;
-}
-
-[class*="Item_label__"],
-[class*="ImageItem_label__"],
-[class*="BodyText_bodyText__"],
-[class*="Header_subtitle__"],
-[class*="Heading_subtitle__"] {
-  font-weight: var(--lu-weight-regular) !important;
-  color: var(--lu-ink-2) !important;
-}
-
-[class*="Header_title__"],
-[class*="Heading_heading__"],
-[class*="Heading_title__"] {
-  font-weight: var(--lu-weight-semibold) !important;
-  letter-spacing: var(--lu-type-title-tracking) !important;
-}
-
-/* ------------------------------------------------------------ focus rule */
-
-/* Every focusable part of the page. At rest: transparent, no transition (so that losing focus puts the element back at
- * once and cancels a lift still waiting). Focused: the wash and the ring at once; the lift only after the rest. */
-[class*="Item_item__"],
-[class*="ImageItem_imageItem__"],
-[class*="Button_button__"],
-[class*="TabGroup_tab__"],
-[class*="Input_inputArea__"],
-[role="tab"],
-[role="button"],
-a, button {
-  transition: none;
-  border-radius: var(--lu-radius-row);
-  outline: 0 solid transparent;
-}
-
-[class*="ImageItem_imageItem__"] { border-radius: var(--lu-radius-tile); }
-[class*="Button_button__"], [class*="Button_bg__"] { border-radius: var(--lu-radius-pill); }
-
-/* Sandstone's own focus fill and its shadow are removed: one wash and one ring replace them. */
-[class*="Item_bg__"],
-[class*="RadioItem_bg__"],
-[class*="CheckboxItem_bg__"],
-[class*="SwitchItem_bg__"],
-[class*="Button_bg__"],
-[class*="TabGroup_bg__"],
-[class*="ImageItem_imageItem__"]::before {
-  background: transparent !important;
-  border-color: transparent !important;
+/*@@part look*/
+/* The plate LG draws (the element itself, its ::before or its ::after) becomes Lucent's lifted glass with a ring; LG's own transition on
+ * it is dropped so that the glass is there with the focus and no light plate fades in first. Visibility stays LG's (its opacity, its
+ * display): the sheet changes colours and the ring only. */
+[data-lu-ps] {
+  background-color: var(--st-plate) !important;
+  background-image: none !important;
+  border-radius: var(--st-radius) !important;
   box-shadow: none !important;
-  will-change: auto !important;
-}
-
-[class*="Item_item__"]:focus,
-[class*="ImageItem_imageItem__"]:focus,
-[class*="Button_button__"]:focus,
-[class*="TabGroup_tab__"]:focus,
-[class*="Input_inputArea__"]:focus-within,
-[role="tab"]:focus,
-[role="button"]:focus,
-a:focus, button:focus {
-  background-color: var(--lu-glass-raised) !important;
-  outline: var(--st-ring-w) solid var(--st-ring) !important;
-  outline-offset: calc(-1 * var(--st-ring-w)) !important;
-  transition: transform var(--lu-focus-ms) var(--lu-ease-focus) var(--lu-rest-ms) !important;
-}
-
-[class*="Item_item__"]:focus,
-[class*="TabGroup_tab__"]:focus { transform: scale(var(--st-scale-row)); }
-[class*="Button_button__"]:focus,
-[role="button"]:focus,
-button:focus { transform: scale(var(--st-scale-button)); }
-[class*="ImageItem_imageItem__"]:focus { transform: translateY(calc(-1 * var(--st-lift-card))) scale(var(--st-scale-card)); }
-
-/* The press answers on the next frame; it is not a settle, so it carries no rest. */
-[class*="Item_item__"]:active,
-[class*="ImageItem_imageItem__"]:active,
-[class*="Button_button__"]:active,
-[role="button"]:active,
-a:active, button:active {
-  transform: scale(var(--st-scale-press)) !important;
-  transition: transform var(--lu-press-ms) ease-out !important;
-}
-
-/* The focused part's own words stay ink; a light fill never takes the ink away. */
-:focus, :focus * { color: var(--lu-ink) !important; }
-:focus [class*="Item_label__"], :focus [class*="ImageItem_label__"] { color: var(--lu-ink-2) !important; }
-
-@media (prefers-reduced-motion: reduce) {
-  [class*="Item_item__"]:focus, [class*="ImageItem_imageItem__"]:focus, [class*="Button_button__"]:focus,
-  [class*="TabGroup_tab__"]:focus, [role="button"]:focus, button:focus { transform: none; transition: none !important; }
-}
-
-/* ------------------------------------------------------------------- tabs */
-
-/* The selected tab is marked by the accent underline and the ink, never by a fill that the focus wash could be mistaken for. The
- * underline is a bar of its own, so that the tab's rounded focus ring does not bend it. */
-[class*="TabGroup_tab__"],
-[role="tab"] {
-  background: transparent !important;
-  color: var(--lu-ink-2) !important;
-  box-shadow: none !important;
-  position: relative;
-}
-[class*="TabGroup_tab__"][class*="_selected"],
-[role="tab"][aria-selected="true"],
-[class*="TabLayout_tabs__"] [class*="_selected"],
-[class*="TabGroup_tab__"]:focus,
-[role="tab"]:focus {
-  color: var(--lu-ink) !important;
-}
-[class*="TabGroup_tab__"][class*="_selected"]::after,
-[role="tab"][aria-selected="true"]::after,
-[class*="TabLayout_tabs__"] [class*="_selected"]::after {
-  content: "";
-  position: absolute;
-  left: var(--lu-space-6);
-  right: var(--lu-space-6);
-  bottom: 0;
-  height: var(--st-underline);
-  border-radius: var(--lu-radius-pill);
-  background: var(--lu-accent);
-}
-
-/* ----------------------------------------------------------------- tiles */
-
-/* A tile is its picture and two lines of words. The picture takes the tile radius; no tile carries a shadow at rest. */
-[class*="ImageItem_image__"],
-[class*="Image_image__"] {
-  border-radius: var(--lu-radius-tile) !important;
-  box-shadow: none !important;
-  will-change: auto !important;
-}
-/* The tile lifts as a whole; the picture inside it must not scale on its own as well (LG moves it with a 200 ms transform and a shadow). */
-[class*="ImageItem_imageItem__"] [class*="ImageItem_image__"] {
-  transform: none !important;
+  outline: 2px solid var(--st-ring) !important;
+  outline-offset: -2px !important;
   transition: none !important;
 }
-[class*="ImageItem_imageItem__"] { color: var(--lu-ink) !important; }
-
-/* --------------------------------------------------------------- controls */
-
-[class*="Button_button__"] { color: var(--lu-ink) !important; }
-
-[class*="Switch_selected__"] [class*="Switch_bg__"],
-[class*="Slider_fill__"],
-[class*="ProgressBar_fill__"] { background: var(--lu-accent) !important; }
-[class*="Switch_bg__"] { background: var(--lu-track-off) !important; }
-
-[class*="Input_inputArea__"] {
-  background: var(--lu-glass) !important;
-  border: 1px solid var(--lu-edge) !important;
-  border-radius: var(--lu-radius-control) !important;
+[data-lu-pb]::before {
+  background-color: var(--st-plate) !important;
+  background-image: none !important;
+  border-radius: var(--st-radius) !important;
+  box-shadow: none !important;
+  outline: 2px solid var(--st-ring) !important;
+  outline-offset: -2px !important;
+  transition: none !important;
+}
+[data-lu-pa]::after {
+  background-color: var(--st-plate) !important;
+  background-image: none !important;
+  border-radius: var(--st-radius) !important;
+  box-shadow: none !important;
+  outline: 2px solid var(--st-ring) !important;
+  outline-offset: -2px !important;
+  transition: none !important;
 }
 
-/* ----------------------------------------------------------------- popups */
-
-/* What genuinely floats above the page gets one sheet: reading grade, one edge, one shadow. A question the page asks (the install
- * confirmation, a sign-in notice) sits on a backdrop with nothing showing through it (Lucent: an opaque backdrop behind confirmations). */
-[class*="Popup_popup__"],
-[class*="Alert_alert__"],
-[class*="ContextualPopup_contextualPopup__"] {
-  background: var(--st-sheet-solid) !important;
-  border: 1px solid var(--lu-edge) !important;
-  border-radius: var(--lu-radius-sheet) !important;
-  box-shadow: var(--st-shadow-sheet) !important;
+/* A focused item with no plate to find (a poster, a banner, an icon) gets the ring alone, outside its edge, and LG's own focus look stays. */
+[data-lu-fr] {
+  outline: 2px solid var(--st-ring-out) !important;
+  outline-offset: 2px !important;
 }
-[class*="Popup_popup__"] [class*="Popup_body__"],
-[class*="Popup_popup__"] [class*="Popup_inner__"],
-[class*="Alert_alert__"] [class*="Alert_body__"],
-[class*="Alert_alert__"] [class*="Alert_content__"] { background: transparent !important; box-shadow: none !important; border: 0 !important; }
-[class*="scrimTranslucent__"],
-[class*="FloatingLayer_scrim__"] { background: var(--lu-scrim) !important; }
 
-/* ---------------------------------------------------------- cost: no blur */
+/* The words on a recoloured plate: ink, in the tier LG gave them (primary, secondary, tertiary), and the element that carries them
+ * so that icons and words that inherit its colour follow. An element LG had made translucent is made solid so the tier is what is seen. */
+[data-lu-root] { color: var(--st-ink) !important; }
+[data-lu-ink="1"] { color: var(--st-ink) !important; }
+[data-lu-ink="2"] { color: var(--st-ink-2) !important; }
+[data-lu-ink="3"] { color: var(--st-ink-3) !important; }
+[data-lu-solid] { opacity: 1 !important; }
+/*@@end look*/
 
-*, *::before, *::after {
-  -webkit-backdrop-filter: none !important;
-  backdrop-filter: none !important;
-  text-shadow: none !important;
-}
+/*@@part canvas*/
+/* Opt-in (store on look,motion,canvas): the palette's canvas instead of LG's black. LG paints some containers black itself (the header is
+ * one: TV round 11 saw two blacks side by side); the script marks every large near-black band and this paints them the same canvas. */
+html, body { background-color: var(--st-canvas) !important; }
+[data-lu-bare] { background-color: var(--st-canvas) !important; }
+/*@@end canvas*/
