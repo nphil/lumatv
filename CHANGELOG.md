@@ -35,6 +35,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Settings › System › Support › Update gains "Block LG system updates" (the Homebrew Channel's
   own switch, with the live hosts state shown); while it is on, Check for Updates does nothing;
   `lumatv status` and `lumatv updateblock status` report the block.
+- Input banners: the no-signal screen of an HDMI input follows mock 18 (plug glyph, input name,
+  title, a line, and Inputs and Home buttons), and the Guide chip under the channel banner is a
+  glass pill.
+- `lumatv store on|off|status`: LG's Content Store in the Lucent look with transitions capped
+  at 180 ms, off by default; `off` and `revert` restore LG's store exactly.
+- `venc/`: the TV's hardware H.264 encoder driven from LumaTV's own process (video tap into
+  the encoder, zero copy), with a probe and a TCP stream server; protected video stays black.
 - Settings lists: section heads grow with the text and read in the light theme; danger labels
   (Delete Device) and disabled-row text pass contrast at 100% and 200%. Segmented controls,
   status words, the AI access lock row and long page headers pass too: all 98 Settings scenes
