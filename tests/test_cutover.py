@@ -1182,7 +1182,7 @@ class GateDriver(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")], [
             "firmware", "homeheld",
-            "cutover enable --session --max-minutes 12", "live", "x1 60", "netflix", "hdmi", "keys", "ime", "shell", "evidence",
+            "cutover enable --session --max-minutes 32", "live", "x1 60", "netflix", "hdmi", "keys", "ime", "shell", "evidence",
             "cutover enable --session --max-minutes 20", "live frames", "callbacks", "standby", "woke",
             "homekey", "cutover enable --session --max-minutes 6", "live after-homekey",
             "wd-hang", "cutover enable --session --max-minutes 6", "live after-wd-hang",
@@ -1231,14 +1231,14 @@ class GateDriver(unittest.TestCase):
         calls, code, _ = self.run_main(argv=["--only", "shell,frames"])
         self.assertEqual(code, 0)
         self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
-                         ["cutover enable --session --max-minutes 12", "live", "shell", "evidence",
+                         ["cutover enable --session --max-minutes 32", "live", "shell", "evidence",
                           "cutover enable --session --max-minutes 20", "live frames", "callbacks", "cutover disable"])
 
     def test_the_frame_gate_can_run_with_the_shell_callbacks_at_the_flip_and_says_how_many_went_ahead(self):
         calls, code, _ = self.run_main(argv=["--only", "frames", "--frames-callbacks", "landing"])
         self.assertEqual(code, 0)
         self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
-                         ["cutover enable --session --max-minutes 12", "live", "evidence",
+                         ["cutover enable --session --max-minutes 32", "live", "evidence",
                           "cutover enable --session --max-minutes 20", "live frames", "callbacks landing", "callbacks", "cutover disable"])
 
     STUB_ON = '{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"guard":true,"beat":true,"faults":0}'
@@ -1276,7 +1276,7 @@ class GateDriver(unittest.TestCase):
     def test_every_session_the_gate_makes_has_the_sets_own_timer_and_a_longer_x1_run_lengthens_the_first(self):
         calls, code, _ = self.run_main(argv=["--x1-seconds", "180"])
         enables = [c.split("cutover.sh ")[1] for c in calls if "cutover.sh enable" in c]
-        self.assertEqual(enables, ["enable --session --max-minutes 14", "enable --session --max-minutes 20"] + ["enable --session --max-minutes 6"] * 3)
+        self.assertEqual(enables, ["enable --session --max-minutes 34", "enable --session --max-minutes 20"] + ["enable --session --max-minutes 6"] * 3)
 
     def test_the_persistent_enable_after_a_pass_has_no_timer(self):
         answers = {"cutover.sh firmware record": "noise\r\n" + BLOCK.replace("\n", "\r\n")}
