@@ -295,11 +295,14 @@ class Clips(unittest.TestCase):
 
     def test_the_shipped_clips_are_all_readable_and_looped_on_a_key_unit(self):
         names = sorted(f for f in os.listdir(SHIPPED) if f.endswith(".vpc"))
-        self.assertGreaterEqual(len(names), 6)
+        prints = [n for n in names if not n.startswith("wall-")]
+        self.assertGreaterEqual(len(prints), 6)
+        self.assertGreaterEqual(len(names) - len(prints), 1, "the moving wallpaper's clip")
         for n in names:
             rc, j = self.info(os.path.join(SHIPPED, n))
             self.assertEqual(rc, 0, n)
-            self.assertEqual((j["codec"], j["width"], j["height"], j["fpsNum"], j["fpsDen"], j["loopFrom"]), (2, W, H, 60, 1, 0), n)
+            size = (1920, 1080) if n.startswith("wall-") else (W, H)      # the prints are the saver's canvas, the wallpaper fills the screen
+            self.assertEqual((j["codec"], j["width"], j["height"], j["fpsNum"], j["fpsDen"], j["loopFrom"]), (2, *size, 60, 1, 0), n)
 
     def test_the_probe_reads_the_library_and_the_clips(self):
         r = subprocess.run([BIN, "-n", "-c", SHIPPED, "-L", NDL], capture_output=True, text=True, env=dict(os.environ, FAKE_NDL_LOG=os.devnull))
@@ -316,12 +319,13 @@ class Clips(unittest.TestCase):
         self.assertFalse(j["ndl"])
         self.assertIn("no NDL library", j["ndlError"])
         with tempfile.TemporaryDirectory() as d:
-            shutil.copy(os.path.join(SHIPPED, os.listdir(SHIPPED)[0]), d)
+            first = sorted(f for f in os.listdir(SHIPPED) if f.endswith(".vpc") and not f.startswith("wall-"))[0]
+            shutil.copy(os.path.join(SHIPPED, first), d)
             put(os.path.join(d, "broken.vpc"), b"junk" * 20)
             r = subprocess.run([BIN, "-n", "-c", d, "-L", NDL], capture_output=True, text=True, env=dict(os.environ, FAKE_NDL_LOG=os.devnull))
             j = json.loads(r.stdout)
             self.assertEqual(r.returncode, 2)
-            self.assertEqual((j["clips"], j["clipsOk"]), (2 if os.listdir(SHIPPED)[0].endswith(".vpc") else 1, 1 if os.listdir(SHIPPED)[0].endswith(".vpc") else 0))
+            self.assertEqual((j["clips"], j["clipsOk"]), (2, 1))
             self.assertIn("broken.vpc", j["clipError"])
 
 

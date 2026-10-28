@@ -226,10 +226,13 @@ fn the_player_makes_a_window_the_pipeline_attaches_to_and_the_compositor_places_
     assert!(scale >= 1 && ow == 1856 * scale && oh == 1024 * scale, "{out}");
     assert!(ox >= 0 && ox <= 64 * scale && oy >= 0 && oy <= 56 * scale, "inside the room the drift has: {out}");
 
-    // pictures: the hole is clear, and so is everything the window drew inside it
+    // pictures: nothing of the screen behind the window is left in the hole, and what the window draws over it stays (LG's order: the hole is under
+    // the window's pixels): the dim's veil, black at alpha 51, which the player looks at once a second
+    let veiled = || server.eval(|s| s.output.capture().unwrap().pixel(960, 540)) == [0, 0, 0, 51];
+    assert!(wait_for(Duration::from_secs(4), veiled), "the hole, with the window's own veil over it");
     let (image, holes) = server.eval(|s| (s.output.capture().unwrap(), s.scene.holes.len()));
     assert_eq!(holes, 1);
-    assert_eq!(image.pixel(960, 540), [0, 0, 0, 0], "the hole");
+    assert_eq!(image.pixel(960, 540), [0, 0, 0, 51], "the hole, with the window's own veil over it");
 
     // the drift: the rectangle moves and the compositor places the video again, always inside the room
     assert!(wait_for(Duration::from_secs(4), || {
@@ -289,13 +292,15 @@ fn the_margins_are_opaque_and_the_window_draws_over_its_own_hole() {
     pipeline.roundtrip();
     assert!(pipeline.wait_until(Duration::from_secs(3), |s| s.punchthrough_attached.len() == 1));
     std::thread::sleep(Duration::from_millis(150));
+    let veiled = || server.eval(|s| s.output.capture().unwrap().pixel(960, 540)) == [0, 0, 0, 51];
+    assert!(wait_for(Duration::from_secs(4), veiled), "the veil the player drew shows over the hole");
     let image = server.eval(|s| s.output.capture().unwrap());
     // outside the picture's rectangle (32 pixels of room at the left, 28 above): black, not the red card below
     assert_eq!(image.pixel(10, 500), [0, 0, 0, 255], "the left margin");
     assert_eq!(image.pixel(960, 4), [0, 0, 0, 255], "the top margin");
-    // inside it: the card below is cleared (the video shows), and the clock the player drew at the corner of the window (1856, 1015 less its
-    // height) is in the picture, over the hole
-    assert_eq!(image.pixel(960, 540), [0, 0, 0, 0]);
+    // inside it: the card below is cleared (the video shows), the veil the player drew is over the hole, and so is the clock it drew at the corner of
+    // the window (1856, 1015 less its height)
+    assert_eq!(image.pixel(960, 540), [0, 0, 0, 51]);
     let mut lit = 0;
     for y in 985..1020 {
         for x in 1740..1860 {

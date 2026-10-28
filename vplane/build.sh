@@ -12,6 +12,9 @@ zig cc -target x86_64-linux-gnu.2.36 -O1 -g -Wall -Wextra -Werror -fsanitize=und
 zig cc -target x86_64-linux-gnu.2.36 -O1 -g -Wall -Wextra -Werror -shared -fPIC -o "$out/host/libNDL_directmedia.so.1" "$here/tests/fake_ndl.c" -lpthread -Wl,-soname,libNDL_directmedia.so.1
 zig cc -target x86_64-linux-gnu.2.36 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined -fno-sanitize-recover=undefined -o "$out/host/plan_test" "$here/tests/plan_test.c" "$here/src/vpl_plan.c" "$here/src/vpl_json.c" "$here/src/vpl_ui.c" "$here/src/vpl_vpc.c" -lm
 echo "built $out/arm/lumatv-vplane:"
-readelf -h "$out/arm/lumatv-vplane" | grep -E 'Class|Machine'
-readelf -d "$out/arm/lumatv-vplane" | grep NEEDED
+# (a workstation without binutils still builds: tests/test_vplane_player.py skips every test when this script exits non-zero)
+if command -v readelf > /dev/null; then
+  readelf -h "$out/arm/lumatv-vplane" | grep -E 'Class|Machine'
+  readelf -d "$out/arm/lumatv-vplane" | grep NEEDED
+fi
 ls -la "$out/arm/lumatv-vplane"
