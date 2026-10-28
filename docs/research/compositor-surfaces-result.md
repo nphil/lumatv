@@ -178,14 +178,18 @@ gate (`frames`) has not run yet: it follows the deploy of 5dd1785.
 
 - Deploy 5dd1785 (the system window's first showing) and run `--only shell` (expect 11 of 11), then `--only
   keys,ime,shell,frames` and the full gate; write the frame numbers here.
-- Idle Home still commits at the live wallpaper's tick (10 a second, 3 % of a core): the next step is to hold the tick
-  when nothing visible changes (the wallpaper motion off, or paused, under the shell: the tick then runs only when the
-  clock's hands need a frame), so an idle Home commits about nothing.
+- Idle Home commits at the live wallpaper's tick (10 a second, 3 % of a core at nice 10). Parity with LG's compositor:
+  there too idle Home presents one frame per tick while `wallpaperMotion.enabled` is on (`LumaHome.qml`: the phase and
+  the clock's hands advance on the one 10 Hz tick, "idle Home presents one frame per tick"; the gate's `home-idle`
+  surface measures exactly that), and the clock's second hand rides the same tick (`widgets/ClockWidget.qml`: "the second
+  hand moves on Home's shared tick and nothing else here runs per frame"), so it adds no frame of its own. The live
+  wallpaper is a chosen feature: kept. With the motion off in the theme the tick still runs for the hands; a tick that
+  stops when neither the wallpaper nor the hands change is the one improvement left here. Covered Home stays at 0.
+- The quick panel's "LG" button (LG's own Quick Settings, a window of LG's compositor) is not offered under LumaTV's
+  compositor (`Lu.ownCompositor`, set by the overlay when it finds itself in a window of its own; "All settings" fills
+  the foot). Not yet run on the set (in the next ipk).
 - The PIN prompt on the set needs Nitin (a locked input); the gate has no step for it.
 - The never-filtered alerts (EAS, thermal) cannot be raised on the set from here; `tests/test_notify_panel.py` draws a
   `warning` alert without buttons.
-- LG's own Quick Settings button in the panel (`lgQuick`) asks `systemUIManager/launch com.webos.app.quicksettings`,
-  which under LumaTV's compositor opens LumaTV's panel again: the button is a no-op there until LG's Settings app is
-  offered in its place.
 - The screensaver vote (`panels/SaverVote.qml`) now registers with tvpower in the compositor's name through the bridge;
   whether tvpower accepts the registration from `com.webos.surfacemanager` with LumaTV's client name is a TV question.

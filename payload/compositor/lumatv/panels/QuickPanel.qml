@@ -92,7 +92,7 @@ Item {
         if (footFocus) {
             if (dir === "up") footFocus = false
             else if (dir === "left") footIndex = 0
-            else if (dir === "right") footIndex = 1
+            else if (dir === "right") { if (lgButton.visible) footIndex = 1 }
             else if (dir === "ok") { if (footIndex === 0) openSettingsPage(""); else openLgQuick() }
             else if (dir === "back") closeRequested()
             return
@@ -177,17 +177,19 @@ Item {
                 height: stacked ? 2 * allSettings.height + Lu.space(2) : allSettings.height
                 y: sheet.height - panel.pad - height
                 // side by side while both labels fit, else one above the other: at a large text size nothing overlaps
-                readonly property bool stacked: lgButton.implicitWidth + Lu.space(3) + allSettings.implicitWidth > width
+                readonly property bool stacked: lgButton.visible && lgButton.implicitWidth + Lu.space(3) + allSettings.implicitWidth > width
                 LuButton {
                     id: allSettings
-                    width: foot.stacked ? foot.width : foot.width - lgButton.width - Lu.space(3)
+                    width: foot.stacked || !lgButton.visible ? foot.width : foot.width - lgButton.width - Lu.space(3)
                     text: "All settings"; icon: "settings"
                     focused: panel.footFocus && panel.footIndex === 0; rested: panel.rested; instant: !motion.settled
                     onActivated: { panel.footIndex = 0; panel.footFocus = true; panel.openSettingsPage("") }
                     onHoverFocus: { panel.footIndex = 0; panel.footFocus = true }
                 }
+                // LG's own Quick Settings: a window of LG's compositor, so not offered under LumaTV's own ("All settings" has the rest).
                 LuButton {
                     id: lgButton
+                    visible: !Lu.ownCompositor
                     x: foot.stacked ? 0 : foot.width - width
                     y: foot.stacked ? allSettings.height + Lu.space(2) : 0
                     width: foot.stacked ? foot.width : implicitWidth

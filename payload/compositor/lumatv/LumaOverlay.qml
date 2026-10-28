@@ -80,6 +80,7 @@ Item {
     // Under LumaTV's compositor this layer is a window of its own (compositor/shell/Shell.qml): its panes sample the flat colour through
     // Lu.flatBackdrop (kit/LuPane.qml) and Home's blur stays Home's, since a texture cannot be sampled across windows.
     readonly property bool ownWindow: !!Lu.homeWindow && Window.window !== Lu.homeWindow
+    onOwnWindowChanged: if (ownWindow) Lu.ownCompositor = true
     readonly property bool flatGlass: ownWindow || Lu.backdrop === flatTex       // the glass samples the flat colour, not Home's wallpaper blur
 
     // ---- the surfaces, built once and kept (Resident.qml)

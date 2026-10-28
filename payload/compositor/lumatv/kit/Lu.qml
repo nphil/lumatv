@@ -21,6 +21,9 @@ QtObject {
     // Under LG's compositor everything is one window and these change nothing.
     property var homeWindow: null
     property Item flatBackdrop: null
+    // LumaTV's own compositor is live (the overlay found itself in a window of its own): LG's system windows do not exist there, so a
+    // button that opened one (the quick panel's "LG") is not offered.
+    property bool ownCompositor: false
     property string baseUrl: ""                   // the module directory as a file URL: where icons/ lives
     function iconUrl(name) { return baseUrl + "icons/lucide/" + name + ".png" }
     function logoUrl(name) { return baseUrl + "icons/audio/" + name + ".png" }
