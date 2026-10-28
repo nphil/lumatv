@@ -59,6 +59,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   compositor (`lumatv wallpaper video`, default `gpu`): the GPU wallpaper stops drawing, Home's
   glass stays above it, and the GPU wallpaper returns at once on any player failure. The
   compositor clears video holes in LG's order.
+- LumaTV's own on-screen keyboard, off by default (`lumatv keyboard luma`, back with
+  `lumatv keyboard lg`): the shell client draws it and the compositor binds it to the field, so
+  maliit no longer has to start; layouts follow the field (letters, e-mail, url, symbols, number
+  pad), the D-pad wraps and repeats, the pointer works, and LG's keyboard stays the fallback.
+- Compositor: malloc makes no mmap or trim on the frame path and the loop's memory is pinned;
+  the gate reports the loop's wake-up latency and the kernel waits behind late frames and can run
+  under synthetic background load; a crash bundle is shown in Settings › Support after a
+  fallback; the idle tick runs 10 times a second instead of 60.
+- `npuprobe/`: times a TFLite model on the CPU and through LG's NPU delegate; TV probe script.
+- Cameras: the full view plays the camera live on the video plane through Home Assistant's
+  stream (`cameras.live`, off by default); no camera password reaches the TV.
 - Settings lists: section heads grow with the text and read in the light theme; danger labels
   (Delete Device) and disabled-row text pass contrast at 100% and 200%. Segmented controls,
   status words, the AI access lock row and long page headers pass too: all 98 Settings scenes
