@@ -382,7 +382,7 @@ impl State {
 
     /// [`State::key_event`] at a given time, which is what the holds are measured against (the host tests move it by hand).
     pub fn key_event_at(&mut self, seat: seat::SeatId, code: u32, pressed: bool, from_network: bool, now: Instant) {
-        self.scene.care.input(crate::output::monotonic_ns());
+        self.scene.input(crate::output::monotonic_ns());
         // While the Magic Remote's cursor shows, OK is a click on what it points at (LG's behaviour); an arrow or
         // Back hides the cursor and goes on as a key.
         if matches!(code, code::KEY_ENTER | code::KEY_OK) && self.seat.cursor_visible && self.seat.pointer_focus.is_some() {

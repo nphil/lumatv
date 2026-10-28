@@ -11,6 +11,7 @@ use wayland_backend::server::ObjectId;
 use wayland_server::Resource;
 use wayland_server::protocol::wl_buffer::WlBuffer;
 
+mod boxdim;
 mod previews;
 
 use super::egl::{self, EGLImage, EGLSync, Egl, GLint, GLuint, Platform};
@@ -132,6 +133,8 @@ pub struct Gl {
     warm_lines: u32,
     /// The app switcher's program and the scaled copies of its pictures (`gl/previews.rs`).
     previews: previews::Previews,
+    /// The box dim's gained program, map texture and sample pass (`gl/boxdim.rs`).
+    boxdim: boxdim::BoxDim,
     /// The scratch target a screenshot or recording reads a page back through (`grab_target`): its index among the targets and its size.
     /// Made when the first picture is wanted, given back when the capture is over (`release_grab`), so nothing is held while none runs.
     grab_scratch: Option<(TargetId, u32, u32)>,
@@ -296,6 +299,7 @@ impl Gl {
             standin_tiles: crate::damage::Tiles::new(width, height),
             warm_lines: 0,
             previews: previews::Previews::default(),
+            boxdim: boxdim::BoxDim::default(),
             grab_scratch: None,
             #[cfg(feature = "ui")]
             ui: None,
@@ -776,6 +780,12 @@ impl Gl {
     }
 
     fn draw_quad(&self, tex: GLuint, rect: &Rect, y_invert: bool) {
+        self.draw_quad_with(self.a_pos, self.a_uv, tex, rect, y_invert);
+    }
+
+    /// [`Gl::draw_quad`] with the vertex attributes of the program in use (the plain one's by default, the box dim's gained one through
+    /// `gl/boxdim.rs`).
+    fn draw_quad_with(&self, a_pos: GLuint, a_uv: GLuint, tex: GLuint, rect: &Rect, y_invert: bool) {
         let w = self.width as f32;
         let h = self.height as f32;
         let x0 = rect.x as f32 / w * 2.0 - 1.0;
@@ -795,10 +805,10 @@ impl Gl {
         unsafe {
             (a.glActiveTexture)(egl::GL_TEXTURE0);
             (a.glBindTexture)(egl::GL_TEXTURE_2D, tex);
-            (a.glVertexAttribPointer)(self.a_pos, 2, egl::GL_FLOAT, 0, 16, verts.as_ptr() as *const c_void);
-            (a.glVertexAttribPointer)(self.a_uv, 2, egl::GL_FLOAT, 0, 16, verts.as_ptr().add(2) as *const c_void);
-            (a.glEnableVertexAttribArray)(self.a_pos);
-            (a.glEnableVertexAttribArray)(self.a_uv);
+            (a.glVertexAttribPointer)(a_pos, 2, egl::GL_FLOAT, 0, 16, verts.as_ptr() as *const c_void);
+            (a.glVertexAttribPointer)(a_uv, 2, egl::GL_FLOAT, 0, 16, verts.as_ptr().add(2) as *const c_void);
+            (a.glEnableVertexAttribArray)(a_pos);
+            (a.glEnableVertexAttribArray)(a_uv);
             (a.glDrawArrays)(egl::GL_TRIANGLE_STRIP, 0, 4);
         }
     }
@@ -1143,6 +1153,8 @@ impl Gl {
         if plan.backdrop.is_none() {
             self.free_previews();
         }
+        // The box dim's map on the app's pictures while one is engaged (`gl/boxdim.rs`); nothing of it otherwise.
+        let gained = self.boxdim_frame(plan);
         for (index, item) in plan.items.iter().enumerate() {
             if let Some(b) = plan.backdrop.as_ref().filter(|b| b.before == index) {
                 self.draw_backdrop(b, rects);
@@ -1198,13 +1210,18 @@ impl Gl {
             if let Some(p) = &item.pose {
                 drawn = self.draw_pose_item(tex, p, item.dim, y_invert, rects);
             } else {
+                let through_map = gained && item.gain;
                 for r in rects {
                     let clip = item.rect.intersect(r);
                     if clip.is_empty() {
                         continue;
                     }
                     self.scissor(&clip);
-                    self.draw_quad(tex, &item.rect, y_invert);
+                    if through_map {
+                        self.draw_gained(tex, &item.rect, y_invert, item.dim);
+                    } else {
+                        self.draw_quad(tex, &item.rect, y_invert);
+                    }
                     drawn = true;
                 }
             }
@@ -1556,6 +1573,10 @@ impl Output for Gl {
 
     fn retired(&self) -> usize {
         self.graveyard.len()
+    }
+
+    fn sample_cells(&mut self, plan: &Plan, surfaces: &Surfaces, luma: &mut [u8; crate::boxdim::CELLS]) -> io::Result<bool> {
+        Gl::sample_cells(self, plan, surfaces, luma)
     }
 
     fn forget_buffer(&mut self, buffer: &WlBuffer) {

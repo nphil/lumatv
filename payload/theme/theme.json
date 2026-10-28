@@ -206,6 +206,10 @@
     "appDimTo": 0.75,
     "appShift": false,
     "boxDim": false,
+    "boxDimAfterMin": 3,
+    "boxDimRampSec": 60,
+    "boxDimTo": 0.8,
+    "boxDimMinLuma": 0.35,
     "refreshGuard": false
   },
   "remote": {

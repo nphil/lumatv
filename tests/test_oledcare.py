@@ -13,14 +13,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 THEME = os.path.join(ROOT, "payload", "theme", "theme.json")
 RUST = os.path.join(ROOT, "compositor", "crates", "lumatv-compositor", "src", "oledcare.rs")
+BOXDIM = os.path.join(ROOT, "compositor", "crates", "lumatv-compositor", "src", "boxdim.rs")
 SETTINGS = os.path.join(ROOT, "payload", "compositor", "lumatv", "settings")
 LOOK = os.path.join(SETTINGS, "PageLook.qml")
 SYSTEM = os.path.join(SETTINGS, "PageSystem.qml")
 SRC = os.path.join(ROOT, "compositor", "crates", "lumatv-compositor", "src")
 HELPER = os.path.join(ROOT, "helper", "app", "src")
-
-# Switches whose features are other modules' (their own tests check that those read them): the Settings rows only write them.
-ELSEWHERE = {"boxDim"}
 
 # The switches of the care, in the order of the group, with what the Settings row is called.
 SWITCHES = [("enabled", "LumaTV screens"), ("appDim", "Dim still apps"), ("appShift", "Shift apps"), ("boxDim", "Dim bright still areas"),
@@ -94,6 +92,21 @@ class OledCare(unittest.TestCase):
         self.assertGreaterEqual(self.theme["oledcare"]["appDimTo"], floor_min)
         self.assertTrue(1 <= self.theme["oledcare"]["appDimAfterMin"] <= 10)
 
+    def test_the_box_dims_keys_say_what_its_module_defaults_to_and_its_floor_is_modest(self):
+        care = self.theme["oledcare"]
+        rust = read(BOXDIM)
+        m = re.search(r"Settings \{ on: false, after_ns: (\d+) \* 60 \* SEC, ramp_ns: (\d+) \* SEC, floor: ([0-9.]+), min_luma: ([0-9.]+) \}", rust)
+        self.assertTrue(m, "the Default of boxdim::Settings")
+        self.assertEqual((care["boxDimAfterMin"], care["boxDimRampSec"], care["boxDimTo"], care["boxDimMinLuma"]),
+                         (int(m[1]), int(m[2]), float(m[3]), float(m[4])))
+        floor_min = float(re.search(r"MIN_FLOOR: f32 = ([0-9.]+)", rust)[1])
+        self.assertGreaterEqual(floor_min, 0.75, "a bright box is never dimmed below 75 %")
+        self.assertGreaterEqual(care["boxDimTo"], floor_min)
+        self.assertTrue(1 <= care["boxDimAfterMin"] <= 10)
+        self.assertGreaterEqual(care["boxDimRampSec"], 10, "the dim fades in over tens of seconds")
+        for key in ("boxDim", "boxDimAfterMin", "boxDimRampSec", "boxDimTo", "boxDimMinLuma"):
+            self.assertIn('"%s"' % key, rust, "oledcare.%s is read by boxdim.rs" % key)
+
     def test_the_five_settings_rows_sit_in_system_oled_care_in_order_and_write_the_switches_the_compositor_reads(self):
         text = read(SYSTEM)
         self.assertIn('R.head("LumaTV panel care", 2)', text)
@@ -124,8 +137,6 @@ class OledCare(unittest.TestCase):
                     if f.endswith(".rs"):
                         sources += read(os.path.join(root, f))
         for key in self.theme["oledcare"]:
-            if key in ELSEWHERE:
-                continue
             self.assertIn('"%s"' % key, sources, "oledcare.%s is read by the compositor or the helper" % key)
 
 

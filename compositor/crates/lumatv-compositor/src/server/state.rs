@@ -434,9 +434,10 @@ impl State {
         if !self.luna_state.power.rendering && self.scene.transitions.active() {
             self.scene.transitions.clear();
         }
-        let State { scene, surfaces, output, stats, shell, .. } = self;
+        let State { scene, surfaces, output, stats, shell, screencap, .. } = self;
         scene.care.refresh(now_ns);
         scene.care.saver = shell.ui_state.get("saver").and_then(serde_json::Value::as_bool).unwrap_or(false);
+        scene.boxdim.capturing = screencap.armed();
         let plan = scene.plan_at(surfaces, now_ns);
         let mut drew = false;
         let ui_changed = output.ui_needs_frame().unwrap_or_else(|e| {
@@ -463,7 +464,7 @@ impl State {
         if drew && self.scene.care_frame() {
             self.output.quiet_frame();
         }
-        for line in self.scene.care.take_events() {
+        for line in self.scene.care.take_events().into_iter().chain(self.scene.boxdim.take_journal()) {
             self.journal(line);
         }
         let presented = match self.output.present() {
@@ -473,6 +474,21 @@ impl State {
                 Presented::default()
             }
         };
+        // The box dim's sample (`boxdim`): on a screen still for seconds, the app's pictures at the grid's resolution, read on the GPU
+        // between frames, never beside one.
+        if !drew && !self.output.warming() && self.scene.boxdim.sample_due(now_ns, &self.scene.care.settings.boxdim) {
+            let State { scene, surfaces, output, .. } = self;
+            let mut luma = [0u8; crate::boxdim::CELLS];
+            let began = Instant::now();
+            match output.sample_cells(scene.last_plan(), surfaces, &mut luma) {
+                Ok(true) => scene.boxdim.take_sample(now_ns, &luma, began.elapsed().as_micros() as u32),
+                Ok(false) => scene.boxdim.sample_skipped(now_ns),
+                Err(e) => {
+                    scene.boxdim.sample_skipped(now_ns);
+                    log::warn!("boxdim: sample: {e}");
+                }
+            }
+        }
         let t_presented = Instant::now();
         self.land_flips();
         if drew {

@@ -180,6 +180,13 @@ pub trait Output {
     /// output may call the screen at rest once that frame has flipped, rather than a second after it, so the tick stays at its slowed rate.
     fn quiet_frame(&mut self) {}
 
+    /// The brightness of the app's pictures in the last plan, one 8-bit luma per cell of the box dim's grid (`boxdim`, row 0 the top),
+    /// composed at the grid's resolution with the plan's holes black: what the box dim reads every few seconds on a still screen. `false`
+    /// when the output cannot sample (nothing is dimmed then). The default cannot.
+    fn sample_cells(&mut self, _plan: &Plan, _surfaces: &Surfaces, _luma: &mut [u8; crate::boxdim::CELLS]) -> io::Result<bool> {
+        Ok(false)
+    }
+
     /// `idle_tick_at` for a tick no sooner than `wait` from now (the slowed tick), still on the panel's grid. `None` as there.
     fn idle_tick_after(&self, _now: Instant, _wait: Duration) -> Option<Instant> {
         None

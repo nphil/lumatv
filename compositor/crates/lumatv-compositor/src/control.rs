@@ -21,7 +21,11 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
     let mut words = line.split_whitespace();
     let cmd = words.next().unwrap_or("");
     let reply = match cmd {
-        "status" => json!({
+        "status" => {
+            let now = crate::output::monotonic_ns();
+            let mut oledcare = state.scene.care.status(now);
+            oledcare["boxDim"] = state.scene.boxdim.report(now, &state.scene.care.settings.boxdim);
+            json!({
             "ok": true,
             "summary": state.summary(),
             "output": state.output.name(),
@@ -38,8 +42,9 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             "focus": state.seat.focus.map(|s| s.0),
             "pointer": {"x": state.seat.pointer_position.0, "y": state.seat.pointer_position.1, "visible": state.seat.cursor_visible, "focus": state.seat.pointer_focus.map(|s| s.0), "motions": state.seat.motions, "lastInput": state.seat.last_input},
             "lastCapture": state.last_capture,
-            "oledcare": state.scene.care.status(crate::output::monotonic_ns()),
-        }),
+            "oledcare": oledcare,
+            })
+        }
         "windows" => {
             let app_of =
                 |s: crate::surface::SurfaceId| state.scene.window_of(s).and_then(|w| state.scene.window(w)).map(|w| w.app_id().to_string()).unwrap_or_default();

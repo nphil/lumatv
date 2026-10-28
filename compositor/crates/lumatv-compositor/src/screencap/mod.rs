@@ -236,6 +236,11 @@ impl Screencap {
         self.shots.is_empty() && self.rec.is_none() && self.writing == 0 && !self.armed
     }
 
+    /// A screenshot or recording is on: every frame is composed, and the picture must be the apps' own (the box dim stands aside, `boxdim`).
+    pub fn armed(&self) -> bool {
+        self.armed
+    }
+
     fn factory(&self, settings: &Settings, data_dir: &Path) -> Arc<dyn EncoderFactory> {
         self.factory.clone().unwrap_or_else(|| Arc::new(VencFactory { binary: settings.encoder.clone(), log: data_dir.join("compositor/venc.log") }))
     }

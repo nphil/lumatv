@@ -106,7 +106,7 @@ impl Gl {
     }
 
     /// Puts the current target back as the frame draws into it, after something else was drawn.
-    fn restore_target(&self) {
+    pub(super) fn restore_target(&self) {
         let a = &self.egl.api;
         // SAFETY: state calls on the current context and this renderer's own framebuffer.
         unsafe {

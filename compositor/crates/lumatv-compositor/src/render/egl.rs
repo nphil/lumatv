@@ -70,6 +70,7 @@ pub const EGL_CONDITION_SATISFIED_KHR: EGLint = 0x30F6;
 
 pub const GL_TEXTURE_2D: GLenum = 0x0DE1;
 pub const GL_TEXTURE0: GLenum = 0x84C0;
+pub const GL_TEXTURE1: GLenum = 0x84C1;
 pub const GL_FRAMEBUFFER: GLenum = 0x8D40;
 pub const GL_COLOR_ATTACHMENT0: GLenum = 0x8CE0;
 pub const GL_FRAMEBUFFER_COMPLETE: GLenum = 0x8CD5;
@@ -186,6 +187,7 @@ entry_points! {
     glGetUniformLocation: fn(GLuint, *const c_char) -> GLint;
     glUniform1i: fn(GLint, GLint);
     glUniform1f: fn(GLint, GLfloat);
+    glUniform2f: fn(GLint, GLfloat, GLfloat);
     glUniform4f: fn(GLint, GLfloat, GLfloat, GLfloat, GLfloat);
     glVertexAttribPointer: fn(GLuint, GLint, GLenum, u8, GLsizei, *const c_void);
     glEnableVertexAttribArray: fn(GLuint);

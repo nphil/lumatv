@@ -78,6 +78,8 @@ pub struct Settings {
     pub app_after_ns: u64,
     /// The brightness an app's dim ends at, [`MIN_APP_DIM_TO`] to 1 (`appDimTo`).
     pub app_floor: f32,
+    /// `boxDim` and its tuning keys (`boxdim.rs`).
+    pub boxdim: crate::boxdim::Settings,
 }
 
 impl Default for Settings {
@@ -93,6 +95,7 @@ impl Default for Settings {
             app_shift: false,
             app_after_ns: 3 * 60 * SEC,
             app_floor: 0.75,
+            boxdim: crate::boxdim::Settings::default(),
         }
     }
 }
@@ -117,6 +120,7 @@ impl Settings {
             app_shift: o.get("appShift").and_then(Value::as_bool).unwrap_or(d.app_shift),
             app_after_ns: num("appDimAfterMin").map_or(d.app_after_ns, |v| (v.clamp(1.0, 120.0) * 60.0 * SEC as f64) as u64),
             app_floor: num("appDimTo").map_or(d.app_floor, |v| (v as f32).clamp(MIN_APP_DIM_TO, 1.0)),
+            boxdim: crate::boxdim::Settings::from_object(o),
         }
     }
 }

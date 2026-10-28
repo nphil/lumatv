@@ -18,6 +18,8 @@ pub struct Software {
     /// Premultiplied 0xAARRGGBB, row-major, top-down.
     pixels: Vec<u32>,
     cursor: Vec<u32>,
+    /// The app's pictures composed for the box dim's sample (`sample_cells`), kept between samples; empty until the first.
+    sample: Vec<u32>,
     clock: FrameClock,
     skipped_logged: bool,
 }
@@ -29,6 +31,7 @@ impl Software {
             height,
             pixels: vec![0xff00_0000; (width * height) as usize],
             cursor: super::cursor::sprite_argb(),
+            sample: Vec::new(),
             clock: FrameClock::new(),
             skipped_logged: false,
         }
@@ -246,6 +249,8 @@ impl Output for Software {
                     let shm = shm.clone();
                     let width = self.width as usize;
                     let pixels = &mut self.pixels;
+                    // The box dim's map on an app's picture, sampled per pixel as the GL renderer's texture is (`boxdim`).
+                    let gain = plan.gain().filter(|_| item.gain);
                     shm.pool.with_bytes(|bytes| {
                         for y in clip.y..clip.bottom() {
                             let sy = y - item.rect.y;
@@ -254,6 +259,10 @@ impl Output for Software {
                                 let sx = x - item.rect.x;
                                 if let Some(src) = shm.pixel(bytes, sx, sy) {
                                     let src = if dim < 256 { dimmed(src, dim) } else { src };
+                                    let src = match gain {
+                                        Some(g) => dimmed(src, (g.at(x, y) * 256.0).round() as u32),
+                                        None => src,
+                                    };
                                     let d = &mut pixels[row + x as usize];
                                     *d = blend(*d, src);
                                 }
@@ -299,6 +308,57 @@ impl Output for Software {
             rgba.extend_from_slice(&[(p >> 16) as u8, (p >> 8) as u8, *p as u8, (p >> 24) as u8]);
         }
         Ok(Image { width: self.width, height: self.height, rgba })
+    }
+
+    /// The app's pictures composed over black on the CPU, holes cleared, then each cell's mean luma (Rec. 709 weights on the 8-bit values).
+    fn sample_cells(&mut self, plan: &Plan, _surfaces: &Surfaces, luma: &mut [u8; crate::boxdim::CELLS]) -> io::Result<bool> {
+        use crate::boxdim::{CELL, COLS, ROWS};
+        let (w, h) = (self.width as usize, self.height as usize);
+        let full = Rect::new(0, 0, self.width as i32, self.height as i32);
+        let pixels = &mut self.sample;
+        pixels.clear();
+        pixels.resize(w * h, 0xff00_0000);
+        let fill = |pixels: &mut Vec<u32>, r: &Rect, value: u32| {
+            let r = r.intersect(&full);
+            for y in r.y..r.bottom() {
+                let row = y as usize * w;
+                pixels[row + r.x as usize..row + r.right() as usize].fill(value);
+            }
+        };
+        for (index, item) in plan.items.iter().enumerate() {
+            if !item.gain || item.pose.is_some() || item.ghost {
+                continue;
+            }
+            for hole in plan.holes.iter().filter(|h| h.before == index) {
+                fill(pixels, &hole.rect, 0);
+            }
+            let BufferKindRef::Shm(shm) = kind_of(&item.buffer) else { continue };
+            let shm = shm.clone();
+            let clip = item.rect.intersect(&full);
+            shm.pool.with_bytes(|bytes| {
+                for y in clip.y..clip.bottom() {
+                    let row = y as usize * w;
+                    for x in clip.x..clip.right() {
+                        if let Some(src) = shm.pixel(bytes, x - item.rect.x, y - item.rect.y) {
+                            let d = &mut pixels[row + x as usize];
+                            *d = blend(*d, src);
+                        }
+                    }
+                }
+            });
+        }
+        for r in 0..ROWS {
+            for c in 0..COLS {
+                let mut sum = 0u32;
+                for y in r * CELL as usize..(r + 1) * CELL as usize {
+                    for p in &pixels[y * w + c * CELL as usize..y * w + (c + 1) * CELL as usize] {
+                        sum += (54 * ((p >> 16) & 255) + 183 * ((p >> 8) & 255) + 19 * (p & 255)) >> 8;
+                    }
+                }
+                luma[r * COLS + c] = (sum / (CELL * CELL) as u32) as u8;
+            }
+        }
+        Ok(true)
     }
 }
 

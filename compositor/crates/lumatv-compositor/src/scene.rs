@@ -72,6 +72,8 @@ struct Look {
     ghost: bool,
     /// The surfaces are members drawn below a window whose hole covers them (`Scene::hole_rects`): what the hole covers is not drawn.
     under_hole: bool,
+    /// An app's picture: drawn through the box dim's map while one is engaged (`boxdim`).
+    gain: bool,
 }
 
 /// A card as a transition sees it: its app, its rectangle and whether its picture is (or is about to be) on the video plane.
@@ -228,6 +230,8 @@ pub struct Item {
     pub pose: Option<Posed>,
     /// Drawn for a transition alone: the window left the stack already (the pointer and the keys are not its).
     pub ghost: bool,
+    /// An app window's picture (not the shell's, not the wallpaper's): the box dim's map applies to it while [`Plan::gain`] is on.
+    pub gain: bool,
 }
 
 impl Item {
@@ -254,6 +258,11 @@ pub struct Plan {
     /// When the oldest commit this frame shows for the first time arrived (CLOCK_MONOTONIC ns); `None` when it
     /// shows no new commit (a layout request, the system UI), which is judged as due since the last flip.
     pub content_ns: Option<u64>,
+    /// The box dim's gain map while any cell of it is below 1 (`gain_on`), copied when it changes (`gain_serial` counts the copies, so the
+    /// renderer re-uploads only then). Items with [`Item::gain`] that are not posed are drawn through it.
+    pub gain: crate::boxdim::GainMap,
+    pub gain_on: bool,
+    pub gain_serial: u64,
 }
 
 impl Plan {
@@ -267,6 +276,7 @@ impl Plan {
                     && one.rect == full
                     && one.dim == 1.0
                     && one.pose.is_none()
+                    && !self.gain_on
                     && self.holes.is_empty()
                     && self.cursor.is_none()
                     && self.backdrop.is_none() =>
@@ -279,6 +289,11 @@ impl Plan {
 
     pub fn item_damage(&self, item: &Item) -> Option<&[Rect]> {
         item.damage.map(|(a, b)| &self.damage_rects[a..b])
+    }
+
+    /// The gain map the renderer multiplies app items with, while one is engaged.
+    pub fn gain(&self) -> Option<&crate::boxdim::GainMap> {
+        self.gain_on.then_some(&self.gain)
     }
 
     fn clear(&mut self) {
@@ -307,6 +322,22 @@ struct Placed {
     dim: u8,
     /// The pose it was drawn through, bit for bit: a frame of a transition is never the same as the last.
     pose: Option<[u32; 12]>,
+}
+
+/// Whether two plans show the same surfaces in the same order at the same places, as far as the box dim's grid cares: a dim level or
+/// a drift of up to [`crate::oledcare::Settings::radius`]'s most (4 px, the care's orbit) does not change what is still on the screen, a
+/// different surface, a pose or a move of more does.
+fn same_layout(a: &[Placed], b: &[Placed]) -> bool {
+    a.len() == b.len()
+        && a.iter().zip(b).all(|(p, q)| {
+            p.surface == q.surface
+                && p.pose.is_none()
+                && q.pose.is_none()
+                && (p.rect.x - q.rect.x).abs() <= 4
+                && (p.rect.y - q.rect.y).abs() <= 4
+                && p.rect.w == q.rect.w
+                && p.rect.h == q.rect.h
+        })
 }
 
 #[derive(Default)]
@@ -367,6 +398,8 @@ pub struct Scene {
     pub care: crate::oledcare::Care,
     /// The last plan was drawn for a care beat alone: no window had a commit to draw ([`Scene::care_frame`]).
     care_only: bool,
+    /// The box dim of app pictures (`boxdim`): its grid, and the map the plan carries while it is engaged.
+    pub boxdim: crate::boxdim::BoxDim,
 }
 
 impl Scene {
@@ -778,7 +811,19 @@ impl Scene {
         if drawn.is_empty() {
             return;
         }
-        self.plan.items.push(Item { window, surface, buffer, rect, damage: None, opaque: false, y_invert, dim: 1.0, pose: Some(posed), ghost: true });
+        self.plan.items.push(Item {
+            window,
+            surface,
+            buffer,
+            rect,
+            damage: None,
+            opaque: false,
+            y_invert,
+            dim: 1.0,
+            pose: Some(posed),
+            ghost: true,
+            gain: false,
+        });
     }
 
     /// Looks at what is at the front of the screen against the last plan's: a change starts the transition for it. Then the tracks that
@@ -961,7 +1006,19 @@ impl Scene {
                     self.push_zombie(wid, pose);
                 } else if let Some(z) = self.zombies.iter().find(|z| z.window == wid) {
                     let (buffer, rect, y_invert, surface) = (z.buffer.clone(), z.rect, z.y_invert, z.surface);
-                    self.plan.items.push(Item { window: wid, surface, buffer, rect, damage: None, opaque: false, y_invert, dim: 1.0, pose: None, ghost: true });
+                    self.plan.items.push(Item {
+                        window: wid,
+                        surface,
+                        buffer,
+                        rect,
+                        damage: None,
+                        opaque: false,
+                        y_invert,
+                        dim: 1.0,
+                        pose: None,
+                        ghost: true,
+                        gain: false,
+                    });
                 }
                 continue;
             };
@@ -988,7 +1045,8 @@ impl Scene {
             let owner = w.surface;
             let pose = self.pose_of(wid, now_ns);
             let ghost = self.transitions.active() && !self.stack.iter().any(|(_, _, id)| *id == wid);
-            let look = Look { window: wid, origin, dim, pose, ghost, under_hole: false };
+            let gain = !w.kind.is_shell() && w.kind != WindowType::Wallpaper;
+            let look = Look { window: wid, origin, dim, pose, ghost, under_hole: false, gain };
             self.build_members(owner);
             let m = self.members.len();
             // The members below a window whose hole covers them (Live TV's Dmost and its other layers under the video) are under the plane's
@@ -1089,6 +1147,41 @@ impl Scene {
                 }
             }
         }
+        // The box dim (`boxdim`): what changed on the app's pictures this frame (their own damage, before a redraw of everything below
+        // wipes it), whether the layout changed, and the map's step. A step damages the cells it changed, the items keep their own.
+        let boxdim_settings = self.care.settings.boxdim;
+        self.boxdim.begin();
+        for i in &self.plan.items {
+            if i.gain && !i.ghost {
+                self.boxdim.seen(now_ns, i.drawn_rect(), i.damage.map(|(a, b)| &self.plan.damage_rects[a..b]));
+            }
+        }
+        let blocked = if self.boxdim.capturing {
+            Some(crate::boxdim::Restart::Capture)
+        } else if self.care.saver {
+            Some(crate::boxdim::Restart::Saver)
+        } else if self.transitions.active() {
+            Some(crate::boxdim::Restart::Transition)
+        } else {
+            None
+        };
+        let layout_changed = !same_layout(&self.placed, &self.last_placed) || self.plan.holes != self.last_holes;
+        if let Some(r) = self.boxdim.step(now_ns, &boxdim_settings, blocked, layout_changed) {
+            let r = r.intersect(&output);
+            self.plan.damage = self.plan.damage.union(&r);
+            self.plan.tiles.as_mut().unwrap().add(&r);
+            self.care_only |= !pending;
+        }
+        match self.boxdim.map() {
+            Some((map, serial)) => {
+                if serial != self.plan.gain_serial || !self.plan.gain_on {
+                    self.plan.gain.cells = map.cells;
+                    self.plan.gain_serial = serial;
+                }
+                self.plan.gain_on = true;
+            }
+            None => self.plan.gain_on = false,
+        }
         if std::mem::take(&mut self.redraw_all) || self.placed != self.last_placed || self.plan.holes != self.last_holes {
             let tiles = self.plan.tiles.as_mut().unwrap();
             for r in self
@@ -1138,6 +1231,12 @@ impl Scene {
         self.care_only
     }
 
+    /// A key or the pointer: the OLED care's dims and shifts come back (`oledcare`) and the box dim's grid starts over (`boxdim`).
+    pub fn input(&mut self, now_ns: u64) {
+        self.care.input(now_ns);
+        self.boxdim.input(now_ns);
+    }
+
     /// Damages everything the next plan covers, whatever changed.
     pub fn redraw_all(&mut self) {
         self.redraw_all = true;
@@ -1164,7 +1263,7 @@ impl Scene {
     }
 
     fn push_tree(&mut self, surfaces: &Surfaces, root: SurfaceId, look: Look) {
-        let Look { window, origin, dim, pose, ghost, under_hole } = look;
+        let Look { window, origin, dim, pose, ghost, under_hole, gain } = look;
         surfaces.tree_in_draw_order_into(root, &mut self.tree);
         let n = self.tree.len();
         for k in 0..n {
@@ -1232,7 +1331,7 @@ impl Scene {
             if let Some(c) = s.current.content_ns {
                 self.plan.content_ns = Some(self.plan.content_ns.map_or(c, |p| p.min(c)));
             }
-            self.plan.items.push(Item { window, surface: sid, buffer, rect, damage, opaque, y_invert, dim, pose: posed, ghost });
+            self.plan.items.push(Item { window, surface: sid, buffer, rect, damage, opaque, y_invert, dim, pose: posed, ghost, gain });
         }
     }
 }

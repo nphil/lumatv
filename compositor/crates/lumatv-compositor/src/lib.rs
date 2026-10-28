@@ -11,6 +11,7 @@
 
 #[cfg(test)]
 mod alloc_tests;
+pub mod boxdim;
 pub mod buffer;
 pub mod capture;
 pub mod config;

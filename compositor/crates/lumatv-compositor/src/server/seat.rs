@@ -338,7 +338,7 @@ pub fn pointer_motion(state: &mut State, x: i32, y: i32) -> bool {
     let (x, y) = (x.clamp(0, crate::OUTPUT_WIDTH as i32 - 1), y.clamp(0, crate::OUTPUT_HEIGHT as i32 - 1));
     state.seat.pointer_position = (x, y);
     state.seat.last_input = "pointer";
-    state.scene.care.input(crate::output::monotonic_ns());
+    state.scene.input(crate::output::monotonic_ns());
     set_cursor_visible(state, true);
     state.seat.cursor_shown_at = Some(std::time::Instant::now());
     state.seat.motions += 1;

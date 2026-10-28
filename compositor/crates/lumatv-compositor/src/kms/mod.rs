@@ -869,6 +869,10 @@ impl Output for Kms {
         self.care_draw = true;
     }
 
+    fn sample_cells(&mut self, plan: &Plan, surfaces: &Surfaces, luma: &mut [u8; crate::boxdim::CELLS]) -> io::Result<bool> {
+        self.gl.sample_cells(plan, surfaces, luma)
+    }
+
     /// `idle_tick_at` for the slowed tick: the first refresh's latch on the panel's grid that is at least `wait` away.
     fn idle_tick_after(&self, now: Instant, wait: Duration) -> Option<Instant> {
         let now_ns = self.now_ns();
