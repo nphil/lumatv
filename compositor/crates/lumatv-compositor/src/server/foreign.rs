@@ -196,7 +196,7 @@ impl Dispatch<WlWebosExported, ExportedData> for State {
         state.foreign.placed.remove(&data.window_id);
         if let Some(e) = state.foreign.exported.remove(&data.window_id) {
             for ctx in &e.contexts {
-                let (uri, payload) = luna::video::set_display_window(ctx, None, &Rect::default(), false, None);
+                let (uri, payload) = luna::video::set_display_window(ctx, &Rect::default(), false, None);
                 state.luna_call(uri, payload);
             }
             state.scene.holes.retain(|h| h.surface != e.surface);
@@ -341,10 +341,7 @@ impl State {
         let full_screen = out_rect.x <= 0 && out_rect.y <= 0 && out_rect.right() >= self.config.width as i32 && out_rect.bottom() >= self.config.height as i32;
         let panel = self.panel_rect(&out_rect);
         for ctx in contexts {
-            let (uri, payload) = match (original, source) {
-                (Some(o), Some(s)) => luna::video::set_crop_region(&ctx, &o, &s, &panel, full_screen, None),
-                _ => luna::video::set_display_window(&ctx, source.as_ref(), &panel, full_screen, None),
-            };
+            let (uri, payload) = luna::video::placement(&ctx, original, source, &panel, full_screen);
             self.luna_call(uri, payload);
         }
     }
@@ -378,7 +375,7 @@ impl State {
         }
         // Hidden: a 0x0 window, as LG's container hides a video ("Hidden : hide video. call setDisplayWindow 0x0").
         if let Some(c) = &ctx {
-            let (uri, payload) = luna::video::set_display_window(c, None, &Rect::default(), false, None);
+            let (uri, payload) = luna::video::set_display_window(c, &Rect::default(), false, None);
             self.luna_call(uri, payload);
         }
         self.exported_changed(window_id);

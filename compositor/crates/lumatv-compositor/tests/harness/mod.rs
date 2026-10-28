@@ -53,6 +53,21 @@ use lumatv_wl_protocols::webos_surface_group::client::wl_webos_surface_group::Wl
 use lumatv_wl_protocols::webos_surface_group::client::wl_webos_surface_group_compositor::WlWebosSurfaceGroupCompositor;
 use lumatv_wl_protocols::webos_surface_group::client::wl_webos_surface_group_layer::WlWebosSurfaceGroupLayer;
 
+/// The `display/setDisplayWindow` payloads the compositor has sent, oldest first.
+pub fn placements(s: &mut State) -> Vec<serde_json::Value> {
+    s.luna_sent().iter().filter(|(u, _)| u.ends_with("/setDisplayWindow")).map(|(_, p)| p.clone()).collect()
+}
+
+/// What videooutputd takes (TV round 15: `{"errorCode":4,"errorMessage":"Invalid Parameters"}` for every placement that broke this, the wallpaper's
+/// plane black as a result): a `displayOutput`, a `context`, and a `sourceInput` only together with its `originalInput`.
+pub fn assert_placements_valid(placements: &[serde_json::Value]) {
+    for p in placements {
+        assert!(p.get("displayOutput").is_some_and(|d| d.get("width").is_some() && d.get("height").is_some()), "no displayOutput: {p}");
+        assert!(p.get("context").is_some_and(|c| c.as_str().is_some_and(|c| !c.is_empty())), "no context: {p}");
+        assert_eq!(p.get("sourceInput").is_some(), p.get("originalInput").is_some(), "a source goes with its original input, and only with it: {p}");
+    }
+}
+
 type Job = Box<dyn FnOnce(&mut State) + Send>;
 
 pub struct Server {

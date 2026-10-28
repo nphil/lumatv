@@ -703,14 +703,20 @@ def decoded_pictures(path, size=(480, 270)):
             p.wait()
 
 
-def probe(capture, directory=OUT, clip=None, strip=6):
-    """What `capture` (LG's DISPLAY capture of the screen, 960 x 540 or any 16:9 size) says about the video plane while the wallpaper plays: the
-    outer `strip` pixels (at 480 x 270) are outside everything Home draws (its layout keeps 66 x 54 px of margin at 1080p), so they show the plane
-    alone. The clip's pictures are matched to them by correlation (the picture, and where it is on the screen: the pictures are the screen's size
-    and unshifted, so a match is the geometry), and the brightness is read as a gain and an offset per channel.
-    Returns {"verdict", "why", "clip", "picture", "t", "corr", "ratio", "fit", "margin"}; the verdicts are `black` (the plane shows nothing there:
-    not playing, or the capture cannot see it: the compositor's own capture reads a hole as black, LG's does not), `ok`, `colour` (the picture is the
-    clip's, its brightness is not) and `mismatch` (something else is there)."""
+EDGE = 2          # pixels (at 480 x 270) of a VIDEO capture's edge that are left out: its first row and first columns are darker than the picture
+
+
+def probe(capture, directory=OUT, clip=None, strip=6, whole=False):
+    """What `capture` (960 x 540 or any 16:9 size) says about the video plane while the wallpaper plays. Two kinds of capture:
+    LG's DISPLAY capture, where Home is drawn over the plane: the outer `strip` pixels (at 480 x 270) are outside everything Home draws (its layout
+    keeps 66 x 54 px of margin at 1080p), so they show the plane alone; and LG's VIDEO capture (`whole`), which is the plane alone, so the whole frame
+    is read, less `EDGE` pixels: on the set's VIDEO capture (round 15) the first row is at 40 against 61 and the first column 0.6 against 21, which is
+    what made the margin's reading a correlation of 0.96 and a light of 0.86-0.90 where the whole frame says 0.997 and 0.91-0.95.
+    The clip's pictures are matched to the area by correlation (the picture, and where it is on the screen: the pictures are the screen's size and
+    unshifted, so a match is the geometry), and the light is read as a ratio and as a gain and an offset per channel.
+    Returns {"verdict", "why", "area", "clip", "picture", "t", "corr", "ratio", "fit", "margin"}; the verdicts are `black` (the plane shows nothing
+    there: not playing, or the capture cannot see it: the compositor's own capture reads a hole as black, and so does LG's DISPLAY capture while
+    Home's page is the compositor's), `ok`, `colour` (the picture is the clip's, its light is not within 10 %) and `mismatch` (something else is there)."""
     import numpy as np
     from PIL import Image
     doc = load_manifest(directory)
@@ -718,14 +724,18 @@ def probe(capture, directory=OUT, clip=None, strip=6):
         raise SystemExit("no wall clips in %s" % directory)
     cap = np.asarray(Image.open(capture).convert("RGB").resize((480, 270), Image.BOX)).astype(np.float32)
     m = np.zeros((270, 480), bool)
-    m[:strip] = m[-strip:] = True
-    m[:, :strip] = m[:, -strip:] = True
+    if whole:
+        m[EDGE:-EDGE, EDGE:-EDGE] = True
+    else:
+        m[:strip] = m[-strip:] = True
+        m[:, :strip] = m[:, -strip:] = True
+    area = "frame" if whole else "margin"
     luma = lambda a: a @ np.array([0.299, 0.587, 0.114], np.float32)
     margin = float(luma(cap)[m].mean())
-    out = {"verdict": "black", "why": "", "clip": None, "picture": None, "t": None, "corr": 0.0, "ratio": None, "fit": None, "margin": round(margin, 2)}
+    out = {"verdict": "black", "why": "", "area": area, "clip": None, "picture": None, "t": None, "corr": 0.0, "ratio": None, "fit": None, "margin": round(margin, 2)}
     if margin < 2.0:
-        out["why"] = ("the screen's margin is black (mean luma %.2f): the plane shows no picture there. Not playing, not connected, or the capture cannot see the "
-                      "plane (the compositor's own capture reads a hole as black; LG's DISPLAY capture shows the plane)" % margin)
+        out["why"] = ("the capture's %s is black (mean luma %.2f): the plane shows no picture there. Not playing, not connected, a placement refused (the "
+                      "VIDEO capture says REFUSED_NO_SIGNAL then), or the capture cannot see the plane (the compositor's own capture reads a hole as black)" % (area, margin))
         return out
     cl = luma(cap)[m]
     cl = cl - cl.mean()
@@ -746,17 +756,18 @@ def probe(capture, directory=OUT, clip=None, strip=6):
     fit = [[round(float(v), 3) for v in np.polyfit(pic[m][:, k], cap[m][:, k], 1)] for k in range(3)]      # capture = gain * clip + offset
     out.update(clip=wid, picture=i, t=round(i / float(next(w for w in doc["walls"] if w["id"] == wid)["contentFps"]), 2), corr=round(c, 4),
                ratio=[round(r, 3) for r in ratio], fit=fit)
+    light = "/".join("%.2f" % r for r in ratio)
     if c >= 0.98 and all(0.9 <= r <= 1.1 for r in ratio):
-        out["verdict"], out["why"] = "ok", "the plane shows %s at %.1f s, full screen and unshifted, brightness within 10 %% of the clip's" % (wid, out["t"])
+        out["verdict"], out["why"] = "ok", "the %s shows %s at %.1f s, full screen and unshifted, its light %s (R/G/B) of the clip's" % (area, wid, out["t"], light)
     elif c >= 0.98:
-        out["verdict"], out["why"] = "colour", "the picture is %s's, its brightness is %s of the clip's (gain, offset per channel in `fit`)" % (wid, "/".join("%.2f" % r for r in ratio))
+        out["verdict"], out["why"] = "colour", "the picture is %s's, its light is %s (R/G/B) of the clip's (gain, offset per channel in `fit`)" % (wid, light)
     else:
-        out["verdict"], out["why"] = "mismatch", "the margin shows something, but not a picture of the clip at its place (best correlation %.2f)" % c
+        out["verdict"], out["why"] = "mismatch", "the %s shows something, but not a picture of the clip at its place (best correlation %.2f)" % (area, c)
     return out
 
 
 def cmd_probe(a):
-    r = probe(a.capture, a.dir, a.clip or None)
+    r = probe(a.capture, a.dir, a.clip or None, whole=a.video)
     print(json.dumps(r))
     return 0 if r["verdict"] == "ok" else 1
 
@@ -768,6 +779,7 @@ def main():
     pr.add_argument("capture")
     pr.add_argument("--dir", default=OUT)
     pr.add_argument("--clip", default="")
+    pr.add_argument("--video", action="store_true", help="the capture is LG's VIDEO capture (the plane alone): the whole frame is read, not the margin")
     wl = sub.add_parser("wall")
     wl.add_argument("--out", default=OUT)
     wl.add_argument("--id", default="silk")

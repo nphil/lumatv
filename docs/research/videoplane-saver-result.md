@@ -196,8 +196,8 @@ The way back is `lumatv vplane remove` (the role, the manifest, the binary and t
 - `tests/test_vplane_clips.py` (24) and `tools/vplane_clips.py check --deep`: formats, geometry, QML numbers, contrast.
 - `tests/test_vplane_saver.py`, `tests/test_saver_deck.py`, `tests/artdeck.test.js`: the saver against a stand-in player on the QML host, and against the real player (the request the QML writes is the one the C reads); the shuffle bag across restarts.
 - `tests/test_vplane_install.py` (12), `tests/test_vplane_measure.py` (9).
-- `compositor/crates/lumatv-compositor/tests/vplane_host.rs` (5): the player against the real wayland-server and compositor, the wallpaper hole under Home included; `tests/protocol.rs` takes the new hole order (what an app draws over its own video stays).
-- `tests/test_vplane_wall_clips.py` (26) and `tools/vplane_wall.py check --deep`: the clip's formats, geometry, look against the QML, the seam, the poster numbers, the encoder options, vignette, specular and bloom against the shader's terms, the edge pixels, a look of its own. `tests/test_vplane_player.py`'s `Wall` class (11, the decoder's app id included), `tests/test_lumatv_wallpaper.py` (8), `tests/wallvideo.test.js` (8, the owner's tuned look picks its clip).
+- `compositor/crates/lumatv-compositor/tests/vplane_host.rs` (5): the player against the real wayland-server and compositor, the wallpaper hole under Home included, and the placement videooutputd takes; `tests/protocol.rs` takes the new hole order (what an app draws over its own video stays) and the plain element's placement and hide; `luna.rs` pins every placement's shape.
+- `tests/test_vplane_wall_clips.py` (33, `Probe` reading the set's own captures) and `tools/vplane_wall.py check --deep`: the clip's formats, geometry, look against the QML, the seam, the poster numbers, the encoder options, vignette, specular and bloom against the shader's terms, the edge pixels, a look of its own. `tests/test_vplane_player.py`'s `Wall` class (11, the decoder's app id included), `tests/test_lumatv_wallpaper.py` (8), `tests/wallvideo.test.js` (8, the owner's tuned look picks its clip).
 - `tests/test_vplane_wall.py` (17, QML host): the controller against a stand-in player (start, hole, hand-overs, failure inside a second, retry, ttl, the saver taking the player, clips installed after the shell started), Home's gating, the tint glass, the shell's `wall` topic, and the renders asserted (the plane shows through where Home draws nothing, the glass is the GPU wallpaper's, 7:1 over the worst plane).
 
 ## Tonight's check (TvRound8, Nitin's OK to install)
@@ -318,10 +318,48 @@ the clip's picture (gain 1.01-1.03, offset 0.5-2.3 levels). So the bake (the war
 (`test_vplane_wall_clips.py`, `Probe`). The compositor's side is pinned as well: the hole is the whole screen but Home's pixels (margin and gaps), and videooutputd is asked for `sourceInput` 0,0,1920,1080,
 `displayOutput` 0,0 and the panel's whole size, `fullScreen` true (`vplane_host.rs`).
 
-Next capture (replaces "a clip that covers 1920x1080", which it already does), with `wallpaper video` up and nothing else on screen:
+Next capture (done in round 15, below; replaces "a clip that covers 1920x1080", which it already does), with `wallpaper video` up and nothing else on screen:
 
 1. `luna-send -n 1 luna://com.webos.service.capture/executeOneShot '{"path":"/tmp/d.png","method":"DISPLAY","format":"PNG","width":960,"height":540}'` and the same with `"method":"VIDEO"` (`/tmp/v.png`): the video plane
    alone, as round 8's `60-once-active-video.jpg` did for the saver. `python3 tools/vplane_wall.py probe d.png` says `ok`, `colour` (the plane is the clip's picture and `ratio`/`fit` is its brightness against the clip's:
    if it is dark the fix is a tone curve baked into the clip, from `fit`) or `black`/`mismatch`; the VIDEO capture tells which half is at fault: a picture there and black in DISPLAY is the UI plane over it (the
    compositor), black in both is the pipeline (`No render_status`, a refused placement).
 2. The compositor journal's `luna: setDisplayWindow ...` and the `videooutput: ... answered ...` lines after the switch, and `ctl windows` `video`.
+
+## TV round 2026-10-28 (round 15, `compositor/slot-2026-10-28-r15/wall/`): the placement was refused; the plane's light
+
+The plane stayed black because videooutputd refused the compositor's placement: `setDisplayWindow {context, displayOutput 3840x2160, fullScreen true, sourceInput 1920x1080}` was answered `{"errorCode":4,"errorMessage":"Invalid Parameters"}` (the
+`videooutput:` journal line added after round 14 showed it) and LG's VIDEO capture said `REFUSED_NO_SIGNAL`. The same context with `originalInput` 0,0,1920,1080 as well, or 3840x2160 for both (Netflix's), was accepted; `displayOutput` 1920x1080,
+no `displayOutput` and `fullScreen` false, each without `originalInput`, were refused (`placement-variants.txt`): a `sourceInput` is valid only with its `originalInput`. LG's own compositor sends neither for a plain `set_exported_window`
+(`StarfishViewStateController.qml`, `onSetVideoDisplayWindowRequested`: `displayOutput`, `context`, `fullScreen`), so the `sourceInput` was the compositor's own and every plain exported window got it refused, the saver's too.
+
+### The fix (host-tested)
+
+`luna::video::placement` chooses the call. A crop (`set_crop_region`) is the crop placement as before. A plain `set_exported_window`, which has a source and no original input, is the crop placement with the source as its original input (v1, the
+request the TV took). No source, an empty source or an empty rectangle (hidden) is the plain placement, `video::set_display_window`, which no longer has a source parameter: a source without its original input cannot be built. Pinned by a unit test over
+every combination (`luna.rs`), `assert_placements_valid` on every placement of the protocol and player tests (`tests/harness`), the wallpaper's exact payload (`vplane_host.rs`) and the plain element's placement and hide (`protocol.rs`); the four
+fail on the old behaviour.
+
+### The light: the plane's, not the clip's
+
+The VIDEO capture of the accepted placement is the clip, whole, at its place (`probe --video`: `silk-tuned` at 6.75 s and 15.0 s, correlation 0.997, no shift or scale). Its light against the clip's decode is 0.95 / 0.93 / 0.91 (R / G / B), as a
+gain of 0.93 / 0.93 / 0.92 with no offset. The 0.89 (and the correlation of 0.96) came from reading the margin: the capture's first row is at 40 against 61 and its first column at 0.6 against 21, which the margin's strip took in. `probe --video` reads
+the whole frame less two pixels (at 480x270).
+
+It is not the clip's encode:
+
+- The ratio is flat over the levels 0 to 200 (R 0.92-0.94, G 0.90-0.94, B 0.87-0.92 in bins of 20 levels, on both captures), a gain; an encode or range fault would show an offset or a bend.
+- Round 8's saver print, another clip (8 bits, `great-wave.vpc`) drawn through LG's compositor in the same picture mode (`filmMaker`), reads 0.93 / 0.94 / 0.93 in its VIDEO capture (a JPEG, and the figure moves 0.02 with the decode's scaler); green and blue are the wall's to 0.02 (`test_vplane_wall_clips.py`, `Probe`).
+- The UI plane's pixels in the same kind of capture read 1.01-1.03 of the bake (round 13's DISPLAY capture of the GPU wallpaper), so the video window alone is scaled; the picture engine's processing applies to the video window and not to the UI plane (`gfn-444-vrr-result.md`).
+- The clip is tagged Main10 (Main for the print), BT.709, limited range, and decodes to the bake to a tenth of a level.
+
+A gain with red above blue is what a contrast setting and a warm white balance give [INFERENCE: `filmMaker`'s own settings; the picture mode was not changed]. To make the plane match the GPU wallpaper in this mode the clips would carry
+1.07 / 1.07 / 1.09 (R / G / B) baked in, clipped at 255; not built: the figure is the picture mode's, and the capture is the tap's, not the panel's. At the hand-over the GPU wallpaper fades out over a plane about 7 % darker.
+
+### Still open, for the next TV round
+
+- The DISPLAY capture stays black in the hole after an accepted placement (v1 and v4: the margin's mean luma 0.00) while the VIDEO capture is the clip; round 8's DISPLAY capture under LG's compositor showed the print. Whether LG's capture cannot
+  see the plane under LumaTV's page (the primary plane's XRGB page, `kms/mod.rs`) or the panel shows black there was not looked at. The panel is the check: a photo, and `/proc/lg/de/win0/status` before and after `wallpaper video` (the window's
+  enabled flag and output rectangle) if the file has them.
+- With the fix: `wallpaper video`, then the journal's `luna: setDisplayWindow` (with `originalInput`) and `videooutput: setDisplayWindow ... answered {"returnValue":true}` with no `Invalid Parameters`; `executeOneShot` with `"method":"VIDEO"`
+  and `python3 tools/vplane_wall.py probe --video v.png` (`ok`, with the light); the panel; the GPU wallpaper's fade into the plane (a step of the 7 %); then steps 5 to 10 of "TV steps and measurements" (Mali, flips, `CmaFree`, hand-overs).

@@ -263,27 +263,41 @@ pub mod video {
         json!({"x": r.x, "y": r.y, "width": r.w, "height": r.h})
     }
 
-    /// `displayOutput` is in the panel's pixels, not the compositor's: LG's compositor scales its 1080p rectangle by the
-    /// panel's ratio (the X4 captures of 2026-10-24: a full-screen video leaves videooutputd holding 3840x2160 and the
-    /// Plex player's window 134,196 3584x1964, twice its 1080p rectangle). `full_screen` is what LG sends when the
-    /// element covers the output.
-    pub fn set_display_window(context: &str, source: Option<&Rect>, destination: &Rect, full_screen: bool, app_output: Option<&Rect>) -> (String, Value) {
+    /// LG's plain placement (`setVideoDisplayWindowRequested`): `displayOutput`, `context`, `fullScreen` and, when there is one, `appOutput`; no source,
+    /// and none of the crop's three rectangles. `displayOutput` is in the panel's pixels, not the compositor's: LG's compositor scales its 1080p rectangle
+    /// by the panel's ratio (the X4 captures of 2026-10-24: a full-screen video leaves videooutputd holding 3840x2160 and the Plex player's window
+    /// 134,196 3584x1964, twice its 1080p rectangle). `full_screen` is what LG sends when the element covers the output. A hidden element is this
+    /// with an empty rectangle.
+    pub fn set_display_window(context: &str, destination: &Rect, full_screen: bool, app_output: Option<&Rect>) -> (String, Value) {
         let mut p = json!({"displayOutput": rect(destination), "context": context, "fullScreen": full_screen});
-        if let Some(s) = source {
-            p["sourceInput"] = rect(s);
-        }
         if let Some(a) = app_output.filter(|a| a.w != 0 && a.h != 0) {
             p["appOutput"] = rect(a);
         }
         ("luna://com.webos.service.videooutput/display/setDisplayWindow".into(), p)
     }
 
+    /// LG's crop placement (`setVideoCropRegionRequested`): the three rectangles together. videooutputd refuses a `sourceInput` that has no
+    /// `originalInput` with `{"errorCode":4,"errorMessage":"Invalid Parameters"}` (TV round 15, `slot-2026-10-28-r15/wall/placement-variants.txt`: the
+    /// wallpaper's plane stayed black, the VIDEO capture said `REFUSED_NO_SIGNAL`), so this is the only call that can carry one.
     pub fn set_crop_region(context: &str, original: &Rect, source: &Rect, destination: &Rect, full_screen: bool, app_output: Option<&Rect>) -> (String, Value) {
         let mut p = json!({"originalInput": rect(original), "sourceInput": rect(source), "displayOutput": rect(destination), "context": context, "fullScreen": full_screen});
         if let Some(a) = app_output.filter(|a| a.w != 0 && a.h != 0) {
             p["appOutput"] = rect(a);
         }
         ("luna://com.webos.service.videooutput/display/setDisplayWindow".into(), p)
+    }
+
+    /// The placement of an exported element whose rectangles the app has set: `original` and `source` as `set_crop_region` left them, `destination`
+    /// in the panel's pixels. A crop is a crop placement. `set_exported_window` has a source and no original input: its source is the whole of what is
+    /// exported (LG's compositor sends neither for it), so the original input is that source itself, a crop of nothing, which videooutputd accepts
+    /// (TV round 15, the wallpaper: 1920x1080 for both, the VIDEO capture was then the clip). An element with no source, an empty source or an empty
+    /// destination (hidden) is the plain placement, which is also what LG's own container sends to hide a video.
+    pub fn placement(context: &str, original: Option<Rect>, source: Option<Rect>, destination: &Rect, full_screen: bool) -> (String, Value) {
+        match (original, source) {
+            (Some(o), Some(s)) => set_crop_region(context, &o, &s, destination, full_screen, None),
+            (None, Some(s)) if !s.is_empty() && !destination.is_empty() => set_crop_region(context, &s, &s, destination, full_screen, None),
+            _ => set_display_window(context, destination, full_screen, None),
+        }
     }
 
     pub fn set_property(context: &str, name: &str, value: &str) -> (String, Value) {
@@ -337,19 +351,61 @@ mod tests {
 
     #[test]
     fn placement_payloads_match_lg() {
-        let (uri, p) = video::set_display_window("_ctx", None, &Rect::new(320, 0, 1920, 1080), false, None);
+        let (uri, p) = video::set_display_window("_ctx", &Rect::new(320, 0, 1920, 1080), false, None);
         assert!(uri.ends_with("/display/setDisplayWindow"));
         assert_eq!(p["displayOutput"]["x"], 320);
         assert_eq!(p["displayOutput"]["width"], 1920);
         assert_eq!(p["fullScreen"], false);
-        let (_, p) = video::set_display_window("_ctx", Some(&Rect::new(0, 0, 3840, 2160)), &Rect::new(0, 0, 3840, 2160), true, None);
+        assert!(p.get("sourceInput").is_none() && p.get("originalInput").is_none(), "LG's plain placement has no source");
+        let (_, p) = video::set_crop_region("_ctx", &Rect::new(0, 0, 3840, 2160), &Rect::new(0, 0, 3840, 2160), &Rect::new(0, 0, 3840, 2160), true, None);
         assert_eq!(p["fullScreen"], true);
         assert_eq!(p["sourceInput"]["width"], 3840);
+        assert_eq!(p["originalInput"]["width"], 3840);
         let (uri, p) = video::set_property("_ctx", "mute", "on");
         assert!(uri.contains("avmutemanager/setAvMute"));
         assert_eq!(p["muteOn"], true);
         let (_, p) = video::set_property("_ctx", "fastMode", "on");
         assert_eq!(p["fastMode"], "on");
+    }
+
+    /// TV round 15: videooutputd answered `Invalid Parameters` to every placement that had a `sourceInput` and no `originalInput`, and accepted the
+    /// same placement with both (the wallpaper, 1920x1080 for each), so the plane was black until the compositor sent both.
+    #[test]
+    fn a_source_is_never_sent_without_its_original_input() {
+        let whole = Rect::new(0, 0, 1920, 1080);
+        let panel = Rect::new(0, 0, 3840, 2160);
+        // set_exported_window: a source, no original input: the wallpaper's own placement, as the TV accepted it
+        let (_, p) = video::placement("_ctx_wall", None, Some(whole), &panel, true);
+        assert_eq!(
+            p,
+            serde_json::json!({
+                "context": "_ctx_wall", "fullScreen": true,
+                "originalInput": {"x": 0, "y": 0, "width": 1920, "height": 1080},
+                "sourceInput": {"x": 0, "y": 0, "width": 1920, "height": 1080},
+                "displayOutput": {"x": 0, "y": 0, "width": 3840, "height": 2160},
+            })
+        );
+        // set_crop_region: the app's three rectangles, as they are
+        let (_, p) = video::placement("_ctx_nf", Some(Rect::new(0, 0, 3840, 2160)), Some(Rect::new(10, 20, 3000, 2000)), &panel, false);
+        assert_eq!(p["originalInput"], serde_json::json!({"x": 0, "y": 0, "width": 3840, "height": 2160}));
+        assert_eq!(p["sourceInput"], serde_json::json!({"x": 10, "y": 20, "width": 3000, "height": 2000}));
+        // hidden (an empty rectangle), an empty source, no source: the plain placement, which has neither
+        let empty = Rect::new(0, 0, 0, 0);
+        for (original, source, destination) in [(None, Some(whole), empty), (None, Some(empty), panel), (None, None, panel), (None, None, empty)] {
+            let (_, p) = video::placement("_ctx", original, source, &destination, false);
+            assert!(p.get("sourceInput").is_none() && p.get("originalInput").is_none(), "{p}");
+            assert_eq!(p["displayOutput"]["width"], destination.w);
+        }
+        // whatever the inputs, a source comes with its original input
+        let rects = [None, Some(empty), Some(whole), Some(panel)];
+        for original in rects {
+            for source in rects {
+                for destination in [empty, whole, panel] {
+                    let (_, p) = video::placement("_ctx", original, source, &destination, destination.w >= 1920);
+                    assert_eq!(p.get("sourceInput").is_some(), p.get("originalInput").is_some(), "{original:?} {source:?} {destination:?}: {p}");
+                }
+            }
+        }
     }
 
     #[test]

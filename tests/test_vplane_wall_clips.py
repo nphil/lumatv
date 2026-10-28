@@ -374,6 +374,41 @@ class Encode(unittest.TestCase):
 EVIDENCE = os.path.join(ROOT, "docs", "research", "compositor")
 GPU_CAPTURE = os.path.join(EVIDENCE, "slot-2026-10-28-1300", "wallpaper", "home-gpu-look.png")          # LG's DISPLAY capture, the GPU wallpaper, the owner's look
 PLANE_CAPTURE = os.path.join(EVIDENCE, "slot-2026-10-28-r14", "img", "wall-video-home.png")             # round 14: the video wallpaper's capture
+VIDEO_V1 = os.path.join(EVIDENCE, "slot-2026-10-28-r15", "img", "wallexp-v1-video.jpg")                 # round 15: LG's VIDEO capture, placement v1 (original input = source = 1920x1080)
+VIDEO_V4 = os.path.join(EVIDENCE, "slot-2026-10-28-r15", "img", "wallexp-v4-video.jpg")                 # ... and v4 (3840x2160 for both, Netflix's)
+PRINT_CAPTURE = os.path.join(ROOT, "docs", "research", "round8", "tv-2026-10-25", "60-once-active-video.jpg")     # round 8: the saver's print on the plane, LG's compositor
+
+
+def print_light():
+    """(correlation, light R/G/B) of round 8's VIDEO capture of the saver's print against the print's own clip: another clip (8 bits, 1856 x 1024), another
+    compositor, the same picture mode. The capture's 960 x 540 holds the 1856 x 1024 canvas at (16 + dx/2, 14 + dy/2) for the player's drift, found by
+    correlation; the light is read inside the canvas, 40 px in."""
+    import numpy as np
+    v = vc.read_vpc(os.path.join(SHIPPED, "great-wave.vpc"))
+    with tempfile.TemporaryDirectory() as d:
+        raw = os.path.join(d, "p.hevc")
+        with open(raw, "wb") as f:
+            f.write(b"".join(u for u, _ in v["units"][:2]))
+        vf = "scale=928:512:flags=area:in_range=tv:out_range=pc:in_color_matrix=bt709:out_color_matrix=bt709,format=rgb24"
+        out = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "hevc", "-i", raw, "-frames:v", "1", "-vf", vf, "-f", "rawvideo", "-"],
+                             capture_output=True).stdout
+    pic = np.frombuffer(out, np.uint8).reshape(512, 928, 3).astype(np.float32)
+    cap = np.asarray(Image.open(PRINT_CAPTURE).convert("RGB").resize((960, 540), Image.BOX)).astype(np.float32)
+    luma = lambda a: a @ np.array([0.299, 0.587, 0.114], np.float32)
+    inner = (slice(40, -40), slice(40, -40))
+    b = luma(pic)[inner]
+    b = b - b.mean()
+    best = None
+    for oy in range(0, 29):
+        for ox in range(0, 33):
+            a = luma(cap[oy:oy + 512, ox:ox + 928])[inner]
+            a = a - a.mean()
+            c = float((a * b).sum() / math.sqrt(float((a * a).sum()) * float((b * b).sum()) + 1e-9))
+            if best is None or c > best[0]:
+                best = (c, ox, oy)
+    c, ox, oy = best
+    sub = cap[oy:oy + 512, ox:ox + 928]
+    return c, [float(sub[inner][..., k].mean() / pic[inner][..., k].mean()) for k in range(3)]
 
 
 @unittest.skipUnless(HAVE_PIL and shutil.which("ffmpeg") and os.path.exists(GPU_CAPTURE), "needs Pillow, numpy, ffmpeg and the evidence captures")
@@ -381,7 +416,8 @@ class Probe(unittest.TestCase):
     """`vplane_wall.py probe` on what the set captured. The GPU wallpaper that the TV drew in round 13 (the owner's look) is the baked clip's picture, which
     is the check of the bake against the real thing: the same structure (correlation 0.997 at 22.6 s of the loop, at the same place on the screen, so
     no scaling or shift) and the same light to within 2 to 7 percent. Round 14's capture is black wherever Home draws nothing, margin and gaps between
-    its panes alike (so not a picture 1856 x 1024 in a window: the gaps are inside it): the plane shows nothing in it, or the capture cannot see it."""
+    its panes alike (so not a picture 1856 x 1024 in a window: the gaps are inside it): the plane shows nothing in it, or the capture cannot see it. Round 15
+    found why (videooutputd refused the placement) and the VIDEO capture of the accepted one is the clip, whole, at its place."""
 
     @classmethod
     def setUpClass(cls):
@@ -422,6 +458,43 @@ class Probe(unittest.TestCase):
         self.assertEqual(r["verdict"], "colour", r)
         self.assertGreaterEqual(r["corr"], 0.98)
         self.assertTrue(all(0.78 <= x <= 0.92 for x in r["ratio"]), r)
+
+    def test_the_video_capture_of_an_accepted_placement_is_the_clip_at_its_place_and_the_plane_gives_back_about_93_percent(self):
+        for path, t in ((VIDEO_V1, 6.75), (VIDEO_V4, 15.0)):
+            r = vw.probe(path, SHIPPED, "silk-tuned", whole=True)
+            self.assertEqual(r["verdict"], "ok", r)
+            self.assertGreaterEqual(r["corr"], 0.995, r)
+            self.assertLess(abs(r["t"] - t), 0.5, r)
+            self.assertTrue(all(0.90 <= x <= 0.96 for x in r["ratio"]), r)
+            self.assertTrue(all(0.90 <= gain <= 0.95 for gain, _ in r["fit"]), "a gain: %s" % r["fit"])
+            self.assertTrue(all(abs(offset) < 1.5 for _, offset in r["fit"]), "and no offset: %s" % r["fit"])
+
+    def test_the_margin_reading_of_a_video_capture_is_its_edge_and_not_the_picture(self):
+        whole = vw.probe(VIDEO_V1, SHIPPED, "silk-tuned", whole=True)
+        margin = vw.probe(VIDEO_V1, SHIPPED, "silk-tuned")
+        self.assertEqual(margin["verdict"], "mismatch", margin)          # round 15's first reading: 0.96, and a light of 0.86-0.90
+        self.assertLess(margin["corr"], 0.98)
+        self.assertGreater(whole["corr"], 0.99)
+        self.assertTrue(all(m < w for m, w in zip(margin["ratio"], whole["ratio"])), (margin["ratio"], whole["ratio"]))
+        # the capture's first row and column are what is wrong in the margin: darker than the picture next to them
+        im = Image.open(VIDEO_V1).convert("L")
+        w, h = im.size
+        mean = lambda pts: sum(im.getpixel(p) for p in pts) / len(pts)
+        self.assertLess(mean([(x, 0) for x in range(w)]), 0.8 * mean([(x, 4) for x in range(w)]))
+        self.assertLess(mean([(0, y) for y in range(h)]), 0.2 * mean([(4, y) for y in range(h)]))
+
+    def test_the_savers_print_is_given_back_at_the_same_light_so_the_plane_does_it_and_not_the_wall_clips_encode(self):
+        """The ratio in round 15 (0.95/0.93/0.91) is not the wallpaper clip's: round 8's saver print, a different clip (8 bits, BT.709 limited, drawn by LG's
+        compositor) in the same picture mode, is given back at the same green and blue, over a range of levels from 20 to 200."""
+        c, light = print_light()
+        self.assertGreaterEqual(c, 0.95, c)
+        wall = vw.probe(VIDEO_V1, SHIPPED, "silk-tuned", whole=True)["ratio"]
+        self.assertTrue(all(0.88 <= x <= 0.96 for x in light), light)
+        self.assertLess(abs(light[1] - wall[1]), 0.03, (light, wall))
+        self.assertLess(abs(light[2] - wall[2]), 0.03, (light, wall))
+
+
+
 
 if __name__ == "__main__":
     unittest.main()

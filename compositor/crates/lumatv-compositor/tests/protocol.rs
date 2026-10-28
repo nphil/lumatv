@@ -4,7 +4,7 @@ mod harness;
 
 use std::time::Duration;
 
-use harness::{Client, Server};
+use harness::{Client, Server, assert_placements_valid, placements};
 use lumatv_compositor::window::{ShellState, WindowType};
 use lumatv_wl_protocols::mali_buffer_sharing::client::mali_buffer_sharing::MaliBufferSharing;
 use wayland_client::Proxy;
@@ -509,6 +509,25 @@ fn exported_video_region_becomes_a_hole_and_a_placement_call() {
     assert!(calls.iter().any(|c| c.contains("setCompositing") && c.contains("_ctx_1")), "{calls:?}");
     assert_eq!(video.len(), 1);
     assert_eq!(video[0]["windowId"], window_id);
+
+    // `set_exported_window` has a source and no original input, and videooutputd refuses a source without one ("Invalid Parameters", TV round 15: the
+    // wallpaper's plane stayed black): the source is the original input, a crop of nothing, which the TV took.
+    let placed = server.eval(placements);
+    assert_placements_valid(&placed);
+    let mine = placed.iter().rev().find(|p| p["context"] == "_ctx_1").expect("a placement for the element");
+    assert_eq!(mine["originalInput"], serde_json::json!({"x": 0, "y": 0, "width": 1920, "height": 1080}));
+    assert_eq!(mine["sourceInput"], mine["originalInput"]);
+    assert_eq!(mine["displayOutput"], serde_json::json!({"x": 320, "y": 180, "width": 1920, "height": 1080}));
+    // The app empties the rectangle: hidden with LG's plain placement, which has no source and no original input.
+    let none = client.region(0, 0, 0, 0);
+    exported.set_exported_window(&none, &none);
+    client.roundtrip();
+    std::thread::sleep(Duration::from_millis(20));
+    let placed = server.eval(placements);
+    assert_placements_valid(&placed);
+    let hidden = placed.last().unwrap();
+    assert_eq!((hidden["displayOutput"]["width"].as_i64(), hidden["fullScreen"].as_bool()), (Some(0), Some(false)), "{hidden}");
+    assert!(hidden.get("sourceInput").is_none() && hidden.get("originalInput").is_none(), "{hidden}");
 }
 
 /// Netflix's order (third gate, 2026-10-25): the pipeline attaches its punch-through before the app gives the element a
@@ -529,9 +548,6 @@ fn a_full_screen_video_is_placed_once_its_rectangle_is_known_in_the_panels_pixel
     imported.attach_punchthrough("_ctx_nf".into());
     client.roundtrip();
     assert!(client.wait_until(WAIT, |s| s.punchthrough_attached == vec!["_ctx_nf".to_string()]));
-    let placements = |s: &mut lumatv_compositor::State| -> Vec<serde_json::Value> {
-        s.luna_sent().iter().filter(|(u, _)| u.ends_with("/setDisplayWindow")).map(|(_, p)| p.clone()).collect()
-    };
     assert!(server.eval(placements).is_empty(), "no placement before the element has a rectangle");
 
     let original = client.region(0, 0, 3840, 2160);
@@ -541,6 +557,7 @@ fn a_full_screen_video_is_placed_once_its_rectangle_is_known_in_the_panels_pixel
     client.roundtrip();
     std::thread::sleep(Duration::from_millis(20));
     let placed = server.eval(placements);
+    assert_placements_valid(&placed);
     assert_eq!(placed.len(), 1, "{placed:?}");
     assert_eq!(placed[0]["displayOutput"], serde_json::json!({"x": 0, "y": 0, "width": 3840, "height": 2160}));
     assert_eq!(placed[0]["sourceInput"]["width"], 3840);
@@ -555,6 +572,7 @@ fn a_full_screen_video_is_placed_once_its_rectangle_is_known_in_the_panels_pixel
     client.roundtrip();
     std::thread::sleep(Duration::from_millis(20));
     let placed = server.eval(placements);
+    assert_placements_valid(&placed);
     assert_eq!(placed.len(), 2, "{placed:?}");
     assert_eq!(placed[1]["displayOutput"]["width"], 0);
 }

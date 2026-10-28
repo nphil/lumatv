@@ -13,7 +13,7 @@
 #[path = "harness/mod.rs"]
 mod harness;
 
-use harness::{Client, Server};
+use harness::{Client, Server, assert_placements_valid, placements};
 use parking_lot::Mutex;
 use serde_json::{Value, json};
 use std::os::fd::AsRawFd;
@@ -160,10 +160,6 @@ impl Drop for Player {
     }
 }
 
-fn placements(s: &mut lumatv_compositor::State) -> Vec<Value> {
-    s.luna_sent().iter().filter(|(u, _)| u.ends_with("/setDisplayWindow")).map(|(_, p)| p.clone()).collect()
-}
-
 #[test]
 fn the_player_makes_a_window_the_pipeline_attaches_to_and_the_compositor_places_it() {
     if paths().is_none() {
@@ -216,6 +212,7 @@ fn the_player_makes_a_window_the_pipeline_attaches_to_and_the_compositor_places_
 
     // the placement call carries the picture's rectangle (in the panel's pixels), and the hole is where the picture is
     let calls = server.eval(placements);
+    assert_placements_valid(&calls);
     let mine: Vec<&Value> = calls.iter().filter(|c| c["context"] == "_ctx_vplane").collect();
     assert!(!mine.is_empty(), "{calls:?}");
     let out = &mine.last().unwrap()["displayOutput"];
@@ -453,8 +450,10 @@ fn the_wallpaper_is_a_hole_under_home_and_home_draws_over_it() {
     for (x, y) in [(0, 0), (1919, 1079), (30, 540), (1890, 540), (960, 5), (960, 1075), (300, 200), (1200, 450)] {
         assert_eq!(image.pixel(x, y), [0, 0, 0, 0], "({x}, {y}) is hole");
     }
-    // and videooutputd is asked for the whole panel: the clip's 1920x1080 as the source, the output scaled to the panel's pixels from its corner, full screen
+    // and videooutputd is asked for the whole panel: the clip's 1920x1080 as the source and as the original input (a source alone is refused: TV round 15),
+    // the output scaled to the panel's pixels from its corner, full screen
     let calls = server.eval(placements);
+    assert_placements_valid(&calls);
     let mine = calls.iter().rev().find(|c| c["context"] == "_ctx_wall").unwrap_or_else(|| panic!("a placement for the wallpaper: {calls:?}"));
     let out = &mine["displayOutput"];
     let (ox, oy, ow, oh) = (out["x"].as_i64().unwrap(), out["y"].as_i64().unwrap(), out["width"].as_i64().unwrap(), out["height"].as_i64().unwrap());
@@ -462,6 +461,7 @@ fn the_wallpaper_is_a_hole_under_home_and_home_draws_over_it() {
     assert!(ow >= 1920 && ow % 1920 == 0 && oh % 1080 == 0 && ow / 1920 == oh / 1080, "the whole output at the panel's scale, no margin short of it: {out}");
     assert_eq!(mine["fullScreen"], true);
     assert_eq!(mine["sourceInput"], json!({"x": 0, "y": 0, "width": 1920, "height": 1080}));
+    assert_eq!(mine["originalInput"], json!({"x": 0, "y": 0, "width": 1920, "height": 1080}), "the request the TV took in round 15 (placement-variants.txt, v1)");
     // the shell is told the hole is there (it hides its own wallpaper only then)
     let topic = server.eval(|s| {
         s.shell.connected = true;
