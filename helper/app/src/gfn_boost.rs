@@ -105,9 +105,9 @@ fn set_affinity(tid: i32, cpus: &[usize]) -> io::Result<()> {
 }
 
 fn set_policy(tid: i32, policy: i32, priority: i32) -> io::Result<()> {
-    let param = libc::sched_param {
-        sched_priority: priority,
-    };
+    // SAFETY: sched_param is plain integers; zero is a valid value (musl's has private fields, so no struct literal).
+    let mut param: libc::sched_param = unsafe { std::mem::zeroed() };
+    param.sched_priority = priority;
     // SAFETY: a valid sched_param for the call's duration.
     if unsafe { libc::sched_setscheduler(tid, policy, &param) } < 0 {
         return Err(io::Error::last_os_error());
@@ -122,7 +122,8 @@ impl Sched for RealSched {
         if policy < 0 {
             return Err(io::Error::last_os_error());
         }
-        let mut param = libc::sched_param { sched_priority: 0 };
+        // SAFETY: sched_param is plain integers; zero is a valid value (musl's has private fields, so no struct literal).
+        let mut param: libc::sched_param = unsafe { std::mem::zeroed() };
         if unsafe { libc::sched_getparam(tid, &mut param) } < 0 {
             return Err(io::Error::last_os_error());
         }
