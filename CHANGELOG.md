@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   priority and starts off the loop thread; the system layer stays mapped and is drawn only
   while live, so a toast costs one frame; one late frame no longer shifts the pacer twice; the
   GL context asks for the GPU's realtime priority.
+- Compositor (not live yet): the on-screen keyboard is placed by its window's input region, so
+  it always opens at the bottom; before, maliit's full-screen window sometimes put it at the top.
+- `cutover.sh enable` fails and clears its flag if LumaTV's compositor falls back during the
+  enable; `lumatv revert` restarts LG's compositor when LumaTV's was live.
 - Settings lists: section heads grow with the text and read in the light theme; danger labels
   (Delete Device) and disabled-row text pass contrast at 100% and 200%. Segmented controls,
   status words, the AI access lock row and long page headers pass too: all 98 Settings scenes
