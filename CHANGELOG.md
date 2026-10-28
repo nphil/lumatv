@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- LumaTV's own compositor is live on the TV, persistently, with LG's compositor as the
+  automatic fallback: every safety and function check of the gate passed on firmware
+  10.2.1-5202 (`compositor/firmware/verified.list`). Hold Home for about a second to fall back.
 - Compositor (not live yet): LumaTV's compositor draws LumaTV's own screens. Home, Settings,
   the quick panel, input picker, volume display, toasts, alerts, input popup, PIN prompt and
   screensaver run as a standalone Qt client (qml-runner) in two compositor windows, fed over a

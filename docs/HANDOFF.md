@@ -15,13 +15,18 @@ live with the owner.
   (HomeLabber `run_command` on beastnas running the installer in the Cody container,
   approved on his phone). A yes in chat does not count (PLAN, Decided). A request that
   expires pauses HomeLabber approvals until Nitin resumes them.
-- Helpers: at most 10 at once including nested ones; briefs forbid spawning. One
-  TV owner at a time, deploying from a clean worktree; the compile gate
-  (`tests/qmlhost/compile_all.py`) runs before every package or hand deploy.
-- On the set at 15:36 EDT (10-27): package of 9efedab, LG's compositor, Home stub on,
-  `vt_devmode` on, Nitin watching Netflix. Keyboard keys restyle on, Search and Live TV
-  restyles off, LumaTV's saver owns the idle state on Home, GFN app installed (signed
-  out). Volume bar shows whole numbers and the format logos.
+- Helpers: at most 12 at once; briefs forbid spawning. One TV owner at a time,
+  deploying from a clean worktree; the compile gate (`tests/qmlhost/compile_all.py`)
+  runs before every package or hand deploy. Helpers commit from their own worktrees.
+- Installs: HomeLabber standing grant on `sh /mnt/nvme/appdata/cody/home/tmp/lumatv-install/tv-install.sh`
+  (installs whatever `/data/home/tmp/lumatv-next` points at; one Face ID per 12 h).
+- On the set at 05:50 PDT (10-28): **LumaTV's compositor is live and persistent**
+  (bundle r9 = 808256c + 889bb21 + 09740aa on the 808256c ipk; firmware 10.2.1-5202 in
+  `compositor/firmware/verified.list`), LG's compositor the automatic fallback, Active
+  Standby. Every blocking gate check passed; MINOR items are the Optimisation list in
+  `compositor-gate9-result.md`. Not yet done: the runbook's reboot check. forge/main is
+  well ahead of the set (LPC work, own keyboard, wallpaper, cameras, restyles): the next
+  install of a compositor bundle needs the full gate again before it stays live.
 - Done 2026-10-26: compositor gate 9 (every safety check passes, frame timing fails:
   `compositor-gate9-result.md`); compositor step 1, the remote's keys and the keyboard
   under LumaTV's compositor, passed on the set (`compositor-step1-result.md`); quick
