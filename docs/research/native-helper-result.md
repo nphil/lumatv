@@ -102,7 +102,7 @@ All keys optional; an unknown key or a bad value stops `start` with the reason (
 | `nice` | 10 | scheduling priority given up |
 | `allowedOrigins` | `[]` | browser origins allowed to call the API (a web app would need `"file://"`) |
 | `cameras.enabled`, `port`, `popupKinds`, `popupSeconds`, `cooldownSeconds`, `frameHoldMs`, `maxPictureBytes` | `false`, 6054, person vehicle animal doorbell, 12, 30, 300, 4 MiB | cameras and their event pop-ups through Home Assistant's LumaShow integration (`cameras.rs`, `docs/research/ha-cameras-result.md`); off: nothing listens, nothing is announced, nothing is fetched |
-| `cameras.live`, `feeder`, `feederWindow`, `feederLibrary` | `false`, `<data>/bin/lumatv-gfn-feeder`, `card`, the feeder's default | the live path (`live/`): the full view's camera on the video plane through the GFN feeder; off: pictures only |
+| `cameras.live`, `relay`, `feeder`, `feederWindow`, `feederLibrary` | `false`, `true`, `<data>/bin/lumatv-gfn-feeder`, `card`, the feeder's default | the live path (`live/`): the full view's camera on the video plane through the GFN feeder, relayed by Home Assistant from its own go2rtc (`relay`; sub-second) or fetched as its LL-HLS; off: pictures only |
 
 ## The API (v1)
 

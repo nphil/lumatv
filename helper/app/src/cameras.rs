@@ -325,6 +325,7 @@ impl Cameras {
             crate::live::Deps {
                 feeder,
                 policy: deps.policy,
+                relay: config.relay,
             },
             Box::new(move |view| {
                 hub.set(LIVE_TOPIC, view);
@@ -857,22 +858,66 @@ impl ModuleHandler for LiveModule {
 
     fn on_message(&self, kind: &str, body: &Map<String, Value>) {
         let op = body.get("op").and_then(Value::as_u64).unwrap_or(0);
+        let text = |name: &str| body.get(name).and_then(Value::as_str).unwrap_or("");
         match kind {
             "started" => {
-                let camera = body.get("camera").and_then(Value::as_str).unwrap_or("");
-                let url = body.get("url").and_then(Value::as_str).unwrap_or("");
-                let kind = body.get("kind").and_then(Value::as_str).unwrap_or("hls");
-                if plain_id(camera) && !url.is_empty() {
-                    self.live.started(op, camera, url, kind);
+                let camera = text("camera");
+                if !plain_id(camera) {
+                    return;
                 }
+                let source = match text("kind") {
+                    "relay" => {
+                        let codec = match text("codec") {
+                            "h264" => crate::live::fmp4::Codec::H264,
+                            "h265" | "hevc" => crate::live::fmp4::Codec::H265,
+                            other => {
+                                self.live.failed(
+                                    op,
+                                    "no_stream",
+                                    &format!("a {other} stream is not one this TV decodes"),
+                                );
+                                return;
+                            }
+                        };
+                        let parameter_sets =
+                            esphome_api::base64::decode(text("parameter_sets")).unwrap_or_default();
+                        crate::live::Source::Relay {
+                            stream: body.get("stream").and_then(Value::as_u64).unwrap_or(0) as u16,
+                            codec,
+                            clock: body.get("clock").and_then(Value::as_u64).unwrap_or(90_000)
+                                as u32,
+                            parameter_sets,
+                        }
+                    }
+                    "hls" | "" if !text("url").is_empty() => crate::live::Source::Hls {
+                        url: text("url").to_owned(),
+                    },
+                    other => {
+                        self.live.failed(
+                            op,
+                            "no_stream",
+                            &format!("a {other} stream is not one this TV plays"),
+                        );
+                        return;
+                    }
+                };
+                self.live.started(op, camera, source);
             }
-            "failed" => self.live.failed(
-                op,
-                body.get("code").and_then(Value::as_str).unwrap_or("failed"),
-                body.get("message").and_then(Value::as_str).unwrap_or(""),
+            "failed" => self.live.failed(op, text("code"), text("message")),
+            "ended" => self.live.ended(
+                body.get("stream").and_then(Value::as_u64).unwrap_or(0),
+                text("reason"),
             ),
             _ => {}
         }
+    }
+
+    fn binary_types(&self) -> &'static [u16] {
+        &[crate::live::relay::FRAME_TYPE]
+    }
+
+    fn on_binary(&self, _kind: u16, payload: &[u8]) {
+        self.live.binary(payload);
     }
 }
 

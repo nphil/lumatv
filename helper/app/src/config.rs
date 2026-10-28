@@ -202,6 +202,9 @@ pub struct CamerasConfig {
     /// The live path (`live/`): the full view plays the camera's stream on the video plane through the GFN feeder. Off: the full view
     /// and the grid draw pictures only. Needs `enabled`.
     pub live: bool,
+    /// Ask Home Assistant for the relay (its own go2rtc's restream, sent down the paired channel; sub-second) before HLS (seconds behind).
+    /// Off: HLS only.
+    pub relay: bool,
     /// The feeder program (`lumatv-gfn-feeder`); empty: `bin/lumatv-gfn-feeder` in the data dir, where `lumatv` stages it.
     pub feeder: String,
     /// The window type the feeder owns for a camera (`card`, `overlay`, `screensaver`): the TV check decides which shows over an app.
@@ -223,6 +226,7 @@ impl Default for CamerasConfig {
             frame_hold_ms: 300,
             max_picture_bytes: 4 * 1024 * 1024,
             live: false,
+            relay: true,
             feeder: String::new(),
             feeder_window: "card".to_owned(),
             feeder_library: String::new(),

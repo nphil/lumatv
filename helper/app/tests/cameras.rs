@@ -729,3 +729,309 @@ fn the_full_view_plays_the_stream_on_the_video_plane_through_the_feeder_and_stop
         .expect("failed in words");
     assert_eq!(failed["reason"], "no_stream: the camera has no stream");
 }
+
+/// The milliseconds of the clock the fake NDL library stamps its log with.
+fn monotonic_ms() -> i64 {
+    let mut ts = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: a plain clock read into a timespec this function owns.
+    unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) };
+    ts.tv_sec * 1000 + ts.tv_nsec / 1_000_000
+}
+
+/// `(when in ms, played number)` of every `Play` line of the fake library's log.
+fn ndl_plays(path: &std::path::Path) -> Vec<(i64, u64)> {
+    std::fs::read_to_string(path)
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| {
+            let mut words = l.split_whitespace();
+            (words.next()? == "T").then_some(())?;
+            let when: i64 = words.next()?.parse().ok()?;
+            (words.next()? == "Play").then_some(())?;
+            let number: u64 = words.next()?.trim_start_matches('#').parse().ok()?;
+            Some((when, number))
+        })
+        .collect()
+}
+
+/// The fixture's 30 access units, as the integration's relay would send them (Annex B, the parameter sets before the key pictures).
+fn fixture_units() -> (
+    lumatv_helper::live::fmp4::Init,
+    Vec<lumatv_helper::live::fmp4::AccessUnit>,
+) {
+    use lumatv_helper::live::fmp4;
+    let init = fmp4::parse_init(include_bytes!("fixtures/hls/init.mp4")).unwrap();
+    let mut units = Vec::new();
+    for segment in [
+        &include_bytes!("fixtures/hls/seg0.m4s")[..],
+        &include_bytes!("fixtures/hls/seg1.m4s")[..],
+        &include_bytes!("fixtures/hls/seg2.m4s")[..],
+    ] {
+        units.extend(fmp4::parse_segment(&init, segment).unwrap());
+    }
+    (init, units)
+}
+
+#[test]
+fn the_relay_feeds_each_picture_the_moment_it_arrives_and_a_lost_chunk_loses_one_picture() {
+    use lumatv_helper::live::relay;
+    let Some((program, library)) = host_feeder() else {
+        eprintln!("skipped: the host feeder is not built (sh gfn/feeder/build.sh)");
+        return;
+    };
+    let run_dir = tempfile::tempdir().unwrap();
+    let ndl_log = run_dir.path().join("ndl.log");
+    let spec = lumatv_helper::live::FeederSpec {
+        program,
+        window: "card".into(),
+        library: library.display().to_string(),
+        extra_args: vec!["--no-window".into()],
+        env: vec![
+            ("FAKE_NDL_LOG".into(), ndl_log.display().to_string()),
+            ("FAKE_NDL_VERBOSE".into(), "1".into()),
+            (
+                "LD_LIBRARY_PATH".into(),
+                library.parent().unwrap().display().to_string(),
+            ),
+        ],
+        run_dir: run_dir.path().to_path_buf(),
+    };
+    let mut deps = lumatv_helper::cameras::testing::keyed_deps(KEY);
+    deps.feeder = Some(spec);
+    let mut rig = Rig::new();
+    receiver_off(&rig.paths);
+    let config = test_config(json!({"cameras": {"enabled": true, "live": true, "port": 0}}));
+    rig.start_cameras(config, Script::new(), deps);
+    let topic = rig
+        .wait_topic("cameras", Duration::from_secs(5), |t| t["port"].is_u64())
+        .expect("the bridge listens");
+    let addr: SocketAddr = format!("127.0.0.1:{}", topic["port"].as_u64().unwrap())
+        .parse()
+        .unwrap();
+    let mut ha = FakeIntegration::connect(addr, &KEY).unwrap();
+    ha.hello(&[
+        ("states", 1),
+        ("cameras", 1),
+        ("camera_events", 1),
+        ("camera_live", 1),
+    ])
+    .unwrap();
+    ha.send(&camera_list(
+        "http://127.0.0.1:1/api/camera_proxy/camera.front_door?authSig=x",
+    ))
+    .unwrap();
+
+    assert_eq!(
+        post(
+            rig.addr,
+            "/v1/cameras/live",
+            &json!({"camera": CAMERA}).to_string()
+        )
+        .status,
+        200
+    );
+    // the TV asks for the relay first, HLS after
+    let (op, formats) = ha
+        .recv_where(Duration::from_secs(5), |m| match m {
+            Message::Other { module, kind, body } if module == "camera_live" && kind == "start" => {
+                Some((
+                    body.get("op").and_then(Value::as_u64).unwrap_or(0),
+                    body.get("formats").cloned().unwrap_or(Value::Null),
+                ))
+            }
+            _ => None,
+        })
+        .expect("the TV asks for the stream");
+    assert_eq!(formats, json!(["relay", "hls"]));
+    let (init, units) = fixture_units();
+    assert_eq!(units.len(), 30);
+    let sets = esphome_api::base64::encode(&init.parameter_sets);
+    ha.send(&module_message_of(
+        "camera_live",
+        "started",
+        json!({"op": op, "camera": CAMERA, "kind": "relay", "stream": 5, "codec": "h264", "clock": 90000, "parameter_sets": sets}),
+    ))
+    .unwrap();
+    rig.wait_topic("cameras.live", Duration::from_secs(10), |l| {
+        l["state"] == "starting" && l["kind"] == "relay"
+    })
+    .expect("the feeder is started before the first picture");
+
+    // the pictures at 30 a second, as the camera would send them: each is stamped when it leaves
+    let mut seq = 0u32;
+    let mut left_at: Vec<i64> = Vec::new();
+    let frame_time = Duration::from_millis(33);
+    let started = Instant::now();
+    for (i, unit) in units.iter().enumerate() {
+        let timestamp = (unit.dts * 90_000 / i64::from(init.timescale)) as u32;
+        let frames = relay::frames(5, &mut seq, timestamp, unit.key, &unit.data, 60_000);
+        left_at.push(monotonic_ms());
+        for frame in &frames {
+            ha.send_frame(relay::FRAME_TYPE, frame).unwrap();
+        }
+        let due = started + frame_time * (i as u32 + 1);
+        if let Some(wait) = due.checked_duration_since(Instant::now()) {
+            thread::sleep(wait);
+        }
+    }
+    let playing = rig
+        .wait_topic("cameras.live", Duration::from_secs(10), |l| {
+            l["state"] == "playing"
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "the relay plays: {:?} / ndl: {}",
+                rig.topic("cameras.live"),
+                std::fs::read_to_string(&ndl_log).unwrap_or_default()
+            )
+        });
+    assert_eq!(playing["kind"], "relay");
+    assert_eq!(playing["pieceMs"], 0);
+    assert!(
+        wait_until(Duration::from_secs(5), || ndl_plays(&ndl_log).len() == 30),
+        "every picture reached the (fake) decoder: {}",
+        std::fs::read_to_string(&ndl_log).unwrap_or_default()
+    );
+    // the delay from a picture leaving the integration to the decoder's Play: no segment, no playlist, no wait for the next picture
+    let plays = ndl_plays(&ndl_log);
+    let mut delays: Vec<i64> = plays
+        .iter()
+        .zip(&left_at)
+        .map(|((when, _), left)| when - left)
+        .collect();
+    delays.sort_unstable();
+    let (median, worst) = (delays[delays.len() / 2], *delays.last().unwrap());
+    eprintln!(
+        "relay: integration to decoder on this host: median {median} ms, worst {worst} ms, all {delays:?}"
+    );
+    // the first picture carries the pipeline's load; a loaded host adds spikes, so the worst is held loosely and the median tightly
+    assert!(median <= 20, "median {median} ms: {delays:?}");
+    assert!(worst <= 500, "worst {worst} ms: {delays:?}");
+    assert_eq!(
+        ndl_log_lines(&ndl_log, "VIOLATION"),
+        0,
+        "{}",
+        std::fs::read_to_string(&ndl_log).unwrap_or_default()
+    );
+
+    // a chunk lost on the way: the picture it belonged to is dropped, the next one plays, and the loss is counted
+    let big: Vec<u8> = {
+        let mut d = units[0].data.clone();
+        d.resize(130_000, 0);
+        d
+    };
+    let mut broken = relay::frames(5, &mut seq, 90_000 * 2, false, &big, 60_000);
+    assert_eq!(broken.len(), 3);
+    broken.remove(1);
+    for frame in &broken {
+        ha.send_frame(relay::FRAME_TYPE, frame).unwrap();
+    }
+    for (i, unit) in units.iter().enumerate().skip(1).take(5) {
+        let timestamp = (90_000 * 2 + i as i64 * 3000) as u32;
+        for frame in relay::frames(5, &mut seq, timestamp, unit.key, &unit.data, 60_000) {
+            ha.send_frame(relay::FRAME_TYPE, &frame).unwrap();
+        }
+    }
+    assert!(
+        wait_until(Duration::from_secs(5), || ndl_plays(&ndl_log).len() == 35),
+        "the pictures after the broken one play: {} plays",
+        ndl_plays(&ndl_log).len()
+    );
+    assert!(
+        wait_until(Duration::from_secs(3), || rig
+            .topic("cameras.live")
+            .is_some_and(|l| l["lost"] == 1)),
+        "the loss is counted: {:?}",
+        rig.topic("cameras.live")
+    );
+    assert_eq!(ndl_log_lines(&ndl_log, "VIOLATION"), 0);
+
+    // the restream ends on Home Assistant's side: the TV hears it, the feeder is gone, nothing is left running
+    ha.send(&module_message_of(
+        "camera_live",
+        "ended",
+        json!({"camera": CAMERA, "stream": 5, "reason": "the stream ended"}),
+    ))
+    .unwrap();
+    let ended = rig
+        .wait_topic("cameras.live", Duration::from_secs(5), |l| {
+            l["state"] == "stopped"
+        })
+        .expect("stopped");
+    assert_eq!(ended["reason"], "the stream ended: the stream ended");
+    assert!(
+        wait_until(Duration::from_secs(5), || ndl_log_lines(
+            &ndl_log,
+            "Quit played=35"
+        ) == 1),
+        "the feeder quit: {}",
+        std::fs::read_to_string(&ndl_log).unwrap_or_default()
+    );
+    assert!(
+        !std::fs::read_dir(run_dir.path())
+            .unwrap()
+            .flatten()
+            .any(|e| e.file_name().to_string_lossy().ends_with(".sock")),
+        "the socket is gone"
+    );
+    // a frame of a stream that is over is nothing
+    ha.send_frame(
+        relay::FRAME_TYPE,
+        &relay::frames(5, &mut seq, 1, true, b"x", 60_000)[0],
+    )
+    .unwrap();
+    assert_eq!(rig.topic("cameras.live").unwrap()["state"], "stopped");
+}
+
+#[test]
+fn with_the_relay_off_the_tv_asks_for_hls_only() {
+    let mut deps = lumatv_helper::cameras::testing::keyed_deps(KEY);
+    deps.feeder = Some(lumatv_helper::live::FeederSpec {
+        program: "/nonexistent/feeder".into(),
+        window: "card".into(),
+        library: String::new(),
+        extra_args: Vec::new(),
+        env: Vec::new(),
+        run_dir: std::env::temp_dir(),
+    });
+    let mut rig = Rig::new();
+    receiver_off(&rig.paths);
+    let config =
+        test_config(json!({"cameras": {"enabled": true, "live": true, "relay": false, "port": 0}}));
+    rig.start_cameras(config, Script::new(), deps);
+    let topic = rig
+        .wait_topic("cameras", Duration::from_secs(5), |t| t["port"].is_u64())
+        .expect("the bridge listens");
+    let addr: SocketAddr = format!("127.0.0.1:{}", topic["port"].as_u64().unwrap())
+        .parse()
+        .unwrap();
+    let mut ha = FakeIntegration::connect(addr, &KEY).unwrap();
+    ha.hello(&[("states", 1), ("cameras", 1), ("camera_live", 1)])
+        .unwrap();
+    ha.send(&camera_list(
+        "http://127.0.0.1:1/api/camera_proxy/camera.front_door?authSig=x",
+    ))
+    .unwrap();
+    assert_eq!(
+        post(
+            rig.addr,
+            "/v1/cameras/live",
+            &json!({"camera": CAMERA}).to_string()
+        )
+        .status,
+        200
+    );
+    let asked = ha
+        .recv_where(Duration::from_secs(5), |m| match m {
+            Message::Other { module, kind, body } if module == "camera_live" && kind == "start" => {
+                Some(Value::Object(body.clone()))
+            }
+            _ => None,
+        })
+        .expect("the TV asks for the stream");
+    assert_eq!(asked["formats"], json!(["hls"]));
+    assert_eq!(asked["format"], "hls");
+}
