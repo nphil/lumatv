@@ -2,12 +2,16 @@ import QtQuick 2.4
 import WebOSCompositorBase 1.0
 import WebOSServices 1.0
 import "../kit"
+import "../settings/Capture.js" as Cap
 
 // What the quick panel can show beyond its own list, and what its popups say (docs/mocks/29-qp-add, 29-qp-picker, 29-qp-slider).
 //   rows()        the tiles "Add a tile" offers: each is the settings page's row for the same TV setting, as a quick-panel descriptor (QuickList).
 //                 None is on the panel until the owner adds it (Edit tiles), and each is read when the panel opens (QuickPanel.readTimer).
 //   pickExtras(id) the words and marks a value picker adds to a tile that has choices: what it is for, the glyph of a row, and the grey words at
 //                 a row's right (when the sleep timer would turn the TV off).
+//   Screenshot and Screen recording: offered only while the helper says screen capture is on (`cap`, read with the others when the panel opens;
+//                 settings/PageCapture.qml has the same two with their reasons). A screenshot is taken once the panel has slid away, so the
+//                 picture is of what was under it; a recording starts as the panel closes.
 // A tile with a `popup` field opens that card on OK (a slider for OLED pixel brightness); a stepper opens a value picker made from its own
 // options. Nothing here writes a setting except through the same Sio the Settings pages use.
 QtObject {
@@ -18,7 +22,7 @@ QtObject {
     readonly property var energyValues: ["auto", "off", "min", "med", "max"]
 
     function rows() {
-        return [
+        var list = [
             { id: "screenoff", kind: "action", icon: "monitor", label: "Screen off, sound on", button: "Turn off",
               enabled: function() { return Sio.usable("option.screenOff") },
               act: function() { Sio.write("option.screenOff", "on"); if (panel) panel.closeRequested() } },
@@ -44,6 +48,30 @@ QtObject {
               act: function(v) { Sio.write("picture.eyeComfortMode", v ? "on" : "off") } },
             { id: "bluetooth", kind: "value", icon: "headphones", label: "Bluetooth audio", detail: "Speakers and headphones", value: "",
               act: function() { if (panel) panel.openSettingsPage("sound") } }
+        ]
+        return more.cap.enabled ? list.concat(more.captureRows()) : list
+    }
+
+    property var cap: Cap.state(null)
+    function readCapture() {
+        Helper.request("GET", "/v1/capture", undefined, function(status, doc) { more.cap = Cap.state(status === 200 ? doc : null) })
+    }
+    property Timer shotTimer: Timer {
+        interval: 900     // the panel's slide is 220 ms; its dim and shadow are gone well before this
+        onTriggered: Helper.post("/v1/capture/screenshot", {}, function() { more.readCapture() })
+    }
+    function captureRows() {
+        return [
+            { id: "shot", kind: "action", icon: "camera", label: "Screenshot", button: "Capture",
+              enabled: function() { return more.cap.available },
+              act: function() { if (panel) panel.closeRequested(); more.shotTimer.restart() } },
+            { id: "record", kind: "toggle", icon: "video", label: "Screen recording",
+              enabled: function() { return (more.cap.available && more.cap.encoder) || more.cap.recording },
+              on: function() { return more.cap.recording },
+              act: function(v) {
+                  if (v && panel) panel.closeRequested()
+                  Helper.post(v ? "/v1/capture/record/start" : "/v1/capture/record/stop", {}, function() { more.readCapture() })
+              } }
         ]
     }
     // The keys the candidates read: the panel asks for them when it opens, with the picture mode's

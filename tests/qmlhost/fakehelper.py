@@ -176,6 +176,7 @@ class State:
         self.voice_session = 0
         self.frames = []        # the camera pictures asked for: (camera, w, h), read back at /__frames
         self.crash = None       # the newest crash bundle as helper/app/src/crash.rs says it ({pending, kind, at, reason, ...}); set at POST /__crash
+        self.capture = None     # the `capture` object of helper/app/src/capture.rs's GET /v1/capture (None: switched off); set at POST /__capture
         self.topics["cameras.popup"] = None
 
     def publish(self, topic, data):
@@ -368,6 +369,8 @@ def handler(st):
                 return self.wfile.write(JPEG)
             if u.path == "/v1/crash":
                 return self.send(200, {"ok": True, "api": 1, "now": NOW(), "crash": st.crash})
+            if u.path == "/v1/capture":
+                return self.send(200, {"ok": True, "api": 1, "now": NOW(), "capture": st.capture or {"enabled": False, "available": False}})
             if u.path == "/__posts":
                 return self.send(200, {"posts": st.posts})
             if u.path.startswith("/v1/state/"):         # one topic's newest copy, as the helper's GET /v1/state/{topic}
@@ -454,6 +457,25 @@ def handler(st):
             elif u.path == "/__crash":
                 st.crash = body or None
                 self.send(200, {"ok": True})
+            elif u.path == "/__capture":
+                st.capture = body or None
+                self.send(200, {"ok": True})
+            elif u.path in ("/v1/capture/screenshot", "/v1/capture/record/start", "/v1/capture/record/stop"):
+                # the helper's answers: 403 while the switch is off, the compositor's refusals when the test set one in `refuse`, else done
+                st.posts.append([u.path, body])
+                cap = st.capture or {}
+                refuse = cap.get("refuse")
+                if not cap.get("enabled"):
+                    return self.send(403, {"ok": False, "api": 1, "error": {"code": "capture_disabled", "message": "screen capture is off"}})
+                if refuse:
+                    return self.send(refuse.get("status", 409), {"ok": False, "api": 1, "error": {"code": refuse["code"], "message": "refused"}})
+                if u.path.endswith("/start"):
+                    st.capture = dict(cap, recording=True, recorder={"stage": "recording", "seconds": 3.2})
+                    return self.send(200, {"ok": True, "api": 1, "recording": True, "name": "rec-test.mp4"})
+                if u.path.endswith("/stop"):
+                    st.capture = dict(cap, recording=False, recorder=None)
+                    return self.send(200, {"ok": True, "api": 1, "recording": False, "name": "rec-test.mp4", "seconds": 4.1})
+                self.send(200, {"ok": True, "api": 1, "name": "shot-test.png", "bytes": 812345})
             elif u.path == "/v1/crash/ack":
                 st.posts.append([u.path, body])
                 cleared = bool(st.crash and st.crash.get("pending"))

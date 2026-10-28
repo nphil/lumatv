@@ -79,7 +79,7 @@ Item {
     Timer {
         id: readTimer
         interval: motion.enterMs + 200
-        onTriggered: { Sio.read("picture", ["pictureMode"].concat(more.pictureKeys)); Sio.read("general", ["remotePointer"]); Inputs.refresh(); Power.readSleep() }
+        onTriggered: { Sio.read("picture", ["pictureMode"].concat(more.pictureKeys)); Sio.read("general", ["remotePointer"]); Inputs.refresh(); Power.readSleep(); more.readCapture() }
     }
     onFootFocusChanged: zone = footFocus ? "foot" : "page"
     onZoneChanged: footFocus = (zone === "foot")

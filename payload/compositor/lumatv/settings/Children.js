@@ -29,5 +29,6 @@ var pages = [
     { id: "signalling", title: "HDMI Signalling", icon: "cable", page: "settings/PageSignalling.qml", rail: false, parent: "picture" },
     { id: "permissions", title: "App Permissions", icon: "shield-check", page: "settings/PagePermissions.qml", rail: false, parent: "system" },
     { id: "deletedata", title: "Delete My Personal Information", icon: "eye-off", page: "settings/PageDeleteData.qml", rail: false, parent: "system" },
-    { id: "usbsound", title: "USB Device", icon: "usb", page: "settings/PageUsbSound.qml", rail: false, parent: "sound" }
+    { id: "usbsound", title: "USB Device", icon: "usb", page: "settings/PageUsbSound.qml", rail: false, parent: "sound" },
+    { id: "capture", title: "Screenshots & recording", icon: "camera", page: "settings/PageCapture.qml", rail: false, parent: "system" }
 ];

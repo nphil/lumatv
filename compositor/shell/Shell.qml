@@ -157,6 +157,17 @@ WebOSWindow {
             onStatusChanged: if (status === Loader.Error) console.warn("[Shell] Screensaver failed to load from " + source)
         }
         Binding { target: saver.item; property: "hostActive"; value: homeWin.appFront; when: saver.status === Loader.Ready }
+        // The capture indicator (panels/CaptureMark.qml): the recording dot while the compositor's `capture` topic says one runs, a note when a
+        // capture ends. Above everything else of this layer. The compositor starts no recording, and ends one, without the shell saying in its
+        // state (`capture.dot`) that the dot is up.
+        Loader {
+            id: capture
+            anchors.fill: parent
+            z: 5
+            source: homeWin.moduleUrl + "panels/CaptureMark.qml"
+            onStatusChanged: if (status === Loader.Error) console.warn("[Shell] CaptureMark failed to load from " + source)
+        }
+        Binding { target: capture.item; property: "topic"; value: Link.topics.capture || ({}); when: capture.status === Loader.Ready }
         // LumaTV's own on-screen keyboard (panels/Keyboard.qml): built once in the background, drawn only while a field the compositor serves
         // here asks for it. It takes no keys of this window: the remote's keys reach it as `imekey` events (Link), so that the field's app
         // keeps the keyboard focus. Below the overlay, whose volume display sits at the foot of the screen, where the keyboard's keys are, and
@@ -215,7 +226,10 @@ WebOSWindow {
     readonly property bool kbdLive: !!kbd.item && kbd.item.live
     // the keyboard's panel, for the host tests and the gate (nothing in the shell reads it)
     readonly property var keyboardItem: kbd.item
-    readonly property bool sysLive: (!!overlay.item && (overlay.item.live !== undefined ? overlay.item.live : overlay.item.visible)) || (!!notify.item && notify.item.live) || saverUp || kbdLive
+    // the capture mark, for the host tests and the gate (nothing in the shell reads it)
+    readonly property var captureItem: capture.item
+    readonly property bool captureLive: !!capture.item && capture.item.live
+    readonly property bool sysLive: (!!overlay.item && (overlay.item.live !== undefined ? overlay.item.live : overlay.item.visible)) || (!!notify.item && notify.item.live) || saverUp || kbdLive || captureLive
     // The system layer's window is made (and kept) two seconds after Home loaded, out of the way of Home's own first frames;
     // the walk of its buffers starts a moment after it mapped.
     property bool sysWarm: false
@@ -361,6 +375,7 @@ WebOSWindow {
             toasts: n ? n.toasts.length : 0, alert: !!n && n.alertUp, pin: !!n && n.pinUp, saver: saverUp || (!!h && h.saverUp === true), keys: keysSeen, dropped: keysDropped,
             beat: !!h && h.lastBeatMs > 0, idleHold: !!h && h.idleHold === true, link: { up: Link.up, calls: Link.nextTag, events: Link.events },
             wall: { backend: h ? String(h.videoWallBackend || "") : "", hole: wallHole, up: !!h && h.videoWallUp === true },
+            capture: { dot: !!capture.item && capture.item.dotUp === true },
             keyboard: kbd.item ? { up: kbd.item.wanted, live: kbd.item.live, layout: kbd.item.layoutId, focus: kbd.item.focusAt, key: kbd.item.focusKey ? kbd.item.focusKey.id : "",
                                    shift: kbd.item.shift, listening: voiceListening, voice: kbd.item.voiceOk, busy: kbd.item.busy } : null
         }
@@ -377,6 +392,7 @@ WebOSWindow {
     onOverlayTakesChanged: report()
     onSysLiveChanged: report()
     onHomeCurrentChanged: report()
+    Connections { target: capture.item; ignoreUnknownSignals: true; onDotUpChanged: homeWin.report() }
 
     // ---- the compositor's requests
     property int shows: 0

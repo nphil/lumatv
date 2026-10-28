@@ -61,6 +61,7 @@ PageList {
         C.lgShown(Sio, "time.noOperationAutoOff", R.seg(Sio, { ds: "time.noOperationAutoOff", tab: 0, icon: "power", label: "No Operation Auto Off", help: "No key for this long turns the TV off.",
                      options: ["Off", "3 h", "6 h", "12 h", "24 h"], values: ["off", "3", "6", "12", "24"] })),
         R.link({ tab: 0, id: "safety", icon: "shield", label: "Safety", help: "Which locks are on. A lock changes only with the PIN, in LG's screen.", go: function() { page.host.openPage("safety") } }),
+        R.link({ tab: 0, id: "capture", icon: "camera", label: "Screenshots & recording", go: function() { page.host.openPage("capture") } }),
         R.lg(page, { tab: 0, label: "Open LG settings", help: "LG's full Settings app, themed. For what LumaTV does not cover: the account, apps and channel lists." }),
 
         { kind: "stepper", tab: 1, id: "sleep", icon: "hourglass", label: "Sleep Timer", detail: function() { return Power.sleepLeft },
