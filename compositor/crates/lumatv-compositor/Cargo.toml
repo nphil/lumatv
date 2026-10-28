@@ -14,6 +14,11 @@ path = "src/main.rs"
 name = "lumatv-testclient"
 path = "src/bin/lumatv-testclient.rs"
 
+# Counts system calls on the frame path with a seccomp hook, on the process's first thread (the main arena): no libtest.
+[[test]]
+name = "frame_syscalls"
+harness = false
+
 [dependencies]
 lumatv-wl-protocols = { path = "../wl-protocols", features = ["client"] }
 wayland-server = { workspace = true }

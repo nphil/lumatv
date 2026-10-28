@@ -1,6 +1,6 @@
 #!/bin/sh
 # Builds everything the set needs and assembles compositor/deploy/:
-#   bin/lumatv-compositor, bin/lumatv-testclient   64-bit glibc (cargo zigbuild, glibc 2.36)
+#   bin/lumatv-compositor, bin/lumatv-testclient, bin/lumatv-loadgen   64-bit glibc (cargo zigbuild, glibc 2.36)
 #   bin/x2cli                                       the X2 client, 32-bit, drawing through LG's own libmali
 #   bin/lumatv-sm                                   the C4 supervisor and luna bridge, 32-bit (sm/lumatv-sm.c)
 #   shell/                                          the shell client's QML (compositor/shell: LumaTV's QML on LG's Qt through qml-runner)
@@ -20,7 +20,7 @@ cargo zigbuild --release --target aarch64-unknown-linux-gnu.2.36 -p lumatv-compo
 rm -rf "$out"
 mkdir -p "$out/bin" "$out/lib"
 printf '%s\n' "$features" > "$out/FEATURES"
-cp target/aarch64-unknown-linux-gnu/release/lumatv-compositor target/aarch64-unknown-linux-gnu/release/lumatv-testclient "$out/bin/"
+cp target/aarch64-unknown-linux-gnu/release/lumatv-compositor target/aarch64-unknown-linux-gnu/release/lumatv-testclient target/aarch64-unknown-linux-gnu/release/lumatv-loadgen "$out/bin/"
 x2=$here/../docs/research/arch/x2
 zig cc -target arm-linux-gnueabi.2.28 -O1 -s -o "$out/bin/x2cli" "$x2/x2cli.c" "$x2/../sysroot32/libwayland-client.so.0.20.0" -ldl -Wl,--allow-shlib-undefined
 cp "$m64"/* "$out/lib/"

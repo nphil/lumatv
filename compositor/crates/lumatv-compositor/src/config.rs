@@ -62,6 +62,21 @@ pub struct Config {
     pub shell: ShellMode,
     /// The loopback port of the UI channel the shell client speaks to.
     pub shell_port: u16,
+    /// Whether what the compositor touches is pinned in RAM (`mem::lock`): `auto` locks it when the set's limit and headroom allow.
+    pub mlock: crate::mem::Mlock,
+    /// Where the trace ring is kept (`ring`): by default `lumatv-trace.ring` in the runtime directory, where the supervisor finds it.
+    pub ring: RingSetting,
+    /// The tick's period once the screen is at rest and nothing has happened for a while (`ticker`), ns; 0 keeps the panel's rate.
+    /// `ctl idle MS` changes it while running.
+    pub idle_tick_ns: u64,
+}
+
+/// Where the trace ring lives.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RingSetting {
+    Auto,
+    Off,
+    At(PathBuf),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -101,6 +116,9 @@ impl Default for Config {
             rt_mali: 19,
             shell: ShellMode::Auto,
             shell_port: 18750,
+            mlock: crate::mem::Mlock::Auto,
+            ring: RingSetting::Auto,
+            idle_tick_ns: crate::ticker::IDLE_TICK_NS,
         }
     }
 }
@@ -131,6 +149,12 @@ pub const USAGE: &str = "lumatv-compositor [options]
   --ui-demo              draw the system-layer diagnostic (requires feature ui and gl|kms); LUMATV_UI_DEMO_HZ (ticker rate,
                          default 60) and LUMATV_UI_DEMO_VOLUME_S (the volume bar up 2 s every N s) pace it
   --rt-priority N        SCHED_FIFO priority of the frame loop's thread, 1-99 (default 20; 0 keeps it time-shared)
+  --mlock off|auto       pin the pages the compositor touches in RAM, so memory pressure from the apps in front never evicts or swaps them
+                         (default auto: mlockall on fault, when RLIMIT_MEMLOCK or CAP_IPC_LOCK and the free memory allow)
+  --ring off|auto|PATH   the trace ring: the last seconds of what the loop did, mapped from a file that outlives a crash (default auto:
+                         lumatv-trace.ring in the runtime directory, which the supervisor copies into the crash bundle)
+  --idle-tick-ms N       the tick's period while the screen is at rest and nothing has happened for 250 ms (default 100; 0 keeps the panel's
+                         rate, 60 wake-ups a second doing nothing)
   --rt-mali N            SCHED_FIFO priority of the Mali blob's submission threads, 1-99 (default 19; 0 keeps them time-shared)
   --shell off|auto|PATH  the shell client (LumaTV's QML on LG's Qt through /usr/bin/qml-runner): auto (default) runs it with
                          --input when <bundle>/shell/Shell.qml sits beside this executable's bin/; PATH names another root QML
@@ -139,6 +163,15 @@ pub const USAGE: &str = "lumatv-compositor [options]
 ";
 
 impl Config {
+    /// The file the trace ring is mapped from; `None` when it is off.
+    pub fn ring_path(&self) -> Option<PathBuf> {
+        match &self.ring {
+            RingSetting::Off => None,
+            RingSetting::Auto => Some(self.runtime_dir.join(crate::ring::FILE_NAME)),
+            RingSetting::At(p) => Some(p.clone()),
+        }
+    }
+
     pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Config, String> {
         let mut c = Config::default();
         let mut it = args.into_iter();
@@ -225,6 +258,21 @@ impl Config {
                         p => ShellMode::At(PathBuf::from(p)),
                     }
                 }
+                "--mlock" => {
+                    c.mlock = match value()?.as_str() {
+                        "off" => crate::mem::Mlock::Off,
+                        "auto" => crate::mem::Mlock::Auto,
+                        o => return Err(format!("--mlock takes off or auto, not {o}")),
+                    }
+                }
+                "--ring" => {
+                    c.ring = match value()?.as_str() {
+                        "off" => RingSetting::Off,
+                        "auto" => RingSetting::Auto,
+                        p => RingSetting::At(PathBuf::from(p)),
+                    }
+                }
+                "--idle-tick-ms" => c.idle_tick_ns = value()?.parse::<u64>().map_err(|_| "--idle-tick-ms")? * 1_000_000,
                 "--shell-port" => c.shell_port = value()?.parse().map_err(|_| "--shell-port")?,
                 "-h" | "--help" => return Err(USAGE.to_string()),
                 o => return Err(format!("unknown option {o}\n{USAGE}")),

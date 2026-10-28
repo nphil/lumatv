@@ -21,20 +21,24 @@ pub mod keys;
 pub mod kms;
 pub mod luna;
 pub mod luna_methods;
+pub mod mem;
 pub mod output;
 /// LumaShow's frame pacer, copied verbatim by `tools/sync-lumashow.sh` (`vendor/LUMASHOW_REV` names the commit).
 #[path = "vendor/pacer.rs"]
 pub mod pacer;
 pub mod render;
+pub mod ring;
 pub mod scene;
 pub mod sched;
 pub mod server;
 pub mod shell;
 pub mod surface;
 pub mod system_ui;
+pub mod ticker;
 /// LumaTV's UI engine drawing into the compositor's pages (feature `ui`, `rustui/`).
 #[cfg(feature = "ui")]
 pub mod ui;
+pub mod wake;
 pub mod window;
 
 pub use server::state::State;

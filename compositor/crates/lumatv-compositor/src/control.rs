@@ -177,6 +177,47 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             }
             _ => json!({"ok": false, "error": "callbacks shell early | callbacks shell landing"}),
         },
+        // The process's memory as the frame path sees it: resident, pinned, and what malloc holds from the kernel (`mem::report`).
+        "mem" => crate::mem::report(),
+        // Wake-up latency (`wake`): the loop's distributions as p50/p99/max, zeroed with `wake reset`, and cyclictest-style probe threads
+        // of a scheduling class (`wake probe start [fifo20,fifo19,other] [PERIOD_US]`, `wake probe stop` for what they measured).
+        "wake" => match (words.next(), words.next()) {
+            (None, _) => crate::wake::report(),
+            (Some("reset"), _) => {
+                crate::wake::reset();
+                json!({"ok": true})
+            }
+            (Some("probe"), Some("start")) => {
+                let classes: Vec<crate::wake::Class> = words.next().unwrap_or("fifo20,fifo19,other").split(',').filter_map(crate::wake::Class::parse).collect();
+                let period_us = words.next().and_then(|w| w.parse::<u64>().ok()).unwrap_or(1000).clamp(200, 100_000);
+                if classes.is_empty() {
+                    json!({"ok": false, "error": "wake probe start [fifo1-fifo99|other, comma separated] [PERIOD_US 200-100000]"})
+                } else {
+                    json!({"ok": true, "started": crate::wake::probe_start(&classes, std::time::Duration::from_micros(period_us)), "period_us": period_us})
+                }
+            }
+            (Some("probe"), Some("stop")) => {
+                let done = crate::wake::probe_stop();
+                json!({"ok": true, "probes": done.iter().map(|(c, s)| (c.clone(), crate::wake::summary_json(s))).collect::<serde_json::Map<_, _>>()})
+            }
+            _ => json!({"ok": false, "error": "wake | wake reset | wake probe start [CLASSES] [PERIOD_US] | wake probe stop"}),
+        },
+        // The last lines of the trace ring (`ring`): what the loop did in its last seconds, the lines the crash bundle keeps.
+        "ring" => {
+            let n = words.next().and_then(|w| w.parse::<usize>().ok()).unwrap_or(40);
+            if crate::ring::is_open() {
+                json!({"ok": true, "lines": crate::ring::tail(n)})
+            } else {
+                json!({"ok": false, "error": "no trace ring (--ring off)"})
+            }
+        }
+        // The tick's period while the screen is at rest, in ms (0: the panel's rate), for an A/B on the set: `idle` reads it, `idle MS` sets it.
+        "idle" => {
+            if let Some(ms) = words.next().and_then(|w| w.parse::<u64>().ok()) {
+                state.config.idle_tick_ns = ms * 1_000_000;
+            }
+            json!({"ok": true, "idle_tick_ms": state.config.idle_tick_ns / 1_000_000})
+        }
         "quit" => {
             state.should_exit = true;
             json!({"ok": true})
@@ -190,7 +231,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
         }
         "" => json!({"ok": false, "error": "empty command"}),
         other => {
-            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, key CODE, remote CODE, pointer X Y, click, sched mali fifo|other, callbacks shell early|landing, fallback [reason], quit")})
+            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, key CODE, remote CODE, pointer X Y, click, sched mali fifo|other, callbacks shell early|landing, mem, wake [reset|probe start|probe stop], ring [N], idle [MS], fallback [reason], quit")})
         }
     };
     Reply::Now(reply.to_string())

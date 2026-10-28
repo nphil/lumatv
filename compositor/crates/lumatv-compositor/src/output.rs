@@ -3,7 +3,7 @@
 
 use std::io;
 use std::os::fd::RawFd;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use wayland_server::protocol::wl_buffer::WlBuffer;
 
@@ -110,6 +110,17 @@ pub trait Output {
     /// refresh grid (KMS: the last flip's stamp and whole refreshes since): a frame drawn by a tick that fires a few
     /// milliseconds before a refresh waits a whole one. `None` means one interval from the last tick.
     fn idle_tick_at(&self, _now: Instant) -> Option<Instant> {
+        None
+    }
+
+    /// Whether the screen is at rest: nothing in flight, owed or drawn in the last second, so a tick finds only housekeeping and the
+    /// loop may slow it (`ticker`). The default is no: an output that draws at the tick (the offscreen ones) needs it at its rate.
+    fn idle_ok(&self) -> bool {
+        false
+    }
+
+    /// `idle_tick_at` for a tick no sooner than `wait` from now (the slowed tick), still on the panel's grid. `None` as there.
+    fn idle_tick_after(&self, _now: Instant, _wait: Duration) -> Option<Instant> {
         None
     }
 

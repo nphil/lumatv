@@ -89,4 +89,50 @@ mod tests {
         });
         assert_eq!(n, 0);
     }
+
+    /// A 64x64 shm buffer of ARGB pixels (b, g, r, a) = (1, 2, 3, 4), stride 256.
+    fn pool() -> Vec<u8> {
+        [1u8, 2, 3, 4].repeat(64 * 64)
+    }
+
+    #[test]
+    fn an_shm_upload_reuses_its_rows_buffer_once_it_has_held_the_rectangle() {
+        use crate::render::gl::pack_shm_rows;
+        let bytes = pool();
+        let mut rows = Vec::new();
+        let full = Rect::new(0, 0, 64, 64);
+        assert!(pack_shm_rows(&mut rows, &bytes, 0, 256, 0, &full, false), "the first upload grows the buffer");
+        let n = counted(|| {
+            for k in 0..100 {
+                let r = if k % 2 == 0 { full } else { Rect::new(8, 8, 32, 16) };
+                assert!(pack_shm_rows(&mut rows, &bytes, 0, 256, 0, &r, k % 3 == 0));
+            }
+        });
+        assert_eq!(n, 0, "no allocation for a rectangle that fits what the buffer held");
+    }
+
+    #[test]
+    fn the_rows_are_swapped_or_kept_and_xrgb_is_made_opaque() {
+        use crate::render::gl::pack_shm_rows;
+        let bytes = pool();
+        let r = Rect::new(2, 3, 2, 1);
+        let mut rows = Vec::new();
+        assert!(pack_shm_rows(&mut rows, &bytes, 0, 256, 0, &r, true));
+        assert_eq!(rows, [1, 2, 3, 4, 1, 2, 3, 4], "BGRA upload of ARGB: the bytes as stored");
+        assert!(pack_shm_rows(&mut rows, &bytes, 0, 256, 1, &r, true));
+        assert_eq!(rows, [1, 2, 3, 255, 1, 2, 3, 255], "XRGB: alpha forced opaque");
+        assert!(pack_shm_rows(&mut rows, &bytes, 0, 256, 0, &r, false));
+        assert_eq!(rows, [3, 2, 1, 4, 3, 2, 1, 4], "RGBA upload: red and blue swapped");
+        assert!(pack_shm_rows(&mut rows, &bytes, 0, 256, 1, &r, false));
+        assert_eq!(rows, [3, 2, 1, 255, 3, 2, 1, 255]);
+    }
+
+    #[test]
+    fn a_pool_shorter_than_the_rectangle_is_refused_not_read_past() {
+        use crate::render::gl::pack_shm_rows;
+        let bytes = pool();
+        let mut rows = Vec::new();
+        assert!(!pack_shm_rows(&mut rows, &bytes, 0, 256, 0, &Rect::new(0, 60, 64, 8), true));
+        assert!(!pack_shm_rows(&mut rows, &bytes, 100, 256, 0, &Rect::new(0, 63, 64, 1), true));
+    }
 }

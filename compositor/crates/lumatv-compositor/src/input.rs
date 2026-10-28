@@ -177,6 +177,10 @@ pub struct Device {
     /// The position the pending `SYN_REPORT` will report, and the last one reported.
     pending: Option<(i32, i32)>,
     last: (i32, i32),
+    /// Whether the kernel stamps this device's events with CLOCK_MONOTONIC (`EVIOCSCLOCKID`), and the stamp of the first event of the last read, ns:
+    /// how long the loop took to wake for a key (`wake`).
+    monotonic: bool,
+    stamp_ns: Option<u64>,
 }
 
 impl Device {
@@ -193,11 +197,32 @@ impl Device {
             (Some(x), Some(y)) => Some(AbsRange { x, y }),
             _ => None,
         };
-        Ok(Device { path: path.to_string(), name, from_network, abs, file, buf: [InputEvent::default(); 64], pending: None, last: (-1, -1) })
+        // The default clock of an event is CLOCK_REALTIME; the loop's own are monotonic, and a latency needs both on one.
+        let clock: libc::c_int = libc::CLOCK_MONOTONIC;
+        // SAFETY: EVIOCSCLOCKID reads one int; the device keeps the choice for this descriptor only.
+        let monotonic = unsafe { libc::ioctl(file.as_raw_fd(), EVIOCSCLOCKID, &clock) } == 0;
+        Ok(Device {
+            path: path.to_string(),
+            name,
+            from_network,
+            abs,
+            file,
+            buf: [InputEvent::default(); 64],
+            pending: None,
+            last: (-1, -1),
+            monotonic,
+            stamp_ns: None,
+        })
     }
 
     pub fn fd(&self) -> i32 {
         self.file.as_raw_fd()
+    }
+
+    /// The kernel's stamp (CLOCK_MONOTONIC ns) of the first event of the last read, once; `None` when the device could not be set to a
+    /// monotonic clock or nothing was read since.
+    pub fn take_stamp_ns(&mut self) -> Option<u64> {
+        self.stamp_ns.take()
     }
 
     /// Reads what is pending; `f` per key event (repeats are reported as presses) and per pointer motion.
@@ -214,6 +239,9 @@ impl Device {
             };
             for i in 0..n / size {
                 let ev = self.buf[i];
+                if self.monotonic && self.stamp_ns.is_none() && ev.tv_sec != 0 {
+                    self.stamp_ns = Some(ev.tv_sec as u64 * 1_000_000_000 + ev.tv_usec as u64 * 1000);
+                }
                 match ev.kind {
                     EV_KEY => f(Event::Key { code: ev.code as u32, pressed: ev.value != 0 }),
                     EV_ABS => {
@@ -246,6 +274,9 @@ impl Device {
         }
     }
 }
+
+/// `EVIOCSCLOCKID` (`_IOW('E', 0xa0, int)`): the clock the kernel stamps this descriptor's events with.
+const EVIOCSCLOCKID: libc::c_ulong = 0x4004_45a0;
 
 const fn eviocgname(len: usize) -> libc::c_ulong {
     // _IOC(_IOC_READ, 'E', 0x06, len)

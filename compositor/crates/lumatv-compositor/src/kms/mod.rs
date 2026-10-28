@@ -197,6 +197,9 @@ const IDLE_TYPICAL_CAP_NS: u64 = 6_000_000;
 /// slowest recent pipeline and its slack: one slow frame leaving the window moves it 3-4 ms later at once, and the
 /// client's swaps (its buffer releases, one per tick) showed that as gaps of 20.7 and 20.9 ms on the tenth gate.
 const LATCH_STEP_NS: u64 = 1_000_000;
+/// How long nothing may have been drawn or flipped before the output calls the screen at rest (`Output::idle_ok`): a frame owed by something
+/// that is not an event (a stand-in, a warm) is drawn within a few refreshes, so a second without one is a still screen.
+const IDLE_QUIET_NS: u64 = 1_000_000_000;
 
 fn other(msg: impl Into<String>) -> io::Error {
     io::Error::other(msg.into())
@@ -831,6 +834,25 @@ impl Output for Kms {
         if self.trace_left > 0 {
             log::info!("trace: idle tick at {:.3} on the grid ({:.1} ms before the refresh)", latch as f64 / 1e9, budget as f64 / 1e6);
         }
+        Some(now + Duration::from_nanos(latch.saturating_sub(now_ns)))
+    }
+
+    /// At rest: no flip pending, no frame queued or drawn and waiting, no driver buffer warming, no stand-in owed, and nothing drawn or flipped
+    /// for [`IDLE_QUIET_NS`]. What the loop's tick does then is housekeeping (`ticker`).
+    fn idle_ok(&self) -> bool {
+        !self.held
+            && !self.pending_flip
+            && self.queued.is_none()
+            && self.last_assignment.is_none()
+            && !self.gl.standin_due()
+            && self.now_ns().saturating_sub(self.last_draw_ns.max(self.timing.last_flip_ns())) >= IDLE_QUIET_NS
+    }
+
+    /// `idle_tick_at` for the slowed tick: the first refresh's latch on the panel's grid that is at least `wait` away.
+    fn idle_tick_after(&self, now: Instant, wait: Duration) -> Option<Instant> {
+        let now_ns = self.now_ns();
+        let budget = self.timing.pacer.forecast().typical_ns.min(IDLE_TYPICAL_CAP_NS) + IDLE_LEAD_NS;
+        let latch = self.timing.grid_latch_ns(now_ns + wait.as_nanos() as u64, budget, GRID_MEMORY_NS)?;
         Some(now + Duration::from_nanos(latch.saturating_sub(now_ns)))
     }
 

@@ -14,7 +14,7 @@ use lumatv_compositor::output::{Output, monotonic_ns};
 use lumatv_compositor::render::gl::{BufferPath, Gl};
 use lumatv_compositor::render::software::Software;
 use lumatv_compositor::server::state::{ClientHandler, State};
-use lumatv_compositor::{control, luna, sched};
+use lumatv_compositor::{control, luna, mem, ring, sched, ticker, wake};
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -72,12 +72,23 @@ impl log::Log for StderrLogger {
         unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) };
         let t = ts.tv_sec as f64 + ts.tv_nsec as f64 / 1e9;
         let _ = writeln!(io::stderr().lock(), "[srv {t:10.3}] {} {}", record.level().as_str().to_ascii_lowercase(), record.args());
+        // Every line the compositor logs is also in the trace ring, in order with the loop's own events, for the crash bundle.
+        ring::note(format_args!("{} {}", record.level().as_str().to_ascii_lowercase(), record.args()));
     }
 
     fn flush(&self) {}
 }
 
 fn run(config: Config) -> io::Result<()> {
+    // Memory first, before the display, the GL driver and the first thread exist: whatever the frame path allocates or touches from
+    // here on is under it (`mem`: no mmap/brk/trim in steady state, the touched pages pinned).
+    let refused = mem::tune_malloc();
+    if !refused.is_empty() {
+        log::warn!("mem: malloc refused {}", refused.join(", "));
+    }
+    let grown = mem::pregrow(mem::PREGROW);
+    log::info!("mem: heap grown {} MiB in {:.1} ms; malloc takes no mmap, no trim", mem::PREGROW >> 20, grown.as_secs_f64() * 1e3);
+    log::info!("mem: {}", mem::lock(config.mlock));
     // A runtime directory of its own is private; LG's (/tmp/xdg, root:compositor 0770, made by the unit's
     // ExecStartPre) keeps its mode, since every client relies on the group bit to reach the socket.
     if !config.runtime_dir.is_dir() {
@@ -86,6 +97,16 @@ fn run(config: Config) -> io::Result<()> {
     }
     // SAFETY: setting an environment variable at start-up, before any thread exists.
     unsafe { std::env::set_var("XDG_RUNTIME_DIR", &config.runtime_dir) };
+    // The trace ring, where the supervisor finds it after a crash (the runtime directory is tmpfs): opened once the directory exists.
+    if let Some(path) = config.ring_path() {
+        match ring::open(&path, ring::SIZE) {
+            Ok(()) => {
+                ring::install_panic_hook();
+                log::info!("ring: {} ({} KiB of text)", path.display(), ring::SIZE >> 10);
+            }
+            Err(e) => log::warn!("ring: {}: {e}", path.display()),
+        }
+    }
     if let Some(dir) = &config.capture_dir {
         std::fs::create_dir_all(dir)?;
     }
@@ -182,7 +203,7 @@ fn run(config: Config) -> io::Result<()> {
             log::info!("mali thread: {line}");
         }
     }
-    let timer = timerfd(config.tick_ns)?;
+    let mut tick = ticker::Tick::new(config.tick_ns)?;
     let epoll = Epoll::new()?;
     const TAG_WL: u64 = 1;
     const TAG_LISTEN: u64 = 2;
@@ -196,7 +217,7 @@ fn run(config: Config) -> io::Result<()> {
     const TAG_SHELL: u64 = 11;
     epoll.add(display.backend().poll_fd().as_raw_fd(), TAG_WL)?;
     epoll.add(listener.as_raw_fd(), TAG_LISTEN)?;
-    epoll.add(timer.as_raw_fd(), TAG_TICK)?;
+    epoll.add(tick.raw_fd(), TAG_TICK)?;
     if let Some(l) = &control_listener {
         epoll.add(l.as_raw_fd(), TAG_CONTROL)?;
     }
@@ -228,8 +249,9 @@ fn run(config: Config) -> io::Result<()> {
     // After --frames is reached the server stays up to 2 s more while a client is connected, so the client's own
     // teardown (eglTerminate, buffer destroys) is served rather than cut with a connection reset.
     let mut linger_until: Option<Instant> = None;
-    // Whether the tick is a one-shot at the output's latch (true) or the fixed interval (false).
-    let mut paced = false;
+    // The one-second snapshot of the ring: when it was last written, and the frames the last pass found drawn.
+    let mut snapshot_at_ns = monotonic_ns();
+    let mut drawn_seen = 0u64;
     // When the last pass ended and what it handled, and the last flip stamp read: a flip the loop reached late is
     // told from them whether the loop was busy when it landed or woke late for it.
     let mut pass_end_ns = monotonic_ns();
@@ -259,8 +281,13 @@ fn run(config: Config) -> io::Result<()> {
         // pass (a tick's draw, a client's buffer import) would delay those by its own length.
         events[..n].sort_by_key(|ev| ev.u64 != TAG_OUTPUT);
         let mut handled = 0u32;
+        let mut saw_event = false;
         for ev in &events[..n] {
             let tag = ev.u64;
+            if tag != TAG_TICK {
+                tick.calm.event(woke_ns, tag & TAG_INPUT != 0);
+                saw_event = true;
+            }
             handled |= 1
                 << (if tag & TAG_INPUT != 0 {
                     7
@@ -281,16 +308,19 @@ fn run(config: Config) -> io::Result<()> {
                     }
                 }
                 TAG_TICK => {
-                    let mut expirations = [0u8; 8];
-                    // SAFETY: reading the 8-byte expiration count the timerfd owes.
-                    unsafe { libc::read(timer.as_raw_fd(), expirations.as_mut_ptr() as *mut libc::c_void, 8) };
+                    let expirations = tick.read_expirations();
+                    if let Some(late) = wake::tick_fired(woke_ns, pass_end_ns, expirations, tick.period_ns())
+                        && late > 500_000
+                    {
+                        ring::note(format_args!("W tick +{} us", late / 1000));
+                    }
                     #[cfg(feature = "ui")]
                     if let Some(demo) = &mut ui_demo {
                         demo.tick(lumatv_render::now_ns())?;
                     }
                     state.tick();
                     state.poll_holds();
-                    rearm(&timer, &state, &mut paced, config.tick_ns)?;
+                    tick.rearm(&state, config.tick_ns)?;
                 }
                 TAG_OUTPUT => {
                     // Page flips landed: the pacer learned their timestamps, a frame waiting behind the flip went
@@ -298,7 +328,7 @@ fn run(config: Config) -> io::Result<()> {
                     // first flip of a run is what teaches the pacer the panel's phase, and a fixed tick that fired
                     // before the next latch drew X1's second frame alone on the tenth gate.
                     state.land_flips();
-                    rearm(&timer, &state, &mut paced, config.tick_ns)?;
+                    tick.rearm(&state, config.tick_ns)?;
                 }
                 TAG_LUNA => {
                     luna_poll(&mut state);
@@ -308,13 +338,13 @@ fn run(config: Config) -> io::Result<()> {
                     if state.ui_wake() {
                         handled |= 1 << 9;
                         state.tick();
-                        rearm(&timer, &state, &mut paced, config.tick_ns)?;
+                        tick.rearm(&state, config.tick_ns)?;
                     }
                 }
                 TAG_SHELL => {
                     if state.shell_poll() {
                         handled |= 1 << 9;
-                        rearm(&timer, &state, &mut paced, config.tick_ns)?;
+                        tick.rearm(&state, config.tick_ns)?;
                     }
                 }
                 TAG_CONTROL => {
@@ -341,6 +371,12 @@ fn run(config: Config) -> io::Result<()> {
                                 n += 1;
                             }
                         });
+                        if let Some(stamp) = d.take_stamp_ns() {
+                            let late = wake::record(&wake::INPUT, stamp, woke_ns, pass_end_ns);
+                            if late > 500_000 {
+                                ring::note(format_args!("W input +{} us", late / 1000));
+                            }
+                        }
                         for &ev in &evs[..n] {
                             match ev {
                                 lumatv_compositor::input::Event::Key { code, pressed } => state.key_event(seats[i], code, pressed, from_network),
@@ -381,12 +417,19 @@ fn run(config: Config) -> io::Result<()> {
         if state.wants_frame_now() {
             handled |= 1 << 9;
             state.tick();
-            rearm(&timer, &state, &mut paced, config.tick_ns)?;
+            tick.rearm(&state, config.tick_ns)?;
+        }
+        // An event ends the slowed tick: the timer goes back to the panel's rate before the loop sleeps, not at the next slow tick.
+        if saw_event && tick.is_slowed() {
+            tick.rearm(&state, config.tick_ns)?;
         }
         display.flush_clients()?;
         // Anything that holds the loop for half a refresh delays every client's callbacks and commits with it; the
         // line says what ran, on the clock the clients' own logs use.
         let spent = woke.elapsed();
+        if spent > Duration::from_millis(2) {
+            ring::note(format_args!("P {:.1} ms in one pass ({})", spent.as_secs_f64() * 1000.0, handled_names(handled)));
+        }
         if spent > Duration::from_millis(8) {
             log::warn!("loop: {:.1} ms in one pass ({})", spent.as_secs_f64() * 1000.0, handled_names(handled));
         }
@@ -397,6 +440,8 @@ fn run(config: Config) -> io::Result<()> {
         {
             last_flip_seen = Some(stamp);
             let reach = woke_ns.saturating_sub(stamp);
+            let late = wake::record(&wake::FLIP, stamp, woke_ns, pass_end_ns);
+            ring::note(format_args!("F flip {:.3} reached +{} us{}", stamp as f64 / 1e9, reach / 1000, if late > 500_000 { " (late)" } else { "" }));
             if reach > 3_000_000 {
                 if pass_end_ns <= stamp {
                     log::info!(
@@ -416,6 +461,22 @@ fn run(config: Config) -> io::Result<()> {
         }
         pass_end_ns = monotonic_ns();
         pass_handled = handled;
+        if state.stats.frames_drawn != drawn_seen {
+            drawn_seen = state.stats.frames_drawn;
+            ring::note(format_args!("D frame {} render {} us ({})", drawn_seen, state.stats.render_us_last, handled_names(handled)));
+        }
+        if pass_end_ns.saturating_sub(snapshot_at_ns) >= 1_000_000_000 {
+            snapshot_at_ns = pass_end_ns;
+            ring::note(format_args!(
+                "S ticks {} drawn {} held {} releases {} rss {} KiB; {}",
+                state.stats.ticks,
+                state.stats.frames_drawn,
+                state.stats.held_ticks,
+                state.stats.releases,
+                rss_kib(),
+                state.output.stats_line()
+            ));
+        }
         if let Some(d) = deadline
             && Instant::now() >= d
         {
@@ -521,61 +582,9 @@ fn handled_names(handled: u32) -> String {
     what.join(" ")
 }
 
-/// After a frame or a flip: the output's latch as a one-shot while it paces itself, else the fixed interval, on the
-/// panel's grid where the output remembers it (a one-shot too), else periodic (re-armed only when the timer was last
-/// set as a one-shot, so the periodic timer keeps its phase).
-fn rearm(timer: &OwnedFd, state: &State, paced: &mut bool, tick_ns: u64) -> io::Result<()> {
-    let now = Instant::now();
-    match state.output.next_frame_at(now).or_else(|| state.output.idle_tick_at(now)) {
-        Some(at) => {
-            arm_once(timer, at.saturating_duration_since(Instant::now()).max(Duration::from_micros(500)))?;
-            *paced = true;
-        }
-        None if *paced => {
-            arm_periodic(timer, tick_ns)?;
-            *paced = false;
-        }
-        None => {}
-    }
-    Ok(())
-}
-
-/// Re-arms the tick as a one-shot `delay` from now.
-fn arm_once(timer: &OwnedFd, delay: Duration) -> io::Result<()> {
-    // SAFETY: arming a timerfd with a stack itimerspec.
-    unsafe {
-        let value = libc::timespec { tv_sec: delay.as_secs() as libc::time_t, tv_nsec: delay.subsec_nanos() as libc::c_long };
-        let spec = libc::itimerspec { it_interval: libc::timespec { tv_sec: 0, tv_nsec: 0 }, it_value: value };
-        if libc::timerfd_settime(timer.as_raw_fd(), 0, &spec, std::ptr::null_mut()) < 0 {
-            return Err(io::Error::last_os_error());
-        }
-    }
-    Ok(())
-}
-
-/// Arms the tick as a repeating interval starting one interval from now.
-fn arm_periodic(timer: &OwnedFd, interval_ns: u64) -> io::Result<()> {
-    // SAFETY: arming a timerfd with a stack itimerspec.
-    unsafe {
-        let ts = libc::timespec { tv_sec: (interval_ns / 1_000_000_000) as libc::time_t, tv_nsec: (interval_ns % 1_000_000_000) as libc::c_long };
-        let spec = libc::itimerspec { it_interval: ts, it_value: ts };
-        if libc::timerfd_settime(timer.as_raw_fd(), 0, &spec, std::ptr::null_mut()) < 0 {
-            return Err(io::Error::last_os_error());
-        }
-    }
-    Ok(())
-}
-
-fn timerfd(interval_ns: u64) -> io::Result<OwnedFd> {
-    // SAFETY: creating a timerfd; the fd is owned from here on.
-    let fd = unsafe { libc::timerfd_create(libc::CLOCK_MONOTONIC, libc::TFD_NONBLOCK | libc::TFD_CLOEXEC) };
-    if fd < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    // SAFETY: fd is a fresh, valid timerfd.
-    let timer = unsafe { OwnedFd::from_raw_fd(fd) };
-    arm_periodic(&timer, interval_ns)?;
-    Ok(timer)
+/// The resident set in KiB, from `/proc/self/statm` (0 where it cannot be read).
+fn rss_kib() -> u64 {
+    std::fs::read_to_string("/proc/self/statm").ok().and_then(|s| s.split_whitespace().nth(1).and_then(|p| p.parse::<u64>().ok())).map_or(0, |pages| pages * 4)
 }
 
 struct Epoll {

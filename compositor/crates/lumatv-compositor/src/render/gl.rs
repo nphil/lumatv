@@ -85,6 +85,9 @@ pub struct Gl {
     /// A 16x16 target the first draw from a fresh import goes into (`prepare`), made on first use: `(fbo, texture)`.
     warm: Option<(GLuint, GLuint)>,
     bgra_upload: bool,
+    /// The rows of the rectangle an shm upload sends, kept between frames: the frame path allocates nothing once it is as big as the
+    /// largest damage (a fresh buffer of the rectangle's size each frame is an `mmap` and a `munmap` of up to 8 MB above glibc's 128 KiB).
+    upload_rows: Vec<u8>,
     clock: FrameClock,
     path: BufferPath,
     import_failures: u64,
@@ -206,6 +209,7 @@ impl Gl {
             graveyard: Vec::new(),
             warm: None,
             bgra_upload,
+            upload_rows: Vec::new(),
             clock: FrameClock::new(),
             path,
             import_failures: 0,
@@ -646,6 +650,7 @@ impl Gl {
     fn texture_for(&mut self, buffer: &WlBuffer, damage: Option<&[Rect]>, rect: &Rect) -> Option<(GLuint, (i32, i32), bool, bool)> {
         let new = self.import(buffer)?;
         let id = buffer.id();
+        let mut rows = std::mem::take(&mut self.upload_rows);
         let a = &self.egl.api;
         let entry = self.textures.get_mut(&id)?;
         if let BufferKindRef::Shm(shm) = kind_of(buffer) {
@@ -663,22 +668,8 @@ impl Gl {
                     (a.glBindTexture)(egl::GL_TEXTURE_2D, tex);
                     (a.glPixelStorei)(egl::GL_UNPACK_ALIGNMENT, 4);
                     for r in &regions {
-                        let mut rows: Vec<u8> = Vec::with_capacity((r.w * r.h * 4) as usize);
-                        for y in r.y..r.bottom() {
-                            let off = shm.offset as usize + y as usize * shm.stride as usize + r.x as usize * 4;
-                            let Some(row) = bytes.get(off..off + r.w as usize * 4) else { return };
-                            if bgra {
-                                rows.extend_from_slice(row);
-                            } else {
-                                for px in row.chunks_exact(4) {
-                                    rows.extend_from_slice(&[px[2], px[1], px[0], if shm.format == 1 { 255 } else { px[3] }]);
-                                }
-                            }
-                        }
-                        if bgra && shm.format == 1 {
-                            for px in rows.chunks_exact_mut(4) {
-                                px[3] = 255;
-                            }
+                        if !pack_shm_rows(&mut rows, bytes, shm.offset as usize, shm.stride as usize, shm.format, r, bgra) {
+                            return;
                         }
                         (a.glTexSubImage2D)(
                             egl::GL_TEXTURE_2D,
@@ -696,6 +687,7 @@ impl Gl {
             });
             entry.uploaded = true;
         }
+        self.upload_rows = rows;
         Some((entry.tex, entry.size, entry.y_invert, new))
     }
 
@@ -1338,4 +1330,29 @@ impl Output for Gl {
         }
         Ok(Image { width: self.width, height: self.height, rgba })
     }
+}
+
+/// The rows of `r` in an shm pool's bytes, packed into `out` (emptied first) as the GL upload wants them: as stored for a BGRA upload, else
+/// swapped to RGBA; XRGB's alpha byte forced opaque either way. `false` when the pool is shorter than the rectangle needs. `out` keeps its
+/// capacity, so the second upload of a rectangle that size allocates nothing.
+pub(crate) fn pack_shm_rows(out: &mut Vec<u8>, bytes: &[u8], offset: usize, stride: usize, format: u32, r: &Rect, bgra: bool) -> bool {
+    out.clear();
+    out.reserve((r.w * r.h * 4) as usize);
+    for y in r.y..r.bottom() {
+        let off = offset + y as usize * stride + r.x as usize * 4;
+        let Some(row) = bytes.get(off..off + r.w as usize * 4) else { return false };
+        if bgra {
+            out.extend_from_slice(row);
+        } else {
+            for px in row.chunks_exact(4) {
+                out.extend_from_slice(&[px[2], px[1], px[0], if format == 1 { 255 } else { px[3] }]);
+            }
+        }
+    }
+    if bgra && format == 1 {
+        for px in out.chunks_exact_mut(4) {
+            px[3] = 255;
+        }
+    }
+    true
 }
