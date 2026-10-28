@@ -349,22 +349,32 @@ impl Surfaces {
         }
     }
 
-    /// Takes every frame callback owed by every surface (fired after a presented frame).
-    pub fn take_frame_callbacks(&mut self) -> Vec<WlCallback> {
-        let mut out = Vec::new();
-        for s in self.map.values_mut() {
-            out.append(&mut s.current.frame_callbacks);
+    /// Takes every frame callback owed by every surface (fired after a presented frame): the callbacks of the surfaces `ahead` names
+    /// apart from the others (`State::frames_in_flight`).
+    pub fn take_frame_callbacks(&mut self, ahead: impl Fn(SurfaceId) -> bool) -> (Vec<WlCallback>, Vec<WlCallback>) {
+        let (mut others, mut named) = (Vec::new(), Vec::new());
+        for (id, s) in self.map.iter_mut() {
+            if ahead(*id) {
+                named.append(&mut s.current.frame_callbacks);
+            } else {
+                others.append(&mut s.current.frame_callbacks);
+            }
         }
-        out
+        (others, named)
     }
 
-    /// Takes every retired buffer (released after the frame that last read them).
-    pub fn take_retired(&mut self) -> Vec<WlBuffer> {
-        let mut out = Vec::new();
-        for s in self.map.values_mut() {
-            out.append(&mut s.current.retired);
+    /// Takes every retired buffer (released after the frame that last read them): the buffers of the surfaces `ahead` names apart
+    /// from the others (`State::frames_in_flight`).
+    pub fn take_retired(&mut self, ahead: impl Fn(SurfaceId) -> bool) -> (Vec<WlBuffer>, Vec<WlBuffer>) {
+        let (mut others, mut named) = (Vec::new(), Vec::new());
+        for (id, s) in self.map.iter_mut() {
+            if ahead(*id) {
+                named.append(&mut s.current.retired);
+            } else {
+                others.append(&mut s.current.retired);
+            }
         }
-        out
+        (others, named)
     }
 
     /// Clears per-surface damage after a presented frame.

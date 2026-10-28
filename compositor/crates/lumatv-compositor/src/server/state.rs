@@ -48,6 +48,8 @@ pub struct Stats {
     pub ticks: u64,
     pub frames_drawn: u64,
     pub callbacks_sent: u64,
+    /// Of those, the shell client's that went out before their frame landed ([`Owed::ahead`]).
+    pub callbacks_ahead: u64,
     pub releases: u64,
     pub clients_total: u64,
     pub render_us_last: u64,
@@ -103,6 +105,21 @@ pub struct CheckState {
     pub unread: u64,
 }
 
+/// What a frame on its way to the screen owes once it is there.
+struct Owed {
+    /// Frame callbacks, fired when the frame lands.
+    callbacks: Vec<WlCallback>,
+    /// The shell client's frame callbacks, fired as soon as the frame is the oldest on its way (at its draw when none is ahead of it), a
+    /// frame before it lands. The shell's Qt starts each frame on the callback of the one before: 2-3.5 ms of CPU, then 11-13.5 ms of
+    /// GPU on the picker's slide, and a flip needs the GPU done before its refresh. Started at the landing the frame had less than a
+    /// millisecond to spare, and 5 of 34 slide frames took two refreshes (round 4: the quick panel, lighter by a millisecond or two,
+    /// took none). Started a frame ahead the next frame is made while this one waits for its refresh.
+    ahead: Vec<WlCallback>,
+    /// What the shell window's commits replaced: released when the frame lands instead of when it is drawn, since a client let run ahead
+    /// takes the first buffer it is given back, and the one on the screen until this frame lands must not be drawn into.
+    buffers: Vec<WlBuffer>,
+}
+
 pub struct State {
     pub dh: DisplayHandle,
     pub config: Config,
@@ -129,13 +146,16 @@ pub struct State {
     /// The `wl_webos_shell_surface` of each window that has one.
     pub webos_shells: HashMap<crate::window::WindowId, lumatv_wl_protocols::webos_shell::server::wl_webos_shell_surface::WlWebosShellSurface>,
     pub started: Instant,
+    /// Whether the shell client's frame callbacks go out ahead of their flip ([`Owed::ahead`]); `ctl callbacks shell landing` turns it
+    /// off, at the flip like any client's, for an A/B on the set.
+    pub shell_ahead: bool,
     serial: u32,
     /// Buffers released at the end of the tick that presented the frame which stopped reading them.
     release_after_present: Vec<WlBuffer>,
-    /// Frame callbacks of frames on their way to the screen, oldest first, fired when each lands
-    /// ([`State::frames_landed`]). Firing at the tick paced clients to the latch, which the pacer moves by a few
-    /// milliseconds whenever a slow frame enters or leaves its window; at the flip they follow the refresh.
-    frames_in_flight: std::collections::VecDeque<(Instant, Vec<WlCallback>)>,
+    /// What frames on their way to the screen owe, oldest first, paid when each lands ([`State::frames_landed`]). Frame callbacks go
+    /// out at the flip: firing at the tick paced clients to the latch, which the pacer moves by a few milliseconds whenever a
+    /// slow frame enters or leaves its window; at the flip they follow the refresh. The shell client's go ahead of it ([`Owed::ahead`]).
+    frames_in_flight: std::collections::VecDeque<(Instant, Owed)>,
     /// Per surface: when its last new buffer came and how many came in a row within 20 ms of each other, to log
     /// the gaps of a client that was keeping up (what the X1 gate counts, seen from this side).
     cadence: HashMap<SurfaceId, (Instant, u32)>,
@@ -168,6 +188,7 @@ impl State {
             pngs: capture::Writer::default(),
             webos_shells: HashMap::new(),
             started: Instant::now(),
+            shell_ahead: true,
             serial: 0,
             release_after_present: Vec::new(),
             cadence: HashMap::new(),
@@ -418,10 +439,12 @@ impl State {
             self.stats.frames_drawn += 1;
             self.after_drawn_frame();
         }
-        let callbacks = self.surfaces.take_frame_callbacks();
-        self.route_callbacks(callbacks, presented);
+        let State { scene, surfaces, shell_ahead, .. } = &mut *self;
+        let ahead = |id: SurfaceId| *shell_ahead && scene.window_of(id).and_then(|w| scene.window(w)).is_some_and(|w| w.kind.is_shell());
+        let (callbacks, ahead_callbacks) = surfaces.take_frame_callbacks(ahead);
+        let (retired, held) = surfaces.take_retired(ahead);
+        self.route_callbacks(Owed { callbacks, ahead: ahead_callbacks, buffers: held }, presented);
         let t_callbacks = Instant::now();
-        let retired = self.surfaces.take_retired();
         for b in self.release_after_present.drain(..).chain(retired) {
             if b.is_alive() {
                 b.release();
@@ -453,22 +476,26 @@ impl State {
         presented
     }
 
-    /// Frame callbacks of a tick go out when its frame lands; a tick that put nothing new on the way joins the last
-    /// frame in flight (a client's callbacks never overtake its earlier ones), or fires at once when none is.
-    fn route_callbacks(&mut self, callbacks: Vec<WlCallback>, presented: Presented) {
+    /// What a tick's frame owes goes out when it lands: its frame callbacks and the buffers it stopped reading. A tick that put
+    /// nothing new on the way joins the last frame in flight (a client's callbacks never overtake its earlier ones), or pays at
+    /// once when none is. The oldest frame in flight has its shell callbacks fired at once ([`Owed::ahead`]).
+    fn route_callbacks(&mut self, owed: Owed, presented: Presented) {
         // A flip that never reports (the output off, a lost event) must not hold clients forever.
         while self.frames_in_flight.front().is_some_and(|(t, _)| t.elapsed() > Duration::from_millis(250)) {
             let (_, old) = self.frames_in_flight.pop_front().unwrap();
             log::warn!("frame callbacks held 250 ms without a flip; sent anyway");
-            self.fire_callbacks(old, presented.at_ms);
+            self.pay(old, presented.at_ms);
         }
         if presented.pending && !presented.replaced {
-            self.frames_in_flight.push_back((Instant::now(), callbacks));
+            self.frames_in_flight.push_back((Instant::now(), owed));
         } else if let Some((_, last)) = self.frames_in_flight.back_mut() {
-            last.extend(callbacks);
+            last.callbacks.extend(owed.callbacks);
+            last.ahead.extend(owed.ahead);
+            last.buffers.extend(owed.buffers);
         } else {
-            self.fire_callbacks(callbacks, presented.at_ms);
+            self.pay(owed, presented.at_ms);
         }
+        self.fire_ahead(presented.at_ms);
     }
 
     /// `n` frames reached the screen (the output's page-flip events): their callbacks are due, and are sent now rather
@@ -476,12 +503,15 @@ impl State {
     pub fn frames_landed(&mut self, n: u32) {
         let mut fired = false;
         for _ in 0..n {
-            let Some((_, callbacks)) = self.frames_in_flight.pop_front() else { break };
-            self.fire_callbacks(callbacks, crate::output::monotonic_ms());
+            let Some((_, owed)) = self.frames_in_flight.pop_front() else { break };
+            self.pay(owed, crate::output::monotonic_ms());
             fired = true;
         }
-        if fired && let Err(e) = self.dh.flush_clients() {
-            log::warn!("flush after a flip: {e}");
+        if fired {
+            self.fire_ahead(crate::output::monotonic_ms());
+            if let Err(e) = self.dh.flush_clients() {
+                log::warn!("flush after a flip: {e}");
+            }
         }
     }
 
@@ -498,6 +528,31 @@ impl State {
             if cb.is_alive() {
                 cb.done(at_ms);
                 self.stats.callbacks_sent += 1;
+            }
+        }
+    }
+
+    /// A frame is on the screen, or none is on its way: its callbacks are due and what it stopped reading is free.
+    fn pay(&mut self, owed: Owed, at_ms: u32) {
+        self.fire_callbacks(owed.ahead, at_ms);
+        self.fire_callbacks(owed.callbacks, at_ms);
+        self.release(owed.buffers);
+    }
+
+    /// The oldest frame in flight has no frame ahead of it: its shell callbacks go out now, so the client's next frame is made
+    /// while this one waits for its refresh.
+    fn fire_ahead(&mut self, at_ms: u32) {
+        let Some((_, oldest)) = self.frames_in_flight.front_mut() else { return };
+        let ahead = std::mem::take(&mut oldest.ahead);
+        self.stats.callbacks_ahead += ahead.len() as u64;
+        self.fire_callbacks(ahead, at_ms);
+    }
+
+    fn release(&mut self, buffers: Vec<WlBuffer>) {
+        for b in buffers {
+            if b.is_alive() {
+                b.release();
+                self.stats.releases += 1;
             }
         }
     }

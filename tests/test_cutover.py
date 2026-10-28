@@ -1183,7 +1183,7 @@ class GateDriver(unittest.TestCase):
         self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")], [
             "firmware", "homeheld",
             "cutover enable --session --max-minutes 12", "live", "x1 60", "netflix", "hdmi", "keys", "ime", "shell", "evidence",
-            "cutover enable --session --max-minutes 20", "live frames", "standby", "woke",
+            "cutover enable --session --max-minutes 20", "live frames", "callbacks", "standby", "woke",
             "homekey", "cutover enable --session --max-minutes 6", "live after-homekey",
             "wd-hang", "cutover enable --session --max-minutes 6", "live after-wd-hang",
             "wd-crash", "cutover enable --session --max-minutes 6", "live after-wd-crash",
@@ -1232,7 +1232,14 @@ class GateDriver(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
                          ["cutover enable --session --max-minutes 12", "live", "shell", "evidence",
-                          "cutover enable --session --max-minutes 20", "live frames", "cutover disable"])
+                          "cutover enable --session --max-minutes 20", "live frames", "callbacks", "cutover disable"])
+
+    def test_the_frame_gate_can_run_with_the_shell_callbacks_at_the_flip_and_says_how_many_went_ahead(self):
+        calls, code, _ = self.run_main(argv=["--only", "frames", "--frames-callbacks", "landing"])
+        self.assertEqual(code, 0)
+        self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
+                         ["cutover enable --session --max-minutes 12", "live", "evidence",
+                          "cutover enable --session --max-minutes 20", "live frames", "callbacks landing", "callbacks", "cutover disable"])
 
     STUB_ON = '{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"guard":true,"beat":true,"faults":0}'
 

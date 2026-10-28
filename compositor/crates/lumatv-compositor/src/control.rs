@@ -29,7 +29,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             "clients": state.clients.values().map(|c| json!({"pid": c.pid, "uid": c.uid, "seconds": c.since.elapsed().as_secs(), "cmd": c.cmd, "bound": c.bound})).collect::<Vec<_>>(),
             "stats": {
                 "requests": state.stats.requests, "commits": state.stats.commits, "buffers": state.stats.buffers_created,
-                "ticks": state.stats.ticks, "drawn": state.stats.frames_drawn, "callbacks": state.stats.callbacks_sent,
+                "ticks": state.stats.ticks, "drawn": state.stats.frames_drawn, "callbacks": state.stats.callbacks_sent, "callbacksAhead": state.stats.callbacks_ahead,
                 "releases": state.stats.releases, "skipped": state.stats.skipped_items,
                 "renderUsLast": state.stats.render_us_last, "renderUsMax": state.stats.render_us_max,
                 "prepared": state.stats.prepared, "frameImports": state.stats.frame_imports,
@@ -168,6 +168,15 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             (Some("mali"), Some("other")) => json!({"ok": true, "threads": crate::sched::mali_threads(None)}),
             _ => json!({"ok": false, "error": "sched mali fifo [PRIO] | sched mali other"}),
         },
+        // When the shell client's frame callbacks go out, for an A/B on the set without a restart: `callbacks shell early` (a frame ahead
+        // of the flip, the default) or `callbacks shell landing` (at the flip, as every other client's).
+        "callbacks" => match (words.next(), words.next()) {
+            (Some("shell"), Some(how @ ("early" | "landing"))) => {
+                state.shell_ahead = how == "early";
+                json!({"ok": true, "shell": how})
+            }
+            _ => json!({"ok": false, "error": "callbacks shell early | callbacks shell landing"}),
+        },
         "quit" => {
             state.should_exit = true;
             json!({"ok": true})
@@ -181,7 +190,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
         }
         "" => json!({"ok": false, "error": "empty command"}),
         other => {
-            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, key CODE, remote CODE, pointer X Y, click, sched mali fifo|other, fallback [reason], quit")})
+            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, key CODE, remote CODE, pointer X Y, click, sched mali fifo|other, callbacks shell early|landing, fallback [reason], quit")})
         }
     };
     Reply::Now(reply.to_string())

@@ -14,16 +14,21 @@ use parking_lot::Mutex;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
+use wayland_client::Proxy;
 use wayland_server::protocol::wl_buffer::WlBuffer;
 
 const DRAW: Duration = Duration::from_millis(150);
+/// A draw short enough for the 250 ms a frame callback is held at most (`State::route_callbacks`) to outlast a test's waits.
+const QUICK_DRAW: Duration = Duration::from_millis(20);
 
-/// The software output with KMS's timing: a presented frame is pending until its flip lands (`landed`, set by the
-/// test), and a draw takes `DRAW`.
+/// The software output with KMS's timing: a frame drawn by a tick is pending until its flip lands (`landed`, set by the
+/// test; a tick that draws nothing has no flip), and a draw takes `draw`.
 struct Flipping {
     inner: Software,
     landed: Arc<AtomicU32>,
     drawn_at: Arc<Mutex<Vec<Instant>>>,
+    drew: bool,
+    draw: Duration,
 }
 
 impl Output for Flipping {
@@ -40,13 +45,14 @@ impl Output for Flipping {
         self.inner.forget_buffer(buffer)
     }
     fn render(&mut self, plan: &Plan, surfaces: &Surfaces) -> std::io::Result<RenderStats> {
-        std::thread::sleep(DRAW);
+        std::thread::sleep(self.draw);
         let st = self.inner.render(plan, surfaces);
         self.drawn_at.lock().push(Instant::now());
+        self.drew = true;
         st
     }
     fn present(&mut self) -> std::io::Result<Presented> {
-        Ok(Presented { pending: true, ..self.inner.present()? })
+        Ok(Presented { pending: std::mem::take(&mut self.drew), ..self.inner.present()? })
     }
     fn dispatch_events(&mut self) -> std::io::Result<u32> {
         Ok(self.landed.swap(0, Ordering::SeqCst))
@@ -56,12 +62,27 @@ impl Output for Flipping {
     }
 }
 
-#[test]
-fn a_landed_flip_has_its_callbacks_out_before_the_next_frame_is_drawn() {
+/// A server on the flipping output, the counter of flips to land and the log of draws.
+fn flipping(draw: Duration) -> (Server, Arc<AtomicU32>, Arc<Mutex<Vec<Instant>>>) {
     let landed = Arc::new(AtomicU32::new(0));
     let drawn_at = Arc::new(Mutex::new(Vec::new()));
     let (landed2, drawn_at2) = (landed.clone(), drawn_at.clone());
-    let mut server = Server::start_with(Box::new(move || Box::new(Flipping { inner: Software::new(1920, 1080), landed: landed2, drawn_at: drawn_at2 })));
+    let server =
+        Server::start_with(Box::new(move || Box::new(Flipping { inner: Software::new(1920, 1080), landed: landed2, drawn_at: drawn_at2, drew: false, draw })));
+    (server, landed, drawn_at)
+}
+
+fn wait_drawn(drawn_at: &Mutex<Vec<Instant>>, n: usize) {
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while drawn_at.lock().len() < n && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert!(drawn_at.lock().len() >= n, "frame {n} was drawn");
+}
+
+#[test]
+fn a_landed_flip_has_its_callbacks_out_before_the_next_frame_is_drawn() {
+    let (mut server, landed, drawn_at) = flipping(DRAW);
     let mut client = Client::connect(&mut server);
     let card = client.card("_WEBOS_WINDOW_TYPE_CARD", "X1");
     let first = client.shm_buffer(1920, 1080, 0xff19_80e6);
@@ -89,4 +110,75 @@ fn a_landed_flip_has_its_callbacks_out_before_the_next_frame_is_drawn() {
     }
     let second_drawn = *drawn_at.lock().get(1).expect("the second frame was drawn");
     assert!(done_at < second_drawn, "the callback reached the client {:?} after the second frame's draw ended", done_at - second_drawn);
+}
+
+/// Commits a buffer of one colour to the window, with a frame callback.
+fn commit(client: &mut Client, window: &harness::Window, argb: u32) -> wayland_client::protocol::wl_buffer::WlBuffer {
+    // Small: a full-size buffer takes the test client 100 ms to fill, with half the 250 ms a callback is held at most gone.
+    let buffer = client.shm_buffer(64, 36, argb);
+    client.present(&window.surface, &buffer);
+    buffer
+}
+
+#[test]
+fn a_shell_windows_callback_goes_out_when_its_frame_is_the_oldest_on_its_way() {
+    let (mut server, landed, drawn_at) = flipping(QUICK_DRAW);
+    let mut client = Client::connect(&mut server);
+    let shell = client.card("_WEBOS_WINDOW_TYPE_LUMATV_HOME", "LumaHome");
+    commit(&mut client, &shell, 0xff19_80e6);
+    wait_drawn(&drawn_at, 1);
+    assert!(client.wait_until(Duration::from_secs(3), |s| s.frames_done >= 1), "nothing is ahead of the first frame: its callback goes out when it is drawn");
+
+    // The client's next frame, made on that callback, is drawn while the first is on its way: it waits for the first to land.
+    commit(&mut client, &shell, 0xffe6_8019);
+    wait_drawn(&drawn_at, 2);
+    assert!(!client.wait_until(Duration::from_millis(100), |s| s.frames_done >= 2), "behind a frame on its way, a callback waits for it");
+    landed.store(1, Ordering::SeqCst);
+    assert!(client.wait_until(Duration::from_secs(3), |s| s.frames_done >= 2), "the first landed: the second is the oldest and its callback goes out");
+    assert_eq!(server.eval(|s| s.stats.callbacks_ahead), 2);
+}
+
+#[test]
+fn with_the_switch_off_a_shell_windows_callback_waits_for_its_flip_like_any_clients() {
+    let (mut server, landed, drawn_at) = flipping(QUICK_DRAW);
+    server.eval(|s| s.shell_ahead = false);
+    let mut client = Client::connect(&mut server);
+    let shell = client.card("_WEBOS_WINDOW_TYPE_LUMATV_SYSTEM", "LumaLayer");
+    commit(&mut client, &shell, 0xff19_80e6);
+    wait_drawn(&drawn_at, 1);
+    assert!(!client.wait_until(Duration::from_millis(100), |s| s.frames_done >= 1), "its callback waits for its flip");
+    landed.store(1, Ordering::SeqCst);
+    assert!(client.wait_until(Duration::from_secs(3), |s| s.frames_done >= 1));
+    assert_eq!(server.eval(|s| s.stats.callbacks_ahead), 0);
+}
+
+#[test]
+fn a_shell_windows_replaced_buffer_is_released_when_the_frame_that_replaced_it_lands() {
+    let (mut server, landed, drawn_at) = flipping(QUICK_DRAW);
+    let mut client = Client::connect(&mut server);
+    let shell = client.card("_WEBOS_WINDOW_TYPE_LUMATV_HOME", "LumaHome");
+    let first = commit(&mut client, &shell, 0xff19_80e6).id().protocol_id();
+    wait_drawn(&drawn_at, 1);
+    commit(&mut client, &shell, 0xffe6_8019);
+    wait_drawn(&drawn_at, 2);
+    // The first buffer is on the screen's way until the second frame, the one that replaced it, lands: the client, let run ahead,
+    // would draw into it at once if it had it back.
+    assert!(!client.wait_until(Duration::from_millis(100), |s| s.releases.contains(&first)), "not given back when the second frame is drawn");
+    landed.store(1, Ordering::SeqCst);
+    assert!(!client.wait_until(Duration::from_millis(100), |s| s.releases.contains(&first)), "nor when the first frame lands");
+    landed.store(1, Ordering::SeqCst);
+    assert!(client.wait_until(Duration::from_secs(3), |s| s.releases.contains(&first)), "given back when the second frame lands");
+}
+
+#[test]
+fn a_cards_replaced_buffer_is_released_when_the_frame_that_replaced_it_is_drawn() {
+    let (mut server, _landed, drawn_at) = flipping(QUICK_DRAW);
+    let mut client = Client::connect(&mut server);
+    let card = client.card("_WEBOS_WINDOW_TYPE_CARD", "X1");
+    let first = commit(&mut client, &card, 0xff19_80e6).id().protocol_id();
+    wait_drawn(&drawn_at, 1);
+    commit(&mut client, &card, 0xffe6_8019);
+    wait_drawn(&drawn_at, 2);
+    assert!(client.wait_until(Duration::from_secs(3), |s| s.releases.contains(&first)), "no flip has landed, and the buffer is back");
+    assert_eq!(server.eval(|s| s.stats.callbacks_ahead), 0);
 }

@@ -5,12 +5,14 @@ the standby check, and the checks that end the live session (Home held on a virt
 killed, the compositor's own hold-Home escape) each get a fresh session. Exit 0 only when every check passed; the result
 lines and files land in /tmp/lumatv-tv-out/out/gate and docs/research/compositor/gate-<date>.txt.
 
-    tv_gate.py [--skip netflix,hdmi,...] [--only keys,ime] [--x1-seconds N] [--enable-after]
+    tv_gate.py [--skip netflix,hdmi,...] [--only keys,ime] [--x1-seconds N] [--enable-after] [--frames-callbacks landing]
 
 The gate's rule for the frame check is 60 s with no gap over 20 ms (tv-gate.sh, "The frame rule"); --x1-seconds under 60
 can only fail it. Checks that can be skipped: firmware, homeheld, volume, x1, netflix, hdmi, keys, ime, standby, homekey,
 wd-hang, wd-crash, escape. --only runs just the named ones (in one session, the live check and the evidence included); the
-step-1 test of the remote's keys and the keyboard is `--only keys,ime`.
+step-1 test of the remote's keys and the keyboard is `--only keys,ime`. --frames-callbacks landing runs the surface frame gate with
+the shell client's frame callbacks at the flip like every client's (`ctl callbacks shell landing`), against the default of a frame
+ahead of it inside a run of its frames, so that a round says what the change made.
 
 Every session carries the set's own safety timer (cutover.sh enable --session --max-minutes): if this driver or the
 workstation dies in the middle of the gate, the set ends the session by itself and LG's compositor and Home come back.
@@ -240,6 +242,8 @@ def main():
     ap.add_argument("--x1-seconds", type=int, default=60)
     ap.add_argument("--enable-after", action="store_true")
     ap.add_argument("--frames-cycles", type=int, default=3, help="open/close cycles of the surface frame gate's soak (default 3)")
+    ap.add_argument("--frames-callbacks", choices=["early", "landing"], default="early",
+                    help="when the shell client's frame callbacks go out in the surface frame gate: a frame ahead of the flip inside a run of its frames (early, the default) or at the flip (landing)")
     a = ap.parse_args()
     skip = set(a.skip.split(",")) - {""}
     only = set(a.only.split(",")) - {""}
@@ -308,7 +312,11 @@ def main():
         if "frames" not in skip:
             # A session of its own: the surface gate waits for a 90 s old compositor and runs several minutes.
             session(FRAMES_SESSION_MINUTES, "frames")
+            if a.frames_callbacks == "landing":
+                print(pty("sh /tmp/lumatv/gate.sh callbacks landing", 60))
             lines.append(frames_check(a.frames_cycles))
+            # How many of the shell's callbacks went out ahead of their flip during the gate: zero says the change was not in play.
+            print(pty("sh /tmp/lumatv/gate.sh callbacks", 60))
         if "standby" not in skip:
             step("standby", "sh /tmp/lumatv/gate.sh standby", 60)
             time.sleep(25)

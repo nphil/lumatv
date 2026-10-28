@@ -522,6 +522,13 @@ evidence)
     cp $STATE/compositor.log $OUT/compositor.log; run_log > $OUT/sm.log
     echo "evidence: $(grep -c applicationManager $OUT/sm-subscriptions.txt) subscription(s) from SAM, $(wc -l < $OUT/clients.txt) client lines, $(grep -c 'loop:' $OUT/compositor.log) loop stalls, $(wc -l < $OUT/sm-watchdog.txt) watchdog lines"
     ;;
+callbacks)
+    # The shell client's frame callbacks (`ctl callbacks shell early|landing`): with an argument it sets them, then says how many went
+    # out ahead of their flip so far. Not a check: no GATE line.
+    [ -z "${2:-}" ] || ctl callbacks shell "$2" > /dev/null
+    st=$(ctl status)
+    echo "shell callbacks${2:+ set to $2}: $(echo "$st" | grep -o '"callbacksAhead":[0-9]*' | cut -d: -f2) of $(echo "$st" | grep -o '"callbacks":[0-9]*' | cut -d: -f2) sent ahead of their flip"
+    ;;
 standby)
     ctl journal > $OUT/standby-journal-before.json
     cat /proc/uptime > $OUT/standby-uptime-before
