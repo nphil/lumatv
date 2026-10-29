@@ -3,6 +3,7 @@
 
 use super::page::Page;
 
+pub mod about;
 pub mod access;
 pub mod ai;
 pub mod ambient;
@@ -61,6 +62,7 @@ pub fn all() -> Vec<Page> {
         access::audio_options(),
         access::emergency(),
         access::captions(),
+        about::page(),
         support::page(),
         support::delete_data(),
         support::permissions(),

@@ -174,6 +174,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
     let mut helper = Row::info("helper").tab(4).icon("sparkles").label("LumaTV").value(if c.topics.helper_up { "Helper running" } else { "Helper stopped" });
     helper.chevron = false;
     rows.push(helper);
+    rows.push(Row::link("about").tab(4).icon("tv").label("About this TV").help("Model, serial number, platform and software version.").does(go("about")));
     rows.push(Row::link("support").tab(4).icon("circle-help").label("Support").help("TV information, software update, privacy, self-diagnosis and reset.").does(go("support")));
     rows
 }

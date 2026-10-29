@@ -34,8 +34,9 @@ fn reads(_: &Ctx) -> Vec<Read> {
         inputs_read(),
         Read::lg(
             "other",
-            &["simplinkEnable", "qmsVrr", "uhdDeepColor", "444BypassHDMI1", "444BypassHDMI2", "444BypassHDMI3", "444BypassHDMI4", "enableDolbyVisionPC"],
+            &["simplinkEnable", "simplinkAutoPowerOn", "qmsVrr", "uhdDeepColor", "444BypassHDMI1", "444BypassHDMI2", "444BypassHDMI3", "444BypassHDMI4", "enableDolbyVisionPC"],
         ),
+        Read::lg("general", &["noSignalScreenSaver"]),
         Read::call("bt", "luna://com.webos.service.config/getConfigs", json!({"configNames": ["system.supportBluetoothFeatures"]})),
     ]
 }
@@ -122,6 +123,26 @@ fn rows(c: &Ctx) -> Vec<Row> {
                 .help("Devices turn on, switch and name themselves over the cable."),
         ),
     );
+    // LG's own CEC switch and what hangs off it: the TV and the devices turning on together
+    let mut sync = c.toggle(
+        Spec::new("other.simplinkAutoPowerOn")
+            .tab(1)
+            .icon("power")
+            .label("Auto power sync")
+            .help("The TV turns on with a device on HDMI-CEC, and the device turns on with the TV."),
+    );
+    if !c.lg.is("other.simplinkEnable", "on") && c.lg.usable("other.simplinkAutoPowerOn") {
+        sync.enabled = false;
+        sync.detail = "Turn HDMI-CEC on".into();
+    }
+    rows.push(sync);
+    rows.push(c.toggle(
+        Spec::new("general.noSignalScreenSaver")
+            .tab(1)
+            .icon("image")
+            .label("No signal image")
+            .help("A picture from LG instead of a plain screen while an input has no signal."),
+    ));
     rows.push(
         c.toggle(
             Spec::new("other.qmsVrr")
@@ -230,6 +251,7 @@ fn channel_rows(c: &Ctx) -> Vec<Row> {
         colour,
         interactive(c, "option.interactive-service", "Interactive Service", "Content suggestions and ads that follow what Live TV is showing."),
         interactive(c, "option.interactive-service-hdmi", "Interactive Service (HDMI)", "The same for a broadcast signal on an HDMI input."),
+        lg_launch("autotuning", "Auto Tuning", "", "com.webos.app.channelsetting").tab(0).help("Searches for channels, in LG's channel setup. The channel list is replaced."),
         lg_launch("channeltuning", "Channel Tuning & Settings", "channel", "")
             .tab(0)
             .help("Auto and manual tuning, the channel list and locks, in LG's channel screen."),
@@ -294,9 +316,30 @@ mod tests {
         assert!(by_id(&r, "cec2").on && !by_id(&r, "other.qmsVrr").on);
         assert_eq!(by_id(&r, "other.uhdDeepColor").index, Some(1));
         assert_eq!(by_id(&r, "other.444BypassHDMI3").detail, "TV not answering");
-        assert_eq!(r.iter().filter(|x| x.tab == 1).count(), 8);
+        assert_eq!(r.iter().filter(|x| x.tab == 1).count(), 10, "LG's eight and the two that were in its hidden menu");
         let ops = (by_id(&r, "other.qmsVrr").act.as_ref().unwrap())(Arg::Toggle(true));
         assert!(matches!(&ops[..], [Op::Lg { ds, value, .. }] if ds == "other.qmsVrr" && value == "on"));
+    }
+
+    #[test]
+    fn auto_power_sync_and_the_no_signal_image_are_lgs_own_keys_and_the_sync_waits_for_cec() {
+        let mut w = World::new(lg_with(&[("other", json!({"settings": {"simplinkEnable": "off", "simplinkAutoPowerOn": "on"}})), ("general", json!({"settings": {"noSignalScreenSaver": "off"}}))], &[]));
+        let r = rows(&w.ctx());
+        let sync = by_id(&r, "other.simplinkAutoPowerOn");
+        assert_eq!((sync.tab, sync.label.as_str(), sync.on, sync.enabled, sync.detail.as_str()), (1, "Auto power sync", true, false, "Turn HDMI-CEC on"));
+        let image = by_id(&r, "general.noSignalScreenSaver");
+        assert_eq!((image.tab, image.label.as_str(), image.on, image.enabled), (1, "No signal image", false, true));
+        assert!(matches!(&(image.act.as_ref().unwrap())(Arg::Toggle(true))[..], [Op::Lg { ds, value, .. }] if ds == "general.noSignalScreenSaver" && value == "on"));
+        // CEC on: the sync is the owner's to change, and writes LG's key
+        w.lg = lg_with(&[("other", json!({"settings": {"simplinkEnable": "on", "simplinkAutoPowerOn": "on"}}))], &[]);
+        let r = rows(&w.ctx());
+        let sync = by_id(&r, "other.simplinkAutoPowerOn");
+        assert!(sync.enabled && sync.detail.is_empty());
+        assert!(matches!(&(sync.act.as_ref().unwrap())(Arg::Toggle(false))[..], [Op::Lg { ds, value, .. }] if ds == "other.simplinkAutoPowerOn" && value == "off"));
+        // reads: the page asks for both keys
+        let reads = reads(&w.ctx());
+        assert!(reads.iter().any(|x| matches!(x, Read::Lg { category: "other", keys, .. } if keys.contains(&"simplinkAutoPowerOn"))));
+        assert!(reads.iter().any(|x| matches!(x, Read::Lg { category: "general", keys, .. } if keys.contains(&"noSignalScreenSaver"))));
     }
 
     #[test]
@@ -352,6 +395,9 @@ mod tests {
         assert!(matches!(&ops[..], [Op::Lg { value, .. }] if value == "onByUser"));
         let ops = (by_id(&r, "option.interactive-service").act.as_ref().unwrap())(Arg::Toggle(false));
         assert!(matches!(&ops[..], [Op::Lg { value, .. }] if value == "offByUser"));
+        let auto = (by_id(&r, "autotuning").act.as_ref().unwrap())(Arg::Press);
+        assert!(matches!(&auto[..], [Op::Launch { app, params }] if app == "com.webos.app.channelsetting" && params == &json!({})), "LG's own channel setup, as its menu opens it");
+        assert_eq!(by_id(&r, "autotuning").label, "Auto Tuning");
         let tune = (by_id(&r, "channeltuning").act.as_ref().unwrap())(Arg::Press);
         assert!(matches!(&tune[..], [Op::Launch { params, .. }] if params["target"] == "channel"));
     }

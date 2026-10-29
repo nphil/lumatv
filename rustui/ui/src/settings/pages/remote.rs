@@ -28,6 +28,9 @@ pub const KEYS: [(&str, &str, &str, &str); 4] = [
 ];
 /// What `remote.pointerShow` says, in the order of the row's options; the first is the default and what any other word means.
 const POINTER_SHOW: [&str; 2] = ["wheel", "movement"];
+/// What `remote.gearHold` says, in the order of the row's options; the first is the default and what any other word (or the old switch's
+/// true or false) means. The compositor and the QML shell read the same words.
+const GEAR_HOLD: [&str; 3] = ["settings", "notifications", "nothing"];
 const DIGITS: [&str; 10] = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"];
 
 /// LG's times for a long press and for the repeat: "Basic", or a number of seconds.
@@ -137,6 +140,10 @@ fn pointer_show_index(c: &Ctx) -> usize {
     usize::from(c.theme_str("remote.pointerShow") == Some(POINTER_SHOW[1]))
 }
 
+fn gear_hold_index(c: &Ctx) -> usize {
+    GEAR_HOLD.iter().position(|v| c.theme_str("remote.gearHold") == Some(v)).unwrap_or(0)
+}
+
 fn remote_toggle(c: &Ctx, id: &str, icon: &str, label: &str, help: &str, key: &str, default: bool) -> Row {
     let key = format!("remote.{key}");
     Row::toggle(id).tab(1).icon(icon).label(label).help(help).on(c.theme_flag(&key, default)).act(move |a| match a {
@@ -188,7 +195,16 @@ fn rows(c: &Ctx) -> Vec<Row> {
         c.seg(Spec::new("option.pointerSize").tab(0).icon("scan-eye").label("Pointer size").options(&["Small", "Medium", "Large"]).values(&["small", "medium", "large"])),
         Row::info("holdhome").tab(1).icon("house").label("Hold Home for LG's Home").value("Always on").help("Press and hold Home for 650 ms to open LG's own Home if LumaTV misbehaves."),
         remote_toggle(c, "numberkeys", "hash", "Number keys open dock tiles", "1 opens the first tile on the dock, 2 the second, and so on.", "numberKeys", true),
-        remote_toggle(c, "gearhold", "bell", "Hold the gear key for notifications", "Hold Settings for a moment to open the notifications. Off gives the hold back to LG's Settings.", "gearHold", true),
+        Row::seg("gearhold", &["Settings", "Notifications", "Nothing"])
+            .tab(1)
+            .icon("bell")
+            .label("Hold gear")
+            .help("What holding the gear key does: LumaTV's Settings, the notifications, or nothing. LG's own Settings and its hidden menu never open from it.")
+            .index(Some(gear_hold_index(c)))
+            .act(|a| match a {
+                Arg::Index(i) => GEAR_HOLD.get(i).map(|v| vec![Op::Patch(patch_of("remote.gearHold", json!(v)))]).unwrap_or_default(),
+                _ => Vec::new(),
+            }),
         remote_toggle(c, "quickpanel", "layout-grid", "Quick panel on gear", "", "quickPanel", true),
         remote_toggle(c, "inputpicker", "cable", "Input picker on Input key", "", "inputPicker", true),
         remote_toggle(c, "quickpaneledit", "layout-grid", "Quick panel tiles: choices and editing", "OK on Picture mode or Sleep timer opens its choices beside the panel, and a held OK on a tile moves, removes or adds tiles. Off leaves OK and a held OK as they were.", "quickPanelEdit", false),
@@ -382,10 +398,10 @@ mod tests {
     #[test]
     fn the_keys_tab_switches_theme_keys_and_lists_what_each_app_key_opens_now() {
         let mut w = world();
-        w.theme = json!({"remote": {"gearHold": false, "appKeys": {"netflix": "plex", "amazon": ""}}});
+        w.theme = json!({"remote": {"appKeys": {"netflix": "plex", "amazon": ""}}});
         let r = rows(&w.ctx());
-        assert!(!row(&r, "gearhold").on && row(&r, "numberkeys").on && !row(&r, "appswitcher").on, "each has the default the QML page reads");
-        assert!(matches!(&(row(&r, "gearhold").act.as_ref().unwrap())(Arg::Toggle(true))[..], [Op::Patch(p)] if p == &json!({"remote": {"gearHold": true}})));
+        assert!(row(&r, "numberkeys").on && !row(&r, "appswitcher").on, "each has the default the QML page reads");
+        assert_eq!((row(&r, "gearhold").label.as_str(), row(&r, "gearhold").index), ("Hold gear", Some(0)), "LumaTV's Settings until the owner chooses");
         assert_eq!(row(&r, "key:netflix").value, "Plex", "the owner's choice, by the app's title");
         assert_eq!(row(&r, "key:amazon").value, "Nothing", "chosen: nothing");
         assert_eq!(row(&r, "key:disneyplus").value, "Nothing", "LG's own app is not installed here");
@@ -393,6 +409,28 @@ mod tests {
         let ops = (row(&r, "key:netflix").act.as_ref().unwrap())(Arg::Press);
         assert!(matches!(&ops[..], [Op::Open { page, arg }] if page == "appkey" && arg.str("key") == Some("netflix")));
         assert!(!r.iter().any(|x| x.id.starts_with("number:")), "the number keys are listed while Quick Access is on");
+    }
+
+    #[test]
+    fn the_hold_gear_choice_is_settings_notifications_or_nothing_and_any_other_word_is_settings() {
+        let mut w = world();
+        let at = |w: &World| row(&rows(&w.ctx()), "gearhold").index;
+        assert_eq!(row(&rows(&w.ctx()), "gearhold").options, ["Settings", "Notifications", "Nothing"]);
+        for (theme, index) in [
+            (json!({"remote": {"gearHold": "notifications"}}), 1),
+            (json!({"remote": {"gearHold": "nothing"}}), 2),
+            (json!({"remote": {"gearHold": "settings"}}), 0),
+            (json!({"remote": {"gearHold": false}}), 0),
+            (json!({"remote": {"gearHold": "lg"}}), 0),
+        ] {
+            w.theme = theme.clone();
+            assert_eq!(at(&w), Some(index), "{theme}");
+        }
+        let r = rows(&w.ctx());
+        for (i, word) in [(0, "settings"), (1, "notifications"), (2, "nothing")] {
+            assert!(matches!(&(row(&r, "gearhold").act.as_ref().unwrap())(Arg::Index(i))[..], [Op::Patch(p)] if p == &json!({"remote": {"gearHold": word}})));
+        }
+        assert!((row(&r, "gearhold").act.as_ref().unwrap())(Arg::Index(3)).is_empty());
     }
 
     #[test]

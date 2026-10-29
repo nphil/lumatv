@@ -31,9 +31,12 @@ PageList {
     }
     summary: Inputs.current ? Inputs.current.port : ""
 
+    readonly property bool cecOn: String(Sio.get("other.simplinkEnable")) === "on"
+
     function refresh() {
         Inputs.refresh()
-        Sio.read("other", ["simplinkEnable", "qmsVrr", "uhdDeepColor", "444BypassHDMI1", "444BypassHDMI2", "444BypassHDMI3", "444BypassHDMI4", "enableDolbyVisionPC"])
+        Sio.read("general", ["noSignalScreenSaver"])
+        Sio.read("other", ["simplinkEnable", "simplinkAutoPowerOn", "qmsVrr", "uhdDeepColor", "444BypassHDMI1", "444BypassHDMI2", "444BypassHDMI3", "444BypassHDMI4", "enableDolbyVisionPC"])
         luna.call("bt", "luna://com.webos.service.config", "getConfigs", { configNames: ["system.supportBluetoothFeatures"] })
     }
     Component.onCompleted: refresh()
@@ -74,6 +77,12 @@ PageList {
 
         R.toggle(Sio, { ds: "other.simplinkEnable", id: "cec2", tab: 1, icon: "cable", label: "HDMI-CEC (SIMPLINK)",
                         help: "Devices turn on, switch and name themselves over the cable." }),
+        R.over(R.toggle(Sio, { ds: "other.simplinkAutoPowerOn", tab: 1, icon: "power", label: "Auto power sync",
+                              help: "The TV turns on with a device on HDMI-CEC, and the device turns on with the TV." }),
+               { enabled: function() { return page.cecOn && Sio.usable("other.simplinkAutoPowerOn") },
+                 detail: function() { return Sio.has("other.simplinkAutoPowerOn") && !page.cecOn ? "Turn HDMI-CEC on" : R.unavailable(Sio, "other.simplinkAutoPowerOn") } }),
+        R.toggle(Sio, { ds: "general.noSignalScreenSaver", tab: 1, icon: "image", label: "No signal image",
+                        help: "A picture from LG instead of a plain screen while an input has no signal." }),
         R.toggle(Sio, { ds: "other.qmsVrr", tab: 1, icon: "fast-forward", label: "Quick Media Switching",
                         help: "Switches between a game and a video without a black screen. Only for the input in front." }),
         R.seg(Sio, { ds: "other.uhdDeepColor", tab: 1, icon: "palette", label: "HDMI Deep Color", options: ["Off", "4K"], values: ["off", "4k"],

@@ -18,7 +18,7 @@ fn reads(_: &Ctx) -> Vec<Read> {
     vec![
         Read::lg("general", &["aiNudge", "aiSettingsNudge", "lifeOnScreenMode", "homeAutoLaunch", "homePromotion", "screenSaverAd"]),
         Read::lg("option", &["broadcastInfoNoti", "lifeOnScreenEnergySaving", "lifeOnScreenNotification", "lifeOnScreenUsingMotionSensor", "screenSaverTimer"]),
-        Read::lg("other", &["contentRecommendation"]),
+        Read::lg("other", &["contentRecommendation", "lgLogoDisplay"]),
     ]
 }
 
@@ -149,6 +149,9 @@ fn rows(c: &Ctx) -> Vec<Row> {
     let logo = |key: &str| c.theme_at(&format!("logo.{key}")).and_then(Value::as_u64).unwrap_or(1).clamp(1, 3) as usize - 1;
     rows.push(theme_seg("logoon", 3, "power", "Power-on logo", &["Panes", "Arc", "Name only"], Some(logo("on")), |i| json!({"logo": {"on": i + 1}})));
     rows.push(theme_seg("logooff", 3, "moon", "Power-off logo", &["Panes", "Arc", "Name only"], Some(logo("off")), |i| json!({"logo": {"off": i + 1}})));
+    // LG's own logo is a different thing from LumaTV's two above: the TV's power service shows it as the TV turns off (LG's menu: "Show LG logo
+    // when turning off the TV", `other.lgLogoDisplay`), so it is its own row, worded as LG's.
+    rows.push(c.toggle(Spec::new("other.lgLogoDisplay").tab(3).icon("tv").label("LG logo").help("LG's own logo, shown by the TV when it turns off. The logos above are LumaTV's.")));
     let ready = c.lg.has("general.lifeOnScreenMode") && !c.lg.is("general.lifeOnScreenMode", "off");
     let mut always = Row::toggle("alwaysready").tab(3).icon("moon-star").label("Always Ready").help("LG's standby: a wallpaper, the voice and music from a phone while the TV is off. It uses more power than a dark panel.").on(ready).admin();
     always.detail = c.unavailable("general.lifeOnScreenMode", "");
@@ -215,7 +218,7 @@ mod tests {
             &[
                 ("general", json!({"settings": {"homeAutoLaunch": "on", "homePromotion": "off", "lifeOnScreenMode": "off", "screenSaverAd": "off", "aiNudge": "off", "aiSettingsNudge": "off"}})),
                 ("option", json!({"settings": {"screenSaverTimer": "10", "lifeOnScreenEnergySaving": "auto", "lifeOnScreenNotification": "true", "lifeOnScreenUsingMotionSensor": "true", "broadcastInfoNoti": "off"}, "errorKey": []})),
-                ("other", json!({"settings": {"contentRecommendation": "off"}})),
+                ("other", json!({"settings": {"contentRecommendation": "off", "lgLogoDisplay": "on"}})),
             ],
             &[("option", json!({"results": [{"key": "screenSaverTimer", "values": {"arrayExt": [{"value": "3"}, {"value": "10"}, {"value": "20"}, {"value": "30"}]}}]}))],
         ));
@@ -309,6 +312,17 @@ mod tests {
         assert!(off.iter().any(|o| matches!(o, Op::Act { uri, .. } if uri.ends_with("/createToast"))), "it says what it did");
         let sensor = by_id(&r, "option.lifeOnScreenUsingMotionSensor");
         assert!(!sensor.enabled && sensor.detail == "Turn Always Ready on");
+    }
+
+    #[test]
+    fn lgs_own_logo_is_one_row_of_its_own_beside_lumatvs_two_and_writes_lgs_key() {
+        let w = world();
+        let r = rows(&w.ctx());
+        let lg = by_id(&r, "other.lgLogoDisplay");
+        assert_eq!((lg.tab, lg.label.as_str(), lg.on), (3, "LG logo", true));
+        assert!(lg.help.contains("LG's own") && lg.help.contains("LumaTV's"), "it says whose logo it is: {}", lg.help);
+        assert!(matches!(&(lg.act.as_ref().unwrap())(Arg::Toggle(false))[..], [Op::Lg { ds, value, .. }] if ds == "other.lgLogoDisplay" && value == "off"));
+        assert_eq!(r.iter().filter(|x| x.label.to_lowercase().contains("logo")).count(), 3, "LumaTV's power-on and power-off logos and LG's");
     }
 
     #[test]

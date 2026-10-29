@@ -36,6 +36,7 @@ PageList {
     property string updateState: ""
     property string adId: ""
     property bool recentsCleared: false
+    property bool avResetDone: false
     property string pending: ""             // "user" or "userKeepNetwork" while a reset waits for its PIN and second answer
 
     readonly property string dash: "\u2013"
@@ -286,6 +287,16 @@ PageList {
                    act: C.ask(page, { icon: "cpu", title: "Clear LG's recent apps?", body: "The list of recent apps is emptied.", yes: "Clear", no: "Cancel" },
                               function() { luna.act("luna://com.webos.service.recent", "removeAllRecents", {}); page.recentsCleared = true }) }),
 
+        C.action({ id: "avreset", tab: 4, icon: "rotate-ccw", label: "AV reset", button: function() { return page.avResetDone ? "Done" : "Reset" }, danger: true,
+                   help: "Puts the picture, sound and input settings back to LG's defaults. Apps, accounts and the network stay.",
+                   act: C.ask(page, { icon: "rotate-ccw", title: "Reset the picture, sound and input settings?", body: "They go back to LG's defaults.", yes: "Reset", no: "Cancel", danger: true },
+                              function() {
+                                  luna.act("luna://com.webos.service.videooutput", "reset/resetVideoSettings", {})
+                                  luna.act("luna://com.webos.service.audio", "tv/resetSoundSettings", {})
+                                  luna.act("luna://com.webos.service.eim", "resetExternalInputSettings", {})
+                                  luna.act("luna://com.webos.service.pqcontroller", "resetPictureSettings", {})
+                                  page.avResetDone = true
+                              }) }),
         resetRow("resetall", "Reset All", "user", "Erases the TV's settings, accounts and apps, as new. It asks for the PIN, twice over."),
         resetRow("resetkeep", "Reset All Except Network Settings", "userKeepNetwork", "As Reset All, but the Wi-Fi and the wired settings stay.")
     ]

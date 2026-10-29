@@ -84,6 +84,7 @@ Lighting Color) exists in the bundle for other models and is not shown.
 | General › System › Additional Settings › Pointer Options: Pointer Speed (Slow, Normal, Fast), Pointer Size (Small, Medium, Large) | Segmented rows "Pointer speed", "Pointer size" |
 | `general.remotePointer` (settingsservice; "Remote Pointer" string in Accessibility › Simple Mode) | Switch "Magic Remote pointer" |
 | Hold Home opens LG's Home; number keys open dock tiles | LumaTV's own rows |
+| Gear key held: LG's Settings app; gear tapped three times: LG's hidden support menu (`tvhotkey`, `mute-hidden-action`) | Neither opens. Segmented row "Hold gear" (Settings, the default, Notifications, Nothing; theme `remote.gearHold`); every tap is the quick panel. The menu's items: System › About this TV (model `factorymanager getFactoryOpt`, platform, software version), HDMI "Auto power sync" (`other.simplinkAutoPowerOn`) and "No signal image" (`general.noSignalScreenSaver`), Home & look › Standby "LG logo" (`other.lgLogoDisplay`), System › Support › Reset "AV reset", Channels "Auto Tuning" (`com.webos.app.channelsetting`), Privacy › Consent "Allow LG Remote Service" (off, owner-only) |
 | Universal Control Settings, Learn Remote Control, Extend Pressing Time on Remote (Activate time for long press, Interval time for repeated actions), Settings Help | More in LG settings |
 
 ## AI access

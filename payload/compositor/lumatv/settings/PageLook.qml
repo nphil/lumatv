@@ -33,7 +33,7 @@ PageList {
     function refreshTv() {
         Sio.read("general", ["aiNudge", "aiSettingsNudge", "lifeOnScreenMode", "homeAutoLaunch", "homePromotion", "screenSaverAd"])
         Sio.read("option", ["broadcastInfoNoti", "lifeOnScreenEnergySaving", "lifeOnScreenNotification", "lifeOnScreenUsingMotionSensor", "screenSaverTimer"])
-        Sio.read("other", ["contentRecommendation"])
+        Sio.read("other", ["contentRecommendation", "lgLogoDisplay"])
     }
     Component.onCompleted: refreshTv()
     onOpened: refreshTv()
@@ -139,6 +139,8 @@ PageList {
         { kind: "seg", tab: 3, icon: "moon", label: "Power-off logo",
           options: ["Panes", "Arc", "Name only"], index: function() { return Math.max(0, Math.min(2, (page.logo.off || 1) - 1)) },
           act: function(i) { page.patch({ logo: { off: i + 1 } }) } },
+        // LG's own logo is not LumaTV's two above: the TV's power service shows it as the TV turns off (`other.lgLogoDisplay`)
+        R.toggle(Sio, { ds: "other.lgLogoDisplay", tab: 3, icon: "tv", label: "LG logo", help: "LG's own logo, shown by the TV when it turns off. The logos above are LumaTV's." }),
         C.lgShown(Sio, "general.lifeOnScreenMode", {
             kind: "toggle", tab: 3, id: "alwaysready", icon: "moon-star", label: "Always Ready", help: "LG's standby: a wallpaper, the voice and music from a phone while the TV is off. It uses more power than a dark panel.",
             detail: R.unavailable(Sio, "general.lifeOnScreenMode"), enabled: function() { return Sio.usable("general.lifeOnScreenMode") },

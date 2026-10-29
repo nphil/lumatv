@@ -337,9 +337,35 @@ fn rows(c: &Ctx) -> Vec<Row> {
     )));
 
     // ---- Reset
+    rows.push(av_reset(c));
     rows.push(reset_row("resetall", "Reset All", "user", "Erases the TV's settings, accounts and apps, as new. It asks for the PIN, twice over."));
     rows.push(reset_row("resetkeep", "Reset All Except Network Settings", "userKeepNetwork", "As Reset All, but the Wi-Fi and the wired settings stay."));
     rows
+}
+
+/// LG's AV reset, the item of its hidden support menu: the four services that hold the picture, sound and input settings are told to go back
+/// to their defaults, in the order the menu told them. LG ran it with no question; it asks once here, as a danger. No PIN: nothing is erased
+/// but those settings.
+const AV_RESET: [&str; 4] = [
+    "luna://com.webos.service.videooutput/reset/resetVideoSettings",
+    "luna://com.webos.service.audio/tv/resetSoundSettings",
+    "luna://com.webos.service.eim/resetExternalInputSettings",
+    "luna://com.webos.service.pqcontroller/resetPictureSettings",
+];
+
+fn av_reset(c: &Ctx) -> Row {
+    let done = c.local.flag("avreset");
+    let mut then: Vec<Op> = AV_RESET.iter().map(|uri| Op::Act { uri: (*uri).into(), payload: json!({}) }).collect();
+    then.push(Op::Set("avreset".into(), json!(true)));
+    Row::action("avreset", if done { "Done" } else { "Reset" }).tab(4).icon("rotate-ccw").label("AV reset").help("Puts the picture, sound and input settings back to LG's defaults. Apps, accounts and the network stay.").danger().does(ask(
+        "rotate-ccw",
+        "Reset the picture, sound and input settings?",
+        "They go back to LG's defaults.",
+        "Reset",
+        "Cancel",
+        true,
+        then,
+    ))
 }
 
 /// A reset asks, then LG's PIN prompt (a moment after the first question has closed: a prompt answered at once would open the second
@@ -734,6 +760,33 @@ mod tests {
         assert!(!promo.enabled && promo.detail == "Allow Live Plus first", "it follows Live Plus");
         assert!(matches!(&(by_id(&r, "option.livePlus").act.as_ref().unwrap())(Arg::Toggle(true))[..], [Op::Lg { .. }, Op::Act { .. }]));
         assert!(matches!(&(by_id(&r, "option.livePlus").act.as_ref().unwrap())(Arg::Toggle(false))[..], [Op::Lg { .. }, Op::Act { .. }]));
+    }
+
+    #[test]
+    fn the_av_reset_is_a_danger_that_asks_once_and_then_tells_the_four_services_in_lgs_order() {
+        let mut w = world();
+        let r = rows(&w.ctx());
+        let row = by_id(&r, "avreset");
+        assert_eq!((row.tab, row.label.as_str(), row.button.as_str(), row.danger), (4, "AV reset", "Reset", true));
+        let ops = (row.act.as_ref().unwrap())(Arg::Press);
+        let [Op::Ask(ask)] = &ops[..] else { panic!("{ops:?}") };
+        assert!(ask.answers[0].then.is_empty(), "the safe answer first, and it does nothing");
+        assert!(ask.answers[1].danger, "the question is a danger too");
+        let uris: Vec<&str> = ask.answers[1].then.iter().filter_map(|o| if let Op::Act { uri, payload } = o { assert_eq!(payload, &json!({})); Some(uri.as_str()) } else { None }).collect();
+        assert_eq!(
+            uris,
+            [
+                "luna://com.webos.service.videooutput/reset/resetVideoSettings",
+                "luna://com.webos.service.audio/tv/resetSoundSettings",
+                "luna://com.webos.service.eim/resetExternalInputSettings",
+                "luna://com.webos.service.pqcontroller/resetPictureSettings",
+            ]
+        );
+        // nothing is sent by the press itself, and the row says so afterwards
+        assert_eq!(by_id(&rows(&w.ctx()), "avreset").button, "Reset");
+        w.local.set("avreset", json!(true));
+        assert_eq!(by_id(&rows(&w.ctx()), "avreset").button, "Done");
+        assert!(r.iter().position(|x| x.id == "avreset") < r.iter().position(|x| x.id == "resetall"), "it is the first of the Reset tab, before the erasing ones");
     }
 
     #[test]

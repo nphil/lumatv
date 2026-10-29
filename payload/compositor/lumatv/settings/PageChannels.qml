@@ -44,6 +44,7 @@ PageList {
                { enabled: function() { return page.liveTv && Sio.usable("channel.analogSystemColor") }, detail: function() { return page.liveTv ? "" : "Live TV only" } }),
         interactive("option.interactive-service", "Interactive Service", "Content suggestions and ads that follow what Live TV is showing."),
         interactive("option.interactive-service-hdmi", "Interactive Service (HDMI)", "The same for a broadcast signal on an HDMI input."),
+        R.lg(page, { id: "autotuning", app: "com.webos.app.channelsetting", label: "Auto Tuning", help: "Searches for channels, in LG's channel setup. The channel list is replaced." }),
         R.lg(page, { id: "channeltuning", target: "channel", label: "Channel Tuning & Settings", help: "Auto and manual tuning, the channel list and locks, in LG's channel screen." })
     ]
 }

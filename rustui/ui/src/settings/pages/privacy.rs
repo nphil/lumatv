@@ -73,6 +73,7 @@ fn detail_words(it: &Value) -> String {
             (Some(true), Some(n)) => format!("{n} names blocked"),
             _ => "Not active yet".into(),
         },
+        "remoteservice" => if on { "Allowed".into() } else { "Blocked".into() },
         _ => String::new(),
     }
 }
@@ -85,6 +86,7 @@ fn icon_of(id: &str) -> &'static str {
         "push" => "bell-off",
         "hosts" => "ban",
         "amazoff" => "clapperboard",
+        "remoteservice" => "cast",
         _ => "shield-check",
     }
 }
@@ -188,6 +190,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
         let help = if titles.is_empty() { String::new() } else { format!("Agreements: {}.", titles.join(", ")) };
         rows.push(switch(c, it, 1, settable, if settable { String::new() } else { "Only in LG's menus".into() }, &help));
     }
+    rows.push(remote_service(c));
     rows.push(live_plus(c, 1));
     // ads and data
     rows.push(live_promotion(c, 2));
@@ -254,6 +257,22 @@ fn prime_ads(c: &Ctx, it: &Value) -> Row {
     let mut r = Row::link("privacy:amazoff").tab(0).icon(icon_of("amazoff")).label("Prime Video ads").value(value).detail(&detail).admin().enabled(available && !busy).does(ops);
     r.help = "Takes the ads out of Prime Video.".into();
     r
+}
+
+/// LG's Remote Service (LG staff see and control the TV once a code is read out; LG's hidden support menu was its only door). Blocked unless
+/// the owner allows it: the helper's owner-only change writes the file the compositor looks for before it lets the app open. Turning it
+/// on asks once, in the danger style; off does not. No assistant has a route to it, and nothing here opens the app. Without the helper's
+/// item (an older helper) the row only says it is blocked, which the compositor does by itself.
+fn remote_service(c: &Ctx) -> Row {
+    const HELP: &str = "LG's remote support: with a code read out to LG, its staff can see and control this TV";
+    match item(c, "remoteservice") {
+        Some(it) => switch(c, it, 1, true, detail_words(it), HELP).act(|a| match a {
+            Arg::Toggle(true) => ask("cast", "Allow LG Remote Service?", "With a code read out to LG, its staff can see the screen and control this TV. It stays blocked until it is turned off again.", "Allow", "Cancel", true, change("remoteservice", true)),
+            Arg::Toggle(false) => change("remoteservice", false),
+            _ => Vec::new(),
+        }),
+        None => Row::info("privacy:remoteservice").tab(1).icon(icon_of("remoteservice")).label("Allow LG Remote Service").value("Blocked").help(&format!("{HELP}. It stays blocked until the owner allows it here.")),
+    }
 }
 
 fn ad_id_of(doc: &Value) -> String {
@@ -456,6 +475,7 @@ mod tests {
             {"id": "uploaders", "title": "Block telemetry uploads", "detail": "Stops LG's uploads.", "kind": "switch", "on": false, "available": false, "reason": "declutter tool missing"},
             {"id": "hosts", "title": "Block ad & tracker hosts", "detail": "Blocks advertising names.", "kind": "switch", "on": true, "available": true, "effective": true, "count": 212},
             {"id": "amazoff", "title": "Block Prime Video ads", "detail": "Takes the ads out of Prime Video.", "kind": "switch", "on": true, "available": true, "protection": "waiting"},
+            {"id": "remoteservice", "title": "Allow LG Remote Service", "detail": "LG's remote support.", "kind": "switch", "on": false, "available": true, "admin": true, "confirm": true},
             {"id": "consent.acrAllowed", "title": "Allow content recognition (ACR)", "kind": "switch", "on": true, "available": true, "settable": true, "agreements": [{"title": "Analytics"}]},
             {"id": "consent.customAdAllowed", "title": "Allow personalised ads", "kind": "switch", "on": true, "available": true, "settable": true},
             {"id": "consent.networkAllowed", "title": "Accept LG's network service terms", "kind": "switch", "on": true, "available": true, "settable": false},
@@ -508,7 +528,7 @@ mod tests {
         let w = world();
         let c = w.ctx();
         let r = rows(&c);
-        for it in items(&c).into_iter().filter(|i| i.get("kind").and_then(Value::as_str) == Some("switch") && text(i, "id") != "amazoff") {
+        for it in items(&c).into_iter().filter(|i| i.get("kind").and_then(Value::as_str) == Some("switch") && !["amazoff", "remoteservice"].contains(&text(i, "id"))) {
             let id = text(it, "id");
             let row = r.iter().find(|x| x.id == format!("privacy:{id}")).unwrap_or_else(|| panic!("{id}"));
             assert_eq!(row.on, it["on"].as_bool().unwrap(), "{id}: the switch shows the helper's state, not its opposite");
@@ -602,6 +622,31 @@ mod tests {
         w.docs.set("privacy", doc);
         let none = find(&w);
         assert_eq!((none.value.as_str(), none.detail.as_str(), none.enabled), ("Not available", "Prime Video is not installed on this TV", false));
+    }
+
+    #[test]
+    fn lg_remote_service_is_blocked_asks_once_in_the_danger_style_to_allow_and_never_launches_anything() {
+        let mut w = world();
+        let r = rows(&w.ctx());
+        let row = r.iter().find(|x| x.id == "privacy:remoteservice").unwrap();
+        assert_eq!((row.label.as_str(), row.tab, row.on, row.detail.as_str(), row.admin, row.enabled), ("Allow LG Remote Service", 1, false, "Blocked", true, true));
+        let ops = (row.act.as_ref().unwrap())(Arg::Toggle(true));
+        let [Op::Ask(a)] = &ops[..] else { panic!("{ops:?}") };
+        assert!(a.answers[0].then.is_empty() && a.answers[1].danger, "the safe answer first, and allowing is a danger");
+        let [Op::Set(k, v), Op::Send { name, path, body, .. }] = &a.answers[1].then[..] else { panic!("{:?}", a.answers[1].then) };
+        assert_eq!((k.as_str(), v), ("pend:remoteservice", &json!("on")));
+        assert_eq!((name.as_deref(), path.as_str(), body.as_ref().unwrap()), (Some("privacy.prepare:remoteservice"), "/v1/privacy/prepare", &json!({"id": "remoteservice", "enabled": true})));
+        // blocking again asks nothing
+        let ops = (row.act.as_ref().unwrap())(Arg::Toggle(false));
+        assert!(matches!(&ops[..], [Op::Set(..), Op::Send { body: Some(b), .. }] if b == &json!({"id": "remoteservice", "enabled": false})));
+        assert!(r.iter().all(|x| x.act.as_ref().is_none_or(|a| a(Arg::Press).iter().all(|o| !matches!(o, Op::Launch { app, .. } if app.contains("remoteservice"))))), "no row opens the app");
+        // what was done is said in the toast
+        assert_eq!(toasts(&answered(&w.ctx(), "privacy.apply:remoteservice", &json!({"ok": true, "changed": "remoteservice", "on": true}))), vec!["LG Remote Service allowed"]);
+        // without the helper's item (an older helper) it is still said to be blocked, and there is nothing to switch
+        w.docs.set("privacy", json!({"ok": true, "privacy": {"id": "privacy", "canAdmin": true, "items": [{"id": "ads", "title": "x", "kind": "switch", "on": false, "available": true}]}}));
+        let r = rows(&w.ctx());
+        let row = r.iter().find(|x| x.id == "privacy:remoteservice").unwrap();
+        assert_eq!((row.value.as_str(), row.act.is_none()), ("Blocked", true));
     }
 
     #[test]

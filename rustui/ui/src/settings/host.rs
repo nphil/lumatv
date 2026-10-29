@@ -165,3 +165,65 @@ impl SettingsHost {
         json!({"settings": self.surface.frames().iter().map(|(n, f)| json!({"name": n, "x": f.x, "y": f.y, "w": f.w, "h": f.h})).collect::<Vec<_>>()})
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kit::lint::Lint;
+    use crate::kit::testkit;
+    use crate::settings::model::Target;
+    use ui::lucent::palette::Mode;
+
+    fn press(host: &mut SettingsHost, name: &str, t: u64) {
+        host.update(&Input::Key { name: name.into(), down: true, repeat: false }, t);
+        host.update(&Input::Key { name: name.into(), down: false, repeat: false }, t + 20);
+    }
+
+    /// The pages and tabs this change added or changed (Hold gear, About this TV, Allow LG Remote Service, AV reset, Auto power sync and No
+    /// signal image, Auto Tuning, LG logo), each walked row by row so the scrolled list is read at every place.
+    #[test]
+    fn the_pages_of_the_lg_menu_items_read_clean_at_both_text_sizes_in_both_looks() {
+        let privacy = json!({"ok": true, "privacy": {"id": "privacy", "canAdmin": true, "items": [
+            {"id": "remoteservice", "title": "Allow LG Remote Service", "detail": "LG's remote support.", "kind": "switch", "on": false, "available": true, "admin": true, "confirm": true},
+            {"id": "consent.acrAllowed", "title": "Screen content recognition", "kind": "switch", "on": true, "available": true, "settable": true}]}});
+        for mode in [Mode::Dark, Mode::Light] {
+            for scale in [1.0, 2.0] {
+                let (h, mut kit) = testkit::kit_in(mode, scale);
+                let mut engine = Engine::new(&kit).unwrap();
+                for (page, tab, label) in [
+                    ("about", 0, "about:serial label"),
+                    ("remote", 1, "gearhold label"),
+                    ("privacy", 1, "privacy:remoteservice label"),
+                    ("support", 4, "avreset label"),
+                    ("inputs", 1, "general.noSignalScreenSaver label"),
+                    ("channels", 0, "autotuning label"),
+                    ("look", 3, "other.lgLogoDisplay label"),
+                ] {
+                    let mut host = SettingsHost::new(1000, &lumatv_tokens::Tokens::shipped().json().clone(), &json!({}));
+                    host.model.docs.set("privacy", privacy.clone());
+                    host.model.docs.set("factory", json!({"returnValue": true, "modelName": "WEBOS22.SKJY", "serialNumber": "403RMDV12345"}));
+                    host.model.docs.set("os", json!({"returnValue": true, "core_os_release": "9.1.0-12345"}));
+                    host.model.docs.set("firmware", json!({"returnValue": true, "configs": {"tv.nyx.firmwareVersion": "04.30.25"}}));
+                    host.open(Some(page), 1000);
+                    if tab > 0 {
+                        host.click(Target::Tab(tab), 1100);
+                    } else {
+                        press(&mut host, "right", 1200);
+                    }
+                    let mut seen = Vec::new();
+                    for i in 0..14u64 {
+                        host.apply(&mut kit, &mut engine, false, 2300 + i * 100, (2300 + i * 100) * 1_000_000).expect("Settings is drawn");
+                        let mut lint = Lint::new();
+                        host.feed_lint(&mut kit, &mut lint);
+                        let bad: Vec<String> = lint.findings().iter().map(|f| format!("{f:?}")).collect();
+                        assert!(bad.is_empty(), "{page} tab {tab} {mode:?} at {scale}, step {i}: {}", bad.join("\n"));
+                        seen.extend(lint.words().iter().map(|w| w.name.clone()));
+                        press(&mut host, "down", 2350 + i * 100);
+                    }
+                    assert!(seen.iter().any(|n| n.starts_with(label)), "{page} tab {tab} {mode:?} at {scale} drew the row {label:?} among {seen:?}");
+                }
+                std::mem::forget(h);
+            }
+        }
+    }
+}
