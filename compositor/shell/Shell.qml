@@ -85,6 +85,8 @@ WebOSWindow {
     // frame costs at 120 (kit/Lu.qml `fast`).
     readonly property int refreshHz: Link.topics.refresh && Link.topics.refresh.hz ? Link.topics.refresh.hz : 60
     Binding { target: lumaHome.item; property: "refreshHz"; value: homeWin.refreshHz; when: homeWin.homeReady }
+    // The kinds the Rust shell answers (the compositor's `rust` topic): what it draws, Home leaves out.
+    Binding { target: lumaHome.item; property: "rustKinds"; value: homeWin.rustKinds; when: homeWin.homeReady }
 
     // The module's key bridge: the way into LumaBus.js's engine-wide instance (the one LumaHome and LumaOverlay registered
     // with), made from the module's own file so the library URL is theirs.

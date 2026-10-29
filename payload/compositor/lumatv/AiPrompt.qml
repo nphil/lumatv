@@ -16,7 +16,10 @@ Item {
     anchors.fill: parent
     readonly property var doc: Helper.aiPrompt
     readonly property bool up: doc !== null && doc !== undefined
-    visible: up
+    // False while the Rust shell answers the kind `ai` (the compositor's `rust` topic): it draws the question over everything, apps included, and this
+    // one stays only for the keys LumaHome keeps from what is under it.
+    property bool drawn: true
+    visible: up && drawn
     property double nowMs: Date.now()
     readonly property int total: up && doc.seconds ? doc.seconds : 30
     readonly property real remaining: up ? Math.max(0, (doc.expiresAt - nowMs) / 1000) : 0

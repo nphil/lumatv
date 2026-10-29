@@ -28,6 +28,8 @@ Item {
     // The Hz the compositor's output runs at: set by the shell client under LumaTV's compositor (compositor/shell/Shell.qml, the
     // `refresh` topic); 60 under LG's. Read through Lu.fast (kit/Lu.qml): the 120 Hz test mode.
     property int refreshHz: 60
+    // The kinds the Rust shell answers (the compositor's `rust` topic, bound by compositor/shell/Shell.qml): what it draws, this Home leaves out.
+    property var rustKinds: []
     // The last per-frame slides (kit/FrameMotion.qml, `Lu.slides`): what the shell reports to the compositor (`ctl shell`)
     readonly property var slides: Lu.slides
     readonly property bool baseCached: base.layer.enabled
@@ -1763,7 +1765,7 @@ Item {
     // ============================================================= AI prompt
     // The question AI access asks on the TV (AiPrompt.qml draws the helper's `ai.prompt` topic and has
     // no way to answer it; see there). Above Settings and the gallery, below nothing of ours.
-    AiPrompt { id: aiPrompt; z: 90 }
+    AiPrompt { id: aiPrompt; z: 90; drawn: root.rustKinds.indexOf("ai") < 0 }
 
     // ============================================================= startup warm-up
     // Draws the text styles, images and shader components the surfaces use once, hidden, after Home

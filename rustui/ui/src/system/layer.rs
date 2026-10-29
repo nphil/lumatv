@@ -6,6 +6,8 @@
 //! The facts the kinds share are read here once, from the channel's topics: what is in front (an app, not Home, with the screen on), whether
 //! the screen is on, whether the on-screen keyboard is up. A kind that must not disturb (the cards, the pop-up) asks [`Layer::busy`].
 
+use super::ai::AiPrompt;
+use super::ai_surface::AiSurface;
 use super::alert::{Alerts, Target};
 use super::alert_surface::AlertSurface;
 use super::capture::{Capture, CaptureSurface};
@@ -35,6 +37,7 @@ pub mod z {
     pub const CARDS: i32 = 60;
     pub const POPUP: i32 = 90;
     pub const ALERT: i32 = 110;
+    pub const AI: i32 = 150;
     pub const CAPTURE: i32 = 180;
 }
 
@@ -73,6 +76,9 @@ pub struct Layer {
     alert_surface: AlertSurface,
     saver: Saver,
     saver_surface: SaverSurface,
+    /// The AI access prompt (kind `ai`): shown over everything, and no way to answer it ([`super::ai`]).
+    ai: AiPrompt,
+    ai_surface: AiSurface,
     capture: Capture,
     capture_surface: CaptureSurface,
     overlay: Overlay,
@@ -121,6 +127,8 @@ impl Layer {
             cards_surface: CardsSurface::new(base + z::CARDS, theme, layout),
             popup: Popup::new(),
             popup_surface: PopupSurface::new(base + z::POPUP, theme, layout),
+            ai: AiPrompt::new(),
+            ai_surface: AiSurface::new(base + z::AI),
             layout: None,
             layout_surface: LayoutSurface::new(base + crate::kit::z::EDITOR - crate::kit::z::SYSTEM),
             user: Registry::shipped().user_from_json(theme.pointer("/layout/overlays").unwrap_or(&Value::Null)),
@@ -147,7 +155,7 @@ impl Layer {
     /// Something has the screen that the cards and the pop-up must wait for: an alert, the input popup, a PIN prompt, the keyboard, the
     /// screen off.
     pub fn busy(&self) -> bool {
-        self.alerts.wants() || self.keyboard_up || !self.screen_on
+        self.alerts.wants() || self.ai.wants() || self.keyboard_up || !self.screen_on
     }
 
     /// Something that is not the layer's has the screen: a panel or Settings is up (`host_busy`), the Cameras app's viewer is up (`viewer_up`).
@@ -245,9 +253,12 @@ impl Layer {
             }
         }
         // an alert that has the keys takes them: the saver never sees a key that was meant to answer it
-        let alert_has_keys = kinds.alert && self.alerts.wants();
+        let alert_has_keys = (kinds.alert && self.alerts.wants()) || (kinds.ai && self.ai.wants());
         if kinds.alert {
             out.extend(self.alerts.update(input, now));
+        }
+        if kinds.ai {
+            out.extend(self.ai.update(input, now));
         }
         if kinds.capture {
             out.extend(self.capture.update(input, now));
@@ -338,7 +349,7 @@ impl Layer {
         if !*down || *repeat {
             return false;
         }
-        let yes = !self.layout_open() && !(self.alerts.wants() && kinds.alert) && !(kinds.saver && self.saver.wants_keys()) && ((kinds.popup && self.popup.armed(now)) || (kinds.cards && self.overlay.armed()));
+        let yes = !self.layout_open() && !(self.alerts.wants() && kinds.alert) && !(kinds.ai && self.ai.wants()) && !(kinds.saver && self.saver.wants_keys()) && ((kinds.popup && self.popup.armed(now)) || (kinds.cards && self.overlay.armed()));
         if yes {
             self.taken.push(name.clone());
         }
@@ -348,6 +359,11 @@ impl Layer {
     /// Whether the layout editor is up: it has every key and the pointer.
     pub fn layout_open(&self) -> bool {
         self.layout.is_some()
+    }
+
+    /// Whether the AI access prompt is up: it owns the keys and the pointer, and nothing under it hears either.
+    pub fn ai_up(&self) -> bool {
+        self.ai.up()
     }
 
     /// What the editor asked for: the owner's places written whole, or to leave.
@@ -462,6 +478,13 @@ impl Layer {
                 Err(e) => return Err(format!("alerts: {e}")),
             }
         }
+        if kinds.ai {
+            let view = self.ai.view(now_ms);
+            match self.ai_surface.apply(kit, view.as_ref(), self.app_front(), now_ms) {
+                Ok(on) => live |= on,
+                Err(e) => return Err(format!("ai prompt: {e}")),
+            }
+        }
         if kinds.saver {
             let glance = self.glance(now_ms);
             match self.saver_surface.apply(kit, &mut self.saver, &glance, now_ms) {
@@ -542,6 +565,9 @@ impl Layer {
         if kinds.saver {
             redraw |= self.saver_surface.tick(now_ms);
         }
+        if kinds.ai {
+            redraw |= self.ai_surface.tick(now_ms);
+        }
         if kinds.capture {
             redraw |= self.capture_surface.tick(now_ms);
         }
@@ -556,6 +582,9 @@ impl Layer {
 
     pub fn due_at(&self, kinds: &Kinds) -> Option<u64> {
         let mut due = None;
+        if kinds.ai {
+            due = [due, self.ai.due_at(), self.ai_surface.due_at()].into_iter().flatten().min();
+        }
         if kinds.alert {
             due = [due, self.alerts.due_at(), self.alert_surface.due_at()].into_iter().flatten().min();
         }
@@ -579,12 +608,12 @@ impl Layer {
 
     /// Whether the layer wants every key: an alert, the input popup or a PIN prompt is up, or the saver is (any key wakes it).
     pub fn wants(&self, kinds: &Kinds) -> bool {
-        (kinds.alert && self.alerts.wants()) || (kinds.saver && self.saver.wants_keys()) || (kinds.layout && self.layout_open())
+        (kinds.alert && self.alerts.wants()) || (kinds.ai && self.ai.wants()) || (kinds.saver && self.saver.wants_keys()) || (kinds.layout && self.layout_open())
     }
 
     /// The keys the layer takes by name while an app has the focus (the cards' OK and Back).
     pub fn takes(&self, kinds: &Kinds) -> Vec<&'static str> {
-        let quiet = !(kinds.alert && self.alerts.wants()) && !(kinds.saver && self.saver.wants_keys());
+        let quiet = !(kinds.alert && self.alerts.wants()) && !(kinds.ai && self.ai.wants()) && !(kinds.saver && self.saver.wants_keys());
         if quiet && !self.layout_open() && ((kinds.popup && self.popup.armed_now()) || (kinds.cards && self.overlay.armed())) { vec!["ok", "back"] } else { Vec::new() }
     }
 
@@ -596,6 +625,9 @@ impl Layer {
     /// The kinds' own words for the compositor: what the gate reads of `ctl shell`.
     pub fn state(&self, kinds: &Kinds) -> Value {
         let mut s = json!({});
+        if kinds.ai {
+            s["ai"] = self.ai.state();
+        }
         if kinds.alert {
             for (k, v) in self.alerts.state().as_object().into_iter().flatten() {
                 s[k] = v.clone();
@@ -623,6 +655,9 @@ impl Layer {
     /// Where the surfaces are (the harness reads them).
     pub fn geometry(&self, kinds: &Kinds, kit: &Kit) -> Value {
         let mut g = json!({});
+        if kinds.ai {
+            g["ai"] = self.ai_surface.geometry();
+        }
         if kinds.alert {
             g["alert"] = self.alert_surface.geometry();
         }
@@ -646,6 +681,9 @@ impl Layer {
 
     /// Describes what is on the screen to a lint.
     pub fn feed_lint(&self, kinds: &Kinds, kit: &mut Kit, lint: &mut crate::kit::lint::Lint) {
+        if kinds.ai {
+            self.ai_surface.feed_lint(kit, lint);
+        }
         if kinds.alert {
             self.alert_surface.feed_lint(kit, lint);
         }
@@ -670,6 +708,7 @@ impl Layer {
     pub fn restyle(&mut self, engine: &mut Engine) {
         self.alert_surface.restyle(engine);
         self.saver_surface.restyle();
+        self.ai_surface.restyle();
         self.capture_surface.restyle();
         self.popup_surface.restyle();
         self.cards_surface.restyle();

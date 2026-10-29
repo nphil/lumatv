@@ -59,6 +59,8 @@ pub struct Kinds {
     pub confirm: bool,
     pub switcher: bool,
     pub entry: bool,
+    /// The AI access prompt: the question the helper asks on the TV, shown over everything with no way to answer it.
+    pub ai: bool,
 }
 
 impl Kinds {
@@ -85,6 +87,7 @@ impl Kinds {
                 "confirm" => k.confirm = true,
                 "switcher" => k.switcher = true,
                 "entry" => k.entry = true,
+                "ai" => k.ai = true,
                 _ => {}
             }
         }
@@ -111,6 +114,7 @@ impl Kinds {
             (self.confirm, "confirm"),
             (self.switcher, "switcher"),
             (self.entry, "entry"),
+            (self.ai, "ai"),
         ]
         .into_iter()
         .filter_map(|(on, name)| on.then_some(name))
@@ -578,7 +582,8 @@ impl Shell {
                 self.cards_took = false;
                 let now_ns = self.kit.ui.scene.now_ns();
                 let sample = Sample { x: *x, y: *y, buttons: *buttons, visible: *visible };
-                let editor = self.sys.layout_open();
+                // the layout editor and the AI prompt are the whole screen's: nothing under them hears the pointer
+                let editor = self.sys.layout_open() || self.sys.ai_up();
                 if let Some(target) = self.sys.pointer(&self.kit, &mut self.engine, now_ns, now, sample) {
                     for e in self.sys.press(target) {
                         self.carry(e, now, &mut acts);
@@ -1034,6 +1039,37 @@ mod tests {
         let (h, kit) = testkit::kit(1.0);
         let shell = Shell::new(kit, Kinds::parse("cameras"), 2000, &testkit::module_dir().join("icons/audio"), &json!({}), &json!({})).expect("a shell");
         (h, shell)
+    }
+
+    #[test]
+    fn the_ai_prompt_is_over_everything_has_the_keys_and_the_pointer_and_no_key_or_click_makes_the_shell_say_anything_of_an_answer() {
+        let (_h, kit) = testkit::kit(1.0);
+        let mut shell = Shell::new(kit, Kinds::parse("ai,home,settings,quick"), 2000, &testkit::module_dir().join("icons/audio"), &json!({}), &json!({})).expect("a shell");
+        shell.start();
+        assert_eq!(shell.report()["wants"], false);
+        let doc = json!({"id": "a1", "kind": "tv_standby", "assistant": {"id": "c", "name": "Cody"}, "title": "Turn the TV off", "detail": "The TV goes to standby.",
+                         "reason": "Nitin said good night", "shownAt": 1_000, "expiresAt": 31_000, "allow": "OK", "deny": "Back"});
+        let acts = shell.helper(&Event::Topic { topic: "ai.prompt".into(), data: doc }, 1_100);
+        assert_eq!(shell.report()["wants"], true, "the compositor sends every key to this process while the prompt is up");
+        assert_eq!(shell.state()["ai"]["up"], true);
+        assert!(shell.is_live(), "and it is drawn");
+        assert!(acts.iter().any(|a| matches!(a, Act::Channel(o) if o.path == "/v1/ui")), "the compositor is told");
+        // no key and no click says anything to the helper, the luna bridge or the compositor but the report
+        let silent = |acts: &[Act]| acts.iter().all(|a| matches!(a, Act::Log(_)) || matches!(a, Act::Channel(o) if o.path == "/v1/ui"));
+        for name in ["ok", "back", "up", "down", "left", "right", "1"] {
+            for down in [true, false] {
+                let acts = shell.key(&KeyEvent::Key { name: name.into(), down, repeat: false, seat: 0 }, 1_200);
+                assert!(silent(&acts), "{name} down={down}: {acts:?}");
+            }
+        }
+        for buttons in [0, 1, 0] {
+            let acts = shell.key(&KeyEvent::Pointer { x: 960.0, y: 540.0, buttons, visible: true }, 1_300);
+            assert!(silent(&acts), "a click answers nothing: {acts:?}");
+        }
+        assert_eq!(shell.state()["ai"]["up"], true, "still up: only the helper takes it away");
+        shell.helper(&Event::Topic { topic: "ai.prompt".into(), data: Value::Null }, 2_000);
+        assert_eq!(shell.report()["wants"], false);
+        assert_eq!(shell.state()["ai"], json!({"up": false}));
     }
 
     #[test]
