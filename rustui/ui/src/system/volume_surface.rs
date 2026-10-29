@@ -456,3 +456,37 @@ impl VolumeSurface {
         kit.ui.look.colour(PaletteRole::Ink)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kit::testkit;
+    use lumatv_placement::{Placement, Rect as PlaceRect};
+    use serde_json::json;
+
+    fn layout() -> Value {
+        serde_json::from_str(include_str!("../../../../payload/theme/layout.json")).unwrap()
+    }
+
+    #[test]
+    fn a_mark_the_owner_has_not_placed_has_its_own_corners_and_one_that_is_placed_drifts_in_a_small_square_leaning_into_the_screen() {
+        let (_h, _kit) = testkit::kit(1.0);
+        let icons = std::path::Path::new("/nonexistent");
+        let auto = VolumeSurface::new(1000, icons, &json!({}), &layout());
+        assert_eq!(auto.mark_places(&[]), None, "not placed: the corners the mark had before");
+        let user = Registry::shipped().with_placement(&User::default(), "mute", Placement::new(Anchor::TopRight, 0.0, 0.0));
+        let theme = json!({"layout": {"overlays": user.to_json()}});
+        let placed = VolumeSurface::new(1000, icons, &theme, &layout());
+        let spots = placed.mark_places(&[]).expect("placed: four places");
+        assert_eq!(spots.len(), 4);
+        let (xs, ys): (Vec<i32>, Vec<i32>) = spots.iter().copied().unzip();
+        assert_eq!(xs.iter().max(), Some(&(1920 - 64 - 64)), "flush at the zone's right edge, 64 in from the screen's: {spots:?}");
+        assert_eq!(xs.iter().max().unwrap() - xs.iter().min().unwrap(), 48, "a square of 48");
+        assert_eq!(ys.iter().min(), Some(&134), "never above the status bar's row");
+        // a card over the first place: the mark keeps off it
+        let card = PlaceRect::new(spots[0].0 + 38, spots[0].1, 20, 26);
+        let clear = placed.mark_places(&[card]).unwrap();
+        assert_eq!(clear.len(), 3, "the place under the card is left out: {clear:?}");
+        assert!(clear.iter().all(|s| !PlaceRect::new(s.0, s.1, 64, 64).meets(&card, 0)));
+    }
+}

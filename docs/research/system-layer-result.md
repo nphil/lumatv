@@ -1,63 +1,60 @@
 # System layer in Rust: status
 
-## Resume here (RustSystem2, 2026-10-29)
+Module `rustui/ui/src/system/`. Every kind below is wired in `Layer` (`system/layer.rs`, the only place a kind of this layer is added) and answered by the
+Rust client only when the compositor's `--shell-rust` list names it (`ctl shell rust +kind -kind`). The QML surfaces stay the fallback for a kind until it
+has passed on the TV twice; nothing has run on the TV.
 
-Worktree rule: `git fetch forge && git worktree add /tmp/<name>-wt forge/main`; push with `timeout 60 git push -q forge HEAD:main`. Tests: `cd rustui && cargo test -p lumatv-ui`
-(about 25 s warm), `cargo clippy -p lumatv-ui --all-targets -- -D warnings`; stand-in tests `cd tests && python3 -m unittest test_rust_system` (needs
-`rustui/target/debug/lumatv-ui`); renders go to `docs/mocks/host-rust/system/` (`RUST_SYSTEM_RENDERS`).
+## Resume here (SystemResume2, 2026-10-29)
 
-| Order | Piece | State |
+| Kind | Piece | State |
 |---|---|---|
-| 1 | Saver surface, kind `saver` | not started; plan below |
-| 2 | Cards surface, kind `cards` | not started |
-| 3 | Camera pop-up (stills), kind `popup` | not started |
-| 4 | Capture mark (`capture`), mute-mark drift (`osd`), layout editor (`layout`) | not started |
-| 5 | Compositor `--shell-rust` handling per kind | not started |
-| 6 | `lumatv-tokens` focus tests | done upstream (74ea0ff) |
+| `alert` | Alerts, input popup, PIN (`alert.rs`, `alert_surface.rs`) | Done; QML cases ported |
+| `saver` | Clock, date, weather, slots and notices under the owner's rules (`saver/`), vote on tvpower's lists, any key wakes it | Done; renders in `docs/mocks/host-rust/system/saver-*` |
+| `capture` | Recording dot and the saved/stopped note (`capture.rs`) | Done; the dot is reported in `state.capture.dot` from what the surface drew, and the compositor records only while it is true |
+| `popup` | Camera pop-up, stills only (`popup.rs`, `popup_surface.rs`) | Done; live video later through hardware video windows |
+| `cards` | Overlay cards (`overlay.rs` model over `cards.rs` and `plugins.rs`, `cards_surface.rs`) | Done; no `door` cards (the QML's test door file) |
+| `layout` | Overlay layout editor (`layout_surface.rs` over `lumatv_placement::Editor`) | Done; launch contract below |
+| `osd` | Mute mark | Done; a placed mark drifts about its place (four places of a 48 px square leaning into the screen), clear of the pop-up and cards that are up |
 
-Plan for each (decisions taken, so a fresh helper does not re-derive them):
+**Per-kind compositor switches** (`shell_rust.rs`, `shell.rs`, `screencap/mod.rs`): `saver` refuses the QML client's tvpower vote and reads either client's
+`ui_state.saver`; `alert` withholds the three notification feeds; `capture` sends the `capture` topic to the Rust client only and reads `capture.dot`
+from its `ui_state`; `cards`, `popup` and `layout` need no withholding of their own: the QML client is told the Rust list in the `rust` topic
+(`{"kinds": [...]}`, pushed to both clients) and leaves out its overlay cards (`LumaOverlay.overlaysOn`) and its camera card (`Cameras.popupOff`; its
+full viewer is unchanged). `ctl shell show layout [ITEM]` reaches the Rust client as a `show` event with the item as `page`.
 
-- **Wiring pattern.** `Kinds` in `shell.rs` already names `cards, saver, capture, popup, layout`; `system/layer.rs` (`Layer`) holds the models and surfaces of the kinds
-  that sit over everything and is the only place a new kind is added (`start`, `update`, `apply`, `tick`, `due_at`, `wants`, `takes`, `state`, `geometry`,
-  `feed_lint`, `restyle`, `on_key`, `pointer`). Surfaces follow `alert_surface.rs` (layers made once, hidden until shown, dropped when gone; buttons from
-  `kit/button.rs` in a modal scope of the shared `Engine`) and `volume_surface.rs` (placement through `lumatv-placement`). Offsets in `layer::z`.
-- **Saver.** Model exists (`saver/model.rs`, `look.rs`, `clock.rs`); the surface is new (`saver/surface.rs`): opaque black plate over everything at `z::SAVER`,
-  the analog face (`clock.rs`) as image layers (face, hands per minute, second hand per tick or a smooth sweep on a motion track), date and weather as `kit::text::Text`
-  in the three inks of `look.rs` (never above `cfg.cap`), notice lines from `Hub::saver_doc()["lines"]`, complications from `Hub::complications(now)` as glyph + text +
-  value, only the `inside` answers of `/v1/saver/rules`. The weather row comes from the helper topic `weather` (`doc.display.temp`, `cond`, `nowKind`); no topic, no row. `main.rs`
-  `HELPER_TOPICS` lacks `saver` (add it). The saver wants every key while up (`Saver::wants_keys`).
-- **Cards.** `cards.rs` has the queue (`Queue::offer/select/dismiss/armed`) and `plugins.rs` the hub; missing: the `Cards` model (Input to `Queue`, camera merge, door
-  cards, `takes` ["ok","back"] after `armMs`, `syskey`-style OK/Back, drawer-ready flag) and `cards_surface.rs` (pane per card at `lumatv_placement` id `cards`, hint row from
-  `keys_of`, action from `ok_of`). Switch: `overlays.enabled` or `overlays.rust` (already read by `cards::Config`).
-- **Pop-up.** Stills only: a pane flush in the `popup` zone (64 px from the right edge), 560 wide, the helper's `cameras.popup` topic and `GET /v1/cameras/<id>/still`
-  (see `docs/research/cameras-ui-spec.md`, the pop-up section); live video later through hardware video windows.
-- **Capture mark.** `capture` topic (`recording`, `n`, `last`) as `panels/CaptureMark.qml` (dot top left, note 2.6 s); the report must carry `capture.dot` (the compositor
-  records only while it is true: `screencap_publish` in `compositor/.../shell.rs` reads the QML client's `ui_state`; read the Rust client's too).
-- **Layout editor.** `lumatv_placement::Editor` (`Editor::key`, `view(now)`, `pointer_*`, `panel_spot`) drawn on a live preview of the five items; `Effect::Save(map)` is written
-  with `Effect::Theme` (`{"layout": {"overlays": map}}`, a whole map replaces); opened by `Shell::open_layout(item)` (RustSettings' `ShellRequest::Layout { item }` calls it)
-  and by a `show` event of kind `layout`.
-- **Compositor** (`compositor/crates/lumatv-compositor/src/shell_rust.rs`, `shell.rs`, `server/state.rs`): `KINDS` gains each finished kind; `saver`: the QML client's calls
-  to tvpower's `registerScreenSaverRequest` are refused while the Rust shell answers it, and `scene.care.saver` reads either client's `ui_state.saver`; `alert`: the QML
-  client's three notification feeds are withheld (only `toast` is today); `capture`: the `capture` topic goes to the Rust client and not the QML one, and the dot report is
-  read from the Rust `ui_state`; `cards`/`popup` read helper topics the compositor cannot withhold, so the owner's switch is the gate (`overlays.enabled` / `cameras` options).
+### The pop-up and the cards
 
-Module `rustui/ui/src/system/`. Kinds in the shell: `osd`, `toast` (core), `alert` (this slice, wired). The rest of the layer is partly built.
+- Card of the camera window: 560 wide, flush in the corner `layout.overlays.popup` gives (top right by default, ending at x 1856), picture 520 by 292 at
+  100 % text and no shorter than 120, the state (`Live`, `Event picture`, `Connecting`, `No picture`) and the keys as glyphs. It waits while the host is busy
+  and, with `overApps` false, while an app is in front; steps aside (not dismissed) when the host turns busy; ends at `untilMs` and tells the helper.
+- OK and Back are the top card's only 600 ms after it arrived, and the press, its repeats and its release are not seen by the screens under it. The camera
+  card is above the cards. OK on the camera card opens the Cameras app's full view when `cameras` is a Rust kind, else it only dismisses (the hint then
+  shows one key).
+- Cards go under the camera window where the two meet (`Registry::layout_all`), end above 810, at most two; a second card that would not fit waits. A card
+  anchored low shows one at a time.
 
-| Piece | State |
-|---|---|
-| Alerts, input popup, PIN (`alert.rs`, `alert_surface.rs`) | Done, wired as kind `alert`; QML cases ported, lint clean at 100 % and 200 % text, dark and light |
-| Overlay queue (`cards.rs`, from `Overlays.js`) and plugin hub (`plugins.rs`, from `PluginHub`) | Models done with the QML tests ported (class order, dwell, wait, merge, doorbell, score, keys after the arm time); no surface and not wired: kind `cards` is not answered yet |
-| Saver numbers, clock raster, model (`saver/look.rs`, `clock.rs`, `model.rs`) | Done and tested (cap, dim, drift, spots, vote on tvpower's lists, wake, standby); the surface (date, weather, notices, slots) and the wiring are not built, so kind `saver` is not answered yet and no saver render exists |
-| Saver rules and slots (helper, crate `lumatv-saver`) | Done: `/v1/saver/*`, the `saver` topic, enforcement at the camera pop-up and the plugin post (`docs/research/saver-complications.md`) |
-| Camera pop-up, capture mark, layout editor, mute-mark drift | Not started in Rust; the QML ones stay in force |
+### Layout editor launch contract
 
-QML changes: the interim relief of the saver (`clockLevel` 0.4, `dimTo` 0.4 over 20 min), Home counts as busy while its saver is up (a camera
-pop-up no longer covers it), and the compositor's `status` carries `oledcare.saver`.
+- `Shell::open_layout(item: Option<&str>, now) -> Vec<Act>`; `item` is a registry id (`volume`, `mute`, `popup`, `cards`, `toast`).
+- Settings' `ShellRequest::Layout { item }` starts it in place (Settings stays open under it, the editor is its own screen at `kit::z::EDITOR`); the
+  compositor's `show` event `{"kind": "layout", "item"|"page": ID}` does the same. The report's `can` lists `layout` while the kind is on.
+- It takes every key and the pointer while up (`wants`), is left by Done, Back or the Home key, and writes `layout.overlays` whole through `Effect::Theme`
+  on each put-down and Reset. The shell then gives every surface the new places and Settings the merged theme, so its rows (`Registry::words`) update.
+
+### Known limits
+
+- A card anchored low shows one at a time (the queue's limit check counts from the top of the column).
+- The editor's stand-ins are simplified pictures of the real surfaces at their measured sizes; a text-size change while it is open is not followed until it
+  is opened again.
+- The toast column is not placed by the anchor's direction (anchored low it would run past its zone).
 
 ## TV checks (next round)
 
-1. Saver on Home: clock at 0.4 and dimmer, over 20 minutes the dim reaches 0.4 of that; wake on a key, the pointer and Back.
-2. A camera event while the saver is up: no video over it (default `camera.popup`: hide); the event is a line in `lines` of the `saver` topic.
-3. A doorbell while the saver is up (QML saver owned by LumaTV): it does not wake by itself (the next key does); with LG's saver (state `Screen Saver`) it wakes the screen.
-4. `GET /v1/saver/rules` on the TV lists the shipped classes and one row per installed plugin; `POST` changes one and `saver-rules.json` appears in the data directory.
-5. `ctl status` shows `oledcare.saver` true while the saver is up.
+1. Saver on Home: clock at 0.4 and dimmer, over 20 minutes the dim reaches 0.4 of that; wake on a key, the pointer and Back. `ctl status` shows
+   `oledcare.saver` true while it is up. A camera event while it is up shows no video over it.
+2. `ctl shell rust +capture`: start a recording; the dot is top left and `ctl capture` reports `shell.client` as `rust`; stop it, the note reads
+   "Recording saved" for 2.6 s; a recording does not start with the client down.
+3. `ctl shell rust +popup +cards`: a camera event over Netflix is a card flush at the right edge under the status bar's row, stills about four a second;
+   OK expands (with `+cameras`), Back clears; a plugin note or a doorbell is a card under it; the QML client draws neither.
+4. `ctl shell show layout popup`: the editor opens on the camera window; move it, OK puts it down, the next event is there; Reset all; Done.
+5. Place the mute mark in Settings > Home & look > Layout of pop-ups, mute the receiver: the mark drifts every 10 s and keeps clear of a card.

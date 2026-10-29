@@ -1025,6 +1025,31 @@ mod tests {
     }
 
     #[test]
+    fn a_mute_mark_the_owner_placed_visits_the_places_it_is_given_in_turn_and_never_holds_one_pixel() {
+        let mut v = Volume::default();
+        v.update(&up(), 10_000);
+        v.update(&receiver(40.0, true, 10_000), 10_000);
+        v.update(&audio(12, false, "external_arc", "setVolume"), 10_000);
+        v.update(&Input::Tick, 12_600);
+        let spots = vec![(1700, 134), (1748, 134), (1748, 182), (1700, 182)];
+        assert!(v.set_placed(Some(spots.clone())));
+        assert!(!v.set_placed(Some(spots.clone())), "the same places again change nothing");
+        assert_eq!(v.view().spots, spots, "the surface draws the places the owner's placement gave");
+        assert_eq!(v.view().mark_place, 0);
+        for t in [15_000, 20_000] {
+            v.update(&receiver(40.0, true, t), t);
+        }
+        v.update(&Input::Tick, 22_700);
+        assert_eq!(v.view().mark_place, 1, "on to the next place after hopMs");
+        // a card comes up over two of the places: the mark has fewer and never lands under it
+        assert!(v.set_placed(Some(vec![spots[0], spots[3]])));
+        assert!(v.view().mark_place < 2);
+        // the owner gives the mark its own corners back
+        assert!(v.set_placed(None));
+        assert_eq!(v.view().spots, mark_spots(false, false));
+    }
+
+    #[test]
     fn the_mute_mark_stays_hops_every_ten_seconds_holds_still_under_a_panel_and_goes_with_the_sound() {
         let mut v = Volume::default();
         v.update(&up(), 10_000);

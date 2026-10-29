@@ -487,7 +487,8 @@ impl Shell {
                 self.redraw = true;
             }
             Event::Topic { topic, data } if topic == "show" && data.get("kind").and_then(Value::as_str) == Some("layout") && self.kinds.layout => {
-                self.start_layout(data.get("item").and_then(Value::as_str));
+                // `ctl shell show layout ITEM` names the item as the page
+                self.start_layout(data.get("item").or_else(|| data.get("page")).and_then(Value::as_str));
             }
             Event::Topic { topic, data } => {
                 self.feed(&Input::Topic { topic: topic.clone(), data: data.clone() }, now, &mut acts);

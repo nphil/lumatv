@@ -205,7 +205,7 @@ class RustSystem(unittest.TestCase):
         self.assertEqual(evals[1]['saverState']['up'], True)
         calls = self.calls(out)
         self.assertIn(('luna://com.webos.service.tvpower/power/turnOnScreen', {}), calls, "a key asks the TV to turn the screen on (LG's own state is the saver's)")
-        self.assertTrue(evals[2]['wants'], "LG's state is still the saver until the helper says Active")
+        self.assertFalse(evals[2]['state']['saver'] or evals[2]['wants'], "a key dismisses LumaTV's saver at once, before LG's state has said Active")
         self.assertFalse(evals[3]['wants'] or evals[3]['state']['saver'], "Active again: the keys are Home's")
         for uri in ('registerScreenSaverRequest',):
             self.assertTrue(any(c['uri'].endswith(uri) for c in chan.luna), "Home in front: the saver is on tvpower's lists")
@@ -271,16 +271,15 @@ class RustSystem(unittest.TestCase):
                     self.assertLessEqual(max(max(p) for p in im.getdata()), 97, "%s at %s: under the cap" % (mode, scale))
                     path = render_dir()
                     if path:
-                        import shutil
                         folder = os.path.join(path, 'system')
                         os.makedirs(folder, exist_ok=True)
-                        shutil.copy(shot, os.path.join(folder, 'saver-%s%s.png' % (mode, '' if scale == '1' else '-text200')))
+                        im.resize((1280, 720)).save(os.path.join(folder, 'saver-%s%s.jpg' % (mode, '' if scale == '1' else '-text200')), 'JPEG', quality=80)
                 os.remove(shot)
 
 
     # ---- the camera pop-up (test_camera_popup.py, cameras-ui-spec.md "The pop-up")
 
-    def popup_run(self, kinds='popup', scale=1.0, mode='dark', foreground=APP, until_ms=120000, wait=3200, **record):
+    def popup_run(self, kinds='popup', scale=1.0, mode='dark', foreground=APP, until_ms=120000, wait=3200, late=0.0, **record):
         import rust_cameras_scenes as sc
         now = int(time.time() * 1000)
         r = sc.Run(scale=scale, mode=mode, wait=wait, backdrop='game', kinds=kinds)
@@ -289,29 +288,33 @@ class RustSystem(unittest.TestCase):
         doc = {'id': 41, 'event': 'e41', 'camera': '300', 'name': 'Front door', 'kind': 'person', 'at': now, 'untilMs': now + until_ms, 'thumbnail': False, 'seq': 1}
         doc.update(record)
         # the helper holds the record as the real one does (a poll that found it gone would clear the card)
-        r.setup(lambda chan, st: st.topics.__setitem__('cameras.popup', doc))
-        r.helper(600, 'cameras.popup', doc)
+        if late:
+            # a card that arrives after the shell has settled, as one does: the helper publishes it `late` seconds after the run began
+            import threading
+            r.setup(lambda chan, st: threading.Timer(late, lambda: st.publish('cameras.popup', doc)).start())
+        else:
+            r.setup(lambda chan, st: st.topics.__setitem__('cameras.popup', doc))
+            r.helper(600, 'cameras.popup', doc)
         return sc, r
 
     def test_a_camera_event_is_a_card_in_the_corner_that_asks_for_stills_takes_ok_and_back_only_after_600_ms_and_tells_the_helper(self):
         sc, r = self.popup_run()
-        r.eval(900, 'report').eval(1500, 'report').eval(1500, 'geometry')
+        r.eval(1500, 'report').eval(1500, 'geometry')
         r.press(1800, 'back').eval(2200, 'report')
         r.press(2400, 'left').eval(2600, 'report')
         r.wait = 3000
         res = sc.run(r)
         self.assertEqual(res['rc'], 0, res['out'][-3000:])
         reports = [e for e in res['evals'] if isinstance(e, dict) and 'wants' in e]
-        self.assertEqual(reports[0]['takes'], [], "just arrived: the keys are the app's for the first 600 ms")
-        self.assertEqual(reports[1]['takes'], ['ok', 'back'], "then OK and Back are the card's, and nothing else")
-        self.assertFalse(reports[1]['wants'], "the arrows stay the app's")
+        self.assertEqual(reports[0]['takes'], ['ok', 'back'], "up for over 600 ms: OK and Back are the card's, and nothing else")
+        self.assertFalse(reports[0]['wants'], "the arrows stay the app's")
         geo = [e for e in res['evals'] if isinstance(e, dict) and 'popup' in e][0]['popup']
         self.assertEqual(geo['x'] + geo['w'], 1856, "flush where Home's status bar ends: %s" % geo)
         self.assertEqual(geo['y'], 134)
         asked = res['helper'].frames
         self.assertTrue(asked and all((c, w, h) == ('300', geo['picture']['w'], geo['picture']['h']) for c, w, h, _ in asked), "stills at the picture's size: %s" % asked[:3])
         self.assertIn(['/v1/cameras/popup/clear', {}], res['helper'].posts, "Back clears it and the helper is told")
-        self.assertEqual(reports[2]['takes'], [], "gone: no keys")
+        self.assertEqual(reports[1]['takes'], [], "gone: no keys")
 
     def test_ok_on_the_card_opens_the_cameras_full_view_when_the_app_is_the_rust_shells(self):
         sc, r = self.popup_run(kinds='popup,cameras')
@@ -341,10 +344,10 @@ class RustSystem(unittest.TestCase):
             Image = None
         for scale in (1.0, 2.0):
             for mode in ('dark', 'light'):
-                sc, r = self.popup_run(scale=scale, mode=mode, kind='doorbell', label='')
+                sc, r = self.popup_run(scale=scale, mode=mode, kind='doorbell', label='', late=2.5)
                 shot = os.path.join(tempfile.gettempdir(), 'rustsystem-popup-%s-%s-%d.png' % (scale, mode, os.getpid()))
-                r.eval(1800, 'lint').eval(1800, 'atlas').snap(1900, shot)
-                r.wait = 2300
+                r.eval(3400, 'lint').eval(3400, 'atlas').snap(3500, shot)
+                r.wait = 3900
                 res = sc.run(r)
                 self.assertEqual(res['rc'], 0, res['out'][-3000:])
                 self.assertEqual(res['evals'][0], [], "%s at %s: %s" % (mode, scale, res['evals'][0]))
@@ -402,12 +405,16 @@ class RustSystem(unittest.TestCase):
             Image = None
         for scale in (1.0, 2.0):
             for mode in ('dark', 'light'):
-                sc, r = self.cards_run(scale=scale, mode=mode, extra_kinds=',popup')
+                # at 100 % the cards go under the camera card; at 200 % the card would end below the limit beside it, so they wait for it: the
+                # large render is the cards alone
+                with_popup = scale == 1.0
+                sc, r = self.cards_run(scale=scale, mode=mode, extra_kinds=',popup' if with_popup else '')
                 now = int(time.time() * 1000)
                 r.helper(2000, 'cameras', sc.cameras_topic(3, per={0: {'name': 'Front door'}}))
                 doc = {'id': 41, 'event': 'e41', 'camera': '300', 'name': 'Front door', 'kind': 'person', 'at': now, 'untilMs': now + 120000, 'thumbnail': False}
-                r.setup(lambda chan, st, doc=doc: st.topics.__setitem__('cameras.popup', doc))
-                r.helper(2100, 'cameras.popup', doc)
+                if with_popup:
+                    r.setup(lambda chan, st, doc=doc: st.topics.__setitem__('cameras.popup', doc))
+                    r.helper(2100, 'cameras.popup', doc)
                 shot = os.path.join(tempfile.gettempdir(), 'rustsystem-cards-%s-%s-%d.png' % (scale, mode, os.getpid()))
                 r.eval(3600, 'lint').eval(3600, 'geometry').snap(3700, shot)
                 r.wait = 4100
@@ -415,12 +422,12 @@ class RustSystem(unittest.TestCase):
                 self.assertEqual(res['rc'], 0, res['out'][-3000:])
                 self.assertEqual(res['evals'][0], [], "%s at %s: %s" % (mode, scale, res['evals'][0]))
                 geo = res['evals'][1]
-                self.assertTrue(geo['popup'], "the camera card is up: %s" % geo)
-                if scale == 1.0:
-                    self.assertTrue(geo['cards'], "a card under it: %s" % geo)
+                if with_popup:
+                    self.assertTrue(geo['popup'] and geo['cards'], "the camera card and a card under it: %s" % geo)
                     self.assertGreaterEqual(geo['cards'][0]['y'], geo['popup']['y'] + geo['popup']['h'], "the cards go under the camera's card: %s" % geo)
                 else:
-                    self.assertEqual(geo['cards'], [], "at 200 %% the card would end below the limit beside the window, so it waits: %s" % geo)
+                    self.assertTrue(geo['cards'] and 'popup' not in geo, "the cards alone: %s" % geo)
+                    self.assertEqual(geo['cards'][0]['x'] + geo['cards'][0]['w'], 1856)
                 if Image and os.path.exists(shot):
                     im = Image.open(shot).convert('RGB')
                     folder = render_dir()
@@ -509,6 +516,43 @@ class RustSystem(unittest.TestCase):
                         Image.open(shot).convert('RGB').resize((1280, 720)).save(os.path.join(out, '%s-%s%s.jpg' % (name, mode, '' if scale == 1.0 else '-text200')), 'JPEG', quality=80)
                     if os.path.exists(shot):
                         os.remove(shot)
+
+
+    # ---- the capture mark (test_capture_ui.py)
+
+    def test_the_recording_dot_is_in_the_state_exactly_while_it_is_drawn_and_a_finished_capture_is_a_note(self):
+        try:
+            from PIL import Image
+        except ImportError:
+            Image = None
+        shot = os.path.join(tempfile.gettempdir(), 'rustsystem-capture-%d.png' % os.getpid())
+        import rust_cameras_scenes as sc
+        backdrop = sc.backdrop_png('game', tempfile.gettempdir())
+        rec = {"recording": True, "stage": "recording", "since": 1, "n": 0, "last": None}
+        done = {"recording": False, "stage": "idle", "since": None, "n": 0, "last": {"kind": "recording", "name": "a.mp4", "ok": True, "note": "", "at": 99}}
+        rc, out, chan, data = self.host([
+            (300, lambda c: (c.push('foreground', APP), c.push('screen', {"on": True}), c.push('capture', {"recording": False, "stage": "idle", "n": 0, "last": None}))),
+            (600, lambda c: c.push('capture', rec)), (1300, lambda c: c.push('capture', done)),
+        ], wait=5600, kinds='capture', extra=['--backdrop', backdrop, '--eval', '400:report', '--eval', '1000:report', '--eval', '1000:geometry', '--snap', '1200:' + shot, '--eval', '2300:report', '--eval', '2300:geometry', '--eval', '2300:lint', '--eval', '5200:report'])
+        self.assertEqual(rc, 0, out[-3000:])
+        reports = [e for e in self.evals(out) if isinstance(e, dict) and 'wants' in e]
+        self.assertFalse(reports[0]['state']['capture']['dot'], "nothing records: no dot, so nothing may start")
+        self.assertTrue(reports[1]['state']['capture']['dot'] and reports[1]['live'], "the dot is drawn and the compositor is told so: %s" % reports[1])
+        self.assertFalse(reports[2]['state']['capture']['dot'], "the recording ended: the dot is off the screen")
+        self.assertEqual(reports[2]['state']['capture']['note'], 'Recording saved')
+        self.assertTrue(reports[2]['live'], "the note is on the screen")
+        self.assertEqual(self.evals(out)[-2], [], "the note reads clean")
+        self.assertFalse(reports[3]['live'], "two and a half seconds later nothing of it is left")
+        if Image and os.path.exists(shot):
+            im = Image.open(shot).convert('RGB')
+            self.assertNotEqual(im.getpixel((42, 42)), (0, 0, 0), "the dot's red is where the surface says")
+            path = render_dir()
+            if path:
+                folder = os.path.join(path, 'system')
+                os.makedirs(folder, exist_ok=True)
+                im.crop((0, 0, 640, 360)).save(os.path.join(folder, 'capture-dot.jpg'), 'JPEG', quality=80)
+        if os.path.exists(shot):
+            os.remove(shot)
 
 
 if __name__ == "__main__":
