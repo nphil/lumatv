@@ -21,10 +21,13 @@ PageList {
     readonly property var theme: Lu.theme || ({})
     function patch(p) { if (host) host.patch(p) }
     // One of LumaTV's panel-care switches (theme `oledcare`, read by the compositor within 2 s; each feature is off in the shipped theme until its TV check has passed).
-    // A switch whose feature is not built yet still writes its key.
-    function careRow(key, icon, label, help) {
+    // A switch whose feature is not built yet still writes its key. `dflt` is what the compositor does while the theme says nothing (panelDim: on).
+    function careRow(key, icon, label, help, dflt) {
         return { kind: "toggle", tab: 2, icon: icon, label: label, help: help,
-                 on: function() { return !!page.theme.oledcare && page.theme.oledcare[key] === true },
+                 on: function() {
+                     var v = page.theme.oledcare ? page.theme.oledcare[key] : undefined
+                     return typeof v === "boolean" ? v : !!dflt
+                 },
                  act: function(v) { var o = {}; o[key] = v; page.patch({ oledcare: o }) } }
     }
 
@@ -115,6 +118,7 @@ PageList {
         page.careRow("appDim", "sun-medium", "Dim still apps", "Dims an app a little when its picture has not changed for a few minutes. Video and any key bring it back."),
         page.careRow("appShift", "waves", "Shift apps", "Slowly moves an app's picture a few pixels while it sits still. A key or video puts it back."),
         page.careRow("boxDim", "sun-dim", "Dim bright still areas", "Dims only the bright parts of a picture that stays still, such as menu boxes. Video is never touched."),
+        page.careRow("panelDim", "sun", "Dim with the panel", "The screensaver and an idle Home dim the panel's own light instead of drawing darker. Any key puts it back.", true),
         page.careRow("refreshGuard", "rotate-ccw", "Protect panel refresh", "Keeps LG's panel refresh from being cut short when the TV is turned on just after it turns off."),
         { kind: "value", tab: 2, icon: "history", label: "Panel refresh", help: "LG refreshes the panel by itself, about 10 minutes after the TV is turned off, each time the panel has run a few hours. Turning the TV on in that time cuts it short.",
           value: function() { return Helper.panelRefresh }, info: true, chevron: false, visible: function() { return Helper.panelRefresh !== "" } },

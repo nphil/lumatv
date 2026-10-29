@@ -6,7 +6,7 @@
 <link rel="stylesheet" href="../lucent.css"><link rel="stylesheet" href="../help.css">
 <style>
   /* The panel care group (docs/research/oledcare-apps-result.md; payload/compositor/lumatv/settings/PageSystem.qml, tab OLED care): LG's own
-     rows first, then LumaTV's five switches under one label. The list scrolls on the TV; the mock shows it scrolled to the group, the focus on
+     rows first, then LumaTV's six switches under one label (the panel dim is on in the shipped theme). The list scrolls on the TV; the mock shows it scrolled to the group, the focus on
      "Dim still apps". ?v=help: that row's help sheet (held OK). ?theme=light: the light material; ?text=200: the type doubled (Lucent: no
      overlapping text at 100 % and 200 %). */
   :root { --ts: 1; }
@@ -76,6 +76,11 @@
         <div class="lead"><i data-ic="sun-dim"></i></div>
         <div class="text"><div class="t">Dim bright still areas<i data-ic="info" class="info"></i></div></div>
         <div class="toggle" role="switch" aria-checked="false"></div>
+      </div>
+      <div class="row focusable" tabindex="0">
+        <div class="lead"><i data-ic="sun"></i></div>
+        <div class="text"><div class="t">Dim with the panel<i data-ic="info" class="info"></i></div></div>
+        <div class="toggle" role="switch" aria-checked="true"></div>
       </div>
       <div class="row focusable" tabindex="0">
         <div class="lead"><i data-ic="rotate-ccw"></i></div>

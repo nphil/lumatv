@@ -59,10 +59,14 @@ fn timer_text(c: &Ctx, which: &str) -> String {
     calendar::clock_text(c.lg.num(&format!("time.{which}TimerHour"), 0.0) as u32, c.lg.num(&format!("time.{which}TimerMinute"), 0.0) as u32)
 }
 
+/// The switches of `oledcare` that are on when the theme does not say (the compositor's own defaults, `paneldim::Settings`).
+const CARE_ON_BY_DEFAULT: &[&str] = &["panelDim"];
+
 /// One of LumaTV's panel-care switches (the theme's `oledcare`).
 fn care(c: &Ctx, key: &str, icon: &str, label: &str, help: &str) -> Row {
     let key = key.to_string();
-    Row::toggle(&format!("care:{key}")).tab(2).icon(icon).label(label).help(help).on(c.theme_at("oledcare").and_then(|o| o.get(&key)).and_then(Value::as_bool) == Some(true)).act(move |a| match a {
+    let on = c.theme_at("oledcare").and_then(|o| o.get(&key)).and_then(Value::as_bool).unwrap_or(CARE_ON_BY_DEFAULT.contains(&key.as_str()));
+    Row::toggle(&format!("care:{key}")).tab(2).icon(icon).label(label).help(help).on(on).act(move |a| match a {
         Arg::Toggle(v) => vec![Op::Patch(patch_of(&format!("oledcare.{key}"), json!(v)))],
         _ => Vec::new(),
     })
@@ -136,6 +140,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
     rows.push(care(c, "appDim", "sun-medium", "Dim still apps", "Dims an app a little when its picture has not changed for a few minutes. Video and any key bring it back."));
     rows.push(care(c, "appShift", "waves", "Shift apps", "Slowly moves an app's picture a few pixels while it sits still. A key or video puts it back."));
     rows.push(care(c, "boxDim", "sun-dim", "Dim bright still areas", "Dims only the bright parts of a picture that stays still, such as menu boxes. Video is never touched."));
+    rows.push(care(c, "panelDim", "sun", "Dim with the panel", "The screensaver and an idle Home dim the panel's own light instead of drawing darker. Any key puts it back."));
     rows.push(care(c, "refreshGuard", "rotate-ccw", "Protect panel refresh", "Keeps LG's panel refresh from being cut short when the TV is turned on just after it turns off."));
     let refresh = panel_refresh(c);
     let mut pr = Row::info("panelrefresh").tab(2).icon("history").label("Panel refresh").help("LG refreshes the panel by itself, about 10 minutes after the TV is turned off, each time the panel has run a few hours. Turning the TV on in that time cuts it short.").value(&refresh);
@@ -400,8 +405,11 @@ mod tests {
         let mut w = world();
         let r = rows(&w.ctx());
         let tab2: Vec<&str> = r.iter().filter(|x| x.tab == 2).map(|x| x.id.as_str()).collect();
-        assert_eq!(tab2, vec!["panelhours", "picture.screenShift", "picture.logoLuminanceAdjust", "other.oledCareMode", "pixelcleaning", "other.oledCareRecommendation", "head:LumaTV panel care", "care:enabled", "care:appDim", "care:appShift", "care:boxDim", "care:refreshGuard", "panelrefresh"]);
+        assert_eq!(tab2, vec!["panelhours", "picture.screenShift", "picture.logoLuminanceAdjust", "other.oledCareMode", "pixelcleaning", "other.oledCareRecommendation", "head:LumaTV panel care", "care:enabled", "care:appDim", "care:appShift", "care:boxDim", "care:panelDim", "care:refreshGuard", "panelrefresh"]);
         assert!(by_id(&r, "care:enabled").on && !by_id(&r, "care:appDim").on && !by_id(&r, "care:appShift").on, "an absent key is off");
+        assert!(by_id(&r, "care:panelDim").on, "but the panel dim is on while the theme says nothing: the compositor's own default");
+        let ops = (by_id(&r, "care:panelDim").act.as_ref().unwrap())(Arg::Toggle(false));
+        assert!(matches!(&ops[..], [Op::Patch(p)] if p == &json!({"oledcare": {"panelDim": false}})));
         let ops = (by_id(&r, "care:appShift").act.as_ref().unwrap())(Arg::Toggle(true));
         assert!(matches!(&ops[..], [Op::Patch(p)] if p == &json!({"oledcare": {"appShift": true}})));
         assert_eq!(by_id(&r, "panelhours").value, "Not read");

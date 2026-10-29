@@ -105,6 +105,11 @@ pub struct Saver {
     /// itself), and the bar it shows is under the saver, so the saver ends.
     audio: Option<(Option<i64>, Option<bool>)>,
     redraw: bool,
+    /// The compositor says the panel's own light carries the dim (`paneldim` topic, `carry`): the block is drawn at its first brightness and the
+    /// dim over time is [`Saver::state`]'s `level`, which the compositor asks of the panel. Without it the saver dims its own picture.
+    panel_carry: bool,
+    /// The dim's level as last looked at (every [`LOOK_MS`]), of the first brightness.
+    level: f32,
 }
 
 impl Saver {
@@ -137,6 +142,8 @@ impl Saver {
             wake_seen: None,
             audio: None,
             redraw: false,
+            panel_carry: false,
+            level: 1.0,
         }
     }
 
@@ -199,6 +206,13 @@ impl Saver {
             }
             // the Home key is the compositor's own and does not come over the key socket: it is told as a topic, and ends the saver
             Input::Topic { topic, .. } if topic == "homekey" && self.up() => self.wake(now, &mut out),
+            Input::Topic { topic, data } if topic == "paneldim" => {
+                let carry = data.get("carry").and_then(Value::as_bool) == Some(true);
+                if carry != self.panel_carry {
+                    self.panel_carry = carry;
+                    self.redraw = true;
+                }
+            }
             Input::Topic { topic, data } if topic == "audio" => {
                 if let Some(v) = data.get("volumeStatus") {
                     let heard = (v.get("volume").and_then(Value::as_i64), v.get("muteStatus").and_then(Value::as_bool));
@@ -412,6 +426,7 @@ impl Saver {
         }
         if now >= self.look_at {
             self.look_at = now + LOOK_MS.min(self.cfg.shift_every_ms.max(1000));
+            self.level = look::level(&self.cfg, now.saturating_sub(since));
             self.redraw = true;
         }
     }
@@ -434,6 +449,7 @@ impl Saver {
         let up = self.up();
         if up && self.up_since.is_none() {
             self.up_since = Some(now);
+            self.level = 1.0;
             self.spot = look::pick(&mut self.rng, self.spot, look::room(self.screen, self.block));
             self.phase = Phase::Shown;
             self.next_move = now + self.cfg.move_every_ms + u64::from(self.cfg.fade_ms);
@@ -475,7 +491,7 @@ impl Saver {
         let base = look::place(self.screen, self.block, self.spot);
         View {
             up: self.up(),
-            level: look::level(&self.cfg, up_ms),
+            level: if self.panel_carry { 1.0 } else { look::level(&self.cfg, up_ms) },
             pos: (base.0 + shift.0, base.1 + shift.1),
             fade: if matches!(self.phase, Phase::Out { .. }) { 0.0 } else { 1.0 },
             fade_ms: self.cfg.fade_ms,
@@ -487,7 +503,9 @@ impl Saver {
 
     /// What the compositor is told: the saver is up (OLED care stands aside; the helper's rules read it), and a read of the vote for the gate.
     pub fn state(&self) -> Value {
-        json!({"up": self.up(), "active": self.active(), "owned": self.owned, "forced": self.forced,
+        // `level` and `carry` are what the compositor reads to dim the panel in the saver's place (`paneldim`): only while the saver says it does not
+        // draw the dim itself
+        json!({"up": self.up(), "active": self.active(), "owned": self.owned, "forced": self.forced, "level": self.level, "carry": self.panel_carry,
                "vote": {"want": self.want(), "registered": self.subs.iter().any(|s| s.live), "power2": self.subs[0].live, "power": self.subs[1].live,
                         "fails": self.subs[0].fails + self.subs[1].fails, "asked": self.asked, "refused": self.refused, "lastRefusal": self.last_refusal}})
     }
@@ -761,6 +779,37 @@ mod tests {
         assert!(v.level < 1.0);
         let late = s.view(NOW + 30 * 60_000);
         assert!((late.level - 0.4).abs() < 0.006);
+    }
+
+    #[test]
+    fn with_the_panel_carrying_the_dim_the_block_is_drawn_at_its_first_brightness_and_the_level_is_told_to_the_compositor() {
+        let mut s = saver();
+        home(&mut s, NOW);
+        question(&mut s, 0, 1, NOW + 1);
+        assert!(s.up());
+        // not told: the saver dims its own picture and says so
+        s.update(&Input::Tick, NOW + 10 * 60_000);
+        let state = s.state();
+        assert_eq!(state["carry"], false);
+        assert!((s.view(NOW + 10 * 60_000).level - 0.7).abs() < 0.006, "its own dim");
+        // told: drawn at 1, and the level the dim has reached is what the compositor reads
+        let fx = s.update(&topic("paneldim", json!({"carry": true})), NOW + 10 * 60_000 + 1);
+        assert!(fx.contains(&Effect::Redraw), "the picture is drawn again at its first brightness");
+        assert_eq!(s.view(NOW + 10 * 60_000 + 1).level, 1.0);
+        s.update(&Input::Tick, NOW + 20 * 60_000);
+        let state = s.state();
+        assert_eq!(state["carry"], true);
+        assert!((state["level"].as_f64().unwrap() - 0.4).abs() < 0.006, "the dim's own curve, for the panel: {state}");
+        assert_eq!(s.view(NOW + 20 * 60_000).level, 1.0);
+        // taken away again (the panel failed): the saver dims its own picture from where the curve is
+        s.update(&topic("paneldim", json!({"carry": false})), NOW + 20 * 60_000 + 2);
+        assert!((s.view(NOW + 20 * 60_000 + 2).level - 0.4).abs() < 0.006);
+        // a new time up starts at 1 again
+        s.update(&Input::Key { name: "left".into(), down: true, repeat: false }, NOW + 20 * 60_000 + 3);
+        assert!(!s.up());
+        home(&mut s, NOW + 21 * 60_000);
+        question(&mut s, 0, 2, NOW + 21 * 60_000 + 1);
+        assert_eq!(s.state()["level"].as_f64(), Some(1.0));
     }
 
     #[test]

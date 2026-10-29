@@ -211,16 +211,18 @@ class Settings(HostCase):
         self.assertEqual(rc, 0, out[-1500:])
         self.assertEqual(self.docs(out)[-1].get("enabled"), False, "the sixth stop is LG's screen saver time now: it does not touch the care")
 
-    def test_system_oled_care_has_lumatvs_five_panel_care_switches_under_lgs_rows_each_writing_its_own_key(self):
+    def test_system_oled_care_has_lumatvs_six_panel_care_switches_under_lgs_rows_each_writing_its_own_key(self):
         # System, tab OLED care (Right into the page, Up to the tab bar, two Rights, Down into the rows): LG's rows first, then the group. The sixth
-        # stop is LumaTV screens, then Dim still apps, Shift apps, Dim bright still areas, Protect panel refresh: OK on each in turn.
+        # stop is LumaTV screens, then Dim still apps, Shift apps, Dim bright still areas, Dim with the panel (on in the shipped theme: OK turns it off),
+        # Protect panel refresh: OK on each in turn.
         rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT,
                             *self.go("system", "right", "up", "right", "right", "down"),
-                            *self.keys(READY + 2500, *(["down"] * 6), "ok", "down", "ok", "down", "ok", "down", "ok", "down", "ok"),
-                            "--eval", "%d:JSON.stringify(root.theme.oledcare || {})" % (READY + 4200), "--wait", str(READY + 4800))
+                            *self.keys(READY + 2500, *(["down"] * 6), "ok", "down", "ok", "down", "ok", "down", "ok", "down", "ok", "down", "ok"),
+                            "--eval", "%d:JSON.stringify(root.theme.oledcare || {})" % (READY + 4800), "--wait", str(READY + 5400))
         self.assertEqual(rc, 0, out[-1500:])
         care = self.docs(out)[-1]
-        self.assertEqual([care[k] for k in ("enabled", "appDim", "appShift", "boxDim", "refreshGuard")], [True] * 5, "the shipped theme has them all off; OK on each row writes its own key")
+        self.assertEqual([care[k] for k in ("enabled", "appDim", "appShift", "boxDim", "refreshGuard")], [True] * 5, "the shipped theme has them off; OK on each row writes its own key")
+        self.assertEqual(care["panelDim"], False, "the panel dim is on in the shipped theme: OK turns it off")
 
     def test_the_power_on_and_off_logos_are_chosen_among_three_and_kept_in_the_theme_file(self):
         with tempfile.TemporaryDirectory() as d:

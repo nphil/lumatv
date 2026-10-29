@@ -1,7 +1,7 @@
 """Run with: python3 -m unittest tests.test_oledcare   (from the repository root)
 
 The OLED care's tokens (compositor/crates/lumatv-compositor/src/oledcare.rs, theme `oledcare`): the shipped theme matches the compositor's
-own defaults, every care is off in what ships, the five Settings rows (System > OLED care > LumaTV panel care) write the switches, and the
+own defaults, every care is off in what ships but the panel dim, the six Settings rows (System > OLED care > LumaTV panel care) write the switches, and the
 dim the compositor may apply to LumaTV's own screens keeps the palette's text at 4.5 : 1 on its sheet, dark and light.
 """
 import json
@@ -14,6 +14,7 @@ ROOT = os.path.dirname(HERE)
 THEME = os.path.join(ROOT, "payload", "theme", "theme.json")
 RUST = os.path.join(ROOT, "compositor", "crates", "lumatv-compositor", "src", "oledcare.rs")
 BOXDIM = os.path.join(ROOT, "compositor", "crates", "lumatv-compositor", "src", "boxdim.rs")
+PANELDIM = os.path.join(ROOT, "compositor", "crates", "lumatv-compositor", "src", "paneldim.rs")
 SETTINGS = os.path.join(ROOT, "payload", "compositor", "lumatv", "settings")
 LOOK = os.path.join(SETTINGS, "PageLook.qml")
 SYSTEM = os.path.join(SETTINGS, "PageSystem.qml")
@@ -22,7 +23,9 @@ HELPER = os.path.join(ROOT, "helper", "app", "src")
 
 # The switches of the care, in the order of the group, with what the Settings row is called.
 SWITCHES = [("enabled", "LumaTV screens"), ("appDim", "Dim still apps"), ("appShift", "Shift apps"), ("boxDim", "Dim bright still areas"),
-            ("refreshGuard", "Protect panel refresh")]
+            ("panelDim", "Dim with the panel"), ("refreshGuard", "Protect panel refresh")]
+# The switch that is on in what ships: it fails safe (the GPU dim and the saver's own dim take over when the panel cannot be dimmed).
+ON_BY_DEFAULT = {"panelDim"}
 
 
 def read(path):
@@ -60,7 +63,7 @@ class OledCare(unittest.TestCase):
     def test_the_shipped_theme_is_off_and_says_what_the_compositor_defaults_to(self):
         care = self.theme["oledcare"]
         for key, _ in SWITCHES:
-            self.assertIs(care[key], False, "%s: off until its TV check has passed" % key)
+            self.assertIs(care[key], key in ON_BY_DEFAULT, "%s: off until its TV check has passed (the panel dim fails safe and is on)" % key)
         m = re.search(r"Settings \{\s*enabled: false,\s*radius: (\d+),\s*step_ns: (\d+) \* SEC,\s*dim_after_ns: (\d+) \* 60 \* SEC,\s*"
                       r"dim_over_ns: (\d+) \* 60 \* SEC,\s*dim_floor: ([0-9.]+),\s*app_dim: false,\s*app_shift: false,\s*app_after_ns: (\d+) \* 60 \* SEC,\s*"
                       r"app_floor: ([0-9.]+),", self.rust)
@@ -107,15 +110,16 @@ class OledCare(unittest.TestCase):
         for key in ("boxDim", "boxDimAfterMin", "boxDimRampSec", "boxDimTo", "boxDimMinLuma"):
             self.assertIn('"%s"' % key, rust, "oledcare.%s is read by boxdim.rs" % key)
 
-    def test_the_five_settings_rows_sit_in_system_oled_care_in_order_and_write_the_switches_the_compositor_reads(self):
+    def test_the_six_settings_rows_sit_in_system_oled_care_in_order_and_write_the_switches_the_compositor_reads(self):
         text = read(SYSTEM)
         self.assertIn('R.head("LumaTV panel care", 2)', text)
         self.assertIn("page.patch({ oledcare: o })", text, "one object, one key")
-        self.assertIn("page.theme.oledcare[key] === true", text)
+        self.assertIn("typeof v === \"boolean\" ? v : !!dflt", text, "a key the theme does not have is the row's default")
         at = text.index('R.head("LumaTV panel care", 2)')
-        rows = re.findall(r'page\.careRow\("(\w+)", "([\w-]+)", "([^"]+)", "([^"]+)"\)', text[at:])
-        self.assertEqual([(k, label) for k, _, label, _ in rows], SWITCHES, "the five toggles, in this order, under LG's rows")
-        for key, icon, label, help_ in rows:
+        rows = re.findall(r'page\.careRow\("(\w+)", "([\w-]+)", "([^"]+)", "([^"]+)"(, true)?\)', text[at:])
+        self.assertEqual([(k, label) for k, _, label, _, _ in rows], SWITCHES, "the six toggles, in this order, under LG's rows")
+        self.assertEqual({k for k, _, _, _, dflt in rows if dflt}, ON_BY_DEFAULT, "the rows that show on for a key the theme lacks are the compositor's defaults")
+        for key, icon, label, help_, _ in rows:
             self.assertIn(key, self.theme["oledcare"], "%s has its default in the shipped theme" % key)
             self.assertTrue(help_.endswith("."), label + " has a one-line help")
             self.assertLess(len(help_), 130, label)
@@ -123,6 +127,21 @@ class OledCare(unittest.TestCase):
         # LG's own rows (Screen shift, Logo Brightness, Pixel Cleaning) come first on the tab: the group is under them
         for lg in ("picture.screenShift", "picture.logoLuminanceAdjust", "picture.scheduledPixelCleaning"):
             self.assertLess(text.index(lg, text.index("rows: [")), at, lg)
+
+    def test_the_panel_dims_keys_say_what_its_module_defaults_to_and_the_floor_leaves_a_clock_to_read(self):
+        care = self.theme["oledcare"]
+        rust = read(PANELDIM)
+        m = re.search(r"Settings \{ enabled: (true|false), step_ns: (\d+) \* SEC \}", rust)
+        self.assertTrue(m, "the Default of paneldim::Settings")
+        self.assertEqual((care["panelDim"], care["panelDimStepSec"]), (m[1] == "true", int(m[2])))
+        self.assertTrue(1 <= care["panelDimStepSec"] <= 60)
+        for key in ("panelDim", "panelDimStepSec"):
+            self.assertIn('"%s"' % key, rust, "oledcare.%s is read by paneldim.rs" % key)
+        floor = int(re.search(r"pub const FLOOR: u32 = (\d+);", rust)[1])
+        self.assertTrue(5 <= floor <= 30, "the panel is never taken to a dark screen, nor kept at full light")
+        # the Rust Settings page and the QML one say the same about what is on without a key in the theme
+        system_rs = read(os.path.join(ROOT, "rustui", "ui", "src", "settings", "pages", "system.rs"))
+        self.assertIn('CARE_ON_BY_DEFAULT: &[&str] = &["panelDim"]', system_rs)
 
     def test_the_row_for_lumatvs_screens_is_not_left_behind_on_the_screensaver_tab(self):
         text = read(LOOK)

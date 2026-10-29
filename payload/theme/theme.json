@@ -214,6 +214,8 @@
     "boxDimRampSec": 60,
     "boxDimTo": 0.8,
     "boxDimMinLuma": 0.35,
+    "panelDim": true,
+    "panelDimStepSec": 2,
     "refreshGuard": false
   },
   "remote": {
