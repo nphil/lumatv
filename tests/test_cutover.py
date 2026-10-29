@@ -748,6 +748,45 @@ class FrameRule(unittest.TestCase):
         self.assertEqual(self.sh("comp_over_limit '%s' 43296.9 43356.976" % log), (0, "3"))
         self.assertEqual(self.sh("comp_over_limit '%s' 0 99999" % log), (0, "5"))
         self.assertEqual(self.sh("comp_over_limit /nonexistent 0 99999"), (0, "unreadable"))
+        # `own`: the client's frame gaps (late commits) are not the compositor's; the loop's passes and the flip intervals are
+        self.assertEqual(self.sh("comp_over_limit '%s' 43296.9 43356.976 own" % log), (0, "2"))
+        self.assertEqual(self.sh("comp_over_limit '%s' 0 99999 own" % log), (0, "4"))
+
+    ONE_GAP = GOOD.replace("20-33.5 0, >33.5 0", "20-33.5 1, >33.5 0")
+
+    def attributed(self, result, att, own, comp=0, before="1", after="1", asked=60):
+        return self.sh("x1_rule '%s' '%s' '%s' '%s' '%s' '%s' '%s'" % (result, asked, before, after, comp, att, own))
+
+    def test_with_an_attribution_the_clients_own_gaps_are_reported_and_not_counted(self):
+        rc, out = self.attributed(self.ONE_GAP, "0 1 0", "0", comp=1)
+        self.assertEqual(rc, 0, out)
+        self.assertTrue(out.startswith("PASS 60.00 fps over 60.00 s, no compositor-attributable gap over 20 ms, pacer late unchanged"), out)
+        self.assertIn("1 client-only of 1 gap(s) over 20 ms (worst", out)
+        self.assertIn("reported, not counted", out)
+        self.assertIn("the compositor logged 1 client frame gap(s) (late commits)", out)
+        rc, out = self.rule(self.ONE_GAP)
+        self.assertEqual((rc, out.startswith("FAIL 1 gap(s) over 20 ms in the client's swaps")), (1, True), "without an attribution the PLAN's rule stands")
+
+    def test_with_an_attribution_a_gap_that_is_the_compositors_a_late_flip_or_an_unexplained_gap_fails(self):
+        rc, out = self.attributed(self.ONE_GAP, "1 0 0", "0")
+        self.assertEqual(rc, 1)
+        self.assertIn("1 gap(s) or late flip(s) are the compositor's", out)
+        rc, out = self.attributed(self.ONE_GAP, "0 0 1", "0")
+        self.assertEqual(rc, 1)
+        self.assertIn("1 gap(s) over 20 ms in the client's swaps the trace cannot explain", out)
+        rc, out = self.attributed(GOOD, "1 0 0", "0")
+        self.assertEqual(rc, 1, "a late flip fails whether or not the client counted a gap with it")
+        self.assertIn("are the compositor's", out)
+
+    def test_with_an_attribution_the_length_the_rate_the_pacer_and_the_loops_own_log_still_count(self):
+        self.assertEqual(self.attributed(GOOD, "0 0 0", "2"), (1, "FAIL the compositor logged 2 loop pass(es) or page-flip interval(s) over 20 ms during the run"))
+        self.assertEqual(self.attributed(GOOD, "0 0 0", ""), (1, "FAIL the compositor's log of the run could not be read"))
+        self.assertEqual(self.attributed(self.ONE_GAP, "0 1 0", "0", before="0", after="1"), (1, "FAIL pacer late 0 -> 1"))
+        self.assertIn("55.10 fps is under 59.5", self.attributed(GOOD.replace("= 60.00 fps", "= 55.10 fps"), "0 0 0", "0")[1])
+        self.assertIn("the run asked for 10 s", self.attributed(GOOD, "0 0 0", "0", asked=10)[1])
+        rc, out = self.attributed(GOOD, "0 0 0", "0")
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("reported", out)
 
 
 class GateFirmwareCheck(FakeSet):
@@ -1603,35 +1642,35 @@ class GateDriver(unittest.TestCase):
             self.assertEqual(cmd[cmd.index("--surfaces") + 1], g.FRAMES_SURFACES_QUICK if quick else g.FRAMES_SURFACES)
             self.assertEqual(run.call_args.kwargs["timeout"], 60 * (g.FRAMES_QUICK_SESSION_MINUTES if quick else g.FRAMES_SESSION_MINUTES))
 
-    def test_kwait_puts_the_capture_tools_on_the_set_and_asks_the_x1_check_to_trace(self):
-        calls, code, _ = self.run_main(argv=["--only", "x1", "--kwait"])
-        self.assertEqual(code, 0)
-        self.assertIn("LUMATV_GATE_KWAIT=1 sh /tmp/lumatv/gate.sh x1 60", calls)
-        put = [c.args[1] for c in self.gate.tv.put.call_args_list]
-        self.assertIn("/tmp/perf/capture.sh", put)
-        self.assertIn("/tmp/perf/kwait.py", put)
-        self.assertIn("/tmp/perf/sample.py", put, "beside capture.sh, whose 1 s sampler is then the one that forks nothing")
+    def test_the_x1_run_is_traced_by_default_and_the_strict_rule_is_untraced(self):
         calls, code, _ = self.run_main(argv=["--only", "x1"])
-        self.assertIn("sh /tmp/lumatv/gate.sh x1 60", calls, "without the flag the x1 run is untraced, as the rule has always been")
-        self.assertNotIn("LUMATV_GATE_KWAIT=1 sh /tmp/lumatv/gate.sh x1 60", calls)
+        self.assertEqual(code, 0)
+        self.assertIn("LUMATV_GATE_KWAIT=1 sh /tmp/lumatv/gate.sh x1 60", calls, "the compositor's gaps are told from the client's by the trace")
+        put = [c.args[1] for c in self.gate.tv.put.call_args_list]
+        for tool in ("capture.sh", "kwait.py", "sample.py"):
+            self.assertIn("/tmp/perf/" + tool, put, tool)
+        self.gate.tv.put.reset_mock()
+        calls, code, _ = self.run_main(argv=["--only", "x1", "--x1-strict"])
+        self.assertIn("LUMATV_X1_STRICT=1 sh /tmp/lumatv/gate.sh x1 60", calls, "the PLAN's rule as it was: every gap counts, the run is not traced")
+        self.assertNotIn("LUMATV_GATE_KWAIT", " ".join(calls))
+        self.assertEqual([c.args[1] for c in self.gate.tv.put.call_args_list if c.args[1].startswith("/tmp/perf/")], [])
+        calls, code, _ = self.run_main(argv=["--only", "x1", "--x1-strict", "--kwait"])
+        self.assertIn("LUMATV_X1_STRICT=1 LUMATV_GATE_KWAIT=1 sh /tmp/lumatv/gate.sh x1 60", calls, "strict and traced: the trace is for the reader")
 
     def test_x1_rt_runs_the_x1_client_fifo_and_asks_nothing_else_of_the_check(self):
         calls, code, _ = self.run_main(argv=["--only", "x1", "--x1-rt", "10"])
         self.assertEqual(code, 0)
-        self.assertIn("LUMATV_X1_RT=10 sh /tmp/lumatv/gate.sh x1 60", calls)
-        calls, code, _ = self.run_main(argv=["--only", "x1", "--x1-rt", "10", "--kwait"])
         self.assertIn("LUMATV_X1_RT=10 LUMATV_GATE_KWAIT=1 sh /tmp/lumatv/gate.sh x1 60", calls)
         calls, code, _ = self.run_main(argv=["--only", "x1"])
-        self.assertIn("sh /tmp/lumatv/gate.sh x1 60", calls, "the client is time-shared unless it is asked")
-        self.assertNotIn("LUMATV_X1_RT", " ".join(calls))
+        self.assertNotIn("LUMATV_X1_RT", " ".join(calls), "the client is time-shared unless it is asked")
         calls, code, _ = self.run_main(argv=["--only", "x1", "--x1-rt", "100"])
         self.assertEqual((calls, code), ([], 2), "a priority past 99 is refused before anything runs on the set")
 
     def test_x1_callbacks_sets_when_the_clients_frame_callbacks_go_out_for_the_x1_run(self):
         calls, code, _ = self.run_main(argv=["--only", "x1", "--x1-callbacks", "landing"])
         self.assertEqual(code, 0)
-        self.assertIn("LUMATV_X1_CALLBACKS=landing sh /tmp/lumatv/gate.sh x1 60", calls)
-        calls, code, _ = self.run_main(argv=["--only", "x1", "--x1-rt", "10", "--x1-callbacks", "early", "--kwait"])
+        self.assertIn("LUMATV_X1_CALLBACKS=landing LUMATV_GATE_KWAIT=1 sh /tmp/lumatv/gate.sh x1 60", calls)
+        calls, code, _ = self.run_main(argv=["--only", "x1", "--x1-rt", "10", "--x1-callbacks", "early"])
         self.assertIn("LUMATV_X1_RT=10 LUMATV_X1_CALLBACKS=early LUMATV_GATE_KWAIT=1 sh /tmp/lumatv/gate.sh x1 60", calls)
         calls, code, _ = self.run_main(argv=["--only", "x1"])
         self.assertNotIn("LUMATV_X1_CALLBACKS", " ".join(calls), "the compositor's default stands unless it is asked")

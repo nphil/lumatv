@@ -312,28 +312,46 @@ class ClientReaction(unittest.TestCase):
     CLIENT = 500
     TICK = 0.006      # the latch: 6 ms after a flip, the compositor's pass that draws the frame, with its own GPU job
 
-    def run_of(self, frames_=60, slow=None, skip=(), extra=(), job_tgid=None, mode="flip"):
+    def run_of(self, frames_=60, slow=None, skip=(), extra=(), job_tgid=None, mode="flip", drop=(), wake=None, dwait=None):
         """Flips every 1/60 s from 10.0 and the loop's pass on CPU 2 at each; a tick pass 6 ms after it with the compositor's own job; the client's
         tiler job 0.4 ms after the flip (mode `flip`) or after the tick's draw (mode `draw`), `slow`: {frame: ms}, and its fragment job 50 us later,
-        both submitted by the Mali threads (501, 502) on CPU 3; no job for a frame in `skip`."""
-        slow = slow or {}
+        both submitted by the Mali threads (501, 502) on CPU 3; no job for a frame in `skip`. `drop`: frames with no flip and no tick (a refresh
+        skipped); `wake`: {frame: s} the loop takes its flip up that long late; `dwait`: {frame: s} the loop sleeps in the kernel (D) that long in
+        its flip pass. In both the callbacks, and so the client's job, wait for the loop."""
+        slow, wake, dwait = slow or {}, wake or {}, dwait or {}
         lines = []
         for k in range(frames_):
+            if k in drop:
+                continue
             f = 10.0 + k * self.PERIOD
-            lines += [vblank(f), switch(f + 0.00001, 2, "swapper/2", 0, "R", "ld-linux-aarch6", LOOP),
-                      switch(f + 0.0001, 2, "ld-linux-aarch6", LOOP, "S", "swapper/2", 0),
-                      switch(f + self.TICK - 0.0003, 2, "swapper/2", 0, "R", "ld-linux-aarch6", LOOP),
-                      job(f + self.TICK, 2, "ld-linux-aarch6", LOOP, LOOP), job(f + self.TICK + 0.00005, 2, "ld-linux-aarch6", LOOP, LOOP, 1 << 24),
-                      switch(f + self.TICK + 0.0004, 2, "ld-linux-aarch6", LOOP, "S", "swapper/2", 0)]
+            if k in dwait:
+                answered = 0.00015 + dwait[k]
+                flip_pass = [switch(f + 0.00001, 2, "swapper/2", 0, "R", "ld-linux-aarch6", LOOP), switch(f + 0.0001, 2, "ld-linux-aarch6", LOOP, "D", "swapper/2", 0),
+                             wakeup(f + 0.0001 + dwait[k], 1, "kworker/1:0", 31, "ld-linux-aarch6", LOOP),
+                             switch(f + answered, 2, "swapper/2", 0, "R", "ld-linux-aarch6", LOOP), switch(f + answered + 0.0001, 2, "ld-linux-aarch6", LOOP, "S", "swapper/2", 0)]
+            else:
+                answered = wake.get(k, 0.00001)
+                flip_pass = [switch(f + answered, 2, "swapper/2", 0, "R", "ld-linux-aarch6", LOOP), switch(f + answered + 0.0001, 2, "ld-linux-aarch6", LOOP, "S", "swapper/2", 0)]
+            lines += [vblank(f)] + flip_pass + [
+                switch(f + self.TICK - 0.0003, 2, "swapper/2", 0, "R", "ld-linux-aarch6", LOOP),
+                job(f + self.TICK, 2, "ld-linux-aarch6", LOOP, LOOP), job(f + self.TICK + 0.00005, 2, "ld-linux-aarch6", LOOP, LOOP, 1 << 24),
+                switch(f + self.TICK + 0.0004, 2, "ld-linux-aarch6", LOOP, "S", "swapper/2", 0)]
             if k not in skip:
                 r = slow.get(k, 0.4) / 1000.0
-                base = f + (self.TICK if mode == "draw" else 0.0)
+                base = f + (self.TICK if mode == "draw" else answered - 0.00001)
                 lines += [job(base + r, 3, "mali-cmar-backe", 501, job_tgid or self.CLIENT), job(base + r + 0.00005, 3, "kworker/u9:1", 502, job_tgid or self.CLIENT, 1 << 24)]
         return trace(lines, *extra)
 
     def read(self, lines, **kw):
         events, _ = kwait.parse_lines(lines)
         return kwait.reactions(events, LOOP, **kw)
+
+    def whose(self, lines, gaps, **kw):
+        """`kwait.attribute` over a trace and the client's gap lines (as (ms, swap, time) tuples)."""
+        events, stacks = kwait.parse_lines(lines)
+        client = kwait.reactions(events, LOOP)
+        frames = [kwait.Context(events, stacks, LOOP).frame(g0, g1) for g0, g1 in kwait.late_frames(events, 20.0, span=client["span"])]
+        return kwait.attribute(client, kwait.Context(events, stacks, LOOP), frames, gaps, 20.0, **kw)
 
     def test_each_reaction_is_the_time_from_a_flip_to_the_clients_next_job_start(self):
         c = self.read(self.run_of())
@@ -397,6 +415,48 @@ class ClientReaction(unittest.TestCase):
         c = kwait.reactions(events, LOOP)
         self.assertEqual(len(kwait.late_frames(events)), 4, "the still screen's 83 ms flips before and the 100 ms after count when the whole trace is read")
         self.assertEqual(kwait.late_frames(events, span=c["span"]), [])
+
+    ONE = [(21.1, 26, 10.512)]
+
+    def test_a_reaction_over_callbacks_that_came_on_time_is_the_clients_own_gap(self):
+        a = self.whose(self.run_of(slow={30: 5.0}), self.ONE)
+        self.assertEqual((a["counted"], a["compositor"], a["client_only"], a["unexplained"], a["late_flips"]), (1, 0, 1, 0, 0))
+        self.assertEqual((a["gaps"][0]["who"], a["gaps"][0]["why"]), ("client", []))
+        lines = kwait.attribution_lines(a, 20.0)
+        self.assertEqual(lines[0], "x1 gaps: 1 over 20 ms in the client's log; compositor-attributable 0 (late flips 0), client-only 1, unexplained 0")
+        self.assertIn("client (callbacks on time, the loop never waited)", lines[1])
+
+    def test_the_same_in_the_mode_where_the_callbacks_go_with_the_draw(self):
+        a = self.whose(self.run_of(mode="draw", slow={30: 5.0}), self.ONE)
+        self.assertEqual((a["compositor"], a["client_only"], a["unexplained"]), (0, 1, 0))
+
+    def test_a_skipped_refresh_is_the_compositors_whether_or_not_the_client_counted_a_gap(self):
+        a = self.whose(self.run_of(drop=(30,)), [])
+        self.assertEqual((a["late_flips"], a["compositor"], a["client_only"]), (1, 2, 0))
+        self.assertEqual(a["gaps"][0]["who"], "compositor")
+        self.assertIn("its flip came 16.67 ms late", a["gaps"][0]["why"][0])
+
+    def test_a_loop_that_took_the_flip_up_late_made_the_callbacks_late(self):
+        a = self.whose(self.run_of(wake={30: 0.004}, slow={30: 4.4}), self.ONE)
+        self.assertEqual((a["compositor"], a["client_only"]), (1, 0))
+        self.assertEqual(a["gaps"][0]["why"], ["the loop took the flip up 4.0 ms late"])
+
+    def test_a_loop_that_waited_in_the_kernel_is_the_compositors(self):
+        a = self.whose(self.run_of(dwait={30: 0.0045}, slow={30: 4.5}), self.ONE)
+        self.assertEqual((a["compositor"], a["client_only"]), (1, 0))
+        self.assertIn("the loop waited 4", a["gaps"][0]["why"][-1])
+
+    def test_gaps_the_client_counted_and_the_trace_has_no_reaction_for_are_unexplained(self):
+        a = self.whose(self.run_of(slow={30: 5.0}), [(21.1, 26, 10.5), (20.4, 50, 11.5)])
+        self.assertEqual((a["counted"], a["compositor"], a["client_only"], a["unexplained"]), (2, 0, 1, 1))
+        a = self.whose(self.run_of(slow={30: 5.0}), [])
+        self.assertEqual((a["counted"], a["client_only"], a["unexplained"]), (0, 0, 0), "a gap the client did not count is nothing to report or to fail")
+
+    def test_without_a_client_or_its_log_nothing_is_attributed(self):
+        events, stacks = kwait.parse_lines(self.run_of())
+        ctx = kwait.Context(events, stacks, LOOP)
+        self.assertIsNone(kwait.attribute(kwait.reactions(events, LOOP), ctx, [], None, 20.0))
+        self.assertIsNone(kwait.attribute(None, ctx, [], self.ONE, 20.0))
 
     def test_the_x1_clients_gap_lines_are_read_and_set_beside_the_gaps_the_trace_implies(self):
         c = self.read(self.run_of(slow={30: 5.0}))

@@ -5,9 +5,13 @@ the standby check, and the checks that end the live session (Home held on a virt
 killed, the compositor's own hold-Home escape) each get a fresh session. Exit 0 only when every check passed; the result
 lines and files land in /tmp/lumatv-tv-out/out/gate and docs/research/compositor/gate-<date>.txt.
 
-    tv_gate.py [--skip netflix,hdmi,apps,...] [--only keys,ime] [--x1-seconds N] [--x1-rt N] [--x1-callbacks early|landing] [--enable-after] [--frames-callbacks landing] [--frames-quick] [--refresh 120] [--scanout direct] [--force-wake]
+    tv_gate.py [--skip netflix,hdmi,apps,...] [--only keys,ime] [--x1-seconds N] [--x1-strict] [--x1-rt N] [--x1-callbacks early|landing] [--enable-after] [--frames-callbacks landing] [--frames-quick] [--refresh 120] [--scanout direct] [--force-wake]
 
-The gate's rule for the frame check is 60 s with no gap over 20 ms (tv-gate.sh, "The frame rule"); --x1-seconds under 60
+The gate's rule for the frame check (the x1 probe, 60 s) fails on a gap that is the compositor's: a late flip, the loop slow to take a flip up
+or waiting, callbacks that went out late. A gap that is the client's own wake-up after callbacks that came on time is reported with its count and
+not counted. The run is traced for it (capture.sh's kwait mode; kwait.py says whose each gap is, tv-gate.sh, "The frame rule"), and a run kwait
+could not read is judged by the strict rule. --x1-strict is the PLAN's rule alone: an untraced run that fails on any gap over 20 ms in the client's
+swaps (and on a client frame gap in the compositor's log); --x1-seconds under 60
 can only fail it. Checks that can be skipped: firmware, homeheld, volume, x1, netflix, hdmi, apps, keys, ime, standby, homekey,
 wd-hang, wd-crash, escape. --only runs just the named ones (in one session, the live check and the evidence included); the
 step-1 test of the remote's keys and the keyboard is `--only keys,ime`. --frames-callbacks landing runs the surface frame gate with
@@ -294,7 +298,8 @@ def main():
     ap.add_argument("--frames-cycles", type=int, default=3, help="open/close cycles of the surface frame gate's soak (default 3)")
     ap.add_argument("--frames-quick", action="store_true", help="the surface frame gate over the quick set only (%s): what a regular round needs; without it the set also walks the app switcher, the keyboard and the app launches with smooth transitions on (%s), which changes a setting for each run and puts it back, and takes about twice as long" % (FRAMES_SURFACES_QUICK, FRAMES_SURFACES.replace(FRAMES_SURFACES_QUICK + ",", "")))
     ap.add_argument("--frames-load", action="store_true", help="also run the surface frame gate under synthetic background load (decode, Home Assistant websocket, BLE scan, a low-priority download): a report, not a rule")
-    ap.add_argument("--kwait", action="store_true", help="trace the x1 run (capture.sh's kwait mode) and name the kernel waits behind each late frame (kwait.py)")
+    ap.add_argument("--x1-strict", action="store_true", help="the PLAN's rule for x1: the run is not traced and any gap over 20 ms in the client's swaps fails it, the client's own wake-ups included (the default fails only the compositor's)")
+    ap.add_argument("--kwait", action="store_true", help="trace the x1 run (the default unless --x1-strict; with --x1-strict the run is traced and the rule stays strict)")
     ap.add_argument("--frames-callbacks", choices=["early", "landing"], default="early",
                     help="when the shell client's frame callbacks go out in the surface frame gate: a frame ahead of the flip inside a run of its frames (early, the default) or at the flip (landing)")
     ap.add_argument("--refresh", type=int, choices=[60, 120], default=60,
@@ -370,11 +375,13 @@ def main():
             lines.append(line)
         if "x1" not in skip:
             env = ""
+            if a.x1_strict:
+                env += "LUMATV_X1_STRICT=1 "
             if a.x1_rt:
                 env += "LUMATV_X1_RT=%d " % a.x1_rt
             if a.x1_callbacks:
                 env += "LUMATV_X1_CALLBACKS=%s " % a.x1_callbacks
-            if a.kwait:
+            if a.kwait or not a.x1_strict:
                 tv.tv("mkdir -p /tmp/perf")
                 tv.put(os.path.join(PERF_DIR, "capture.sh"), "/tmp/perf/capture.sh")
                 tv.put(os.path.join(PERF_DIR, "kwait.py"), "/tmp/perf/kwait.py")

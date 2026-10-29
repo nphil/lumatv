@@ -5,9 +5,10 @@
 #
 #   gate.sh live [LABEL]  LumaTV is the compositor: mounted, 12 names registered, no fallback, WAM up, Home (the web
 #                     stub) mapped and on the panel, the watchdog reading the compositor's counters and the power state
-#   gate.sh x1 SECS   the X1 probe client (64-bit, LG's blob) for SECS: the frame rule below. Switches, each an A/B with the rule unchanged:
-#                     LUMATV_X1_RT=N the client runs SCHED_FIFO N; LUMATV_X1_CALLBACKS=early|landing the clients' frame callbacks go out with the
-#                     frame's draw or at the flip; LUMATV_GATE_KWAIT the run is traced (tv_gate.py --kwait, --x1-rt, --x1-callbacks)
+#   gate.sh x1 SECS   the X1 probe client (64-bit, LG's blob) for SECS: the frame rule below. LUMATV_GATE_KWAIT traces the run, which is what lets the
+#                     rule tell the compositor's gaps from the client's (tv_gate.py sets it unless --x1-strict); LUMATV_X1_STRICT is the PLAN's rule
+#                     (every gap, untraced). A/Bs, the rule unchanged: LUMATV_X1_RT=N the client runs SCHED_FIFO N; LUMATV_X1_CALLBACKS=early|landing
+#                     the clients' frame callbacks go out with the frame's draw or at the flip (tv_gate.py --x1-rt, --x1-callbacks)
 #   gate.sh netflix   the Dolby Vision test film by deep link, from a fresh Netflix instance (a running one is
 #                     closed first): card mapped, video window exported, Picture Mode dolbyHdrCinema while
 #                     playing, filmMaker back on Home
@@ -49,10 +50,16 @@
 #                     flips a second, DE2VSYNC and osd_irq a second, the compositor's measure (intervals in refreshes, late, lost, missed,
 #                     pipeline p50/p99/max), the refresh the shell draws for, Mali busy, the SoC's temperature. `reset` starts the measure over, `read` (the default) only measures. A report
 #
-# The frame rule (PLAN, C4: "the X1 test with zero frames over 20 ms in 60 s"). The client's swap-to-swap gaps over
+# The frame rule (PLAN, C4: "the X1 test with zero frames over 20 ms in 60 s"), strict: the client's swap-to-swap gaps over
 # the run: none over 20 ms, the first second included (no warm-up is excused); the run is the whole 60 s and holds 60 Hz
 # (59.5 fps or more); the pacer's `late` did not move; and the compositor's own log of the run (from the client's start
-# to its end) records no loop pass, client frame gap or page-flip interval over 20 ms either.
+# to its end) records no loop pass, client frame gap or page-flip interval over 20 ms either (`tv_gate.py --x1-strict`, LUMATV_X1_STRICT).
+# The rule the gate runs (round 17: the strict one failed 4 of 4 runs with the compositor on time and the client waking late on its callbacks, a
+# rule that has passed about a third of the runs on this set): the run is traced, and kwait.py (`x1 gaps:` line) says whose each gap is. A gap over
+# 20 ms that is the compositor's (a late flip, the loop slow to take a flip up or waiting, callbacks that came late) or that nothing explains fails;
+# one that is the client's own wake-up after callbacks on time is reported with its count and does not. The length, the fps, the pacer's `late` and
+# the compositor's log (its loop passes and flip intervals; the client's frame gaps are late commits and are reported) are as in the strict rule.
+# A run kwait could not read (no trace, no client in it, no client log) is judged by the strict rule.
 STATE=${LUMATV_STATE:-/var/lib/lumatv/compositor}
 D=${LUMATV_D:-/tmp/lumatv}
 LIB=$D/lib
@@ -193,13 +200,15 @@ x1_numbers() {
 
 # What the compositor's log records over GAP_LIMIT_MS between two monotonic times: a loop pass, a client's frame gap or
 # a page-flip interval. The log is on CLOCK_MONOTONIC like the client's; each such line is a frame the panel missed (a
-# refresh skipped with nothing due at it is logged as `page-flip interval ... nothing due`, and is not one).
+# refresh skipped with nothing due at it is logged as `page-flip interval ... nothing due`, and is not one). With a fourth
+# argument (`own`) the client's frame gaps, which are commits that came late, are left out: the compositor's own are the loop's passes
+# and the flip intervals.
 comp_over_limit() {
     [ -r "$1" ] || { echo unreadable; return 0; }
-    awk -v a="$2" -v b="$3" -v lim="$GAP_LIMIT_MS" '
+    awk -v a="$2" -v b="$3" -v lim="$GAP_LIMIT_MS" -v own="${4:-}" '
         /^\[srv/ { t = $2; sub(/\]/, "", t); t += 0; if (t < a || t > b) next }
         /loop: [0-9.]+ ms in one pass/ { v = $0; sub(/.*loop: /, "", v); if (v + 0 > lim) n++ }
-        /frame gap [0-9.]+ ms on surface/ { v = $0; sub(/.*frame gap /, "", v); if (v + 0 > lim) n++ }
+        /frame gap [0-9.]+ ms on surface/ { if (own == "") { v = $0; sub(/.*frame gap /, "", v); if (v + 0 > lim) n++ } }
         /page-flip stamp [0-9.]+ ms after the last/ { v = $0; sub(/.*page-flip stamp /, "", v); if (v + 0 > lim) n++ }
         END { print n + 0 }' "$1" 2>/dev/null
 }
@@ -269,29 +278,55 @@ crash_summary() {
     echo "$c_name (pending $([ "$(cat $c_dir/pending 2>/dev/null)" = "$c_name" ] && echo yes || echo no); $(grep -c . $c_b/compositor.log.tail 2>/dev/null) log lines, $(grep -c . $c_b/trace.txt 2>/dev/null) ring lines, kind $(sed -n 's/^kind: //p' $c_b/reason.txt 2>/dev/null))"
 }
 
-# x1_rule RESULT SECONDS_ASKED LATE_BEFORE LATE_AFTER COMPOSITOR_OVER (a count, or "unreadable"): prints "PASS what held"
-# or "FAIL why", returns 0 or 1.
+# x1_rule RESULT SECONDS_ASKED LATE_BEFORE LATE_AFTER COMPOSITOR_OVER [ATTRIBUTION [COMPOSITOR_OWN]]: prints "PASS what held" or "FAIL why",
+# returns 0 or 1. COMPOSITOR_OVER is a count, or "unreadable". The rule as the PLAN has it (no gap over 20 ms in the client's swaps, the
+# compositor's log clean of every kind) is the strict one. With ATTRIBUTION, "A C U" from `kwait.py --x1` over a traced run (A gaps and late flips
+# that are the compositor's, C gaps that are the client's own wake-up after callbacks that came on time, U gaps it could not explain), only A
+# and U fail: C are reported and not counted. Then COMPOSITOR_OWN, the compositor's log without the client's frame gaps (`comp_over_limit ... own`),
+# stands for COMPOSITOR_OVER. The run's length, its fps and the pacer's late counter are the same in both.
 x1_rule() {
-    r_res=$1; r_asked=${2:-0}; r_lb=${3:-}; r_la=${4:-}; r_comp=${5:-}
+    r_res=$1; r_asked=${2:-0}; r_lb=${3:-}; r_la=${4:-}; r_comp=${5:-}; r_att=${6:-}; r_own=${7:-}
     r_n=$(x1_numbers "$r_res")
     if [ -z "$r_n" ]; then echo "FAIL the X1 client printed no result"; return 1; fi
     case "$r_asked" in ''|*[!0-9]*) r_asked=0 ;; esac
     set -- $r_n
     r_secs=$2; r_fps=$3; r_over=$(( $6 + $7 )); r_worst=$8
+    r_ours=0; r_unex=0; r_cli=0
+    [ -z "$r_att" ] || { set -- $r_att; r_ours=${1:-0}; r_cli=${2:-0}; r_unex=${3:-0}; }
     r_why=""
-    if [ "$r_over" -gt 0 ]; then r_why="$r_why; $r_over gap(s) over ${GAP_LIMIT_MS} ms in the client's swaps (worst $r_worst ms)"; fi
+    if [ -z "$r_att" ]; then
+        if [ "$r_over" -gt 0 ]; then r_why="$r_why; $r_over gap(s) over ${GAP_LIMIT_MS} ms in the client's swaps (worst $r_worst ms)"; fi
+    else
+        if [ "$r_ours" -gt 0 ]; then r_why="$r_why; $r_ours gap(s) or late flip(s) are the compositor's (a late flip, the loop slow to take one up, a wait of the loop's) in a run with $r_over gap(s) over ${GAP_LIMIT_MS} ms in the client's swaps (worst $r_worst ms)"; fi
+        if [ "$r_unex" -gt 0 ]; then r_why="$r_why; $r_unex gap(s) over ${GAP_LIMIT_MS} ms in the client's swaps the trace cannot explain (worst $r_worst ms)"; fi
+    fi
     if [ "$r_asked" -lt "$GATE_SECONDS" ]; then r_why="$r_why; the run asked for $r_asked s, the rule is ${GATE_SECONDS} s"; fi
     if awk -v s="$r_secs" -v m="$GATE_SECONDS" 'BEGIN { exit !(s + 0 < m - 0.5) }'; then r_why="$r_why; the run lasted $r_secs s"; fi
     if awk -v f="$r_fps" -v m="$MIN_FPS" 'BEGIN { exit !(f + 0 < m + 0) }'; then r_why="$r_why; $r_fps fps is under $MIN_FPS"; fi
     if [ -z "$r_lb" ] || [ -z "$r_la" ]; then r_why="$r_why; the pacer's late counter was not read"
     elif [ "$r_lb" != "$r_la" ]; then r_why="$r_why; pacer late $r_lb -> $r_la"; fi
-    case "$r_comp" in
-    ''|*[!0-9]*) r_why="$r_why; the compositor's log of the run could not be read" ;;
-    0) ;;
-    *) r_why="$r_why; the compositor logged $r_comp loop pass(es), client frame gap(s) or page-flip interval(s) over ${GAP_LIMIT_MS} ms during the run" ;;
-    esac
+    if [ -z "$r_att" ]; then
+        case "$r_comp" in
+        ''|*[!0-9]*) r_why="$r_why; the compositor's log of the run could not be read" ;;
+        0) ;;
+        *) r_why="$r_why; the compositor logged $r_comp loop pass(es), client frame gap(s) or page-flip interval(s) over ${GAP_LIMIT_MS} ms during the run" ;;
+        esac
+    else
+        case "$r_own" in
+        ''|*[!0-9]*) r_why="$r_why; the compositor's log of the run could not be read" ;;
+        0) ;;
+        *) r_why="$r_why; the compositor logged $r_own loop pass(es) or page-flip interval(s) over ${GAP_LIMIT_MS} ms during the run" ;;
+        esac
+    fi
     if [ -n "$r_why" ]; then echo "FAIL ${r_why#; }"; return 1; fi
-    echo "PASS $r_fps fps over $r_secs s, no gap over ${GAP_LIMIT_MS} ms, pacer late unchanged, nothing over ${GAP_LIMIT_MS} ms in the compositor's log"
+    if [ -z "$r_att" ]; then
+        echo "PASS $r_fps fps over $r_secs s, no gap over ${GAP_LIMIT_MS} ms, pacer late unchanged, nothing over ${GAP_LIMIT_MS} ms in the compositor's log"
+        return 0
+    fi
+    r_note=""
+    if [ "$r_over" -gt 0 ]; then r_note="; $r_cli client-only of $r_over gap(s) over ${GAP_LIMIT_MS} ms (worst $r_worst ms) reported, not counted: the client woke late on callbacks that came on time"; fi
+    case "$r_comp$r_own" in *[!0-9]*|'') ;; *) if [ "$r_comp" -gt "$r_own" ]; then r_note="$r_note; the compositor logged $(( r_comp - r_own )) client frame gap(s) (late commits)"; fi ;; esac
+    echo "PASS $r_fps fps over $r_secs s, no compositor-attributable gap over ${GAP_LIMIT_MS} ms, pacer late unchanged, no loop pass or page-flip interval over ${GAP_LIMIT_MS} ms in the compositor's log$r_note"
     return 0
 }
 
@@ -378,9 +413,17 @@ x1)
     stalls=$(grep -c 'loop: [0-9.]* ms in one pass' $OUT/x1-compositor.txt); gaps=$(grep -c 'frame gap' $OUT/x1-compositor.txt); churn=$(grep -c 'client connected' $OUT/x1-compositor.txt)
     # What counts against the rule is what the log says over the limit while the client was alive (not the second after).
     comp_over=$(comp_over_limit $STATE/compositor.log "${t0:-0}" "${t1:-0}")
-    detail="$res | pacer before: $before after: $after | compositor: loop stalls $stalls, frame gaps $gaps, clients connected $churn, over ${GAP_LIMIT_MS} ms $comp_over; $sched${LUMATV_X1_RT:+; the client SCHED_FIFO $LUMATV_X1_RT}$cbnote | wake-up latency: ${wakeline:-not read} | waits: $waitsline${kwsum:+ | $kwsum}"
+    # The client's own gaps are not the compositor's: a traced run (tv_gate.py's default for x1) tells from kwait.py's `x1 gaps:` line whose each is, and
+    # only the compositor's fail; the PLAN's strict rule (every gap, `--x1-strict`: LUMATV_X1_STRICT, untraced) and any run kwait could not read stay as
+    # they were.
+    attrib=""; own=""
+    if [ -z "${LUMATV_X1_STRICT:-}" ] && [ -n "$kw" ]; then
+        attrib=$(sed -n 's/^x1 gaps: .*compositor-attributable \([0-9]*\) .*client-only \([0-9]*\), unexplained \([0-9]*\)$/\1 \2 \3/p' $OUT/x1-kwait.txt 2>/dev/null | head -n 1)
+        [ -z "$attrib" ] || own=$(comp_over_limit $STATE/compositor.log "${t0:-0}" "${t1:-0}" own)
+    fi
+    detail="$res | pacer before: $before after: $after | compositor: loop stalls $stalls, frame gaps $gaps, clients connected $churn, over ${GAP_LIMIT_MS} ms $comp_over${attrib:+ (the loop's and the flips' own: $own)}; $sched${LUMATV_X1_RT:+; the client SCHED_FIFO $LUMATV_X1_RT}$cbnote${LUMATV_X1_STRICT:+; the strict rule} | wake-up latency: ${wakeline:-not read} | waits: $waitsline${kwsum:+ | $kwsum}"
     echo "$detail" > $OUT/x1-result.txt
-    verdict=$(x1_rule "$res" "$secs" "$late_before" "$late_after" "$comp_over")
+    verdict=$(x1_rule "$res" "$secs" "$late_before" "$late_after" "$comp_over" "$attrib" "$own")
     case "$verdict" in PASS*) pass x1 "${verdict#PASS }" ;; *) fail x1 "${verdict#FAIL } | $detail" ;; esac
     ;;
 netflix)

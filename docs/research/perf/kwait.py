@@ -355,16 +355,16 @@ def job_starts(events):
     return starts, plumbing
 
 
-def loop_cpu(events, times, t, loop_tid, before=False, within=0.002):
-    """The CPU the loop thread was switched in on, the first time after `t` (the last time before it with `before`), within `within` seconds;
-    None when it was not."""
+def loop_switch(events, times, t, loop_tid, before=False, within=0.002):
+    """The index of the event that switched the loop thread in, the first time after `t` (the last time before it with `before`), within
+    `within` seconds; None when none did."""
     if before:
         i = bisect.bisect_right(times, t) - 1
         while i >= 0 and times[i] >= t - within:
             if events[i][2] == 'sched_switch':
                 m = SWITCH.match(events[i][5])
                 if m and int(m.group(6)) == loop_tid:
-                    return events[i][1]
+                    return i
             i -= 1
         return None
     i = bisect.bisect_left(times, t)
@@ -372,9 +372,29 @@ def loop_cpu(events, times, t, loop_tid, before=False, within=0.002):
         if events[i][2] == 'sched_switch':
             m = SWITCH.match(events[i][5])
             if m and int(m.group(6)) == loop_tid:
-                return events[i][1]
+                return i
         i += 1
     return None
+
+
+def loop_cpu(events, times, t, loop_tid, before=False, within=0.002):
+    """The CPU `loop_switch` found the loop thread switched in on; None when it was not."""
+    i = loop_switch(events, times, t, loop_tid, before, within)
+    return None if i is None else events[i][1]
+
+
+def loop_runs(events, loop_tid):
+    """[(t_in, t_out)]: the stretches the loop thread was on a CPU, from its switch in to its switch out."""
+    runs, t_in = [], None
+    for t, cpu, name, pid, comm, args in events:
+        if name == 'sched_switch':
+            m = SWITCH.match(args)
+            if m and int(m.group(6)) == loop_tid:
+                t_in = t
+            elif m and int(m.group(2)) == loop_tid and t_in is not None:
+                runs.append((t_in, t))
+                t_in = None
+    return runs
 
 
 def clusters(ts, within=0.002):
@@ -447,9 +467,20 @@ def reactions(events, loop_tid, gap_ms=20.0, slow_ms=REACTION_SLOW_MS, period_ms
     _, trigger, rows = best
     ms = sorted(r[3] for r in rows)
     n = len(ms)
+    ints = sorted((rows[i][1] - rows[i - 1][1]) * 1000.0 for i in range(1, n) if rows[i][0] == rows[i - 1][0] + 1)
+    nominal = ints[len(ints) // 2] if ints else period_ms       # the run's own interval between the moments, the refresh as it ran
+    runs = loop_runs(events, loop_tid)
+    run_in = [r[0] for r in runs]
 
     def pick(p):
         return round(ms[min(n - 1, int(n * p))], 2)
+
+    def loop_late(m):
+        """How long after a flip the loop took it up (its next stretch began), or how long the stretch it was in went on past it; None if unseen."""
+        i = bisect.bisect_right(run_in, m) - 1
+        if i >= 0 and runs[i][1] > m:
+            return (runs[i][1] - m) * 1000.0
+        return (run_in[i + 1] - m) * 1000.0 if i + 1 < len(runs) else None
 
     def detail(row, prev):
         k, m, j, r = row
@@ -457,7 +488,13 @@ def reactions(events, loop_tid, gap_ms=20.0, slow_ms=REACTION_SLOW_MS, period_ms
         if prev and prev[0] == k - 1:
             out['prev_ms'] = round(prev[3], 2)
             out['gap_ms'] = round((j - prev[2]) * 1000.0, 1)
-        cpu = loop_cpu(events, times, m, loop_tid, before=trigger == 'draw')
+            # the compositor's own part of the gap: its moment's lateness against the run's interval, the loop's slowness to take a flip up
+            out['prev_t'], out['job_t'] = round(prev[1], 6), round(j, 6)
+            out['late_ms'] = round((m - prev[1]) * 1000.0 - nominal, 2)
+            if trigger == 'flip' and (late := loop_late(m)) is not None:
+                out['loop_late_ms'] = round(late, 2)
+        sw = loop_switch(events, times, m, loop_tid, before=trigger == 'draw')
+        cpu = None if sw is None else events[sw][1]
         if cpu is not None:
             out['cpu'] = cpu
             out['held_by'] = [f'{who} x{c}' for who, c in occupants(events, times, cpu, m, j, {loop_tid, client} | plumbing)[:4]]
@@ -554,6 +591,44 @@ def x1_lines(gaps, c, gap_ms):
     return out
 
 
+LATE_MS = 1.0     # a callback moment later than this is the compositor's: its flip or draw after the run's own interval, the loop slow to take a flip up
+
+
+def attribute(client, ctx, frames, gaps, gap_ms, hops=HOPS, min_wait_ms=MIN_WAIT_MS):
+    """Whose the client's gaps are. Each gap the trace implies is the compositor's when the moment its callbacks go out (the flip, or the draw)
+    came more than LATE_MS after the run's own interval, or the loop took the flip up more than LATE_MS late, or the loop waited (a kernel wait
+    or a run-queue wait of 3 ms or more) between the callbacks of the frame before and the client's job; else the client's own: it woke, drew and
+    submitted late on callbacks that came on time. A late flip in the client's run is the compositor's whether or not a gap came with it. Gaps
+    the client's log counts that the trace implies none for are unexplained. None without a client or the client's log."""
+    if not client or gaps is None:
+        return None
+    items = []
+    for x in client['implied']:
+        why = []
+        if x.get('late_ms', 0.0) > LATE_MS:
+            why.append(f"its {x['trigger']} came {x['late_ms']} ms late")
+        if x.get('loop_late_ms', 0.0) > LATE_MS:
+            why.append(f"the loop took the flip up {x['loop_late_ms']} ms late")
+        if 'prev_t' in x:
+            w = ctx.frame(x['prev_t'], x['job_t'], PERIOD_MS, hops, min_wait_ms)
+            if w['kernel_ms'] or w['sched_ms']:
+                why.append(f"the loop waited {max(w['kernel_ms'], w['sched_ms'])} ms")
+        items.append({'at': x['at'], 'gap_ms': x['gap_ms'], 'ms': x['ms'], 'who': 'compositor' if why else 'client', 'why': why})
+    ours = sum(1 for i in items if i['who'] == 'compositor')
+    client_only = sum(1 for i in items if i['who'] == 'client')
+    return {'counted': len(gaps), 'late_flips': len(frames), 'compositor': len(frames) + ours, 'client_only': min(client_only, len(gaps)),
+            'unexplained': max(0, len(gaps) - len(items)), 'gaps': items}
+
+
+def attribution_lines(a, gap_ms):
+    """The gate reads the first line: the counts, in this wording; then each gap the trace implies and whose it is."""
+    out = [f"x1 gaps: {a['counted']} over {gap_ms:g} ms in the client's log; compositor-attributable {a['compositor']} (late flips {a['late_flips']}), "
+           f"client-only {a['client_only']}, unexplained {a['unexplained']}"]
+    for i in a['gaps']:
+        out.append(f"  +{i['at']} s, jobs {i['gap_ms']} ms apart (reaction {i['ms']} ms): {i['who']}" + (f" ({'; '.join(i['why'])})" if i['why'] else ' (callbacks on time, the loop never waited)'))
+    return out
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     ap.add_argument('trace')
@@ -594,10 +669,14 @@ def main(argv=None):
             print(f'x1 log not read: {e}')
     if gaps is not None:
         print('\n'.join(x1_lines(gaps, client, a.gap)))
-    print(summary_line(summarize(frames)) + (f' | {client_summary(client, a.gap)}' if client else ''))
+    att = attribute(client, ctx, frames, gaps, a.gap, a.hops, a.min_wait)
+    if att:
+        print('\n'.join(attribution_lines(att, a.gap)))
+    print(summary_line(summarize(frames)) + (f' | {client_summary(client, a.gap)}' if client else '')
+          + (f" | x1 gaps compositor-attributable {att['compositor']}, client-only {att['client_only']}, unexplained {att['unexplained']}" if att else ''))
     if a.json:
         with open(a.json, 'w') as f:
-            json.dump({'tid': tid, 'how': how, 'frames': frames, 'summary': summarize(frames), 'client': client,
+            json.dump({'tid': tid, 'how': how, 'frames': frames, 'summary': summarize(frames), 'client': client, 'attribution': att,
                        'x1': [{'ms': g[0], 'swap': g[1], 'at': g[2]} for g in gaps] if gaps is not None else None}, f, indent=1)
     return 0
 
