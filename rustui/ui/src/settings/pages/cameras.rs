@@ -146,7 +146,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
             }
             continue;
         }
-        rows.extend(field_rows(c, PLUGIN, tab, f, ""));
+        rows.extend(field_rows(c, PLUGIN, tab, f, icon(key)));
     }
     for t in 1..TABS.len() {
         if !rows.iter().any(|r| r.tab == t) {
@@ -154,6 +154,19 @@ fn rows(c: &Ctx) -> Vec<Row> {
         }
     }
     rows
+}
+
+/// A glyph for the fields of the plugin's own page.
+fn icon(key: &str) -> &'static str {
+    match key {
+        "popups.on" => "bell",
+        "popups.seconds" => "timer",
+        "popups.cooldown" => "history",
+        "popups.over_apps" => "monitor",
+        "video.live" => "video",
+        "video.grid" => "layout-grid",
+        _ => "",
+    }
 }
 
 /// The kinds a camera pops up for: the owner's pick, else the defaults.

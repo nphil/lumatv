@@ -77,14 +77,14 @@ fn rank(level: &str) -> usize {
     LEVELS.iter().position(|l| *l == level).map_or(1, |i| 2 - i)
 }
 
-/// What the assistants' groups are called in a column of three words, and a line on what each lets an assistant do.
-fn group_words(id: &str, title: &str) -> (String, &'static str) {
+/// What an assistants' group is called, a line on what it lets an assistant do, and its glyph.
+fn group_words(id: &str, title: &str) -> (String, &'static str, &'static str) {
     match id {
-        "state" => ("What's playing".into(), "Title, app, input, volume, on or off"),
-        "playback" => ("Playback".into(), "Including mute"),
-        "launch" => ("Apps and inputs".into(), "Only apps already installed"),
-        "power" => ("Power".into(), "Never turn it on. The receiver stays as it is."),
-        _ => (title.to_string(), ""),
+        "state" => ("What's playing".into(), "Title, app, input, volume, on or off", "info"),
+        "playback" => ("Playback".into(), "Including mute", "play"),
+        "launch" => ("Apps and inputs".into(), "Only apps already installed", "layout-grid"),
+        "power" => ("Power".into(), "Never turn it on. The receiver stays as it is.", "power"),
+        _ => (title.to_string(), "", "bot"),
     }
 }
 
@@ -262,10 +262,10 @@ fn allowed(c: &Ctx, s: &Value) -> Vec<Row> {
     let levels = who.get("levels").cloned().unwrap_or_else(|| json!({}));
     for g in s.get("groups").and_then(Value::as_array).into_iter().flatten() {
         let gid = text(g, "id").to_string();
-        let (label, help) = group_words(&gid, text(g, "title"));
+        let (label, help, glyph) = group_words(&gid, text(g, "title"));
         let now = levels.get(&gid).and_then(Value::as_str).unwrap_or("ask").to_string();
         let (assistant, levels) = (text(who, "id").to_string(), levels.clone());
-        let r = Row::seg(&format!("level:{gid}"), &LEVEL_NAMES).tab(2).label(&label).help(help).index(LEVELS.iter().position(|l| *l == now)).admin();
+        let r = Row::seg(&format!("level:{gid}"), &LEVEL_NAMES).tab(2).icon(glyph).label(&label).help(help).index(LEVELS.iter().position(|l| *l == now)).admin();
         rows.push(r.act(move |a| match a {
             Arg::Index(i) if i < LEVELS.len() && rank(LEVELS[i]) > rank(&now) => needs_phone("A wider level"),
             Arg::Index(i) if i < LEVELS.len() && LEVELS[i] != now => {

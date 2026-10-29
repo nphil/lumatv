@@ -126,6 +126,115 @@ SCENES += [
     Scene('wifi', 'wifi', lg=with_network, keys=['right', 'down']),
     Scene('ipsettings', 'ipsettings', lg=lambda: with_network(MANUAL), keys=['right', 'down', 'down']),
 ]
+# ---- AI access: the helper's `ai` topic and the audit
+AI = {'listener': {'enabled': True, 'bound': True, 'addr': '192.168.1.71:8723', 'port': 8723, 'error': None}, 'pairing': None,
+      'assistants': [{'id': 'a1', 'name': 'Claude', 'paused': False, 'lastSeenAt': None,
+                      'levels': {'state': 'always', 'playback': 'ask', 'launch': 'never', 'power': 'never'}},
+                     {'id': 'a2', 'name': 'Voice assistant', 'paused': True,
+                      'levels': {'state': 'ask', 'playback': 'ask', 'launch': 'ask', 'power': 'never'}}],
+      'limits': {'maxVolume': 60},
+      'groups': [{'id': 'state', 'title': 'State'}, {'id': 'playback', 'title': 'Playback'}, {'id': 'launch', 'title': 'Launch'}, {'id': 'power', 'title': 'Power'}]}
+AI_OFF = dict(AI, listener={'enabled': False, 'bound': False}, assistants=[])
+
+
+def ai_audit(_=None):
+    import time
+    now = int(time.time() * 1000)
+    return {'ok': True, 'entries': [
+        {'at': now - 7200000, 'tool': 'tv.set_volume', 'message': 'Set the volume to 18', 'outcome': 'ok', 'assistant': {'id': 'a1', 'name': 'Claude'}},
+        {'at': now - 1500000, 'tool': 'tv.launch', 'message': 'Open Netflix', 'outcome': 'never', 'assistant': {'id': 'a1', 'name': 'Claude'}},
+        {'at': now - 120000, 'tool': 'tv.play', 'message': 'Pause', 'outcome': 'ok', 'assistant': {'id': 'a1', 'name': 'Claude'}}]}
+
+
+AI_ROUTES = {'GET /v1/ai/audit': ai_audit}
+SCENES += [
+    Scene('ai', 'ai', routes=AI_ROUTES, topics={'ai': AI}, keys=['right']),
+    Scene('ai-assistants', 'ai', routes=AI_ROUTES, topics={'ai': AI}, keys=['right', 'up', 'right', 'down']),
+    Scene('ai-allowed', 'ai', routes=AI_ROUTES, topics={'ai': AI}, keys=['right', 'up', 'right', 'right', 'down', 'down']),
+    # access can only be turned on from the phone's approval, which is not connected here: the answer says so
+    Scene('ai-unavailable', 'ai', routes=AI_ROUTES, topics={'ai': AI_OFF}, keys=['right', 'right', 'ok']),
+]
+
+# ---- Home Assistant and Cameras: the schemas the helper serves for the two plugins
+HA = 'home-assistant'
+HA_SCHEMA = {'sections': [
+    {'id': 'connection', 'title': 'Connection', 'fields': [{'key': 'state', 'label': 'Connection', 'kind': {'type': 'read-only', 'value': {'capability': 'plugin.home-assistant.link'}}}]},
+    {'id': 'room', 'title': 'This room', 'fields': [
+        {'key': 'room', 'label': 'Room', 'kind': {'type': 'choice', 'options': {'provider': 'rooms'}}},
+        {'key': 'controls', 'label': 'Lights and scenes', 'kind': {'type': 'ordered-set', 'max_items': 12, 'options': {'provider': 'controls'}}},
+        {'key': 'summary', 'label': 'Watching', 'kind': {'type': 'read-only', 'value': {'capability': 'plugin.home-assistant.summary'}},
+         'visible_when': {'type': 'capability-present', 'capability': 'plugin.home-assistant.summary'}}]},
+    {'id': 'doorbell', 'title': 'Doorbell', 'fields': [
+        {'key': 'doorbell', 'label': 'Doorbell', 'kind': {'type': 'ordered-set', 'max_items': 4, 'options': {'provider': 'doorbells'}}},
+        {'key': 'notify_doorbell', 'label': 'Tell me when it rings', 'kind': {'type': 'bool'}}]},
+    {'id': 'presence', 'title': 'Who is in the room', 'fields': [
+        {'key': 'presence', 'label': 'Presence sensors', 'kind': {'type': 'ordered-set', 'max_items': 4, 'options': {'provider': 'presence'}}},
+        {'key': 'hold', 'label': 'Still here for', 'kind': {'type': 'integer', 'min': 10, 'max': 600, 'step': 10, 'unit': 's'}}]},
+    {'id': 'notifications', 'title': 'Notifications', 'fields': [{'key': 'notify_ha', 'label': "Home Assistant's notifications", 'kind': {'type': 'bool'}}]}]}
+HA_VALUES = {'room': 'living_room', 'controls': ['light.lamp', 'scene.movie'], 'doorbell': ['event.front_doorbell'], 'notify_doorbell': True, 'presence': [], 'hold': 60, 'notify_ha': True}
+
+
+def plugin_doc(schema, values, version=1):
+    return {'ok': True, 'version': version, 'effective': {k: {'value': v} for k, v in values.items()}, 'schema': schema}
+
+
+def choices(rows):
+    return {'ok': True, 'plugin': HA, 'page': {'state': 'ready', 'rows': rows, 'more': False}}
+
+
+HA_ROUTES = {
+    'GET /v1/settings/home-assistant': plugin_doc(HA_SCHEMA, HA_VALUES),
+    'GET /v1/plugins/home-assistant/choices/rooms': choices([{'id': 'kitchen', 'label': 'Kitchen'}, {'id': 'living_room', 'label': 'Living room'}, {'id': 'office', 'label': 'Office'}]),
+    'GET /v1/plugins/home-assistant/choices/controls': choices([
+        {'id': 'light.lamp', 'label': 'Floor lamp', 'detail': 'Living room'}, {'id': 'light.shelf', 'label': 'Shelf light', 'detail': 'Living room'},
+        {'id': 'scene.movie', 'label': 'Movie night', 'detail': 'Living room'}, {'id': 'scene.bright', 'label': 'Bright', 'detail': 'Living room'}]),
+    'GET /v1/plugins/home-assistant/choices/doorbells': choices([{'id': 'event.front_doorbell', 'label': 'Front doorbell'}, {'id': 'event.back_door', 'label': 'Back door'}]),
+    'GET /v1/plugins/home-assistant/choices/presence': choices([]),
+}
+HA_TOPICS = {'plugins': {'plugins': [{'id': HA, 'name': 'Home Assistant', 'state': 'connected'}], 'firstParty': []},
+             'ha.link': {'state': 'connected', 'address': 'http://homeassistant.local:8123', 'token': True},
+             'plugin.home-assistant.facts': {'facts': {'link': 'Connected', 'summary': 'Living room: 3 lights on'}}}
+SCENES += [
+    Scene('homeassistant', 'homeassistant', routes=HA_ROUTES, topics=HA_TOPICS, keys=['right', 'down']),
+    Scene('homeassistant-room', 'homeassistant', routes=HA_ROUTES, topics=HA_TOPICS, keys=['right', 'up', 'right', 'down', 'down']),
+    Scene('homeassistant-unlinked', 'homeassistant', routes={}, topics=dict(HA_TOPICS, **{'ha.link': {'state': 'off'}}), keys=['right', 'down']),
+]
+
+SC = 'scrypted-cameras'
+CAM_SCHEMA = {'revision': 1, 'sections': [
+    {'id': 'link', 'title': 'Scrypted', 'fields': [{'key': 'link.status', 'label': 'Connection', 'kind': {'type': 'read-only', 'value': {'capability': 'plugin.scrypted-cameras.link'}}}]},
+    {'id': 'show', 'title': 'Cameras', 'fields': [{'key': 'show', 'label': 'Show cameras', 'help': 'Empty shows every camera Scrypted shares.', 'kind': {'type': 'ordered-set', 'max_items': 128, 'options': {'provider': 'cameras'}}}]},
+    {'id': 'popups', 'title': 'Pop-ups', 'fields': [
+        {'key': 'popups.on', 'label': 'Event pop-ups', 'kind': {'type': 'bool'}},
+        {'key': 'popups.seconds', 'label': 'Stay for', 'kind': {'type': 'integer', 'min': 5, 'max': 60, 'step': 1, 'unit': 's'}},
+        {'key': 'popups.cooldown', 'label': 'Same event again after', 'kind': {'type': 'integer', 'min': 0, 'max': 600, 'step': 5, 'unit': 's'}},
+        {'key': 'popups.over_apps', 'label': 'Over playing apps', 'kind': {'type': 'bool'}}]},
+    {'id': 'notify', 'title': 'Notify for', 'fields': [
+        {'key': 'notify.front', 'label': 'Front door', 'kind': {'type': 'ordered-set', 'max_items': 8, 'options': {'provider': 'kinds'}}},
+        {'key': 'notify.garage', 'label': 'Garage', 'kind': {'type': 'ordered-set', 'max_items': 8, 'options': {'provider': 'kinds'}}},
+        {'key': 'notify.yard', 'label': 'Back yard', 'kind': {'type': 'ordered-set', 'max_items': 8, 'options': {'provider': 'kinds'}}}]},
+    {'id': 'video', 'title': 'Video', 'fields': [
+        {'key': 'video.live', 'label': 'Live quality', 'kind': {'type': 'choice', 'options': {'inline': [{'id': 'native', 'label': 'Full'}, {'id': 'balanced', 'label': 'Medium'}, {'id': 'light', 'label': 'Low'}]}}},
+        {'key': 'video.grid', 'label': 'Grid', 'kind': {'type': 'choice', 'options': {'inline': [{'id': 'light', 'label': 'Light'}, {'id': 'balanced', 'label': 'Balanced'}, {'id': 'smooth', 'label': 'Smooth'}]}}}]}]}
+CAM_VALUES = {'show': [], 'popups.on': True, 'popups.seconds': 12, 'popups.cooldown': 30, 'popups.over_apps': True, 'video.live': 'native', 'video.grid': 'balanced',
+              'notify.front': ['person', 'doorbell'], 'notify.garage': ['person', 'vehicle', 'motion'], 'notify.yard': []}
+CAM_ROUTES = {
+    'GET /v1/settings/scrypted-cameras': plugin_doc(CAM_SCHEMA, CAM_VALUES, 3),
+    'GET /v1/plugins/scrypted-cameras/choices/cameras': {'ok': True, 'page': {'state': 'ready', 'more': False, 'rows': [
+        {'id': 'front', 'label': 'Front door', 'detail': 'Porch'}, {'id': 'garage', 'label': 'Garage', 'detail': 'Garage'}, {'id': 'yard', 'label': 'Back yard', 'detail': 'Garden'}]}},
+    'GET /v1/plugins/scrypted-cameras/choices/kinds': {'ok': True, 'page': {'state': 'ready', 'more': False, 'rows': []}},
+}
+CAM_TOPICS = {'plugins': {'plugins': [{'id': SC, 'name': 'Cameras', 'state': 'connected'}], 'firstParty': []},
+              'cameras': {'state': 'ready', 'cameras': [{'id': 'front', 'name': 'Front door'}, {'id': 'garage', 'name': 'Garage'}, {'id': 'yard', 'name': 'Back yard'}]},
+              'plugin.scrypted-cameras.facts': {'facts': {'link': 'Connected', 'device': 'Living room TV', 'verifier': '9f2c41ab7d03e5681c4fa2b9d0e73a58b1c6f492ae07d3510b8e64c92f1a7d30'}}}
+SCENES += [
+    Scene('cameras', 'cameras', routes=CAM_ROUTES, topics=CAM_TOPICS, keys=['right', 'down', 'down']),
+    Scene('cameras-notify', 'cameras', routes=CAM_ROUTES, topics=CAM_TOPICS, keys=['right', 'up', 'right', 'right', 'right', 'down', 'down']),
+    Scene('cameras-video', 'cameras', routes=CAM_ROUTES, topics=CAM_TOPICS, keys=['right', 'up', 'right', 'right', 'right', 'right', 'down']),
+    Scene('camera-kinds', 'cameras', routes=CAM_ROUTES, topics=CAM_TOPICS, keys=['right', 'up', 'right', 'right', 'right', 'down', 'down', 'ok', 'down', 'down']),
+    Scene('cameras-unlinked', 'cameras', routes={}, topics={'cameras': {'state': 'unlinked', 'cameras': []}}, keys=['right']),
+]
+
 BY_NAME = {s.name: s for s in SCENES}
 
 
@@ -136,9 +245,9 @@ def jpeg(png, path):
     im.save(path, 'JPEG', quality=QUALITY, optimize=True, progressive=True)
 
 
-def render(scene, mode='dark', scale=1.0, out=None, wait=None):
-    """Runs the scene; returns (rc, output, lint findings, the png's path or None). `out` is a path for a JPEG."""
-    shot = os.path.join(tempfile.mkdtemp(prefix='rsrender-'), scene.name + '.png')
+def play(scene, mode='dark', scale=1.0, wait=None, shot=None):
+    """Runs the scene; returns (rc, output, helper, lint findings, the png's path or None). The helper keeps every request it was sent."""
+    shot = shot or os.path.join(tempfile.mkdtemp(prefix='rsrender-'), scene.name + '.png')
     t = OPEN_AT + KEY_GAP * (len(scene.keys) + 1) + SETTLE + 200 * scene.keys.count('ok')
     extra = []
     for i, k in enumerate(scene.keys):
@@ -155,7 +264,12 @@ def render(scene, mode='dark', scale=1.0, out=None, wait=None):
     rc, text, chan, lg, helper = host.run(steps=steps, wait=wait or t + 800, extra=extra, lg=lg, helper=helper, text_scale=scale, mode=mode, theme=scene.theme)
     evals = host.evals(text)
     findings = evals[0] if evals and isinstance(evals[0], list) else []
-    png = shot if os.path.exists(shot) else None
+    return rc, text, helper, findings, shot if os.path.exists(shot) else None
+
+
+def render(scene, mode='dark', scale=1.0, out=None, wait=None):
+    """Runs the scene; returns (rc, output, lint findings, the png's path or None). `out` is a path for a JPEG."""
+    rc, text, _, findings, png = play(scene, mode, scale, wait)
     if png and out:
         os.makedirs(os.path.dirname(out), exist_ok=True)
         jpeg(png, out)

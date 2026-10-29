@@ -158,6 +158,8 @@ fn rows(c: &Ctx) -> Vec<Row> {
 /// A glyph for the fields the plugin names; the rest have none (the QML rows have none either).
 fn icon(key: &str) -> &'static str {
     match key {
+        "state" => "plug",
+        "summary" => "eye",
         "notify_doorbell" | "notify_ha" => "bell",
         "hold" => "timer",
         _ => "",

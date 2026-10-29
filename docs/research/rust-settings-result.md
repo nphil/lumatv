@@ -5,62 +5,71 @@ stays the default until the TV gate has passed twice; no QML was touched.
 
 ## Resume here
 
-Recovery 2026-10-29: Home widgets preserves the interrupted layout changes and is registered; Settings changes write Home’s owner layout and redraw it immediately. Ambient light and Remote & pointer were already committed. Remaining B work: AI access, Home Assistant, camera Settings intent, rendered host checks and lean captures. Layout launch and text entry are coordinated with SystemResume and PanelsResume respectively.
+Every page of the QML Settings now has a Rust page (below), so the `settings` kind can be switched on as a whole on the TV. What is left is
+TV-side, not code:
 
-Done (parity with the QML Settings, by screen):
+1. Text entry (Wi-Fi password, TV name, profile name, PIN) goes through RustPanels' `entry` kind: run with `ctl shell rust +settings +entry`
+   (the request is cancelled at once without it). Layout of pop-ups' editor is SystemResume's `layout` kind (`Shell::open_layout`).
+2. TV gate for the whole kind (twice): rail, every page opened with the Magic Remote and with the D-pad, 100 % and 200 % text, both looks.
+3. AI access is deliberately read-and-reduce only (see "AI access: what the backend allows" below); Nitin should know before the kind is
+   switched on that widening an assistant's access is not possible from the Rust screen, only from the QML one's remote prompt.
 
-- Framework: `settings/{model,view,row,page,ctx,src,host}.rs` (pure model: rail, tabs, rows, held-OK help, confirm, small picker, owner
-  locks, debounced writes `Op::Later`, theme patches), `surface/` (`mod, chrome, list, rows, sheets, figure, layout, paint`: flowing focus on
-  every row, windowed list, pointer hover = cue / click = select, glyph hints, text size 100-200 %), `host/sio.rs` (LG's settings service, one
-  shared port; the quick panel uses it too, `text()` is a String, `opt_text()` an Option).
-- Pages (all with unit tests): Privacy, Profiles (+ person, picture), Home & look (+ Layout of pop-ups, During the screensaver), System (+ Time &
-  Date, Power On/Off timers, Language & location, Safety, Audio Guidance, Audio options, Emergency, Closed Caption, Support, App Permissions,
-  Delete My Personal Information, Screenshots & recording), Picture (+ Fine Tune, White Balance, HDMI Signalling).
-- Compositor: `show {kind:"settings", page}`, `ctl shell show settings [PAGE]`, gear held; Home's Settings request opens it.
+Open in the code: none for Settings. Not exercised on the TV: everything (host renders and tests only).
 
-Coverage against the QML Settings: 21 of 41 page files ported (about 50 %); of the nine rail sections Picture, Home & look and System are
-complete, Privacy and Profiles (new top-level sections) are complete, Sound, Inputs & devices, Network, Ambient light, Remote & pointer and
-AI access are not started.
+## Pages
 
-Checks run on the pushed tree: `cargo test -p lumatv-ui` (609), clippy (none in `settings/`, `host/sio.rs`), compositor `shell_rust` tests (6),
-`tests/test_cutover.py` (150), `tests/test_shell_client.py`; `tests/test_rust_shell.py` fails once under machine load (the toast count at
-2200 ms) and passes when the machine is quiet.
+Framework: `settings/{model,view,row,page,ctx,src,host}.rs` (pure model: rail, tabs, rows, held-OK help, confirm, small picker, owner locks,
+debounced writes `Op::Later`, theme patches, page hooks), `surface/` (flowing focus on every row, windowed list, pointer hover = cue / click =
+select, glyph hints, text size 100-200 %), `host/sio.rs` (LG's settings service). `pages/plugin_rows.rs` is `PluginRows.js`: the rows of a
+plugin's own settings page from the schema the helper serves (switch, slider, up to three answers as segments, longer lists and the
+plugin's own lists as rows with a check, read-only facts); Home Assistant and Cameras use it.
 
-Next, in order (each is a `Page` in `settings/pages/`, registered in `pages/mod.rs::all()`; QML source named):
+A page hears `owner:<id>` (an owner's document was taken) and `topic:<name>` (a helper topic changed) through its `answered` function; that
+is how a plugin page asks its lists again when the room or the link changes.
 
-1. Sound (`PageSound.qml`, `PageEqualizer`, `PageHdmiAudio`, `PageUsbSound`, `PageBtAudio`, `SoundOut.js`, `PageBluetooth`, `PageBtDevice`, `PageBtHid`).
-2. Inputs & devices (`PageInputs.qml`, `PageReceiver`, `PageAppKey`), Network (`PageNetwork`, `PageWifi`, `PageIp`), Ambient light (`PageAmbient`),
-   Remote & pointer (`PageRemote`), AI access (`PageAi`, 331 lines), Home widgets (`PageWidgets`), Home Assistant (`PageHomeAssistant`), `PageChannels`.
-3. Rail order in `pages/mod.rs`: picture, sound, inputs, network, ambient, look, remote, ai, system; Privacy and Profiles are first.
-4. Text entry (Wi-Fi password, TV name, profile name, PIN): `Op::Entry` is modelled and tested; the shell only logs `ShellRequest::Text`
-   until RustPanels' keyboard kind lands: call `SettingsHost::entered / entry_cancelled` with its answer (`shell.rs settings_requests`).
-5. Cameras: `Shell::take_cameras_intents()` returns `Intent::OpenSettings` from the grid's Settings button: open Settings (Home & look,
-   Cameras) from it (nothing consumes it yet; `Shell::open_settings(page, now)` is the call). Layout editor: `ShellRequest::Layout{item}` is only logged in `shell.rs settings_requests`; call RustSystem's `open_layout(item)`.
-6. Not yet written: `tests/test_rust_settings.py` (use `tests/rust_settings_host.py`, `tests/qmlhost/lgsettings.py`), `tests/render_rust_settings.py`
-   (dark/light, 100/200 % into `docs/mocks/host-rust/settings/`), lint at 100/200 % (`--eval lint` is clean on the saver page), a test that every
-   `.icon("..")` literal exists in `payload/compositor/lumatv/icons/lucide` (known missing: `move`, `user-round`, `chevron-up`), `docs` section in
-   `rust-shell-kit.md`.
-7. Open decisions taken: the kind is all-or-nothing (the compositor switches per kind), so it stays off until every section is ported; the
-   saver page follows RustSystem's `/v1/saver/rules` contract; text size is the theme key `type.scale` (`Shell::reload_theme`).
+Rail: Privacy, Profiles, Picture, Sound, Inputs & devices, Network, Ambient light, Home & look, Remote & pointer, AI access, System. Under
+them: Time & Date, Power On/Off, Language & location, Safety, Audio Guidance, Audio options, Emergency, Closed Caption, Support, App
+Permissions, Delete My Personal Information, Screenshots & recording, Fine Tune, White Balance, HDMI Signalling, Equalizer, HDMI audio, USB
+sound, Receiver, Channels, Bluetooth speakers and devices, Wi-Fi, IP Settings, Layout of pop-ups, Home widgets, Home Assistant, Cameras (and
+one camera's kinds), During the screensaver, App key.
 
-Host renders of the screensaver page (dark, light, 200 %) were checked by eye and with the layout lint; they are in `/tmp/rs-shots/` on the
-build machine and should be re-rendered into `docs/mocks/host-rust/settings/` by the render script above.
+## AI access: what the backend allows (for a security follow-up)
 
-## Network, Join Network, IP Settings (Rust)
+The page (`pages/ai.rs`) reads the helper's `ai` topic and `GET /v1/ai/audit`. It sends only what gives an assistant LESS, at once:
+`POST /v1/ai/listener {enabled:false}`, `POST /v1/ai/assistants/{id}/pause`, `DELETE /v1/ai/assistants/{id}`, `POST /v1/ai/assistants/{id}/levels`
+with a level that is lower (never when it is higher), `POST /v1/ai/limits` with a lower volume ceiling, `POST /v1/ai/lockout`, `DELETE /v1/ai/pairing`.
+Whatever gives MORE (access on, a pairing code, a wider level, resuming an assistant, a higher limit) opens a dialog "Not available here" that
+says the phone's Face ID approval is not connected to this screen, and sends nothing. The page has no way to answer a prompt, and nothing
+else in the shell does (the `ai.prompt` topic is only shown).
 
-`settings/pages/network.rs` is the three QML pages (`PageNetwork`, `PageWifi`, `PageIp`) row for row, registered as `network` (rail),
-`wifi` and `ipsettings`. Host renders in `docs/mocks/host-rust/settings/` (`network-*`, `wifi-*`, `ipsettings-*`; the scenes are in
-`tests/render_rust_settings.py`, the TV and the networks are `qmlhost/lgsettings.py`'s stand-in, so no real network is touched).
+What the backend does (`helper/app/src/ai/{gate,routes}.rs`), recorded as found:
+- The helper's HTTP API is on loopback, `127.0.0.1`, and takes `POST /v1/ai/listener {enabled:true}`, `/v1/ai/pairing`, `/v1/ai/assistants/{id}/resume`,
+  `/v1/ai/assistants/{id}/levels` (higher) and `/v1/ai/limits` (higher) from any local caller; each opens a prompt on the TV rather than
+  acting. Any process on the TV, and anything that can reach the helper's API, can therefore ask.
+- The prompt is approved by a key press (OK, evdev 28 or 352, released after a 300 ms display) from the devices named `LGE RCU` or
+  `LGE M-RCU*`, read by the helper from the input devices itself. Keys from `Smart Remote RCU Input` and `LGE Network Input` (Home Assistant's
+  `webostv.button`, SSAP) do not count. A person with the remote can approve; whether a device that injects events under one of those names
+  could is not established here. This is "a physical remote", not proof of a person in the sense of Principle 0, and it is not the phone gate.
+- There is no route that answers a prompt, and none that creates a token (`routes.rs`).
+- Gap: the phone gate (Face ID, HomeLabber; `/data/home/Homelabber/design-notes/human-control-gate.md`) has no endpoint the TV or the helper calls, so
+  nothing here could route widening to it. When it exists, the controls that now open "Not available here" are the ones to connect, and the
+  helper's remote-key approval is the one to retire.
 
-Resume here:
+## Cameras
 
-- Typing is the open prerequisite: the Wi-Fi password, a hidden network's name, the TV name and the four addresses are `Op::Entry`, and
-  `shell.rs` only logs `ShellRequest::Text` until the keyboard kind answers through `SettingsHost::entered` / `entry_cancelled`. Join
-  Network and the address fields cannot be completed on the TV before that; `secret` asks for bullets.
-- Human-only writes: `wifi/connect`, `connectionmanager/setipv4` and `setdns` are only reachable from a row's action after a question
-  (`Join ...?`, `Change network settings?`), at the remote. The compositor's luna allowlist (`shell.rs ALLOWED_SERVICES`) admits both
-  services as a whole, as it did for the QML pages, so any client of the shell channel can make those calls: the allowlist is not a
-  gate. Nothing was added to it, and no verb for AI or MCP was added to drive these rows. A gate that tells Nitin's hand from a
-  program on the channel does not exist yet.
-- Method names and parameters are webOS's own (LG's Network app is not in the bundle) and have not run on the set.
-- A debug print of the join call hides the password (`Op`'s `Debug`); no log carries it.
+`pages/cameras.rs`, "Settings, Home & look, Cameras" of `cameras-ui-spec.md`: tabs Scrypted (connection chip, device name, verifier in groups of
+eight, Forget link with a question), Cameras (which to show), Pop-ups, Notify for (a row per camera with its kinds as the value, opening that
+camera's page of switches in the order picked; defaults person and doorbell) and Video (segments). The Cameras app's grid `Settings` button
+opens it (`Shell::cameras_asks`, page id `cameras`).
+
+## Tests and renders
+
+`cargo test -p lumatv-ui` (settings: 171 pages and model; includes `every_icon_a_settings_page_names_is_in_the_icon_set`), `clippy -D warnings`,
+`tests/test_rust_settings.py` (AI: reductions are sent, widening sends nothing; Home Assistant lists asked again on a room change and a pick
+written to the plugin's page; one camera's switch written in the order picked; every new page lint-clean in both looks at both text sizes),
+`tests/render_rust_settings.py` (scenes: `--list`; `play()` returns the helper's requests). Lean renders (1280-wide JPEG) are in
+`docs/mocks/host-rust/settings/`: pages one by one in the dark at 100 %, the saver page with its picker, and light and 200 % samples. Every
+scene was also run through the host's layout and contrast lint at dark and light, 100 % and 200 %: no findings.
+
+Known, outside Settings: `payload/.../lucide` has no `move` glyph, which `home/editor.rs` and `panels/menu*.rs` name.
+At 200 % text the five tabs of Home Assistant and Cameras do not all fit the tab strip; the strip follows the focus.

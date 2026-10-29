@@ -76,7 +76,7 @@ pub fn field_rows(c: &Ctx, plugin: Plugin, tab: usize, f: &Value, icon: &str) ->
     match text(kind, "type") {
         "read-only" => {
             let cap = kind.pointer("/value/capability").and_then(Value::as_str);
-            let mut r = Row::info(key).tab(tab).label(label).value(&cap.and_then(|k| fact(c, plugin, k)).unwrap_or_default());
+            let mut r = Row::info(key).tab(tab).icon(icon).label(label).value(&cap.and_then(|k| fact(c, plugin, k)).unwrap_or_default());
             if f.pointer("/visible_when/type").and_then(Value::as_str) == Some("capability-present") {
                 r = r.visible(f.pointer("/visible_when/capability").and_then(Value::as_str).is_some_and(|k| fact(c, plugin, k).is_some()));
             }
