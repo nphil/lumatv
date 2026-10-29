@@ -56,12 +56,16 @@ Item {
     // Hover is a part of the highlight, not all of it: a faint sheen and rim, with no lift, shadow or name pill (those are focus)
     property real hl: (focused || moving) ? 1 : ptr.hovered ? 0.3 : 0
 
+    // No mipmaps: a 192 px store icon in the 120 px box (82 inset) was sampled between mip levels 0 and 1, two thirds from the
+    // 96 px level, and came out softer than a plain bilinear read of the 192 px texture. Measured on the host against a Lanczos
+    // downscale of the icon: RMS error 6.8 with mipmaps, 3.8 without, at rest; 8.2 against 7.0 inset; a 130 px icon 4.9 against
+    // 4.3 (docs/research/ui-sharpness-result.md). The box never shrinks the icon below 0.43, where bilinear still reads every texel.
     Image {
         id: iconImage
         visible: false
         source: tile.launchPoint.iconUrl || ""
         asynchronous: true
-        mipmap: true
+        mipmap: false
         sourceSize.width: 240
         sourceSize.height: 240
     }
