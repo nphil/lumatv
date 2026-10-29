@@ -2,7 +2,7 @@
 # Gate for the placement crate, the same way ambient/build.sh does it.
 #
 #   ./build.sh test    host tests and clippy -D warnings
-#   ./build.sh check   fmt --check, then test
+#   ./build.sh check   fmt --check, test, then a release build of the library for aarch64-unknown-linux-musl (the set's target)
 #   ./build.sh clean   removes target/
 #
 # Build scripts of the dependencies are compiled for the host and need a C linker; when `cc` is missing (this container
@@ -31,7 +31,7 @@ fi
 
 case "${1:-test}" in
   test)  cargo test --all-targets && cargo clippy --all-targets -- -D warnings ;;
-  check) cargo fmt --check && "$0" test ;;
+  check) cargo fmt --check && "$0" test && cargo build --release --lib --target aarch64-unknown-linux-musl ;;
   clean) rm -rf target ;;
   *) die "unknown command: $1" ;;
 esac
