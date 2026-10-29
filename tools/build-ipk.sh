@@ -52,6 +52,7 @@ tools/declutter.sh
 payload/declutter/items.txt
 payload/declutter/groups.txt
 payload/declutter/dc.py
+payload/declutter/stub.sh
 payload/privacy/NOTICE
 tools/autostart.sh
 tools/bootcap.sh

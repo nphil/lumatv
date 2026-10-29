@@ -1,9 +1,10 @@
 use lumatv_privacy::{Paths,Platform,Privacy,atomic,hosts};
 use parking_lot::Mutex;
 use serde_json::{Value,json};
-use std::path::Path;
+use std::path::{Path,PathBuf};
+use std::collections::BTreeMap;
 use std::sync::Arc;
-#[derive(Default)] struct Fake { calls:Mutex<Vec<Value>>, settings:Mutex<Value>, fail:Mutex<bool> }
+#[derive(Default)] struct Fake { calls:Mutex<Vec<Value>>, settings:Mutex<Value>, fail:Mutex<bool>, underlay:Mutex<BTreeMap<PathBuf,Vec<u8>>> }
 impl Platform for Fake {
     fn luna(&self,method:&str,body:&Value)->Result<Value,String>{
         self.calls.lock().push(json!({"method":method,"body":body}));
@@ -15,8 +16,18 @@ impl Platform for Fake {
         if *self.fail.lock(){return Err("declutter failed".into());}
         Ok(json!({"ok":true,"groups":{"ads":{"on":false,"inTarget":"0/6"},"settings":{"on":true,"inTarget":"16/16"},"uploaders":{"on":true,"inTarget":"7/7"},"push":{"on":false,"inTarget":"0/5"}}}))
     }
-    fn bind(&self,source:&Path,target:&Path)->Result<(),String>{self.calls.lock().push(json!({"bind":[source,target]}));std::fs::copy(source,target).map(drop).map_err(|e|e.to_string())}
-    fn unmount(&self,target:&Path)->Result<(),String>{self.calls.lock().push(json!({"unmount":target}));Ok(())}
+    fn bind(&self,source:&Path,target:&Path)->Result<(),String>{
+        self.calls.lock().push(json!({"bind":[source,target]}));
+        self.underlay.lock().insert(target.to_owned(),std::fs::read(target).map_err(|e|e.to_string())?);
+        std::fs::remove_file(target).map_err(|e|e.to_string())?;
+        std::fs::hard_link(source,target).map_err(|e|e.to_string())
+    }
+    fn unmount(&self,target:&Path)->Result<(),String>{
+        self.calls.lock().push(json!({"unmount":target}));
+        let bytes=self.underlay.lock().remove(target).ok_or("not a fake mount")?;
+        std::fs::remove_file(target).map_err(|e|e.to_string())?;
+        std::fs::write(target,bytes).map_err(|e|e.to_string())
+    }
     fn cert_hash(&self,_:&Path)->Result<String,String>{Ok("01234567".into())}
 }
 fn rig()->(tempfile::TempDir,Paths,Arc<Fake>,Privacy) {
@@ -62,7 +73,7 @@ fn rig()->(tempfile::TempDir,Paths,Arc<Fake>,Privacy) {
     privacy.resume();assert!(p.calls.lock().is_empty());
     let token=privacy.prepare("hosts",true).unwrap()["confirmation"].as_str().unwrap().to_owned();privacy.apply("hosts",true,&token).unwrap();
     assert!(paths.state("hosts.enabled").exists());assert!(std::fs::read_to_string(paths.system("/etc/hosts")).unwrap().contains(hosts::BEGIN));
-    std::fs::write(paths.system("/etc/hosts"),&original).unwrap();privacy.maintain();
+    std::fs::remove_file(paths.system("/etc/hosts")).unwrap();std::fs::write(paths.system("/etc/hosts"),&original).unwrap();privacy.maintain();
     assert!(std::fs::read_to_string(paths.system("/etc/hosts")).unwrap().contains(hosts::BEGIN));
     let token=privacy.prepare("hosts",false).unwrap()["confirmation"].as_str().unwrap().to_owned();privacy.apply("hosts",false,&token).unwrap();
     assert!(!paths.state("hosts.enabled").exists());assert_eq!(std::fs::read(paths.system("/etc/hosts")).unwrap(),original);
@@ -78,4 +89,11 @@ fn rig()->(tempfile::TempDir,Paths,Arc<Fake>,Privacy) {
     let token=privacy.prepare("amazoff",true).unwrap()["confirmation"].as_str().unwrap().to_owned();
     assert!(privacy.apply("amazoff",true,&token).unwrap_err().contains("TLS checks"));assert!(p.calls.lock().is_empty());
     assert!(!paths.state("prime.enabled").exists());assert!(!paths.state("prime-identity.json").exists());
+}
+#[test] fn hosts_off_preserves_another_owners_changes_below_the_overlay() {
+    let (_d,paths,p,privacy)=rig();let token=privacy.prepare("hosts",true).unwrap()["confirmation"].as_str().unwrap().to_owned();privacy.apply("hosts",true,&token).unwrap();
+    let changed=b"127.0.0.1 localhost\n0.0.0.0 su.lge.com # updated HBC block\n0.0.0.0 new.foreign.example\n";
+    p.underlay.lock().insert(paths.system("/etc/hosts"),changed.to_vec());
+    let token=privacy.prepare("hosts",false).unwrap()["confirmation"].as_str().unwrap().to_owned();privacy.apply("hosts",false,&token).unwrap();
+    assert_eq!(std::fs::read(paths.system("/etc/hosts")).unwrap(),changed);assert!(!paths.state("hosts.enabled").exists());
 }

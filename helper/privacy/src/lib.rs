@@ -153,14 +153,14 @@ impl Privacy {
     }
     fn set_hosts(&self,on:bool)->Result<(),String> {
         let target=self.paths.system("/etc/hosts");
-        let current=text(&target)?;
-        let next=hosts::table(&current,on,&self.country())?;
         let file=self.paths.state("hosts");
-        // Updating a bound file by rename leaves the mount on its old inode. Unmount ours first; preserve the current foreign table.
+        // A covered foreign table may have changed. Read it after removing our bind, not from the stale overlay.
         use std::os::unix::fs::MetadataExt;
         let bound=std::fs::metadata(&file).ok().zip(std::fs::metadata(&target).ok()).is_some_and(|(a,b)|a.dev()==b.dev()&&a.ino()==b.ino());
         if bound {self.platform.unmount(&target)?;}
-        if !on && text(&target)?==next {remove(&self.paths.state("hosts.enabled"))?;return Ok(());}
+        let current=text(&target)?;
+        let next=hosts::table(&current,on,&self.country())?;
+        if !on && current==next {remove(&self.paths.state("hosts.enabled"))?;return Ok(());}
         atomic(&file,next.as_bytes(),false)?;
         self.platform.bind(&file,&target)?;
         if on {atomic(&self.paths.state("hosts.enabled"),b"on\n",false)?;}else{remove(&self.paths.state("hosts.enabled"))?;}

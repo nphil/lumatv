@@ -155,6 +155,14 @@ class Packaged(unittest.TestCase):
     def setUp(self):
         self.build = read(BUILD)
 
+    def test_privacy_declutter_and_its_complete_payload_are_shipped(self):
+        self.assertIn("declutter.sh", copied(self.build))
+        self.assertIn("declutter.sh", required(self.build))
+        for name in ("items.txt", "groups.txt", "dc.py", "stub.sh"):
+            self.assertIn("payload/declutter/" + name, required_all(self.build))
+            self.assertTrue(os.path.isfile(os.path.join(ROOT, "payload", "declutter", name)))
+        self.assertIn("payload/privacy/NOTICE", required_all(self.build))
+
     def test_everything_the_tool_and_the_boot_hook_call_is_in_the_package(self):
         names = wanted()
         self.assertGreater(len(names), 12, "the closure found almost nothing: %s" % sorted(names))
