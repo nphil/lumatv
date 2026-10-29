@@ -8,6 +8,7 @@
 pub mod arrange;
 pub mod clock;
 pub mod confirm;
+pub mod confirm_surface;
 pub mod drawer;
 pub mod drawer_surface;
 pub mod env;

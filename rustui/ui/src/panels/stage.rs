@@ -64,6 +64,8 @@ pub struct Stage {
     pointer: Pointer,
     dim: Dim,
     modal: bool,
+    /// The dim hides the page behind it (a question), not only dims it.
+    hide: bool,
     /// The first focus after the panel comes up (or its content is made again) is lifted at once; the next ones fly.
     first: bool,
 }
@@ -71,7 +73,13 @@ pub struct Stage {
 impl Stage {
     /// `z` is the panel's depth: the dim at `z`, the hover cue above the plates at `z + 8`.
     pub fn new(z: i32, scope: Scope) -> Self {
-        Self { z, scope, arrive: None, root: None, scrim: None, backdrop: None, hover: Hover::new(z + 8), pointer: Pointer::new(), dim: Dim::default(), modal: false, first: true }
+        Self { z, scope, arrive: None, root: None, scrim: None, backdrop: None, hover: Hover::new(z + 8), pointer: Pointer::new(), dim: Dim::default(), modal: false, hide: false, first: true }
+    }
+
+    /// The dim is the colour that hides the page behind the panel (`scrim_hide`), as a question's is.
+    pub fn hiding(mut self) -> Self {
+        self.hide = true;
+        self
     }
 
     pub fn z(&self) -> i32 {
@@ -100,7 +108,7 @@ impl Stage {
         self.root = Some(Root::new(kit, arrive, phase == Phase::Open)?);
         self.arrive = Some(arrive);
         if dim && self.scrim.is_none() {
-            self.scrim = Some(scrim(kit, self.z, false));
+            self.scrim = Some(scrim(kit, self.z, self.hide));
         }
         Ok(())
     }
