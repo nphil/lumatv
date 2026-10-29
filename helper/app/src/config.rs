@@ -115,6 +115,10 @@ pub struct Config {
     /// Screenshots and screen recordings of the picture LumaTV's compositor composes (`capture.rs`, `compositor/.../screencap`). Off by
     /// default: with `enabled` false the routes refuse and the compositor does nothing; both read this one switch.
     pub capture: CaptureConfig,
+    /// The display lab (`displaylab/`): the shell's guided look at the display chip's sharpener, dimming and window. On by default (it can
+    /// write only its own short list, and puts everything back); with `enabled` false the routes refuse. A journal an earlier run left is put
+    /// back at the helper's start whatever this says.
+    pub display_lab: DisplayLabConfig,
     /// How far the helper's scheduling priority is lowered (`nice`): it is background work and must never take a core from the
     /// compositor. 0 leaves it as started.
     pub nice: i32,
@@ -149,11 +153,25 @@ impl Default for Config {
             images: ImagesConfig::default(),
             cameras: CamerasConfig::default(),
             capture: CaptureConfig::default(),
+            display_lab: DisplayLabConfig::default(),
             nice: 10,
             allowed_origins: Vec::new(),
             brand_app_id: None,
             brand_qml_module: None,
         }
+    }
+}
+
+/// The display lab's switch.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+pub struct DisplayLabConfig {
+    pub enabled: bool,
+}
+
+impl Default for DisplayLabConfig {
+    fn default() -> Self {
+        Self { enabled: true }
     }
 }
 

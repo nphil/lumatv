@@ -30,6 +30,7 @@
 //! | [`crash`] | the crash notice Settings shows: what the supervisor saved when LumaTV's compositor was put out of the way (reason, time, last log and trace lines), read when the page opens |
 //! | [`capture`] | screenshots and screen recordings: the door to the compositor's capture, behind `capture.enabled` (off by default) |
 //! | [`gfn_boost`] | the GeForce NOW app's pad reader thread at real-time priority (FIFO 10, off CPU 0), the one privilege its jail cannot give itself |
+//! | [`displaylab`] | the display lab: the shell's guided look at the OSD sharpener, dimming and a cut-out window, written through one hard list, journaled, read back and put back by every way out (the dead-man, the helper's stop, the next start); the TV's own shell only |
 //! | [`service`], [`cli`] | start and stop, the lock, the command line |
 
 pub mod ai;
@@ -54,6 +55,7 @@ pub mod control;
 pub mod crash;
 pub mod ctx;
 pub mod device;
+pub mod displaylab;
 pub mod fetcher;
 pub mod framerate;
 pub mod gfn_boost;

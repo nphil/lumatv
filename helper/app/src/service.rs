@@ -239,6 +239,9 @@ impl Service {
 
         let privacy = crate::privacy::new(&ctx);
         threads.push(("privacy", crate::privacy::spawn(&ctx, privacy.clone())?));
+        // The display lab: a journal an earlier run left is put back before the API answers anything, and its thread is the dead-man.
+        let displaylab = crate::displaylab::DisplayLab::start(&ctx);
+        threads.push(("displaylab", displaylab.spawn(ctx.stop.clone())?));
         let api = Api {
             hub,
             settings,
@@ -250,6 +253,7 @@ impl Service {
             cameras,
             privacy,
             capture: crate::capture::Capture::new(&config.capture),
+            displaylab,
             profiles,
             started_at: ctx.hub.boot(),
             data_dir: paths.data_dir.display().to_string(),

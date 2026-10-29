@@ -140,6 +140,8 @@ pub struct Api {
     pub cameras: crate::scrypted::Scrypted,
     /// Screenshots and screen recordings: the way in to the compositor's capture, behind `capture.enabled` (`/v1/capture/...`).
     pub capture: crate::capture::Capture,
+    /// The display lab: the shell's guided look at the display chip, the TV's own shell only (`/v1/displaylab/...`).
+    pub displaylab: Arc<crate::displaylab::DisplayLab>,
     /// Local profiles: each person's Home and who may change what (`/v1/profiles/...`, the `profiles` topic).
     pub profiles: Arc<crate::profiles::Profiles>,
     pub privacy: Arc<lumatv_privacy::Privacy>,
@@ -345,6 +347,7 @@ impl Api {
             .chain(crate::openapps::ROUTES.iter())
             .chain(crate::capture::ROUTES.iter())
             .chain(crate::placement::ROUTES.iter())
+            .chain(crate::displaylab::ROUTES.iter())
             .chain(crate::saver::ROUTES.iter())
             .chain(crate::profiles::ROUTES.iter())
             .chain(crate::privacy::ROUTES.iter())
@@ -561,6 +564,7 @@ impl Handler for Api {
             }
             ["v1", "capture", rest @ ..] => self.capture.handle(request, rest),
             ["v1", "placement", rest @ ..] => crate::placement::handle(request, rest),
+            ["v1", "displaylab", rest @ ..] => self.displaylab.handle(request, rest),
             ["v1", "saver", rest @ ..] => {
                 // what shows over the saver is the owner's to change; the complications are for any tool on the TV to post
                 if post && rest.first() == Some(&"rules") {
@@ -669,6 +673,7 @@ mod tests {
                 images,
                 plugins,
                 capture: crate::capture::Capture::new(&ctx.config.capture),
+                displaylab: crate::displaylab::DisplayLab::start(&ctx),
                 profiles: crate::profiles::Profiles::open(&ctx),
                 privacy: crate::privacy::new(&ctx),
                 started_at: 1000,
@@ -755,6 +760,7 @@ mod tests {
                 + crate::openapps::ROUTES.len()
                 + crate::capture::ROUTES.len()
                 + crate::placement::ROUTES.len()
+                + crate::displaylab::ROUTES.len()
                 + crate::saver::ROUTES.len()
                 + crate::profiles::ROUTES.len()
                 + crate::privacy::ROUTES.len()

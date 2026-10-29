@@ -859,6 +859,13 @@ fn what_an_assistant_reaches_over_the_lan_is_mcp_and_pairing_and_nothing_else() 
         ("POST", format!("/v1/settings/ai.{id}")),
         ("GET", "/".to_owned()),
         ("GET", "/mcp/../v1/ai".to_owned()),
+        // the display lab is the TV's own shell's: not a path of the LAN door, whoever is paired
+        ("GET", "/v1/displaylab".to_owned()),
+        ("POST", "/v1/displaylab/begin".to_owned()),
+        ("POST", "/v1/displaylab/set".to_owned()),
+        ("POST", "/v1/displaylab/ping".to_owned()),
+        ("POST", "/v1/displaylab/end".to_owned()),
+        ("GET", "/v1/displaylab/results".to_owned()),
     ] {
         let r = http(
             lan,
@@ -899,6 +906,12 @@ fn what_an_assistant_reaches_over_the_lan_is_mcp_and_pairing_and_nothing_else() 
         "press_key",
         "approve",
         "tv_approve_prompt",
+        "displaylab_set",
+        "display_lab",
+        "tv_set_sharpness",
+        "tv_dim_osd",
+        "write_register",
+        "devmem_write",
     ] {
         let r = call(lan, &token, name, json!({"enabled": true}));
         assert!(is_error(&r), "{name}: {r}");
