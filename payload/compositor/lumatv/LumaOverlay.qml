@@ -69,7 +69,11 @@ Item {
     readonly property bool wants: switcherUp || appFront && (surface !== "" || cameraWants || cardsUp)
     readonly property var takes: !switcherUp && appFront && surface === "" && !cameraWants && cardsUp && cardsArmed ? ["ok", "back"] : []
     // the overlay system
-    readonly property bool overlaysOn: !!theme.overlays && theme.overlays.enabled === true
+    // the kinds the Rust shell answers (Shell.qml, from the compositor): its cards and its camera pop-up are drawn by it, and not again here
+    property var rustKinds: []
+    readonly property bool rustCards: rustKinds.indexOf("cards") >= 0
+    readonly property bool rustPopup: rustKinds.indexOf("popup") >= 0
+    readonly property bool overlaysOn: !!theme.overlays && theme.overlays.enabled === true && !rustCards
     readonly property bool overlaysLive: !!overlaysRes.item && overlaysRes.item.live
     readonly property bool overlaysUp: !!overlaysRes.item && overlaysRes.item.up
     property bool warming: false                              // set by the shell: its layer is being warmed (a card is drawn once with letters, nothing is shown)
@@ -207,6 +211,7 @@ Item {
         shown: ov.warm
     }
     Binding { target: cameraRes.item; property: "appFront"; value: ov.appFront; when: !!cameraRes.item }
+    Binding { target: cameraRes.item; property: "popupOff"; value: ov.rustPopup; when: !!cameraRes.item }
     // The cards of the overlay system. Below the camera pop-up, whose card they go under, above the panels and below the volume display.
     Resident {
         id: overlaysRes

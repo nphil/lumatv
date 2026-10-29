@@ -42,6 +42,8 @@ WebOSWindow {
     readonly property string moduleUrl: "file://" + (Link.params.moduleDir || "/var/lib/lumatv/qml/WebOSCompositor/lumatv") + "/"
     readonly property var fg: Link.topics.foreground || ({})
     readonly property var switcherTopic: Link.topics.switcher || ({})
+    // the kinds the Rust shell answers (the compositor's `shell-rust` list): what it draws, this client leaves out
+    readonly property var rustKinds: Link.topics.rust && Link.topics.rust.kinds ? Link.topics.rust.kinds : []
     readonly property var switcherFeed: ({ apps: Link.topics.apps || [], open: switcherTopic.open === true, from: switcherTopic.from || "", n: switcherTopic.n || 0 })
     readonly property bool screenOn: !Link.topics.screen || Link.topics.screen.on !== false
     // The compositor draws LumaTV's Home now: the Home stub's card is in front, or no card is.
@@ -139,6 +141,7 @@ WebOSWindow {
             onStatusChanged: if (status === Loader.Error) console.warn("[Shell] LumaOverlay failed to load from " + source)
         }
         Binding { target: overlay.item; property: "appFront"; value: homeWin.appFront; when: overlay.status === Loader.Ready }
+        Binding { target: overlay.item; property: "rustKinds"; value: homeWin.rustKinds; when: overlay.status === Loader.Ready }
         // Do not disturb: the overlay's cards wait while an alert, the input popup or the PIN prompt of the notifications, the keyboard or the saver
         // has the screen, and while the screen is off (a ring while the TV is in standby is still there when it is switched on, if it is in date);
         // its first card is drawn once while the layer is warmed

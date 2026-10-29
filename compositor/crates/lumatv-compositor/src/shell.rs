@@ -840,6 +840,9 @@ impl State {
             ("vwin".into(), self.vwin_topic()),
             // The refresh the output runs at (`refresh`): the shell draws its frames per refresh and trims what a frame costs at 120.
             ("refresh".into(), json!({"hz": self.config.refresh_hz})),
+            // The kinds the Rust shell answers: the QML client leaves out what the Rust client draws (its cards and its camera pop-up read the
+            // helper's topics, which cannot be withheld, so this is how it learns not to).
+            ("rust".into(), json!({"kinds": if self.shell_rust.enabled() { self.shell_rust.kinds.clone() } else { Vec::new() }})),
         ]
     }
 

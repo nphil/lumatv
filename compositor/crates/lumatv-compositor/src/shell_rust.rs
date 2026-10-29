@@ -34,7 +34,7 @@ use crate::shell::{
 
 /// The kinds the Rust shell may answer, in the order `ctl shell` lists them. `quick`, `picker` and `drawer` are the panels LumaTV opens
 /// itself (`State::shell_show`): while the Rust shell answers one, its `show` goes to it and the QML client's panel stays shut.
-pub const KINDS: &[&str] = &["home", "osd", "settings", "toast", "cameras", "quick", "picker", "drawer", "menu", "confirm", "switcher", "entry", "alert", "saver", "capture"];
+pub const KINDS: &[&str] = &["home", "osd", "settings", "toast", "cameras", "quick", "picker", "drawer", "menu", "confirm", "switcher", "entry", "alert", "saver", "capture", "cards", "popup", "layout"];
 /// Where the system layer's layers begin in the engine's z: everything the Rust shell draws over the windows is at this or more.
 pub const SYSTEM_Z: i32 = 1000;
 const TOKEN_FILE: &str = "lumatv-ui.token";
@@ -1055,6 +1055,27 @@ mod tests {
         assert_eq!(report["rust"]["kinds"], json!(["osd"]));
         assert_eq!(report["rust"]["connected"], true);
         assert_eq!(report["rust"]["ui"]["osd"], false);
+    }
+
+    #[test]
+    fn the_qml_client_is_told_which_kinds_the_rust_shell_answers_so_it_leaves_out_its_cards_and_its_pop_up_and_the_editor_is_shown_by_the_rust_client() {
+        let (mut state, _dir) = state_with("cards,popup,layout");
+        state.shell_handle(Msg::Connected);
+        state.shell_rust_handle(Msg::Connected);
+        state.shell_sync_topics();
+        assert_eq!(state.shell.topic("rust").unwrap()["kinds"], json!(["cards", "layout", "popup"]), "the QML client reads the list and draws neither");
+        // the editor: only when the Rust client says it can, and with the item as the page
+        assert!(!state.shell_show_page("layout", false, Some("popup")), "not before the client says it can");
+        state.shell_rust_handle(Msg::Ui { can: Some(vec!["layout".into()]), wants: Some(false), live: Some(false), state: Some(json!({"layout": {"open": false}})) });
+        assert!(state.shell_show_page("layout", false, Some("popup")));
+        let show = state.shell_rust.topic("show").unwrap();
+        assert_eq!((show["kind"].as_str(), show["page"].as_str()), (Some("layout"), Some("popup")));
+        assert!(state.shell.topic("show").is_none(), "the QML client has no editor to open");
+        // without the kinds the QML client is told the list is empty and goes on as before
+        let (mut qml, _d2) = state_with("toast");
+        qml.shell_handle(Msg::Connected);
+        qml.shell_sync_topics();
+        assert_eq!(qml.shell.topic("rust").unwrap()["kinds"], json!(["toast"]));
     }
 
     #[test]

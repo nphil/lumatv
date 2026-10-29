@@ -22,6 +22,7 @@ Item {
     anchors.fill: parent
     property bool appFront: false            // an app's picture is under this layer: the glass lets it through to the reading alpha
     property bool hostBusy: false            // the host has something up that must not be covered (a PIN, an alert, a panel): a pop-up waits
+    property bool popupOff: false            // the Rust shell draws the pop-up (the compositor's kind `popup`): none is shown here, the viewer is still this one's
     signal closeRequested()
     signal popupShown(string kind)           // a pop-up came up: the overlay system takes in a doorbell record of the same ring
 
@@ -68,7 +69,7 @@ Item {
     readonly property real paneAlpha: appFront ? Lu.readingAlpha : 1
 
     // ---- the pop-up: taken from the topic when it is new, in date, and the host is free
-    function dueNow() { return popupTopic && popupTopic.id !== shownId && popupTopic.untilMs > Date.now() }
+    function dueNow() { return !popupOff && popupTopic && popupTopic.id !== shownId && popupTopic.untilMs > Date.now() }
     function consider() {
         if (!dueNow()) { waiting.stop(); return }
         if (viewerUp) {
@@ -109,6 +110,7 @@ Item {
     // app, it waits like one that meets a busy host, and a card already up steps aside when an app comes to the front. On Home it shows if still in date.
     function blocked(p) { return appFront && !!p && p.overApps === false }
     onAppFrontChanged: { if (popupUp && blocked(popup)) holdPopup(); consider() }
+    onPopupOffChanged: { if (popupOff && popupUp) holdPopup(); else consider() }
     function holdPopup() {
         ends.stop()
         mode = ""
