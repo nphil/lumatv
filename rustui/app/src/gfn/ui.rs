@@ -553,6 +553,8 @@ fn forms_to_warm(m: &Metrics, fonts: &mut ui::text::Fonts) -> Vec<Form> {
     }
     app.help_open = true;
     note(&layout::plan(&app, m, fonts));
+    app.screen = Screen::SignOut;
+    note(&layout::plan(&app, m, fonts));
     forms.push(Form::Icon(Icon::Info, m.icon(28.0)));
     forms
 }

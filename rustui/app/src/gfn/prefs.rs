@@ -160,10 +160,12 @@ pub enum Row {
     Bitrate,
     Deadzone,
     Stats,
+    /// Not a preference: OK asks to sign the account out. Its value is the account, which only the rules know.
+    SignOut,
 }
 
 impl Row {
-    pub const ALL: [Row; 5] = [Row::Stream, Row::Hdr, Row::Bitrate, Row::Deadzone, Row::Stats];
+    pub const ALL: [Row; 6] = [Row::Stream, Row::Hdr, Row::Bitrate, Row::Deadzone, Row::Stats, Row::SignOut];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -172,6 +174,7 @@ impl Row {
             Row::Bitrate => "Bitrate cap",
             Row::Deadzone => "Stick dead zone",
             Row::Stats => "Show stats",
+            Row::SignOut => "Sign out",
         }
     }
 
@@ -183,10 +186,16 @@ impl Row {
             Row::Bitrate => "The most data a second the stream may use. A lower cap keeps a slow connection smooth and costs some sharpness.",
             Row::Deadzone => "How far a stick moves before the game feels it. Raise it if the picture drifts with the pad at rest.",
             Row::Stats => "Keeps the frame rate and bitrate on the screen while you play, not only after a key press.",
+            Row::SignOut => "Signs this TV out of GeForce NOW and shows a new sign-in code. Your stream settings stay.",
         }
     }
 
-    /// The value as the row shows it.
+    /// Whether Left and Right change the row's value (the sign-out row is only ever chosen).
+    pub fn adjustable(self) -> bool {
+        self != Row::SignOut
+    }
+
+    /// The value as the row shows it; the sign-out row has none here.
     pub fn value(self, p: &Prefs) -> String {
         match self {
             Row::Stream => p.tier.label().to_owned(),
@@ -194,6 +203,7 @@ impl Row {
             Row::Bitrate => format!("{} Mbit/s", p.bitrate_mbps),
             Row::Deadzone => format!("{}%", p.deadzone),
             Row::Stats => on_off(p.show_stats),
+            Row::SignOut => String::new(),
         }
     }
 
@@ -218,6 +228,7 @@ impl Row {
                 p.show_stats = !p.show_stats;
                 true
             }
+            Row::SignOut => false,
         }
     }
 
@@ -228,7 +239,7 @@ impl Row {
             Row::Hdr => &["enableHdr", "colorQuality"],
             Row::Bitrate => &["maxBitrateMbps"],
             Row::Deadzone => &["controllerLeftStickDeadzone", "controllerRightStickDeadzone"],
-            Row::Stats => &[],
+            Row::Stats | Row::SignOut => &[],
         }
     }
 }
@@ -303,10 +314,11 @@ mod tests {
     fn every_row_has_a_name_a_value_and_help_and_only_the_stats_line_stays_in_the_ui() {
         let p = Prefs::default();
         let values: Vec<String> = Row::ALL.iter().map(|r| r.value(&p)).collect();
-        assert_eq!(values, ["4K 120", "On", "80 Mbit/s", "8%", "Off"]);
+        assert_eq!(values, ["4K 120", "On", "80 Mbit/s", "8%", "Off", ""]);
         for r in Row::ALL {
             assert!(!r.name().is_empty() && r.help().len() > 30 && r.help().len() < 160, "{:?}", r);
-            assert_eq!(r.keys().is_empty(), r == Row::Stats);
+            assert_eq!(r.keys().is_empty(), matches!(r, Row::Stats | Row::SignOut));
         }
+        assert!(!Row::SignOut.step(&mut Prefs::default(), 1, true) && !Row::SignOut.adjustable());
     }
 }

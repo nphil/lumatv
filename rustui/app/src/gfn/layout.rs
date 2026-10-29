@@ -314,7 +314,7 @@ fn panel_rows(p: &mut Plan, f: &mut Fonts, m: &Metrics, panel: Frame, y0: f32, r
 /// The words of each screen as name and value rows, so that a test can read them without drawing.
 pub fn rows(app: &App) -> Vec<(String, String)> {
     match app.screen {
-        Screen::Starting => vec![("Status".into(), "Starting".into())],
+        Screen::Starting => vec![("Status".into(), if app.signing_out() { "Signing out" } else { "Starting" }.into())],
         Screen::SignIn => {
             let s = &app.sign_in;
             if s.user_code.is_empty() {
@@ -324,7 +324,8 @@ pub fn rows(app: &App) -> Vec<(String, String)> {
             }
         }
         Screen::Library => vec![("Library".into(), format!("{} games", app.games.len())), ("Account".into(), account_text(app))],
-        Screen::Settings => Row::ALL.iter().map(|r| (r.name().to_owned(), r.value(&app.prefs))).collect(),
+        Screen::Settings => Row::ALL.iter().map(|r| (r.name().to_owned(), row_value(app, *r))).collect(),
+        Screen::SignOut => vec![("Account".into(), account_text(app))],
         Screen::Detail => {
             let g = app.detail.clone().unwrap_or_default();
             let mut r = vec![("Game".into(), g.title), ("Store".into(), g.store), ("Status".into(), decision_text(&app.decision, &app.decision_message))];
@@ -345,13 +346,27 @@ pub fn rows(app: &App) -> Vec<(String, String)> {
     }
 }
 
+/// The tier as the account line says it: NVIDIA's `PERFORMANCE` is "Performance".
+pub fn tier_label(tier: &str) -> String {
+    let word = |w: &str| {
+        let mut c = w.chars();
+        c.next().map(|first| first.to_uppercase().chain(c.flat_map(char::to_lowercase)).collect::<String>()).unwrap_or_default()
+    };
+    tier.split('_').filter(|w| !w.is_empty()).map(word).collect::<Vec<_>>().join(" ")
+}
+
 pub fn account_text(app: &App) -> String {
     match (app.user_name.is_empty(), app.tier.is_empty()) {
         (true, true) => String::new(),
         (false, true) => app.user_name.clone(),
-        (true, false) => app.tier.clone(),
-        (false, false) => format!("{} · {}", app.user_name, app.tier),
+        (true, false) => tier_label(&app.tier),
+        (false, false) => format!("{} · {}", app.user_name, tier_label(&app.tier)),
     }
+}
+
+/// What a settings row shows on its right: a preference's value, or for the sign-out row the account.
+pub fn row_value(app: &App, row: Row) -> String {
+    if row == Row::SignOut { account_text(app) } else { row.value(&app.prefs) }
 }
 
 pub fn decision_text(status: &str, message: &str) -> String {
@@ -416,6 +431,7 @@ pub fn hint(screen: Screen) -> &'static str {
         Screen::SignIn => "Open the address on a phone and enter the code  ·  Back leaves",
         Screen::Library => "OK opens a game  ·  Back leaves",
         Screen::Settings => "Left and Right change  ·  Hold OK explains  ·  Back returns",
+        Screen::SignOut => "OK chooses  ·  Back keeps the account",
         Screen::Detail => "OK plays  ·  Back returns to the library",
         Screen::Launching => "Back gives the seat up",
         Screen::Stream => "",
@@ -429,6 +445,7 @@ fn panel_title(app: &App) -> String {
         Screen::Starting => "GeForce NOW".into(),
         Screen::SignIn => "Sign in".into(),
         Screen::Settings => "Settings".into(),
+        Screen::SignOut => "Sign out?".into(),
         Screen::Detail => app.detail.as_ref().map(|g| g.title.clone()).filter(|t| !t.is_empty()).unwrap_or_else(|| "Game".into()),
         Screen::Launching => "Starting".into(),
         Screen::Error => "Something went wrong".into(),
@@ -511,9 +528,18 @@ pub fn settings_row_frame(m: &Metrics, body_y: f32, i: usize) -> Frame {
     Frame::new(panel.x + PAD, panel.y + body_y + i as f32 * (h + 8.0), inner_w(m), h)
 }
 
+/// At 150 % text and up the card's head is the title size and sits higher: six rows under the display size would reach the hint line.
+fn settings_head_compact(m: &Metrics) -> bool {
+    m.s >= 1.5
+}
+
 /// Where the card's body starts: the head's height, which depends on the type size alone ("Settings" is one line).
 pub fn settings_body_y(m: &Metrics) -> f32 {
-    44.0 + line_height(m.ty.display) + 8.0 + 46.0
+    if settings_head_compact(m) {
+        28.0 + line_height(m.ty.title) + 8.0 + 46.0
+    } else {
+        44.0 + line_height(m.ty.display) + 8.0 + 46.0
+    }
 }
 
 const ROW_INSET: f32 = 28.0;
@@ -571,7 +597,15 @@ fn plan_settings(app: &App, m: &Metrics, f: &mut Fonts) -> Plan {
     let mut p = Plan::default();
     let panel = panel_frame(m);
     let ps = p.surf(Fill::Panel, 0, panel, false, None);
-    let body_y = panel_head(&mut p, f, m, panel, "Settings", ps);
+    let body_y = if settings_head_compact(m) {
+        let iw = inner_w(m);
+        p.text(Lay::Body, "Settings", m.ty.title, Ink::Ink, panel.x + PAD, panel.y + 28.0, iw, Align::Left, Some(ps));
+        let y = 28.0 + line_height(m.ty.title);
+        p.mark(Lay::Body, Form::Rule(iw as u32), panel.x + PAD, panel.y + y + 8.0, Ink::Rule, Some(ps));
+        y + 8.0 + 46.0
+    } else {
+        panel_head(&mut p, f, m, panel, "Settings", ps)
+    };
     debug_assert!((body_y - settings_body_y(m)).abs() < 0.5);
     panel_hint(&mut p, f, m, panel, hint(Screen::Settings), ps);
     let t = &m.ty;
@@ -598,11 +632,18 @@ fn plan_settings(app: &App, m: &Metrics, f: &mut Fonts) -> Plan {
         } else {
             p.mark(Lay::Body, Form::Icon(Icon::Info, mark), after, rect.y + ((rect.h - mark as f32) / 2.0).round(), Ink::Ink2, Some(rs));
         }
-        let value = row.value(&app.prefs);
-        let right = rect.right() - ROW_INSET - chev as f32 - 10.0;
+        let adjustable = row.adjustable();
+        let value = row_value(app, *row);
+        let right = rect.right() - ROW_INSET - if adjustable { chev as f32 + 10.0 } else { 0.0 };
+        // a long account line gives way to the row's name and its mark
+        let lead = if focus { 14.0 + mark as f32 + 8.0 + width(f, "Hold OK", t.caption) + 14.0 } else { mark as f32 };
+        let room = right - (after + lead + 24.0);
+        let value = if width(f, &value, t.value) > room { ellipsise(f, &value, t.value, room) } else { value };
         let vw = width(f, &value, t.value);
-        p.text(Lay::Body, value, t.value, Ink::Ink, right - vw - 4.0, rect.y + ((rect.h - lhv) / 2.0).round(), vw + 4.0, Align::Right, Some(rs));
-        if focus {
+        if !value.is_empty() {
+            p.text(Lay::Body, value, t.value, Ink::Ink, right - vw - 4.0, rect.y + ((rect.h - lhv) / 2.0).round(), vw + 4.0, Align::Right, Some(rs));
+        }
+        if focus && adjustable {
             let cy = rect.y + ((rect.h - chev as f32) / 2.0).round();
             p.mark(Lay::Body, Form::Icon(Icon::Back, chev), right - vw - 10.0 - chev as f32, cy, Ink::Ink, Some(rs));
             p.mark(Lay::Body, Form::Icon(Icon::ChevronRight, chev), rect.right() - ROW_INSET - chev as f32, cy, Ink::Ink, Some(rs));
@@ -617,6 +658,31 @@ fn plan_settings(app: &App, m: &Metrics, f: &mut Fonts) -> Plan {
         for (i, l) in body.into_iter().enumerate() {
             p.text(Lay::Help, l, t.label, Ink::Ink, card.x + ROW_INSET, card.y + ROW_INSET + lhl + 10.0 + i as f32 * lhl, card.w - 2.0 * ROW_INSET, Align::Left, Some(cs));
         }
+    }
+    p
+}
+
+/// The sign-out question: the account, what happens, and two rows in the settings rows' look (keep the account, sign out).
+fn plan_sign_out(app: &App, m: &Metrics, f: &mut Fonts) -> Plan {
+    let mut p = Plan::default();
+    let panel = panel_frame(m);
+    let ps = p.surf(Fill::Panel, 0, panel, false, None);
+    let body_y = panel_head(&mut p, f, m, panel, "Sign out?", ps);
+    panel_hint(&mut p, f, m, panel, hint(Screen::SignOut), ps);
+    let t = &m.ty;
+    let mut y = panel_rows(&mut p, f, m, panel, body_y, &rows(app), 2, ps);
+    let lhc = line_height(t.caption);
+    for l in lines(f, "This TV forgets the account and shows a new sign-in code.", t.caption, inner_w(m), 0) {
+        p.text(Lay::Body, l, t.caption, Ink::Ink2, panel.x + PAD, panel.y + y, inner_w(m), Align::Left, Some(ps));
+        y += lhc;
+    }
+    y += 20.0;
+    let lhv = line_height(t.value);
+    let h = settings_row_h(m);
+    for (i, (name, ink)) in [("Stay signed in", Ink::Ink), ("Sign out", Ink::Ink)].into_iter().enumerate() {
+        let rect = Frame::new(panel.x + PAD, panel.y + y + i as f32 * (h + 8.0), inner_w(m), h);
+        let rs = p.surf(Fill::SettingsRow, i, rect, i == app.confirm_row, Some(ps));
+        p.text(Lay::Body, name, t.value, ink, rect.x + ROW_INSET, rect.y + ((rect.h - lhv) / 2.0).round(), rect.w - 2.0 * ROW_INSET, Align::Left, Some(rs));
     }
     p
 }
@@ -771,6 +837,7 @@ pub fn plan(app: &App, m: &Metrics, f: &mut Fonts) -> Plan {
     match app.screen {
         Screen::Library => plan_library(app, m, f),
         Screen::Settings => plan_settings(app, m, f),
+        Screen::SignOut => plan_sign_out(app, m, f),
         Screen::Stream => plan_status(app, m, f),
         Screen::Overlay => plan_overlay(app, m, f),
         _ => plan_panel(app, m, f),
@@ -1059,16 +1126,23 @@ mod tests {
         app.settings_row = 2;
         let p = plan(&app, &m, &mut f);
         let names: Vec<&str> = p.texts.iter().filter(|t| matches!(t.ink, Ink::Ink) && t.ty == m.ty.label).map(|t| t.text.as_str()).collect();
-        assert_eq!(names, ["Stream", "HDR", "Bitrate cap", "Stick dead zone", "Show stats"]);
+        assert_eq!(names, ["Stream", "HDR", "Bitrate cap", "Stick dead zone", "Show stats", "Sign out"]);
         let values: Vec<&str> = p.texts.iter().filter(|t| t.ty == m.ty.value && t.align == Align::Right).map(|t| t.text.as_str()).collect();
         assert_eq!(values, ["4K 120", "On", "80 Mbit/s", "8%", "Off"]);
         assert_eq!(p.texts.iter().filter(|t| t.text == "Hold OK").count(), 1, "only the focused row says how to open the help");
         let infos = p.marks.iter().filter(|mk| matches!(mk.form, Form::Icon(Icon::Info, _))).count();
-        assert_eq!(infos, 5, "every row has a mark, the focused one's inside its pill");
+        assert_eq!(infos, 6, "every row has a mark, the focused one's inside its pill");
         let chev = p.marks.iter().filter(|mk| matches!(mk.form, Form::Icon(Icon::Back | Icon::ChevronRight, _))).count();
         assert_eq!(chev, 2, "the focused row shows that Left and Right change it");
         assert_eq!(p.surface(Fill::SettingsRow).filter(|s| s.focus).count(), 1);
         assert!(p.surface(Fill::Help).next().is_none());
+        app.user_name = "Nitin Phil".into();
+        app.tier = "PERFORMANCE".into();
+        app.settings_row = 5;
+        let p = plan(&app, &m, &mut f);
+        assert!(p.texts.iter().any(|t| t.text == "Nitin Phil · Performance" && t.align == Align::Right), "the sign-out row names the account and its tier");
+        assert_eq!(p.marks.iter().filter(|mk| matches!(mk.form, Form::Icon(Icon::Back | Icon::ChevronRight, _))).count(), 0, "a row that is only chosen has no arrows");
+        app.settings_row = 2;
         app.help_open = true;
         let p = plan(&app, &m, &mut f);
         let card = p.surface(Fill::Help).next().unwrap();

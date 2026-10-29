@@ -22,6 +22,8 @@ pub enum Screen {
     Library,
     /// The stream's tier, HDR, the bitrate cap, the stick dead zone and the stats line, from the library's header.
     Settings,
+    /// The question before signing out: keep the account, or forget it on this TV.
+    SignOut,
     Detail,
     Launching,
     Stream,
@@ -152,6 +154,10 @@ pub const ART_RETRY_MS: u64 = 1500;
 pub const ART_INFLIGHT: usize = 3;
 /// A picture the core could not give is asked for again this long after, when its tile is on the screen.
 pub const ART_AGAIN_MS: u64 = 60_000;
+/// The account's tier is read again when the library's header or the settings are opened, but not more often than this.
+pub const ACCOUNT_REFRESH_MS: u64 = 10_000;
+/// What a launch the core keeps refusing for the account's scope says (it was retried once with fresh account state).
+pub const STALE_ACCOUNT: &str = "This game could not be started for the signed-in account. Open Settings, sign out and sign in again.";
 
 /// The first row shown so that the focused tile is on the screen.
 pub fn first_row_for(focus: usize, current: usize) -> usize {
@@ -198,6 +204,8 @@ pub struct App {
     /// The box art of the library, by source address.
     pub art: HashMap<String, Art>,
     pub error: String,
+    /// The sign-out question's focus: 0 keeps the account, 1 signs out.
+    pub confirm_row: usize,
     pub runtime_capabilities: Value,
     pub region: Option<(String, String)>,
     pub now_ms: u64,
@@ -223,6 +231,18 @@ pub struct App {
     art_retry_ms: u64,
     /// Picture requests asked and not yet answered.
     art_asked: usize,
+    /// The tier on show is the subscription's (read live); until it is read it is the one in the sign-in token, which only changes when
+    /// the token is renewed.
+    tier_live: bool,
+    /// When the account was last re-read, and when a re-read the core refused as busy is asked again.
+    account_at_ms: Option<u64>,
+    account_due_ms: u64,
+    /// A launch refused for a stale account scope is retried once with fresh state: 1 while the session is re-read, 2 while the game is
+    /// inspected again. `launch_retried` is set from the first refusal until the player starts another launch.
+    retry_stage: u8,
+    launch_retried: bool,
+    /// Requests asked before the account was dropped (a sign-out): their answers belong to the old account and are discarded.
+    orphans: std::collections::HashSet<String>,
 }
 
 fn key_of(code: u32) -> Option<Key> {
@@ -289,6 +309,13 @@ impl App {
             art_alias: HashMap::new(),
             art_retry_ms: 0,
             art_asked: 0,
+            confirm_row: 0,
+            tier_live: false,
+            account_at_ms: None,
+            account_due_ms: 0,
+            retry_stage: 0,
+            launch_retried: false,
+            orphans: std::collections::HashSet::new(),
         }
     }
 
@@ -342,6 +369,9 @@ impl App {
         if self.screen == Screen::Library && self.art_retry_ms > 0 {
             consider(self.art_retry_ms);
         }
+        if self.signed_in {
+            consider(self.account_due_ms);
+        }
         at.map(|t| Duration::from_millis(t.saturating_sub(self.now_ms)))
     }
 
@@ -368,7 +398,12 @@ impl App {
             }
             Input::Core(m) => self.core(m),
             Input::State(s) => {
+                let was_minimized = self.minimized;
                 self.minimized = s == crate::card::MINIMIZED;
+                // the app was away: an upgrade made on a phone meanwhile shows when it comes back
+                if was_minimized && !self.minimized && matches!(self.screen, Screen::Library | Screen::Settings | Screen::Detail) {
+                    return self.refresh_account(true);
+                }
                 Vec::new()
             }
             Input::Close => self.leave("closed"),
@@ -396,6 +431,12 @@ impl App {
             self.art_retry_ms = 0;
             out.extend(self.art_wanted());
         }
+        if self.account_due_ms > 0 && self.now_ms >= self.account_due_ms {
+            self.account_due_ms = 0;
+            if self.signed_in && !self.has_pending("account.subscription.get") {
+                out.push(Self::req("account.subscription.get", json!({})));
+            }
+        }
         out
     }
 
@@ -412,6 +453,7 @@ impl App {
             },
             Screen::Library => self.library_key(k),
             Screen::Settings => self.settings_key(k),
+            Screen::SignOut => self.sign_out_key(k),
             Screen::Detail => match k {
                 Key::Back => {
                     self.screen = Screen::Library;
@@ -507,7 +549,7 @@ impl App {
             }
             Key::Up => {
                 self.header_focus = true;
-                Vec::new()
+                self.refresh_account(false)
             }
             Key::Down if self.focus + LIBRARY_COLUMNS < n => {
                 self.focus += LIBRARY_COLUMNS;
@@ -571,7 +613,7 @@ impl App {
         self.help_open = false;
         self.ok_down_ms = None;
         self.ok_held = false;
-        Vec::new()
+        self.refresh_account(true)
     }
 
     fn settings_key(&mut self, k: Key) -> Vec<Action> {
@@ -605,6 +647,9 @@ impl App {
     /// needs it, sent to the core.
     fn settings_step(&mut self, step: i32, wrap: bool) -> Vec<Action> {
         let row = Row::ALL[self.settings_row];
+        if row == Row::SignOut {
+            return if wrap { self.ask_sign_out() } else { Vec::new() };
+        }
         if !row.step(&mut self.prefs, step, wrap) {
             return Vec::new();
         }
@@ -677,14 +722,23 @@ impl App {
     }
 
     fn launch(&mut self) -> Vec<Action> {
-        let Some(g) = self.detail.clone() else { return Vec::new() };
-        if self.decision != "ready" {
+        if self.detail.is_none() || self.decision != "ready" {
             return Vec::new();
         }
         self.screen = Screen::Launching;
         self.session = None;
         self.stats = Stats::default();
         self.pad_latency = None;
+        self.launch_retried = false;
+        self.retry_stage = 0;
+        self.create_request().into_iter().collect()
+    }
+
+    /// `session.create` for the game on the detail card, in the account scope last heard of: the core refuses a launch whose scope is not
+    /// the account's current one (`stale_account`), and the scope is the auth envelope's generation with the user and provider, which the
+    /// envelope does not carry as a `scope` object.
+    fn create_request(&self) -> Option<Action> {
+        let g = self.detail.as_ref()?;
         let mut params = json!({
             "appId": g.variant_id,
             "catalogAppId": g.id,
@@ -702,7 +756,7 @@ impl App {
             params["zone"] = json!(zone);
             params["streamingBaseUrl"] = json!(url);
         }
-        vec![Self::req("session.create", params)]
+        Some(Self::req("session.create", params))
     }
 
     fn open_overlay(&mut self) -> Vec<Action> {
@@ -750,6 +804,7 @@ impl App {
             out.push(Self::req("session.stop", json!({"sessionId": s.id, "streamingBaseUrl": s.value["streamingBaseUrl"], "serverIp": s.value["serverIp"]})));
         }
         self.session = None;
+        self.retry_stage = 0;
         self.screen = if self.detail.is_some() { Screen::Detail } else { Screen::Library };
         out
     }
@@ -765,8 +820,132 @@ impl App {
 
     fn fail(&mut self, message: String) -> Vec<Action> {
         self.error = message;
+        self.retry_stage = 0;
         self.screen = Screen::Error;
         Vec::new()
+    }
+
+    /// Re-reads the account: the session (which renews an expiring token and gives the current scope) and the subscription (the tier
+    /// as NVIDIA has it now, so an upgrade shows without signing out). Unless `force`, not within [`ACCOUNT_REFRESH_MS`] of the last read.
+    fn refresh_account(&mut self, force: bool) -> Vec<Action> {
+        if !self.signed_in || self.has_pending("auth.session.get") || self.has_pending("account.subscription.get") {
+            return Vec::new();
+        }
+        if !force && self.account_at_ms.is_some_and(|t| self.now_ms < t + ACCOUNT_REFRESH_MS) {
+            return Vec::new();
+        }
+        self.account_at_ms = Some(self.now_ms);
+        vec![Self::req("auth.session.get", json!({})), Self::req("account.subscription.get", json!({}))]
+    }
+
+    /// The sign-out question.
+    fn ask_sign_out(&mut self) -> Vec<Action> {
+        self.screen = Screen::SignOut;
+        self.confirm_row = 0;
+        self.help_open = false;
+        self.ok_down_ms = None;
+        self.ok_held = false;
+        Vec::new()
+    }
+
+    fn sign_out_key(&mut self, k: Key) -> Vec<Action> {
+        match k {
+            Key::Back => {
+                self.screen = Screen::Settings;
+                Vec::new()
+            }
+            Key::Up if self.confirm_row > 0 => {
+                self.confirm_row -= 1;
+                Vec::new()
+            }
+            Key::Down if self.confirm_row < 1 => {
+                self.confirm_row += 1;
+                Vec::new()
+            }
+            Key::Ok if self.confirm_row == 1 => self.sign_out(),
+            Key::Ok => {
+                self.screen = Screen::Settings;
+                Vec::new()
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// Signs every saved account out of the core (the app has no account picker, so no other account may be left behind to come back
+    /// as the active one), which drops the tokens and the core's per-account state; the app drops its own when the core has answered.
+    pub fn signing_out(&self) -> bool {
+        self.has_pending("auth.accounts.logoutAll")
+    }
+
+    fn sign_out(&mut self) -> Vec<Action> {
+        let mut out = Vec::new();
+        if self.session.is_some() {
+            out.extend(self.stop_session());
+        }
+        self.screen = Screen::Starting;
+        out.push(Self::req("auth.accounts.logoutAll", json!({})));
+        out
+    }
+
+    /// Forgets everything that belongs to the account: who it is, its tier and scope, the library and the game on show, the seat, the
+    /// pictures and the sign-in attempt. Answers still on their way for it are dropped when they arrive.
+    fn reset_account(&mut self) {
+        for (id, method) in &self.pending {
+            if matches!(method.as_str(), "catalog.library.list" | "catalog.launch.inspect" | "account.subscription.get" | "network.regions.list" | "auth.session.get" | "auth.accounts.logoutAll") {
+                self.orphans.insert(id.clone());
+            }
+        }
+        self.signed_in = false;
+        self.user_name.clear();
+        self.tier.clear();
+        self.tier_live = false;
+        self.scope = Value::Null;
+        self.games.clear();
+        self.next_cursor.clear();
+        self.catalog_revision = Value::Null;
+        self.catalog_context = Value::Null;
+        self.focus = 0;
+        self.first_row = 0;
+        self.header_focus = false;
+        self.detail = None;
+        self.decision.clear();
+        self.decision_message.clear();
+        self.session = None;
+        self.stats = Stats::default();
+        self.pad_latency = None;
+        self.region = None;
+        self.regions_asked = false;
+        self.account_at_ms = None;
+        self.account_due_ms = 0;
+        self.retry_stage = 0;
+        self.launch_retried = false;
+        self.confirm_row = 0;
+        self.error.clear();
+        self.sign_in = SignIn::default();
+        self.art.clear();
+        self.art_retry_ms = 0;
+    }
+
+    /// The scope a launch carries, from an auth envelope: its generation with the user and the provider of its session.
+    fn scope_of(envelope: &Value) -> Value {
+        json!({"generation": envelope["generation"], "providerIdpId": envelope["session"]["provider"]["idpId"], "userId": envelope["session"]["user"]["userId"]})
+    }
+
+    /// Takes the scope a scoped answer (a library page, an inspection, the subscription) reports, when it is the same account's and not
+    /// older: the generation moves on when the core renews its provider list or restores a session, and a launch must carry the latest.
+    fn adopt_scope(&mut self, scope: &Value) {
+        if !self.signed_in || !scope.is_object() {
+            return;
+        }
+        let same_owner = scope["userId"] == self.scope["userId"] && scope["providerIdpId"] == self.scope["providerIdpId"];
+        if self.scope.is_null() || (same_owner && scope["generation"].as_u64() >= self.scope["generation"].as_u64()) {
+            self.scope = scope.clone();
+        }
+    }
+
+    /// An answer for an account that is no longer the one on screen.
+    fn foreign(&self, r: &Value) -> bool {
+        r["scope"].is_object() && self.scope.is_object() && (r["scope"]["userId"] != self.scope["userId"] || r["scope"]["providerIdpId"] != self.scope["providerIdpId"])
     }
 
     /// Notes a request the loop sent, so answers can be matched against what was asked.
@@ -800,9 +979,13 @@ impl App {
                     out.extend(self.art_wanted());
                     return out;
                 }
+                if self.orphans.remove(&id) {
+                    return Vec::new();
+                }
                 if !ok {
                     return self.error_response(&method, &error_code, &error_message);
                 }
+                self.adopt_scope(&result["scope"]);
                 self.response(&id, &method, result)
             }
         }
@@ -831,11 +1014,33 @@ impl App {
             // a setting the core refuses is not the app's end: the rest goes on; the region is an optimisation, the core picks one without
             "settings.set" => self.after_setting(),
             "network.regions.list" => Vec::new(),
+            // a re-read that failed (no network, the service busy) does not end the sign-in; the next one tries again
+            "auth.session.get" if self.signed_in => {
+                if self.retry_stage != 0 {
+                    return self.fail(STALE_ACCOUNT.to_owned());
+                }
+                Vec::new()
+            }
             "auth.session.get" => {
                 self.signed_in = false;
                 self.screen = Screen::SignIn;
                 vec![Self::req("auth.device.start", json!({}))]
             }
+            "account.subscription.get" => {
+                if code == "busy" {
+                    self.account_due_ms = self.now_ms + ART_RETRY_MS;
+                }
+                Vec::new()
+            }
+            // the launch carried an account scope the core no longer holds: once, the session is read again and the game inspected again
+            // (the core hands out the current scope with both), and the launch goes out with that; a second refusal is the player's to act on
+            "session.create" if code == "stale_account" && !self.launch_retried => {
+                self.launch_retried = true;
+                self.retry_stage = 1;
+                vec![Self::req("auth.session.get", json!({}))]
+            }
+            "session.create" if code == "stale_account" => self.fail(STALE_ACCOUNT.to_owned()),
+            "auth.accounts.logoutAll" => self.fail(if message.is_empty() { format!("Could not sign out ({code})") } else { format!("Could not sign out: {message} ({code})") }),
             "session.poll" if code == "busy" || code == "session_update_busy" => {
                 self.next_poll_ms = self.now_ms + POLL_SESSION_MS;
                 Vec::new()
@@ -883,25 +1088,58 @@ impl App {
                 Vec::new()
             }
             "auth.session.get" | "auth.device.complete" => {
-                self.scope = r["scope"].clone();
-                if r["session"].is_object() {
-                    self.signed_in = true;
-                    self.user_name = r["session"]["user"]["displayName"].as_str().unwrap_or("").to_owned();
-                    self.tier = r["session"]["user"]["membershipTier"].as_str().unwrap_or("").to_owned();
-                    self.screen = Screen::Library;
-                    self.games.clear();
-                    self.next_cursor.clear();
-                    self.focus = 0;
-                    let mut out = vec![self.library_request()];
-                    if !self.regions_asked {
-                        self.regions_asked = true;
-                        out.push(Self::req("network.regions.list", json!({})));
-                    }
-                    out
-                } else {
-                    self.signed_in = false;
+                if !r["session"].is_object() {
+                    self.reset_account();
                     self.screen = Screen::SignIn;
+                    return vec![Self::req("auth.device.start", json!({}))];
+                }
+                let same_account = self.signed_in && method == "auth.session.get" && r["session"]["user"]["userId"] == self.scope["userId"];
+                self.scope = Self::scope_of(&r);
+                self.user_name = r["session"]["user"]["displayName"].as_str().unwrap_or("").to_owned();
+                if !self.tier_live {
+                    self.tier = r["session"]["user"]["membershipTier"].as_str().unwrap_or("").to_owned();
+                }
+                if same_account {
+                    // a re-read, not a sign-in: the library, the card and the focus stay where they are
+                    if self.retry_stage == 1 {
+                        let Some(g) = self.detail.as_ref() else { return self.fail(STALE_ACCOUNT.to_owned()) };
+                        self.retry_stage = 2;
+                        return vec![Self::req("catalog.launch.inspect", json!({"appId": g.id, "variantId": g.variant_id}))];
+                    }
+                    return Vec::new();
+                }
+                self.signed_in = true;
+                self.account_at_ms = Some(self.now_ms);
+                self.screen = Screen::Library;
+                self.games.clear();
+                self.next_cursor.clear();
+                self.focus = 0;
+                let mut out = vec![self.library_request(), Self::req("account.subscription.get", json!({}))];
+                if !self.regions_asked {
+                    self.regions_asked = true;
+                    out.push(Self::req("network.regions.list", json!({})));
+                }
+                out
+            }
+            "account.subscription.get" => {
+                if self.foreign(&r) {
+                    return Vec::new();
+                }
+                if let Some(tier) = r["subscription"]["membershipTier"].as_str().filter(|t| !t.is_empty()) {
+                    self.tier = tier.to_owned();
+                    self.tier_live = true;
+                }
+                Vec::new()
+            }
+            "auth.accounts.logoutAll" => {
+                if self.signed_in {
+                    self.reset_account();
+                }
+                self.screen = Screen::SignIn;
+                if self.sign_in.attempt_id.is_empty() && !self.has_pending("auth.device.start") {
                     vec![Self::req("auth.device.start", json!({}))]
+                } else {
+                    Vec::new()
                 }
             }
             "auth.device.start" => {
@@ -936,6 +1174,9 @@ impl App {
                 }
             }
             "catalog.library.list" => {
+                if self.foreign(&r) {
+                    return Vec::new();
+                }
                 for g in r["games"].as_array().into_iter().flatten() {
                     self.games.push(game_of(g));
                 }
@@ -945,6 +1186,9 @@ impl App {
                 self.art_wanted()
             }
             "catalog.launch.inspect" => {
+                if self.foreign(&r) {
+                    return Vec::new();
+                }
                 self.decision = r["decision"]["status"].as_str().unwrap_or("metadata_unconfirmed").to_owned();
                 self.decision_message = r["decision"]["message"].as_str().unwrap_or("").to_owned();
                 if let Some(d) = self.detail.as_mut() {
@@ -956,6 +1200,15 @@ impl App {
                             d.in_library = g.in_library;
                             d.image_url = if g.image_url.is_empty() { d.image_url.clone() } else { g.image_url };
                         }
+                    }
+                }
+                if self.retry_stage == 2 {
+                    self.retry_stage = 0;
+                    if self.screen == Screen::Launching {
+                        if self.decision == "ready" {
+                            return self.create_request().into_iter().collect();
+                        }
+                        self.screen = Screen::Detail;
                     }
                 }
                 Vec::new()
@@ -1063,16 +1316,21 @@ impl App {
                 Vec::new()
             }
             "auth.session.changed" => {
-                if payload["session"].is_null() && self.signed_in {
-                    self.signed_in = false;
+                if payload["session"].is_null() {
+                    if !self.signed_in {
+                        return Vec::new();
+                    }
                     let mut out = Vec::new();
                     if self.session.is_some() {
                         out.extend(self.stop_session());
                     }
+                    self.reset_account();
                     self.screen = Screen::SignIn;
                     out.push(Self::req("auth.device.start", json!({})));
                     return out;
                 }
+                // the core moved to a newer generation of the same account: launches carry that one
+                self.adopt_scope(&Self::scope_of(&payload));
                 Vec::new()
             }
             "artwork.ready" => {
@@ -1175,6 +1433,17 @@ mod tests {
         (a, told)
     }
 
+    /// The auth envelope the core answers `auth.session.get` and `auth.device.complete` with: the session's user and provider and the
+    /// account generation; it carries no `scope` object (the app builds one from these).
+    fn envelope(generation: u64, user: &str, tier: &str) -> Value {
+        json!({"session": {"user": {"userId": user, "displayName": "Nitin", "membershipTier": tier}, "provider": {"idpId": "idp"}},
+            "generation": generation, "persistence": "secure-store", "refresh": {"attempted": false}, "warnings": [], "deviceIdentity": "durable"})
+    }
+
+    fn scope(generation: u64, user: &str) -> Value {
+        json!({"generation": generation, "providerIdpId": "idp", "userId": user})
+    }
+
     /// The handshake through the library, with the sign-in in between: the requests in OpenNOW's order.
     fn signed_in_app() -> App {
         let mut app = App::new().with_engine("/app/bin64/opennow-streamer");
@@ -1193,7 +1462,7 @@ mod tests {
         assert!(a.is_empty(), "signed out, the core refuses the regions: they are asked for after the sign-in");
         assert_eq!(app.runtime_capabilities["nativeHdrSupported"], true);
         assert_eq!(app.runtime_capabilities["nativeHdrDisplay"]["maximumNits"], 1000);
-        let a = app.handle(ok("3", "auth.session.get", json!({"session": null, "scope": {"generation": 1}})));
+        let a = app.handle(ok("3", "auth.session.get", json!({"session": null, "generation": 1})));
         assert_eq!(app.screen, Screen::SignIn);
         assert_eq!(methods(&a), ["auth.device.start"]);
         app.sent("4", "auth.device.start");
@@ -1213,10 +1482,14 @@ mod tests {
         let a = app.handle(ok("6", "auth.device.poll", json!({"status": "authorized"})));
         assert_eq!(methods(&a), ["auth.device.complete"]);
         app.sent("7", "auth.device.complete");
-        let a = app.handle(ok("7", "auth.device.complete", json!({"session": {"user": {"displayName": "Nitin", "membershipTier": "ULTIMATE"}}, "scope": {"generation": 2, "userId": "u"}})));
+        let a = app.handle(ok("7", "auth.device.complete", envelope(2, "u", "FREE")));
         assert_eq!(app.screen, Screen::Library);
-        assert_eq!((app.user_name.as_str(), app.tier.as_str()), ("Nitin", "ULTIMATE"));
-        assert_eq!(methods(&a), ["catalog.library.list", "network.regions.list"]);
+        assert_eq!((app.user_name.as_str(), app.tier.as_str()), ("Nitin", "FREE"), "until the subscription is read, the tier in the sign-in token");
+        assert_eq!(app.scope, scope(2, "u"), "the launch scope is built from the envelope, which has none");
+        assert_eq!(methods(&a), ["catalog.library.list", "account.subscription.get", "network.regions.list"]);
+        app.sent("7a", "account.subscription.get");
+        assert!(app.handle(ok("7a", "account.subscription.get", json!({"subscription": {"membershipTier": "ULTIMATE"}, "scope": scope(2, "u")}))).is_empty());
+        assert_eq!(app.tier, "ULTIMATE", "the subscription's tier wins over the token's");
         app.sent("7b", "network.regions.list");
         assert!(app.handle(err("7b", "network.regions.list", "authentication_required", "Sign in")).is_empty(), "a refused region question is not an error screen");
         assert_eq!(app.screen, Screen::Library);
@@ -1502,7 +1775,8 @@ mod tests {
         assert!(app.handle(key(108)).is_empty());
         assert!(!app.header_focus);
         app.handle(key(103));
-        assert!(app.handle(key(28)).is_empty());
+        let a = app.handle(key(28));
+        assert_eq!(methods(&a), ["auth.session.get", "account.subscription.get"], "opening the profile re-reads the account");
         assert_eq!(app.screen, Screen::Settings);
         // a row's change goes to the core a key at a time, the next after the answer to the one before
         let set = |app: &mut App, a: Vec<Action>| -> Value {
@@ -1537,7 +1811,9 @@ mod tests {
         assert_eq!(a.len(), 1, "the stats line is the app's own: kept, not sent");
         assert!(matches!(a[0], Action::SavePrefs(p) if p.show_stats));
         assert!(app.handle(key(108)).is_empty());
-        assert_eq!(app.settings_row, 4);
+        assert_eq!(app.settings_row, 5, "the sign-out row is last; Left and Right do nothing there");
+        assert!(app.handle(key(106)).is_empty() && app.handle(key(108)).is_empty());
+        assert_eq!(app.settings_row, 5);
         // a setting the core refuses does not end the app
         app.sent("s1", "settings.set");
         assert!(app.handle(err("s1", "settings.set", "invalid_setting", "no")).is_empty());
@@ -1546,6 +1822,221 @@ mod tests {
         assert_eq!(app.screen, Screen::Library);
         assert!(app.header_focus, "back to the button the screen was opened from");
         assert_eq!(app.handle(key(412)), vec![Action::Exit("back on the library".into())]);
+    }
+
+    fn open_settings_row(app: &mut App, row: usize) {
+        app.handle(key(103));
+        app.handle(key(28));
+        assert_eq!(app.screen, Screen::Settings);
+        for _ in 0..row {
+            app.handle(key(108));
+        }
+        assert_eq!(app.settings_row, row);
+    }
+
+    /// Marks each request of `a` as sent under ids `<prefix>1`, `<prefix>2`, ... and returns the ids by method.
+    fn send_all(app: &mut App, a: &[Action], prefix: &str) -> Vec<(String, String)> {
+        let mut out = Vec::new();
+        for (i, act) in a.iter().enumerate() {
+            if let Action::Request { method, params } = act {
+                let id = format!("{prefix}{}", i + 1);
+                app.sent_params(&id, method, params);
+                out.push((id, method.clone()));
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn an_upgrade_shows_when_the_header_or_the_settings_are_opened_or_the_app_comes_back_and_the_library_stays() {
+        let mut app = signed_in_app();
+        // the account was a free one when the app started
+        app.sent("f1", "account.subscription.get");
+        app.handle(ok("f1", "account.subscription.get", json!({"subscription": {"membershipTier": "FREE"}, "scope": scope(2, "u")})));
+        assert_eq!(crate::gfn::layout::account_text(&app), "Nitin · Free");
+        // upgraded on a phone: the header's focus within ten seconds of the last read asks nothing, later it re-reads
+        app.handle(Input::Tick { now_ms: 5_000 });
+        app.handle(key(103));
+        assert!(app.header_focus);
+        assert!(app.handle(key(108)).is_empty());
+        app.handle(Input::Tick { now_ms: 20_000 });
+        let a = app.handle(key(103));
+        assert_eq!(methods(&a), ["auth.session.get", "account.subscription.get"]);
+        let ids = send_all(&mut app, &a, "r");
+        assert!(app.handle(key(108)).is_empty());
+        assert!(app.handle(key(103)).is_empty(), "no second read while the first is out, or within ten seconds");
+        // the token still says free (it is only renewed with the token); the subscription is what NVIDIA has now
+        assert!(app.handle(ok(&ids[0].0, "auth.session.get", envelope(3, "u", "FREE"))).is_empty());
+        assert_eq!(app.scope, scope(3, "u"));
+        assert_eq!(app.tier, "FREE");
+        assert!(app.handle(ok(&ids[1].0, "account.subscription.get", json!({"subscription": {"membershipTier": "PERFORMANCE"}, "scope": scope(3, "u")}))).is_empty());
+        assert_eq!(app.tier, "PERFORMANCE");
+        assert_eq!(crate::gfn::layout::account_text(&app), "Nitin · Performance");
+        assert_eq!((app.screen, app.games.len()), (Screen::Library, 14), "a re-read is not a sign-in: the library stays");
+        // a later token renewal with the old claim does not take the tier back
+        app.sent("r9", "auth.session.get");
+        app.handle(ok("r9", "auth.session.get", envelope(3, "u", "FREE")));
+        assert_eq!(app.tier, "PERFORMANCE");
+        // coming back from being covered re-reads at once
+        app.handle(Input::State(crate::card::MINIMIZED));
+        let a = app.handle(Input::State(crate::card::FULLSCREEN));
+        assert_eq!(methods(&a), ["auth.session.get", "account.subscription.get"]);
+        // a re-read the core refused as busy is asked again after a moment; a failed one never shows an error
+        let ids = send_all(&mut app, &a, "b");
+        assert!(app.handle(err(&ids[0].0, "auth.session.get", "session_refresh_failed", "offline")).is_empty());
+        assert_eq!(app.screen, Screen::Library, "a failed re-read leaves the account signed in");
+        app.handle(Input::Tick { now_ms: 30_000 });
+        assert!(app.handle(err(&ids[1].0, "account.subscription.get", "busy", "busy")).is_empty());
+        assert!(app.handle(Input::Tick { now_ms: 30_500 }).is_empty());
+        let a = app.handle(Input::Tick { now_ms: 31_600 });
+        assert_eq!(methods(&a), ["account.subscription.get"]);
+        // a subscription of another account is not shown
+        app.sent("x1", "account.subscription.get");
+        app.handle(ok("x1", "account.subscription.get", json!({"subscription": {"membershipTier": "ULTIMATE"}, "scope": scope(3, "someone-else")})));
+        assert_eq!(app.tier, "PERFORMANCE");
+        // a session that is gone (the token was revoked) is the sign-in screen
+        app.sent("g1", "auth.session.get");
+        let a = app.handle(ok("g1", "auth.session.get", json!({"session": null, "generation": 4})));
+        assert_eq!((app.screen, methods(&a)), (Screen::SignIn, vec!["auth.device.start".to_owned()]));
+        assert!(app.games.is_empty() && app.tier.is_empty());
+    }
+
+    #[test]
+    fn signing_out_asks_first_then_drops_the_tokens_and_everything_of_the_account_and_a_new_sign_in_works() {
+        let mut app = signed_in_app();
+        open_settings_row(&mut app, 5);
+        // a row that is only chosen does not change on Left and Right
+        assert!(app.handle(key(106)).is_empty() && app.handle(key(105)).is_empty());
+        assert_eq!(app.screen, Screen::Settings);
+        app.handle(Input::Key { code: 28, pressed: true });
+        assert!(app.handle(Input::Key { code: 28, pressed: false }).is_empty());
+        assert_eq!((app.screen, app.confirm_row), (Screen::SignOut, 0), "the question comes first and keeps the account by default");
+        assert!(app.handle(key(28)).is_empty());
+        assert_eq!(app.screen, Screen::Settings, "OK on the first row keeps the account");
+        assert!(app.signed_in);
+        app.handle(Input::Key { code: 28, pressed: true });
+        app.handle(Input::Key { code: 28, pressed: false });
+        app.handle(key(412));
+        assert_eq!(app.screen, Screen::Settings, "Back keeps the account");
+        app.handle(Input::Key { code: 28, pressed: true });
+        app.handle(Input::Key { code: 28, pressed: false });
+        assert!(app.handle(key(108)).is_empty());
+        assert!(app.handle(key(108)).is_empty(), "two rows only");
+        assert_eq!(app.confirm_row, 1);
+        // an answer for the library is still on its way when the player signs out
+        app.sent("lib2", "catalog.library.list");
+        app.detail = Some(app.games[1].clone());
+        let a = app.handle(key(28));
+        assert_eq!(methods(&a), ["auth.accounts.logoutAll"], "every saved account goes, so none comes back as the active one");
+        let ids = send_all(&mut app, &a, "o");
+        assert!(app.signing_out());
+        assert_eq!(crate::gfn::layout::rows(&app), vec![("Status".to_owned(), "Signing out".to_owned())]);
+        assert!(app.signed_in, "the account is dropped when the core says its tokens are gone");
+        let a = app.handle(ok(&ids[0].0, "auth.accounts.logoutAll", json!({"session": null, "generation": 3, "ok": true})));
+        assert_eq!((app.screen, methods(&a)), (Screen::SignIn, vec!["auth.device.start".to_owned()]));
+        assert!(!app.signed_in && app.games.is_empty() && app.tier.is_empty() && app.user_name.is_empty());
+        assert!(app.scope.is_null() && app.detail.is_none() && app.decision.is_empty() && app.region.is_none());
+        assert!(app.art.is_empty() && app.session.is_none() && app.next_cursor.is_empty() && app.catalog_context.is_null());
+        assert_eq!(app.sign_in, SignIn::default());
+        assert!(!app.signing_out());
+        // the old account's page arrives late: dropped
+        assert!(app.handle(ok("lib2", "catalog.library.list", json!({"games": games(3), "nextCursor": "", "catalogRevision": 3, "catalogContext": "old", "scope": scope(2, "u")}))).is_empty());
+        assert!(app.games.is_empty());
+        // signing in again: the code, the account, and the same requests as the first time
+        send_all(&mut app, &a, "n");
+        app.handle(ok("n1", "auth.device.start", json!({"attemptId": "att2", "userCode": "WXYZ-1234", "verificationUri": "https://nvidia.com/activate", "qrRows": ["1"], "expiresAt": 999999, "intervalSeconds": 5})));
+        assert_eq!(app.sign_in.user_code, "WXYZ-1234");
+        app.sent("n2", "auth.device.complete");
+        let a = app.handle(ok("n2", "auth.device.complete", envelope(4, "u2", "PERFORMANCE")));
+        assert_eq!((app.screen, app.tier.as_str(), app.scope.clone()), (Screen::Library, "PERFORMANCE", scope(4, "u2")));
+        assert_eq!(methods(&a), ["catalog.library.list", "account.subscription.get", "network.regions.list"]);
+        // an answer for the other account is not taken for this one
+        app.sent("n3", "catalog.library.list");
+        app.handle(ok("n3", "catalog.library.list", json!({"games": games(2), "nextCursor": "", "catalogRevision": 1, "catalogContext": "c", "scope": scope(2, "u")})));
+        assert!(app.games.is_empty());
+    }
+
+    #[test]
+    fn a_sign_out_the_core_announces_first_is_the_same_as_one_it_answers_and_a_refused_one_is_an_error() {
+        let mut app = signed_in_app();
+        open_settings_row(&mut app, 5);
+        app.handle(Input::Key { code: 28, pressed: true });
+        app.handle(Input::Key { code: 28, pressed: false });
+        app.handle(key(108));
+        let a = app.handle(key(28));
+        let ids = send_all(&mut app, &a, "o");
+        // the event comes before the answer: one sign-in code is asked for, not two
+        let a = app.handle(Input::Core(CoreMsg::Event { name: "auth.session.changed".into(), payload: json!({"session": null, "generation": 3}) }));
+        assert_eq!((app.screen, methods(&a)), (Screen::SignIn, vec!["auth.device.start".to_owned()]));
+        send_all(&mut app, &a, "s");
+        assert!(app.handle(ok(&ids[0].0, "auth.accounts.logoutAll", json!({"session": null, "generation": 3, "ok": true}))).is_empty());
+        assert_eq!(app.screen, Screen::SignIn);
+        // a sign-out the core refuses says so, and the account stays
+        let mut app = signed_in_app();
+        open_settings_row(&mut app, 5);
+        app.handle(Input::Key { code: 28, pressed: true });
+        app.handle(Input::Key { code: 28, pressed: false });
+        app.handle(key(108));
+        let a = app.handle(key(28));
+        let ids = send_all(&mut app, &a, "p");
+        assert!(app.handle(err(&ids[0].0, "auth.accounts.logoutAll", "busy", "The core is busy")).is_empty());
+        assert_eq!(app.screen, Screen::Error);
+        assert!(app.error.starts_with("Could not sign out"));
+        app.handle(key(28));
+        assert_eq!((app.screen, app.signed_in), (Screen::Library, true));
+    }
+
+    #[test]
+    fn a_launch_carries_the_scope_of_the_last_answer_and_a_stale_one_is_retried_once_with_fresh_state() {
+        let mut app = signed_in_app();
+        app.handle(key(106));
+        app.handle(key(28));
+        app.sent("10", "catalog.launch.inspect");
+        // the core moved to generation 3 (its provider list was renewed) since the sign-in: the inspection says so
+        let inspected = |scope: Value| json!({"decision": {"status": "ready", "message": ""}, "scope": scope, "game": {"id": "g1", "title": "Game One", "variants": [{"id": "v1", "store": "STEAM", "inLibrary": true}]}});
+        app.handle(ok("10", "catalog.launch.inspect", inspected(scope(3, "u"))));
+        let a = app.handle(key(28));
+        let Action::Request { method, params } = &a[0] else { panic!("no request") };
+        assert_eq!((method.as_str(), &params["scope"]), ("session.create", &scope(3, "u")));
+        app.sent("11", "session.create");
+        // the core refuses it all the same (the generation moved again): the session is read again, then the game inspected again
+        let a = app.handle(err("11", "session.create", "stale_account", "This launch belongs to a different account context."));
+        assert_eq!((app.screen, methods(&a)), (Screen::Launching, vec!["auth.session.get".to_owned()]));
+        app.sent("12", "auth.session.get");
+        let a = app.handle(ok("12", "auth.session.get", envelope(5, "u", "FREE")));
+        assert_eq!(methods(&a), ["catalog.launch.inspect"]);
+        assert_eq!((app.screen, app.games.len()), (Screen::Launching, 14), "the library and the card stay");
+        app.sent("13", "catalog.launch.inspect");
+        let a = app.handle(ok("13", "catalog.launch.inspect", inspected(scope(5, "u"))));
+        let Action::Request { method, params } = &a[0] else { panic!("no request") };
+        assert_eq!((method.as_str(), &params["scope"]), ("session.create", &scope(5, "u")));
+        app.sent("14", "session.create");
+        // refused again: a plain message, no third try
+        let a = app.handle(err("14", "session.create", "stale_account", "The launch context changed. Try again."));
+        assert!(a.is_empty());
+        assert_eq!((app.screen, app.error.as_str()), (Screen::Error, STALE_ACCOUNT));
+        // the next launch is its own: one retry again
+        app.handle(key(28));
+        assert_eq!(app.screen, Screen::Library);
+        app.handle(key(28));
+        app.sent("20", "catalog.launch.inspect");
+        app.handle(ok("20", "catalog.launch.inspect", inspected(scope(5, "u"))));
+        app.handle(key(28));
+        app.sent("21", "session.create");
+        let a = app.handle(err("21", "session.create", "stale_account", "x"));
+        assert_eq!(methods(&a), ["auth.session.get"]);
+        // Back while the retry is under way gives the launch up for good
+        app.handle(key(412));
+        assert_eq!(app.screen, Screen::Detail);
+        app.sent("22", "auth.session.get");
+        assert!(app.handle(ok("22", "auth.session.get", envelope(6, "u", "FREE"))).is_empty());
+        assert_eq!(app.screen, Screen::Detail);
+        // a launch refused for something else is not retried
+        app.handle(key(28));
+        app.sent("23", "session.create");
+        let a = app.handle(err("23", "session.create", "launch_not_ready", "Not ready"));
+        assert!(a.is_empty());
+        assert_eq!(app.screen, Screen::Error);
     }
 
     #[test]

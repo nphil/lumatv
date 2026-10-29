@@ -77,18 +77,24 @@ pub fn every_screen() -> Vec<(&'static str, App)> {
     a.screen = Screen::Library;
     a.games.clear();
     out.push(("library-empty", a));
-    for (i, name) in ["settings", "settings-hdr", "settings-bitrate", "settings-deadzone", "settings-stats"].into_iter().enumerate() {
+    for (i, name) in ["settings", "settings-hdr", "settings-bitrate", "settings-deadzone", "settings-stats", "settings-signout"].into_iter().enumerate() {
         let mut a = base();
         a.screen = Screen::Settings;
         a.settings_row = i;
         out.push((name, a));
     }
-    for i in [0usize, 2, 4] {
+    for i in [0usize, 2, 4, 5] {
         let mut a = base();
         a.screen = Screen::Settings;
         a.settings_row = i;
         a.help_open = true;
-        out.push((["settings-help-stream", "", "settings-help-bitrate", "", "settings-help-stats"][i], a));
+        out.push((["settings-help-stream", "", "settings-help-bitrate", "", "settings-help-stats", "settings-help-signout"][i], a));
+    }
+    for row in [0usize, 1] {
+        let mut a = base();
+        a.screen = Screen::SignOut;
+        a.confirm_row = row;
+        out.push((["signout-keep", "signout-confirm"][row], a));
     }
     let mut a = base();
     a.screen = Screen::Detail;
