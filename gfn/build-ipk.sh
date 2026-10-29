@@ -1,7 +1,9 @@
 #!/bin/sh
-# Packs the GeForce NOW app as its own ipk, org.nphil.lumatv.gfn_<version>_all.ipk, in gfn/build/. Nothing of LumaTV's package is
-# touched: this app installs and removes on its own through appInstallService/dev/install (tools/cardapp.sh does the same for the
-# card app; the same calls apply with this id).
+# Packs the GeForce NOW app as its own ipk, org.nphil.lumatv.gfn_<version>_all.ipk, in gfn/build/. The app is a package of its own
+# (appInstallService/dev/install, as for the card app), and tools/build-ipk.sh ships this ipk inside LumaTV's package (payload/gfn/) so that
+# a round's install carries it: `lumatv apply` updates an installed app, `lumatv gfn install` puts it on first (tools/gfnapp.sh).
+# The package's version stays 0.1.0 while its programs change, so the build is named by `build-id`, a hash of every packed file: in the
+# app's directory and as the control file's Build-Id, which is what the installer compares.
 #
 # Inside: the feeder as `main` (the installer's role is keyed to `main`'s path and names the media services NDL registers; started by
 # SAM it starts the UI and serves the engine), the 64-bit UI, engine and core under bin64/ with run64.sh, the 64-bit runtime (loader,
@@ -60,8 +62,10 @@ cp "$root/gfx64/launch.sh" "$shim" "$data/gfx64/"
 cp -R "$bundle" "$data/gfx64/bundle/"
 cp "$root/payload/wallpaper/wall_1080.png" "$data/assets/wallpaper/"
 chmod 755 "$data/lumatv-gfn-feeder" "$data/run64.sh" "$data/bin64/"* "$data/gfx64/launch.sh" "$data/gfx64/bundle/lib/ld-linux-aarch64.so.1"
+( cd "$data" && find . -type f ! -name build-id | LC_ALL=C sort | xargs sha256sum | sha256sum | cut -c1-16 ) > "$data/build-id"
+build_id=$(cat "$data/build-id")
 ( cd "$build/data" && tar --sort=name --owner=0 --group=0 --numeric-owner --mtime='1970-01-01 00:00:00 UTC' -czf ../data.tar.gz . )
-printf 'Package: %s\nVersion: %s\nArchitecture: all\nMaintainer: nphil\nDescription: GeForce NOW on the video plane\n' "$id" "$version" > "$build/control/control"
+printf 'Package: %s\nVersion: %s\nBuild-Id: %s\nArchitecture: all\nMaintainer: nphil\nDescription: GeForce NOW on the video plane\n' "$id" "$version" "$build_id" > "$build/control/control"
 ( cd "$build/control" && tar --sort=name --owner=0 --group=0 --numeric-owner --mtime='1970-01-01 00:00:00 UTC' -czf ../control.tar.gz control )
 echo "2.0" > "$build/debian-binary"
 out=$here/build/${id}_${version}_all.ipk

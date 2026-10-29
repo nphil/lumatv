@@ -17,6 +17,8 @@
 #   vplane install|start|stop|remove|status -> the art saver's video-plane player and its clips (payload/vplane/vplane.sh); `install`
 #                            writes an LS2 role, so it is the owner's own command and apply never runs it; apply starts a player
 #                            that is installed, revert removes it
+#   gfn install|remove|status -> the GeForce NOW app (its own package, shipped inside this one, payload/gfn/): `install` is the owner's own
+#                            command and also updates; apply only updates an app that is already installed (tools/gfnapp.sh)
 #   updateblock status     -> whether LG's system updates are blocked: the Homebrew Channel's flag and what /etc/hosts maps now (read only;
 #                            the setting is changed in Settings > System > Support > Update, through the channel's own service)
 #   openapps status        -> open apps without updating: whether the setting is on and what LG's list of apps that must be updated before
@@ -433,6 +435,8 @@ LOCKFILE="$STATE/mutate.lock"
 # $COMP, put there by compositor/tools/tv-cutover.sh install.
 COMP="$STATE/compositor"
 if [ -f "$APPDIR/tools/compositor.sh" ]; then . "$APPDIR/tools/compositor.sh"; fi
+# The GeForce NOW app's own package inside this one (tools/gfnapp.sh).
+if [ -f "$APPDIR/tools/gfnapp.sh" ]; then . "$APPDIR/tools/gfnapp.sh"; fi
 # Seconds a second mutation waits for the first to finish. An apply takes ~30s
 # at worst, so this is generous without hanging a caller forever.
 LOCK_WAIT=180
@@ -2613,6 +2617,22 @@ wallpaper_json() {
     "$wp_src" "$(if [ -z "$wp_missing" ]; then printf true; else printf false; fi)" "$wp_missing" "$wp_comp" "$wp_vp" "$wp_state" "$wp_role"
 }
 
+# The GeForce NOW app (docs/research/gfn-app-result.md): `install` puts the shipped package on the set (first install, or an update that closes
+# the app), so it is the owner's own command and apply never runs it for an app that is not there; apply only updates an installed one.
+verb_gfn() {
+  case "${1:-status}" in
+    install)
+      take_mutation_lock || { emit_error "another apply or revert is still running"; return 1; }
+      if gfn_install; then printf '{"ok":true,"gfn":%s}\n' "$(gfn_status)"; else emit_error "the GeForce NOW app did not install"; return 1; fi ;;
+    remove)
+      take_mutation_lock || { emit_error "another apply or revert is still running"; return 1; }
+      if gfn_remove; then printf '{"ok":true,"gfn":%s}\n' "$(gfn_status)"; else emit_error "the GeForce NOW app was not removed"; return 1; fi ;;
+    status) printf '{"ok":true,"gfn":%s}\n' "$(gfn_status)" ;;
+    *) emit_error "gfn: install, remove or status"; return 1 ;;
+  esac
+  return 0
+}
+
 verb_wallpaper() {
   case "${1:-status}" in
     video|gpu) wallpaper_set "$1" || { emit_error "wallpaper: theme.json could not be updated"; return 1; } ;;
@@ -2888,6 +2908,8 @@ verb_apply() {
   fi
   stage_theme
   install_frame_app
+  # An installed GeForce NOW app is brought to the shipped build; a failure is logged, never fatal (its sign-in and library are untouched).
+  gfn_update || log_line "apply: the GeForce NOW app was not updated"
   # The key-filter script is read once when the compositor builds its handler
   # chain, so a changed script needs the restart below; compare before the copy.
   kf_changed=1
@@ -3855,6 +3877,7 @@ case "$VERB" in
   capture) verb_capture "${2:-status}"; exit $? ;;
   inputs) verb_inputs "${2:-status}"; exit $? ;;
   vplane) verb_vplane "${2:-status}"; exit $? ;;
+  gfn) verb_gfn "${2:-status}"; exit $? ;;
   wallpaper) verb_wallpaper "${2:-status}"; exit $? ;;
   transitions) verb_transitions "${2:-status}"; exit $? ;;
   preload) verb_preload "${2:-status}"; exit $? ;;

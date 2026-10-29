@@ -35,6 +35,14 @@ if [ -z "$VERSION" ]; then
     exit 1
 fi
 
+# The GeForce NOW app (gfn/build-ipk.sh) is an ipk of its own, built before this one and shipped inside it (payload/gfn/).
+GFN_ID=$(sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' gfn/package/appinfo.json | head -1)
+GFN_VERSION=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' gfn/package/appinfo.json | head -1)
+if [ "$GFN_ID" != "$APP_ID.gfn" ]; then
+    echo "Error: gfn/package/appinfo.json has id '$GFN_ID'; tools/gfnapp.sh installs '$APP_ID.gfn'" >&2
+    exit 1
+fi
+
 # Define required inputs
 REQUIRED_FILES="
 brand.json
@@ -115,6 +123,8 @@ payload/vplane/vplane.sh
 payload/vplane/role.json
 payload/vplane/clips/index.json
 tools/cardapp.sh
+tools/gfnapp.sh
+gfn/build/${GFN_ID}_${GFN_VERSION}_all.ipk
 card/appinfo.json
 card/splash.png
 card/icon.png
@@ -182,6 +192,12 @@ if [ -n "$MISSING" ]; then
         *rustui/build/card/*)
             # Git-ignored like the helper; the card app is a package of its own and shipping without it would say nothing.
             echo "The card app's programs are built by rustui/tools/build-card.sh; this package is not built without them." >&2
+            ;;
+    esac
+    case "$MISSING" in
+        *gfn/build/*)
+            # Git-ignored like the helper; without it the round would install a package that has no GeForce NOW app and say nothing.
+            echo "The GeForce NOW app's ipk is built by gfn/build-ipk.sh (its header lists the builds it needs); this package is not built without it." >&2
             ;;
     esac
     case "$MISSING" in
@@ -304,7 +320,7 @@ cp tools/tileicons.js "$DATA_ROOT/tools/"
 cp tools/keyfilter.py "$DATA_ROOT/tools/"
 cp tools/theme.py "$DATA_ROOT/tools/"
 cp tools/layout.py "$DATA_ROOT/tools/"
-cp tools/tokens.py tools/systemui.py tools/systemui_patch.py tools/preload.py tools/compositor.sh tools/notification_patch.py tools/cardapp.sh "$DATA_ROOT/tools/"
+cp tools/tokens.py tools/systemui.py tools/systemui_patch.py tools/preload.py tools/compositor.sh tools/notification_patch.py tools/cardapp.sh tools/gfnapp.sh "$DATA_ROOT/tools/"
 # The input banners' restyle, LG's Search app's (voice.sh runs inputcommon.sh for its tree), the keyboard's keys (maliit.sh is its own
 # script: a service restart in place of a process snapshot) and the keyboard's motion (tools/lumatv inputcommon, voice, keys,
 # build_shadow): the tool calls them, and they import notification_patch and tokens, which are shipped above.
@@ -342,6 +358,9 @@ mkdir -p "$DATA_ROOT/payload/frame"
 cp "$BUILD_DIR/frame-ipk/$APP_ID.frame.ipk" "$DATA_ROOT/payload/frame/"
 mkdir -p "$DATA_ROOT/payload/card"
 cp "$BUILD_DIR/card-ipk/$APP_ID.card.ipk" "$DATA_ROOT/payload/card/"
+# The GeForce NOW app, as built (it names its build by hash, so nothing here is repacked); `lumatv apply` updates an installed one.
+mkdir -p "$DATA_ROOT/payload/gfn"
+cp "gfn/build/${GFN_ID}_${GFN_VERSION}_all.ipk" "$DATA_ROOT/payload/gfn/$APP_ID.gfn.ipk"
 
 place "$DATA_ROOT/payload/compositor/$SRC_NAME" "$DATA_ROOT/payload/compositor/$QML_MODULE"
 place "$DATA_ROOT/payload/keyfilter/$SRC_NAME.js" "$DATA_ROOT/payload/keyfilter/$SHORT_ID.js"
