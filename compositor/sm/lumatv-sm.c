@@ -1216,6 +1216,25 @@ static int probe_buses(void) {
 }
 
 // ---- the compositor child ----
+// Extra compositor flags for a TV round (docs/research/hw-planes-result.md): the words of this file, appended to a live start's standard ones. It is in /tmp
+// so that a flag cannot outlive the boot. A word the compositor does not take makes it refuse to start, which is any other failed start: LG's compositor
+// comes back.
+#define EXTRA_FLAGS_FILE "/tmp/lumatv/compositor.flags"
+#define EXTRA_FLAGS_MAX 32
+static char extra_text[1024];
+static const char *extra_words[EXTRA_FLAGS_MAX];
+
+static int read_extra_flags(void) {
+    FILE *f = fopen(EXTRA_FLAGS_FILE, "r");
+    if (!f) return 0;
+    size_t len = fread(extra_text, 1, sizeof extra_text - 1, f);
+    fclose(f);
+    extra_text[len] = 0;
+    int n = 0;
+    for (char *w = strtok(extra_text, " \t\r\n"); w && n < EXTRA_FLAGS_MAX; w = strtok(NULL, " \t\r\n")) extra_words[n++] = w;
+    return n;
+}
+
 static void spawn_compositor(void) {
     char loader[600], libdir[600], bin[600], blob[600], bridge[600], logpath[600];
     snprintf(loader, sizeof loader, "%s/lib/ld-linux-aarch64.so.1", state_dir);
@@ -1225,6 +1244,13 @@ static void spawn_compositor(void) {
     snprintf(bridge, sizeof bridge, "%s/bridge.sock", state_dir);
     snprintf(logpath, sizeof logpath, "%s/compositor.log", state_dir);
     mkdir(runtime_dir, 0700);
+    // read here, in the parent: the child allocates nothing
+    int extra = dry_run ? 0 : read_extra_flags();
+    if (extra > 0) {
+        char line[1100] = "";
+        for (int i = 0; i < extra; i++) { strncat(line, i ? " " : "", sizeof line - strlen(line) - 1); strncat(line, extra_words[i], sizeof line - strlen(line) - 1); }
+        logline("compositor flags from %s: %s", EXTRA_FLAGS_FILE, line);
+    }
     pid_t pid = fork();
     if (pid < 0) { fallback("fork failed", true); return; }
     if (pid == 0) {
@@ -1240,8 +1266,16 @@ static void spawn_compositor(void) {
         // Buffers come from the driver's own mali_buffer_sharing: with the compositor's own global LG's 32-bit
         // libmali clients (Qt apps, Flutter Home, the input apps, Netflix) segfault right after binding it (set,
         // 2026-10-25 06:20: tvhotkey exit 139 with own, runs with driver); only WAM and LumaTV's clients survived.
-        if (dry_run) execl(loader, loader, "--library-path", libdir, bin, "--runtime-dir", rt, "--socket", sock, "--renderer", renderer, "--driver", blob, "--buffers", "driver", "--card", "/dev/dri/card0", (char *)NULL);
-        else execl(loader, loader, "--library-path", libdir, bin, "--runtime-dir", rt, "--socket", sock, "--renderer", renderer, "--driver", blob, "--buffers", "driver", "--card", "/dev/dri/card0", "--input", (char *)NULL);
+        const char *av[20 + EXTRA_FLAGS_MAX];
+        int ac = 0;
+        av[ac++] = loader; av[ac++] = "--library-path"; av[ac++] = libdir; av[ac++] = bin;
+        av[ac++] = "--runtime-dir"; av[ac++] = rt; av[ac++] = "--socket"; av[ac++] = sock;
+        av[ac++] = "--renderer"; av[ac++] = renderer; av[ac++] = "--driver"; av[ac++] = blob;
+        av[ac++] = "--buffers"; av[ac++] = "driver"; av[ac++] = "--card"; av[ac++] = "/dev/dri/card0";
+        if (!dry_run) av[ac++] = "--input";
+        for (int i = 0; i < extra; i++) av[ac++] = extra_words[i];
+        av[ac] = NULL;
+        execv(loader, (char *const *)av);
         _exit(127);
     }
     child_pid = pid;
