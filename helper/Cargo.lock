@@ -365,6 +365,7 @@ dependencies = [
  "lumatv-ambient",
  "lumatv-denon",
  "lumatv-feeds",
+ "lumatv-placement",
  "mdns",
  "parking_lot",
  "plugin-api",
@@ -375,6 +376,14 @@ dependencies = [
  "settings-schema",
  "sha2",
  "tempfile",
+]
+
+[[package]]
+name = "lumatv-placement"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

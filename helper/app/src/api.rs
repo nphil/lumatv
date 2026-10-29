@@ -340,6 +340,7 @@ impl Api {
             .chain(crate::crash::ROUTES.iter())
             .chain(crate::openapps::ROUTES.iter())
             .chain(crate::capture::ROUTES.iter())
+            .chain(crate::placement::ROUTES.iter())
             .map(|(method, path, what)| json!({"method": method, "path": path, "what": what}))
             .collect();
         let now = now_ms();
@@ -544,6 +545,7 @@ impl Handler for Api {
             ["v1", "crash", rest @ ..] => crate::crash::handle(request, rest),
             ["v1", "openapps"] => crate::openapps::handle(&self.hub, request),
             ["v1", "capture", rest @ ..] => self.capture.handle(request, rest),
+            ["v1", "placement", rest @ ..] => crate::placement::handle(request, rest),
             ["v1", "image", root, file] if get => self.images.serve(request, root, file),
             ["v1", "images"] if get => self.ok(self.images.status()),
             ["v1", "cameras"] if get => self.ok(json!({"cameras": self.cameras.status()})),
@@ -739,6 +741,7 @@ mod tests {
                 + crate::crash::ROUTES.len()
                 + crate::openapps::ROUTES.len()
                 + crate::capture::ROUTES.len()
+                + crate::placement::ROUTES.len()
         );
         assert_eq!(b["helper"]["version"], crate::VERSION);
         assert_eq!(b["boot"], 777);

@@ -32,6 +32,7 @@ serde_json = "1"
 tempfile = "3"
 
 lumatv-ambient = { path = "../ambient" }
+lumatv-placement = { path = "../placement" }
 lumatv-denon = { path = "denon" }
 lumatv-feeds = { path = "feeds" }
 

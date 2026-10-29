@@ -25,6 +25,7 @@ ha-bridge.workspace = true
 esphome-api.workspace = true
 mdns.workspace = true
 lumatv-ambient.workspace = true
+lumatv-placement.workspace = true
 lumatv-denon.workspace = true
 lumatv-feeds.workspace = true
 libc.workspace = true
