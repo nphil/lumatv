@@ -1,0 +1,7 @@
+before: mem=1920x1080 out=3860x2170 flips=6267
+start: 
+during: mem=1920x1080 out=3860x2170 flips=6313 visible=on (osd:1, sync:1)
+[  417.227493] fbdev        NOT (00007:00007) FBDEV_O22_CMN_WaitPQEDriverEstreamerSync  618: + wait for PQE FW to sync estreamer. req=0, ack=0, time=5
+[  417.227500] fbdev        NOT (00007:00007) FBDEV_O22_CMN_SetOSDEnable 3556: fb(0) osd_ctrl_main, osd_ctrl_sync configured
+[  417.227504] fbdev        NOT (00007:00007) FBDEV_O22_CMN_SetOSDEnable 3737: fb(0) afbc configured
+after:  mem=1920x1080 out=3860x2170 flips=6452

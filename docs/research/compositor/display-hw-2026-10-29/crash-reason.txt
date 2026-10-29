@@ -1,0 +1,6 @@
+reason: output frozen: 60 frames drawn and no page flip for 6 s
+kind: problem
+time: 20261029-152037
+compositor uptime: 387 s
+boot: e10720d2-4f47-4e95-88b9-bda65dbbb0c0
+failures: 1

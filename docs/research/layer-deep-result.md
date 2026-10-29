@@ -177,3 +177,29 @@ over-sharp UI until the knob is put back; `vsp` and `hole` in a dark, grey or ho
 7. The 4K combiner at 2K (`osd01` stage 3, optional).
 
 Dead ends added to `display-chip-direct.md`'s list: OSD0_1 as a layer (§ 3).
+
+## 8. TV results (2026-10-29, Nitin at the set)
+
+Evidence in `compositor/display-hw-2026-10-29/`. Only `observe` and the first `pageprobe` ran; the rest was held after the probe's failure
+(below), and the set had cold-booted at 15:13:40 beforehand (`compositor/wake-2026-10-29/README.md`).
+
+- `observe` (read-only, 15:12): compositor `kms`, scanout mode `off` (`orbit` needs `ctl scanout direct` first), fb0 header xpos/ypos 0,
+  mem 1920x1080, out 3860x2170, `osd_sr` 1 and gain 0x10, VSP `0x02000001` / `0x02008000`, B.OSD1 hole registers 0, OSD0 crop (2, 7) following
+  LG's Screen Shift (`oi[3840x2160(2,7)]`), `hdr0` 0.
+- Remote wheel (event2, `LGE M-RCU`, recorded with Nitin turning and pressing): one `REL_WHEEL` (type 2, code 8, +1) was captured, then the
+  pointer as absolute X/Y (type 3, codes 0 and 1) with key code 1198 pulsing every 0.5 s, and the press as key code 1199 down and up. The press
+  produced no `BTN_LEFT` (272) and no `KEY_ENTER` (28). Only one of the three clicks was in the recording (an earlier attempt hit a recorder that
+  crashed: the TV's userland is 32-bit, `struct input_event` is 16 bytes there). `wheel-events.txt`.
+- `pageprobe 1280x720 8` failed. The page probe's first commit was refused by the driver (`error present: atomic commit: Invalid argument (os
+  error 22)`, 15 ms after `kms: page probe 1280x720 (fb 40)`), and every present after it failed the same way for the rest of the probe and
+  beyond (79 errors in the bundle's tail). `fb0` read `hdr.w_mem` 1280x720 while it ran, so the header was written before the commit was
+  refused; flips went 5060 to 5061 to 5063. Nitin reported seeing the grid screen and nothing odd; the panel most likely showed the probe's
+  frame or the last one. The compositor's watchdog fired at 15:20:37 (`output frozen: 60 frames drawn and no page flip for 6 s`, crash bundle
+  `20261029-152037-001`, `failures` 1) and the supervisor fell back to LG's compositor (Home back at 15:20:44). `lumatv compositor on` brought
+  LumaTV back at 15:23 (`failures` 0, `gate.sh live` PASS, Home in `img/restored-home.jpg`). The second probe (1440x810) did not run.
+- Not run: `orbit`, `sharp`, `vsp`, `hole`, `osd01`.
+
+Fix the probe needs before another run: do a `DRM_MODE_ATOMIC_TEST_ONLY` commit of the probe's plane state first and show it only if that
+passes; on any commit error of a probe frame, put the normal page back at once (the next frame) instead of repeating the refused commit.
+Reading: the driver's `atomic_check` refuses an OSD plane `SRC` of 1280x720 under `CRTC` 3840x2160 (or the framebuffer's stride/format for it);
+which is not known, the property values of the refused state were not logged (add them to the error line).
