@@ -45,7 +45,7 @@ pub use crate::kit::button::faded;
 pub fn glass_of(kit: &Kit, kind: PaneKind, h: f32, lit: bool, over_video: bool) -> Glass {
     let role = match kind {
         PaneKind::Sheet => SmartMaterial::Overlay,
-        PaneKind::Card | PaneKind::Pill => SmartMaterial::Card,
+        PaneKind::Card | PaneKind::Pill | PaneKind::Strip => SmartMaterial::Card,
         PaneKind::Control => SmartMaterial::Button,
     };
     let state = ControlState { focus_visible: lit, ..ControlState::default() };

@@ -14,8 +14,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 class Channel:
     """The compositor's side of the UI channel, as shell.rs serves it."""
 
-    def __init__(self, token, tvpower=False, refuse=0, luna_delay=0):
+    def __init__(self, token, tvpower=False, refuse=0, luna_delay=0, responder=None):
         self.token = token
+        # `responder(doc)` answers a luna call from a table of the test's own: the payload, or None for a call it leaves unanswered
+        self.responder = responder
         self.tvpower = tvpower
         self.refuse = refuse
         self.luna_delay = luna_delay / 1000.0
@@ -105,6 +107,10 @@ def serve(channel, port, say=None):
                     time.sleep(channel.luna_delay)
                 channel.luna.append(doc)
                 say('[luna] ' + json.dumps(doc))
+                if channel.responder is not None:
+                    payload = channel.responder(doc)
+                    if payload is not None:
+                        channel.push('luna', {'tag': doc['tag'], 'payload': payload})
                 if channel.tvpower and doc.get('uri', '').endswith('/registerScreenSaverRequest'):
                     with channel.lock:
                         refused = channel.refused < channel.refuse

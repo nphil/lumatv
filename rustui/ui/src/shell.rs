@@ -12,6 +12,8 @@ use crate::host::keys::KeyEvent;
 use crate::kit::pointer::Sample;
 use crate::kit::screen::{Effect, Input, Model};
 use crate::kit::{Engine, Kit};
+use crate::settings::host::SettingsHost;
+use crate::settings::row::ShellRequest;
 use crate::system::alert::ALERT_TAG;
 use crate::system::layer::Layer;
 use crate::system::toast::{FEED_TAG, Toasts};
@@ -44,6 +46,7 @@ pub struct Kinds {
     pub layout: bool,
     pub home: bool,
     pub cameras: bool,
+    pub settings: bool,
 }
 
 impl Kinds {
@@ -62,6 +65,7 @@ impl Kinds {
                 "layout" => k.layout = true,
                 "home" => k.home = true,
                 "cameras" => k.cameras = true,
+                "settings" => k.settings = true,
                 _ => {}
             }
         }
@@ -80,6 +84,7 @@ impl Kinds {
             (self.layout, "layout"),
             (self.home, "home"),
             (self.cameras, "cameras"),
+            (self.settings, "settings"),
         ]
         .into_iter()
         .filter_map(|(on, name)| on.then_some(name))
@@ -105,6 +110,8 @@ pub struct Shell {
     cameras: Cameras,
     /// What the Cameras app asked of the shell and nobody has taken yet (the grid's `Settings` button).
     cameras_intents: Vec<crate::cameras::app::Intent>,
+    /// Settings, the modal kind over everything but the system layer.
+    settings: SettingsHost,
     /// The last report sent, so an unchanged one is not sent again.
     reported: Option<Value>,
     live: bool,
@@ -129,6 +136,7 @@ impl Shell {
             home_surface: HomeSurface::new(system_z),
             cameras: Cameras::new(system_z + crate::kit::z::CAMERAS, CamerasConfig::from_theme(&kit, theme)),
             cameras_intents: Vec::new(),
+            settings: SettingsHost::new(system_z, theme, layout),
             kit,
             engine,
             kinds,
@@ -268,7 +276,16 @@ impl Shell {
                 }
                 for r in self.home.take_requests() {
                     // the Settings and the drawer are other kinds' surfaces: routed to them when they are in the list
-                    acts.push(Act::Log(format!("home asks for {}", match r { crate::home::model::Request::Settings => "settings", crate::home::model::Request::Notifications => "notifications" })));
+                    match r {
+                        crate::home::model::Request::Settings if self.kinds.settings => {
+                            for e in self.settings.open(None, now) {
+                                self.carry(e, now, acts);
+                            }
+                            self.redraw = true;
+                        }
+                        crate::home::model::Request::Settings => acts.push(Act::Log("home asks for settings".into())),
+                        crate::home::model::Request::Notifications => acts.push(Act::Log("home asks for notifications".into())),
+                    }
                 }
             }
         }
@@ -279,12 +296,30 @@ impl Shell {
             }
             self.cameras_intents.extend(self.cameras.take_intents());
         }
+        if self.kinds.settings {
+            for e in self.settings.update(input, now) {
+                self.carry(e, now, acts);
+            }
+        }
     }
 
     /// Whether a kind of the system layer has the keys now (an alert, the input popup, a PIN prompt; the panels when they land); the
     /// volume display and the toasts never do.
     pub fn system_wants(&self) -> bool {
         self.sys.wants(&self.kinds) || (self.kinds.cameras && self.cameras.wants())
+    }
+
+    /// Opens Settings, at `page` when one is named: a tile of the quick panel, a card of Home, the compositor's `show`.
+    pub fn open_settings(&mut self, page: Option<&str>, now: u64) -> Vec<Act> {
+        let mut acts = Vec::new();
+        if self.kinds.settings {
+            for e in self.settings.open(page, now) {
+                self.carry(e, now, &mut acts);
+            }
+            self.redraw = true;
+            self.after(now, &mut acts);
+        }
+        acts
     }
 
     /// An event of the UI channel.
@@ -310,6 +345,13 @@ impl Shell {
                     }
                     self.feed(&Input::Luna { tag, payload: payload.clone() }, now, &mut acts);
                 }
+            }
+            Event::Topic { topic, data } if topic == "show" && data.get("kind").and_then(Value::as_str) == Some("settings") && self.kinds.settings => {
+                let page = data.get("page").and_then(Value::as_str);
+                for e in self.settings.open(page, now) {
+                    self.carry(e, now, &mut acts);
+                }
+                self.redraw = true;
             }
             Event::Topic { topic, data } => {
                 self.feed(&Input::Topic { topic: topic.clone(), data: data.clone() }, now, &mut acts);
@@ -355,13 +397,26 @@ impl Shell {
                     if self.kinds.cameras && self.cameras.wants() {
                         self.cameras.surface.on_key(&mut self.kit, &mut self.engine);
                     }
+                    self.settings.key_taken(&mut self.engine);
                 }
-                self.feed(&Input::Key { name: name.clone(), down: *down, repeat: *repeat }, now, &mut acts);
+                // a question of the system layer (an alert, a PIN prompt) has the keys before Settings does
+                if self.settings.is_open() && self.sys.wants(&self.kinds) {
+                    for e in self.sys.update(&self.kinds, &Input::Key { name: name.clone(), down: *down, repeat: *repeat }, now) {
+                        self.carry(e, now, &mut acts);
+                    }
+                } else {
+                    self.feed(&Input::Key { name: name.clone(), down: *down, repeat: *repeat }, now, &mut acts);
+                }
             }
             KeyEvent::Pointer { x, y, buttons, visible } => {
                 let now_ns = self.kit.ui.scene.now_ns();
-                if let Some(target) = self.sys.pointer(&self.kit, &mut self.engine, now_ns, Sample { x: *x, y: *y, buttons: *buttons, visible: *visible }) {
+                let sample = Sample { x: *x, y: *y, buttons: *buttons, visible: *visible };
+                if let Some(target) = self.sys.pointer(&self.kit, &mut self.engine, now_ns, sample) {
                     for e in self.sys.press(target) {
+                        self.carry(e, now, &mut acts);
+                    }
+                } else if self.kinds.settings && !self.sys.wants(&self.kinds) {
+                    for e in self.settings.pointer(&mut self.engine, now_ns, sample, now) {
                         self.carry(e, now, &mut acts);
                     }
                 }
@@ -396,6 +451,9 @@ impl Shell {
         if self.kinds.cameras && self.cameras.surface.tick(now) {
             self.redraw = true;
         }
+        if self.kinds.settings && self.settings.tick(&mut self.engine, now) {
+            self.redraw = true;
+        }
         self.after(now, &mut acts);
         acts
     }
@@ -404,6 +462,12 @@ impl Shell {
     fn after(&mut self, now: u64, acts: &mut Vec<Act>) {
         if self.sys.take_redraw() {
             self.redraw = true;
+        }
+        if self.kinds.settings {
+            self.settings_requests(now, acts);
+            if self.settings.take_redraw() {
+                self.redraw = true;
+            }
         }
         if self.redraw {
             self.redraw = false;
@@ -438,6 +502,14 @@ impl Shell {
                     Err(e) => acts.push(Act::Log(format!("cameras: {e}"))),
                 }
             }
+            if self.kinds.settings {
+                let now_ns = self.kit.ui.scene.now_ns();
+                let over_video = self.sys.app_front();
+                match self.settings.apply(&mut self.kit, &mut self.engine, over_video, now, now_ns) {
+                    Ok(on) => live |= on,
+                    Err(e) => acts.push(Act::Log(format!("settings: {e}"))),
+                }
+            }
             self.live = live;
         }
         if self.started {
@@ -460,8 +532,11 @@ impl Shell {
         if self.kinds.cameras {
             can.push("cameras");
         }
+        if self.kinds.settings {
+            can.push("settings");
+        }
         // Home in front wants the keys too: the compositor sends every key of the remote to the layer that wants them
-        let wants = self.sys.wants(&self.kinds) || (self.kinds.home && self.home.active) || (self.kinds.cameras && self.cameras.wants());
+        let wants = self.sys.wants(&self.kinds) || (self.kinds.home && self.home.active) || (self.kinds.cameras && self.cameras.wants()) || (self.kinds.settings && self.settings.wants());
         json!({"can": can, "wants": wants, "takes": self.sys.takes(&self.kinds), "live": self.live, "state": self.state()})
     }
 
@@ -485,6 +560,11 @@ impl Shell {
         if self.kinds.cameras {
             s["cameras"] = self.cameras.state();
         }
+        if self.kinds.settings {
+            for (k, val) in self.settings.state().as_object().into_iter().flatten() {
+                s[k] = val.clone();
+            }
+        }
         s["live"] = json!(self.live);
         s
     }
@@ -502,7 +582,8 @@ impl Shell {
             due = [due, self.home.due_at(), self.home_surface.due_at()].into_iter().flatten().min();
         }
         let cameras = if self.kinds.cameras { self.cameras.due_at() } else { None };
-        [due, self.sys.due_at(&self.kinds), cameras].into_iter().flatten().min()
+        let settings = if self.kinds.settings { self.settings.due_at() } else { None };
+        [due, self.sys.due_at(&self.kinds), cameras, settings].into_iter().flatten().min()
     }
 
     pub fn is_live(&self) -> bool {
@@ -523,6 +604,11 @@ impl Shell {
         }
         if self.kinds.cameras {
             g["cameras"] = self.cameras.geometry();
+        }
+        if self.kinds.settings {
+            for (k, v) in self.settings.geometry().as_object().into_iter().flatten() {
+                g[k] = v.clone();
+            }
         }
         g
     }
@@ -552,6 +638,7 @@ impl Shell {
         self.sys.restyle(&mut self.engine);
         self.home_surface.restyle();
         self.cameras.restyle(&mut self.engine, self.kit.text_scale);
+        self.settings.restyle();
         self.redraw = true;
     }
 
@@ -568,5 +655,45 @@ impl Shell {
     /// The Cameras app, for the screens that open it (the pop-up's OK, the quick panel's tile).
     pub fn cameras(&mut self) -> &mut Cameras {
         &mut self.cameras
+    }
+
+    /// What Settings asked of the shell: to close, to launch LG's Settings app, to open the layout editor; the theme it wrote becomes the
+    /// look in force.
+    fn settings_requests(&mut self, now: u64, acts: &mut Vec<Act>) {
+        for r in self.settings.take_requests() {
+            match r {
+                ShellRequest::Close => {
+                    for e in self.settings.close(now) {
+                        self.carry(e, now, acts);
+                    }
+                }
+                ShellRequest::Launch { app, params } => acts.push(Act::Channel(Outbound {
+                    method: "POST",
+                    path: "/v1/luna".into(),
+                    body: Some(json!({"tag": crate::settings::src::TAG_END, "uri": "luna://com.webos.applicationManager/launch", "payload": {"id": app, "params": params}, "subscribe": false})),
+                    tag: None,
+                })),
+                ShellRequest::Layout { item } => acts.push(Act::Log(format!("settings: the layout editor was asked for ({item:?})"))),
+                ShellRequest::Text { .. } => acts.push(Act::Log("settings: text was asked for".into())),
+            }
+        }
+        if let Some(file) = self.settings.take_theme_file() {
+            self.reload_theme(&file);
+        }
+    }
+
+    /// The owner's theme file changed (Settings wrote it): the look in force is the shipped theme under it.
+    pub fn reload_theme(&mut self, file: &Value) {
+        let tokens = lumatv_tokens::Tokens::from_json(file);
+        let mode = match tokens.material {
+            lumatv_tokens::Material::Dark => ui::lucent::palette::Mode::Dark,
+            lumatv_tokens::Material::Light => ui::lucent::palette::Mode::Light,
+            lumatv_tokens::Material::Auto { .. } => self.kit.mode,
+        };
+        let scale = file.pointer("/type/scale").and_then(Value::as_f64).map_or(self.kit.text_scale, |s| (s as f32).clamp(1.0, 2.0));
+        let theme = tokens.json().clone();
+        self.kit.retheme(tokens, mode, scale);
+        self.settings.set_theme(theme);
+        self.restyle();
     }
 }

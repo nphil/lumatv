@@ -115,9 +115,11 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
                     }
                 }
                 Some("show") => {
+                    // shell show KIND [PAGE]: the page is for a kind that has them (`settings privacy`)
                     let kind = words.next().unwrap_or("quick");
-                    let taken = state.shell_show(kind, false);
-                    json!({"ok": true, "kind": kind, "taken": taken})
+                    let page = words.next();
+                    let taken = state.shell_show_page(kind, false, page);
+                    json!({"ok": true, "kind": kind, "page": page, "taken": taken})
                 }
                 _ => state.shell_report(),
             }

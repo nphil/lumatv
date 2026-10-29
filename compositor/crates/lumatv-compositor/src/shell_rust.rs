@@ -1,7 +1,8 @@
 //! The Rust shell client (`docs/research/rust-shell-plan.md`, section 4.1): `lumatv-ui`, LumaTV's shell logic as a 64-bit process
 //! without GL, whose layers the engine inside this compositor draws (feature `ui`, `src/ui`). It runs beside the QML client
 //! (`shell.rs`) during the migration and answers the kinds `--shell-rust LIST` names (`ctl shell rust +kind -kind` changes the
-//! list and restarts it): `osd`, the volume and mute display from the `audio` topic, and `toast`, LG's toast feed. For a kind on
+//! list and restarts it): `osd`, the volume and mute display from the `audio` topic, `toast`, LG's toast feed, and `settings`, LumaTV's
+//! Settings (opened by the `show` event, the gear held, `ctl shell show settings [PAGE]`; it takes every key but Home's while it is open). For a kind on
 //! the list the compositor withholds the feed from the QML client (the `audio` topic, the toast feed's pushes), so one shell
 //! draws each surface; for the rest the QML client goes on as before, untouched. The QML shell stays the fallback for a kind until
 //! its Rust surface has passed the gate on the set twice.
@@ -32,7 +33,7 @@ use crate::shell::{
 };
 
 /// The kinds the Rust shell may answer, in the order `ctl shell` lists them.
-pub const KINDS: &[&str] = &["home", "osd", "toast", "cameras"];
+pub const KINDS: &[&str] = &["home", "osd", "settings", "toast", "cameras"];
 /// Where the system layer's layers begin in the engine's z: everything the Rust shell draws over the windows is at this or more.
 pub const SYSTEM_Z: i32 = 1000;
 const TOKEN_FILE: &str = "lumatv-ui.token";
@@ -979,8 +980,22 @@ mod tests {
     }
 
     #[test]
+    fn settings_is_shown_by_the_rust_client_with_the_page_asked_for_and_only_when_it_can() {
+        let (mut state, _dir) = state_with("settings");
+        state.shell_rust_handle(Msg::Connected);
+        assert!(!state.shell_show_page("settings", false, Some("privacy")), "the client has not said it can show it");
+        state.shell_rust_handle(Msg::Ui { can: Some(vec!["settings".into()]), wants: Some(false), live: Some(false), state: None });
+        assert!(state.shell_can("settings"));
+        assert!(state.shell_show_page("settings", false, Some("privacy")));
+        let show = state.shell_rust.topic("show").unwrap();
+        assert_eq!((show["kind"].as_str(), show["page"].as_str()), (Some("settings"), Some("privacy")));
+        assert!(state.shell_show("settings", false));
+        assert!(state.shell_rust.topic("show").unwrap().get("page").is_none(), "no page: Settings opens where it was");
+    }
+
+    #[test]
     fn the_kinds_are_the_known_ones_sorted_and_changed_by_sign() {
-        assert_eq!(parse_kinds("toast,osd,osd, nothing"), vec!["osd", "toast"]);
+        assert_eq!(parse_kinds("toast,osd,osd, nothing,settings"), vec!["osd", "settings", "toast"]);
         assert!(parse_kinds("").is_empty());
         let kinds = parse_kinds("osd");
         assert_eq!(change_kinds(&kinds, &["+toast"]).unwrap(), vec!["osd", "toast"]);

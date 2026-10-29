@@ -22,6 +22,8 @@ pub enum PaneKind {
     Pill,
     /// A control: `radius.control`.
     Control,
+    /// A bar over panes (Settings' title bar): the card's material at half the sheet's radius.
+    Strip,
 }
 
 impl PaneKind {
@@ -31,6 +33,7 @@ impl PaneKind {
             PaneKind::Card => kit.tokens.radius(Radius::Card),
             PaneKind::Pill => (h / 2.0).floor(),
             PaneKind::Control => kit.tokens.radius(Radius::Control),
+            PaneKind::Strip => (kit.tokens.radius(Radius::Sheet) / 2.0).floor(),
         }
     }
 }
@@ -40,7 +43,7 @@ impl PaneKind {
 pub fn glass(kit: &Kit, kind: PaneKind, h: f32, over_video: bool) -> Glass {
     let role = match kind {
         PaneKind::Sheet => SmartMaterial::Overlay,
-        PaneKind::Card | PaneKind::Pill => SmartMaterial::Card,
+        PaneKind::Card | PaneKind::Pill | PaneKind::Strip => SmartMaterial::Card,
         PaneKind::Control => SmartMaterial::Button,
     };
     let pair = kit.ui.look.material(role, &ControlState::default(), MaterialContext::Independent);

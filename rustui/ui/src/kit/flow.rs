@@ -165,11 +165,13 @@ impl Flow {
         Some(self.lifts.remove(i).1)
     }
 
-    /// Takes the lift of `id` away (the focusable left the screen).
+    /// Takes the lift of `id` away (the focusable left the screen). The track it held goes back to rest at once, so the next focusable
+    /// that takes the slot does not start lifted.
     pub fn drop_lift(&mut self, id: Id) {
         if let Some(i) = self.lifts.iter().position(|(l, _)| *l == id) {
             if let Some(slot) = self.slots.iter_mut().find(|s| s.owner == Some(id)) {
                 slot.owner = None;
+                let _ = slot.track.settle(Some(0.0), Some(0.0), Settle::Timed(MotionToken { duration_ms: 0, ease: Ease::Linear }));
             }
             self.lifts.remove(i);
         }

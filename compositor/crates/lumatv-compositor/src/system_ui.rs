@@ -42,6 +42,8 @@ impl State {
                 // as under LG's compositor), LG's Settings app otherwise.
                 if self.shell_show("drawer", false) {
                     self.journal("input: gear held: the notification drawer -> LumaTV's shell".into());
+                } else if self.shell_show("settings", false) {
+                    self.journal("input: gear held: Settings -> LumaTV's own Settings".into());
                 } else if self.foreground_app() == SETTINGS {
                     self.journal(format!("input: gear held: Settings is in front, closing {SETTINGS}"));
                     self.luna_call("luna://com.webos.applicationManager/closeByAppId".into(), json!({"id": SETTINGS}));

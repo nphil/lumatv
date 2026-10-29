@@ -878,6 +878,11 @@ impl State {
     /// (`kind`: "quick", "picker", "drawer"). `warm` is the gear's press: the panel joins the scene off the screen, so the slide
     /// of the opening starts in a scene that has it. Returns whether the UI takes it.
     pub fn shell_show(&mut self, kind: &str, warm: bool) -> bool {
+        self.shell_show_page(kind, warm, None)
+    }
+
+    /// [`State::shell_show`] for a kind that opens at a page of its own (`settings`: `privacy`, `picture`, ...).
+    pub fn shell_show_page(&mut self, kind: &str, warm: bool, page: Option<&str>) -> bool {
         if !self.shell_can(kind) {
             return false;
         }
@@ -886,7 +891,11 @@ impl State {
             if !warm {
                 self.shell_rust.mark(&format!("Q:{kind}-show"));
             }
-            self.shell_rust.push("show", json!({"kind": kind, "warm": warm, "n": self.shell_rust.stats.shows}));
+            let mut event = json!({"kind": kind, "warm": warm, "n": self.shell_rust.stats.shows});
+            if let Some(page) = page {
+                event["page"] = json!(page);
+            }
+            self.shell_rust.push("show", event);
             return true;
         }
         self.shell.stats.shows += 1;
