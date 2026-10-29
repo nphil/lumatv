@@ -91,7 +91,16 @@ Item {
     }
     onPopupTopicChanged: {
         if (popupUp && (!popupTopic || popupTopic.id !== shownId)) hidePopup(false)   // cleared elsewhere, or replaced
+        else if (popupUp) retake()
         consider()
+    }
+    // An `update` of the event on the card (the recorder named what it saw, the detector is surer) is the same pop-up again with new words and
+    // maybe a new end: the card changes its words and is not shown again (the bridge: "never a new card").
+    function retake() {
+        popup = popupTopic
+        tick()
+        ends.interval = Math.max(500, popupTopic.untilMs - Date.now())
+        ends.restart()
     }
     // Do not disturb: a PIN, an alert, the keyboard or a panel arrives while the card is up and it steps aside, without telling the helper (it is
     // not dismissed): it is due again, and comes back when the host is free if its time (`untilMs`) is not over.
@@ -189,9 +198,11 @@ Item {
         return p.label && String(p.label).toLowerCase() !== p.kind ? w + " \u00b7 " + p.label : w
     }
     property string ago: ""
+    // an event's `at` is the bridge's clock; `cameras.now_skew_ms` is the bridge's minus this TV's
+    readonly property double skew: topic && topic.now_skew_ms ? topic.now_skew_ms : 0
     function tick() {
         if (!popup) { ago = ""; return }
-        var s = Math.max(0, Math.round((Date.now() - popup.at) / 1000))
+        var s = Math.max(0, Math.round((Date.now() + skew - popup.at) / 1000))
         ago = s < 60 ? "Just now" : Math.round(s / 60) + " min ago"
     }
     Timer { interval: 30000; repeat: true; running: cams.popupUp; onTriggered: cams.tick() }

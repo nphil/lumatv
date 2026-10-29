@@ -11,7 +11,7 @@ import path from 'path';
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const theme = JSON.parse(fs.readFileSync(path.join(dir, '../../../payload/theme/theme.json'), 'utf8'));
 const VIEWS = ['popup', 'popup-event', 'popup-doorbell', 'grid', 'grid-more', 'grid-offline', 'grid-unlinked', 'grid-refused', 'full', 'full-start', 'full-failed',
-  'strip', 'strip-scrub', 'strip-play', 'strip-gap', 'events', 'clips', 'events-all', 'settings', 'settings-notify', 'settings-notify-cam'];
+  'strip', 'strip-scrub', 'strip-play', 'strip-gap', 'events', 'clips', 'events-all', 'settings', 'settings-refused', 'settings-notify', 'settings-notify-cam'];
 const SHOTS = [];
 for (const v of VIEWS) {
   SHOTS.push([v, `index.html?v=${v}`], [`${v}-light`, `index.html?v=${v}&theme=light`], [`${v}-text200`, `index.html?v=${v}&text=200`],
@@ -20,7 +20,7 @@ for (const v of VIEWS) {
 const only = process.argv[2] ? new RegExp(process.argv[2]) : null;
 // What is kept as a picture: every view, dark and light at 100 %, and the views where the type size decides the layout at 200 % in the dark. The checks
 // run on every variant; a picture that is not kept is not written (84 photographic PNGs are 140 MB).
-const KEEP = new RegExp('^(' + VIEWS.join('|') + ')(-light)?$|^(popup|grid|full|strip|strip-scrub|events|settings|settings-notify)-text200$');
+const KEEP = new RegExp('^(' + VIEWS.join('|') + ')(-light)?$|^(popup|grid|full|strip|strip-scrub|events|settings|settings-refused|settings-notify)-text200$');
 const browser = await chromium.launch({ executablePath: '/usr/bin/chromium', args: ['--no-sandbox', '--force-device-scale-factor=1', '--allow-file-access-from-files'] });
 const page = await browser.newPage({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 });
 const problems = [];

@@ -35,13 +35,14 @@ kept in memory, so the grid paints them in its first frame. What draws a picture
 | Source | Fields used |
 |---|---|
 | topic `cameras` | `state`, `reason`, `now_skew_ms`; per camera `id`, `name`, `room`, `online`, `live`, `recordings`, `events`, `clips`, `since`, `native`, `prebuffered`; already ordered and filtered by the `show` setting |
-| topic `cameras.popup` | `id`, `event`, `camera`, `name`, `kind`, `label`, `at`, `untilMs`, `seq`; an update re-publishes the same `id` with new words and `seq` |
+| topic `cameras.popup` | `id`, `event`, `camera`, `name`, `kind`, `label`, `at`, `untilMs`, `seq`; an event's story (`new`, `update`, `end`) has one id, which is also its picture's: an `update` re-publishes the same `id` with new words and `seq` and is never a new pop-up |
 | topic `cameras.live` | `camera`, `mode` (`live`, `playback`, `clip`), `state` (`asking`, `starting`, `playing`, `failed`, `stopped`), `reason`, `codec`, `width`, `height`, `fps`, `positionMs`, `rate`, `paused` |
-| topic `cameras.events` | the last 30 pushed events, newest first, with `phase`; `end` phases and repeats of one `id` are not cards |
+| topic `cameras.events` | the last 30 pushed events, newest first, with `phase`; one card per event `id`, from its newest `new` or `update` entry; `end` entries make no card; `score` may be absent and is not read |
 | `GET /v1/cameras/{id}/frame?w=&h=` | 200 picture, else 404 `no_picture` or 503 `not_connected`; a still is never older than 10 s |
 | `.../recordings`, `.../events`, `.../clips` | ranges, `unknown`, ticks, clips (3.4); `.../thumbnail`, `.../clip-thumbnail`, `.../events/{event}/thumbnail` for pictures |
-| `POST /v1/cameras/live`, `/playback`, `/live/stop`, `/live/pause`, `/popup/clear` | a refusal is HTTP 409 `{error: {code, message}}` and leaves the running session alone; the words are shown for 3 s |
+| `POST /v1/cameras/live`, `/playback`, `/live/stop`, `/live/pause`, `/popup/clear` | a refusal is HTTP 409 `{error: {code, message}}` and leaves the running session alone; its words (table under "Words of a refusal") are shown for 3 s |
 | `GET` and `POST /v1/settings/scrypted-cameras` | the page of 3.5; choices at `/v1/plugins/scrypted-cameras/choices/{cameras or kinds}`; forget at `POST /v1/plugins/scrypted-cameras/actions/forget` |
+| facts `plugin.scrypted-cameras.link`, `.device`, `.verifier` | the connection in words; the TV's name for the bridge's Devices group; the SHA-256 of the TV's own token as 64 hexadecimal digits (a hash, never the token, an address or the pin); the last two exist while a link does |
 
 ## The pop-up
 
@@ -80,13 +81,29 @@ The camera on the whole screen, fitted. The picture is a hole (the layer is tran
 when an app is in front, it is stills (1280 by 720, the next ask 125 ms after the last). Over an app live video is offered only when `theme.cameras.liveOverApps` is true (check C12); the strip, the sheet and
 playback are then not offered. Over Home the live stream is asked on opening and at every switch (`POST live {camera}`; the answer is the `cameras.live` topic).
 
-- **Name pill**, top left: `video`, the name, the state (the live dot and "Live", "Starting", "Recorded", "Can't play"), "2 of 8". **Info pill**, top right: `3840×2160 · H.265 · 15 fps` from the stream (`native` until it plays).
+- **Name pill**, top left: `video`, the name, the state (the live dot and "Live", "Starting", "Recorded", "Can't play"), "2 of 8". **Info pill**, top right: `3840×2160 · H.265 · 15 fps` from the stream (`native` until it plays); a member the stream does not give is left out, and with none the pill is not drawn.
   A stream that is not prebuffered says "Opens in a few seconds" while it starts. While starting and failing and when stills only, a stills backdrop shows (4 a second); a prebuffered start is black until it plays.
 - **Hints**, bottom right, only when the strip and the sheet are closed: Left and Right `video` (when there is more than one camera), Up `history` (when the camera records and live video is on), Down `list-video` (when it has
   events or clips and live video is on), OK `layout-grid` (more than one camera), Back `close`.
 - **Keys with the chrome up:** Left and Right the previous and next camera (wrapping); Up the strip; Down the sheet; OK the grid; Back, in order: a playback goes live, else the view closes. With the chrome hidden a
   key other than Back only reveals it. A new camera or a close tears the session down off the UI path (`live/stop`).
-- **Failure:** `state: failed` shows a note over a dimmed backdrop: "Can't play this camera", the reason's words, a `Try again` button (OK), Back closes. A recording that ends (`stopped`, "End of recording") asks live again by itself.
+- **Failure:** `state: failed` shows a note over a dimmed backdrop: "Can't play this camera", the reason's words, a `Try again` button (OK, which asks again at once: a stream address lives 25 to 60 s, so a retry always asks for a new one), Back closes.
+  A recording that ends (`stopped`, "End of recording") asks live again by itself. A stream the bridge ended because the device was removed shows the same note and the grid's state turns to `refused`.
+
+### Words of a refusal
+
+A refusal of a `POST` (the bridge's `error.code`, passed through by the helper) is a toast of one line for 3 s over the screen it came from; the picture goes on as it was. A code this table lacks shows the helper's own words.
+
+| Code | Words |
+|---|---|
+| `offline` (409) | The camera is offline |
+| `not_supported` (501) | No stream fits this TV |
+| `no_recording` | No recording at that time |
+| `camera_not_found` (404) | Scrypted no longer shares this camera |
+| `busy` (429) | Scrypted is busy |
+| `timeout` | Scrypted didn't answer |
+| `upstream_error` (502) | Scrypted couldn't start it |
+| `event_not_found` (404, a picture) | no words: the card has no picture and says nothing about it |
 
 ## The strip
 
@@ -111,13 +128,14 @@ Up opens it over the picture: a glass panel from the safe edges, three rows of f
 Down opens a lower pane over the picture (full view) or over the grid (`Events`, every camera). Title (the camera's name, or "Recent events"), tabs `Events` and `Clips` (the camera's own; none in the recent list), a row of cards, 352 by 198 pictures with
 the kind's glyph at the corner and, for a clip, its length; under the picture the title (two lines at most) and "2:31 PM · 6 min ago". Four cards show; a `chevron-right` says there are more; Left and Right move, Up to the tabs, Down returns,
 OK plays (a clip: `POST playback {camera, clip}`; an event with a recording: `{camera, at}` three seconds before; an event without one only turns to the camera), Back closes. Events come from `/events` for the last 24 h (up to 30, shown newest first),
-clips from `/clips`, the recent list from `cameras.events`. Pictures: `/thumbnail?at=`, `/clip-thumbnail?clip=` (the clip's id is percent-encoded), `/events/{event}/thumbnail`; a card loads its picture only when it shows.
+clips from `/clips`, the recent list from `cameras.events`. Pictures: `/thumbnail?at=`, `/clip-thumbnail?clip=` (the clip's id is percent-encoded), `/events/{event}/thumbnail`; a card loads its picture only when it shows; a picture that is gone or never came (`event_not_found`, `has_thumbnail` false, an event with no thumbnail) leaves the card as the kind's glyph on a quiet tile, never a blank or a made-up picture.
 
 ## The Settings page
 
 Home & look, Cameras; tabs `Scrypted`, `Cameras`, `Pop-ups`, `Notify for`, `Video`, drawn from the schema of 3.5 (`PluginRows` rules: bool is a switch, integer a slider, a list of choices rows with a check, the order picked shown as a number).
 
-- **Scrypted:** the connection (chip with the state's words, "Connected · 8 cameras") with its help behind the info mark ("Linked from a shell on the TV with `lumatv-helper scrypted-link`"), and `Forget link` (a second OK, "Sure?", six seconds, as the Home Assistant page).
+- **Scrypted:** the connection (chip with the state's words, "Connected · 8 cameras") with its help behind the info mark ("Linked from a shell on the TV with `lumatv-helper scrypted-link`"); while a link exists, `Device` (the TV's name) and `Verifier` (its 64 digits in groups of 8, tabular, second ink, wrapping by group so that none is cut at 200 % text), whose help says where they go ("Type this name and verifier into the bridge's Devices in Scrypted. The verifier is a hash; the token never leaves the TV.");
+  and `Forget link` (a second OK, "Sure?", six seconds, as the Home Assistant page). With no link the chip says "Not linked" and there are no other rows. `refused` shows the same rows with the chip in the danger tone: the TV is not (or no longer) in the bridge's Devices, and the name and verifier are what to add again.
 - **Notify for:** one row per camera with the kinds as its value ("Person, Doorbell", "Off"), opening a page with a switch per kind (Person, Vehicle, Animal, Package, Doorbell, Motion); defaults person and doorbell. The page is rebuilt when `revision` changes.
 - **Video:** `Live quality` Full, Medium, Low and `Grid` Light, Balanced, Smooth as two-to-three option segments.
 
@@ -132,6 +150,7 @@ Axis at 2:37 PM, 12-hour: 15 min "2:24 PM", "2:27 PM", "2:30 PM", "2:33 PM", "2:
 24 h "4:00 PM", "8:00 PM", "12:00 AM", "4:00 AM", "8:00 AM", "12:00 PM". Ticks fall on the local clock.
 
 Gaps: with `ranges` [now-50 min, now-10 min] and [now-8 min, now], `unknown` [now-10 min, now-8 min] in a 1 h window ending now, the only gap is the first 10 minutes; with `since` = now-50 min there is none; the part of a window after now is no gap.
+Update: a pop-up shown with id 41 (person), then a record with id 41 (animal, label "Domestic Cat", later `untilMs`): the card up reads "Animal · Domestic Cat", is not shown again (no second `popupShown`), and ends at the later time.
 Jump to event: from 2:20 PM with events at 1:58, 2:12 and 2:31 PM, next is 2:31, previous 2:12; standing on 2:12 (within 1 s) next is 2:31 and previous 1:58.
 
 ## Not built

@@ -117,6 +117,9 @@
   .card .shot .len { position: absolute; right: 12px; bottom: 12px; padding: 2px 12px; border-radius: 999px; background: var(--glass-video); color: var(--lu-ink); font-size: calc(22px * var(--ts)); font-weight: 600; }
   .card .l1 { margin-top: 10px; font-size: calc(26px * var(--ts)); font-weight: 600; line-height: 1.3; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
   .card .l2 { font-size: calc(22px * var(--ts)); font-weight: 500; line-height: 1.3; color: var(--lu-ink-2); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  .card .shot.none { background: var(--tile-ink-wash); display: grid; place-items: center; }
+  .card .shot.none .big { display: block; width: 72px; height: 72px; color: var(--lu-ink-2); }
+  .card .shot.none .big .ic { width: 72px; height: 72px; }
   .card.focus { transform: scale(1.03); }
   .card.focus .shot { border-color: var(--lu-edge-raised); box-shadow: var(--shadow-raised), var(--focus-halo); }
   .card.focus .l1 { color: var(--lu-ink); }
@@ -153,6 +156,13 @@
   .st.settings .row .d { font-size: calc(24px * var(--ts)); }
   .st.settings .tab { font-size: calc(27px * var(--ts)); min-height: 64px; height: auto; padding: 0 12px; }
   .st.settings .page-head h1 { font-size: calc(40px * var(--ts)); }
+  /* the verifier: 64 digits in groups of 8, tabular, wrapping by group so none is cut at any text size */
+  .chip.danger { color: var(--lu-danger-readable); }
+  .vf { max-width: calc(560px * var(--ts)); text-align: right; font-size: calc(24px * var(--ts)); font-weight: 500; line-height: 1.35; color: var(--lu-ink-2); }
+  .vf span { display: inline-block; white-space: nowrap; }
+  .vrow .text { flex: none; }
+  .vrow .t { white-space: nowrap; }
+  .vrow .vf { flex: 1 1 0; min-width: 0; max-width: none; }
 </style>
 </head>
 <body>
@@ -233,8 +243,8 @@
 
   /* ---------------- events / clips ---------------- */
   function cards(list, focus) {
-    return list.map((c, i) => `<div class="card${i === focus ? ' focus' : ''}"><div class="shot pic" ${cam(c.pic, c.pos)}>
-      <span class="cbadge">${ic(KIND[c.kind][0])}</span>${c.len ? `<span class="len num">${c.len}</span>` : ''}</div>
+    return list.map((c, i) => `<div class="card${i === focus ? ' focus' : ''}"><div class="shot ${c.pic ? 'pic' : 'none'}" ${c.pic ? cam(c.pic, c.pos) : ''}>
+      ${c.pic ? `<span class="cbadge">${ic(KIND[c.kind][0])}</span>` : `<span class="big">${ic(KIND[c.kind][0])}</span>`}${c.len ? `<span class="len num">${c.len}</span>` : ''}</div>
       <div class="l1">${c.l1}</div><div class="l2 num">${c.l2}</div></div>`).join('');
   }
   function sheet(title, tab, list, focus) {
@@ -246,7 +256,7 @@
     { kind: 'person', l1: 'Person', l2: '2:31 PM · 6 min ago', pic: 'game', pos: '25% 50%' },
     { kind: 'doorbell', l1: 'Doorbell rang', l2: '1:58 PM · 39 min ago', pic: 'wall', pos: '50% 40%' },
     { kind: 'animal', l1: 'Animal · Domestic Cat', l2: '12:12 PM · 2 h ago', pic: 'home', pos: '60% 50%' },
-    { kind: 'vehicle', l1: 'Vehicle', l2: '10:44 AM · 4 h ago', pic: 'still', pos: '20% 60%' },
+    { kind: 'vehicle', l1: 'Vehicle', l2: '10:44 AM · 4 h ago' },
     { kind: 'package', l1: 'Package', l2: '9:05 AM · 5 h ago', pic: 'game', pos: '80% 50%' },
   ];
   const CLIPS = [
@@ -292,9 +302,11 @@
   /* ---------------- settings pages ---------------- */
   const RAIL_HOME = () => '<nav class="pane rail" data-open="home"></nav>';
   const topbar = '<div class="pane topbar"><i data-ic="chevron-left" class="ic"></i><span class="title">Settings</span><span class="spacer"></span><span class="status"><i data-ic="wifi"></i><i data-ic="mouse-pointer-2"></i></span><span class="time num">9:57 PM</span></div>';
-  const row = (icn, t, val, extra) => `<div class="row${extra && extra.focus ? ' focusable focus' : ''}"><div class="lead">${ic(icn)}</div><div class="text"><div class="t">${t}${extra && extra.info ? '<i data-ic="info" class="info"></i>' : ''}</div>${extra && extra.d ? `<div class="d">${extra.d}</div>` : ''}</div>${val}</div>`;
+  const row = (icn, t, val, extra) => `<div class="row${extra && extra.focus ? ' focusable focus' : ''}${extra && extra.cls ? ' ' + extra.cls : ''}"><div class="lead">${ic(icn)}</div><div class="text"><div class="t">${t}${extra && extra.info ? '<i data-ic="info" class="info"></i>' : ''}</div>${extra && extra.d ? `<div class="d">${extra.d}</div>` : ''}</div>${val}</div>`;
   const tog = on => `<div class="toggle" role="switch" aria-checked="${on}"></div>`;
   const chev = t => `<div class="v">${t || ''}${ic('chevron-right')}</div>`;
+  const VERIFIER = '3f2a9c1e 7b40d8a5 c91e5f02 6ad37b88 04e1b9cf 52a8d630 1f7e94bb c20d5a17'.split(' ');
+  const verifier = `<div class="vf num">${VERIFIER.map(g => `<span>${g}</span>`).join(' ')}</div>`;
   const tabs = (names, sel) => `<div class="tabs">${names.map((n, i) => `<div class="tab" aria-selected="${i === sel}">${n}</div>`).join('')}</div>`;
   function page(title, inner, back) { return `${topbar}${RAIL_HOME()}<main class="pane page"><div class="page-head">${back ? `<span class="chip">${ic('chevron-left')}${back}</span>` : ''}<h1>${title}</h1></div><div class="page-body">${inner}</div></main>`; }
   const TABS = ['Scrypted', 'Cameras', 'Pop-ups', 'Notify for', 'Video'];
@@ -326,6 +338,15 @@
     case 'settings': video = false; backdrop = 'wall';
       html = `<div class="st on settings"><div class="wall fill"></div>` + page('Cameras', tabs(TABS, 0) + `<div class="rows">
         ${row('globe', 'Scrypted', `<div class="v"><span class="chip on"><i class="dot"></i>Connected · 8 cameras</span></div>`, { focus: true, info: true })}
+        ${row('tv-minimal', 'Device', `<div class="v">LumaTV</div>`)}
+        ${row('key-round', 'Verifier', verifier, { info: true, cls: 'vrow' })}
+        ${row('unplug', 'Forget link', `<span class="btn small danger">Forget</span>`, { d: 'Deletes the saved link to Scrypted' })}
+        </div>`, 'Home &amp; look') + '</div>'; break;
+    case 'settings-refused': video = false; backdrop = 'wall';
+      html = `<div class="st on settings"><div class="wall fill"></div>` + page('Cameras', tabs(TABS, 0) + `<div class="rows">
+        ${row('globe', 'Scrypted', `<div class="v"><span class="chip danger"><i class="dot"></i>Refused</span></div>`, { focus: true, info: true })}
+        ${row('tv-minimal', 'Device', `<div class="v">LumaTV</div>`)}
+        ${row('key-round', 'Verifier', verifier, { info: true, cls: 'vrow' })}
         ${row('unplug', 'Forget link', `<span class="btn small danger">Forget</span>`, { d: 'Deletes the saved link to Scrypted' })}
         </div>`, 'Home &amp; look') + '</div>'; break;
     case 'settings-notify': video = false; backdrop = 'wall';

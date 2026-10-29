@@ -240,5 +240,31 @@ class CameraPopup(HostCase):
         self.assertEqual(self.tagged(out, "w2")[0], {"animal": "Animal", "named": "Animal \u00b7 Domestic Cat", "bell": "Doorbell rang"})
 
 
+    def test_an_update_of_the_event_on_the_card_changes_its_words_and_its_end_and_is_not_a_second_popup(self):
+        # the bridge's story: `update` carries the same id with a label or a better score; the helper publishes the same pop-up again. The steps are
+        # far enough apart that a slow poll (the host builds Home in the background) does not fold the two records into one.
+        steps = [(READY, publish("cameras", CAMERAS)),
+                 (READY + 300, popup(lasts=4500)),                                      # ends at READY + 4800
+                 (READY + 1700, "var c = %s; console.info('[u1] ' + JSON.stringify({mode: c.mode, what: c.kindWord(c.popup), shown: c.shownId, at: c.shownAt}));" % C),
+                 (READY + 2000, popup(kind="animal", label="Domestic Cat", lasts=7000)),  # the update: ends at READY + 9000
+                 (READY + 3200, "var c = %s; console.info('[u2] ' + JSON.stringify({mode: c.mode, what: c.kindWord(c.popup), shown: c.shownId, at: c.shownAt}));" % C),
+                 (READY + 6000, "var c = %s; console.info('[u3] ' + JSON.stringify({mode: c.mode, what: c.kindWord(c.popup)}));" % C)]
+        doc, out = self.run_overlay(steps, READY + 10000)
+        u1, u2, u3 = self.tagged(out, "u1")[0], self.tagged(out, "u2")[0], self.tagged(out, "u3")[0]
+        self.assertEqual((u1["mode"], u1["what"]), ("popup", "Person"), out[-2500:])
+        self.assertEqual((u2["mode"], u2["what"]), ("popup", "Animal \u00b7 Domestic Cat"), "the card up has the new words")
+        self.assertEqual((u2["shown"], u2["at"]), (u1["shown"], u1["at"]), "the same pop-up: shown once, not again")
+        self.assertEqual((u3["mode"], u3["what"]), ("popup", "Animal \u00b7 Domestic Cat"), "the original end has passed: the update's later end holds")
+        self.assertEqual(doc["mode"], "", "and it goes at the new end")
+
+    def test_how_long_ago_follows_the_bridges_clock_when_it_is_not_this_tvs(self):
+        ahead = dict(CAMERAS, now_skew_ms=180000)         # the bridge's clock is three minutes ahead: an event it stamps 175 s ahead of this clock is 5 s old
+        steps = [(READY, publish("cameras", ahead)),
+                 (READY + 300, popup(age=-175000, lasts=20000)),
+                 (READY + 1500, "var c = %s; console.info('[k1] ' + JSON.stringify({ago: c.ago}));" % C)]
+        doc, out = self.run_overlay(steps, READY + 2200)
+        self.assertEqual(self.tagged(out, "k1")[0]["ago"], "Just now", out[-2500:])
+
+
 if __name__ == "__main__":
     unittest.main()
