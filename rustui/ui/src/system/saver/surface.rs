@@ -385,7 +385,7 @@ impl SaverSurface {
     }
 
     /// Every layer of the block with its place in the block.
-    fn each<'a>(b: &'a Built) -> Vec<(&'a ui::scene::Layer, (f32, f32))> {
+    fn each(b: &Built) -> Vec<(&ui::scene::Layer, (f32, f32))> {
         let mut out: Vec<(&ui::scene::Layer, (f32, f32))> = b.clock.layers().into_iter().map(|l| (l, b.clock.at)).collect();
         out.extend(b.parts.iter().map(|(p, at)| (p.layer(), *at)));
         out
@@ -619,14 +619,23 @@ mod tests {
     #[test]
     fn rows_that_do_not_fit_the_height_are_left_off_the_least_urgent_last() {
         let (_h, mut kit, mut saver, mut s) = rig(2.0);
-        let g = glance_of(4, true);
-        assert_eq!(g.rows.len(), 5, "four slots and a notice");
+        let slot = |i: usize| super::super::glance::Row {
+            kind: RowKind::Slot,
+            glyph: "lock".into(),
+            title: format!("Door {i}"),
+            text: "Locked".into(),
+            tone: Tone::Plain,
+            age: String::new(),
+        };
+        let g = Glance { date: "Thursday, October 29".into(), weather: None, rows: (0..7).map(slot).collect() };
         s.apply(&mut kit, &mut saver, &g, NOW).unwrap();
         let shown = s.geometry()["rows"].as_u64().unwrap();
-        assert!(shown >= 3 && shown <= 5, "at 200 % the column holds what the room does: {shown}");
+        assert!((4..7).contains(&shown), "at 200 % the column holds what the room does and the least urgent are left off: {shown}");
+        let names: Vec<String> = s.geometry()["words"].as_array().unwrap().iter().filter_map(|w| w["name"].as_str().map(str::to_string)).collect();
+        assert!(!names.iter().any(|n| n.starts_with("row 6")), "the seventh row is not drawn: {names:?}");
         let (_h2, mut kit1, mut saver1, mut s1) = rig(1.0);
         s1.apply(&mut kit1, &mut saver1, &g, NOW).unwrap();
-        assert_eq!(s1.geometry()["rows"], 5, "at 100 % all five fit");
+        assert_eq!(s1.geometry()["rows"], 7, "at 100 % all seven fit");
     }
 
     #[test]

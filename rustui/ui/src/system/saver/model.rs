@@ -197,6 +197,8 @@ impl Saver {
             Input::Topic { topic, data } if topic == "foreground" => {
                 self.home_front = data.get("home").and_then(Value::as_bool) == Some(true);
             }
+            // the Home key is the compositor's own and does not come over the key socket: it is told as a topic, and ends the saver
+            Input::Topic { topic, .. } if topic == "homekey" && self.up() => self.wake(now, &mut out),
             Input::Topic { topic, data } if topic == "audio" => {
                 if let Some(v) = data.get("volumeStatus") {
                     let heard = (v.get("volume").and_then(Value::as_i64), v.get("muteStatus").and_then(Value::as_bool));
@@ -656,6 +658,24 @@ mod tests {
         u.update(&audio(20, false), NOW + 2);
         let fx = u.update(&audio(25, false), NOW + 3);
         assert_eq!(luna_calls(&fx).len(), 1, "the screen is asked to come on: {fx:?}");
+    }
+
+    #[test]
+    fn the_home_key_ends_the_saver_it_is_told_as_a_topic_because_the_key_socket_does_not_carry_it() {
+        let mut s = saver();
+        home(&mut s, NOW);
+        question(&mut s, 0, 1, NOW + 1);
+        assert!(s.up());
+        s.update(&topic("homekey", json!({"n": 1, "switcher": false})), NOW + 2);
+        assert!(!s.up());
+        let mut t = saver();
+        home(&mut t, NOW);
+        t.update(&helper("screen", json!({"on": true, "state": "Screen Saver"})), NOW + 1);
+        let calls = luna_calls(&t.update(&topic("homekey", json!({"n": 2})), NOW + 2));
+        assert_eq!(calls.len(), 1, "LG's own state: the screen is asked to come on");
+        let mut u = saver();
+        home(&mut u, NOW);
+        assert!(luna_calls(&u.update(&topic("homekey", json!({"n": 3})), NOW + 1)).is_empty(), "not up: not its business");
     }
 
     #[test]

@@ -760,11 +760,21 @@ impl State {
         self.shell_rust.connected && self.shell_rust.wants && self.shell_rust.keys.is_some()
     }
 
+    /// Whether the Rust client's saver is up (its state says so): every key of the remote wakes it, the ones the key socket has no name for too.
+    fn shell_rust_saver_up(&self) -> bool {
+        self.shell_rust.answers("saver") && self.shell_rust.ui_state.get("saver").and_then(Value::as_bool) == Some(true)
+    }
+
     /// One key of the remote for the Rust client, before the focus routing: its layer wants the keys (every key but the compositor's
     /// own goes to it), or its cards take OK and Back by name while an app has the focus (`takes`, as the QML client's). Returns
     /// whether the key went to it.
     pub fn shell_rust_takes_key(&mut self, seat: crate::server::seat::SeatId, code: u32, pressed: bool, swallowed: bool, now: Instant) -> bool {
-        let Some(name) = crate::server::ime::own_key_name(code) else { return false };
+        let name = match crate::server::ime::own_key_name(code) {
+            Some(n) => n,
+            // the saver is up: any key wakes it, whatever it is (the colour keys, play, menu), and the key does nothing else
+            None if self.shell_rust_saver_up() => "any",
+            None => return false,
+        };
         let mut repeat = false;
         if let Some(i) = self.shell_rust.took.iter().position(|(c, _)| *c == code) {
             if !pressed {
@@ -1047,6 +1057,32 @@ mod tests {
         assert!(!state.shell_rust_takes_key(seat, crate::input::code::KEY_UP, true, false, now));
         state.shell_rust_handle(Msg::Takes(vec!["ok".into(), "menu".into()]));
         assert_eq!(state.shell_rust.takes, vec!["ok"]);
+    }
+
+    #[test]
+    fn any_key_wakes_a_saver_that_is_up_as_the_name_any_and_the_home_key_reaches_the_rust_client() {
+        let (mut state, _dir) = state_with("saver");
+        state.shell_rust_handle(Msg::Connected);
+        let (ours, theirs) = UnixStream::pair().unwrap();
+        ours.set_nonblocking(true).unwrap();
+        state.shell_rust.keys = Some(ours);
+        let seat = crate::server::seat::SeatId(0);
+        let now = Instant::now();
+        let red = crate::input::code::KEY_RED;
+        state.shell_rust_handle(Msg::Ui { can: None, wants: Some(true), live: Some(true), state: Some(json!({"saver": false})) });
+        assert!(!state.shell_rust_takes_key(seat, red, true, false, now), "a key with no name is the app's while the saver is not up");
+        state.shell_rust_handle(Msg::Ui { can: None, wants: Some(true), live: Some(true), state: Some(json!({"saver": true})) });
+        assert!(state.shell_rust_takes_key(seat, red, true, false, now), "up: it wakes the saver and does nothing else");
+        assert!(state.shell_rust_takes_key(seat, red, false, false, now + Duration::from_millis(60)), "and its release is the saver's too");
+        assert!(!state.shell_rust_takes_key(seat, red, true, true, now), "a key the router swallowed (power, the gear) keeps its own way");
+        let mut reader = theirs;
+        reader.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        let mut buf = [0u8; 1024];
+        let n = reader.read(&mut buf).unwrap();
+        let first: Value = serde_json::from_str(std::str::from_utf8(&buf[..n]).unwrap().lines().next().unwrap()).unwrap();
+        assert_eq!(first, json!({"key": {"k": "any", "d": true, "r": false, "seat": 0}}));
+        state.shell_home_key_offer(false);
+        assert_eq!(state.shell_rust.topic("homekey").unwrap()["switcher"], false, "the Home key is told to the Rust client too");
     }
 
     #[test]

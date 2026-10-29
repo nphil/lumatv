@@ -941,6 +941,11 @@ impl State {
             let n = self.shell.stats.events;
             self.shell.push("homekey", json!({"n": n, "switcher": switcher}));
         }
+        // the Rust client closes what it has open on the Home key as well (the saver wakes, the Cameras app closes)
+        if self.shell_rust.connected {
+            let n = self.shell_rust.stats.events;
+            self.shell_rust.push("homekey", json!({"n": n, "switcher": switcher}));
+        }
     }
 
     /// A line in the kernel's trace buffer for the frame gate (`Q:<name>-show`, `-shown`): the keyboard writes its own, since it is asked for by

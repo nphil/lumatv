@@ -30,6 +30,16 @@ INPUT_TAG = 0x53590002
 PIN_TAG = 0x53590003
 LAUNCH = {"serviceURI": "luna://com.webos.applicationManager", "serviceMethod": "/launch", "launchParams": {"id": "com.webos.app.hdmi3"}}
 
+SAVER_UP = {"on": True, "state": "Screen Saver"}
+SAVER_DOWN = {"on": True, "state": "Active"}
+# the first spot of the saver's block is fixed by the clock: a render is the same on every run
+CLOCK = ['--clock', '2026-10-29T10:08:30']
+WEATHER = {"state": "fresh", "doc": {"display": {"temp": "61\u00b0", "cond": "Clear", "nowKind": "moon"}}}
+SAVER_TOPIC = {"items": [{"id": "door", "source": "api", "glyph": "lock", "text": "Front door", "value": "Locked", "priority": 2, "expiresAt": 4102444800000, "tone": "plain", "updatedAt": 1},
+                         {"id": "garage", "source": "api", "glyph": "warehouse", "text": "Garage", "value": "Open", "priority": 1, "expiresAt": 4102444800000, "tone": "warning", "updatedAt": 2}],
+               "rules": {}, "lines": [{"id": "camera.e1", "class": "camera.still", "glyph": "user", "title": "Driveway", "text": "Person seen", "at": 1793282670000, "expiresAt": 4102444800000}]}
+VOTE_TAGS = (0x53590010, 0x53590011)
+
 
 def render_dir():
     path = os.environ.get('RUST_SYSTEM_RENDERS')
@@ -174,6 +184,98 @@ class RustSystem(unittest.TestCase):
                                                 wait=1800, kinds='alert', extra=['--text-scale', scale, '--mode', mode, '--eval', '1400:lint'])
                 self.assertEqual(rc, 0, out[-3000:])
                 self.assertEqual(self.evals(out)[-1], [], "%s at %s: %s" % (mode, scale, self.evals(out)[-1]))
+
+    # ---- the screensaver (test_saver_own.py)
+
+    def saver_extra(self, *more):
+        helper = ['--helper', '150:weather:' + json.dumps(WEATHER), '--helper', '200:saver:' + json.dumps(SAVER_TOPIC)]
+        return [*CLOCK, *helper, *more]
+
+    def test_the_saver_is_black_with_a_dim_clock_under_the_cap_has_the_keys_and_a_key_asks_the_tv_to_turn_the_screen_on(self):
+        shot = os.path.join(tempfile.gettempdir(), 'rustsystem-saver-%d.png' % os.getpid())
+        rc, out, chan, data = self.host([(300, lambda c: c.push('foreground', HOME))], wait=3600, kinds='saver', extra=self.saver_extra(
+            '--eval', '1000:report', '--eval', '1000:state', '--snap', '1900:' + shot,
+            '--key', '2200:ok', '--eval', '2600:report',
+            '--helper', '2800:screen:' + json.dumps(SAVER_DOWN), '--eval', '3300:report', '--helper', '400:screen:' + json.dumps(SAVER_UP)))
+        self.assertEqual(rc, 0, out[-3000:])
+        evals = self.evals(out)
+        self.assertEqual(len(evals), 4, out[-3000:])
+        up = evals[0]
+        self.assertTrue(up['wants'] and up['live'] and up['state']['saver'], "the saver is up, on screen and has the keys: %s" % up)
+        self.assertEqual(evals[1]['saverState']['up'], True)
+        calls = self.calls(out)
+        self.assertIn(('luna://com.webos.service.tvpower/power/turnOnScreen', {}), calls, "a key asks the TV to turn the screen on (LG's own state is the saver's)")
+        self.assertTrue(evals[2]['wants'], "LG's state is still the saver until the helper says Active")
+        self.assertFalse(evals[3]['wants'] or evals[3]['state']['saver'], "Active again: the keys are Home's")
+        for uri in ('registerScreenSaverRequest',):
+            self.assertTrue(any(c['uri'].endswith(uri) for c in chan.luna), "Home in front: the saver is on tvpower's lists")
+        try:
+            from PIL import Image
+        except ImportError:
+            Image = None
+        self.assertTrue(os.path.exists(shot), "the render was written")
+        if Image:
+            im = Image.open(shot).convert('RGB')
+            self.assertEqual(im.size, (1920, 1080))
+            px = im.getdata()
+            top = max(max(p) for p in px)
+            self.assertLessEqual(top, 97, "no pixel of the saver is brighter than 0.38 of white")
+            self.assertGreater(top, 40, "and it shows something")
+            mean = sum(sum(p) for p in px) / (3.0 * 255 * len(px))
+            self.assertLess(mean, 0.005, "a fraction of a percent of the panel's light: %.4f" % mean)
+            self.assertEqual(im.getpixel((10, 10)), (0, 0, 0), "black but for the block")
+        os.remove(shot)
+
+    def test_a_saver_that_tvpower_left_to_lumatv_ends_on_a_key_without_asking_the_tv_for_anything_and_a_volume_step_ends_it_too(self):
+        def answer(c):
+            c.push('luna', {'tag': VOTE_TAGS[0], 'payload': {"returnValue": True, "timestamp": 77}})
+        audio = lambda v: {"volumeStatus": {"volume": v, "muteStatus": False, "soundOutput": "tv_speaker", "maxVolume": 100}}
+        rc, out, chan, data = self.host([
+            (300, lambda c: c.push('foreground', HOME)), (700, answer),
+            (1500, lambda c: c.push('audio', audio(20))), (2300, lambda c: c.push('audio', audio(21))),
+        ], wait=3300, kinds='saver', extra=['--eval', '1200:report', '--eval', '1800:report', '--eval', '2000:report', '--eval', '2700:report', '--key', '1900:right'])
+        self.assertEqual(rc, 0, out[-3000:])
+        evals = self.evals(out)
+        self.assertEqual(len(evals), 4, out[-3000:])
+        self.assertTrue(evals[0]['state']['saver'] and evals[0]['wants'], "tvpower asked, the saver said no and is up: %s" % evals[0])
+        refusals = [c for c in self.calls(out) if c[0].endswith('/responseScreenSaverRequest')]
+        self.assertEqual([c[1]['ack'] for c in refusals], [False], "no: LG's saver is not started")
+        self.assertTrue(evals[1]['state']['saver'], "the first reading of the volume is only where it was")
+        self.assertFalse(evals[2]['state']['saver'], "a key ends it")
+        self.assertFalse([c for c in self.calls(out) if c[0].endswith('/turnOnScreen')], "nothing to ask: the state was never the saver's")
+        # a saver that is up again ends on a step of the volume (the bar it would show is under it)
+        rc, out, chan, data = self.host([
+            (300, lambda c: c.push('foreground', HOME)), (700, answer), (1500, lambda c: c.push('audio', audio(20))), (1900, lambda c: c.push('audio', audio(21))),
+        ], wait=2800, kinds='saver', extra=['--eval', '1700:report', '--eval', '2400:report'])
+        self.assertEqual(rc, 0, out[-3000:])
+        evals = self.evals(out)
+        self.assertTrue(evals[0]['state']['saver'])
+        self.assertFalse(evals[1]['state']['saver'], "a volume key ended the saver")
+
+    def test_what_the_saver_draws_stays_under_the_cap_and_reads_clean_at_both_text_sizes_in_both_materials(self):
+        try:
+            from PIL import Image
+        except ImportError:
+            Image = None
+        for scale in ('1', '2'):
+            for mode in ('dark', 'light'):
+                shot = os.path.join(tempfile.gettempdir(), 'rustsystem-saver-%s-%s-%d.png' % (scale, mode, os.getpid()))
+                rc, out, chan, data = self.host([(300, lambda c: c.push('foreground', HOME))], wait=2600, kinds='saver', extra=self.saver_extra(
+                    '--text-scale', scale, '--mode', mode, '--helper', '400:screen:' + json.dumps(SAVER_UP), '--eval', '1700:lint', '--eval', '1700:atlas', '--snap', '1800:' + shot))
+                self.assertEqual(rc, 0, out[-3000:])
+                evals = self.evals(out)
+                self.assertEqual(evals[0], [], "%s at %s: %s" % (mode, scale, evals[0]))
+                self.assertEqual(evals[1]['pictures'], 0, "every word is glyph quads of the atlas at %s" % scale)
+                if Image:
+                    im = Image.open(shot).convert('RGB')
+                    self.assertLessEqual(max(max(p) for p in im.getdata()), 97, "%s at %s: under the cap" % (mode, scale))
+                    path = render_dir()
+                    if path:
+                        import shutil
+                        folder = os.path.join(path, 'system')
+                        os.makedirs(folder, exist_ok=True)
+                        shutil.copy(shot, os.path.join(folder, 'saver-%s%s.png' % (mode, '' if scale == '1' else '-text200')))
+                os.remove(shot)
 
 
 if __name__ == "__main__":

@@ -67,7 +67,8 @@ pub struct Layer {
 impl Layer {
     /// `base` is the system band's first z; `theme` the merged theme and `layout` Home's layout, for the placements.
     pub fn new(base: i32, theme: &Value, layout: &Value) -> Self {
-        let seed = crate::host::now_ms() ^ 0x5eed_5eed;
+        // the seconds, not the milliseconds: under the harness's fixed clock the first spot is always the same one
+        let seed = (crate::host::now_ms() / 1000) ^ 0x5eed_5eed;
         Self {
             base,
             alerts: Alerts::new(),
@@ -125,11 +126,9 @@ impl Layer {
                 "keyboard" => self.keyboard_up = data.get("up").and_then(Value::as_bool) == Some(true),
                 _ => {}
             },
-            Input::Helper { topic, data } if topic == "weather" => {
-                if *data != self.weather {
-                    self.weather = data.clone();
-                    self.redraw |= kinds.saver && self.saver.up();
-                }
+            Input::Helper { topic, data } if topic == "weather" && *data != self.weather => {
+                self.weather = data.clone();
+                self.redraw |= kinds.saver && self.saver.up();
             }
             _ => {}
         }
