@@ -152,6 +152,13 @@ JPEG = bytes.fromhex(
     "f2f3f4f5f6f7f8f9faffda000c03010002110311003f00f35a28a2ba8a0a28a2800a28a2800a28a2803fffd9")
 
 
+def openapps(enabled, listed, state=None):
+    """The helper's `openapps` topic (helper/app/src/openapps.rs): the setting and LG's list of apps waiting for an update. On, the helper has emptied
+    the list (`holding`) unless the test says LG's updater is running (`waiting`) or the list was just written (`clearing`)."""
+    shown = [] if enabled and state in (None, "holding") else list(listed)
+    return {"enabled": enabled, "entries": len(shown), "ids": shown[:8], "state": state or ("holding" if enabled else "off"), "saved": enabled and bool(listed)}
+
+
 class State:
     def __init__(self, a):
         self.boot = NOW()
@@ -166,6 +173,8 @@ class State:
         self.topics["ai"] = ai_doc()
         self.topics["ai.prompt"] = None
         self.topics["updateblock"] = updateblock("blocked")
+        self.openapps_listed = ["com.webos.app.lifeonscreen", "dazn"]
+        self.topics["openapps"] = openapps(False, self.openapps_listed)
         self.topics["panel"] = panel()
         self.requests = []      # (method, path, body) of every /v1/ai call, for the tests to read back
         self.posts = []         # (path, body) of every other POST (plugin actions, receiver nudge and set), read back at /__posts
@@ -489,6 +498,13 @@ def handler(st):
                 if st.crash:
                     st.crash = dict(st.crash, pending=False)
                 self.send(200, {"ok": True, "api": 1, "cleared": cleared})
+            elif u.path == "/v1/openapps":
+                # the helper's own: the flag is set (or removed) and the list is emptied (or put back) at once
+                st.posts.append([u.path, body])
+                if set(body) != {"enabled"} or not isinstance(body["enabled"], bool):
+                    return self.send(400, {"ok": False, "api": 1, "error": {"code": "bad_request", "message": "the body is {\"enabled\": true or false}"}})
+                st.publish("openapps", openapps(body["enabled"], st.openapps_listed))
+                self.send(200, {"ok": True, "api": 1, "openapps": st.topics["openapps"]})
             elif u.path == "/v1/ambient/test":
                 st.ambient_state = "testing" if body.get("run") else "idle"
                 st.posts.append([u.path, body])

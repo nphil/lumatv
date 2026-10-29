@@ -202,6 +202,7 @@ impl Service {
         ));
         threads.push(("preload", preload::spawn(&ctx)?));
         threads.push(("updateblock", crate::updateblock::spawn(&ctx)?));
+        threads.push(("openapps", crate::openapps::spawn(&ctx)?));
         threads.push((
             "refreshguard",
             refreshguard::spawn(ctx.stop.clone(), guard.clone(), panel_rx)?,

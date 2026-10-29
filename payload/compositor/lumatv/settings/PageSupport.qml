@@ -13,6 +13,7 @@ import "."
 // the AD ID is shown and reset, Limit AD Tracking is a switch; Live Plus (LG keeps it under Additional Settings, but it is consent) asks before it turns on and
 // holds Live Promotion; App Permissions and Delete My Personal Information are pages of their own. The self-diagnosis is LG's Customer Support app at its test (the app, not Settings).
 // Block LG system updates (the Homebrew Channel's own `blockUpdates`, set through its service) keeps LG's next major update from removing root by accident; while it is on, or cannot be read, Check for Updates does nothing.
+// Open apps without updating keeps LG's list of apps that must be updated before they open empty (the helper's `openapps`), so an app opens as it is; the store still updates by hand.
 // Reset is last and asks twice, with LG's own PIN prompt between (`createPincodePrompt`; this page acts on its yes or no and never sees the digits);
 // the call is LG's `devicereset doReset {resetType}`. Nothing on this page is offered to an assistant: it is a Settings page, and Settings has no
 // AI access tool.
@@ -162,6 +163,21 @@ PageList {
                                                 function(id2) { if (id2 === "yes") luna.call("hbcset", hbc, "setConfiguration", { blockUpdates: false }) })
                           })
     }
+
+    // ---- Open apps without updating. LG's updater keeps a list of installed apps that have a newer version, and LG asks "You must update this app to
+    // launch it" for any app on the list. The helper keeps that list empty while this is on (`openapps` topic, `POST /v1/openapps`) and puts it back when
+    // it is turned off. Nothing of the network is blocked, so an app is still updated by hand from the LG Content Store.
+    readonly property var openLive: Helper.openApps
+    readonly property string openWords: {
+        if (openLive === null) return "Helper not answering"
+        var n = openLive.entries
+        if (openLive.state === "holding") return "On; no app is waiting for an update"
+        if (openLive.state === "clearing") return "On; clearing LG's list"
+        if (openLive.state === "waiting") return "On; clearing once LG's updater is idle"
+        if (openLive.state === "unreadable") return "LG's list cannot be read"
+        return n > 0 ? "Off; LG lists " + n + (n === 1 ? " app" : " apps") + " as waiting for an update" : "Off"
+    }
+    function setOpen(on) { Helper.post("/v1/openapps", { enabled: on }) }
     function checkUpdatesRow() {
         var row = R.lg(page, { tab: 1, id: "checkupdate", target: "SoftwareUpdate", label: "Check for Updates", help: "Checking sends the TV's model and version to LG, and an install restarts the TV. Both are done in LG's screen." })
         var go = row.act
@@ -230,6 +246,10 @@ PageList {
           help: "Keeps LG's update servers out of reach, so a surprise update cannot remove root or LumaTV. A change applies when the TV restarts.",
           on: function() { return page.blockOn }, enabled: function() { return page.blockFlag !== null },
           detail: function() { return page.blockWords }, act: function(v) { page.setBlock(v) } },
+        { kind: "toggle", tab: 1, id: "openapps", icon: "package", label: "Open apps without updating", admin: true,
+          help: "An app opens even when LG says an update is waiting, instead of asking to update first. Updates from the LG Content Store still work by hand.",
+          on: function() { return page.openLive !== null && page.openLive.enabled === true }, enabled: function() { return page.openLive !== null },
+          detail: function() { return page.openWords }, act: function(v) { page.setOpen(v) } },
         page.checkUpdatesRow(),
 
         R.over(R.toggle(Sio, { ds: "general.doNotSellMyPersonalInformation", tab: 2, icon: "shield", label: "Do Not Sell My Personal Information",

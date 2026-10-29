@@ -338,6 +338,7 @@ impl Api {
             .chain(crate::images::ROUTES.iter())
             .chain(crate::gfn_boost::ROUTES.iter())
             .chain(crate::crash::ROUTES.iter())
+            .chain(crate::openapps::ROUTES.iter())
             .chain(crate::capture::ROUTES.iter())
             .map(|(method, path, what)| json!({"method": method, "path": path, "what": what}))
             .collect();
@@ -541,6 +542,7 @@ impl Handler for Api {
             ["v1", "voice", rest @ ..] => crate::voice::handle(&self.voice, request, rest),
             ["v1", "gfn", rest @ ..] => crate::gfn_boost::handle(request, rest),
             ["v1", "crash", rest @ ..] => crate::crash::handle(request, rest),
+            ["v1", "openapps"] => crate::openapps::handle(&self.hub, request),
             ["v1", "capture", rest @ ..] => self.capture.handle(request, rest),
             ["v1", "image", root, file] if get => self.images.serve(request, root, file),
             ["v1", "images"] if get => self.ok(self.images.status()),
@@ -735,6 +737,7 @@ mod tests {
                 + crate::images::ROUTES.len()
                 + crate::gfn_boost::ROUTES.len()
                 + crate::crash::ROUTES.len()
+                + crate::openapps::ROUTES.len()
                 + crate::capture::ROUTES.len()
         );
         assert_eq!(b["helper"]["version"], crate::VERSION);

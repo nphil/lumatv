@@ -19,6 +19,9 @@
 #                            that is installed, revert removes it
 #   updateblock status     -> whether LG's system updates are blocked: the Homebrew Channel's flag and what /etc/hosts maps now (read only;
 #                            the setting is changed in Settings > System > Support > Update, through the channel's own service)
+#   openapps status        -> open apps without updating: whether the setting is on and what LG's list of apps that must be updated before
+#                            they open holds now (read only; the helper keeps the list empty, the setting is in Settings > System >
+#                            Support > Update); revert puts the list LG had back
 #   wallpaper video|gpu|status -> Home's wallpaper source (theme.wallpaperMotion.source, default gpu): `video` plays the wallpaper as a looping
 #                            clip on the video plane through the video-plane player, under LumaTV's own compositor; the status names what is
 #                            missing (the compositor, the player installed and running, a clip), and until it is all there the GPU draws it
@@ -2373,6 +2376,67 @@ verb_updateblock() {
   esac
 }
 
+# Open apps without updating (helper/app/src/openapps.rs): LG's list of apps that must be updated before they open, kept empty by the
+# helper while its flag exists. The same fields and rules as the helper's `openapps` topic, read only; the setting is changed in
+# Settings > System > Support > Update (the helper's POST /v1/openapps). `revert` puts LG's list back (openapps_restore).
+OA_INFO=${OA_INFO:-/mnt/lg/cmn_data/var/palm/data/com.webos.appInstallService/updateInfo}
+OA_FLAG=${OA_FLAG:-$STATE/openapps/on}
+OA_SAVED=${OA_SAVED:-$STATE/openapps/updateInfo.saved}
+OA_PROC=${OA_PROC:-/proc}
+
+# LG's updater process (appinstalld) is alive.
+openapps_running() {
+  for oa_c in "$OA_PROC"/[0-9]*/comm; do
+    [ -r "$oa_c" ] || continue
+    [ "$(cat "$oa_c" 2>/dev/null)" = appinstalld ] && return 0
+  done
+  return 1
+}
+
+openapps_json() {
+  oa_on=false; [ -e "$OA_FLAG" ] && oa_on=true
+  oa_saved=false; [ -e "$OA_SAVED" ] && oa_saved=true
+  oa_txt=""; oa_bad=0
+  if [ -e "$OA_INFO" ]; then
+    oa_txt=$(head -c 262144 "$OA_INFO" 2>/dev/null | tr -d ' \n\r\t')
+    case "$oa_txt" in
+      ''|'['*']') ;;
+      *) oa_bad=1 ;;
+    esac
+  fi
+  oa_ids=$(printf '%s' "$oa_txt" | grep -o '"id":"[A-Za-z0-9._-]*"' | sed 's/^"id"://')
+  oa_n=0; [ -n "$oa_ids" ] && oa_n=$(printf '%s\n' "$oa_ids" | grep -c .)
+  oa_list=$(printf '%s\n' "$oa_ids" | head -n 8 | grep . | tr '\n' ',' | sed 's/,$//')
+  if [ "$oa_bad" = 1 ]; then oa_state=unreadable; oa_n=0; oa_list=""
+  elif [ "$oa_on" = false ]; then oa_state=off
+  elif [ "$oa_n" -eq 0 ]; then oa_state=holding
+  elif openapps_running; then oa_state=waiting
+  else oa_state=clearing; fi
+  printf '{"enabled":%s,"entries":%s,"ids":[%s],"state":"%s","saved":%s}' "$oa_on" "$oa_n" "$oa_list" "$oa_state" "$oa_saved"
+}
+
+# Revert: the setting goes off and the list LG had goes back when the file is empty and the updater is not running; a newer list
+# written by LG since stays, and the saved one is dropped.
+openapps_restore() {
+  rm -f "$OA_FLAG"
+  [ -e "$OA_SAVED" ] || return 0
+  oa_cur=$(head -c 262144 "$OA_INFO" 2>/dev/null | tr -d ' \n\r\t')
+  if { [ -z "$oa_cur" ] || [ "$oa_cur" = "[]" ]; } && ! openapps_running; then
+    cp -f "$OA_SAVED" "$OA_INFO.lumatv" 2>/dev/null && mv -f "$OA_INFO.lumatv" "$OA_INFO" 2>/dev/null \
+      && { rm -f "$OA_SAVED"; log_line "openapps: LG's list put back"; return 0; }
+    rm -f "$OA_INFO.lumatv"
+    return 0
+  fi
+  [ -z "$oa_cur" ] || [ "$oa_cur" = "[]" ] || rm -f "$OA_SAVED"
+}
+
+verb_openapps() {
+  case "$1" in
+    status) printf '{"ok":true,"openApps":%s}\n' "$(openapps_json)" ;;
+    *) emit_error "usage: openapps status"; return 1 ;;
+  esac
+}
+
 # The colour reader. Not fatal: without it the ambient light has no picture and says so; everything else is as it was.
 capture_start() {
   [ -f "$CAPTURE_SRC" ] || return 0   # a package built before it existed
@@ -2641,6 +2705,7 @@ do_revert_internal() {
   REVERT_CHANGED=0
 
   helper_stop
+  openapps_restore
   capture_remove
   vplane_remove
   rm -f "$JPEG_BIN" "$JPEG_BIN.new"   # the picture decoder: the helper that started it is stopped, so it has ended
@@ -3257,8 +3322,9 @@ verb_status() {
   helper=$(helper_json)
   compositor=$(comp_json)
   updateblock=$(updateblock_json)
-  printf '{"ok":true,"version":"%s","applied":%s,"live":%s,"mounts":%s,"persist":%s,"early":%s,"standby":"%s","fps":%s,"ntfy":{"enabled":%s,"url":"%s"},"firmware":"%s","model":"%s","homestub":%s,"helper":%s,"compositor":%s,"updateBlock":%s}\n' \
-    "$version" "$applied" "$live" "$mounts" "$persist" "$early" "$standby" "$fps" "$ntfy_en" "$ntfy_url_esc" "$firmware_esc" "$model_esc" "$homestub" "$helper" "$compositor" "$updateblock"
+  openapps=$(openapps_json)
+  printf '{"ok":true,"version":"%s","applied":%s,"live":%s,"mounts":%s,"persist":%s,"early":%s,"standby":"%s","fps":%s,"ntfy":{"enabled":%s,"url":"%s"},"firmware":"%s","model":"%s","homestub":%s,"helper":%s,"compositor":%s,"updateBlock":%s,"openApps":%s}\n' \
+    "$version" "$applied" "$live" "$mounts" "$persist" "$early" "$standby" "$fps" "$ntfy_en" "$ntfy_url_esc" "$firmware_esc" "$model_esc" "$homestub" "$helper" "$compositor" "$updateblock" "$openapps"
   return 0
 }
 
@@ -3799,6 +3865,7 @@ case "$VERB" in
   webglass) verb_webglass "${2:-status}"; exit $? ;;
   inputcommon) verb_inputcommon "${2:-status}"; exit $? ;;
   updateblock) verb_updateblock "${2:-status}"; exit $? ;;
+  openapps) verb_openapps "${2:-status}"; exit $? ;;
   voice) verb_voice "${2:-status}"; exit $? ;;
   keys) verb_keys "${2:-status}"; exit $? ;;
   store) verb_store "${2:-status}" "${3:-}"; exit $? ;;

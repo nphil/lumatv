@@ -324,6 +324,33 @@ probe("block_unmute", "var s=Qt.createQmlObject('import QtQuick 2.4; import WebO
 probe("block_unmute_rows", FIND % "support" + BLOCK_ROWS)
 probe("block_back_to_blocked", PUBLISH_UB % UB(True, True, "blocked"), wait=600)
 
+# ---- Support > Update: Open apps without updating (the helper keeps LG's list of apps that must be updated before they open empty; the switch posts to /v1/openapps)
+PUBLISH_OA = ("var d=%s;var x=new XMLHttpRequest();x.open('POST','http://127.0.0.1:18731/__publish/openapps');x.setRequestHeader('Content-Type','application/json');x.send(JSON.stringify(d));return 1")
+OA = lambda enabled, entries, state: json.dumps({"enabled": enabled, "entries": len(entries), "ids": entries, "state": state, "saved": enabled and bool(entries)})
+OA_ROW = "var b=R('Open apps without updating');return {on:p.ev(b.on),enabled:p.ev(b.enabled)!==false,detail:p.ev(b.detail)}"
+OA_POSTS = ("var x=new XMLHttpRequest();x.open('GET','http://127.0.0.1:18731/__posts',false);x.send();return JSON.parse(x.responseText).posts"
+            ".filter(function(q){return q[0]==='/v1/openapps'}).map(function(q){return q[1]})")
+LISTED = ["com.webos.app.lifeonscreen", "dazn"]
+probe("openapps_reopen", "root.openPage('support');return 1", wait=900)
+probe("openapps_off_state", FIND % "support" + OA_ROW)
+probe("openapps_on", FIND % "support" + "R('Open apps without updating').act(true);return 1", wait=900)
+probe("openapps_on_closed", "return {open:root.confirmOpen}", wait=100)
+probe("openapps_on_posts", OA_POSTS)
+probe("openapps_on_row", FIND % "support" + OA_ROW)
+probe("openapps_clearing", PUBLISH_OA % OA(True, LISTED, "clearing"), wait=800)
+probe("openapps_clearing_row", FIND % "support" + OA_ROW)
+probe("openapps_waiting", PUBLISH_OA % OA(True, LISTED, "waiting"), wait=800)
+probe("openapps_waiting_row", FIND % "support" + OA_ROW)
+probe("openapps_unreadable", PUBLISH_OA % OA(True, [], "unreadable"), wait=800)
+probe("openapps_unreadable_row", FIND % "support" + OA_ROW)
+probe("openapps_off", FIND % "support" + "R('Open apps without updating').act(false);return 1", wait=900)
+probe("openapps_off_posts", OA_POSTS)
+probe("openapps_off_row", FIND % "support" + OA_ROW)
+probe("openapps_mute", PUBLISH_OA % "null", wait=800)
+probe("openapps_mute_row", FIND % "support" + OA_ROW)
+probe("openapps_unmute", PUBLISH_OA % OA(False, LISTED, "off"), wait=800)
+probe("openapps_unmute_row", FIND % "support" + OA_ROW)
+
 # ---- Support: "LumaTV recovered from a problem" and its Details (the helper's crash notice, helper/app/src/crash.rs): hidden with nothing to show, shown while the
 # newest bundle is a problem nobody has read, read in Details, and gone once the owner has cleared it
 CRASH = {"pending": True, "kind": "problem", "at": "2026-10-28 03:12:44", "reason": "compositor killed by signal 9", "uptimeSecs": 754,
@@ -906,7 +933,7 @@ class Coverage(unittest.TestCase):
         self.assertEqual(self.probe("support_tabs")["res"], [
             ["Device Name", "Model", "Model Code", "Serial Number", "webOS TV Version", "Total Power On Time", "Available Internal Storage", "MAC Address (Wired)",
              "MAC Address (Wireless)", "ESN", "Widevine", "Dolby Vision"],                                   # VSN is hidden by the TV
-            ["Software Version", "Update status", "Auto Update", "Block LG system updates", "Check for Updates"],
+            ["Software Version", "Update status", "Auto Update", "Block LG system updates", "Open apps without updating", "Check for Updates"],
             ["Do Not Sell My Personal Information", "Limit AD Tracking", "AD ID", "Reset AD ID", "Live Plus", "Live Promotion", "App Permissions", "Delete My Personal Information"],
             ["Screen Self-diagnosis", "Sound Self-diagnosis", "Memory Optimizer"],
             ["Reset All", "Reset All Except Network Settings"]])
@@ -987,6 +1014,34 @@ class Coverage(unittest.TestCase):
         self.assertTrue(d["detail"].startswith("Homebrew Channel"), d)
         d = self.probe("block_unmute_rows")["res"]
         self.assertEqual((d["enabled"], d["detail"]), (True, "On; active once the TV restarts"))
+
+    # ---- Support > Update: Open apps without updating (the helper's `openapps` topic and POST /v1/openapps)
+    def test_open_apps_without_updating_says_what_lgs_list_holds_while_it_is_off(self):
+        d = self.probe("openapps_off_state")["res"]
+        self.assertEqual(d, {"on": False, "enabled": True, "detail": "Off; LG lists 2 apps as waiting for an update"})
+
+    def test_turning_it_on_asks_nothing_and_posts_to_the_helper(self):
+        self.assertEqual(self.probe("openapps_on_closed")["res"], {"open": False})              # no question
+        self.assertEqual(self.probe("openapps_on_posts")["res"], [{"enabled": True}])
+        d = self.probe("openapps_on_row")["res"]
+        self.assertEqual((d["on"], d["enabled"], d["detail"]), (True, True, "On; no app is waiting for an update"))
+
+    def test_the_second_line_follows_the_helpers_state(self):
+        for name, words in (("openapps_clearing_row", "On; clearing LG's list"), ("openapps_waiting_row", "On; clearing once LG's updater is idle"),
+                            ("openapps_unreadable_row", "LG's list cannot be read")):
+            d = self.probe(name)["res"]
+            self.assertEqual((d["on"], d["detail"]), (True, words), name)
+
+    def test_turning_it_off_posts_and_shows_the_list_that_came_back(self):
+        self.assertEqual(self.probe("openapps_off_posts")["res"], [{"enabled": True}, {"enabled": False}])
+        d = self.probe("openapps_off_row")["res"]
+        self.assertEqual((d["on"], d["detail"]), (False, "Off; LG lists 2 apps as waiting for an update"))
+
+    def test_without_the_helper_the_switch_is_dimmed_and_says_so(self):
+        d = self.probe("openapps_mute_row")["res"]
+        self.assertEqual((d["on"], d["enabled"], d["detail"]), (False, False, "Helper not answering"))
+        d = self.probe("openapps_unmute_row")["res"]
+        self.assertEqual((d["enabled"], d["detail"]), (True, "Off; LG lists 2 apps as waiting for an update"))
 
     def test_do_not_sell_asks_then_tells_the_ad_service_and_the_setting_follows(self):
         d = self.probe("support_dns_ask")["res"]
