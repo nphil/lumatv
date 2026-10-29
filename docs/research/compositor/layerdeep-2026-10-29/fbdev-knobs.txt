@@ -1,0 +1,35 @@
+== viewctrl
+OSD VIEW CTRL status
+OSD 0 : 1
+OSD 1 : 0
+OSD 2 : 0
+OSD 3 : 0
+
+[usage] echo osd_id on_off_val > /proc/lg/fbdev/viewctrl
+        osd_id     : 0 ~ 3
+        on_off_val : 0 (off), 1(on)
+== pathctrl
+OSD path ctrl
+[usage] echo path_val > /proc/lg/fbdev/pathctrl
+        path_val : bosd, sosd
+== syncctrl
+OSD SYNC CTRL status
+OSD 0 : 1
+OSD 1 : 1
+OSD 2 : 1
+OSD 3 : 1
+
+[usage] echo osd_id on_off_val > /proc/lg/fbdev/syncctrl
+        osd_id     : 0 ~ 3
+        on_off_val : 0 (off), 1(on)
+== glalpha
+OSD framebuffer glpha_alpha ctrl
+[usage] echo osd_id alpha > /proc/lg/fbdev/glalpha
+        alpha : hexdecimal value (0x0~0xff)
+                if alpha is 0x00, global lapha is disabled
+== chip/osd_sr
+[usage] echo value > /proc/lg/fbdev/chip/osd_sr
+        value = 0:off, 1:on
+== chip/osd_sr_gain
+sw= 16 hw= 16n[usage] echo value > /proc/lg/fbdev/chip/osd_sr_gain
+        value = 0~255

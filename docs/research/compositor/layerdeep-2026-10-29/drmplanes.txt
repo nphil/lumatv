@@ -1,0 +1,98 @@
+driver lg1k 1.0.0 (20210215) LG Graphics Output Driver
+cap DUMB_BUFFER = 1
+cap VBLANK_HIGH_CRTC = 1
+cap DUMB_PREFERRED_DEPTH = 0
+cap DUMB_PREFER_SHADOW = 0
+cap PRIME = 3
+cap TIMESTAMP_MONOTONIC = 1
+cap ASYNC_PAGE_FLIP = 0
+cap CURSOR_WIDTH = 128
+cap CURSOR_HEIGHT = 128
+cap ADDFB2_MODIFIERS = 1
+cap PAGE_FLIP_TARGET = 0
+cap CRTC_IN_VBLANK_EVENT = 1
+cap SYNCOBJ = 0
+cap SYNCOBJ_TIMELINE = 0
+client cap UNIVERSAL_PLANES: ok
+client cap ATOMIC: ok
+client cap ASPECT_RATIO: ok
+client cap WRITEBACK_CONNECTORS: ok
+
+resources: 0 fbs, 1 crtcs, 1 connectors, 1 encoders; size 1x1..3840x2160
+
+crtc 38 (index 0): fb 43 at 0,0 gamma 0 mode 1920x1080 1920x1080@60 (valid 1)
+    ACTIVE                   id 22  range   = 1 [0..1]
+    MODE_ID                  id 23  blob    = 40
+      blob 40: 68 bytes mode 1920x1080 1920x1080@60 clock 148500 flags 0x100005
+    OUT_FENCE_PTR            id 19  range   = 0 [0..18446744073709551615]
+    VRR_ENABLED              id 24  range   = 0 [0..1]
+
+encoder 39: type 0 crtc 38 possible_crtcs 0x1 clones 0x0
+
+connector 31: type 13-1 connection 1 (1=connected) encoder 39 0x0 mm, 3 modes, encoders: 39
+    mode 1920x1080        1920x1080@60 clock 148500 htotal 2200 vtotal 1125 flags 0x100005 type 0x48
+    mode 3840x2160        3840x2160@60 clock 148500 htotal 4400 vtotal 2250 flags 0x100005 type 0x40
+    mode 1280x720         1280x720@60 clock 74250 htotal 1650 vtotal 750 flags 0x100005 type 0x40
+    EDID                     id 1   blob    (immutable) = 0
+    DPMS                     id 2   enum    = 0 {*On,Standby,Suspend,Off}
+    link-status              id 5   enum    = 0 {*Good,Bad}
+    non-desktop              id 6   range   (immutable) = 0 [0..1]
+    TILE                     id 4   blob    (immutable) = 0
+    CRTC_ID                  id 20  object  = 38
+
+planes: 3
+
+plane 32: crtc 38 fb 43 possible_crtcs 0x1 gamma 0 formats (4): AR24 XR24 AB24 XB24
+    type                     id 8   enum    (immutable) = 1 {Overlay,*Primary,Cursor}
+    FB_ID                    id 17  object  = 43
+    IN_FENCE_FD              id 18  srange  = -1 [-1..2147483647]
+    CRTC_ID                  id 20  object  = 38
+    CRTC_X                   id 13  srange  = 0 [-2147483648..2147483647]
+    CRTC_Y                   id 14  srange  = 0 [-2147483648..2147483647]
+    CRTC_W                   id 15  range   = 1920 [0..2147483647]
+    CRTC_H                   id 16  range   = 1080 [0..2147483647]
+    SRC_X                    id 9   range   = 0 [0..4294967295]
+    SRC_Y                    id 10  range   = 0 [0..4294967295]
+    SRC_W                    id 11  range   = 125829120 [0..4294967295]
+    SRC_H                    id 12  range   = 70778880 [0..4294967295]
+    IN_FORMATS               id 30  blob    (immutable) = 33
+      blob 33: 88 bytes (v1, 4 formats, 2 modifiers)
+        modifier 0x0800000000000062: AB24 XB24
+        modifier 0x0000000000000000: AR24 XR24 AB24 XB24
+    fb 43: 1920x1080 pitch 7680 bpp 32 depth 32
+
+plane 34: crtc 0 fb 0 possible_crtcs 0x1 gamma 0 formats (4): AR24 XR24 AB24 XB24
+    type                     id 8   enum    (immutable) = 0 {*Overlay,Primary,Cursor}
+    FB_ID                    id 17  object  = 0
+    IN_FENCE_FD              id 18  srange  = -1 [-1..2147483647]
+    CRTC_ID                  id 20  object  = 0
+    CRTC_X                   id 13  srange  = 0 [-2147483648..2147483647]
+    CRTC_Y                   id 14  srange  = 0 [-2147483648..2147483647]
+    CRTC_W                   id 15  range   = 0 [0..2147483647]
+    CRTC_H                   id 16  range   = 0 [0..2147483647]
+    SRC_X                    id 9   range   = 0 [0..4294967295]
+    SRC_Y                    id 10  range   = 0 [0..4294967295]
+    SRC_W                    id 11  range   = 0 [0..4294967295]
+    SRC_H                    id 12  range   = 0 [0..4294967295]
+    IN_FORMATS               id 30  blob    (immutable) = 35
+      blob 35: 88 bytes (v1, 4 formats, 2 modifiers)
+        modifier 0x0800000000000062: AB24 XB24
+        modifier 0x0000000000000000: AR24 XR24 AB24 XB24
+
+plane 36: crtc 0 fb 0 possible_crtcs 0x1 gamma 0 formats (1): AR24
+    type                     id 8   enum    (immutable) = 2 {Overlay,Primary,*Cursor}
+    FB_ID                    id 17  object  = 0
+    IN_FENCE_FD              id 18  srange  = -1 [-1..2147483647]
+    CRTC_ID                  id 20  object  = 0
+    CRTC_X                   id 13  srange  = 0 [-2147483648..2147483647]
+    CRTC_Y                   id 14  srange  = 0 [-2147483648..2147483647]
+    CRTC_W                   id 15  range   = 0 [0..2147483647]
+    CRTC_H                   id 16  range   = 0 [0..2147483647]
+    SRC_X                    id 9   range   = 0 [0..4294967295]
+    SRC_Y                    id 10  range   = 0 [0..4294967295]
+    SRC_W                    id 11  range   = 0 [0..4294967295]
+    SRC_H                    id 12  range   = 0 [0..4294967295]
+    IN_FORMATS               id 30  blob    (immutable) = 37
+      blob 37: 32 bytes (v1, 1 formats, 0 modifiers)
+
+framebuffers owned by this fd: 0 (expected 0)

@@ -1,0 +1,192 @@
+total 0
+dr-xr-xr-x  167 root     root             0 Oct 29 03:46 .
+dr-xr-xr-x  404 root     root             0 Dec 31  1969 ..
+-rw-r-----    1 root     root             0 Oct 29 03:46 ablind
+-rw-r-----    1 root     root             0 Oct 29 03:46 acapture
+-rw-r-----    1 root     root             0 Oct 29 03:46 acmder
+-rw-r-----    1 root     root             0 Oct 29 03:46 adecoder
+-rw-r-----    1 root     root             0 Oct 29 03:46 adeug
+-rw-r-----    1 root     root             0 Oct 29 03:46 aencoder
+-rw-r-----    1 root     root             0 Oct 29 03:46 afbc_sw
+-rw-r-----    1 root     root             0 Oct 29 03:46 afe
+-rw-r-----    1 root     root             0 Oct 29 03:46 ahal
+-rw-r-----    1 root     root             0 Oct 29 03:46 ai_scene_manager
+-rw-r-----    1 root     root             0 Oct 29 03:46 ai_service_manager
+-rw-r-----    1 root     root             0 Oct 29 03:46 ai_tone_manager
+-rw-r-----    1 root     root             0 Oct 29 03:46 aibspLib_interface
+-rw-r-----    1 root     root             0 Oct 29 03:46 aibsp_interface
+-rw-r-----    1 root     root             0 Oct 29 03:46 aimc
+-rw-r-----    1 root     root             0 Oct 29 03:46 aipic_common
+-rw-r-----    1 root     root             0 Oct 29 03:46 alsa
+-rw-r-----    1 root     root             0 Oct 29 03:46 alsadec
+-rw-r-----    1 root     root             0 Oct 29 03:46 alsase
+-rw-r-----    1 root     root             0 Oct 29 03:46 alsasif
+-rw-r-----    1 root     root             0 Oct 29 03:46 alsasndout
+-rw-r-----    1 root     root             0 Oct 29 03:46 amedia
+-rw-r-----    1 root     root             0 Oct 29 03:46 amodlist
+-rw-r-----    1 root     root             0 Oct 29 03:46 aplayback
+-rw-r-----    1 root     root             0 Oct 29 03:46 arender
+-rw-r-----    1 root     root             0 Oct 29 03:46 arib2
+-rw-r-----    1 root     root             0 Oct 29 03:46 atsc3
+-rw-r-----    1 root     root             0 Oct 29 03:46 aud_appsink
+-rw-r-----    1 root     root             0 Oct 29 03:46 aud_appsrc
+-rw-r-----    1 root     root             0 Oct 29 03:46 aud_bc
+-rw-r-----    1 root     root             0 Oct 29 03:46 aud_bm
+-rw-r-----    1 root     root             0 Oct 29 03:46 aud_bufadp
+-rw-r-----    1 root     root             0 Oct 29 03:46 aud_bufdata
+-rw-r-----    1 root     root             0 Oct 29 03:46 aud_clock
+-rw-r-----    1 root     root             0 Oct 29 03:46 aud_dsp
+-rw-r-----    1 root     root             0 Oct 29 03:46 aud_hal_bc
+-rw-r-----    1 root     root             0 Oct 29 03:46 aud_hal_clock
+-rw-r-----    1 root     root             0 Oct 29 03:46 aud_hal_codec
+-rw-r-----    1 root     root             0 Oct 29 03:46 aud_hal_output
+-rw-r-----    1 root     root             0 Oct 29 03:46 aud_init
+-rw-r-----    1 root     root             0 Oct 29 03:46 aud_input
+-rw-r-----    1 root     root             0 Oct 29 03:46 aud_kaimc
+-rw-r-----    1 root     root             0 Oct 29 03:46 aud_mixer
+-rw-r-----    1 root     root             0 Oct 29 03:46 aud_obj
+-rw-r-----    1 root     root             0 Oct 29 03:46 aud_output
+-rw-r-----    1 root     root             0 Oct 29 03:46 aud_pdm
+-rw-r-----    1 root     root             0 Oct 29 03:46 aud_se
+-rw-r-----    1 root     root             0 Oct 29 03:46 auddrv
+-rw-r-----    1 root     root             0 Oct 29 03:46 auimc
+-rw-r-----    1 root     root             0 Oct 29 03:46 be
+-rw-r-----    1 root     root             0 Oct 29 03:46 buf_com
+-rw-r-----    1 root     root             0 Oct 29 03:46 buf_event
+-rw-r-----    1 root     root             0 Oct 29 03:46 buf_reader
+-rw-r-----    1 root     root             0 Oct 29 03:46 buf_writer
+-rw-r-----    1 root     root             0 Oct 29 03:46 capture
+-rw-r-----    1 root     root             0 Oct 29 03:46 ci20
+-rw-r-----    1 root     root             0 Oct 29 03:46 ciplus
+-rw-r-----    1 root     root             0 Oct 29 03:46 com_imc
+-rw-r-----    1 root     root             0 Oct 29 03:46 commod
+-rw-r-----    1 root     root             0 Oct 29 03:46 crypto
+-rw-r-----    1 root     root             0 Oct 29 03:46 de
+-rw-r-----    1 root     root             0 Oct 29 03:46 demod
+-rw-r-----    1 root     root             0 Oct 29 03:46 dnn_common_service
+-rw-r-----    1 root     root             0 Oct 29 03:46 dnn_mem_service
+-rw-r-----    1 root     root             0 Oct 29 03:46 dnn_sqm_service
+-rw-r-----    1 root     root             0 Oct 29 03:46 dolby
+-rw-r-----    1 root     root             0 Oct 29 03:46 drm
+-rw-r-----    1 root     root             0 Oct 29 03:46 dvb_ci
+-rw-r-----    1 root     root             0 Oct 29 03:46 emmc
+-rw-r-----    1 root     root             0 Oct 29 03:46 fbdev
+-rw-r-----    1 root     root             0 Oct 29 03:46 gfx
+-rw-r-----    1 root     root             0 Oct 29 03:46 gpio
+-rw-r-----    1 root     root             0 Oct 29 03:46 gps
+-rw-r-----    1 root     root             0 Oct 29 03:46 hal-ci
+-rw-r-----    1 root     root             0 Oct 29 03:46 hal-gal
+-rw-r-----    1 root     root             0 Oct 29 03:46 hal-pvr
+-rw-r-----    1 root     root             0 Oct 29 03:46 hal_jpeg
+-rw-r-----    1 root     root             0 Oct 29 03:46 hdmi20
+-rw-r-----    1 root     root             0 Oct 29 03:46 iic
+-rw-r-----    1 root     root             0 Oct 29 03:46 ipc
+-rw-r-----    1 root     root             0 Oct 29 03:46 ipc_vdec
+-rw-r-----    1 root     root             0 Oct 29 03:46 ipc_vdummy
+-rw-r-----    1 root     root             0 Oct 29 03:46 irb
+-rw-r-----    1 root     root             0 Oct 29 03:46 jpeg
+-rw-r-----    1 root     root             0 Oct 29 03:46 kad-afe
+-rw-r-----    1 root     root             0 Oct 29 03:46 kad-apr
+-rw-r-----    1 root     root             0 Oct 29 03:46 kad-arib2
+-rw-r-----    1 root     root             0 Oct 29 03:46 kad-atsc3
+-rw-r-----    1 root     root             0 Oct 29 03:46 kad-ci
+-rw-r-----    1 root     root             0 Oct 29 03:46 kad-ciplus
+-rw-r-----    1 root     root             0 Oct 29 03:46 kad-de
+-rw-r-----    1 root     root             0 Oct 29 03:46 kad-demod
+-rw-r-----    1 root     root             0 Oct 29 03:46 kad-fb
+-rw-r-----    1 root     root             0 Oct 29 03:46 kad-gal
+-rw-r-----    1 root     root             0 Oct 29 03:46 kad-gfx
+-rw-r-----    1 root     root             0 Oct 29 03:46 kad-hdmi20
+-rw-r-----    1 root     root             0 Oct 29 03:46 kad-mmc
+-rw-r-----    1 root     root             0 Oct 29 03:46 kad-osa
+-rw-r-----    1 root     root             0 Oct 29 03:46 kad-pms
+-rw-r-----    1 root     root             0 Oct 29 03:46 kad-png
+-rw-r-----    1 root     root             0 Oct 29 03:46 kad-pvr
+-rw-r-----    1 root     root             0 Oct 29 03:46 kad-sci
+-rw-r-----    1 root     root             0 Oct 29 03:46 kad-sdec
+-rw-r-----    1 root     root             0 Oct 29 03:46 kad-te
+-rw-r-----    1 root     root             0 Oct 29 03:46 kad-vbi
+-rw-r-----    1 root     root             0 Oct 29 03:46 kad-venc
+-rw-r-----    1 root     root             0 Oct 29 03:46 kad-vp
+-rw-r-----    1 root     root             0 Oct 29 03:46 kad-vterm
+-rw-r-----    1 root     root             0 Oct 29 03:46 kad_jpeg
+-rw-r-----    1 root     root             0 Oct 29 03:46 kadp
+-rw-r-----    1 root     root             0 Oct 29 03:46 kadp-ucom
+-rw-r-----    1 root     root             0 Oct 29 03:46 kadpd
+-rw-r-----    1 root     root             0 Oct 29 03:46 kdrvcore
+-rw-r-----    1 root     root             0 Oct 29 03:46 lg1k-pwm
+-rw-r-----    1 root     root             0 Oct 29 03:46 lgadec
+-rw-r-----    1 root     root             0 Oct 29 03:46 lgadec_codec
+-rw-r-----    1 root     root             0 Oct 29 03:46 lgao
+-rw-r-----    1 root     root             0 Oct 29 03:46 lgbus
+-rw-r-----    1 root     root             0 Oct 29 03:46 linux-ca
+-r--r-----    1 root     root             0 Oct 29 03:46 lmsg
+-rw-r-----    1 root     root             0 Oct 29 03:46 lne_drv
+-rw-r-----    1 root     root             0 Oct 29 03:46 lne_pqe_ipc
+-rw-r-----    1 root     root             0 Oct 29 03:46 lxdvb
+-rw-r-----    1 root     root             0 Oct 29 03:46 lxvdec
+-rw-r-----    1 root     root             0 Oct 29 03:46 lxvo
+-rw-r-----    1 root     root             0 Oct 29 03:46 man_registry
+-rw-r-----    1 root     root             0 Oct 29 03:46 media_event
+-rw-r-----    1 root     root             0 Oct 29 03:46 mix_cap
+-rw-r-----    1 root     root             0 Oct 29 03:46 mod_connector
+-rw-r-----    1 root     root             0 Oct 29 03:46 modstart
+-rw-r-----    1 root     root             0 Oct 29 03:46 notifier
+-rw-r-----    1 root     root             0 Oct 29 03:46 npu_drv
+-rw-r-----    1 root     root             0 Oct 29 03:46 npu_hwc_mod
+-rw-r-----    1 root     root             0 Oct 29 03:46 ovi
+-rw-r-----    1 root     root             0 Oct 29 03:46 pe
+-rw-r-----    1 root     root             0 Oct 29 03:46 pe-dbg
+-rw-r-----    1 root     root             0 Oct 29 03:46 pm
+-rw-r-----    1 root     root             0 Oct 29 03:46 pqepm
+-rw-r-----    1 root     root             0 Oct 29 03:46 pvr
+-rw-r-----    1 root     root             0 Oct 29 03:46 reformatter
+-rw-r-----    1 root     root             0 Oct 29 03:46 sci
+-rw-r-----    1 root     root             0 Oct 29 03:46 sdec
+-rw-r-----    1 root     root             0 Oct 29 03:46 se
+-rw-r-----    1 root     root             0 Oct 29 03:46 sheap
+-rw-r-----    1 root     root             0 Oct 29 03:46 spi
+-rw-r-----    1 root     root             0 Oct 29 03:46 sr_training_service
+-rw-r-----    1 root     root             0 Oct 29 03:46 srt_thread
+-r--r-----    1 root     root             0 Oct 29 03:46 status
+-rw-r-----    1 root     root             0 Oct 29 03:46 syntop
+-rw-r-----    1 root     root             0 Oct 29 03:46 sys
+-rw-r-----    1 root     root             0 Oct 29 03:46 te
+-rw-r-----    1 root     root             0 Oct 29 03:46 ucom
+-rw-r-----    1 root     root             0 Oct 29 03:46 v4l2_conn
+-rw-r-----    1 root     root             0 Oct 29 03:46 v4l2_live
+-rw-r-----    1 root     root             0 Oct 29 03:46 v4l2_sink
+-rw-r-----    1 root     root             0 Oct 29 03:46 v4l2_vdec
+-rw-r-----    1 root     root             0 Oct 29 03:46 v4l2_venc
+-rw-r-----    1 root     root             0 Oct 29 03:46 vbi
+-rw-r-----    1 root     root             0 Oct 29 03:46 vdec_hal_avsync
+-rw-r-----    1 root     root             0 Oct 29 03:46 vdec_hma
+-rw-r-----    1 root     root             0 Oct 29 03:46 vdec_lproc
+-rw-r-----    1 root     root             0 Oct 29 03:46 vdecd
+-rw-r-----    1 root     root             0 Oct 29 03:46 vencd
+-rw-r-----    1 root     root             0 Oct 29 03:46 vmcu_if
+-rw-r-----    1 root     root             0 Oct 29 03:46 vod
+--- status
+---------------[buf 0]---------------
+=====buf ctrl=====
+global=1
+printk=1
+color=0
+
+=====buffer status=====
+buffer_head=387096
+buffer_tail=386864
+LOGM_BUFFER_SIZE=1048576
+filled=232
+buffer_write_counter=81061
+buffer_dropped=81061
+
+=====log count=====
+error log count=1122
+warn  log count=305
+noti  log count=69764
+info  log count=7772
+debug log count=1402
+trace log count=0
+other log count=696
+

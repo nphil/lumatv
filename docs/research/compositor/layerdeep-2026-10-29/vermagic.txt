@@ -1,0 +1,28 @@
+== /lib/modules/5.4.268-329.ptl4tv.2/kernel/8733bu.ko
+vermagic=5.4.268 SMP preempt mod_unload aarch64
+srcversion=533BB7E5866E52F63B9ACCBalias=usb:v0BDApF72Bd*dc*dsc*dp*icFFiscFFipFFin*alias=usb:v0BDApB733d*dc*dsc*dp*icFFiscFFipFFin*depends=name=8733buvermagic=5.4.268 SMP preempt mod_unload aarch64
+sig_marker=0
+== /lib/modules/5.4.268-329.ptl4tv.2/kernel/88x2cu.ko
+vermagic=5.4.268 SMP preempt mod_unload aarch64
+srcversion=533BB7E5866E52F63B9ACCBalias=usb:v043Ep3118d*dc*dsc*dp*icFFiscFFipFFin*alias=usb:v043Ep3113d*dc*dsc*dp*icFFiscFFipFFin*alias=usb:v043Ep3111d*dc*dsc*dp*icFFiscFFipFFin*alias=usb:v13B1p0043d*dc*dsc*dp*icFFiscFFipFFin*alias=usb:v0BDApD82Bd*dc*dsc*dp*icFFiscFFipFFin*alias=usb:v0BDApD820d*dc*dsc*dp*icFFiscFFipFFin*alias=usb:v0BDApC812d*dc*dsc*dp*icFFiscFFipFFin*alias=usb:v0BDApC82Ed*dc*dsc*dp*icFFiscFFipFFin*alias=usb:v0BDApC82Cd*dc*dsc*dp*icFFiscFFipFFin*depends=name=88x2cuvermagic=5.4.268 SMP preempt mod_unload aarch64
+sig_marker=0
+== /lib/modules/5.4.268-329.ptl4tv.2/kernel/DVBCIUSB.ko
+vermagic=5.4.268 SMP preempt mod_unload aarch64
+sig_marker=0
+== /lib/modules/5.4.268-329.ptl4tv.2/kernel/aspectratiodrv.ko
+vermagic=5.4.268 SMP preempt mod_unload aarch64
+sig_marker=0
+== /lib/modules/5.4.268-329.ptl4tv.2/kernel/btmt7921_usb.ko
+vermagic=5.4.268 SMP preempt mod_unload aarch64btmtk_set_country_code_from_wifi$
+srcversion=533BB7E5866E52F63B9ACCBalias=usb:v043Ep310Dd*dc*dsc*dp*icE0isc01ip01in*alias=usb:v0E8Dp7961d*dc*dsc*dp*icE0isc01ip01in*depends=name=btmt7921_usbvermagic=5.4.268 SMP preempt mod_unload aarch64btmtk_set_country_code_from_wifi$
+sig_marker=0
+== /lib/modules/5.4.268-329.ptl4tv.2/kernel/btmtk_usb.ko
+vermagic=5.4.268 SMP preempt mod_unload aarch64btmtk_usb_trigger_core_dumpbtmtk_usb_toggle_rst_pin
+srcversion=533BB7E5866E52F63B9ACCBalias=usb:v043Ep3116d*dc*dsc*dp*icE0isc01ip01in*alias=usb:v043Ep3112d*dc*dsc*dp*icE0isc01ip01in*alias=usb:v043Ep310Fd*dc*dsc*dp*icE0isc01ip01in*alias=usb:v043Ep310Cd*dc*dsc*dp*icE0isc01ip01in*alias=usb:v0E8Dp7663d*dc*dsc*dp*icE0isc01ip01in*alias=usb:v043Ep3114d*dc*dsc*dp*icE0isc01ip01in*alias=usb:v043Ep3110d*dc*dsc*dp*icE0isc01ip01in*alias=usb:v043Ep310Ed*dc*dsc*dp*icE0isc01ip01in*alias=usb:v043Ep310Bd*dc*dsc*dp*icE0isc01ip01in*alias=usb:v043Ep3109d*dc*dsc*dp*icE0isc01ip01in*alias=usb:v0E8Dp7668d*dc*dsc*dp*icE0isc01ip01in*depends=name=btmtk_usbvermagic=5.4.268 SMP preempt mod_unload aarch64btmtk_usb_trigger_core_dumpbtmtk_usb_toggle_rst_pin
+sig_marker=0
+== /lib/modules/5.4.268-329.ptl4tv.2/kernel/demod_khal.ko
+vermagic=5.4.268-329.ptl4tv.2 SMP preempt mod_unload aarch64
+sig_marker=0
+== /lib/modules/5.4.268-329.ptl4tv.2/kernel/drivers/lg_kdriver/core/demod/khal/demod_khal.ko
+vermagic=5.4.268-329.ptl4tv.2 SMP preempt mod_unload aarch64
+sig_marker=0

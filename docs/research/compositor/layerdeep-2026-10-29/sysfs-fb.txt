@@ -1,0 +1,32 @@
+== /sys/class/graphics/fb0
+name=osd0_fb
+state=0
+virtual_size=1920,2160
+bits_per_pixel=32
+stride=7680
+modes=U:1920x1080p-2
+mode=
+== /sys/class/graphics/fb1
+name=osd1_fb
+state=0
+virtual_size=512,4320
+bits_per_pixel=32
+stride=2048
+modes=U:512x2160p-4
+mode=
+== /sys/class/graphics/fb2
+name=osd2_fb
+state=2
+virtual_size=128,4
+bits_per_pixel=32
+stride=512
+modes=U:128x2p-2691
+mode=
+== /sys/class/graphics/fb3
+name=crsr_fb
+state=0
+virtual_size=256,512
+bits_per_pixel=32
+stride=1024
+modes=U:256x256p-69
+mode=

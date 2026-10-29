@@ -1,0 +1,106 @@
+Linux version 5.4.268-329.ptl4tv.2 (oe-user@oe-host) (gcc version 11.4.0 (GCC)) #1 SMP PREEMPT Thu Apr 17 00:21:25 UTC 2025
+modules_disabled=0
+kptr_restrict=0
+perf_event_paranoid=2
+--- /proc/modules
+f2io 110592 1 - Live 0xffffffc00944d000 (O)
+wlan_mt7668_usb 2088960 0 - Live 0xffffffc009478000 (O)
+btmtk_usb 114688 2 - Live 0xffffffc009430000 (O)
+aspectratiodrv 28672 0 - Live 0xffffffc0093b4000 (PO)
+si2178b 16384 0 - Live 0xffffffc00942b000 (O)
+si2178b_atv 16384 0 - Live 0xffffffc009423000 (O)
+dvb_si2178b_chip 262144 2 si2178b,si2178b_atv, Live 0xffffffc0093dd000 (PO)
+dvb_silab_adapter 16384 1 dvb_si2178b_chip, Live 0xffffffc0093d5000 (O)
+atsc_dtv_soc 16384 0 - Live 0xffffffc0093cd000 (O)
+atsc_dtv_soc_chip 32768 1 atsc_dtv_soc, Live 0xffffffc0093c1000 (PO)
+dvb_common_adapter 16384 1 dvb_si2178b_chip, Live 0xffffffc0090bf000 (O)
+demod_khal 77824 1 atsc_dtv_soc_chip, Live 0xffffffc0093a0000
+webos_tv 81920 6 si2178b,si2178b_atv,dvb_si2178b_chip,atsc_dtv_soc,atsc_dtv_soc_chip, Live 0xffffffc00938b000 (O)
+linux_hld_module 2899968 0 - Live 0xffffffc0090c6000 (P)
+npu_drv 122880 0 - Live 0xffffffc0090a0000 (O)
+--- /lib/modules
+total 0
+drwxr-xr-x    1 root     root            43 Apr  5  2011 .
+drwxr-xr-x    1 root     root            46 Apr  5  2011 ..
+drwxr-xr-x    1 root     root            29 Apr  5  2011 5.4.268-329.ptl4tv.2
+total 129
+drwxr-xr-x    1 root     root            29 Apr  5  2011 .
+drwxr-xr-x    1 root     root            43 Apr  5  2011 ..
+drwxr-xr-x    1 root     root          1306 Apr  5  2011 kernel
+-rw-r--r--    1 root     root          5597 Apr  5  2011 modules.alias
+-rw-r--r--    1 root     root          5239 Apr  5  2011 modules.alias.bin
+-rw-r--r--    1 root     root         12794 Apr  5  2011 modules.builtin
+-rw-r--r--    1 root     root             0 Apr  5  2011 modules.builtin.alias.bin
+-rw-r--r--    1 root     root         15640 Apr  5  2011 modules.builtin.bin
+-rw-r--r--    1 root     root          5310 Apr  5  2011 modules.dep
+-rw-r--r--    1 root     root          9040 Apr  5  2011 modules.dep.bin
+-rw-r--r--    1 root     root             0 Apr  5  2011 modules.devname
+-rw-r--r--    1 root     root           235 Apr  5  2011 modules.order
+-rw-r--r--    1 root     root            55 Apr  5  2011 modules.softdep
+-rw-r--r--    1 root     root         35401 Apr  5  2011 modules.symbols
+-rw-r--r--    1 root     root         40361 Apr  5  2011 modules.symbols.bin
+--- .ko files
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/8733bu.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/88x2cu.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/DVBCIUSB.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/aspectratiodrv.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/btmt7921_usb.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/btmtk_usb.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/demod_khal.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/drivers/lg_kdriver/core/demod/khal/demod_khal.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/drivers/lg_kdriver/core/hdmi20/hdmi21_hdcp23/linux_hld_module.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/drivers/lg_kdriver/core/pmt/pmt.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/dvb_sti8036b_chip.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/f2io.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/npu-drv.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/rtk_btusb.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/si2178bpll.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/sti8036b.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/wlan_mt7663.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/wlan_mt7668.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/wlan_mt7921.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/a8303.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/a8303jp.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/atsc_dtv_soc.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/atsc_dtv_soc_chip.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/atsc_lgdt3307_chip.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/atsc_rtd2813_chip.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/cxd2857.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/cxd2878.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/cxd6868.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/dtmb_dtv_soc.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/dtmb_dtv_soc_chip.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/dvb_a8303_adapter.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/dvb_a8303_chip.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/dvb_a8303jp_chip.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/dvb_common_adapter.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/dvb_dtv_soc.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/dvb_dtv_soc_chip.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/dvb_lgdt3307_adapter.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/dvb_lnbr_adapter.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/dvb_lnbr_chip.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/dvb_mxl683_adapter.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/dvb_rda5815m_chip.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/dvb_rda5816_chip.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/dvb_rda_adapter.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/dvb_rt740_adapter.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/dvb_rt740_chip.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/dvb_rtk_adapter.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/dvb_si2151_chip.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/dvb_si2169d_chip.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/dvb_si2178b_chip.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/dvb_si2178bjp_chip.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/dvb_silab_adapter.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/dvb_sony_adapter.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/integ_dtv_soc.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/integ_dtv_soc_chip.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/isdb_cxd2857_chip.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/isdb_cxd2878_chip.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/isdb_cxd6868_chip.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/isdb_dtv_soc.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/isdb_dtv_soc_chip.ko
+/lib/modules/5.4.268-329.ptl4tv.2/kernel/isdb_mxl683_chip.ko
+--- config.gz
+ls: /proc/config.gz: No such file or directory
+--- sysfs module dirs
+8021q asix aspectratiodrv atsc_dtv_soc atsc_dtv_soc_chip aud auth_rpcgss blk_cgroup block bluetooth bridge btmtk_usb cdc_ncm cec cfg80211 cifs configfs cpufreq cqhci cryptomgr demod_khal dm_bufio dm_mod dm_verity drm drm_kms_helper dvb_common_adapter dvb_core dvb_si2178b_chip dvb_silab_adapter dynamic_debug ehci_hcd exfat f2io fb firmware_class ftdi_sio fuse fwload fwload_aud fwload_vdec fwload_wov garp hid hid_logitech hma i2c_algo_bit ipc ipv6 kernel keyboard lg1k lg1kdrm lgsic_bc lgsic_card lgsic_machine lgsic_mc lgsic_pdm linux_hld_module lne lockd loop mali_kbase mmcblk mt20xx nf_conntrack nfs nfsd npu_drv ntfs overlay printk psmouse r8152 random rcupdate rcutree scsi_mod sdhci sg sheap si2178b si2178b_atv sierra sit snd snd_pcm snd_seq snd_seq_midi snd_timer snd_usb_audio spidev spurious squashfs sr_mod srcutree stmmac sunrpc suspend sysrq tcp_cubic tda18271 tda827x tda8290 tda9887 tuner_simple tuner_xc2028 usb_storage usbcore usbhid usbip_core usbip_vudc uvcvideo v4l2_mem2mem vdec_hal videobuf2_common videobuf2_v4l2 vt watchdog webos_tv wlan_mt7668_usb workqueue xc4000 xc5000 xhci_hcd xpad xz_dec 

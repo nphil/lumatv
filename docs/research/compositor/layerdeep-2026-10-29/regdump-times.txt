@@ -1,0 +1,9 @@
+07:46:00
+ status.fb_flip_cnt     = 511837
+ status.total_fb_flip_cnt= 511838
+07:46:01
+ status.fb_flip_cnt     = 511837
+ status.total_fb_flip_cnt= 511838
+07:46:02
+ status.fb_flip_cnt     = 511837
+ status.total_fb_flip_cnt= 511838

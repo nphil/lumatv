@@ -1,0 +1,52 @@
+total 0
+drwx------    6 root     root             0 Dec 31  1969 .
+drwx------   30 root     root             0 Dec 31  1969 ..
+-r--r--r--    1 root     root             0 Dec 31  1969 README
+-r--r--r--    1 root     root             0 Dec 31  1969 available_events
+-r--r--r--    1 root     root             0 Dec 31  1969 available_tracers
+-r--r--r--    1 root     root             0 Dec 31  1969 buffer_percent
+-rw-r--r--    1 root     root             0 Oct 29 02:23 buffer_size_kb
+-r--r--r--    1 root     root             0 Dec 31  1969 buffer_total_size_kb
+-rw-r--r--    1 root     root             0 Dec 31  1969 current_tracer
+-rw-r--r--    1 root     root             0 Dec 31  1969 dynamic_events
+-rw-r--r--    1 root     root             0 Dec 31  1969 error_log
+drwxr-x---   83 root     root             0 Dec 31  1969 events
+--w-------    1 root     root             0 Dec 31  1969 free_buffer
+drwxr-x---    2 root     root             0 Dec 31  1969 instances
+-rw-r--r--    1 root     root             0 Dec 31  1969 kprobe_events
+-r--r--r--    1 root     root             0 Dec 31  1969 kprobe_profile
+drwxr-x---    2 root     root             0 Dec 31  1969 options
+drwxr-x---    6 root     root             0 Dec 31  1969 per_cpu
+-r--r--r--    1 root     root             0 Dec 31  1969 printk_formats
+-r--r--r--    1 root     root             0 Dec 31  1969 saved_cmdlines
+-rw-r--r--    1 root     root             0 Dec 31  1969 saved_cmdlines_size
+-r--r--r--    1 root     root             0 Dec 31  1969 saved_tgids
+-rw-r--r--    1 root     root             0 Dec 31  1969 set_event
+-rw-r--r--    1 root     root             0 Dec 31  1969 set_event_pid
+-r--r--r--    1 root     root             0 Dec 31  1969 timestamp_mode
+-rw-r--r--    1 root     root             0 Oct 29 02:23 trace
+-rw-r--r--    1 root     root             0 Oct 29 02:23 trace_clock
+--w--w----    1 root     root             0 Oct 29 02:23 trace_marker
+--w--w----    1 root     root             0 Dec 31  1969 trace_marker_raw
+-rw-r--r--    1 root     root             0 Dec 31  1969 trace_options
+-r--r--r--    1 root     root             0 Dec 31  1969 trace_pipe
+-rw-r--r--    1 root     root             0 Dec 31  1969 tracing_cpumask
+-rw-r--r--    1 root     root             0 Oct 29 02:23 tracing_on
+-rw-r--r--    1 root     root             0 Dec 31  1969 tracing_thresh
+-rw-r--r--    1 root     root             0 Dec 31  1969 uprobe_events
+-r--r--r--    1 root     root             0 Dec 31  1969 uprobe_profile
+--- kprobe_events:
+--- dynamic_events:
+--- uprobe_events:
+--- current_tracer
+nop
+--- available_tracers
+nop
+--- tracing_on
+1
+--- available_filter_functions lines
+wc: /sys/kernel/debug/tracing/available_filter_functions: No such file or directory
+--- osd/fbdev/lg1k in available_filter_functions
+grep: /sys/kernel/debug/tracing/available_filter_functions: No such file or directory
+--- events
+alarmtimer asoc block bpf_test_run bridge cfg80211 cgroup cifs clk cma compaction cpuhp devfreq dma_fence drm dwc3 enable ext4 fib fib6 filelock filemap ftrace gadget gpio header_event header_page i2c initcall iomap iommu ipi irq jbd2 kmem kyber mali mdio migrate mmc module napi neigh net nfs nfsd oom page_isolation page_pool pagemap percpu power printk qdisc raw_syscalls rcu regmap regulator rpcgss rpm rseq rtc sched scsi signal skb smbus sock spi sunrpc swiotlb syscalls task tcp thermal timer udp v4l2 vb2 vmscan workqueue writeback xdp xhci-hcd 

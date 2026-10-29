@@ -1,0 +1,5 @@
+MemFree:           38560 kB
+MemAvailable:     787096 kB
+CmaTotal:         692224 kB
+CmaFree:            8452 kB
+CmaDeviceAlloc:	  258652 kB

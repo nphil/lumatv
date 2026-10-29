@@ -1,0 +1,22 @@
+/sys/kernel/debug/dri/0/:
+total 0
+drwxr-xr-x    4 root     root             0 Dec 31  1969 .
+drwxr-xr-x    4 root     root             0 Dec 31  1969 ..
+drwxr-xr-x    2 root     root             0 Dec 31  1969 TV-1
+-r--r--r--    1 root     root             0 Dec 31  1969 clients
+drwxr-xr-x    2 root     root             0 Dec 31  1969 crtc-0
+-r--r--r--    1 root     root             0 Dec 31  1969 framebuffer
+-r--r--r--    1 root     root             0 Dec 31  1969 gem_names
+-r--r--r--    1 root     root             0 Dec 31  1969 internal_clients
+-r--r--r--    1 root     root             0 Dec 31  1969 name
+-r--r--r--    1 root     root             0 Dec 31  1969 state
+
+/sys/kernel/debug/dri/0/TV-1:
+total 0
+drwxr-xr-x    2 root     root             0 Dec 31  1969 .
+drwxr-xr-x    4 root     root             0 Dec 31  1969 ..
+-rw-r--r--    1 root     root             0 Dec 31  1969 edid_override
+-rw-r--r--    1 root     root             0 Dec 31  1969 force
+== /sys/kernel/debug/dri/0/TV-1/edid_override
+== /sys/kernel/debug/dri/0/TV-1/force
+on

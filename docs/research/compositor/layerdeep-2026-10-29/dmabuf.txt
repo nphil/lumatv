@@ -1,0 +1,80 @@
+
+Dma-buf Objects:
+size    	flags   	mode    	count   	exp_name	ino     
+08486912	00000002	00080007	00000001	gal_renderd	01750926	
+	Attached Devices:
+	c4250000.gpu
+Total 1 devices attached
+
+08486912	00000002	00080007	00000001	gal_renderd	01751081	
+	Attached Devices:
+	c4250000.gpu
+Total 1 devices attached
+
+08486912	00000002	00080007	00000001	gal_renderd	01751048	
+	Attached Devices:
+	c4250000.gpu
+Total 1 devices attached
+
+08486912	00000002	00080007	00000001	gal_renderd	01750783	
+	Attached Devices:
+	c4250000.gpu
+Total 1 devices attached
+
+08486912	00000002	00080007	00000001	gal_renderd	01749993	
+	Attached Devices:
+	c4250000.gpu
+Total 1 devices attached
+
+08486912	00000002	00080007	00000001	gal_renderd	01749981	
+	Attached Devices:
+	c4250000.gpu
+Total 1 devices attached
+
+08486912	00000002	00080007	00000001	gal_renderd	01749979	
+	Attached Devices:
+	c4250000.gpu
+Total 1 devices attached
+
+08486912	00000002	00080007	00000001	gal_renderd	01749922	
+	Attached Devices:
+	c4250000.gpu
+Total 1 devices attached
+
+08486912	00000002	00080007	00000001	gal_renderd	01750701	
+	Attached Devices:
+	c4250000.gpu
+Total 1 devices attached
+
+08486912	00000002	00080007	00000001	gal_renderd	01749906	
+	Attached Devices:
+	c4250000.gpu
+Total 1 devices attached
+
+08486912	00000002	00080007	00000001	gal_renderd	01750651	
+	Attached Devices:
+	c4250000.gpu
+Total 1 devices attached
+
+08486912	00000002	00080007	00000001	gal_renderd	01749883	
+	Attached Devices:
+	c4250000.gpu
+Total 1 devices attached
+
+08486912	00000002	00080007	00000001	gal_renderd	01749868	
+	Attached Devices:
+	c4250000.gpu
+Total 1 devices attached
+
+08486912	00000002	00080007	00000001	gal_renderd	01749781	
+	Attached Devices:
+	c4250000.gpu
+Total 1 devices attached
+
+08486912	00000002	00080007	00000001	gal_renderd	01750492	
+	Attached Devices:
+	c4250000.gpu
+Total 1 devices attached
+
+08486912	00000002	00080007	00000001	gal_renderd	01749742	
+	Attached Devices:

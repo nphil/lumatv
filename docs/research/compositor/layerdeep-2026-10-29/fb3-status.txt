@@ -1,0 +1,117 @@
+ cfg.b_active         = 1
+ cfg.b_cursor         = 1
+ cfg.b_use_afbc       = 0
+ cfg..b_use_bltn_fbmem= 0
+ cfg.max_xres         = 256
+ cfg.max_yres         = 256
+ cfg.max_buf_num      = 2
+ linux_fb_mode        = 0
+ users                = 6
+ fb_base_phys         = 0x8c131000
+ fb_base              = 00000000e1c4c3d5
+ fb_size              = 4096
+ osd_hdr_base_phys    = 0x8c133000
+ osd_hdr_base         = 000000009bfcb56f
+ osd_hdr_size         = 0x20
+ osd_plte_base_phys   = 0x8c132000
+ osd_plte_base        = 00000000d57ae825
+ osd_plte_size        = 1024
+ status.b_use_vsync     = 1
+ status.b_sd_hdr_write  = 1
+ status.b_osd_hdr_flush = 1
+ status.fb_pan_disp_cnt = 0
+ status.fb_flip_cnt     = 2071
+ status.total_fb_flip_cnt= 2071
+
+ pixel.fb_dev_id      = 0
+ pixel.fbc_fmtid      = 3
+ pixel.osd_bm_paddr   = 0x87228000
+ pixel.stride         = 1024
+ pixel.bits_per_pixel = 32 (pxlfmt 0xe, pxldepth 0x6)
+ pixel.input_win.x    = 0
+ pixel.input_win.y    = 0
+ pixel.input_win.w    = 120
+ pixel.input_win.h    = 170
+ pixel.output_win.x   = 1560
+ pixel.output_win.y   = 1286
+ pixel.output_win.w   = 120
+ pixel.output_win.h   = 170
+ pixel.test_output_win.x = 0
+ pixel.test_output_win.y = 0
+ pixel.test_output_win.w = 0
+ pixel.test_output_win.h = 0
+ pixel.user_win_ctrl_en= 0
+ pixel.color_key_en   = 0
+ pixel.pixel_order_en = 0
+ pixel.global_alpha_en= 0
+ pixel.color_key      = 0x0
+ pixel.global_alpha   = 0xff
+ pixel.csr_size       = 120x170
+ pixel.csr_hotspot    = 18x18
+
+ fbinfo.state           = 0x0
+ fbinfo.flags           = 0x0
+ fbinfo.screen_base     = 00000000e1c4c3d5
+ fbinfo.screen_size     = 4096
+ fbinfo.fbcon_par       = 0000000000000000
+ fbinfo.par             = 00000000f9e14168
+ fbinfo.fix.id          = crsr_fb
+ fbinfo.fix.smem_start  = 0x8c131000
+ fbinfo.fix.smem_len    = 4096
+ fbinfo.fix.type        = 0x0
+ fbinfo.fix.type_aux    = 0x0
+ fbinfo.fix.visual      = 0x2
+ fbinfo.fix.xpanstep    = 0
+ fbinfo.fix.ypanstep    = 1
+ fbinfo.fix.ywrapstep   = 0
+ fbinfo.fix.line_length = 1024
+ fbinfo.fix.mmio_start  = 0x0
+ fbinfo.fix.mmio_len    = 256
+ fbinfo.fix.accel       = 0
+ fbinfo.fix.reserved[3] 2B
+
+ fbinfo.var.xres        = 256
+ fbinfo.var.yres        = 256
+ fbinfo.var.xres_virtual= 256
+ fbinfo.var.yres_virtual= 512
+ fbinfo.var.xoffset     = 0
+ fbinfo.var.yoffset     = 0
+ fbinfo.var.bits_per_pxl= 32
+ fbinfo.var.grayscale   = 0
+ fbinfo.var.transp      = (24, 8, 0)
+ fbinfo.var.red         = (16, 8, 0)
+ fbinfo.var.green       = ( 8, 8, 0)
+ fbinfo.var.blue        = ( 0, 8, 0)
+ fbinfo.var.nonstd      = 0
+ fbinfo.var.activate    = 0x80
+ fbinfo.var.width(mm)   = -1
+ fbinfo.var.height(mm)  = -1
+ fbinfo.var.pixclock    = 180000
+ fbinfo.var.left_margin = 40
+ fbinfo.var.right_margin= 4
+ fbinfo.var.upper_margin= 8
+ fbinfo.var.lower_margin= 2
+ fbinfo.var.hsync_len   = 0x0
+ fbinfo.var.vsync_len   = 0x0
+ fbinfo.var.sync        = 0x0
+ fbinfo.var.vmode       = 0x0
+ fbinfo.var.rotate      = 0
+
+
+posd_num: 1
+posd_idx: 3
+ visible: off (osd:0, sync:0)
+ hdr.xpos: 1542
+ hdr.ypos: 1268
+ hdr.w_mem: 120
+ hdr.h_mem: 170
+ hdr.w_out: 120
+ hdr.h_out: 170
+ hdr.pixel_order: 0x0
+ hdr.wpl: 128
+ hdr.global_alpha_en: 0
+ hdr.global_alpha: 0xff
+ hdr.color_key_en: 0
+ hdr.color_key: 0x0
+ hdr.ptr_plte: 0x8c132000
+ hdr.ptr_bmp: 0x87228000

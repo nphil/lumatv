@@ -1,0 +1,263 @@
+ls: /dev/kmem: No such file or directory
+crw-rw-rw-    1 root     root       10,  60 Dec 31  1969 /dev/dma_buf_te
+crw-rw-rw-    1 root     root       10,  59 Dec 31  1969 /dev/dma_buf_unified
+lrwxrwxrwx    1 root     root             8 Dec 31  2022 /dev/fb -> /dev/fb0
+crw-rw----    1 root     composit   29,   0 Dec 31  1969 /dev/fb0
+crw-------    1 root     root       29,   1 Dec 31  1969 /dev/fb1
+crw-------    1 root     root       29,   2 Dec 31  1969 /dev/fb2
+crw-------    1 root     root       29,   3 Dec 31  1969 /dev/fb3
+crw-------    1 root     root       10,  63 Dec 31  1969 /dev/ion
+crw-rw-rw-    1 root     root       10,  58 Dec 31  1969 /dev/mali0
+crw-rw----    1 root     composit    1,   1 Dec 31  1969 /dev/mem
+crw-------    1 root     root       81,   2 Dec 31  1969 /dev/video10
+crw-------    1 root     root       81,   0 Dec 31  1969 /dev/video12
+crw-------    1 root     root       81,   1 Dec 31  1969 /dev/video13
+crw-------    1 root     root       81,  22 Dec 31  2022 /dev/video2
+crw-rw----    1 root     composit   81,  15 Dec 31  1969 /dev/video20
+crw-rw----    1 root     composit   81,  19 Dec 31  1969 /dev/video21
+crw-rw----    1 root     composit   81,  20 Dec 31  1969 /dev/video22
+crw-rw----    1 root     composit   81,  21 Dec 31  1969 /dev/video24
+crw-------    1 root     root       81,  10 Dec 31  1969 /dev/video240
+crw-------    1 root     root       81,  12 Dec 31  1969 /dev/video241
+crw-rw----    1 root     composit   81,  16 Dec 31  1969 /dev/video27
+crw-rw----    1 root     composit   81,  17 Dec 31  1969 /dev/video28
+crw-------    1 root     root       81,  18 Dec 31  1969 /dev/video29
+crw-------    1 root     root       81,   3 Dec 31  1969 /dev/video30
+crw-rw----    1 root     composit   81,   4 Dec 31  1969 /dev/video31
+crw-------    1 root     root       81,   5 Dec 31  1969 /dev/video32
+crw-------    1 root     root       81,   6 Dec 31  1969 /dev/video33
+crw-------    1 root     root       81,  14 Dec 31  1969 /dev/video40
+crw-------    1 root     root       81,  11 Dec 31  1969 /dev/video50
+crw-rw----    1 root     composit   81,   7 Dec 31  1969 /dev/video60
+crw-------    1 root     root       81,   8 Dec 31  1969 /dev/video61
+crw-rw----    1 root     composit   81,   9 Dec 31  1969 /dev/video70
+crw-rw-rw-    1 root     root     1818,   0 Dec 31  1969 /dev/vo
+
+/dev/dri/:
+total 0
+drwxr-xr-x    2 root     root            80 Dec 31  1969 .
+drwxr-xr-x   16 root     root          6740 Oct 29 01:04 ..
+crw-------    1 root     root      226,   0 Dec 31  1969 card0
+crw-------    1 root     root      226, 128 Dec 31  1969 renderD128
+
+/dev/lg/:
+total 0
+dr-xr-xr-x    2 root     jailer        2520 Dec 31  2022 .
+drwxr-xr-x   16 root     root          6740 Oct 29 01:04 ..
+crwxrwxrwx    1 root     root      140,   0 Dec 31  2022 aad0
+crwxrwxrwx    1 root     root      143,   2 Dec 31  2022 acap0
+crwxrwxrwx    1 root     root     1103,   2 Dec 31  1969 aclk0
+crw-------    1 root     root     1103,   3 Dec 31  1969 adbg0
+crwxrwxrwx    1 root     root     1103,   0 Dec 31  1969 adec0
+crwxrwxrwx    1 root     root      143,   1 Dec 31  2022 aenc0
+crwxrwxrwx    1 root     root     1102,   0 Dec 31  1969 afe0
+crwxrwxrwx    1 root     root      169,   0 Dec 31  2022 apr0
+crwxrwxrwx    1 root     root     1103,   1 Dec 31  1969 aren0
+crw-------    1 root     root     1145,   0 Dec 31  1969 arib2
+crw-------    1 root     root     1145,   1 Dec 31  1969 arib2c0
+crw-------    1 root     root     1145,   2 Dec 31  1969 arib2c1
+crw-------    1 root     root     1145,   3 Dec 31  1969 arib2c2
+crw-------    1 root     root     1145,   4 Dec 31  1969 arib2c3
+crw-------    1 root     root     1141,   0 Dec 31  1969 atsc3
+crw-------    1 root     root     1141,   1 Dec 31  1969 atsc3c0
+crw-------    1 root     root     1141,   2 Dec 31  1969 atsc3c1
+crw-------    1 root     root     1141,   3 Dec 31  1969 atsc3c2
+crw-------    1 root     root     1141,   4 Dec 31  1969 atsc3c3
+crwxrwxrwx    1 root     root      242,   0 Dec 31  1969 audio_uimc
+crwxrwxrwx    1 root     root     1130,   0 Dec 31  1969 be0
+crwxrwxrwx    1 root     root      144,   0 Dec 31  2022 ci0
+crw-------    1 root     root     1139,   0 Dec 31  1969 ciplus0
+crw-------    1 root     root     1139,   1 Dec 31  1969 ciplus0c0
+crw-------    1 root     root     1139,   2 Dec 31  1969 ciplus0c1
+crw-------    1 root     root     1139,   3 Dec 31  1969 ciplus0c2
+crwxrwxrwx    1 root     root      164,   0 Dec 31  2022 clk0
+crwxrwxrwx    1 root     root      164,   1 Dec 31  2022 clk1
+crwxrwxrwx    1 root     root      164,   2 Dec 31  2022 clk2
+crwxrwxrwx    1 root     root      164,   3 Dec 31  2022 clk3
+crw-------    1 root     root     1147,   0 Dec 31  1969 crypto0
+crwxrwxrwx    1 root     root      262,   0 Dec 31  2022 dbgdrv
+crwxrwxrwx    1 root     root      261,   0 Dec 31  2022 dc_fbdev
+crwxrwxrwx    1 root     root     1105,   0 Dec 31  1969 de0
+crwxrwxrwx    1 root     root     1105,   1 Dec 31  1969 de1
+crwxrwxrwx    1 root     root      145,   2 Dec 31  2022 de2
+crwxrwxrwx    1 root     root      145,   3 Dec 31  2022 de3
+crwxrwxrwx    1 root     root     1106,   0 Dec 31  1969 demod0
+crwxrwxrwx    1 root     root      147,   0 Dec 31  2022 denc0
+crwxrwxrwx    1 root     root      148,   0 Dec 31  2022 dimm0
+crw-------    1 root     root     1140,   0 Dec 31  1969 emmc0
+crwxrwxrwx    1 root     root      174,   0 Dec 31  2022 esm
+crwxrwxrwx    1 root     root      149,   0 Dec 31  2022 fmt3d0
+crwxrwxrwx    1 root     root      150,   0 Dec 31  2022 frc0
+crwxrwxrwx    1 root     root     1111,   0 Dec 31  1969 gfx0
+crwxrwxrwx    1 root     root      151,   1 Dec 31  2022 gfx1
+crwxrwxrwx    1 root     root     1112,   0 Dec 31  1969 gpio0
+crwxrwxrwx    1 root     root      176,   0 Dec 31  2022 hdmi0
+crwxrwxrwx    1 root     root      176,   1 Dec 31  2022 hdmi20
+crw-------    1 root     root     1136,   1 Dec 31  1969 hdmi200
+crwxrwxrwx    1 root     root      170,   0 Dec 31  2022 hdp0
+crwxrwxrwx    1 root     root     1114,   0 Dec 31  1969 iic0
+crwxrwxrwx    1 root     root     1114,   1 Dec 31  1969 iic1
+crwxrwxrwx    1 root     root     1114,  10 Dec 31  1969 iic10
+crwxrwxrwx    1 root     root     1114,  11 Dec 31  1969 iic11
+crwxrwxrwx    1 root     root     1114,  12 Dec 31  1969 iic12
+crwxrwxrwx    1 root     root     1114,  13 Dec 31  1969 iic13
+crwxrwxrwx    1 root     root      154,  14 Dec 31  2022 iic14
+crwxrwxrwx    1 root     root      154,  15 Dec 31  2022 iic15
+crwxrwxrwx    1 root     root     1114,   2 Dec 31  1969 iic2
+crwxrwxrwx    1 root     root     1114,   3 Dec 31  1969 iic3
+crwxrwxrwx    1 root     root     1114,   4 Dec 31  1969 iic4
+crwxrwxrwx    1 root     root     1114,   5 Dec 31  1969 iic5
+crwxrwxrwx    1 root     root     1114,   6 Dec 31  1969 iic6
+crwxrwxrwx    1 root     root     1114,   7 Dec 31  1969 iic7
+crwxrwxrwx    1 root     root     1114,   8 Dec 31  1969 iic8
+crwxrwxrwx    1 root     root     1114,   9 Dec 31  1969 iic9
+crwxrwxrwx    1 root     root      154,  64 Dec 31  2022 iicGPIO0
+crwxrwxrwx    1 root     root      154,  65 Dec 31  2022 iicGPIO1
+crwxrwxrwx    1 root     root      154,  66 Dec 31  2022 iicGPIO2
+crwxrwxrwx    1 root     root      154,  67 Dec 31  2022 iicGPIO3
+crw-------    1 root     root     1146,   0 Dec 31  1969 irb0
+crwxrwxrwx    1 root     root      270,   0 Dec 31  2022 lgbus
+crwxrwxrwx    1 root     root      181,   0 Dec 31  2022 lgsnap
+crwxrwxrwx    1 root     root     1810,   0 Dec 31  2022 logm
+crw-rw-rw-    1 root     root     1810,   0 Dec 31  1969 logm0
+crwxrwxrwx    1 root     root     1128,   0 Dec 31  1969 mjpeg0
+crwxrwxrwx    1 root     root      165,   0 Dec 31  2022 mon0
+crwxrwxrwx    1 root     root      165,   1 Dec 31  2022 mon1
+crwxrwxrwx    1 root     root      165,   2 Dec 31  2022 mon2
+crwxrwxrwx    1 root     root      165,   3 Dec 31  2022 mon3
+crwxrwxrwx    1 root     root     1133,   0 Dec 31  1969 ovi0
+crwxrwxrwx    1 root     root     1116,   0 Dec 31  1969 pe0
+crwxrwxrwx    1 root     root     1137,   0 Dec 31  1969 pm0
+crwxrwxrwx    1 root     root      155,   0 Dec 31  2022 png0
+crwxrwxrwx    1 root     root     1117,   0 Dec 31  1969 pvr0
+crw-------    1 root     root     1117,   3 Dec 31  1969 pvr0dn0
+crw-------    1 root     root     1117,   4 Dec 31  1969 pvr0dn1
+crw-------    1 root     root     1117,   1 Dec 31  1969 pvr0up0
+crw-------    1 root     root     1117,   2 Dec 31  1969 pvr0up1
+crwxrwxrwx    1 root     root      157,   1 Dec 31  2022 pvr1
+crwxrwxrwx    1 root     root      260,   0 Dec 31  2022 pvrsrvkm
+crwxrwxrwx    1 root     root      167,   0 Dec 31  2022 sci
+crwxrwxrwx    1 root     root     1118,   0 Dec 31  1969 sdec0
+crw-------    1 root     root     1118,   1 Dec 31  1969 sdec0c0
+crw-------    1 root     root     1118,   2 Dec 31  1969 sdec0c1
+crw-------    1 root     root     1118,   3 Dec 31  1969 sdec0c2
+crw-------    1 root     root     1118,   4 Dec 31  1969 sdec0c3
+crw-------    1 root     root     1118,   5 Dec 31  1969 sdec0c4
+crw-------    1 root     root     1118,   6 Dec 31  1969 sdec0c5
+crwxrwx---    1 root     se       1119,   0 Dec 31  1969 se0
+crw-------    1 root     root     1119,   1 Dec 31  1969 se1
+crw-------    1 root     root     1113,   0 Dec 31  1969 spi0
+crw-------    1 root     root     1113,   1 Dec 31  1969 spi1
+crwxrwxrwx    1 root     root     1123,   0 Dec 31  1969 sys0
+crwxrwxrwx    1 root     root      172,   0 Dec 31  2022 tcon0
+crwxrwxrwx    1 root     root     1138,   0 Dec 31  1969 te0
+crwxrwxrwx    1 root     root      160,   0 Dec 31  2022 ttx0
+crw-------    1 root     root     1144,   0 Dec 31  1969 ucom0
+crwxrwxrwx    1 root     root      171,   0 Dec 31  2022 ump0
+crwxrwxrwx    1 root     root     1120,   0 Dec 31  1969 vbi0
+crwxrwxrwx    1 root     root      161,   0 Dec 31  2022 vdec0
+crwxrwxrwx    1 root     root      161,   1 Dec 31  2022 vdec1
+crwxrwxrwx    1 root     root      161,   2 Dec 31  2022 vdec2
+crwxrwxrwx    1 root     root      161,   3 Dec 31  2022 vdec3
+crwxrwxrwx    1 root     root      161,   4 Dec 31  2022 vdec4
+crwxrwxrwx    1 root     root      161,   5 Dec 31  2022 vdec5
+crwxrwxrwx    1 root     root      161,   6 Dec 31  2022 vdec6
+crwxrwxrwx    1 root     root      161,   7 Dec 31  2022 vdec7
+crwxrwxrwx    1 root     root      162,   0 Dec 31  2022 venc0
+crwxrwxrwx    1 root     root      170,   0 Dec 31  2022 za0
+crwxrwxrwx    1 root     root      170,   1 Dec 31  2022 za1
+crwxrwxrwx    1 root     root      171,   0 Dec 31  2022 zb0
+crwxrwxrwx    1 root     root      171,   1 Dec 31  2022 zb1
+--- iomem
+00000000-56bfffff : System RAM
+  00000000-00082fff : reserved
+  00088000-0197ffff : Kernel code
+  01980000-01a3ffff : reserved
+  01a40000-0263dfff : Kernel data
+  53e00000-541fffff : reserved
+  543ff000-565fffff : reserved
+  56644000-56744fff : reserved
+  56745000-567c0fff : reserved
+  567c3000-567c3fff : reserved
+  567c4000-567c4fff : reserved
+  567c5000-567f9fff : reserved
+  567fa000-56bfffff : reserved
+69800000-72bfffff : System RAM
+  69800000-72bfffff : reserved
+77000000-917fffff : System RAM
+  77000000-917fffff : reserved
+96c00000-9d3fffff : System RAM
+  96c00000-9d3fffff : reserved
+c4100000-c4101fff : c4100000.ethernet ethernet@c4100000
+c4250000-c425ffff : c4250000.gpu
+c8040000-c8040fff : c8040000.mmc mmc@c8040000
+c8900000-c890530f : hdmicec_register
+  c8900000-c890530f : lgdt-cec
+c890e000-c890e07f : hl_dev-hpi
+c8950000-c8950023 : crghdmisyn_register
+c8972000-c897200b : ctophdmibnd_register
+ca000000-ca000fff : usb@ca000000
+  ca000000-ca000fff : xhci-hcd.0 usb@ca000000
+ca080000-ca080fff : usb@ca080000
+  ca080000-ca080fff : xhci-hcd.1 usb@ca080000
+ca100000-ca100fff : usb@ca100000
+  ca100000-ca100fff : xhci-hcd.2 usb@ca100000
+ca180000-ca180fff : usb@ca180000
+  ca180000-ca180fff : generic-ehci.0 usb@ca180000
+ca184000-ca184fff : usb@ca184000
+  ca184000-ca184fff : generic-ohci.0 usb@ca184000
+cc3f4008-cc3f400b : fe800000.spi spi@fe800000
+e0000000-e0000fff : e0000000.crypto crypto@e0000000
+e0001000-e0001fff : e0001000.crypto crypto@e0001000
+f2100500-f2100bff : reg
+f2220000-f22201ff : reg
+f3082000-f3082117 : ctopwov_register
+fd200000-fd200fff : watchdog@fd200000
+  fd200000-fd200fff : fd200000.watchdog watchdog@fd200000
+fd400000-fd400fff : gpio@fd400000
+  fd400000-fd400fff : fd400000.gpio gpio@fd400000
+fd410000-fd410fff : gpio@fd410000
+  fd410000-fd410fff : fd410000.gpio gpio@fd410000
+fd420000-fd420fff : gpio@fd420000
+  fd420000-fd420fff : fd420000.gpio gpio@fd420000
+fd430000-fd430fff : gpio@fd430000
+  fd430000-fd430fff : fd430000.gpio gpio@fd430000
+fd440000-fd440fff : gpio@fd440000
+  fd440000-fd440fff : fd440000.gpio gpio@fd440000
+fd450000-fd450fff : gpio@fd450000
+  fd450000-fd450fff : fd450000.gpio gpio@fd450000
+fd460000-fd460fff : gpio@fd460000
+  fd460000-fd460fff : fd460000.gpio gpio@fd460000
+fd470000-fd470fff : gpio@fd470000
+  fd470000-fd470fff : fd470000.gpio gpio@fd470000
+fd480000-fd480fff : gpio@fd480000
+  fd480000-fd480fff : fd480000.gpio gpio@fd480000
+fd490000-fd490fff : gpio@fd490000
+  fd490000-fd490fff : fd490000.gpio gpio@fd490000
+fd4a0000-fd4a0fff : gpio@fd4a0000
+  fd4a0000-fd4a0fff : fd4a0000.gpio gpio@fd4a0000
+fd4b0000-fd4b0fff : gpio@fd4b0000
+  fd4b0000-fd4b0fff : fd4b0000.gpio gpio@fd4b0000
+fd4c0000-fd4c0fff : gpio@fd4c0000
+  fd4c0000-fd4c0fff : fd4c0000.gpio gpio@fd4c0000
+fd4d0000-fd4d0fff : gpio@fd4d0000
+  fd4d0000-fd4d0fff : fd4d0000.gpio gpio@fd4d0000
+fd4e0000-fd4e0fff : gpio@fd4e0000
+  fd4e0000-fd4e0fff : fd4e0000.gpio gpio@fd4e0000
+fd4f0000-fd4f0fff : gpio@fd4f0000
+  fd4f0000-fd4f0fff : fd4f0000.gpio gpio@fd4f0000
+fd500000-fd500fff : gpio@fd500000
+  fd500000-fd500fff : fd500000.gpio gpio@fd500000
+fd510000-fd510fff : gpio@fd510000
+  fd510000-fd510fff : fd510000.gpio gpio@fd510000
+fe000000-fe000fff : serial@fe000000
+  fe000000-fe000fff : fe000000.serial serial@fe000000
+fe100000-fe100fff : serial@fe100000
+  fe100000-fe100fff : fe100000.serial serial@fe100000
+fe200000-fe200fff : serial@fe200000
+  fe200000-fe200fff : fe200000.serial serial@fe200000
+fe800000-fe800fff : fe800000.spi spi@fe800000
+fe900000-fe900fff : spi@fe900000
+  fe900000-fe900fff : ssp-pl022
+ff200000-ff200fff : dma@ff200000
+  ff200000-ff200fff : pl08xdmac

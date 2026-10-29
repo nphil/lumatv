@@ -1,0 +1,12 @@
+[20537.889380] de           NOT (02702:02702) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982912 (V4L2_CID_EXT_VSC_ORBIT_MOVE)
+[20537.889478] de           NOT (02702:02702) vsc_set_orbit_move       1978: win0: vi[0x0(0,0)] oi[3840x2160(15,0)] vo[0x0(0,0)] oo[3840x2160(0,0)]
+[20717.894249] de           NOT (02702:02702) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982912 (V4L2_CID_EXT_VSC_ORBIT_MOVE)
+[20717.894560] de           NOT (02702:02702) vsc_set_orbit_move       1978: win0: vi[0x0(0,0)] oi[3840x2160(16,1)] vo[0x0(0,0)] oo[3840x2160(0,0)]
+[20897.918241] de           NOT (02702:02702) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982912 (V4L2_CID_EXT_VSC_ORBIT_MOVE)
+[20897.918554] de           NOT (02702:02702) vsc_set_orbit_move       1978: win0: vi[0x0(0,0)] oi[3840x2160(17,2)] vo[0x0(0,0)] oo[3840x2160(0,0)]
+[21077.941879] de           NOT (02702:02702) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982912 (V4L2_CID_EXT_VSC_ORBIT_MOVE)
+[21077.942575] de           NOT (02702:02702) vsc_set_orbit_move       1978: win0: vi[0x0(0,0)] oi[3840x2160(18,3)] vo[0x0(0,0)] oo[3840x2160(0,0)]
+[21121.476324] fbdev        NOT (19260:19260) FBDEV_O22_CMN_DetectVSyncClk  509: B.OSD vsync detection = 0 (120Hz)
+[21124.596676] drm          INF (19303:19303) lg1k_connector_get_modes  345: mode 1280x720 add ok
+[21124.596683] drm          INF (19303:19303) lg1k_connector_get_modes  345: mode 1920x1080 add ok
+[21124.596686] drm          INF (19303:19303) lg1k_connector_get_modes  345: mode 3840x2160 add ok

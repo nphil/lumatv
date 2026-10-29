@@ -1,0 +1,57 @@
+panel.width: 3840
+panel.height 2160
+disp.path: bosd
+disp.width: 3840
+disp.height: 2160
+
+disp.uhd_mode: 1
+fb0.width: 1920
+fb0.height: 1080
+fb1.width: 768
+fb1.height: 2160
+ext_render.width: 16
+ext_render.height: 16
+hw_osd0_owner: fb(0)
+
+vsync_clk: 120Hz
+support_ext_frc: 0
+support_fb1: 1
+support_4kosd: 0
+support_ext_render: 0
+
+sr_ctrl[0].status: 0x00000001
+sr_ctrl[0].ti_gain: 0x00000010
+sr_ctrl[1].status: 0x00000000
+sr_ctrl[1].ti_gain: 0xffffffff
+
+mirror.status: 0x00000000
+
+ext_rener.fbmem0: 0x00000000
+ext_rener.fbmem1: 0x00000000
+ext_rener.fbmem_idx: 0
+ext_rener.hwparam.phys_y: 0x00000000
+ext_rener.hwparam.size: 0x00000000
+ext_rener.hwparam.xoffset: 0
+ext_rener.hwparam.yoffset: 0
+ext_rener.hwparam.enable: 0
+ext_rener.hwparam.crop_x: 0
+ext_rener.hwparam.crop_y: 0
+ext_rener.hwparam.crop_w: 0
+ext_rener.hwparam.crop_h: 0
+ext_rener.hwparam.tx_count: 0
+
+hw_wa.1x_csr_disp_on_blend_path: 0x1
+hw_wa.osd0_async_wr_error:       0x0
+hw_wa.pqwfw_osd0_out_ctrl:       0x1
+hw_wa_flag:                      0x5
+
+osd_sr.sw_status: 0x1
+osd_sr.hw_status: 0x1
+osd_sr.shp_ctrl0.bypass_en: 0x0 (fixed)
+osd_sr.bmp_ctrl0.detour_en: 0x0
+osd_sr.bmp_ctrl0.reg_rgb2yc_csc_en_de_clk: 0x0
+osd_sr.bmp_ctrl0.reg_yc2rgb_csc_en: 0x0
+osd_sr.bmp_ctrl0.reg_rgb2yc_csc_p_en_oclk: 0x1
+osd_sr.osd_hdrui_yc2rgb_ctrl00.reg_yuv2rgb_en: 0x1
+
+4kosd.muxcfg: 0x0

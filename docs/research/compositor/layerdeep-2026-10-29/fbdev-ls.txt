@@ -1,0 +1,69 @@
+/proc/lg/fbdev/:
+total 0
+dr-xr-xr-x   27 root     root             0 Oct 29 03:45 .
+dr-xr-xr-x   29 root     root             0 Dec 31  2022 ..
+-r--r--r--    1 root     root             0 Oct 29 03:46 author
+-rw-r--r--    1 root     root             0 Oct 29 03:46 capture
+-rw-r--r--    1 root     root             0 Oct 29 03:46 chgres
+dr-xr-xr-x   10 root     root             0 Oct 29 03:46 chip
+-rw-r--r--    1 root     root             0 Oct 29 03:46 drm_freeze
+dr-xr-xr-x    6 root     root             0 Oct 29 03:45 fb0
+dr-xr-xr-x    6 root     root             0 Oct 29 03:46 fb1
+dr-xr-xr-x    6 root     root             0 Oct 29 03:46 fb3
+-rw-r--r--    1 root     root             0 Oct 29 03:46 fb_bkup
+-rw-r--r--    1 root     root             0 Oct 29 03:46 fbmem_hook
+-rw-r--r--    1 root     root             0 Oct 29 03:46 flip_test
+-rw-r--r--    1 root     root             0 Oct 29 03:46 fps_mon
+-rw-r--r--    1 root     root             0 Oct 29 03:46 freeze
+-rw-r--r--    1 root     root             0 Oct 29 03:46 glalpha
+-r--r--r--    1 root     root             0 Oct 29 03:46 osdinfo
+-rw-r--r--    1 root     root             0 Oct 29 03:46 pathctrl
+-r--r--r--    1 root     root             0 Oct 29 03:46 pm_status
+-rw-r--r--    1 root     root             0 Oct 29 03:46 pm_test
+-r--r--r--    1 root     root             0 Oct 29 03:46 regdump
+-r--r--r--    1 root     root             0 Oct 29 03:46 render_event
+-r--r--r--    1 root     root             0 Oct 29 03:46 status
+-rw-r--r--    1 root     root             0 Oct 29 03:46 syncctrl
+-rw-r--r--    1 root     root             0 Oct 29 03:46 test_output_win
+-rw-r--r--    1 root     root             0 Oct 29 03:46 user_flip_opt
+-rw-r--r--    1 root     root             0 Oct 29 03:46 viewctrl
+
+/proc/lg/fbdev/chip:
+total 0
+dr-xr-xr-x   10 root     root             0 Oct 29 03:46 .
+dr-xr-xr-x   27 root     root             0 Oct 29 03:45 ..
+-r--r--r--    1 root     root             0 Oct 29 03:46 check_stuck
+-r--r--r--    1 root     root             0 Oct 29 03:46 diag
+-rw-r--r--    1 root     root             0 Oct 29 03:46 estreamer_write
+-r--r--r--    1 root     root             0 Oct 29 03:46 hw_ctx
+-rw-r--r--    1 root     root             0 Oct 29 03:46 mirror_test
+-rw-r--r--    1 root     root             0 Oct 29 03:46 osd_sr
+-rw-r--r--    1 root     root             0 Oct 29 03:46 osd_sr_gain
+-rw-r--r--    1 root     root             0 Oct 29 03:46 test_reconfig
+
+/proc/lg/fbdev/fb0:
+total 0
+dr-xr-xr-x    6 root     root             0 Oct 29 03:45 .
+dr-xr-xr-x   27 root     root             0 Oct 29 03:45 ..
+-r--r--r--    1 root     root             0 Oct 29 03:45 fbmem
+-r--r--r--    1 root     root             0 Oct 29 03:46 flip_cnt
+-r--r--r--    1 root     root             0 Oct 29 03:46 pan_disp_cnt
+-r--r--r--    1 root     root             0 Oct 29 03:46 status
+
+/proc/lg/fbdev/fb1:
+total 0
+dr-xr-xr-x    6 root     root             0 Oct 29 03:46 .
+dr-xr-xr-x   27 root     root             0 Oct 29 03:45 ..
+-r--r--r--    1 root     root             0 Oct 29 03:46 fbmem
+-r--r--r--    1 root     root             0 Oct 29 03:46 flip_cnt
+-r--r--r--    1 root     root             0 Oct 29 03:46 pan_disp_cnt
+-r--r--r--    1 root     root             0 Oct 29 03:46 status
+
+/proc/lg/fbdev/fb3:
+total 0
+dr-xr-xr-x    6 root     root             0 Oct 29 03:46 .
+dr-xr-xr-x   27 root     root             0 Oct 29 03:45 ..
+-r--r--r--    1 root     root             0 Oct 29 03:46 fbmem
+-r--r--r--    1 root     root             0 Oct 29 03:46 flip_cnt
+-r--r--r--    1 root     root             0 Oct 29 03:46 pan_disp_cnt
+-r--r--r--    1 root     root             0 Oct 29 03:46 status

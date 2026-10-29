@@ -1,0 +1,250 @@
+total 0
+dr-xr-xr-x   53 root     root             0 Dec 31  2022 .
+dr-xr-xr-x   29 root     root             0 Dec 31  2022 ..
+-rw-r--r--    1 root     root             0 Oct 29 03:46 activate_cmn_history
+-rw-r--r--    1 root     root             0 Oct 29 03:46 alloc_dbg_map
+-r--r--r--    1 root     root             0 Oct 29 03:46 author
+-rw-r--r--    1 root     root             0 Oct 29 03:46 bbd
+-rw-r--r--    1 root     root             0 Oct 29 03:46 bin_download
+-rw-r--r--    1 root     root             0 Oct 29 03:46 bwm
+-r--r--r--    1 root     root             0 Oct 29 03:46 cmn_history
+-rw-r--r--    1 root     root             0 Oct 29 03:46 command
+-rw-r--r--    1 root     root             0 Oct 29 03:46 debug_function
+-rw-r--r--    1 root     root             0 Oct 29 03:46 dft_mode
+-rw-r--r--    1 root     root             0 Oct 29 03:46 disp
+-r--r--r--    1 root     root             0 Oct 29 03:46 dnn_value
+-rw-r--r--    1 root     root             0 Oct 29 03:46 enable_dbg_map
+-rw-r--r--    1 root     root             0 Oct 29 03:46 force_cma_error
+-rw-r--r--    1 root     root             0 Oct 29 03:46 fpp_finalize
+-rw-r--r--    1 root     root             0 Oct 29 03:46 fpp_initialize
+-rw-r--r--    1 root     root             0 Oct 29 03:46 fr_rate
+-rw-r--r--    1 root     root             0 Oct 29 03:46 function_args
+-r--r--r--    1 root     root             0 Oct 29 03:46 fw-status
+-rw-r--r--    1 root     root             0 Oct 29 03:46 fw_dl_history
+-r--r--r--    1 root     root             0 Oct 29 03:46 help
+-r--r--r--    1 root     root             0 Oct 29 03:46 history
+-rw-r--r--    1 root     root             0 Oct 29 03:46 ipc_history
+-rw-r--r--    1 root     root             0 Oct 29 03:46 ipc_mask
+-rw-r--r--    1 root     root             0 Oct 29 03:46 keep_submode
+-rw-r--r--    1 root     root             0 Oct 29 03:46 log_level
+-rw-r--r--    1 root     root             0 Oct 29 03:46 netsync
+-rw-r--r--    1 root     root             0 Oct 29 03:46 pip
+-rw-r--r--    1 root     root             0 Oct 29 03:46 pm_test
+-rw-r--r--    1 root     root             0 Oct 29 03:46 set_delay_intr
+-rw-r--r--    1 root     root             0 Oct 29 03:46 set_hist_func
+-rw-r--r--    1 root     root             0 Oct 29 03:46 set_venc
+-r--r--r--    1 root     root             0 Oct 29 03:46 slt_status
+-r--r--r--    1 root     root             0 Oct 29 03:46 status
+-rw-r--r--    1 root     root             0 Oct 29 03:46 switch_mcu
+-r--r--r--    1 root     root             0 Oct 29 03:46 usages
+-rw-r--r--    1 root     root             0 Oct 29 03:46 v4l2_capture
+-r--r--r--    1 root     root             0 Dec 31  2022 v4l2_capture_read
+-rw-r--r--    1 root     root             0 Oct 29 03:46 v4l2_event
+-r--r--r--    1 root     root             0 Oct 29 03:46 v4l2_gps_debug
+-r--r--r--    1 root     root             0 Oct 29 03:46 v4l2_gps_get_drop
+-rw-r--r--    1 root     root             0 Oct 29 03:46 v4l2_pixelgrab
+-rw-r--r--    1 root     root             0 Oct 29 03:46 v4l2_vsc_debug_func
+-rw-r--r--    1 root     root             0 Oct 29 03:46 vsc_oprint
+-r--r--r--    1 root     root             0 Oct 29 03:46 vt_get_addr
+-rw-r--r--    1 root     root             0 Oct 29 03:46 vtv_position
+-rw-r--r--    1 root     root             0 Oct 29 03:46 wdog
+dr-xr-xr-x    3 root     root             0 Oct 29 03:46 win0
+dr-xr-xr-x    3 root     root             0 Oct 29 03:46 win1
+dr-xr-xr-x    3 root     root             0 Oct 29 03:46 win2
+dr-xr-xr-x    3 root     root             0 Oct 29 03:46 win3
+--- status
+fw_verion: 7356 (2025/4/14)
+socts_option=0
+display_type: LCD (0x0)
+display_mirror: off (0x0)
+frc_type: Internal (0x0)
+trid_type: off (0x0)
+fc_mem: 0x0
+display_size: 3840x2160 (0x4)
+==========================================================
+name                 = base      ,    size
+==========================================================
+g_m0_pqe_svp         = 0x72c00000,   54 MB (  56623104 B)
+----------------------------------------------------------
+g_de_svp_m0          = 0x72c00000,    0 MB (         0 B)
+g_de_svp_m1          = 0x72c00000,   54 MB (  56623104 B)
+g_m0_pqe_svp_end     = 0x76200000,    0 MB (         0 B)
+==========================================================
+g_m0_pqe_nsv         = 0x7ea80000,   35 MB (  37388288 B)
+----------------------------------------------------------
+g_fw_mcu0            = 0x7ea80000,    4 MB (   4194304 B)
+g_fw_mcu3            = 0x7ee80000,    0 MB (         0 B)
+g_fw_mcu4            = 0x7ee80000,    0 MB (         0 B)
+g_de_nsvp_m1         = 0x7ee80000,    3 MB (   3145728 B)
+g_be_fpp             = 0x7f180000,   19 MB (  19922944 B)
+g_de_hdr             = 0x80480000,    3 MB (   3145728 B)
+g_fw_shared          = 0x80780000,    2 MB (   2097152 B)
+g_be_wcg             = 0x80980000,    1 MB (   1572864 B)
+g_be_led             = 0x80b00000,    0 MB (    131072 B)
+g_be_phdr            = 0x80b20000,    0 MB (     32768 B)
+g_pe_db              = 0x80b28000,    2 MB (   2097152 B)
+g_pe_hdr             = 0x80d28000,    1 MB (   1048576 B)
+g_m0_pqe_nsv_end     = 0x80e28000,    0 MB (         0 B)
+==========================================================
+g_m0_pqe_usr         = 0x80e28000,   24 MB (  25165824 B)
+----------------------------------------------------------
+g_de_vt_m1           = 0x80e28000,   24 MB (  25165824 B)
+g_m0_pqe_usr_end     = 0x82628000,    0 MB (         0 B)
+==========================================================
+g_m1_pqe_svp         = 0x91800000,   83 MB (  87031808 B)
+----------------------------------------------------------
+g_de_svp_m2          = 0x91800000,   83 MB (  87031808 B)
+g_m1_pqe_svp_end     = 0x96b00000,    0 MB (         0 B)
+==========================================================
+g_m1_pqe_nsv         = 0x96e00000,   58 MB (  60817408 B)
+----------------------------------------------------------
+g_fw_mcu1            = 0x96e00000,    4 MB (   4194304 B)
+g_fw_mcu2            = 0x97200000,   13 MB (  13631488 B)
+g_de_nsvp_m2         = 0x97f00000,    0 MB (         0 B)
+g_be_frc0            = 0x97f00000,   33 MB (  34603008 B)
+g_be_frc1            = 0x9a000000,    0 MB (         0 B)
+g_be_frc2            = 0x9a000000,    0 MB (         0 B)
+g_fw_dnn             = 0x9a000000,    8 MB (   8388608 B)
+g_chipinfo           = 0x9a800000,    0 MB (         0 B)
+g_m1_pqe_nsv_end     = 0x9a800000,    0 MB (         0 B)
+==========================================================
+g_m1_pqe_usr         = 0x9a800000,   12 MB (  12582912 B)
+----------------------------------------------------------
+g_de_vt_m2           = 0x9a800000,   12 MB (  12582912 B)
+g_m1_pqe_usr_end     = 0x9b400000,    0 MB (         0 B)
+==========================================================
+dbg                 
+----------------------------------------------------------
+g_de_dbg_m1          = 0x8d0b0000,   64 MB (  67108864 B)
+g_de_dbg_m2          = 0x9b46c000,   31 MB (  33112064 B)
+==========================================================
+fw_shared           
+----------------------------------------------------------
+vtm                  = 0x80780000,   32 KB
+vtv                  = 0x80788000,   32 KB
+gps                  = 0x80790000,   32 KB
+dly                  = 0x80798000,   32 KB
+fpp                  = 0x807a0000, 1024 KB
+mvi                  = 0x808a0000,   32 KB
+==========================================================
+etc                 
+----------------------------------------------------------
+vdec_pool_0          = 0x56c00000,  584 MB ( 612368384 B)
+vdec_pool_1          = 0x00000000,    0 MB (         0 B)
+lne_pool             = 0x96c00000,    2 MB (   2097152 B)
+g_de_vt_m1_cma_size  =    8 MB
+g_de_vt_m2_cma_size  =    4 MB
+g_de_vpb8k_cma_size  =  146 MB
+==========================================================
+check mem           
+----------------------------------------------------------
+de-vrbuf_m0          =   49 MB (vs. 71 MB) (reserved:ok)
+de-vrbuf_m1          =   20 MB (vs. 31 MB) (reserved:ok)
+de-vtvrbuf_m0        =   69 MB (vs. 71 MB) (reserved:ok)
+de-vtvrbuf_m1        =    0 MB (vs. 31 MB) (reserved:ok)
+m0 nsv_s-svp_e diff  =  136 MB (continuity:ng)
+m1 nsv_s-svp_e diff  =    3 MB (continuity:ng)
+m2 nsv_s-svp_e diff  =    0 MB (continuity:ok)
+g_m0_pqe_nsv         = 0x7ea80000 ~ 0x80e28000 (valid:ok)
+g_m0_pqe_usr         = 0x80e28000 ~ 0x82628000 (valid:ok)
+g_m1_pqe_nsv         = 0x96e00000 ~ 0x9a800000 (valid:ok)
+g_m1_pqe_usr         = 0x9a800000 ~ 0x9b400000 (valid:ok)
+vdec                 = 0x77000000 ~ 0x77200000 (valid:ok)
+debug0               = 0x8d0b0000 ~ 0x91800000 (valid:ok)
+debug1               = 0x9b46c000 ~ 0x9d400000 (valid:ok)
+==========================================================
+--- bwm
+-------------------------------------------------------------------
+- cur : input=none(0),1920,1080@299, hdr=sdr(0), hdmi444=0
+-------------------------------------------------------------------
+- input : 0:none 1:avd 2:adc 3:hdmi 4:vdec 5:jpeg 6:fb 7:hdmi444 
+- hdr   : 0:sdr 1:hlg 2:hdr10 3:dolby 
+-------------------------------------------------------------------
+- dbg : input=none,0,0@0, hdr=sdr, hdmi444=0, skip=0
+-------------------------------------------------------------------
+- example
+echo input=hdmi,3840,2160@1440 hdr=hdr10 hdmi444=1 > /proc/lg/de/bwm
+echo input=vdec,3840,2160@600 > /proc/lg/de/bwm
+echo input=none,0,0,0 > /proc/lg/de/bwm
+echo hdr=dolby > /proc/lg/de/bwm
+echo hdmi444=1 > /proc/lg/de/bwm
+echo skip=1 > /proc/lg/de/bwm
+-------------------------------------------------------------------
+--- fr_rate
+set fr rate
+- usage:
+echo [freerun:0,1] [fr_rate:50,60] > /proc/lg/de/fr_rate
+--- win0
+localmute=777
+lowdelaymode=0
+h/v active : 0 / 0
+scanType   : 0
+vFreq      : 0
+svp        : 0
+hdr_type   : 0
+colordomain: 0
+hdmi444mode: 0
+phyMode    : 0
+--- win1
+localmute=777
+h/v active : 0 / 0
+scanType   : 0
+vFreq      : 0
+svp        : 0
+hdr_type   : 0
+colordomain: 0
+hdmi444mode: 0
+phyMode    : 0
+--- win2
+localmute=777
+h/v active : 0 / 0
+scanType   : 0
+vFreq      : 0
+svp        : 0
+hdr_type   : 0
+colordomain: 0
+hdmi444mode: 0
+phyMode    : 0
+--- win3
+localmute=777
+h/v active : 0 / 0
+scanType   : 0
+vFreq      : 0
+svp        : 0
+hdr_type   : 0
+colordomain: 0
+hdmi444mode: 0
+phyMode    : 0
+--- disp
+-------------------------------------------------------
+- version : 2022/01/03/17:22
+-------------------------------------------------------
+- config
+in_size    : 4k
+out_size   : 2k
+hdr_type   : hdr10
+-------------------------------------------------------
+- param
+wid        : 0
+connect    : 0
+sub        : 0
+hdr        : 0
+i_w        : 0
+i_h        : 0
+o_w        : 0
+o_h        : 0
+-------------------------------------------------------
+- usage
+echo [main,pip,pbp] [on,off] > /proc/lg/de/disp
+-------------------------------------------------------
+- edit
+echo insize=[2k,4k,8k] > /proc/lg/de/disp
+echo outsize=[2k,4k,8k] > /proc/lg/de/disp
+echo hdrtype=[sdr,hdr10,hlg] > /proc/lg/de/disp
+-------------------------------------------------------
+- related command
+LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$PWD
+./test_vdec -f [HEVC,H264] -d 1 -v 1 -t [FILE] -b -r 999 &
+eg) ./test_vdec -f HEVC -d 1 -v 1 -t ./hevc/4k_hvc1_h10_Lego_20s.hevc -b -r 999 &
+pkill -9 test_vdec
+-------------------------------------------------------
