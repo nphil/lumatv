@@ -16,8 +16,8 @@ Kept current with every change to this plan. Building is under way (Nitin said g
 
 Current direction (2026-10-29): every LumaTV screen moves to the 64-bit Rust shell; no
 new QML. Each kind remains opt-in until it reaches parity and passes on the TV twice.
-Home, panels and Cameras have landed host implementations; Settings and system surfaces
-still have active completion work. Persistent go-live remains paused after round 17.
+Every screen has a Rust kind; Home, the panels and Settings ran on the set in round 18.
+LumaTV's compositor is live persistently since round 18c (2026-10-29), LG's as the fallback.
 Current recovery points and ownership are in `docs/HANDOFF.md` and the dated worker notes.
 
 Display hardware work follows `docs/research/display-chip-direct.md`: use measured

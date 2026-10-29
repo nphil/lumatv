@@ -8,9 +8,10 @@ live with the owner.
 
 ## Resume here (LumaTV, 2026-10-29 EDT)
 
-- Persistent go-live remains paused after round 17 (`0d6d249`): PlxNative close crashes
-  and the strict X1 timing bar still need a device pass. `112d9cc` changes frame callbacks
-  to draw time; the next app-close check must retain PlxNative's own crash-log evidence.
+- LumaTV's compositor is live persistently since round 18c (2026-10-29 14:49 EDT, build
+  `f2e4b5d`), LG's as the automatic fallback. PlxNative's close crash is fixed by answering
+  card frame callbacks at commit (15/15 on the set; 4/5 crash with `early`). Frame lines are
+  the known minor class. Rust kinds are off by default.
 - All screens move to the 64-bit Rust shell; no new QML. Home, quick panel, picker, drawer,
   Cameras and part of Settings are opt-in. Remaining Settings and system surfaces are in
   progress. QML retires per kind only after two device parity passes. Recovery points are

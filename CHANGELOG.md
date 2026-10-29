@@ -18,9 +18,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   screensaver run as a standalone Qt client (qml-runner) in two compositor windows, fed over a
   token-gated loopback channel with luna calls proxied from an allowlist; the gear and Input
   open LumaTV's panels first. New gate checks `shell` (screens and idle cost) and `frames`.
-- Opt-in Rust shell kinds for Home, the quick panel, input picker, drawer, Cameras and
-  Settings; QML remains the fallback until each replacement reaches device parity.
-  Home includes profile switching, camera stills, notification badges and large-text scrolling.
+- Rust shell kinds, each opt-in with `ctl shell rust +KIND` and the QML client as fallback:
+  `home`, `osd`, `toast`, `alert`, `saver`, `capture`, `popup`, `cards`, `layout`, `quick`,
+  `picker`, `drawer`, `menu`, `confirm`, `switcher`, `entry`, `keyboard`, `settings` (every
+  page), `cameras`, `ai` and `banner`. Home, the panels and Settings run on the set; a kind
+  becomes the default only after two passing device rounds.
+- The Magic Remote pointer appears only when the wheel is turned; Settings > Remote & pointer >
+  Show pointer switches back to LG's show-on-movement.
+- Hardware planes behind switches: live page-layout switch (`ctl afbc`, `ctl pagealpha`),
+  video-window claims for the Cameras live view, a picture-in-picture surface API, the
+  OLED-care orbit as the primary plane's position (`--scanout-offset`) and `ctl pageprobe`.
+- The GeForce NOW app ships inside the main package; `lumatv apply` updates it by build id.
 - Screensaver rules per notification source: show over the saver, use its notification area,
   wake or hide. Sources include cameras, doorbells, timers, Home Assistant, ntfy and plugins.
 - Offline display-register decoding and noise-aware comparisons with `tools/regdecode.py`.
