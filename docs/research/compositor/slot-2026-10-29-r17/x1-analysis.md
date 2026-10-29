@@ -78,6 +78,8 @@ Done (commits on forge/main): the analysis above; `docs/research/perf/kwait.py` 
 
 The file-logging cutover is in `src/logsink.rs`, `main.rs` (initialization after environment setup; renderer sink; exit flushes), `ring.rs` (panic flush) and `tests/log_off_loop.rs`. Nine host tests pass with feature `ui`, including the real software compositor, zero producer write calls, an unread pipe with overflow, a bounded flush deadline, and `/dev/full`. The 332 library tests and strict clippy pass after replacing obsolete `+quick` rejection cases and the pointer constant assertion. The broader integration run found a separate existing `boxdim_gl` engagement failure.
 
+Gate verdict (landed): every x1 result leads with `RAW STRICT` and `RAW RESULT` (also `x1-strict-result.txt`). Compositor-attributed gaps fail; client-only gaps are reported with counts; a missing, truncated, lost or mismatched trace (`kwait.py coverage`, `x1 attribution: COMPLETE|INCONCLUSIVE`) is INCONCLUSIVE (`x1_decision` returns 2), never a pass; `--x1-strict` alone passes without a trace. Host tests: 220 in test_cutover and test_kwait pass. Open: clippy -D warnings fails on `vwin.rs:1075` (let-and-return, HwPlanes' file), not on pointer.rs.
+
 Next:
 
 1. The TV round of "Next round" (a new bundle: `x1client.c` changed). Read `x1-kwait.txt` and `x1-result.txt` of each run; put them beside `x1-rerun-1-kwait.txt` in the round's slot.
