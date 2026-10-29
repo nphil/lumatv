@@ -233,9 +233,9 @@ def osd_slots(layout):
     for label, off, type_name, alts, ctx in layout.flatten("OSD_O22_REG_T"):
         win = next((v for t, v in ctx if t == "win"), None)
         if win is not None:
-            alt = next(k for t, k in ctx[ctx.index(("win", win)) + 1:] if t == "alt")
+            alt = next((k for t, k in ctx[ctx.index(("win", win)) + 1:] if t == "alt"), None)
             member = label.rsplit(".", 1)[-1]
-            if alt not in WINDOW_ALTS[win] or (win in (1, 2) and member in NO_SCALER):
+            if (alt is not None and alt not in WINDOW_ALTS[win]) or (win in (1, 2) and member in NO_SCALER):
                 continue
             label = "%s.%s" % (WINDOWS[win], member)
         slots.setdefault(off, []).append(Slot(label, off, type_name, alts, win))
