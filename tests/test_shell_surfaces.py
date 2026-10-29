@@ -90,13 +90,21 @@ class Shell(HostCase):
         self.assertEqual(got["dock_menu"], "menu/dock/0/1/", "the Menu key on a dock tile did not open that tile's options")
         self.assertEqual(got["dock_back"], "/dock/0/1/", "Back from the menu moved the dock's focus")
 
-    def test_a_dock_tiles_menu_moves_it_and_the_move_is_written_back_to_the_dock_list(self):
+    def test_a_dock_tiles_menu_moves_it_and_the_move_is_kept_as_the_persons_own_dock_order(self):
         dock = probe("appsTileId", "{ moving: s.moving, col: s.col }", panel=False)
-        got = self.run_host([(0, "keys", "right menu"), (900, "keys", "down ok"), (1700, "eval", STATE, "picked"), (1700, "eval", dock, "dock"),
-                             (1800, "keys", "right ok"), (2800, "eval", CALLS, "calls")], 3300)
-        self.assertEqual(got["picked"], "/dock/0/1/", "choosing Move closes the menu and leaves the tile picked up")
-        self.assertEqual(json.loads(got["dock"]), {"moving": True, "col": 1})
-        self.assertEqual(calls("/moveLaunchPoint")(got["calls"]), [{"launchPointId": "netflix_default", "position": 2}])
+        order = probe("appsTileId", "s.points.map(function(p) { return p.id })", panel=False)
+        with tempfile.TemporaryDirectory() as d:
+            data = os.path.join(d, "data")
+            got = self.run_host([(0, "keys", "right menu"), (900, "keys", "down ok"), (1700, "eval", STATE, "picked"), (1700, "eval", dock, "dock"),
+                                 (1800, "keys", "right ok"), (2800, "eval", CALLS, "calls"), (2800, "eval", order, "order")], 3300, data=data)
+            self.assertEqual(got["picked"], "/dock/0/1/", "choosing Move closes the menu and leaves the tile picked up")
+            self.assertEqual(json.loads(got["dock"]), {"moving": True, "col": 1})
+            # LG's launch point list is every profile's and stays as it is; the order is this person's, in their theme file (apps.dockOrder)
+            self.assertEqual(calls("/moveLaunchPoint")(got["calls"]), [])
+            shown = json.loads(got["order"])
+            self.assertEqual(shown.index("netflix"), 2)
+            with open(os.path.join(data, "theme", "theme.json")) as f:
+                self.assertEqual(json.load(f)["apps"]["dockOrder"], shown)
 
     def test_hide_and_rename_are_the_owners_and_are_written_to_his_theme_file(self):
         titles = probe("cellIndex", "{ shown: s.shown.map(function(a) { return a.title }), hidden: s.apps.filter(function(a) { return a.hidden }).map(function(a) { return a.title }) }")

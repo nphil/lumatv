@@ -1268,6 +1268,7 @@ Item {
                 onLaunching: layers.launchSplash(title, iconUrl)
                 onAppsRequested: root.openApps()
                 onMenuRequested: root.openTileMenu()
+                onOrderChanged: root.keepApps({ dockOrder: ids })
             }
             MouseArea {
                 // hovering the dock card itself hands the layer to the dock
@@ -1599,8 +1600,10 @@ Item {
         else if (id === "uninstall") askUninstall(app)
     }
     function moveOnDock(id) { var d = dockLoader.item; if (!d) return; focusLayer = "dock"; d.beginMoveOf(id) }
-    // Hiding from the dock is LG's own list (homelaunchpoints); hiding from the library is the owner's (theme.apps.hidden).
-    function hideFromDock(app) { LS.adhoc.call("luna://com.webos.service.homelaunchpoints", "/hideLaunchPoint", JSON.stringify({ launchPointId: app.launchPointId })) }
+    // The dock, the library's hidden apps and the names are the person's (theme `apps`, a profile's keys); LG's launch point list is what is installed
+    // and is not written: every profile shares it.
+    function keepApps(part) { var patch = { apps: part }; patchTheme(patch); persistTheme(patch) }
+    function hideFromDock(app) { keepApps({ dockHide: ((theme.apps && theme.apps.dockHide) || []).concat([app.id]) }) }
     function setAppHidden(id, hide) {
         var next = ((theme.apps && theme.apps.hidden) || []).filter(function(x) { return x !== id })
         if (hide) next.push(id)
@@ -1713,6 +1716,22 @@ Item {
         else voiceEnd()                         // idle: the helper ended it (switched off, or stopping)
     }
     Connections { target: Helper; onUpdated: if (topic === "voice") root.voiceTopicChanged() }
+    // A profile switch (helper/app/src/profiles.rs): the helper has put the other person's keys in theme.json, layout.json and tint.json and says so on the
+    // `profiles` topic. Home reads them at once, not at the next 2 s look, and drops whatever was open (it was the last person's). The topic's first
+    // answer, and a change that is not a switch (a name, a picture), reload nothing.
+    property string profilesKey: ""
+    function profilesChanged() {
+        var p = Helper.profiles
+        var key = p && p.ready ? p.active : ""
+        if (key === profilesKey) return
+        var first = profilesKey === ""
+        profilesKey = key
+        if (first || key === "") return
+        closeAllLayers()
+        if (settingsOpen) closeSettings()
+        reload()
+    }
+    Connections { target: Helper; onUpdated: if (topic === "profiles") root.profilesChanged() }
     function voiceFill(words) {
         voiceBusy = false
         layers.voiceIdle()

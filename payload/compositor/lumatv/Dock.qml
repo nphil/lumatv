@@ -72,13 +72,25 @@ Item {
     // Launch points come from homelaunchpoints (the user-ordered list Home itself shows,
     // with `unmovable`); applicationManager's list is the fallback until it answers.
     property var hlpList: null
+    // A person's own dock (theme `apps.dockHide` and `apps.dockOrder`: the person's keys, payload/compositor/lumatv/profile-scope.json): LG's list is what
+    // is installed and the order nobody has changed; these two are how this person has it. A tile they never placed keeps its place after the ones
+    // they did; LG's own first tile (Apps) stays first.
+    function arranged(list) {
+        var a = theme.apps || {}, hide = a.dockHide || [], order = a.dockOrder || []
+        list = list.filter(function(p) { return hide.indexOf(p.id) < 0 })
+        if (!order.length) return list
+        var at = {}
+        list.forEach(function(p, i) { at[p.id] = i })
+        function rank(p) { var i = order.indexOf(p.id); return i < 0 ? order.length + at[p.id] : i }
+        return list.slice().sort(function(x, y) { return (!!y.unmovable - !!x.unmovable) || (rank(x) - rank(y)) })
+    }
     function refresh() {
         var list = hlpList
         if (!list) {
             try { list = (JSON.parse(LS.applicationManager.launchPointsList).launchPoints || []) }
             catch (e) { console.warn("[Dock] launchPointsList parse failed: " + e); return }
         }
-        list = list.filter(function(p) { return !p.hidden })
+        list = arranged(list.filter(function(p) { return !p.hidden }))
         var neutral = ["#ffffff", "#fff", "#000000", "#000", "#060606", "#1e1e1e"]
         var overrides = (theme.tiles && theme.tiles.icons) || {}
         var renamed = (theme.apps && theme.apps.names) || {}      // the names the owner gave in the library
@@ -358,9 +370,10 @@ Item {
 
     // ---------------------------------------------------------------- rearrange
     // Hold OK on a tile to pick it up; Left/Right/Up/Down swap it with the neighbour in that
-    // direction (the neighbour slides across); OK or Back drops it. The final order is
-    // written through homelaunchpoints/moveLaunchPoint, the same list stock Home reads, so
-    // it persists and both homes agree. Position 0 (LG's Apps) is unmovable.
+    // direction (the neighbour slides across); OK or Back drops it. The final order is the
+    // person's (`orderChanged`: Home keeps it as theme `apps.dockOrder`), not LG's list, which
+    // every profile shares and which stays as it is. Position 0 (LG's Apps) is unmovable.
+    signal orderChanged(var ids)
     property bool moving: false
     property int moveOrigin: -1
     function beginMove() {
@@ -374,9 +387,7 @@ Item {
         moving = false
         var i = row * cols + col
         var p = points[i]
-        if (p && i !== moveOrigin)
-            LS.adhoc.call("luna://com.webos.service.homelaunchpoints", "/moveLaunchPoint",
-                          JSON.stringify({ launchPointId: p.launchPointId, position: i }))
+        if (p && i !== moveOrigin) orderChanged(points.map(function(t) { return t.id }))
         moveOrigin = -1
     }
     function cancelMove() {

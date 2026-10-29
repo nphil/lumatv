@@ -14,7 +14,7 @@ QtObject {
     id: helper
 
     readonly property string base: "http://127.0.0.1:18731"
-    readonly property string subscribed: "screen,weather,news,receiver,ai,ai.prompt,plugins,ha.link,updateblock,openapps,panel,cameras,cameras.popup,cameras.live"
+    readonly property string subscribed: "screen,weather,news,receiver,ai,ai.prompt,plugins,ha.link,updateblock,openapps,panel,cameras,cameras.popup,cameras.live,profiles"
     // Plugin topics are named per plugin and a long poll takes at most 16 names: the fixed ones, then the cards, tiles and
     // notifications of each plugin that is connected, the helper's own (`firstParty`, listed apart in `plugins`) included;
     // with more than fit, which is the usual case since the helper's own are four, there is no filter (every topic) rather
@@ -40,6 +40,8 @@ QtObject {
     readonly property var screen: topics.screen || null
     readonly property var ai: topics.ai || null                  // AI access: listener, pairing, assistants, limits
     readonly property var aiPrompt: topics["ai.prompt"] || null  // the open prompt, or null
+    // Local profiles (helper/app/src/profiles.rs): who is active, who owns the TV, each person's name, letter, colour and picture. `ready` is false until the helper has made them.
+    readonly property var profiles: topics.profiles || null
     readonly property var updateBlock: topics.updateblock || null  // LG's system updates: the Homebrew Channel's flag and what /etc/hosts maps now
     readonly property var openApps: topics.openapps || null        // open apps without updating: the setting and LG's list of apps waiting for an update (helper/app/src/openapps.rs)
     readonly property var panel: topics.panel || null            // LG's panel refresh: runs so far and when the last one was (helper/app/src/refreshguard.rs)

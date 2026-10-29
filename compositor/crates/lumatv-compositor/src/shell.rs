@@ -106,7 +106,6 @@ pub const ALLOWED_SERVICES: &[&str] = &[
     "com.webos.service.panelcontroller",
     "com.webos.service.ppm",
     "com.webos.service.attachedstoragemanager",
-    "com.webos.service.accountmanager",
     "com.webos.service.userintentmanager",
     "com.webos.service.usercontextmanager",
     "com.webos.service.admanager",

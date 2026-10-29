@@ -8,8 +8,8 @@ import "kit"
 // glyph so a bad layout entry never breaks the bar. "profile" and "settings" open a glass popover under their
 // button (rows navigable with Up/Down, OK activates, Back closes); "notifications" opens the Notification Centre
 // and "search" LumaTV's own search (Home opens both: `requestNotifications`, `requestSearch`); the bell's badge is
-// the log's unread count (NoteLog). Profile data comes from the LG account
-// (accountmanager/getLoginUserData with serviceName LGE): nickname, initial, avatar colour.
+// the log's unread count (NoteLog). The profile item is the person in front of the TV (the helper's `profiles` topic, helper/app/src/profiles.rs):
+// name, letter and colour; its popover offers the other profiles (OK switches). LG's account is not read here.
 Item {
     id: bar
 
@@ -26,9 +26,11 @@ Item {
     property int cardMs: 180
     property int cardEasing: Easing.OutCubic
     property int layerMs: 220
-    property string profileName: account.nick
-    property string profileInitial: account.initial
-    property color profileColor: account.bg
+    readonly property var who: Helper.profiles && Helper.profiles.ready === true ? Helper.profiles : null
+    readonly property var me: { var l = who ? who.profiles : []; for (var i = 0; i < l.length; i++) if (l[i].id === who.active) return l[i]; return null }
+    property string profileName: me ? me.name : ""
+    property string profileInitial: me ? me.initial : ""
+    property color profileColor: me ? me.color : "#7360E7"
 
     signal requestOpenPopover(int index)
     signal requestClosePopover()
@@ -117,39 +119,24 @@ Item {
         }
     }
 
-    // LG account: nickname, initial and avatar colour as Home shows them. Subscribed, so a
-    // sign-in or nickname change lands without a restart.
-    Service {
-        id: account
-        appId: LS.appId
-        property string nick: ""
-        property string initial: ""
-        property color bg: "#7360E7"
-        property string email: ""
-        property bool signedIn: false
-        onResponse: {
-            try {
-                var msg = JSON.parse(payload)
-                var u = msg.userData
-                if (!u) return
-                signedIn = !!u.isLogin
-                nick = u.profileNick || ""
-                initial = u.iconNick || (nick ? nick.charAt(0).toUpperCase() : "")
-                email = u.id || ""
-                if (u.profileBg) bg = u.profileBg
-            } catch (e) {}
-        }
-        Component.onCompleted: call("luna://com.webos.service.accountmanager", "/getLoginUserData", JSON.stringify({ serviceName: "LGE", subscribe: true }))
-    }
-
     // ---- popover: one glass panel under the focused button; content per item type ----
     property bool popoverOpen: false
     property string popoverType: ""
     property real popoverScrim: isLight ? 0.22 : 0.30
     property int popoverIndex: 0
     property var wm: theme.wallpaperMotion || {}
+    // The other profiles, one row each. One with a PIN is offered to the owner only: the owner opens any Home, and this popover has no pad to ask
+    // a PIN with (the picker of the Rust shell does).
+    function profileRows() {
+        var rows = [], l = who ? who.profiles : []
+        for (var i = 0; i < l.length; i++) {
+            if (l[i].active || (l[i].locked && !who.canAdmin)) continue
+            rows.push({ label: l[i].name + (l[i].locked ? "  \u00b7 PIN" : ""), action: "switch", id: l[i].id })
+        }
+        return rows
+    }
     property var popoverRows: popoverType === "profile"
-        ? [ { label: account.signedIn ? "Manage LG account" : "Sign in to LG account", action: "membership" } ]
+        ? profileRows()
         : popoverType === "settings"
         ? [ { label: "All settings", action: "settings" },
             { label: "Wallpaper motion", kind: "toggle", key: "enabled", value: wm.enabled !== false },
@@ -198,7 +185,7 @@ Item {
         if (!r) return
         if (r.kind === "toggle") { popoverAdjust(1); return }
         if (r.kind === "slider") return
-        if (r.action === "membership") LS.adhoc.call("luna://com.webos.applicationManager", "/launch", JSON.stringify({ id: "com.webos.app.membership" }))
+        if (r.action === "switch") Helper.post("/v1/profiles/switch", { id: r.id })
         if (r.action === "settings") { bar.requestClosePopover(); bar.requestOpenSettings(); return }
         if (r.action === "tvsettings") LS.adhoc.call("luna://com.webos.applicationManager", "/launch", JSON.stringify({ id: "com.palm.app.settings" }))
         bar.requestClosePopover()
@@ -309,12 +296,12 @@ Item {
                     x: 0; y: 0; width: 64; height: 64; radius: 32
                     antialiasing: true
                     gradient: Gradient {
-                        GradientStop { position: 0.0; color: Qt.lighter(account.bg, 1.25) }
-                        GradientStop { position: 1.0; color: Qt.darker(account.bg, 1.15) }
+                        GradientStop { position: 0.0; color: Qt.lighter(bar.profileColor, 1.25) }
+                        GradientStop { position: 1.0; color: Qt.darker(bar.profileColor, 1.15) }
                     }
                     Text {
                         x: Math.round((64 - implicitWidth) / 2); y: Math.round((64 - implicitHeight) / 2)
-                        text: account.initial || "?"
+                        text: bar.profileInitial || "?"
                         color: "#ffffff"
                         font.family: "Manrope"; font.weight: Font.Bold; font.pixelSize: 28
                         renderType: Text.NativeRendering
@@ -324,7 +311,7 @@ Item {
                     x: 80; y: 8
                     width: parent.width - 80
                     elide: Text.ElideRight
-                    text: account.signedIn ? (account.nick || "LG account") : "Not signed in"
+                    text: bar.profileName
                     color: bar.mat.ink
                     font.family: "Manrope"; font.weight: Font.DemiBold; font.pixelSize: 24
                     renderType: Text.NativeRendering
@@ -333,7 +320,7 @@ Item {
                     x: 80; y: 38
                     width: parent.width - 80
                     elide: Text.ElideRight
-                    text: account.email
+                    text: bar.me && bar.me.owner ? "Owner" : ""
                     color: bar.mat.ink2
                     font.family: "Manrope"; font.weight: Font.Medium; font.pixelSize: 18
                     renderType: Text.NativeRendering
