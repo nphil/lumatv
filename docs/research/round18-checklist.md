@@ -19,7 +19,7 @@ Build order for the package (the gfn app is now inside it): `gfn/feeder/build.sh
 `gfn/engine/build-core.sh`; `rustui/tools/build-gfn.sh`; `gfx64/fetch-blob.sh` and `gfx64/build.sh`; `rustui/tools/build-card.sh`;
 `sh gfn/build-ipk.sh`; then `sh tools/build-ipk.sh` (it stops, naming the missing build, when the gfn ipk is absent). Bundle:
 `sh compositor/tools/build-tv.sh` (now `ui` by default: `FEATURES` says `ui`, `bin/lumatv-ui` is in it). `python3 tests/qmlhost/compile_all.py`
-must say 0 failed. Round 18's bundle, built on the host from forge/main `b65ef9a` with `LUMATV_FEATURES=ui` (2 min 10 s on a warm cache): 93.9 MiB in `/tmp/lumatv` (37.9 MB as the deploy tarball): `bin/` 32.3 MiB, of which `lumatv-ui` 27.6 MiB (line tables kept) and `lumatv-compositor` 3.7 MiB; `lib/` 59.1 MiB (the Mali blob is 53.7 MiB); `sm/` 2.3 MiB. The package grows by the gfn ipk (the 10-26 build is 37.7 MB; this round's is measured when it is packed); a set short of memory (`MemAvailable` under about 400 MB) is read first, since `/tmp` is RAM.
+must say 0 failed. Round 18's bundle, built on the host from forge/main `be50bca` with no environment set (`ui` is the default; 3 min 5 s on a warm cache): 95.6 MiB in `/tmp/lumatv`: `bin/` 33.9 MiB, of which `lumatv-ui` 29.3 MiB (line tables kept) and `lumatv-compositor` 3.7 MiB; `lib/` 59.1 MiB (the Mali blob is 53.7 MiB); `sm/` 2.3 MiB; `hwplanes.sh` is in it. The package grows by the gfn ipk (the 10-26 build is 37.7 MB; this round's is measured when it is packed); a set short of memory (`MemAvailable` under about 400 MB) is read first, since `/tmp` is RAM.
 
 ## 1. Install and read-back [G]
 
