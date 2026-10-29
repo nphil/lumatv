@@ -598,18 +598,27 @@ impl Store {
             bad_reads: 0,
             switched_at: 0,
         };
-        if !s.load() {
-            match s.migrate() {
+        s.retry();
+        s
+    }
+
+    /// Opens the store if it is not open: reads it, or makes it from the working copy; finishes a switch that was cut short. Called at the start and,
+    /// while the store is not ready (a working copy that could not be read just then), at every look of the helper's thread.
+    pub fn retry(&mut self) {
+        if self.ready {
+            return;
+        }
+        if !self.load() {
+            match self.migrate() {
                 Ok(()) => {
-                    s.ready = s.load();
+                    self.ready = self.load();
                 }
-                Err(e) => crate::log_warn!("profiles: not made: {e:?}"),
+                Err(e) => crate::log_warn!("profiles: not made yet: {e:?}"),
             }
         }
-        if s.ready && s.index.switching.is_some() {
-            s.recover();
+        if self.ready && self.index.switching.is_some() {
+            self.recover();
         }
-        s
     }
 
     pub fn ready(&self) -> bool {
@@ -685,6 +694,14 @@ impl Store {
         {
             index.switching = None;
         }
+        if !records.contains_key(&index.work.id) {
+            index.work = Work {
+                id: index.active.clone(),
+                theme: hash_file(&self.theme_file()),
+                layout: hash_file(&self.layout_file()),
+                tint: hash_file(&self.tint_file()),
+            };
+        }
         self.index = index;
         self.records = records;
         self.ready = true;
@@ -709,16 +726,28 @@ impl Store {
         Ok(())
     }
 
+    /// A file of the working copy as an object: `{}` when it is not there, an error when it is there and cannot be read as one (the Home layer's write is
+    /// not atomic, and a hand-edited file may be broken): it is never taken for an empty one, which would be overwritten.
+    fn working(&self, path: &Path) -> Result<Value, Error> {
+        match read_text(path) {
+            None if !path.exists() => Ok(json!({})),
+            Some(text) => serde_json::from_str::<Value>(&text)
+                .ok()
+                .filter(Value::is_object)
+                .ok_or_else(|| Error::Io(format!("{} cannot be read just now", path.display()))),
+            None => Err(Error::Io(format!(
+                "{} cannot be read just now",
+                path.display()
+            ))),
+        }
+    }
+
     // ---- migration
     fn migrate(&mut self) -> Result<(), Error> {
+        let working = self.working(&self.theme_file())?;
+        let layout = self.working(&self.layout_file())?;
         fs::create_dir_all(&self.root)?;
-        let working = read_json(&self.theme_file())
-            .filter(Value::is_object)
-            .unwrap_or_else(|| json!({}));
         let (_, own) = self.scope.split(&working);
-        let layout = read_json(&self.layout_file())
-            .filter(Value::is_object)
-            .unwrap_or_else(|| json!({}));
         let gallery = self.gallery();
         let avatar_at = |i: usize| {
             gallery
@@ -798,9 +827,7 @@ impl Store {
     /// Writes a profile's part into the working copy: the household's keys stay, the profile's own replace the leaving profile's.
     fn materialize(&mut self, id: &str) -> Result<(), Error> {
         let dir = self.dir_of(id);
-        let working = read_json(&self.theme_file())
-            .filter(Value::is_object)
-            .unwrap_or_else(|| json!({}));
+        let working = self.working(&self.theme_file())?;
         let (shared, _) = self.scope.split(&working);
         let own = read_json(&dir.join("theme.json"))
             .filter(Value::is_object)
@@ -841,6 +868,8 @@ impl Store {
         let mut wrote = false;
         let mut stale = false;
         let work_id = self.index.work.id.clone();
+        // whose the edits of this look are: the working copy's person, unless theme.json says a screen that had not seen a switch saved them
+        let mut edit_of = work_id.clone();
         // theme.json
         let theme_hash = hash_file(&self.theme_file());
         if theme_hash != self.index.work.theme {
@@ -865,6 +894,7 @@ impl Store {
                         self.bad_reads = 0;
                         wrote = true;
                         stale = whose != self.index.active;
+                        edit_of = whose;
                     }
                 }
                 None => {
@@ -885,23 +915,17 @@ impl Store {
             let valid = bytes
                 .as_ref()
                 .is_some_and(|b| serde_json::from_slice::<Value>(b).is_ok_and(|v| v.is_object()));
-            if valid || bytes.is_none() {
-                let whose = if stale {
-                    self.index.work.id.clone()
-                } else {
-                    work_id.clone()
-                };
-                if self.records.contains_key(&whose)
-                    && write_atomic(
-                        &self.dir_of(&whose).join("layout.json"),
-                        &bytes.unwrap_or_else(|| b"{}\n".to_vec()),
-                        0o644,
-                    )
-                    .is_ok()
-                {
-                    self.index.work.layout = layout_hash;
-                    wrote = true;
-                }
+            if (valid || bytes.is_none())
+                && self.records.contains_key(&edit_of)
+                && write_atomic(
+                    &self.dir_of(&edit_of).join("layout.json"),
+                    &bytes.unwrap_or_else(|| b"{}\n".to_vec()),
+                    0o644,
+                )
+                .is_ok()
+            {
+                self.index.work.layout = layout_hash;
+                wrote = true;
             }
         }
         // tint.json: the wallpaper's sample, the Home layer's own
@@ -909,8 +933,8 @@ impl Store {
         if tint_hash != self.index.work.tint {
             if let Ok(bytes) = fs::read(self.tint_file()) {
                 if serde_json::from_slice::<Value>(&bytes).is_ok()
-                    && self.records.contains_key(&work_id)
-                    && write_atomic(&self.dir_of(&work_id).join("tint.json"), &bytes, 0o644).is_ok()
+                    && self.records.contains_key(&edit_of)
+                    && write_atomic(&self.dir_of(&edit_of).join("tint.json"), &bytes, 0o644).is_ok()
                 {
                     self.index.work.tint = tint_hash;
                     wrote = true;
@@ -1048,6 +1072,8 @@ impl Store {
         if !self.owner_active() {
             self.check_pin(id, pin)?;
         }
+        // a working copy that is being written cannot be switched just now: nothing is begun, the caller may ask again
+        self.working(&self.theme_file())?;
         // what was edited in the leaving profile's Home is its own
         self.sync();
         self.index.switching = Some(id.to_owned());
@@ -1492,7 +1518,11 @@ impl Profiles {
                     if stop.sleep(SYNC_EVERY) {
                         return;
                     }
-                    me.store.lock().sync();
+                    {
+                        let mut store = me.store.lock();
+                        store.retry();
+                        store.sync();
+                    }
                     me.publish();
                 }
             })
@@ -2113,6 +2143,98 @@ mod tests {
         r.set_theme(&t);
         assert!(s.sync());
         assert_eq!(r.own("nitin")["accent"], "#ABCDEF");
+    }
+
+    #[test]
+    fn a_working_copy_that_cannot_be_read_is_never_taken_for_an_empty_one() {
+        let r = rig();
+        let broken = r##"{"accent": "#12"##;
+        fs::write(r.p().join("theme/theme.json"), broken).unwrap();
+        let mut s = r.open();
+        assert!(
+            !s.ready(),
+            "nothing is made from a file that cannot be read"
+        );
+        assert!(!r.p().join("profiles/index.json").exists());
+        assert_eq!(
+            fs::read_to_string(r.p().join("theme/theme.json")).unwrap(),
+            broken,
+            "and the file is as it was"
+        );
+        // the Home layer's write lands whole: the next look makes the profiles from what is there
+        fs::write(r.p().join("theme/theme.json"), LEGACY).unwrap();
+        s.retry();
+        assert!(s.ready());
+        assert_eq!(
+            r.own("nitin"),
+            Scope::load().split(&legacy()).1,
+            "Nitin has his own keys"
+        );
+        // a layout file that cannot be read stops it the same way
+        let r2 = rig();
+        fs::write(r2.p().join("theme/layout.json"), "{\"widgets\": [").unwrap();
+        assert!(!r2.open().ready());
+    }
+
+    #[test]
+    fn a_switch_asked_while_the_working_theme_is_half_written_begins_nothing() {
+        let r = rig();
+        let mut s = r.open();
+        let before = r.index();
+        fs::write(r.p().join("theme/theme.json"), r##"{"accent": "#12"##).unwrap();
+        assert!(matches!(s.switch("isabel", None), Err(Error::Io(_))));
+        assert_eq!(r.index(), before, "no intent was written");
+        assert!(s.index.switching.is_none());
+        assert_eq!(s.index.active, "nitin");
+        let mut t = legacy();
+        t[MARK] = json!("nitin");
+        r.set_theme(&t);
+        s.switch("isabel", None).unwrap();
+        assert_eq!(r.theme()[MARK], "isabel");
+    }
+
+    #[test]
+    fn a_late_layout_saved_with_a_late_theme_is_the_old_persons_too() {
+        let r = rig();
+        let mut s = r.open();
+        let nitins_text = r.theme();
+        s.switch("isabel", None).unwrap();
+        let hers = read_json(&r.p().join("profiles/isabel/layout.json")).unwrap();
+        // a screen that still held Nitin's Home saves its layout and its theme, after the switch
+        fs::write(r.p().join("theme/layout.json"), r#"{"widgets": [{"id": "news", "type": "news", "col": 0, "row": 0, "span": 4, "rows": 1}]}"#).unwrap();
+        let mut late = nitins_text;
+        late["accent"] = json!("#112233");
+        r.set_theme(&late);
+        assert!(s.sync());
+        assert_eq!(
+            read_json(&r.p().join("profiles/nitin/layout.json")).unwrap()["widgets"][0]["id"],
+            "news",
+            "the layout is Nitin's"
+        );
+        assert_eq!(
+            read_json(&r.p().join("profiles/isabel/layout.json")).unwrap(),
+            hers,
+            "and Isabel's is as it was"
+        );
+        assert_eq!(r.layout(), hers, "the working copy is hers again");
+    }
+
+    #[test]
+    fn an_index_that_names_nobody_for_the_working_copy_starts_from_the_files_as_they_are() {
+        let r = rig();
+        drop(r.open());
+        let mut index = r.index();
+        index.as_object_mut().unwrap().remove("work");
+        fs::write(
+            r.p().join("profiles/index.json"),
+            serde_json::to_vec(&index).unwrap(),
+        )
+        .unwrap();
+        let mut s = r.open();
+        assert_eq!(s.index.work.id, "nitin");
+        let before = r.own("nitin");
+        assert!(!s.sync(), "nothing is taken for an edit");
+        assert_eq!(r.own("nitin"), before);
     }
 
     #[test]
