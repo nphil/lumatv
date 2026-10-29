@@ -35,7 +35,7 @@ use crate::shell::{
 
 /// The kinds the Rust shell may answer, in the order `ctl shell` lists them. `quick`, `picker` and `drawer` are the panels LumaTV opens
 /// itself (`State::shell_show`): while the Rust shell answers one, its `show` goes to it and the QML client's panel stays shut.
-pub const KINDS: &[&str] = &["home", "osd", "settings", "toast", "cameras", "quick", "picker", "drawer", "menu", "confirm", "switcher", "entry", "keyboard", "alert", "saver", "capture", "cards", "popup", "layout", "ai", "banner"];
+pub const KINDS: &[&str] = &["home", "osd", "settings", "toast", "cameras", "quick", "picker", "drawer", "menu", "confirm", "switcher", "entry", "keyboard", "alert", "saver", "capture", "cards", "popup", "layout", "ai", "banner", "displaylab"];
 /// Where the system layer's layers begin in the engine's z: everything the Rust shell draws over the windows is at this or more.
 pub const SYSTEM_Z: i32 = 1000;
 const TOKEN_FILE: &str = "lumatv-ui.token";
@@ -951,6 +951,21 @@ impl State {
         true
     }
 
+    /// A turn of the Magic Remote's wheel for the Rust client, as the key `wheel` pressed and released at once. It goes only while the client's layer
+    /// wants the keys and lists `wheel` in its `takes` (the display lab switches between its two looks with it); a wheel nobody asked for is the
+    /// pointer's alone. Returns whether the client got it.
+    pub fn shell_rust_wheel(&mut self) -> bool {
+        if !self.shell_rust_wants_keys() || !self.shell_rust.takes.iter().any(|n| n == "wheel") {
+            return false;
+        }
+        let sent = self.shell_rust.send_key("wheel", true, false, 0);
+        self.shell_rust.send_key("wheel", false, false, 0);
+        if sent {
+            self.keys.delivered += 1;
+        }
+        sent
+    }
+
     /// A pointer sample for the Rust client (the caller decides that it has the pointer: [`State::shell_rust_pointer_sample`]).
     pub fn shell_rust_pointer(&mut self, x: f32, y: f32, buttons: u32, visible: bool) {
         self.shell_rust.send_pointer(x, y, buttons, visible);
@@ -1424,6 +1439,42 @@ mod tests {
         assert!(!state.shell_rust_takes_key(seat, crate::input::code::KEY_UP, true, false, now));
         state.shell_rust_handle(Msg::Takes(vec!["ok".into(), "menu".into()]));
         assert_eq!(state.shell_rust.takes, vec!["ok"]);
+    }
+
+    #[test]
+    fn a_turn_of_the_wheel_is_the_key_wheel_for_the_client_only_while_its_layer_wants_the_keys_and_lists_it() {
+        let (mut state, _dir) = state_with("displaylab");
+        state.shell_rust_handle(Msg::Connected);
+        let (ours, theirs) = UnixStream::pair().unwrap();
+        ours.set_nonblocking(true).unwrap();
+        state.shell_rust.keys = Some(ours);
+        // the lab is open and wants the keys, but has not asked for the wheel: the turn is the pointer's alone
+        state.shell_rust_handle(Msg::Ui { can: Some(vec!["displaylab".into()]), wants: Some(true), live: Some(true), state: None });
+        assert!(!state.shell_rust_wheel(), "not listed");
+        crate::server::seat::wheel_turn(&mut state);
+        state.shell_rust_handle(Msg::Takes(vec!["wheel".into(), "menu".into()]));
+        assert_eq!(state.shell_rust.takes, vec!["wheel"], "the wheel is takeable, a name nobody taught is not");
+        assert!(state.shell_rust_wheel(), "listed, and the layer has the keys: the turn is the lab's");
+        // a turn of the wheel the control socket makes is the same turn
+        crate::server::seat::wheel_turn(&mut state);
+        // the layer lets go of the keys (the lab closed): listed or not, the turn is not sent
+        state.shell_rust_handle(Msg::Ui { can: None, wants: Some(false), live: None, state: None });
+        assert!(!state.shell_rust_wheel());
+        let mut reader = theirs;
+        reader.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        let mut text = String::new();
+        let mut buf = [0u8; 1024];
+        let keys = |text: &str| -> Vec<Value> { text.lines().map(|l| serde_json::from_str::<Value>(l).unwrap()).filter(|l| l.get("key").is_some()).collect() };
+        while keys(&text).len() < 4 {
+            let n = reader.read(&mut buf).unwrap();
+            text.push_str(std::str::from_utf8(&buf[..n]).unwrap());
+        }
+        // the pointer the first turn showed is on the socket too, and is not what is looked at
+        let lines = keys(&text);
+        assert_eq!(lines.len(), 4, "two turns, each pressed and released: {text}");
+        assert_eq!(lines[0], json!({"key": {"k": "wheel", "d": true, "r": false, "seat": 0}}));
+        assert_eq!(lines[1], json!({"key": {"k": "wheel", "d": false, "r": false, "seat": 0}}));
+        assert_eq!(lines[2..], lines[..2]);
     }
 
     #[test]

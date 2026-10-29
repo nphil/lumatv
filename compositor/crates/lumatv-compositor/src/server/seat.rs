@@ -364,6 +364,8 @@ pub fn remote_motion(state: &mut State, x: i32, y: i32) -> bool {
 /// A notch of the Magic Remote's wheel: under [`PointerShow::Wheel`] it shows the pointer where the remote points, and while the pointer
 /// shows it keeps it up. A wheel press is OK, a key, and never gets here. Returns whether a client heard the pointer appear.
 pub fn wheel_turn(state: &mut State) -> bool {
+    // the Rust client's display lab, while it is open, takes the turn as the key `wheel` (its two looks switch with it)
+    state.shell_rust_wheel();
     if state.seat.cursor_visible {
         state.seat.cursor_shown_at = Some(std::time::Instant::now());
         state.scene.input(crate::output::monotonic_ns());

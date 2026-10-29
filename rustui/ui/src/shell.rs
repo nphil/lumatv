@@ -64,6 +64,8 @@ pub struct Kinds {
     /// The input banners: the pill of an input that came to the front, the one with buttons, the no-signal screen and the channel banner.
     pub banner: bool,
     pub keyboard: bool,
+    /// The display lab: test cards and one setting of the screen's hardware at a time, driven with the remote (opened from Settings > Picture).
+    pub displaylab: bool,
 }
 
 impl Kinds {
@@ -93,6 +95,7 @@ impl Kinds {
                 "ai" => k.ai = true,
                 "banner" => k.banner = true,
                 "keyboard" => k.keyboard = true,
+                "displaylab" => k.displaylab = true,
                 _ => {}
             }
         }
@@ -122,6 +125,7 @@ impl Kinds {
             (self.ai, "ai"),
             (self.banner, "banner"),
             (self.keyboard, "keyboard"),
+            (self.displaylab, "displaylab"),
         ]
         .into_iter()
         .filter_map(|(on, name)| on.then_some(name))
@@ -151,6 +155,8 @@ pub struct Shell {
     vwin: crate::host::vwin::Vwin,
     /// Settings, the modal kind over everything but the system layer.
     settings: SettingsHost,
+    /// The display lab: over Settings (it is opened from there) and under the editor and the system layer; it has the keys while it is open.
+    lab: crate::lab::host::LabHost,
     /// The panels: the quick panel, the input picker and the notification drawer.
     panels: Panels,
     /// The press of OK or Back that is being routed was taken by a card (the pop-up's or the overlay queue's): the screens under do not see it.
@@ -165,6 +171,9 @@ pub struct Shell {
     data_dir: Option<PathBuf>,
     /// The keys whose press the entry sheet took (their release is the sheet's too).
     entry_keys: Vec<String>,
+    /// The keys whose press the display lab took (their release is the lab's too: the lab may have closed on the press, and no screen under it
+    /// is to see a release whose press it never saw).
+    lab_keys: Vec<String>,
 }
 
 impl Shell {
@@ -180,6 +189,7 @@ impl Shell {
             sys: Layer::new(system_z + crate::kit::z::SYSTEM, theme, layout),
             // Settings reads the layout as Home has merged and tidied it
             settings: SettingsHost::new(system_z, theme, &home.layout),
+            lab: crate::lab::host::LabHost::new(system_z + crate::kit::z::LAB),
             settings_layout: home.layout_text.clone(),
             home,
             home_surface: HomeSurface::new(system_z),
@@ -197,6 +207,7 @@ impl Shell {
             started: false,
             data_dir: None,
             entry_keys: Vec::new(),
+            lab_keys: Vec::new(),
         })
     }
 
@@ -328,8 +339,9 @@ impl Shell {
         // never see it (the key that wakes the TV does nothing else).
         let key_like = matches!(input, Input::Key { .. } | Input::Pointer { .. });
         let cards_had = matches!(input, Input::Key { .. }) && self.cards_took;
-        let layer_had = key_like && (self.sys.wants(&self.kinds) || cards_had);
-        let system_had = key_like && (self.system_wants() || cards_had);
+        let lab_had = key_like && self.lab_wants();
+        let layer_had = key_like && (self.sys.wants(&self.kinds) || cards_had || lab_had);
+        let system_had = key_like && (self.system_wants() || cards_had || lab_had);
         if self.kinds.osd {
             for e in self.volume.update(input, now) {
                 self.carry(e, now, acts);
@@ -342,6 +354,12 @@ impl Shell {
         }
         for e in self.sys.update(&self.kinds, input, now) {
             self.carry(e, now, acts);
+        }
+        // the lab hears the topics, the helper's answers and the clock here; its keys and its pointer come by `key`
+        if self.kinds.displaylab && !key_like {
+            for e in self.lab.update(input, now) {
+                self.carry(e, now, acts);
+            }
         }
         for e in self.panels.update(&self.kinds, input, now) {
             self.carry(e, now, acts);
@@ -439,7 +457,7 @@ impl Shell {
     }
 
     /// Whether a kind that sits above Home owns input now: an alert, the input popup, a PIN prompt, the saver, the layout editor, Home's own
-    /// extras, a panel (quick, picker, drawer, menu, confirm, switcher, the entry sheet), the apps' keyboard, the Cameras viewer or Settings.
+    /// extras, a panel (quick, picker, drawer, menu, confirm, switcher, the entry sheet), the apps' keyboard, the Cameras viewer, Settings or the display lab.
     /// Home gets no key and no pointer sample while one does; the volume display and the toasts never own input. Every gate that keeps Home
     /// out of input asks this, so a new owner is added here and nowhere else.
     pub fn system_wants(&self) -> bool {
@@ -448,6 +466,12 @@ impl Shell {
             || self.panels.keyboard_up(&self.kinds)
             || (self.kinds.cameras && self.cameras.wants())
             || (self.kinds.settings && self.settings.is_open())
+            || self.lab_wants()
+    }
+
+    /// The display lab is open and has the keys and the pointer: nothing under it hears them.
+    fn lab_wants(&self) -> bool {
+        self.kinds.displaylab && self.lab.wants()
     }
 
     /// What the panels tell the rest of the shell goes to every model as a topic; "All settings" opens Settings at its page.
@@ -557,6 +581,13 @@ impl Shell {
                 // `ctl shell show layout ITEM` names the item as the page
                 self.start_layout(data.get("item").or_else(|| data.get("page")).and_then(Value::as_str));
             }
+            Event::Topic { topic, data } if topic == "show" && data.get("kind").and_then(Value::as_str) == Some("displaylab") && self.kinds.displaylab => {
+                // `ctl shell show displaylab`: the same door as Settings' row
+                for e in self.lab.open(now) {
+                    self.carry(e, now, &mut acts);
+                }
+                self.redraw = true;
+            }
             Event::Topic { topic, data } if topic == "show" && data.get("kind").and_then(Value::as_str) == Some("banner") && self.kinds.banner => {
                 // `ctl shell show banner pill|bar|nosignal`: what the QML's development door was, for a TV check
                 for e in self.sys.show_banner(data.get("page").and_then(Value::as_str).unwrap_or("pill"), now) {
@@ -639,7 +670,22 @@ impl Shell {
                 if !*down && let Some(i) = took {
                     self.entry_keys.remove(i);
                 }
-                if sys_asks {
+                // the display lab has every key while it is open (a question of the system layer or a card first), and the release of a key it took:
+                // the lab may have closed on the press, and what is under it is to see neither
+                let lab_up = self.lab_wants() && !self.sys.wants(&self.kinds) && !self.cards_took;
+                let lab_took = self.lab_keys.iter().position(|k| k == name);
+                let for_lab = lab_up || lab_took.is_some();
+                if *down && lab_up && lab_took.is_none() {
+                    self.lab_keys.push(name.clone());
+                }
+                if !*down && let Some(i) = lab_took {
+                    self.lab_keys.remove(i);
+                }
+                if for_lab {
+                    for e in self.lab.key(name, *down, *repeat, &mut self.engine, now) {
+                        self.carry(e, now, &mut acts);
+                    }
+                } else if sys_asks {
                     for e in self.sys.update(&self.kinds, &Input::Key { name: name.clone(), down: *down, repeat: *repeat }, now) {
                         self.carry(e, now, &mut acts);
                     }
@@ -647,7 +693,7 @@ impl Shell {
                     self.feed(&Input::Key { name: name.clone(), down: *down, repeat: *repeat }, now, &mut acts);
                 }
                 // a panel has the keys unless a question of the system layer or Settings is over it, or a card took the key (the entry sheet is over Settings)
-                if !self.sys.wants(&self.kinds) && (for_entry || !self.settings.is_open()) && !self.cards_took {
+                if !self.sys.wants(&self.kinds) && (for_entry || !self.settings.is_open()) && !self.cards_took && !for_lab {
                     for e in self.panels.key(&self.kinds, name, *down, *repeat, now) {
                         self.carry(e, now, &mut acts);
                     }
@@ -658,10 +704,15 @@ impl Shell {
                 self.cards_took = false;
                 let now_ns = self.kit.ui.scene.now_ns();
                 let sample = Sample { x: *x, y: *y, buttons: *buttons, visible: *visible };
-                // the layout editor and the AI prompt are the whole screen's: nothing under them hears the pointer
-                let editor = self.sys.layout_open() || self.sys.ai_up();
+                // the layout editor, the AI prompt and the display lab are the whole screen's: nothing under them hears the pointer
+                let lab_up = self.lab_wants();
+                let editor = self.sys.layout_open() || self.sys.ai_up() || lab_up;
                 if let Some(target) = self.sys.pointer(&self.kit, &mut self.engine, now_ns, now, sample) {
                     for e in self.sys.press(target) {
+                        self.carry(e, now, &mut acts);
+                    }
+                } else if lab_up {
+                    for e in self.lab.pointer(&self.kit, &mut self.engine, now_ns, sample, now) {
                         self.carry(e, now, &mut acts);
                     }
                 } else if self.kinds.settings && !self.sys.wants(&self.kinds) && !self.panels.entry_up(&self.kinds) {
@@ -728,7 +779,7 @@ impl Shell {
             }
         }
         // what the panels, Settings and the Cameras viewer have up is what the cards and the pop-up wait for
-        let host_busy = self.panels.wants(&self.kinds) || (self.kinds.settings && self.settings.is_open());
+        let host_busy = self.panels.wants(&self.kinds) || (self.kinds.settings && self.settings.is_open()) || (self.kinds.displaylab && self.lab.is_open());
         let viewer = self.kinds.cameras && self.cameras.wants();
         for e in self.sys.set_host(&self.kinds, host_busy, viewer, now) {
             self.carry(e, now, acts);
@@ -741,6 +792,9 @@ impl Shell {
             self.redraw = true;
         }
         if self.panels.take_redraw() {
+            self.redraw = true;
+        }
+        if self.kinds.displaylab && self.lab.take_redraw() {
             self.redraw = true;
         }
         // what the compositor made of the live picture's claim on a video window: the full view follows it
@@ -815,6 +869,19 @@ impl Shell {
                     Err(e) => acts.push(Act::Log(format!("settings: {e}"))),
                 }
             }
+            if self.kinds.displaylab {
+                let now_ns = self.kit.ui.scene.now_ns();
+                match self.lab.apply(&mut self.kit, &mut self.engine, now_ns) {
+                    Ok(on) => live |= on,
+                    // a lab that cannot be seen is not run: it ends, and the screen is put back
+                    Err(e) => {
+                        acts.push(Act::Log(format!("displaylab: {e}")));
+                        for fx in self.lab.close("it could not be drawn", now) {
+                            self.carry(fx, now, acts);
+                        }
+                    }
+                }
+            }
             self.live = live;
         }
         if self.started {
@@ -883,10 +950,17 @@ impl Shell {
         if self.kinds.settings {
             can.push("settings");
         }
+        if self.kinds.displaylab {
+            can.push("displaylab");
+        }
         can.extend(self.panels.can(&self.kinds));
         // Home in front wants the keys too: the compositor sends every key of the remote to the layer that wants them
-        let wants = self.sys.wants(&self.kinds) || self.panels.wants(&self.kinds) || (self.kinds.home && self.home.active) || (self.kinds.cameras && self.cameras.wants()) || (self.kinds.settings && self.settings.wants());
+        let wants = self.sys.wants(&self.kinds) || self.panels.wants(&self.kinds) || (self.kinds.home && self.home.active) || (self.kinds.cameras && self.cameras.wants()) || (self.kinds.settings && self.settings.wants()) || self.lab_wants();
         let mut takes = self.sys.takes(&self.kinds);
+        if self.lab_wants() {
+            // the wheel's turns switch between the two looks: the compositor has no key for them until it is told they are the shell's
+            takes.push("wheel");
+        }
         if self.kinds.home {
             // the keys the compositor has no name for until it is told they are the shell's: the voice key while the helper can listen, the
             // on-screen remote's and Search's while Home is in front
@@ -929,6 +1003,11 @@ impl Shell {
                 s[k] = val.clone();
             }
         }
+        if self.kinds.displaylab {
+            for (k, val) in self.lab.state().as_object().into_iter().flatten() {
+                s[k] = val.clone();
+            }
+        }
         s["live"] = json!(self.live);
         s
     }
@@ -947,7 +1026,8 @@ impl Shell {
         }
         let cameras = if self.kinds.cameras { self.cameras.due_at() } else { None };
         let settings = if self.kinds.settings { self.settings.due_at() } else { None };
-        [due, self.sys.due_at(&self.kinds), self.panels.due_at(&self.kinds), cameras, settings, self.vwin.due_at()].into_iter().flatten().min()
+        let lab = if self.kinds.displaylab { self.lab.due_at() } else { None };
+        [due, self.sys.due_at(&self.kinds), self.panels.due_at(&self.kinds), cameras, settings, lab, self.vwin.due_at()].into_iter().flatten().min()
     }
 
     pub fn is_live(&self) -> bool {
@@ -977,6 +1057,11 @@ impl Shell {
                 g[k] = v.clone();
             }
         }
+        if self.kinds.displaylab {
+            for (k, v) in self.lab.geometry(&self.engine).as_object().into_iter().flatten() {
+                g[k] = v.clone();
+            }
+        }
         g
     }
 
@@ -995,6 +1080,11 @@ impl Shell {
         // the entry sheet's dim hides the screen it is over: only the sheet is read
         if self.panels.entry_up(&self.kinds) {
             self.panels.feed_lint(&self.kinds, &mut self.kit, &mut lint);
+            return report(lint);
+        }
+        // the display lab is an opaque page over everything but the system layer: while it is open only it is read
+        if self.kinds.displaylab && self.lab.is_open() {
+            self.lab.feed_lint(&mut self.kit, &mut lint);
             return report(lint);
         }
         self.sys.feed_lint(&self.kinds, &mut self.kit, &mut lint);
@@ -1027,6 +1117,7 @@ impl Shell {
         self.home_surface.restyle();
         self.cameras.restyle(&mut self.engine, self.kit.text_scale);
         self.settings.restyle();
+        self.lab.restyle(&mut self.engine);
         if self.kinds.layout && self.sys.layout_open() {
             let sizes = self.layout_sizes();
             self.sys.set_layout_sizes(sizes);
@@ -1087,6 +1178,16 @@ impl Shell {
                         self.start_layout(item.as_deref());
                     } else {
                         acts.push(Act::Log(format!("settings: the layout editor was asked for ({item:?}) and is not this process's")));
+                    }
+                }
+                ShellRequest::DisplayLab => {
+                    if self.kinds.displaylab {
+                        for e in self.lab.open(now) {
+                            self.carry(e, now, acts);
+                        }
+                        self.redraw = true;
+                    } else {
+                        acts.push(Act::Log("settings: the display lab was asked for and is not this process's".into()));
                     }
                 }
                 ShellRequest::HomeLayout(layout) => {
@@ -1158,6 +1259,9 @@ impl Shell {
         theme
     }
 }
+
+#[cfg(test)]
+mod displaylab_tests;
 
 #[cfg(test)]
 mod tests {

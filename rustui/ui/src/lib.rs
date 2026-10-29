@@ -9,6 +9,7 @@ pub mod cameras;
 pub mod home;
 pub mod host;
 pub mod kit;
+pub mod lab;
 pub mod panels;
 pub mod settings;
 pub mod shell;

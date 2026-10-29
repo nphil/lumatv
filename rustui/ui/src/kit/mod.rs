@@ -40,6 +40,8 @@ pub mod z {
     /// The Cameras app (the grid, the full view, the strip, the sheet): over the panels, under Settings.
     pub const CAMERAS: i32 = 200;
     pub const SETTINGS: i32 = 300;
+    /// The display lab (a test card over the whole screen, one sheet beside it): over Settings it is opened from, under the overlay editor.
+    pub const LAB: i32 = 400;
     /// The overlay layout editor.
     pub const EDITOR: i32 = 500;
     pub const KEYBOARD: i32 = 600;

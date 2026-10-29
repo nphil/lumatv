@@ -98,6 +98,11 @@ impl SettingsHost {
         self.model.take_requests()
     }
 
+    #[cfg(test)]
+    pub fn raise(&mut self, r: ShellRequest) {
+        self.model.raise(r);
+    }
+
     /// The theme file after a patch was written (the shell makes it the look in force).
     pub fn take_theme_file(&mut self) -> Option<Value> {
         self.model.take_theme_file()

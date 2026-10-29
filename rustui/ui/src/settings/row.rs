@@ -199,6 +199,8 @@ pub enum ShellRequest {
     HomeLayout(Value),
     /// Closes Settings and opens Home's layout editor.
     EditHome,
+    /// Opens the display lab (kind `displaylab`) over Settings, which stays where it was for the way back.
+    DisplayLab,
     /// Asks the keyboard for text (a Wi-Fi password, the TV's name); the answer comes back as `entered` or `entry_cancelled`.
     Text { prompt: String, text: String, secret: bool },
 }

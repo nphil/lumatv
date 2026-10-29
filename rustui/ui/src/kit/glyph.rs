@@ -120,6 +120,13 @@ fn shape(name: &str) -> Option<Vec<Prim>> {
             stroke(&[(5.0, 9.0), (2.0, 12.0), (5.0, 15.0)]),
         ],
         "edit" => vec![closed(&[(18.5, 2.5), (21.5, 5.5), (7.3, 19.7), (2.5, 21.5), (4.3, 16.7)]), stroke(&[(15.0, 5.0), (19.0, 9.0)])],
+        // Lucide's arrow-left-right: what a key pair switches between two things (the lab's A and B)
+        "swap" => vec![
+            stroke(&[(8.0, 3.0), (4.0, 7.0), (8.0, 11.0)]),
+            stroke(&[(4.0, 7.0), (20.0, 7.0)]),
+            stroke(&[(16.0, 21.0), (20.0, 17.0), (16.0, 13.0)]),
+            stroke(&[(20.0, 17.0), (4.0, 17.0)]),
+        ],
         "hold" => vec![
             stroke(&[(5.0, 22.0), (19.0, 22.0)]),
             stroke(&[(5.0, 2.0), (19.0, 2.0)]),

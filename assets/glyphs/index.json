@@ -114,6 +114,11 @@
       "kind": "action",
       "name": "edit"
     },
+    "swap": {
+      "file": "swap.svg",
+      "kind": "action",
+      "name": "switch"
+    },
     "hold": {
       "file": "hold.svg",
       "kind": "action",

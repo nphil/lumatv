@@ -10,7 +10,7 @@ use crate::host::sio::SERVICE;
 use crate::settings::ctx::{Ctx, Spec, ask};
 use crate::settings::names;
 use crate::settings::page::{Page, Read};
-use crate::settings::row::{Arg, Op, PageArg, Row};
+use crate::settings::row::{Arg, Op, PageArg, Row, ShellRequest};
 use serde_json::{Map, Value, json};
 use std::rc::Rc;
 use std::sync::LazyLock;
@@ -149,6 +149,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
     let mut signalling = Row::link("signalling").tab(5).icon("cable").label("HDMI Signalling").help("What the TV is told an HDMI picture is: colorimetry, EOTF and the HDR values. AUTO is the source's own.").does(go("signalling"));
     signalling.visible = c.lg.shown("other.colorimetry");
     rows.push(signalling);
+    rows.push(Row::link("displaylab").tab(5).icon("scan-eye").label("Display lab").help("Compare two looks of the screen side by side on test cards, one step at a time.").does(vec![Op::Shell(ShellRequest::DisplayLab)]));
     let mut apply = Row::action("applyall", "Apply").tab(5).icon("list-checks").label("Apply to All Inputs").help("Gives every input this mode's settings.");
     apply.enabled = c.lg.usable("picture.applyToAllInput");
     rows.push(apply.does(ask("list-checks", "Apply to all inputs?", "Every input gets this mode's settings.", "Apply", "Cancel", false, vec![Op::Lg { ds: "picture.applyToAllInput".into(), value: json!("picture"), app: None }])));

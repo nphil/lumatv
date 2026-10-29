@@ -275,6 +275,12 @@ impl Model {
         std::mem::take(&mut self.requests)
     }
 
+    /// What a row's press would have asked of the shell (the shell's tests raise the requests Settings makes).
+    #[cfg(test)]
+    pub fn raise(&mut self, r: ShellRequest) {
+        self.requests.push(r);
+    }
+
     /// The theme file as it was written after a patch (the shell makes it the look in force and tells [`Model::set_theme`]).
     pub fn take_theme_file(&mut self) -> Option<Value> {
         self.theme_file.take()

@@ -80,6 +80,8 @@ pub enum Action {
     Options,
     Move,
     Edit,
+    /// Between two things: the left and right keys that switch what is shown.
+    Swap,
 }
 
 impl Action {
@@ -93,6 +95,7 @@ impl Action {
             Action::Options => "options",
             Action::Move => "move",
             Action::Edit => "edit",
+            Action::Swap => "swap",
         }
     }
 
@@ -106,6 +109,7 @@ impl Action {
             Action::Options => "options",
             Action::Move => "move",
             Action::Edit => "edit",
+            Action::Swap => "switch",
         }
     }
 }
@@ -265,6 +269,9 @@ mod tests {
         let h = Hint { keys: vec![(Key::Up, false), (Key::Down, false)], action: Some(Action::Move), label: None };
         assert_eq!(h.glyphs(), vec!["key-up", "key-down", "move"]);
         assert_eq!(h.name(), "Up and Down, move");
+        let h = Hint { keys: vec![(Key::Left, false), (Key::Right, false)], action: Some(Action::Swap), label: None };
+        assert_eq!(h.glyphs(), vec!["key-left", "key-right", "swap"]);
+        assert_eq!(h.name(), "Left and Right, switch");
         let h = Hint { keys: vec![(Key::Back, true)], action: None, label: Some("Home".into()) };
         assert_eq!(h.glyphs(), vec!["key-back", "hold"]);
         assert_eq!(h.name(), "Hold Back, Home");
