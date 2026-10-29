@@ -6,10 +6,10 @@ Nitin at the set. No TV access this session; nothing here has run on the panel.
 
 ## Resume here
 
-Done (2026-10-29, offline): the evidence committed (`22a5e1d`, serial and MAC redacted), the plane-offset orbit
+Done (2026-10-29, offline): the evidence committed (`76160d6`, serial and MAC redacted), the plane-offset orbit
 (`93f6e74`: `--scanout-offset`, `ctl scanout offset on|off`, off by default), the page probe (`5c9dc80`: `ctl pageprobe
 WxH SECONDS`), `tools/layerdeep-tv.sh` (the set-side steps with their reverts), this document. Host checks green:
-`cargo test -p lumatv-compositor` (scanout, oledcare, ui_scanout, control, the lib's pageprobe tests), `cargo clippy -D
+the whole `cargo test -p lumatv-compositor`, `cargo clippy -D
 warnings` on the lib, bins and the touched test crates, `cargo check --features ui`. `tests/vwin.rs:332` (HwPlanes2's)
 fails clippy on `main` with an unused `mut`; told HwPlanes2.
 
