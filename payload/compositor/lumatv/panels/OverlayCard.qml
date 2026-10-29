@@ -39,7 +39,10 @@ Item {
     visible: !probe && opacity > 0
     opacity: probe ? 1 : (shown ? 1 : 0)
     scale: probe || shown ? 1 : 0.96
-    transform: Translate { x: card.probe || card.shown ? 0 : 24 }
+    transform: Translate {
+        x: card.probe || card.shown ? 0 : 24
+        Behavior on x { enabled: !card.probe && !card.instant && !Lu.reduced; NumberAnimation { duration: card.shown ? Lu.cardMs : Lu.restMs; easing.type: Lu.cardEasing } }
+    }
     Behavior on opacity { enabled: !card.probe && !card.instant && !Lu.reduced; NumberAnimation { duration: card.shown ? Lu.cardMs : Lu.restMs; easing.type: Lu.cardEasing } }
     Behavior on scale { enabled: !card.probe && !card.instant && !Lu.reduced; NumberAnimation { duration: Lu.cardMs; easing.type: Lu.cardEasing } }
     onOpacityChanged: if (opacity === 1) pane.locate()

@@ -116,7 +116,7 @@ def check(geometry):
     for i, g in enumerate(cards):
         if g["y"] + g["h"] > 810:
             out.append("[zone] card %d ends at %d, below 75 %% of the height" % (i, g["y"] + g["h"]))
-        if g["x"] + g["w"] != 1920 - 96:
+        if g["x"] + g["w"] != 1920 - 64:
             out.append("[zone] card %d ends at x %d, not the safe area's edge" % (i, g["x"] + g["w"]))
         if g["y"] < 134:
             out.append("[zone] card %d starts at %d, above the status bar's row" % (i, g["y"]))

@@ -81,7 +81,7 @@ class CameraPopup(HostCase):
         steps = [(READY, publish("cameras", CAMERAS)),
                  (READY + 300, popup(lasts=4000)),
                  (READY + 2300, "var c = %s; console.info('[p1] ' + JSON.stringify({mode: c.mode, popupUp: c.popupUp, wants: c.wants, overlayWants: overlay.wants, "
-                               "name: c.popup ? c.popup.name : '', what: c.kindWord(c.popup), ago: c.ago, "
+                               "name: c.popup ? c.popup.name : '', what: c.kindWord(c.popup), ago: c.ago, right: c.popupRight, bottom: c.popupBottom, "
                                "shownAt: c.shownAt - (c.popup ? c.popup.untilMs - 4000 : 0), pad: c.padX, pw: c.previewW, ph: c.previewH}));" % C),
                  (READY + 2800, frames() + "console.info('[f1] ' + JSON.stringify(frames));")]
         doc, out = self.run_overlay(steps, READY + 6000)
@@ -94,6 +94,7 @@ class CameraPopup(HostCase):
         # building Home when the step runs; the helper's own event-to-pop-up time is held under a second by helper/app/tests/cameras.rs.
         self.assertLess(p1["shownAt"], 2000, "the card is up within a moment of the topic")
         self.assertEqual(p1["pad"], 20)
+        self.assertEqual((p1["right"], p1["bottom"] <= 810), (1920 - 64, True), "the card ends where Home's right edge does (it ended 32 px short of it), above the bottom quarter")
         self.assertEqual((p1["pw"], p1["ph"]), (520, 292))
         frames_asked = self.tagged(out, "f1")[0]
         self.assertTrue(frames_asked, "the preview asks the helper for pictures")

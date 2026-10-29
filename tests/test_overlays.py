@@ -148,7 +148,7 @@ class Overlays(HostCase):
         self.assertEqual(s["cls"], ["timer"])
         for g in s["geometry"]:
             self.assertLessEqual(g["y"] + g["h"], 810, "no card ends below 75 % of the height")
-            self.assertEqual(g["x"] + g["w"], 1920 - 96, "inside the 5 % safe area")
+            self.assertEqual(g["x"] + g["w"], 1920 - 64, "ends where Home's right edge does")
             self.assertGreaterEqual(g["y"], 134)
 
     def test_two_alerts_stack_one_under_the_other_inside_the_zone(self):

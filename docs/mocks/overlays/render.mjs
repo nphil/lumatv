@@ -1,7 +1,7 @@
 // Renders the overlay mocks to docs/mocks/overlays/*.png at 1920x1080 with the system Chromium (the shared renderer is ../render.mjs).
 // Usage: node render.mjs
 // Checks, per picture: no text overflows its box or is clipped (at 100 % and 200 %); no two text boxes of a card overlap; every card shown
-// ends above 75 % of the height (810) and keeps to the column (x 1264 to 1824, from y 134); and the composited contrast of every run of words
+// ends above 75 % of the height (810) and keeps to the column (x 1296 to 1856, Home's right edge, from y 134); and the composited contrast of every run of words
 // (4.5:1) and every glyph (3:1) on the worst frame under the glass: white under the dark glass, black under the light one, the glass at theme.json's
 // readingAlpha (the language measures contrast on the composited picture).
 import { chromium } from '/data/home/lucent-ha/node_modules/playwright-core/index.mjs';
@@ -46,7 +46,7 @@ for (const [name, file] of SHOTS) {
     const [glass] = hex(material.glass);
     const bg = over(glass, material.readingAlpha, worst);
     const cards = [...document.querySelectorAll('.st')].filter(s => getComputedStyle(s).display !== 'none').flatMap(s => [...s.querySelectorAll('[data-card]')]).filter(c => c.style.display !== 'none');
-    const col = { l: 1264 - 1, r: 1824 + 1 };
+    const col = { l: 1296 - 1, r: 1856 + 1 };
     cards.forEach((c, n) => {
       const r = c.getBoundingClientRect();
       if (r.bottom > 810) out.push(`card ${n} ends at ${Math.round(r.bottom)}, below 75 % (810)`);

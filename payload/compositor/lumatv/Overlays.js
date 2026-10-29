@@ -27,7 +27,7 @@ var DEFAULTS = {
     enabled: false,
     maxVisible: 2,
     top: 134,                     // where the first card starts: below the status bar's row (54 + 60 + 20), as the camera pop-up
-    right: 96,                    // from the right edge: the 5 % safe area
+    right: 64,                    // from the right edge: Home's own margin (layout.json safe.x), where its status bar and dock end
     width: 560,                   // as the camera pop-up and the toasts
     gap: 16,                      // between two cards
     limit: 810,                   // no card ends below this: three quarters of 1080, so the film's subtitles and the volume bar keep the rest

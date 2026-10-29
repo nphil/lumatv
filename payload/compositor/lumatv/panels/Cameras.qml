@@ -200,8 +200,9 @@ Item {
     function nameOf(i) { return i >= 0 && i < cameras.length ? (cameras[i].name || cameras[i].id) : "" }
 
     // ================================================================= the pop-up card (docs/mocks/cameras/popup)
-    // Top right, inside the 5 % safe area (96 from the right edge) and below the status bar's row (54 + 60 + 20 = 134): the mute mark's
+    // Top right, ending where Home's status bar does (theme overlays.right, 64: layout.json safe.x) and below its row (54 + 60 + 20 = 134): the mute mark's
     // row; the mark keeps to the left corner while this is up (LumaOverlay tells the volume display).
+    readonly property int rightEdge: Lu.theme && Lu.theme.overlays && Lu.theme.overlays.right !== undefined ? Lu.theme.overlays.right : 64     // the cards under it use the same
     readonly property int padX: Lu.space(5)       // 20
     readonly property int cardW: 560
     readonly property int previewW: cardW - 2 * padX
@@ -212,11 +213,12 @@ Item {
     readonly property int previewH: Math.max(120, Math.min(previewNat, ((cardLimit - 134 - (2 * padX + head.height + 2 * Lu.space(3) + foot.height)) >> 1) << 1))
     // where the card ends, for the overlay system's cards that go under it
     readonly property real popupBottom: card.y + card.height
+    readonly property real popupRight: card.x + card.width     // and where it ends across: where Home's right edge is
     LuPane {
         id: card
         width: cams.cardW
         height: head.y + head.height + Lu.space(3) + cams.previewH + Lu.space(3) + foot.height + cams.padX
-        x: cams.width - 96 - width
+        x: cams.width - cams.rightEdge - width
         y: 134
         cardRadius: Lu.radius("card")
         fillAlpha: cams.paneAlpha
@@ -224,7 +226,10 @@ Item {
         visible: opacity > 0
         // in from a touch to the right and a little smaller, the card's own motion; out quickly. Nothing moves after it has landed.
         scale: cams.popupUp ? 1 : 0.96
-        transform: Translate { x: cams.popupUp ? 0 : 24 }
+        transform: Translate {
+            x: cams.popupUp ? 0 : 24
+            Behavior on x { enabled: !Lu.reduced; NumberAnimation { duration: cams.popupUp ? Lu.cardMs : Lu.restMs; easing.type: Lu.cardEasing } }
+        }
         Behavior on opacity { enabled: !Lu.reduced; NumberAnimation { duration: cams.popupUp ? Lu.cardMs : Lu.restMs; easing.type: Lu.cardEasing } }
         Behavior on scale { enabled: !Lu.reduced; NumberAnimation { duration: Lu.cardMs; easing.type: Lu.cardEasing } }
         onOpacityChanged: if (opacity === 1) locate()

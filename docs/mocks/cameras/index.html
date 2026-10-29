@@ -18,9 +18,9 @@
   .st { display: none; }
   html:not([data-v]) .st.popup, [data-v="popup"] .st.popup, [data-v="doorbell"] .st.doorbell, [data-v="full"] .st.full, [data-v="grid"] .st.grid { display: block; }
 
-  /* the card: 560 wide, 96 from the right edge (the 5 % safe area), 134 from the top (the status bar's row and its gap). Lucent overlay material;
+  /* the card: 560 wide, 64 from the right edge (Home's own: its status bar and cards end there; it was 96 until the layout editor), 134 from the top (the status bar's row and its gap). Lucent overlay material;
      over video a near-opaque reading surface, no blur. One edge, one shadow. */
-  .cam-card { position: absolute; right: 96px; top: 134px; width: 560px; padding: 20px; box-sizing: border-box; border-radius: var(--lu-radius-card); }
+  .cam-card { position: absolute; right: 64px; top: 134px; width: 560px; padding: 20px; box-sizing: border-box; border-radius: var(--lu-radius-card); }
   .cam-card .head { display: flex; align-items: flex-start; gap: 16px; }
   .cam-card .head .ic { width: 36px; height: 36px; margin-top: 2px; }
   .cam-card .who { flex: 1 1 auto; min-width: 0; }
@@ -33,7 +33,7 @@
   .cam-card .foot .hint { margin-left: auto; color: var(--lu-ink-3); white-space: nowrap; }
   /* at 200 % the hint takes a line of its own under the state, never the edge of the card */
   [data-text="200"] .cam-card .foot { flex-wrap: wrap; row-gap: 4px; }
-  [data-text="200"] .cam-card .foot .hint { margin-left: 0; flex-basis: 100%; }
+  [data-text="200"] .cam-card .foot .hint { margin-left: 0; flex-basis: 100%; white-space: normal; }
 
   /* the full view: the picture fitted on black, the name pill top left and the hints bottom right, both fading after a moment */
   .full { position: absolute; inset: 0; background: #000; }

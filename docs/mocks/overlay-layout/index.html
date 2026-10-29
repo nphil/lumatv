@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>LumaTV · Layout of pop-ups</title>
+<link rel="stylesheet" href="../lucent.css">
+<link rel="stylesheet" href="../help.css">
+<style>
+  /* The layout of the pop-ups (docs/research/overlay-layout-result.md; the surfaces are payload/compositor/lumatv/panels/PlaceEdit.qml and
+     settings/PagePopups.qml, the model is Placement.js, whose arithmetic this page repeats in `rectIn`).
+     ?v=editor (default): every overlay item in its own size on a frame that stands for the screen, the volume bar chosen. The frame shows what the rules
+       keep clear: the safe area (Home's own, 64 x 54), Home's status bar and its row, the bottom quarter (the film's subtitles and the volume bar's) and the
+       subtitles in it. The heads-up panel stands where no item is.
+     ?v=move: the camera window in the hand, a third of the way left; its old place stays outlined; the arrows move it, OK puts it down, Back puts it back.
+     ?v=edge: the volume bar on the right edge (vertical), the camera window moved to the top left: an arrangement the owner made.
+     ?v=blocked: the volume bar pushed toward the right edge, where the camera window is: refused, and the one in the way says so.
+     ?v=page: Settings > Home & look > Layout of pop-ups, a row per item with where it is in words.
+     ?theme=light for the light material; ?text=200 doubles the type (Lucent: no overlapping text at 100 % and 200 %). Sizes are what the surfaces measure at 100 % text
+     (the volume bar 440 x 60, the mute mark 64, the camera window 560 x 469, a card 560 x 165, a toast 560 x 98); text at 200 % makes them taller. */
+  :root { --ts: 1; --canvas: var(--pal-canvas); --tone-accent: var(--lu-accent); }
+  [data-text="200"] { --ts: 2; }
+  [data-theme="light"] { --tone-accent: #5A4C6A; }
+  body { background: var(--pal-canvas); }
+  .stage .wall { opacity: 1; }
+  .veil { position: absolute; inset: 0; background: var(--pal-canvas); opacity: .9; }
+  .sv { display: none; }
+  html:not([data-v]) .sv.ed, [data-v="editor"] .sv.ed, [data-v="move"] .sv.ed, [data-v="edge"] .sv.ed, [data-v="blocked"] .sv.ed, [data-v="page"] .sv.pg { display: block; }
+
+  /* the frame: what the rules keep clear */
+  .safe { position: absolute; left: 64px; top: 54px; right: 64px; bottom: 54px; border: 2px solid color-mix(in srgb, var(--lu-ink) 22%, transparent); border-radius: 6px; }
+  .bar { position: absolute; left: 64px; top: 54px; right: 64px; height: 60px; border-radius: 30px; display: flex; align-items: center; padding: 0 24px 0 8px; gap: 20px; background: var(--lu-glass); border: 1px solid var(--lu-edge); }
+  .bar .dot { width: 44px; height: 44px; border-radius: 50%; background: var(--lu-accent); opacity: .55; }
+  .bar .lab { font-size: 24px; color: var(--lu-ink-3); font-weight: 500; flex: 1; padding-left: 52px; }
+  .bar .ic { width: 28px; height: 28px; color: var(--lu-ink-3); }
+  .hatch { position: absolute; left: 0; right: 0; top: 810px; bottom: 0; background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--lu-danger) 16%, transparent) 0 8px, transparent 8px 28px), color-mix(in srgb, var(--lu-danger) 7%, transparent); border-top: 3px solid color-mix(in srgb, var(--lu-danger) 70%, transparent); }
+  .subs { position: absolute; left: 0; right: 0; top: 905px; height: 105px; display: grid; place-items: center; font-size: 28px; font-weight: 600; color: var(--lu-ink-2); }
+  .held { position: absolute; border: 2px solid color-mix(in srgb, var(--lu-accent) 50%, transparent); display: none; }
+
+  /* an item: its own material and size; chosen it has the lit edge and a tag, picked up it lifts */
+  .g { position: absolute; }
+  .g > .face { position: relative; }
+  .g.sel::before { content: ""; position: absolute; inset: -4px; border-radius: calc(var(--r, 26px) + 4px); border: 3px solid var(--lu-accent); pointer-events: none; z-index: 2; }
+  .g.sel::after { content: ""; position: absolute; inset: -60px; background: radial-gradient(closest-side, color-mix(in srgb, var(--lu-accent) 30%, transparent), transparent 70%); pointer-events: none; z-index: -1; }
+  .g.hit::before { content: ""; position: absolute; inset: -4px; border-radius: calc(var(--r, 26px) + 4px); border: 3px solid var(--lu-danger); pointer-events: none; z-index: 2; }
+  .g.lift > .face { transform: scale(1.03); }
+  .g.waits > .face { opacity: .45; }
+  .g.waits::after { content: "Waits while the camera window is up"; position: absolute; left: 20px; top: calc(100% + 8px); font-size: 22px; font-weight: 500; color: var(--lu-ink-2); }
+  .tag { position: absolute; left: 0; display: none; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: 20px; background: var(--lu-glass-raised); border: 1px solid var(--lu-edge-raised); font-size: 26px; font-weight: 600; white-space: nowrap; z-index: 3; }
+  .tag .ic { width: 22px; height: 22px; color: var(--lu-accent); }
+  .g.sel .tag { display: inline-flex; }
+  .tag.up { top: -52px; }
+  .tag.down { top: calc(100% + 12px); }
+  .g .overlay { position: relative; }
+  .pill { height: calc(60px + 34px * (var(--ts) - 1)); border-radius: calc(30px + 17px * (var(--ts) - 1)); display: flex; align-items: center; gap: 20px; padding: 0 24px; }
+  .pill.h { width: 440px; }
+  .pill .num { width: calc(48px * var(--ts)); text-align: right; font-size: calc(26px * var(--ts)); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .pill .trk { flex: 1; height: 8px; border-radius: 4px; background: var(--lu-track-off); position: relative; }
+  .pill .trk i { position: absolute; left: 0; top: 0; bottom: 0; width: 42%; border-radius: 4px; background: var(--lu-ink); }
+  .pill.v { width: calc(72px + 44px * (var(--ts) - 1)); height: 440px; flex-direction: column; border-radius: calc(36px + 22px * (var(--ts) - 1)); padding: 24px 0; gap: 20px; justify-content: flex-start; }
+  .pill.v .num { width: auto; text-align: center; }
+  .pill.v .trk { flex: 1; width: 8px; height: auto; }
+  .pill.v .trk i { top: auto; left: 0; right: 0; bottom: 0; width: auto; height: 42%; }
+  .mark { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; }
+  .mark .ic { width: 32px; height: 32px; }
+  .box { position: absolute; border: 2px solid color-mix(in srgb, var(--lu-accent) 40%, transparent); border-radius: 32px; display: none; z-index: -1; }
+  .cam { width: 560px; padding: 20px; box-sizing: border-box; border-radius: var(--lu-radius-card); }
+  .cam .head { display: flex; align-items: flex-start; gap: 16px; }
+  .cam .head .ic { width: 36px; height: 36px; margin-top: 2px; color: var(--tone-accent); }
+  .cam .name { font-size: calc(28px * var(--ts)); font-weight: 600; line-height: 1.25; }
+  .cam .what { font-size: calc(26px * var(--ts)); font-weight: 500; line-height: 1.25; color: var(--lu-ink-2); margin-top: 4px; }
+  .cam .preview { margin-top: 12px; width: 520px; height: 292px; border-radius: var(--lu-radius-tile); background: linear-gradient(180deg, color-mix(in srgb, var(--lu-accent) 30%, transparent), color-mix(in srgb, var(--lu-accent) 8%, transparent)); display: grid; place-items: center; }
+  .cam .preview .ic { width: 64px; height: 64px; color: var(--lu-ink-3); }
+  .cam .foot { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: calc(24px * var(--ts)); line-height: 1.3; color: var(--lu-ink-2); flex-wrap: wrap; }
+  .cam .foot .dot { display: inline-block; width: 12px; height: 12px; border-radius: 6px; background: var(--lu-live); }
+  .cam .foot .keys { margin-left: auto; display: flex; gap: 20px; }
+  [data-text="200"] .cam .foot .keys { margin-left: 0; flex-basis: 100%; }
+  .ov { width: 560px; padding: 20px; box-sizing: border-box; border-radius: var(--lu-radius-card); }
+  .ov .ov-row { display: flex; align-items: flex-start; gap: 16px; }
+  .ov .lead { width: 56px; height: 56px; border-radius: 18px; display: grid; place-items: center; flex: none; background: var(--selected-wash); border: 1px solid var(--lu-edge); }
+  .ov .lead .ic { width: 32px; height: 32px; color: var(--tone-accent); }
+  .ov .t { font-size: calc(28px * var(--ts)); font-weight: 600; line-height: 1.25; }
+  .ov .d { margin-top: 4px; font-size: calc(26px * var(--ts)); font-weight: 500; line-height: 1.3; color: var(--lu-ink-2); }
+  .ov .foot { display: flex; align-items: baseline; gap: 16px; margin-top: 12px; font-size: calc(24px * var(--ts)); line-height: 1.3; color: var(--lu-ink-2); flex-wrap: wrap; }
+  .ov .foot .src { flex: 1 1 auto; }
+  .ov .foot .keys { display: flex; gap: 20px; margin-left: auto; }
+  [data-text="200"] .ov .foot .keys { margin-left: 0; flex-basis: 100%; }
+  .tst { width: 560px; border-radius: var(--lu-radius-sheet); background: var(--lu-glass); border: 1px solid var(--lu-edge); padding: 12px; box-sizing: border-box; display: flex; gap: 12px; align-items: center; }
+  .tst .tile { width: 48px; height: 48px; border-radius: 14px; background: var(--lu-accent); color: var(--lu-accent-ink); display: grid; place-items: center; flex: none; }
+  .tst .tile .ic { width: 28px; height: 28px; }
+  .tst .t { font-size: calc(26px * var(--ts)); font-weight: 500; line-height: 1.3; }
+  .tst .d { font-size: calc(24px * var(--ts)); font-weight: 500; line-height: 1.3; color: var(--lu-ink-2); margin-top: 4px; }
+
+  /* the heads-up panel */
+  /* an opaque sheet, as Confirm's: what it covers is not read through it */
+  .hud { position: absolute; width: 760px; padding: 24px; box-sizing: border-box; border-radius: var(--lu-radius-sheet); z-index: 5; background: rgba(31, 29, 46, .96); border: 1px solid var(--lu-edge); }
+  [data-theme="light"] .hud { background: rgba(255, 250, 243, .96); }
+  .hud .hh { display: flex; align-items: center; gap: 12px; font-size: calc(28px * var(--ts)); font-weight: 600; }
+  .hud .hh .ic { width: 32px; height: 32px; }
+  .hud .where { margin-top: 12px; font-size: calc(28px * var(--ts)); font-weight: 500; }
+  .hud .note { margin-top: 12px; font-size: calc(26px * var(--ts)); font-weight: 500; color: var(--lu-danger-readable); display: none; }
+  [data-v="blocked"] .hud .note { display: block; }
+  .hud .btns { display: flex; gap: 16px; margin-top: 16px; }
+  .hud .hint { margin-top: 16px; font-size: calc(24px * var(--ts)); font-weight: 500; color: var(--lu-ink-2); }
+  [data-v="move"] .hud .btns, [data-v="blocked"] .hud .btns, [data-v="move"] .hud .hh, [data-v="blocked"] .hud .hh { display: none; }
+  [data-v="move"] .hud .where, [data-v="blocked"] .hud .where { margin-top: 0; }
+  .hud .btn { height: calc(64px + 32px * (var(--ts) - 1)); min-width: 0; padding: 0 28px; font-size: calc(26px * var(--ts)); }
+</style>
+</head>
+<body>
+<div class="wall"></div>
+<div class="veil"></div>
+
+<!-- ============================ the editor -->
+<div class="sv ed">
+  <div class="safe"></div>
+  <div class="hatch"></div>
+  <div class="subs">Subtitles</div>
+  <div class="bar"><span class="dot"></span><span class="lab">Home&#8217;s status bar</span><i class="ic" data-ic="bell"></i><i class="ic" data-ic="settings"></i><i class="ic" data-ic="search"></i></div>
+  <div class="held" id="held"></div>
+
+  <div class="g" id="g-volume" data-id="volume"><div class="tag up"><i class="ic" data-ic="volume-2"></i>Volume bar</div>
+    <div class="face"><div class="overlay pill h" id="pill"><span class="num">42</span><span class="trk"><i></i></span></div></div></div>
+  <div class="box" id="box"></div>
+  <div class="g" id="g-mute" data-id="mute" style="--r:32px"><div class="tag down"><i class="ic" data-ic="volume-x"></i>Mute mark</div>
+    <div class="face"><div class="overlay mark"><i class="ic" data-ic="volume-x"></i></div></div></div>
+  <div class="g" id="g-popup" data-id="popup"><div class="tag up"><i class="ic" data-ic="video"></i>Camera window</div>
+    <div class="face"><div class="overlay cam">
+      <div class="head"><i class="ic" data-ic="bell-ring"></i><div><div class="name">Front door</div><div class="what">Doorbell rang &nbsp;&middot;&nbsp; Just now</div></div></div>
+      <div class="preview"><i class="ic" data-ic="video"></i></div>
+      <div class="foot"><i class="dot"></i><span>Live</span><span class="keys"><span>OK expands</span><span>Back dismisses</span></span></div>
+    </div></div></div>
+  <div class="g" id="g-cards" data-id="cards"><div class="tag up"><i class="ic" data-ic="bell"></i>Notifications</div>
+    <div class="face"><div class="overlay ov">
+      <div class="ov-row"><i class="lead"><i class="ic" data-ic="timer"></i></i><div><div class="t">Pasta</div><div class="d">Time&#8217;s up</div></div></div>
+      <div class="foot"><span class="src">Kitchen Show</span><span class="keys"><span>OK Stop</span><span>Back Dismiss</span></span></div>
+    </div></div></div>
+  <div class="g" id="g-toast" data-id="toast" style="--r:34px"><div class="tag down"><i class="ic" data-ic="info"></i>Toasts</div>
+    <div class="face"><div class="tst"><i class="tile"><i class="ic" data-ic="info"></i></i><div><div class="t">Remote battery low</div><div class="d">Replace the batteries soon.</div></div></div></div></div>
+
+  <div class="hud" id="hud">
+    <div class="hh"><i class="ic" data-ic="picture-in-picture"></i>Layout of pop-ups</div>
+    <div class="where" id="where"></div>
+    <div class="note" id="note">Camera window is in the way</div>
+    <div class="btns"><span class="btn small" style="opacity:.55">Reset this</span><span class="btn small">Reset all</span><span class="btn small primary">Done</span></div>
+    <div class="hint" id="hint"></div>
+  </div>
+</div>
+
+<!-- ============================ the Settings page -->
+<div class="sv pg">
+  <div class="pane topbar"><i data-ic="chevron-left" class="ic"></i><span class="title">Settings</span><span class="spacer"></span><span class="status"><i data-ic="wifi"></i><i data-ic="mouse-pointer-2"></i></span><span class="time num">9:57 PM</span></div>
+  <nav class="pane rail" data-open="home" aria-label="Settings sections"></nav>
+  <main class="pane page">
+    <div class="page-head"><h1>Layout of pop-ups</h1><span class="sub">Home &amp; look</span></div>
+    <div class="page-body">
+      <div class="rows">
+        <div class="row focusable no-line focus"><div class="lead"><i data-ic="volume-2"></i></div><div class="text"><div class="t">Volume bar</div></div><div class="v">Bottom edge <i data-ic="chevron-right"></i></div></div>
+        <div class="row focusable"><div class="lead"><i data-ic="volume-x"></i></div><div class="text"><div class="t">Mute mark</div></div><div class="v">Corners <i data-ic="chevron-right"></i></div></div>
+        <div class="row focusable"><div class="lead"><i data-ic="video"></i></div><div class="text"><div class="t">Camera window</div></div><div class="v">Top right <i data-ic="chevron-right"></i></div></div>
+        <div class="row focusable"><div class="lead"><i data-ic="bell"></i></div><div class="text"><div class="t">Notifications</div></div><div class="v">Top right <i data-ic="chevron-right"></i></div></div>
+        <div class="row focusable"><div class="lead"><i data-ic="info"></i></div><div class="text"><div class="t">Toasts</div></div><div class="v">Top right <i data-ic="chevron-right"></i></div></div>
+      </div>
+      <div class="rows">
+        <div class="row focusable no-line"><div class="lead"><i data-ic="layout-grid"></i></div><div class="text"><div class="t">Edit in preview</div></div><div class="v"><i data-ic="chevron-right"></i></div></div>
+        <div class="row focusable"><div class="lead"><i data-ic="rotate-ccw"></i></div><div class="text"><div class="t">Reset all</div></div><span class="seg"><span aria-selected="true">Keep</span><span aria-selected="false">Reset</span></span></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="../icons.js"></script>
+<script src="../mock.js"></script>
+<script>
+(function () {
+  const q = new URLSearchParams(location.search);
+  if (q.get('text')) document.documentElement.dataset.text = q.get('text');
+  const v = q.get('v') || 'editor';
+  // ---- Placement.js, as far as this page needs: the zones, the anchors and the room an item has left
+  const Z = { content: { x: 64, y: 134, w: 1792, h: 676 }, edge: { x: 64, y: 134, w: 1792, h: 882 }, toast: { x: 24, y: 24, w: 1872, h: 786 } };
+  const A = { 'top-left': [0, 0], 'top': [.5, 0], 'top-right': [1, 0], 'left': [0, .5], 'center': [.5, .5], 'right': [1, .5], 'bottom-left': [0, 1], 'bottom': [.5, 1], 'bottom-right': [1, 1] };
+  const clamp = (x) => Math.max(0, Math.min(1, x));
+  const rectIn = (z, p, w, h) => { const a = A[p.anchor]; return { x: z.x + Math.round(clamp(a[0] + p.dx) * Math.max(0, z.w - w)), y: z.y + Math.round(clamp(a[1] + p.dy) * Math.max(0, z.h - h)), w, h }; };
+  const meets = (a, b, g = 0) => a.x < b.x + b.w + g && b.x < a.x + a.w + g && a.y < b.y + b.h + g && b.y < a.y + a.h + g;
+  // ---- the arrangement of each view (what the owner placed; anything not said is the item's default)
+  const TL = { anchor: 'top-left', dx: 0, dy: 0 }, TR = { anchor: 'top-right', dx: 0, dy: 0 };
+  const DEF = { volume: { anchor: 'bottom', dx: 0, dy: 0 }, mute: { anchor: 'top-left', dx: .0185, dy: 0 }, popup: TR, cards: TR, toast: TR };
+  const VIEWS = {
+    editor: { sel: 'volume', place: {} },
+    move: { sel: 'popup', picked: true, place: { popup: { anchor: 'top', dx: .1667, dy: 0 } }, held: 'popup' },
+    edge: { sel: 'volume', place: { volume: { anchor: 'right', dx: 0, dy: 0 }, popup: TL, cards: { anchor: 'top', dx: 0, dy: 0 }, mute: { anchor: 'top-right', dx: 0, dy: 0 } } },
+    blocked: { sel: 'volume', picked: true, place: {}, held: 'volume', hit: 'popup', ghost: { volume: { anchor: 'right', dx: 0, dy: 0 } } },
+  };
+  if (v === 'page') { window.addEventListener('load', () => document.fonts.ready); return; }
+  const V = VIEWS[v] || VIEWS.editor;
+  const P = (id) => V.place[id] || DEF[id];
+  const ids = ['volume', 'mute', 'popup', 'cards', 'toast'];
+  const names = { volume: 'Volume bar', mute: 'Mute mark', popup: 'Camera window', cards: 'Notifications', toast: 'Toasts' };
+  const icons = { volume: 'volume-2', mute: 'volume-x', popup: 'video', cards: 'bell', toast: 'info' };
+  const place = () => {
+    const el = (id) => document.getElementById('g-' + id);
+    const pill = document.getElementById('pill');
+    const edgeOf = (p) => p.anchor === 'bottom' ? 'h' : 'v';
+    const volP = (V.ghost && V.ghost.volume) ? DEF.volume : P('volume');       // a refused move leaves the bar where it was
+    pill.classList.toggle('v', edgeOf(volP) === 'v'); pill.classList.toggle('h', edgeOf(volP) === 'h');
+    // the panel's words first: its height is what its place is chosen for
+    const words = { editor: 'Bottom edge', move: 'Top, right third, moved', edge: 'Right edge', blocked: 'Bottom edge' }[v];
+    document.getElementById('where').textContent = names[V.sel] + '  \u00b7  ' + words;
+    document.getElementById('hint').textContent = V.picked ? 'Arrows move it  \u00b7  OK Put down  \u00b7  Back Put back' : '\u2190 \u2192 Choose an item  \u00b7  OK Pick up  \u00b7  Down Buttons  \u00b7  Back Done';
+    window.Icons && Icons.fill(document);
+    // the camera window's picture gives up height (never below 120) until the card ends above 810, as the surface does
+    const pv = document.querySelector('#g-popup .preview'), pz = el('popup');
+    pz.style.left = '1296px'; pz.style.top = '134px';
+    const over = pz.getBoundingClientRect().bottom - 810;
+    if (over > 0) pv.style.height = Math.max(120, 292 - Math.ceil(over / 2) * 2) + 'px';
+    const size = (id) => ({ w: el(id).offsetWidth, h: el(id).offsetHeight });
+    const R = {};
+    ids.forEach((id) => { const s = size(id); R[id] = rectIn(Z[id === 'volume' ? 'edge' : id === 'toast' ? 'toast' : 'content'], id === 'volume' ? volP : P(id), s.w, s.h); });
+    R.volume.y -= (volP.anchor === 'bottom' ? 120 : 0);                       // over an app the bar on the bottom edge rides above the subtitles
+    // the cards go under the camera window where they meet; where they would end below 810 they wait there until it has gone (drawn faint)
+    let waits = false;
+    if (meets(R.popup, R.cards, 16)) { R.cards.y = R.popup.y + R.popup.h + 16; waits = R.cards.y + R.cards.h > 810; }
+    ids.forEach((id) => { const e = el(id); e.style.left = R[id].x + 'px'; e.style.top = R[id].y + 'px'; e.classList.toggle('sel', V.sel === id); e.classList.toggle('lift', !!V.picked && V.sel === id); e.classList.toggle('hit', V.hit === id); });
+    el('cards').classList.toggle('waits', waits);
+    ['volume', 'mute', 'popup', 'cards', 'toast'].forEach((id) => { const t = el(id).querySelector('.tag'); if (R[id].y < 60) { t.classList.remove('up'); t.classList.add('down'); } });
+    // the place the item in the hand left stays outlined
+    if (V.picked && V.held) { const h = document.getElementById('held'), r = R[V.held]; const hp = DEF[V.held]; const hr = rectIn(Z[V.held === 'volume' ? 'edge' : 'content'], hp, r.w, r.h); if (V.held === 'volume') hr.y -= 120; h.style.cssText = `display:block;left:${hr.x}px;top:${hr.y}px;width:${hr.w}px;height:${hr.h}px;border-radius:${V.held === 'volume' ? 30 : 26}px`; }
+    // the places a mark the owner placed visits
+    if (V.place.mute) { const b = document.getElementById('box'), m = R.mute, d = 48; const sx = m.x + 32 < 960 ? 1 : -1, sy = m.y + 32 < 472 ? 1 : -1; const x0 = Math.min(m.x, m.x + sx * d), y0 = Math.min(m.y, m.y + sy * d); b.style.cssText = `display:block;left:${x0}px;top:${y0}px;width:${64 + d}px;height:${64 + d}px`; }
+    // the heads-up panel: the first place, nearest the middle of the screen, that no item is in or beside (a place every 40 px across, three heights)
+    const hud = document.getElementById('hud'), hw = hud.offsetWidth, hh = hud.offsetHeight;
+    const xs = []; for (let x = 64 + 40; x <= 1920 - 64 - 40 - hw; x += 40) xs.push(x); xs.sort((a, b) => Math.abs(a + hw / 2 - 960) - Math.abs(b + hw / 2 - 960));
+    const ys = [Math.round((1080 - hh) / 2), 134 + 28, 810 - hh - 28];
+    let best = { x: xs[0], y: ys[0] }, bestHit = 99;
+    outer: for (const y of ys) for (const x of xs) { let hit = 0; for (const id of ids) if (!(id === 'cards' && waits) && meets({ x, y, w: hw, h: hh }, R[id], 16)) hit += id === V.sel ? 100 : 1; if (hit < bestHit) { bestHit = hit; best = { x, y }; } if (!hit) break outer; }
+    hud.style.left = best.x + 'px'; hud.style.top = best.y + 'px';
+  };
+  addEventListener('load', () => document.fonts.ready.then(place));
+})();
+</script>
+</body>
+</html>

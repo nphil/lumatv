@@ -6,7 +6,7 @@
 <link rel="stylesheet" href="../lucent.css">
 <style>
   /* One overlay system over any app (docs/research/overlays-result.md; the surface is payload/compositor/lumatv/panels/Overlays.qml and its
-     cards OverlayCard.qml). A column of glass cards in the top right corner: inside the 5 % safe area (96 from the right edge), below the status
+     cards OverlayCard.qml). A column of glass cards in the top right corner: flush with Home's right edge (64 from the screen's, as its status bar and widgets end: it was 96 until the layout editor, docs/research/overlay-layout-result.md), below the status
      bar's row (134 from the top), 560 wide as the camera pop-up and the toasts are, never lower than 75 % of the height (810) so that the film's
      subtitles and the volume bar keep the bottom quarter. At most two cards at once, the most important class first, the camera pop-up (the
      doorbell's card) on top where it is up.
@@ -26,7 +26,7 @@
   html:not([data-v]) .st.multi, [data-v="stack"] .st.multi, [data-v="doorbell"] .st.doorbell, [data-v="timer"] .st.timer, [data-v="alarm"] .st.alarm,
   [data-v="alert"] .st.alert, [data-v="score"] .st.score, [data-v="zones"] .st.multi { display: block; }
 
-  .stack { position: absolute; right: 96px; top: 134px; width: 560px; display: flex; flex-direction: column; gap: 16px; }
+  .stack { position: absolute; right: 64px; top: 134px; width: 560px; display: flex; flex-direction: column; gap: 16px; }
   .ov { position: relative; padding: 20px; border-radius: var(--lu-radius-card); }
   .ov .ov-row { display: flex; align-items: flex-start; gap: 16px; }
   .ov .ov-lead { width: 56px; height: 56px; border-radius: 18px; display: grid; place-items: center; flex: none; background: var(--selected-wash); border: 1px solid var(--lu-edge); }
@@ -72,10 +72,10 @@
   /* the zones (?v=zones): what the column keeps to */
   .zone { display: none; position: absolute; pointer-events: none; }
   [data-v="zones"] .zone { display: block; }
-  .zone.safe { left: 96px; right: 96px; top: 54px; bottom: 54px; border: 2px dashed rgba(255,255,255,.35); border-radius: 8px; }
+  .zone.safe { left: 64px; right: 64px; top: 54px; bottom: 54px; border: 2px dashed rgba(255,255,255,.35); border-radius: 8px; }
   .zone.bottom { left: 0; right: 0; top: 810px; bottom: 0; background: repeating-linear-gradient(135deg, rgba(235,111,146,.26) 0 14px, rgba(235,111,146,.10) 14px 28px); border-top: 3px solid var(--lu-danger); }
-  .zone.bottom span { position: absolute; left: 96px; top: 12px; padding: 4px 16px; border-radius: 12px; background: rgba(0,0,0,.72); color: #fff; font-size: 24px; font-weight: 600; }
-  .zone.col { left: 1264px; width: 560px; top: 134px; height: 676px; border: 3px dashed var(--lu-accent); border-radius: 28px; }
+  .zone.bottom span { position: absolute; left: 64px; top: 12px; padding: 4px 16px; border-radius: 12px; background: rgba(0,0,0,.72); color: #fff; font-size: 24px; font-weight: 600; }
+  .zone.col { left: 1296px; width: 560px; top: 134px; height: 676px; border: 3px dashed var(--lu-accent); border-radius: 28px; }
   .zone.col span { position: absolute; right: 16px; bottom: 8px; padding: 2px 12px; border-radius: 10px; background: rgba(0,0,0,.72); color: #fff; font-size: 22px; font-weight: 600; }
 </style>
 </head>
