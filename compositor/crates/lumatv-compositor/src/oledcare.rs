@@ -289,6 +289,8 @@ impl Care {
             "appDim": {"enabled": self.settings.app_dim, "level": self.app_dim(), "to": self.settings.app_floor, "afterMin": self.settings.app_after_ns / (60 * SEC)},
             "appShift": {"enabled": self.settings.app_shift, "offset": [a.0, a.1]},
             "app": {"window": self.app.window.unwrap_or(0), "stillSec": self.app_still_s(now_ns), "beats": self.app.beats, "engaged": self.app.engaged},
+            // the helper asks this before it delivers a camera pop-up (its saver rules): the shell's screensaver is up
+            "saver": self.saver,
         })
     }
 

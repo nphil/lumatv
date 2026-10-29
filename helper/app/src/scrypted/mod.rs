@@ -1011,11 +1011,17 @@ impl Inner {
                 } else {
                     event.label.clone()
                 };
+                let name = if name.is_empty() { event.name.clone() } else { name };
+                // the screensaver's rules (`saver.rs`): while it is up a camera's video may be kept out, shown over it, or woken for
+                let route = crate::saver::route_camera(&self.hub, crate::saver::Seen { kind: &event.kind, name: &name, label: &label, event: &event.id });
+                if !route.popup {
+                    return Some(decision);
+                }
                 let value = json!({
                     "id": id,
                     "event": event.id,
                     "camera": event.camera,
-                    "name": if name.is_empty() { event.name.clone() } else { name },
+                    "name": name,
                     "kind": event.kind,
                     "label": label,
                     "at": event.at,
@@ -1024,6 +1030,7 @@ impl Inner {
                     "thumbnail": event.thumbnail,
                     "shownAt": now,
                     "overApps": options.rules.over_apps,
+                    "overSaver": route.over_saver,
                     "test": test,
                 });
                 state.popup = Some(Popup {

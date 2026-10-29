@@ -13,6 +13,8 @@
 //!   that died cannot leave its mark on the panel for ever.
 //! - [`from_card`]: a plugin card of the plugin API (level 1) as a complication, so a plugin that has cards has complications.
 
+pub mod rules;
+
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 

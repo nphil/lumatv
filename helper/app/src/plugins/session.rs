@@ -1241,6 +1241,7 @@ impl Session {
         let event = note_json(&entry, &self.channels);
         self.notes.insert(entry.post.id.clone(), entry);
         self.publish_notes();
+        crate::saver::note_posted(&self.shared.hub, self.id(), &event);
         self.shared
             .hub
             .emit(&topic(self.id(), "notifications"), "posted", event);

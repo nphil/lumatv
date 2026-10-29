@@ -225,6 +225,8 @@ impl Service {
             &ctx,
             voice_policy.unwrap_or(ha_link::AddressPolicy::HOME),
         );
+        // The screensaver's rules and slots: the owner's answers are read before anything is delivered.
+        crate::saver::open(&ctx);
         // Cameras through Scrypted's LumaShow bridge: nothing connects until the TV is linked (`scrypted-link`), and nothing while it sleeps.
         let images = Arc::new(crate::images::Images::new(&config, &paths));
         let cameras = crate::scrypted::Scrypted::new(

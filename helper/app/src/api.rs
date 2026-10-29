@@ -561,7 +561,15 @@ impl Handler for Api {
             }
             ["v1", "capture", rest @ ..] => self.capture.handle(request, rest),
             ["v1", "placement", rest @ ..] => crate::placement::handle(request, rest),
-            ["v1", "saver", rest @ ..] => crate::saver::handle(&self.hub, request, rest),
+            ["v1", "saver", rest @ ..] => {
+                // what shows over the saver is the owner's to change; the complications are for any tool on the TV to post
+                if post && rest.first() == Some(&"rules") {
+                    if let Err(resp) = self.profiles.require_owner() {
+                        return resp;
+                    }
+                }
+                crate::saver::handle(&self.hub, request, rest)
+            }
             ["v1", "profiles", rest @ ..] => self.profiles.handle(request, rest),
             ["v1", "privacy", rest @ ..] => {
                 crate::privacy::handle(&self.privacy, request, rest, self.profiles.can_admin())
