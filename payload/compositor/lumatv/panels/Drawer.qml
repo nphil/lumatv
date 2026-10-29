@@ -28,7 +28,7 @@ Item {
     readonly property bool built: true
 
     readonly property int sheetTop: 56               // the status bar's top: the sheet starts where the bar does
-    readonly property int sheetWidth: 640
+    readonly property int sheetWidth: 560           // the quick panel's width, and docked 40 from the right edge as it is
 
     function open() {
         index = 1; button = 0; rested = true
@@ -144,7 +144,7 @@ Item {
     LuPane {
         id: sheet
         objectName: "drawerSheet"
-        x: 1920 - 64 - width; y: drawer.sheetTop
+        x: 1920 - 40 - width; y: drawer.sheetTop
         width: drawer.sheetWidth
         // The sheet is as tall as what it holds: the list, or, with nothing to list, the empty state (its words wrap to two lines, so its height is
         // the column's and not a number). Never under 240, and never over the screen less the bar's margin at the top and bottom.

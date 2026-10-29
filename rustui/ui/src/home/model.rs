@@ -396,6 +396,18 @@ impl Home {
         }
     }
 
+    /// Where the bell is on the status bar (`[x, y, w, h]`), the notification drawer's way in and out. With no bell in the layout, or Home
+    /// not drawn (an app in front, the drawer opened by a key), where it would be: the right end of the bar.
+    pub fn bell_frame(&self) -> [f32; 4] {
+        let at = self.status_items().iter().position(|it| it.get("type").and_then(Value::as_str) == Some("notifications"));
+        if let Some(&(x, y, w, h)) = at.and_then(|i| self.status_frames().get(i).copied()).as_ref() {
+            return [x, y, w, h];
+        }
+        let (sx, sy) = self.safe();
+        let side = self.status_height() - 12.0;
+        [1920.0 - sx - 10.0 - side, sy + 6.0, side, side]
+    }
+
     // ---- profiles
     pub fn profile(&self) -> Option<&Value> {
         if self.profiles.get("ready").and_then(Value::as_bool) != Some(true) {

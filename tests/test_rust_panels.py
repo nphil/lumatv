@@ -20,6 +20,7 @@ import tempfile
 import threading
 import time
 import unittest
+import unittest.mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..'))
@@ -80,7 +81,7 @@ class Scene:
         self.end = end or last + 1000
 
 
-def run(scene, mode='dark', scale=1.0, evals=('geometry', 'state', 'lint', 'report'), snap=None, extra=(), settings_page=None):
+def run(scene, mode='dark', scale=1.0, evals=('geometry', 'state', 'lint', 'report'), snap=None, extra=(), settings_page=None, snaps=()):
     extra = list(extra)
     for ms, topic, doc in scene.pushes:
         extra += ['--push', '%d:%s:%s' % (ms, topic, json.dumps(doc, separators=(',', ':')))]
@@ -99,6 +100,9 @@ def run(scene, mode='dark', scale=1.0, evals=('geometry', 'state', 'lint', 'repo
     if snap:
         os.makedirs(os.path.dirname(snap), exist_ok=True)
         extra += ['--snap', '%d:%s' % (scene.end, snap)]
+    for ms, path in snaps:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        extra += ['--snap', '%d:%s' % (ms, path)]
     # on the client's own clock like the rest, so a loaded host cannot reorder them
     start = [(OPEN - 400, 'foreground', scene.helper.get('foreground', HOME)), (OPEN - 380, 'screen', {'on': True})]
     if scene.show:
@@ -134,6 +138,26 @@ def quick(name, keys=(), active='nitin', theme=None):
     return Scene(name, 'quick', keys=keys, theme=theme, helper={'topics': {'profiles': profiles(active)}}, show={'kind': 'quick', 'warm': False, 'n': 1})
 
 
+def drawer(name, keys=()):
+    """The drawer over what three plugins said: the lock five times in four kinds (the battery three times, the same words), the weather once
+    with a button, the lamp once; so the lock is a stacked group (a header), the others lone entries."""
+    now = time.time()
+
+    def note(id, title, body, minutes, actions=()):
+        return {'id': id, 'channel': 'events', 'revision': 1, 'receivedAt': now - minutes * 60,
+                'post': {'title': title, 'body': body, 'actions': [{'id': a, 'label': a.capitalize(), 'action': a} for a in actions]}}
+    battery = 'The lock\'s battery is at 12 %.'
+    topics = {
+        'plugins': {'plugins': [{'id': 'lock', 'name': 'Front door', 'state': 'connected'}, {'id': 'weather', 'name': 'Weather', 'state': 'connected'},
+                                {'id': 'ambient', 'name': 'Ambient light', 'state': 'connected'}], 'firstParty': []},
+        'plugin.lock.notifications': {'items': [note('b1', 'Battery low', battery, 40), note('b2', 'Battery low', battery, 22), note('b3', 'Battery low', battery, 5),
+                                                note('d1', 'Door unlocked', 'Someone opened it.', 31, ('lock',)), note('g1', 'Garage door open', 'It has been open for an hour.', 63)]},
+        'plugin.weather.notifications': {'items': [note('w1', 'Rain from 6 pm', 'Heavy at times until 9.', 12, ('open',))]},
+        'plugin.ambient.notifications': {'items': [note('a1', 'Scene changed', 'Movie night is on.', 47)]},
+    }
+    return Scene(name, 'drawer', keys=keys, helper={'topics': topics}, show={'kind': 'drawer', 'warm': False, 'n': 1})
+
+
 # the screens the renders show, each by its name: (scene, the looks it is rendered in)
 def scenes():
     return [
@@ -149,6 +173,9 @@ def scenes():
         quick('quick-pin', [(OPEN + 600, 'up', 0), (OPEN + 1100, 'left', 0), (OPEN + 1600, 'ok', 0)], active='mia'),
         quick('quick-edit', [(OPEN + 600, 'ok', 900)], theme=EDIT_ON),
         quick('quick-card', [(OPEN + 600, 'ok', 0)], theme=EDIT_ON),
+        drawer('drawer'),
+        drawer('drawer-open', [(OPEN + 600, 'ok', 0), (OPEN + 1100, 'down', 0), (OPEN + 1600, 'down', 0)]),
+        drawer('drawer-clear', [(OPEN + 600, 'right', 0)]),
     ]
 
 
@@ -217,6 +244,64 @@ class RustPanels(unittest.TestCase):
         # does); which plugins' tiles are shown is the roster's word, and the plugin that is not connected has none
         polls = res['helper'].polls
         self.assertTrue(polls and all(p is None for p in polls), 'every topic is asked for: %s' % polls[-2:])
+
+    def test_the_drawer_is_the_quick_panels_width_and_place_and_groups_what_the_plugins_said_with_the_repeats_as_one(self):
+        res = self.ok(run(drawer('drawer-geometry', [(OPEN + 600, 'ok', 0)]), evals=('geometry', 'report')))
+        g = res['geometry']['drawer']
+        self.assertEqual((g['sheet']['x'], g['sheet']['y'], g['sheet']['w']), (1320.0, 56.0, 560.0), 'the quick panel\'s place and width')
+        self.assertLessEqual(g['sheet']['h'], 968.0)
+        self.assertEqual(len(g['heads']), 1, 'one stacked group: the lock; the weather and the lamp are lone entries')
+        # the lock opened by OK shows its three sayings; the weather and the lamp one each; and a label above each group
+        self.assertEqual(g['entries'], (1 + 3) + (1 + 1) + (1 + 1), g)
+        self.assertIn('drawer', res['report']['can'])
+
+    def test_the_drawer_grows_out_of_the_bell_and_goes_back_into_it_and_the_frames_are_written_when_asked(self):
+        from PIL import Image
+        # The frames are on the host's real clock, and the debug build takes a second to bring the drawer up, longer than the whole motion: the
+        # test is for the release build (cargo build --release -p lumatv-ui --bin lumatv-ui).
+        release = os.path.join(ROOT, 'rustui', 'target', 'release', 'lumatv-ui')
+        if not os.path.exists(release):
+            self.skipTest('needs the release build of lumatv-ui')
+        at = OPEN + 800
+        close = at + 1400
+        opening = [at - 100, at + 50, at + 90, at + 130, at + 170, at + 210, at + 260, at + 700]
+        leaving = [close + 50, close + 90, close + 130, close + 170, close + 210, close + 260, close + 600]
+        scene = drawer('drawer-motion', [(close, 'back', 0)])
+        scene.show = None
+        scene.pushes = [(at, 'show', {'kind': 'drawer', 'warm': False, 'n': 1})]
+        scene.end = close + 900
+        tmp = tempfile.mkdtemp(prefix='rustdrawer-')
+        shots = [(ms, os.path.join(tmp, '%d.png' % ms)) for ms in opening + leaving]
+        with unittest.mock.patch.object(host, 'BIN', release):
+            self.ok(run(scene, evals=('state',), snaps=shots))
+        frames = {ms: Image.open(path).convert('RGB') for ms, path in shots}
+        base = frames[at - 100]
+
+        def box(ms):
+            """What changed from the empty screen: its bounding box (none when nothing did)."""
+            from PIL import ImageChops
+            diff = ImageChops.difference(frames[ms], base).convert('L').point(lambda v: 255 if v > 24 else 0)
+            return diff.getbbox()
+        def area(ms):
+            b = box(ms)
+            return (b[2] - b[0]) * (b[3] - b[1]) if b else 0
+        sizes = [area(ms) for ms in opening[1:]]
+        self.assertTrue(all(b >= a for a, b in zip(sizes, sizes[1:])), 'the panel only grows while it opens: %s' % sizes)
+        self.assertLess(sizes[0], 0.35 * sizes[-1], 'it starts small: %s' % sizes)
+        first = box(opening[1])
+        self.assertTrue(first and first[0] > 1320, 'its first frame is at the right, by the bell and not the whole sheet: %s' % (first,))
+        gone = [area(ms) for ms in leaving]
+        self.assertTrue(all(b <= a for a, b in zip(gone, gone[1:])), 'and only shrinks as it goes: %s' % gone)
+        self.assertEqual(gone[-1], 0, 'it is gone into the bell')
+        if RENDERS:
+            cell = (480, 320)  # the right half of the screen, where the bell and the sheet are
+            strip = Image.new('RGB', (cell[0] * len(leaving), cell[1] * 2), (0, 0, 0))
+            for i, ms in enumerate(opening[1:]):
+                strip.paste(frames[ms].crop((960, 0, 1920, 640)).resize(cell, Image.LANCZOS), (i * cell[0], 0))
+            for i, ms in enumerate(leaving):
+                strip.paste(frames[ms].crop((960, 0, 1920, 640)).resize(cell, Image.LANCZOS), (i * cell[0], cell[1]))
+            os.makedirs(RENDERS, exist_ok=True)
+            strip.save(os.path.join(RENDERS, 'drawer-motion-dark-100.jpg'), 'JPEG', quality=QUALITY, optimize=True, progressive=True)
 
     # ---- the context menu and the confirm dialog
     def test_a_menu_its_owner_opens_takes_the_keys_skips_the_disabled_row_and_a_pick_closes_it(self):

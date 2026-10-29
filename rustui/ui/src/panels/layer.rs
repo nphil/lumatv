@@ -110,6 +110,8 @@ pub struct Panels {
     picker_s: PickerSurface,
     drawer: Drawer,
     drawer_s: DrawerSurface,
+    /// Where the bell is on Home's status bar (`[x, y, w, h]`): the drawer grows out of it and goes back into it.
+    bell: [f32; 4],
     menu: Menu,
     menu_s: MenuSurface,
     confirm: Confirm,
@@ -147,6 +149,7 @@ impl Panels {
             picker_s: PickerSurface::new(base),
             drawer: Drawer::new(),
             drawer_s: DrawerSurface::new(base),
+            bell: crate::panels::drawer_surface::BELL,
             menu: Menu::new(),
             menu_s: MenuSurface::new(base),
             confirm: Confirm::new(),
@@ -570,6 +573,14 @@ impl Panels {
                     self.drawer.click_item(i, &self.env);
                     Out::default()
                 }
+                Some(DrawerTarget::Head(i)) => {
+                    self.drawer.click_head(i, &self.env);
+                    Out::default()
+                }
+                Some(DrawerTarget::HeadClear(i)) => {
+                    self.drawer.click_head_clear(i, &self.env);
+                    Out::default()
+                }
                 Some(DrawerTarget::Button(i, b)) => self.drawer.click_button(i, b, &self.env),
                 Some(DrawerTarget::Backdrop) => Out::close(),
                 None => return out,
@@ -697,7 +708,7 @@ impl Panels {
         }
         if kinds.drawer {
             let view = self.drawer.view(&self.env, now_ms);
-            match self.drawer_s.apply(kit, engine, &view, self.drawer.life.phase(), now_ns) {
+            match self.drawer_s.apply(kit, engine, &view, self.drawer.life.phase(), self.bell, now_ns) {
                 Ok(on) => live |= on && self.drawer.life.visible(),
                 Err(e) => return Err(format!("notification drawer: {e}")),
             }
@@ -779,6 +790,11 @@ impl Panels {
     /// are off until the TV check.
     fn switcher_wanted(&self) -> bool {
         self.env.switch_set("appSwitcher") || self.env.switch_set("recents")
+    }
+
+    /// Where the bell is (Home's status bar says; it is where the drawer comes out of and goes back to).
+    pub fn set_bell(&mut self, frame: [f32; 4]) {
+        self.bell = frame;
     }
 
     /// Whether Back from the top of Home opens the switcher.

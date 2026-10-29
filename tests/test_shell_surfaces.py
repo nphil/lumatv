@@ -194,7 +194,7 @@ class Shell(HostCase):
                              (1000, "keys", "down"), (1500, "keys", "back"), (2400, "eval", STATE, "closed"), (2400, "eval", drawer, "after")], 2900)
         self.assertGreaterEqual(int(got["bell"]), 0, "the bar has no bell")
         self.assertEqual(got["opened"], "drawer/statusbar/0/0/", "OK on the bell did not open the drawer")
-        self.assertEqual(json.loads(got["drawer"]), {"visible": True, "width": 640})
+        self.assertEqual(json.loads(got["drawer"]), {"visible": True, "width": 560})
         self.assertEqual(got["closed"], "/statusbar/0/0/", "Back from the drawer must leave the focus on the bell")
         self.assertFalse(json.loads(got["after"])["visible"])
 

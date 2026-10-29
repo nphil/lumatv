@@ -34,6 +34,10 @@ pub enum Arrive {
     /// Out of a rectangle (a card's) into another: the whole panel grows from the place and size of `from` to `to` (both `[x, y, w, h]`) as it
     /// fades in, uniformly (its width against the card's width). Reduced motion makes it a fade.
     Grow { from: [f32; 4], to: [f32; 4] },
+    /// Lucent's container transform: the panel is the container, grown out of the rectangle `from` (the control that opened it) into `to`
+    /// and back into it when it leaves. The container is solid within the first fifth of the way, and the content a [`Root::content`] makes
+    /// comes in as it settles. Reduced motion makes it a fade.
+    Container { from: [f32; 4], to: [f32; 4] },
 }
 
 /// The group a panel's layers hang under. Its pose follows a motion track from 0 (away) to 1 (rest); the track is the compositor's.
@@ -41,6 +45,8 @@ pub struct Root {
     pub group: Group,
     track: Motion,
     shown: bool,
+    /// It arrives as a container transform: its content fades in late, where an ordinary root's fades with it.
+    container: bool,
 }
 
 impl Root {
@@ -48,26 +54,79 @@ impl Root {
     /// It is inert (not drawn) until [`Root::show`], or at once when `at_rest`.
     pub fn new(kit: &Kit, arrive: Arrive, at_rest: bool) -> std::io::Result<Self> {
         let scene = kit.ui.scene.clone();
-        let group = scene.group(None, GroupPose::IDENTITY).map_err(other)?;
-        let track = scene.motion(if at_rest { 1.0 } else { 0.0 }, MotionBounds::range(0.0, 1.0, Units::Progress)).map_err(other)?;
         let arrive = if kit.ui.look.reduced_motion { Arrive::Fade } else { arrive };
+        // A binding drives translation, scale and opacity, not the pivot: the group is made with the pivot a grow scales about (the middle
+        // of the rectangle it grows into), or the scale would be about the screen's corner and the panel would drift as it grows.
+        let pivot = match arrive {
+            Arrive::Grow { to, .. } | Arrive::Container { to, .. } => GroupPose { pivot_x: to[0] + to[2] / 2.0, pivot_y: to[1] + to[3] / 2.0, ..GroupPose::IDENTITY },
+            _ => GroupPose::IDENTITY,
+        };
+        let group = scene.group(None, pivot).map_err(other)?;
+        let track = scene.motion(if at_rest { 1.0 } else { 0.0 }, MotionBounds::range(0.0, 1.0, Units::Progress)).map_err(other)?;
+        let container = matches!(arrive, Arrive::Container { .. });
         let (from, to, properties) = match arrive {
             Arrive::Right(travel) => (GroupPose { x: travel, ..GroupPose::IDENTITY }, GroupPose::IDENTITY, PoseProperties::TRANSLATION),
             Arrive::Bottom(rise) => (GroupPose { y: rise, ..GroupPose::IDENTITY }, GroupPose::IDENTITY, PoseProperties::TRANSLATION),
             Arrive::Fade => (GroupPose { opacity: 0.0, ..GroupPose::IDENTITY }, GroupPose::IDENTITY, PoseProperties::OPACITY),
-            Arrive::Grow { from, to } => {
+            Arrive::Grow { from, to } | Arrive::Container { from, to } => {
                 let (cf, ct) = ((from[0] + from[2] / 2.0, from[1] + from[3] / 2.0), (to[0] + to[2] / 2.0, to[1] + to[3] / 2.0));
                 let scale = (from[2] / to[2].max(1.0)).clamp(0.05, 1.0);
-                (GroupPose { x: cf.0 - ct.0, y: cf.1 - ct.1, scale, pivot_x: ct.0, pivot_y: ct.1, opacity: 0.0, ..GroupPose::IDENTITY }, GroupPose::IDENTITY, PoseProperties::ALL)
+                let opacity = if container { 1.0 } else { 0.0 };
+                (GroupPose { x: cf.0 - ct.0, y: cf.1 - ct.1, scale, pivot_x: ct.0, pivot_y: ct.1, opacity, ..GroupPose::IDENTITY }, GroupPose::IDENTITY, if container { PoseProperties::TRANSLATION.union(PoseProperties::SCALE) } else { PoseProperties::ALL })
             }
         };
         group.bind(&track, PoseBinding { values: [0.0, 1.0], from, to, properties }).map_err(other)?;
+        if container {
+            // solid within the first fifth of the way, so what grows out of the bell is the panel's glass and not a faint shape
+            let hidden = GroupPose { opacity: 0.0, ..GroupPose::IDENTITY };
+            group.bind(&track, PoseBinding { values: [0.0, 0.2], from: hidden, to: GroupPose::IDENTITY, properties: PoseProperties::OPACITY }).map_err(other)?;
+        }
         group.set_inert(!at_rest);
-        Ok(Self { group, track, shown: at_rest })
+        Ok(Self { group, track, shown: at_rest, container })
+    }
+
+    /// The group a panel's content hangs under, inside the root. Under a container transform it fades in over the last half of the way
+    /// (and out over the first half of the way back); under any other root it is the root's own fade.
+    pub fn content(&self, kit: &Kit) -> std::io::Result<Group> {
+        let scene = kit.ui.scene.clone();
+        let content = scene.group(Some(self.group.id()), GroupPose::IDENTITY).map_err(other)?;
+        if self.container {
+            let hidden = GroupPose { opacity: 0.0, ..GroupPose::IDENTITY };
+            content.bind(&self.track, PoseBinding { values: [0.5, 0.95], from: hidden, to: GroupPose::IDENTITY, properties: PoseProperties::OPACITY }).map_err(other)?;
+        }
+        Ok(content)
+    }
+
+    /// Makes `group` (the dim behind the panel, which does not move with it) follow the root's way in and out as a fade: it is clear at
+    /// `values[0]` of the way and solid at `values[1]`. Only under a container transform; another root's dim is not faded.
+    pub fn bind_fade(&self, group: &Group, values: [f32; 2]) -> std::io::Result<()> {
+        if !self.container {
+            return Ok(());
+        }
+        let hidden = GroupPose { opacity: 0.0, ..GroupPose::IDENTITY };
+        group.bind(&self.track, PoseBinding { values, from: hidden, to: GroupPose::IDENTITY, properties: PoseProperties::OPACITY }).map_err(other)
+    }
+
+    /// Shows the panel on `settle` (the shared spring: retargeted from wherever it is and however fast it is going).
+    pub fn show_with(&mut self, settle: Settle) {
+        self.group.set_inert(false);
+        let _ = self.track.settle(Some(1.0), None, settle);
+        self.shown = true;
+    }
+
+    /// Takes the panel away on `settle`.
+    pub fn hide_with(&mut self, settle: Settle) {
+        let _ = self.track.settle(Some(0.0), None, settle);
+        self.shown = false;
     }
 
     pub fn is_shown(&self) -> bool {
         self.shown
+    }
+
+    /// Whether it arrives as a container transform (not under reduced motion, which is a fade).
+    pub fn is_container(&self) -> bool {
+        self.container
     }
 
     fn settle(&self, to: f32, ms: u32, ease: Ease) {

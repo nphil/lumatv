@@ -775,6 +775,7 @@ impl Shell {
                 Err(e) => acts.push(Act::Log(e)),
             }
             let now_ns = self.kit.ui.scene.now_ns();
+            self.panels.set_bell(self.home.bell_frame());
             match self.panels.apply(&self.kinds, &mut self.kit, &mut self.engine, now, now_ns) {
                 Ok(on) => live |= on,
                 Err(e) => acts.push(Act::Log(e)),

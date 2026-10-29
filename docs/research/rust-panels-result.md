@@ -42,13 +42,25 @@ context menu, the confirm dialog and the app switcher's chrome. Three kinds are 
   past the 16 a poll may carry, so the poll asks for every topic (as the QML client's does) and `panels/hub.rs` shows what the roster says is
   connected. The earlier note that the host did not subscribe was wrong; `test_rust_panels.py` proves a connected plugin's tile reaches the
   panel and a plugin that is not connected shows none (the fake helper now has opt-in `keepalive` and `filter_topics`).
+- **Notification drawer** (`panels/drawer.rs`, `drawer_surface.rs`): the quick panel's place and width (560 at x 1320, up to its full 968 high).
+  Grouped as Android does: by source (AI access, each plugin, the TV), groups by their newest notification, newest first inside; what says
+  exactly the same (title, text, button labels) is one entry with a count ("x3"). A group of one entry is a label and the entry; a group of
+  several is a header the focus visits (OK opens or folds it, Right reaches its Clear, the hint is the OK glyph and expand/collapse) and its
+  newest entry. Opening folds every group. Clear all, a group's Clear and OK on an entry clear every notification it stands for. It comes out
+  of the bell (`Home::bell_frame`, handed to the panels by the shell each frame; the right end of the bar when Home does not show one) as a
+  container transform on the shared spring (`Arrive::Container`, 280 ms of life) and goes back into it: the glass grows first, the content
+  and the dim come in late, and a motion under way keeps the rectangles it started with. Reduced motion is a quick fade. The QML drawer got only
+  the quick panel's width (560) and place (40 from the edge).
 - PIN pad at 200 % text overflowed the sheet (found by the host lint): the pad now fits the room under the head (keys shrink to a label's
   height, then the avatar is left out). The pad shows OK and Back as glyphs in the head where the clock was; the edit list keeps every tile name
   whole at large text (the marks go under the words, a long detail takes a second line, every row alike); a pick card with more options than
   the screen holds (200 % text) is as tall as the safe area and scrolls its options in a window, the focused one always whole. The quick
   panel's root, dim, modal scope, first focus and pointer are `Stage`'s now, like every other panel's.
-- Host renders (1280-wide JPEG): `docs/mocks/host-rust/panels/{switcher,menu,confirm,entry,keyboard,keyboard-email,keyboard-pad,quick-pin,quick-edit,quick-card}-{dark-100,light-200}.jpg`
-  (`RUST_PANELS_RENDERS=docs/mocks/host-rust/panels python3 -m unittest test_rust_panels`); the three older PNGs stay.
+- Host renders (1280-wide JPEG): `docs/mocks/host-rust/panels/{switcher,menu,confirm,entry,keyboard,keyboard-email,keyboard-pad,quick-pin,quick-edit,quick-card,drawer,drawer-open,drawer-clear}-{dark-100,light-200}.jpg`
+  (`RUST_PANELS_RENDERS=docs/mocks/host-rust/panels python3 -m unittest test_rust_panels`; the drawer's also at light-100 and dark-200); the three
+  older PNGs stay except the drawer's. `drawer-motion-dark-100.jpg` is the frame strip of the drawer growing out of the bell (top row) and
+  back into it (bottom row), the right half of the screen; the test that writes it needs the release build of `lumatv-ui` (the debug build
+  takes longer to bring the drawer up than the whole motion).
 - Harness: `lumatv-ui --host` prints the shell's `POST /v1/switcher` as `[switcher] ...`. `Move` in a menu spec uses `layout-grid` (the set
   has no `move` glyph).
 
@@ -80,7 +92,8 @@ context menu, the confirm dialog and the app switcher's chrome. Three kinds are 
 2. Quick panel: Up/Down/Left/Right move the lift between rows, OK on the sleep timer and on Wi-Fi/receiver acts, hold OK on a tile with
    `remote.quickPanelEdit` on picks it up; with two profiles the strip is the first row and a PIN profile asks the pad in place.
    "All settings" opens Settings (LG's when the `settings` kind is off).
-3. Drawer: gear hold opens it, Clear all, an item's buttons, Back; 45 s idle closes any panel.
+3. Drawer: gear hold or the bell opens it out of the bell; OK on a group header opens and folds it, Right then OK clears the group, an
+   item's buttons, Clear all, Back; 45 s idle closes any panel.
 4. Pointer: hover shows a cue only, a click acts; a click beside a panel closes it.
 5. `ctl shell rust +switcher` with `remote.appSwitcher` on: open two apps, Home twice (or Home at rest with apps open): the pictures are
    the live windows in four cards, Left/Right moves the ring, OK opens the app, Down then OK quits it, Up then OK asks before Quit all; the

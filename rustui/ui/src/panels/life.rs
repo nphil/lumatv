@@ -53,6 +53,9 @@ pub struct Life {
 pub const ENTER_MS: u32 = 110;
 pub const EXIT_MS: u32 = 110;
 pub const LINGER_MS: u32 = 4000;
+/// How long a panel that moves on the shared spring (the drawer's container transform) is given to come in and to go: the spring's period
+/// is 260 ms and critically damped it lands within 1.05 periods (`kit/flow.rs`), so 280 ms.
+pub const SPRING_MS: u32 = 280;
 
 impl Default for Life {
     fn default() -> Self {

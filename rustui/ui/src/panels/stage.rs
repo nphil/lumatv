@@ -59,6 +59,8 @@ pub struct Stage {
     arrive: Option<Arrive>,
     root: Option<Root>,
     scrim: Option<ShapeLayer>,
+    /// The group the dim hangs under when the root moves on the spring: it fades with the root's way in and out.
+    scrim_fade: Option<Group>,
     backdrop: Option<Id>,
     pub hover: Hover,
     pointer: Pointer,
@@ -68,6 +70,8 @@ pub struct Stage {
     hide: bool,
     /// The first focus after the panel comes up (or its content is made again) is lifted at once; the next ones fly.
     first: bool,
+    /// The root moves on the shared spring (retargeted from wherever it is) and not over a fixed time.
+    spring: bool,
 }
 
 impl Stage {
@@ -79,6 +83,7 @@ impl Stage {
             arrive: None,
             root: None,
             scrim: None,
+            scrim_fade: None,
             backdrop: None,
             hover: Hover::new(z + 8),
             pointer: Pointer::new(),
@@ -86,7 +91,19 @@ impl Stage {
             modal: false,
             hide: false,
             first: true,
+            spring: false,
         }
+    }
+
+    /// The root arrives and leaves on the engine's one shared spring (a container transform), retargeted from wherever it is.
+    pub fn springy(mut self) -> Self {
+        self.spring = true;
+        self
+    }
+
+    /// How the root arrives, as it was made.
+    pub fn arrive(&self) -> Option<Arrive> {
+        self.arrive
     }
 
     /// The dim is the colour that hides the page behind the panel (`scrim_hide`), as a question's is.
@@ -120,8 +137,20 @@ impl Stage {
         }
         self.root = Some(Root::new(kit, arrive, phase == Phase::Open)?);
         self.arrive = Some(arrive);
+        let root = self.root.as_ref().expect("a root");
         if dim && self.scrim.is_none() {
-            self.scrim = Some(scrim(kit, self.z, self.hide));
+            if self.spring {
+                // a dim that is there at once would be the one thing of the container transform that appears from nowhere
+                let fade = kit.ui.scene.group(None, compositor_protocol::GroupPose::IDENTITY).map_err(|e| std::io::Error::other(format!("{e}")))?;
+                self.scrim = Some(kit.ui.scene.adopting(&fade, || scrim(kit, self.z, self.hide)));
+                self.scrim_fade = Some(fade);
+            } else {
+                self.scrim = Some(scrim(kit, self.z, self.hide));
+            }
+        }
+        // a root made again (the sheet changed while it was at rest) takes the dim's fade over from the one before it
+        if let Some(fade) = &self.scrim_fade {
+            root.bind_fade(fade, [0.0, 0.5])?;
         }
         Ok(())
     }
@@ -165,7 +194,11 @@ impl Stage {
                     self.first = true;
                 }
                 if let Some(root) = self.root.as_mut().filter(|r| !r.is_shown()) {
-                    root.show(enter);
+                    if self.spring {
+                        root.show_with(engine.flow.spec.settle());
+                    } else {
+                        root.show(enter);
+                    }
                 }
                 if let Some(s) = &self.scrim {
                     scrim_set(s, true);
@@ -174,7 +207,11 @@ impl Stage {
             }
             Phase::Leaving => {
                 if let Some(root) = self.root.as_mut().filter(|r| r.is_shown()) {
-                    root.hide(exit);
+                    if self.spring {
+                        root.hide_with(engine.flow.spec.settle());
+                    } else {
+                        root.hide(exit);
+                    }
                 }
                 false
             }
@@ -258,6 +295,7 @@ impl Stage {
         self.release_keys(engine);
         self.root = None;
         self.scrim = None;
+        self.scrim_fade = None;
         self.arrive = None;
         self.hover = Hover::new(self.z + 8);
         self.first = true;

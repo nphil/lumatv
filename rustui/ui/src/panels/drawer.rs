@@ -1,22 +1,27 @@
-//! The notification drawer (`docs/mocks/13-notifications`, `panels/Drawer.qml` of the QML shell): a panel down the right side that opens
-//! from the bell on Home's top bar (and a long press of the gear key), with what has happened grouped by who said it: AI access (what an
-//! assistant asked for and what was decided: the helper's audit), each plugin (the broker's notifications, with the plugin's own
-//! buttons) and the TV (the [`NoteLog`]: an update ready, what LG's notification service said). One column the D-pad moves down; Right and
-//! Left move between an item's buttons; OK runs the focused button (an item without buttons: OK clears it); Back closes. "Clear all"
-//! empties the TV's own log and hides what the others said, until they say something new.
+//! The notification drawer (`docs/mocks/13-notifications`, `panels/Drawer.qml` of the QML shell): a panel down the right side, the quick
+//! panel's width and place, that opens from the bell on Home's top bar (and a long press of the gear key), with what has happened grouped
+//! the way Android does: by who said it (AI access: what an assistant asked for and what was decided, the helper's audit; each plugin:
+//! the broker's notifications, with the plugin's own buttons; the TV: the [`NoteLog`], an update ready, what LG's notification service
+//! said). A group is as new as its newest notification and the groups are ordered by it; inside a group the newest comes first.
+//! Notifications that say exactly the same (title, text and buttons) are one entry with a count. A group of one entry is that entry
+//! under a label; a group of several is a header with a focus of its own (OK opens or folds the group, Right reaches its Clear) and its
+//! newest entry, the others behind OK. One column the D-pad moves down; Right and Left move between an item's buttons; OK runs the
+//! focused button (an item without buttons: OK clears it); Back closes. "Clear all" empties the TV's own log and hides what the others
+//! said, until they say something new.
 //!
 //! Nothing in it is stored here: the audit is read each time the drawer opens, the broker's notifications come from the helper's
 //! topics and the log is the [`NoteLog`], so a restart shows what the helper and the broker still have. Opening it is what marks
-//! everything seen (the bell's badge).
+//! everything seen (the bell's badge), and what folds every group.
 
 use super::clock;
 use super::env::{Env, tags};
 use super::hub::{self, Note};
-use super::life::Life;
+use super::life::{LINGER_MS, Life, SPRING_MS};
 use super::notelog::NoteLog;
 use super::{K, Out};
 use crate::kit::screen::Effect;
 use serde_json::{Value, json};
+use std::cmp::Reverse;
 use std::collections::BTreeSet;
 
 /// What a button of an item does.
@@ -35,6 +40,15 @@ pub struct Action {
     pub run: Do,
 }
 
+/// One notification an entry stands for.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Member {
+    pub id: String,
+    /// An entry of the TV's own log.
+    pub own: bool,
+}
+
+/// What the person sees as one notification: the newest of those that said exactly the same, and the others it stands for.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Item {
     pub id: String,
@@ -46,13 +60,60 @@ pub struct Item {
     pub actions: Vec<Action>,
     /// An entry of the TV's own log.
     pub own: bool,
+    /// Every notification this entry stands for, the newest (this one) first.
+    pub members: Vec<Member>,
 }
 
-/// A group header or an item with its number among the items (from 1: the number is the index the focus has).
+impl Item {
+    fn new(id: String, icon: &str, title: String, body: String, time: u64, actions: Vec<Action>, own: bool) -> Self {
+        let members = vec![Member { id: id.clone(), own }];
+        Self { id, icon: icon.into(), title, body, time, actions, own, members }
+    }
+
+    /// Whether `other` says what this does: the same title, text and button labels.
+    fn says_the_same(&self, other: &Item) -> bool {
+        self.title == other.title && self.body == other.body && self.actions.iter().map(|a| &a.label).eq(other.actions.iter().map(|a| &a.label))
+    }
+}
+
+/// Everything one source said.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Group {
+    pub source: String,
+    pub icon: String,
+    /// Newest first; notifications that said the same are one.
+    pub items: Vec<Item>,
+}
+
+impl Group {
+    pub fn newest(&self) -> u64 {
+        self.items.first().map_or(0, |i| i.time)
+    }
+
+    /// How many notifications the group holds, those that said the same counted each.
+    pub fn count(&self) -> usize {
+        self.items.iter().map(|i| i.members.len()).sum()
+    }
+
+    /// More than one entry: a header the focus visits, and the entries after the newest behind it.
+    pub fn stacked(&self) -> bool {
+        self.items.len() > 1
+    }
+}
+
+/// A group header or an item. What the focus visits is numbered from 1 (the number is the index the focus has): a stacked group's header
+/// and each item shown; the label of a group of one entry is not visited (`idx` 0).
 #[derive(Clone, Debug, PartialEq)]
 pub enum Entry {
-    Head { source: String, icon: String, count: usize },
+    Head { idx: usize, source: String, icon: String, count: usize, expanded: bool },
     Item { idx: usize, item: Item },
+}
+
+/// What the focus can be on below Clear all.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Row {
+    Head { source: String, expanded: bool },
+    Item(Item),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -62,12 +123,14 @@ pub struct ItemView {
     pub title: String,
     pub body: String,
     pub when: String,
+    /// How many notifications said exactly this.
+    pub count: usize,
     pub buttons: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum EntryView {
-    Head { source: String, icon: String, count: usize },
+    Head { idx: usize, source: String, icon: String, count: usize, expanded: bool },
     Item(ItemView),
 }
 
@@ -75,9 +138,13 @@ pub enum EntryView {
 pub struct View {
     pub up: bool,
     pub entries: Vec<EntryView>,
+    /// How many notifications there are, those that said the same counted each.
     pub count: usize,
-    /// 0 is Clear all, then the items in order.
+    /// How many rows the focus visits below Clear all.
+    pub rows: usize,
+    /// 0 is Clear all, then the rows in order.
     pub index: usize,
+    /// Of an item, its buttons in order; of a header, 0 is the header and 1 its Clear.
     pub button: usize,
     pub over_video: bool,
 }
@@ -92,6 +159,8 @@ pub struct Drawer {
     hidden: BTreeSet<String>,
     /// "Clear all" hides every audit line up to this time (audit lines have no id).
     hidden_before: f64,
+    /// The stacked groups that are open, by source.
+    expanded: BTreeSet<String>,
 }
 
 impl Default for Drawer {
@@ -139,19 +208,19 @@ fn audit_text(e: &Value, assistants: &[Value]) -> (String, String, Vec<Action>) 
 
 impl Drawer {
     pub fn new() -> Self {
-        Self { life: Life::default(), log: NoteLog::new(), index: 1, button: 0, audit: Vec::new(), assistants: Vec::new(), hidden: BTreeSet::new(), hidden_before: 0.0 }
+        Self { life: Life::new(SPRING_MS, SPRING_MS, LINGER_MS), log: NoteLog::new(), index: 1, button: 0, audit: Vec::new(), assistants: Vec::new(), hidden: BTreeSet::new(), hidden_before: 0.0, expanded: BTreeSet::new() }
     }
 
     pub fn notes(env: &Env) -> Vec<Note> {
         hub::notes(&env.topics)
     }
 
-    /// The entries the column draws: a header per group, then its items, each numbered among the items.
-    pub fn entries(&self, env: &Env) -> Vec<Entry> {
-        let mut groups: Vec<(String, String, Vec<Item>)> = Vec::new();
-        let mut add = |source: &str, icon: &str, item: Item| match groups.iter_mut().find(|g| g.0 == source) {
-            Some(g) => g.2.push(item),
-            None => groups.push((source.to_string(), icon.to_string(), vec![item])),
+    /// The groups, newest first, each with its entries newest first and what said the same folded into one.
+    pub fn groups(&self, env: &Env) -> Vec<Group> {
+        let mut groups: Vec<Group> = Vec::new();
+        let mut add = |source: &str, icon: &str, item: Item| match groups.iter_mut().find(|g| g.source == source) {
+            Some(g) => g.items.push(item),
+            None => groups.push(Group { source: source.to_string(), icon: icon.to_string(), items: vec![item] }),
         };
         for e in &self.audit {
             let at = e.get("at").and_then(Value::as_f64).unwrap_or(0.0);
@@ -160,7 +229,7 @@ impl Drawer {
                 continue;
             }
             let (title, body, actions) = audit_text(e, &self.assistants);
-            add("AI access", "bot", Item { id: key, icon: "sparkles".into(), title, body, time: at as u64, actions, own: false });
+            add("AI access", "bot", Item::new(key, "sparkles", title, body, at as u64, actions, false));
         }
         for n in Self::notes(env) {
             let key = format!("plugin-{}-{}-{}", n.plugin_id, n.id, n.revision);
@@ -173,17 +242,43 @@ impl Drawer {
                 .iter()
                 .map(|a| Action { label: a.label.clone(), run: Do::Plugin { plugin: n.plugin_id.clone(), action: if a.action.is_empty() { a.id.clone() } else { a.action.clone() }, target: a.target.clone() } })
                 .collect();
-            add(&n.plugin, "plug", Item { id: key, icon: icon.into(), title: n.title.clone(), body: n.body.clone(), time: (n.received_at * 1000.0) as u64, actions, own: false });
+            add(&n.plugin, "plug", Item::new(key, icon, n.title.clone(), n.body.clone(), (n.received_at * 1000.0) as u64, actions, false));
         }
         for l in self.log.items() {
             let actions = l.actions.iter().map(|a| Action { label: a.label.clone(), run: Do::Own { id: l.id.clone(), action: a.id.clone() } }).collect();
-            add(&l.source, "monitor", Item { id: l.id.clone(), icon: l.icon.clone(), title: l.title.clone(), body: l.body.clone(), time: l.time, actions, own: true });
+            add(&l.source, "monitor", Item::new(l.id.clone(), &l.icon, l.title.clone(), l.body.clone(), l.time, actions, true));
         }
+        for g in &mut groups {
+            // newest first (a stable sort: what has no time keeps its order), then what said the same folds into the newest of it
+            g.items.sort_by_key(|i| Reverse(i.time));
+            let mut folded: Vec<Item> = Vec::new();
+            for it in std::mem::take(&mut g.items) {
+                match folded.iter_mut().find(|f| f.says_the_same(&it)) {
+                    Some(f) => f.members.extend(it.members),
+                    None => folded.push(it),
+                }
+            }
+            g.items = folded;
+        }
+        groups.sort_by_key(|g| Reverse(g.newest()));
+        groups
+    }
+
+    /// The entries the column draws: a header per group, then its newest item, or all of them when the group is open.
+    pub fn entries(&self, env: &Env) -> Vec<Entry> {
         let mut out = Vec::new();
         let mut n = 0;
-        for (source, icon, items) in groups {
-            out.push(Entry::Head { source, icon, count: items.len() });
-            for item in items {
+        for g in self.groups(env) {
+            let expanded = g.stacked() && self.expanded.contains(&g.source);
+            let idx = if g.stacked() {
+                n += 1;
+                n
+            } else {
+                0
+            };
+            let shown = if expanded { g.items.len() } else { 1 };
+            out.push(Entry::Head { idx, source: g.source.clone(), icon: g.icon.clone(), count: g.count(), expanded });
+            for item in g.items.into_iter().take(shown) {
                 n += 1;
                 out.push(Entry::Item { idx: n, item });
             }
@@ -191,16 +286,31 @@ impl Drawer {
         out
     }
 
+    /// What the focus visits below Clear all, in order.
+    pub fn rows(&self, env: &Env) -> Vec<Row> {
+        self.entries(env)
+            .into_iter()
+            .filter_map(|e| match e {
+                Entry::Head { idx, source, expanded, .. } if idx > 0 => Some(Row::Head { source, expanded }),
+                Entry::Head { .. } => None,
+                Entry::Item { item, .. } => Some(Row::Item(item)),
+            })
+            .collect()
+    }
+
+    /// The items that show.
     pub fn items(&self, env: &Env) -> Vec<Item> {
         self.entries(env).into_iter().filter_map(|e| if let Entry::Item { item, .. } = e { Some(item) } else { None }).collect()
     }
 
     // ---- opening
 
-    /// The drawer is wanted: the focus on the first item, everything marked seen, the assistants as they are now, the audit asked for.
+    /// The drawer is wanted: the focus on the first row, every group folded, everything marked seen, the assistants as they are now, the
+    /// audit asked for.
     pub fn open(&mut self, env: &Env, now: u64) -> Out {
         self.index = 1;
         self.button = 0;
+        self.expanded.clear();
         self.log.mark_seen(now);
         self.assistants = env.topic("ai").and_then(|a| a.get("assistants")).and_then(Value::as_array).cloned().unwrap_or_default();
         Out::effects(vec![Effect::Fetch { tag: tags::AUDIT, path: "/v1/ai/audit?limit=12".into() }])
@@ -220,24 +330,51 @@ impl Drawer {
 
     // ---- what the keys and the pointer do
 
-    fn clear_all(&mut self, env: &Env) {
-        let items = self.items(env);
-        self.log.clear();
-        for it in &items {
-            self.hidden.insert(it.id.clone());
+    /// Takes the notifications of `items` out of the drawer: the TV's own from its log, the others hidden by id.
+    fn remove(&mut self, items: &[Item]) {
+        for m in items.iter().flat_map(|i| &i.members) {
+            if m.own {
+                self.log.dismiss(&m.id);
+            } else {
+                self.hidden.insert(m.id.clone());
+            }
         }
+    }
+
+    fn clear_all(&mut self, env: &Env) {
+        let all: Vec<Item> = self.groups(env).into_iter().flat_map(|g| g.items).collect();
+        self.log.clear();
+        self.remove(&all);
         self.hidden_before = self.audit.iter().filter_map(|a| a.get("at").and_then(Value::as_f64)).fold(self.hidden_before.max(0.0), f64::max);
+        self.expanded.clear();
         self.index = 0;
+        self.button = 0;
+    }
+
+    /// Clears the group `source`: its notifications go, the others stay.
+    fn clear_group(&mut self, env: &Env, source: &str) {
+        if let Some(g) = self.groups(env).into_iter().find(|g| g.source == source) {
+            self.remove(&g.items);
+        }
+        self.expanded.remove(source);
+        self.settle(env);
     }
 
     fn dismiss(&mut self, env: &Env, it: &Item) {
-        if it.own {
-            self.log.dismiss(&it.id);
-        } else {
-            self.hidden.insert(it.id.clone());
-        }
-        self.index = self.index.min(self.items(env).len());
+        self.remove(std::slice::from_ref(it));
+        self.settle(env);
+    }
+
+    /// After something went: the focus stays on a row, and on the first of its buttons.
+    fn settle(&mut self, env: &Env) {
+        self.index = self.index.min(self.rows(env).len());
         self.button = 0;
+    }
+
+    fn toggle(&mut self, source: &str) {
+        if !self.expanded.remove(source) {
+            self.expanded.insert(source.to_string());
+        }
     }
 
     fn run(&mut self, a: &Action) -> Out {
@@ -256,8 +393,8 @@ impl Drawer {
     }
 
     pub fn key(&mut self, k: K, env: &Env) -> Out {
-        let items = self.items(env);
-        let it = if self.index > 0 { items.get(self.index - 1).cloned() } else { None };
+        let rows = self.rows(env);
+        let row = if self.index > 0 { rows.get(self.index - 1).cloned() } else { None };
         match k {
             K::Back => return Out::close(),
             K::Up => {
@@ -265,23 +402,33 @@ impl Drawer {
                 self.button = 0;
             }
             K::Down => {
-                self.index = (self.index + 1).min(items.len());
+                self.index = (self.index + 1).min(rows.len());
                 self.button = 0;
             }
             K::Left => {
-                if it.is_some() {
+                if row.is_some() {
                     self.button = self.button.saturating_sub(1);
                 }
             }
-            K::Right => {
-                if let Some(it) = &it {
-                    self.button = (self.button + 1).min(it.actions.len().saturating_sub(1));
+            K::Right => match &row {
+                Some(Row::Head { .. }) => self.button = 1,
+                Some(Row::Item(it)) => self.button = (self.button + 1).min(it.actions.len().saturating_sub(1)),
+                None => {}
+            },
+            K::Ok => match row {
+                None => {
+                    if self.index == 0 {
+                        self.clear_all(env);
+                    }
                 }
-            }
-            K::Ok => {
-                if self.index == 0 {
-                    self.clear_all(env);
-                } else if let Some(it) = it {
+                Some(Row::Head { source, .. }) => {
+                    if self.button == 0 {
+                        self.toggle(&source);
+                    } else {
+                        self.clear_group(env, &source);
+                    }
+                }
+                Some(Row::Item(it)) => {
                     if it.actions.is_empty() {
                         self.dismiss(env, &it);
                     } else {
@@ -289,7 +436,7 @@ impl Drawer {
                         return self.run(&a);
                     }
                 }
-            }
+            },
             _ => {}
         }
         Out::default()
@@ -304,7 +451,7 @@ impl Drawer {
     pub fn click_item(&mut self, idx: usize, env: &Env) {
         self.index = idx;
         self.button = 0;
-        if let Some(it) = self.items(env).get(idx.wrapping_sub(1)).cloned()
+        if let Some(Row::Item(it)) = self.rows(env).get(idx.wrapping_sub(1)).cloned()
             && it.actions.is_empty()
         {
             self.dismiss(env, &it);
@@ -318,6 +465,20 @@ impl Drawer {
         self.key(K::Ok, env)
     }
 
+    /// A click on the header `idx` (from 1) opens or folds its group.
+    pub fn click_head(&mut self, idx: usize, env: &Env) {
+        self.index = idx;
+        self.button = 0;
+        self.key(K::Ok, env);
+    }
+
+    /// A click on the Clear of the header `idx`.
+    pub fn click_head_clear(&mut self, idx: usize, env: &Env) {
+        self.index = idx;
+        self.button = 1;
+        self.key(K::Ok, env);
+    }
+
     pub fn index(&self) -> usize {
         self.index
     }
@@ -328,18 +489,28 @@ impl Drawer {
 
     pub fn view(&self, env: &Env, now: u64) -> View {
         let entries = self.entries(env);
-        let count = entries.iter().filter(|e| matches!(e, Entry::Item { .. })).count();
+        let rows = self.rows(env).len();
+        let count = self.groups(env).iter().map(Group::count).sum();
         View {
             up: self.life.presented(),
             entries: entries
                 .into_iter()
                 .map(|e| match e {
-                    Entry::Head { source, icon, count } => EntryView::Head { source, icon, count },
-                    Entry::Item { idx, item } => EntryView::Item(ItemView { idx, icon: item.icon, title: item.title, body: item.body, when: clock::when(item.time, now), buttons: item.actions.into_iter().map(|a| a.label).collect() }),
+                    Entry::Head { idx, source, icon, count, expanded } => EntryView::Head { idx, source, icon, count, expanded },
+                    Entry::Item { idx, item } => EntryView::Item(ItemView {
+                        idx,
+                        icon: item.icon,
+                        title: item.title,
+                        body: item.body,
+                        when: clock::when(item.time, now),
+                        count: item.members.len(),
+                        buttons: item.actions.into_iter().map(|a| a.label).collect(),
+                    }),
                 })
                 .collect(),
             count,
-            index: self.index.min(count),
+            rows,
+            index: self.index.min(rows),
             button: self.button,
             over_video: !env.fg.home,
         }
@@ -353,21 +524,26 @@ pub(crate) mod tests {
     use crate::panels::notelog;
 
     pub(crate) const NOW: u64 = 1_761_000_000_000;
+    const SECS: f64 = (NOW / 1000 - 600) as f64;
+
+    fn feed(env: &mut Env, topic: &str, data: Value) {
+        env.update(&Input::Helper { topic: topic.into(), data }, 0);
+    }
+
+    fn note(id: &str, body: &str, at: f64) -> Value {
+        json!({"id": id, "channel": "events", "revision": 1, "receivedAt": at, "post": {"title": "Battery low", "body": body, "actions": []}})
+    }
 
     pub(crate) fn env() -> Env {
         let mut env = Env::new(json!({}));
-        let feed = |env: &mut Env, topic: &str, data: Value| {
-            env.update(&Input::Helper { topic: topic.into(), data }, 0);
-        };
         feed(&mut env, "ai", json!({"listener": {"enabled": true}, "assistants": [{"id": "cody", "name": "Cody", "paused": true}]}));
         feed(&mut env, "plugins", json!({"plugins": [{"id": "lock", "name": "Front door", "state": "connected"}], "firstParty": [{"id": "weather", "name": "Weather", "state": "connected"}]}));
-        let secs = (NOW / 1000 - 600) as f64;
         feed(
             &mut env,
             "plugin.lock.notifications",
             json!({"items": [
-                {"id": "unlocked", "channel": "events", "revision": 1, "receivedAt": secs, "post": {"title": "Door unlocked", "body": "Someone opened it.", "actions": [{"id": "lock", "label": "Lock it", "action": "lock"}]}},
-                {"id": "battery", "channel": "events", "revision": 1, "receivedAt": secs, "post": {"title": "Battery low", "body": "The lock's battery is at 12 %.", "actions": []}}
+                {"id": "unlocked", "channel": "events", "revision": 1, "receivedAt": SECS, "post": {"title": "Door unlocked", "body": "Someone opened it.", "actions": [{"id": "lock", "label": "Lock it", "action": "lock"}]}},
+                note("battery", "The lock's battery is at 12 %.", SECS)
             ]}),
         );
         env
@@ -389,23 +565,37 @@ pub(crate) mod tests {
         d
     }
 
+    /// The titles of the items that show.
     fn titles(d: &Drawer, env: &Env) -> Vec<String> {
         d.items(env).into_iter().map(|i| i.title).collect()
     }
 
+    /// "source:count" of each group, in order.
+    fn heads(d: &Drawer, env: &Env) -> Vec<String> {
+        d.entries(env).into_iter().filter_map(|e| if let Entry::Head { source, count, .. } = e { Some(format!("{source}:{count}")) } else { None }).collect()
+    }
+
+    /// Opens the group the item is in when it is behind its header, and puts the focus on the item.
     fn go_to(d: &mut Drawer, env: &Env, title: &str) {
-        d.index = 1;
-        for _ in 0..30 {
-            if d.items(env)[d.index - 1].title == title {
-                return;
+        for g in d.groups(env) {
+            if g.stacked() && g.items.iter().any(|i| i.title == title) {
+                d.expanded.insert(g.source);
             }
-            d.key(K::Down, env);
         }
-        panic!("no item titled {title}");
+        let at = d.rows(env).iter().position(|r| matches!(r, Row::Item(i) if i.title == title)).unwrap_or_else(|| panic!("no item titled {title}"));
+        d.index = at + 1;
+        d.button = 0;
+    }
+
+    /// Puts the focus on the header of `source`.
+    fn go_to_head(d: &mut Drawer, env: &Env, source: &str) {
+        let at = d.rows(env).iter().position(|r| matches!(r, Row::Head { source: s, .. } if s == source)).unwrap_or_else(|| panic!("no header of {source}"));
+        d.index = at + 1;
+        d.button = 0;
     }
 
     #[test]
-    fn opening_asks_for_the_audit_marks_everything_seen_and_groups_by_who_said_it_newest_first() {
+    fn opening_asks_for_the_audit_marks_everything_seen_and_groups_by_who_said_it_the_newest_group_first() {
         let env = env();
         let mut d = Drawer::new();
         d.life.show(0);
@@ -415,11 +605,158 @@ pub(crate) mod tests {
         assert_eq!(out.effects, vec![Effect::Fetch { tag: tags::AUDIT, path: "/v1/ai/audit?limit=12".into() }]);
         assert_eq!(d.log.unread(&Drawer::notes(&env)), 0, "opening is what the bell's count is cleared by");
         d.answer(200, &audit());
-        let heads: Vec<String> = d.entries(&env).into_iter().filter_map(|e| if let Entry::Head { source, count, .. } = e { Some(format!("{source}:{count}")) } else { None }).collect();
-        assert_eq!(heads, vec!["AI access:2", "Front door:2", "TV:1"]);
+        assert_eq!(heads(&d, &env), vec!["TV:1", "AI access:2", "Front door:2"], "the TV spoke 100 s ago, the assistant 300 s, the lock 600 s");
         assert_eq!(d.index(), 1);
-        assert_eq!(titles(&d, &env)[0], "Cody was denied", "the audit is newest first");
+        assert_eq!(titles(&d, &env), vec!["TV update ready", "Cody was denied", "Door unlocked"], "each group shows its newest, the audit newest first");
         assert_eq!(d.view(&env, NOW).count, 5);
+    }
+
+    #[test]
+    fn a_group_of_one_has_a_label_the_focus_does_not_visit_and_a_group_of_several_has_a_header_it_does() {
+        let env = env();
+        let d = open(&env);
+        let e = d.entries(&env);
+        assert!(matches!(&e[0], Entry::Head { idx: 0, source, .. } if source == "TV"), "{e:?}");
+        assert!(matches!(&e[1], Entry::Item { idx: 1, .. }));
+        assert!(matches!(&e[2], Entry::Head { idx: 2, source, count: 2, expanded: false, .. } if source == "AI access"));
+        assert!(matches!(&e[3], Entry::Item { idx: 3, .. }));
+        assert_eq!(d.view(&env, NOW).rows, 5, "the TV's item, the two headers and the two newest items");
+    }
+
+    #[test]
+    fn ok_on_a_header_opens_its_group_and_again_folds_it_and_opening_the_drawer_folds_every_group() {
+        let env = env();
+        let mut d = open(&env);
+        go_to_head(&mut d, &env, "AI access");
+        assert_eq!(titles(&d, &env).len(), 3);
+        d.key(K::Ok, &env);
+        assert_eq!(titles(&d, &env), vec!["TV update ready", "Cody was denied", "Cody: what is playing", "Door unlocked"], "the rest of the group, newest first");
+        assert!(matches!(d.entries(&env)[2], Entry::Head { expanded: true, .. }));
+        assert_eq!(d.index(), 2, "the focus stays on the header");
+        d.key(K::Down, &env);
+        d.key(K::Down, &env);
+        assert_eq!(d.index(), 4, "the opened group's second item is a row of its own");
+        d.key(K::Up, &env);
+        d.key(K::Up, &env);
+        d.key(K::Ok, &env);
+        assert_eq!(titles(&d, &env).len(), 3, "OK again folds it");
+        d.key(K::Ok, &env);
+        d.open(&env, NOW);
+        assert_eq!(titles(&d, &env).len(), 3, "opening folds every group");
+        assert_eq!(d.index(), 1);
+    }
+
+    #[test]
+    fn right_on_a_header_reaches_its_clear_and_ok_there_clears_that_group_only() {
+        let env = env();
+        let mut d = open(&env);
+        go_to_head(&mut d, &env, "AI access");
+        d.key(K::Right, &env);
+        assert_eq!(d.button(), 1);
+        d.key(K::Left, &env);
+        assert_eq!(d.button(), 0);
+        d.key(K::Right, &env);
+        d.key(K::Ok, &env);
+        assert_eq!(heads(&d, &env), vec!["TV:1", "Front door:2"], "the assistant's group is gone, the others stay");
+        assert_eq!((d.index(), d.button()), (2, 0), "the focus rests on the row that took its place");
+        d.answer(200, &audit());
+        assert_eq!(heads(&d, &env), vec!["TV:1", "Front door:2"], "the audit read again does not bring it back");
+        let mut newer = audit();
+        newer["entries"].as_array_mut().unwrap().push(json!({"assistant": {"id": "cody", "name": "Cody"}, "tool": "x", "message": "dim the lights", "outcome": "ok", "at": NOW + 1000}));
+        d.answer(200, &newer);
+        assert_eq!(heads(&d, &env)[0], "AI access:1", "what it says after is shown");
+    }
+
+    #[test]
+    fn clearing_the_lock_group_hides_its_notes_and_the_tvs_item_is_cleared_from_its_log() {
+        let env = env();
+        let mut d = open(&env);
+        d.key(K::Ok, &env);
+        assert!(d.log.items().is_empty(), "OK on the TV's item cleared it from the log");
+        go_to_head(&mut d, &env, "Front door");
+        d.key(K::Right, &env);
+        d.key(K::Ok, &env);
+        assert_eq!(heads(&d, &env), vec!["AI access:2"]);
+    }
+
+    #[test]
+    fn notifications_that_say_exactly_the_same_are_one_entry_with_a_count_and_the_newest_time() {
+        let mut env = env();
+        feed(
+            &mut env,
+            "plugin.lock.notifications",
+            json!({"items": [
+                note("b1", "The lock's battery is at 12 %.", SECS),
+                note("b2", "The lock's battery is at 12 %.", SECS + 30.0),
+                note("b3", "The lock's battery is at 12 %.", SECS + 60.0),
+                note("b4", "The lock's battery is at 11 %.", SECS + 20.0),
+                {"id": "unlocked", "channel": "events", "revision": 1, "receivedAt": SECS + 10.0, "post": {"title": "Door unlocked", "body": "Someone opened it.", "actions": []}}
+            ]}),
+        );
+        let mut d = open(&env);
+        go_to_head(&mut d, &env, "Front door");
+        d.key(K::Ok, &env);
+        let door = d.groups(&env).into_iter().find(|g| g.source == "Front door").unwrap();
+        assert_eq!(door.items.len(), 3, "three sayings, five notifications");
+        assert_eq!(door.count(), 5);
+        let first = &door.items[0];
+        assert_eq!((first.body.as_str(), first.members.len()), ("The lock's battery is at 12 %.", 3));
+        assert_eq!(first.time, (SECS as u64 + 60) * 1000, "the entry is as new as the newest of them");
+        assert_eq!(door.items[1].body, "The lock's battery is at 11 %.", "a different text is another entry");
+        assert_eq!(door.items[2].title, "Door unlocked", "another title is another entry");
+        let counts: Vec<usize> = d.view(&env, NOW).entries.iter().filter_map(|e| if let EntryView::Item(i) = e { Some(i.count) } else { None }).collect();
+        assert_eq!(counts, vec![1, 1, 3, 1, 1], "the view carries each entry's count: TV, AI access, then the lock's three");
+        go_to(&mut d, &env, "Battery low");
+        d.key(K::Ok, &env);
+        let door = d.groups(&env).into_iter().find(|g| g.source == "Front door").unwrap();
+        assert_eq!(door.count(), 2, "OK on the entry cleared all three");
+        assert!(door.items.iter().all(|i| i.members.len() == 1 && i.body != "The lock's battery is at 12 %."));
+    }
+
+    #[test]
+    fn the_same_words_from_different_sources_are_not_folded_together() {
+        let mut env = env();
+        feed(&mut env, "plugin.lock.notifications", json!({"items": [note("b1", "Low.", SECS)]}));
+        feed(&mut env, "plugins", json!({"plugins": [{"id": "lock", "name": "Front door", "state": "connected"}, {"id": "gate", "name": "Gate", "state": "connected"}]}));
+        feed(&mut env, "plugin.gate.notifications", json!({"items": [note("g1", "Low.", SECS + 5.0)]}));
+        let d = open(&env);
+        assert_eq!(heads(&d, &env), vec!["TV:1", "AI access:2", "Gate:1", "Front door:1"]);
+    }
+
+    #[test]
+    fn the_tvs_own_repeats_fold_too_and_clearing_the_entry_empties_every_one_from_the_log() {
+        let env = Env::new(json!({}));
+        let mut d = Drawer::new();
+        d.life.show(0);
+        let post = |d: &mut Drawer, title: &str, time: u64| d.log.post(notelog::Item { id: String::new(), source: "TV".into(), icon: "info".into(), title: title.into(), body: String::new(), time, actions: Vec::new() });
+        for n in 0..3 {
+            post(&mut d, "Backup finished", NOW + n * 1000);
+        }
+        post(&mut d, "Update ready", NOW + 500);
+        d.open(&env, NOW + 10_000);
+        let g = &d.groups(&env)[0];
+        assert_eq!((g.items.len(), g.count()), (2, 4));
+        assert_eq!(g.items[0].title, "Backup finished");
+        assert_eq!(g.items[0].members.len(), 3);
+        d.key(K::Ok, &env);
+        assert_eq!(d.log.items().len(), 4, "OK on the header only opens it");
+        d.key(K::Down, &env);
+        d.key(K::Ok, &env);
+        assert_eq!(d.log.items().len(), 1, "the three that said the same go with it");
+        assert_eq!(d.log.items()[0].title, "Update ready");
+    }
+
+    #[test]
+    fn what_is_newer_moves_its_group_to_the_top_and_inside_a_group_the_newest_is_first() {
+        let env = env();
+        let mut d = open(&env);
+        let mut newer = audit();
+        newer["entries"].as_array_mut().unwrap().push(json!({"assistant": {"id": "cody", "name": "Cody"}, "tool": "x", "message": "dim the lights", "outcome": "ok", "at": NOW + 1000}));
+        d.answer(200, &newer);
+        assert_eq!(heads(&d, &env), vec!["AI access:3", "TV:1", "Front door:2"]);
+        assert_eq!(titles(&d, &env)[0], "Cody: dim the lights");
+        let times: Vec<u64> = d.groups(&env)[0].items.iter().map(|i| i.time).collect();
+        assert!(times.windows(2).all(|w| w[0] >= w[1]), "{times:?}");
     }
 
     #[test]
@@ -443,7 +780,7 @@ pub(crate) mod tests {
         go_to(&mut d, &env, "Cody was denied");
         d.key(K::Right, &env);
         assert_eq!(d.button(), 0, "one button: Right stays on it");
-        let it = d.items(&env)[d.index() - 1].clone();
+        let Some(Row::Item(it)) = d.rows(&env).get(d.index() - 1).cloned() else { panic!("an item") };
         assert_eq!(it.actions[0].label, "Resume Cody");
         assert_eq!(it.body, "It asked to turn the TV off; its requests are paused until you resume them.");
         let out = d.key(K::Ok, &env);
@@ -456,20 +793,21 @@ pub(crate) mod tests {
         env.update(&Input::Helper { topic: "ai".into(), data: json!({"assistants": [{"id": "cody", "name": "Cody", "paused": false}]}) }, 1);
         let mut d = open(&env);
         go_to(&mut d, &env, "Cody was denied");
-        let it = d.items(&env)[d.index() - 1].clone();
+        let Some(Row::Item(it)) = d.rows(&env).get(d.index() - 1).cloned() else { panic!("an item") };
         assert!(it.actions.is_empty());
         assert_eq!(it.body, "turn the TV off");
     }
 
     #[test]
-    fn clear_all_empties_the_tvs_log_and_hides_what_the_others_said_and_up_from_the_first_item_reaches_it() {
+    fn clear_all_empties_the_tvs_log_and_hides_what_the_others_said_and_up_from_the_first_row_reaches_it() {
         let env = env();
         let mut d = open(&env);
         d.index = 1;
         d.key(K::Up, &env);
-        assert_eq!(d.index(), 0, "Up from the first item is the Clear all button");
+        assert_eq!(d.index(), 0, "Up from the first row is the Clear all button");
         d.key(K::Ok, &env);
         assert_eq!(d.items(&env).len(), 0);
+        assert_eq!(d.groups(&env).len(), 0);
         assert!(d.log.items().is_empty(), "the TV's own log is empty too");
         assert_eq!(d.view(&env, NOW).count, 0);
         // something newer than the clearing shows again
@@ -526,18 +864,35 @@ pub(crate) mod tests {
         d.open(&empty, NOW);
         let out = d.key(K::Ok, &empty);
         assert!(out.effects.is_empty() && !out.close, "OK on nothing does nothing");
-        assert_eq!(d.view(&empty, NOW).count, 0);
+        let v = d.view(&empty, NOW);
+        assert_eq!((v.count, v.rows), (0, 0));
     }
 
     #[test]
     fn a_click_on_an_item_clears_it_when_it_has_no_buttons_and_a_click_on_its_button_runs_it() {
         let env = env();
         let mut d = open(&env);
-        let battery = d.items(&env).iter().position(|i| i.title == "Battery low").unwrap() + 1;
+        go_to(&mut d, &env, "Battery low");
+        let battery = d.index();
         d.click_item(battery, &env);
         assert!(!titles(&d, &env).contains(&"Battery low".to_string()));
-        let unlocked = d.items(&env).iter().position(|i| i.title == "Door unlocked").unwrap() + 1;
+        go_to(&mut d, &env, "Door unlocked");
+        let unlocked = d.index();
         let out = d.click_button(unlocked, 0, &env);
         assert!(matches!(&out.effects[..], [Effect::Post { path, .. }] if path == "/v1/plugins/lock/actions/lock"));
+    }
+
+    #[test]
+    fn a_click_on_a_header_opens_or_folds_its_group_and_a_click_on_its_clear_clears_it() {
+        let env = env();
+        let mut d = open(&env);
+        go_to_head(&mut d, &env, "AI access");
+        let head = d.index();
+        d.click_head(head, &env);
+        assert_eq!(titles(&d, &env).len(), 4);
+        d.click_head(head, &env);
+        assert_eq!(titles(&d, &env).len(), 3);
+        d.click_head_clear(head, &env);
+        assert_eq!(heads(&d, &env), vec!["TV:1", "Front door:2"]);
     }
 }
