@@ -302,12 +302,12 @@ impl Tokens {
         let mo = block("motion");
         let motion = Motion {
             press_ms: ms(mo.get("pressMs"), 90),
-            focus_ms: ms(mo.get("focusMs"), 150),
-            card_ms: ms(mo.get("cardMs"), 180),
-            scroll_ms: ms(mo.get("scrollMs"), 300),
+            focus_ms: ms(mo.get("focusMs"), 260),
+            card_ms: ms(mo.get("cardMs"), 260),
+            scroll_ms: ms(mo.get("scrollMs"), 260),
             label_ms: ms(mo.get("labelMs"), 120),
             layer_ms: ms(mo.get("layerMs"), 220),
-            rest_ms: ms(mo.get("restMs"), 150),
+            rest_ms: ms(mo.get("restMs"), 60),
             hold_ms: ms(mo.get("holdMs"), 700),
             reduced: mo.get("reduced").and_then(Value::as_bool).unwrap_or(false),
             transitions: mo.get("transitions").and_then(Value::as_bool).unwrap_or(false),
@@ -448,8 +448,8 @@ mod tests {
         assert_eq!(t.target, 64.0);
         assert_eq!(t.row, 80.0);
         assert_eq!(t.focus.tile_scale, 1.12);
-        assert_eq!(t.motion.focus_ms, 150);
-        assert_eq!(t.motion.rest_ms, 150);
+        assert_eq!(t.motion.focus_ms, 260, "the shipped focus beat is the flowing spring's period");
+        assert_eq!(t.motion.rest_ms, 60);
         assert_eq!(t.blur, 30.0);
         assert_eq!(t.saturation, 1.25);
     }
@@ -462,7 +462,7 @@ mod tests {
         assert_eq!(t.roles(Mode::Dark)[PaletteRole::Accent], Straight::new(255, 0, 0, 255));
         assert_eq!(t.roles(Mode::Dark)[PaletteRole::Ink], Straight::new(0xF2, 0xEF, 0xF6, 255), "the rest of the block stays");
         assert!(t.motion.reduced);
-        assert_eq!(t.motion.focus_ms, 150);
+        assert_eq!(t.motion.focus_ms, 260, "the rest of the block stays");
         assert_eq!(t.space(1), 5.0);
         assert_eq!(t.space(2), 8.0);
         assert_eq!(t.duration(300), 120);
