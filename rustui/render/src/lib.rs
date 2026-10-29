@@ -44,6 +44,7 @@ mod wallpapers;
 
 pub use geometry::Panel;
 pub use gl::{Gles, RenderTarget};
+pub use log::set_log_sink;
 pub use ops::{Op, Transaction};
 pub use renderer::{Draw, DrawReport, Renderer, Surface};
 pub use scene::{Demand, Drawn, Scene};

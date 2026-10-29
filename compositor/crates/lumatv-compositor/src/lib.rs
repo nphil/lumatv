@@ -21,6 +21,7 @@ pub mod damage;
 pub mod input;
 pub mod keys;
 pub mod kms;
+pub mod logsink;
 pub mod luna;
 pub mod luna_methods;
 pub mod mem;

@@ -173,7 +173,8 @@ pub fn tail(n: usize) -> Vec<String> {
     lines[lines.len().saturating_sub(n)..].iter().map(|l| l.to_string()).collect()
 }
 
-/// A panic's message and place go in the ring before the process ends (`panic = "abort"` on the set), then to the hook that was there.
+/// A panic's message and place go in the ring before the process ends (`panic = "abort"` on the set), then to the hook that was there,
+/// after the log's queue is written (`logsink`: the lines before the panic come before its message in the file).
 pub fn install_panic_hook() {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -182,6 +183,7 @@ pub fn install_panic_hook() {
         // The message's lines are joined: the ring's lines are one each.
         let flat = String::from_utf8_lossy(&line.buf[..line.len]).replace('\n', " | ");
         note(format_args!("PANIC {flat}"));
+        log::logger().flush();
         previous(info);
     }));
 }

@@ -339,7 +339,7 @@ mod tests {
     fn the_image_is_a_disc_centred_in_a_buffer_whose_pitch_the_driver_keeps() {
         // the driver aligns a framebuffer's pitch to 64 bytes and the legacy ioctl says it is `width * 4`: the two agree
         assert_eq!(PITCH % 64, 0);
-        assert!(SPRITE <= 128, "the plane's cursor size");
+        const { assert!(SPRITE <= 128, "the plane's cursor size") };
         let img = plane_image(Alpha::Premultiplied);
         assert_eq!(img.len(), PITCH * SPRITE as usize);
         let at = |x: usize, y: usize| {

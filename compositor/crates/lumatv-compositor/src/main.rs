@@ -14,11 +14,10 @@ use lumatv_compositor::output::{Output, monotonic_ns};
 use lumatv_compositor::render::gl::{BufferPath, Gl};
 use lumatv_compositor::render::software::Software;
 use lumatv_compositor::server::state::{ClientHandler, State};
-use lumatv_compositor::{control, luna, mem, ring, sched, ticker, wake};
+use lumatv_compositor::{control, logsink, luna, mem, ring, sched, ticker, wake};
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    init_logging();
     if args.first().map(String::as_str) == Some("ctl") {
         let mut runtime_dir = std::path::PathBuf::from("/tmp/lumatv");
         let mut words = &args[1..];
@@ -45,7 +44,10 @@ fn main() {
             std::process::exit(2);
         }
     };
-    if let Err(e) = run(config) {
+    // The log's lines are written by a thread of its own: the queue is emptied before the error line, so that the file is in order, and before the process ends.
+    let result = run(config);
+    log::logger().flush();
+    if let Err(e) = result {
         eprintln!("lumatv-compositor: {e}");
         std::process::exit(1);
     }
@@ -53,42 +55,25 @@ fn main() {
 
 fn init_logging() {
     let level = std::env::var("LUMATV_LOG").ok().and_then(|v| v.parse().ok()).unwrap_or(log::LevelFilter::Info);
-    log::set_boxed_logger(Box::new(StderrLogger)).ok();
+    match logsink::Logger::start(libc::STDERR_FILENO) {
+        Ok(logger) => {
+            log::set_boxed_logger(Box::new(logger)).ok();
+        }
+        Err(e) => {
+            eprintln!("lumatv-compositor: the log's writer thread: {e}");
+            std::process::exit(1);
+        }
+    }
     log::set_max_level(level);
-}
-
-/// Lines carry CLOCK_MONOTONIC seconds, the clock the X1 client, the page-flip events and the kernel stamp with,
-/// so a client's frame gap lines up with what the compositor was doing at that moment.
-struct StderrLogger;
-
-impl log::Log for StderrLogger {
-    fn enabled(&self, _: &log::Metadata) -> bool {
-        true
-    }
-
-    fn log(&self, record: &log::Record) {
-        let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
-        // SAFETY: a stack timespec for clock_gettime.
-        unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) };
-        let t = ts.tv_sec as f64 + ts.tv_nsec as f64 / 1e9;
-        let _ = writeln!(io::stderr().lock(), "[srv {t:10.3}] {} {}", record.level().as_str().to_ascii_lowercase(), record.args());
-        // Every line the compositor logs is also in the trace ring, in order with the loop's own events, for the crash bundle.
-        ring::note(format_args!("{} {}", record.level().as_str().to_ascii_lowercase(), record.args()));
-    }
-
-    fn flush(&self) {}
+    #[cfg(feature = "ui")]
+    lumatv_render::set_log_sink(|message| log::info!("renderer: {message}")).expect("renderer log sink initialized once");
 }
 
 fn run(config: Config) -> io::Result<()> {
     // Memory first, before the display, the GL driver and the first thread exist: whatever the frame path allocates or touches from
     // here on is under it (`mem`: no mmap/brk/trim in steady state, the touched pages pinned).
     let refused = mem::tune_malloc();
-    if !refused.is_empty() {
-        log::warn!("mem: malloc refused {}", refused.join(", "));
-    }
     let grown = mem::pregrow(mem::PREGROW);
-    log::info!("mem: heap grown {} MiB in {:.1} ms; malloc takes no mmap, no trim", mem::PREGROW >> 20, grown.as_secs_f64() * 1e3);
-    log::info!("mem: {}", mem::lock(config.mlock));
     // A runtime directory of its own is private; LG's (/tmp/xdg, root:compositor 0770, made by the unit's
     // ExecStartPre) keeps its mode, since every client relies on the group bit to reach the socket.
     if !config.runtime_dir.is_dir() {
@@ -97,6 +82,13 @@ fn run(config: Config) -> io::Result<()> {
     }
     // SAFETY: setting an environment variable at start-up, before any thread exists.
     unsafe { std::env::set_var("XDG_RUNTIME_DIR", &config.runtime_dir) };
+    // The writer is the first thread: only after the environment is set and the main arena is grown.
+    init_logging();
+    if !refused.is_empty() {
+        log::warn!("mem: malloc refused {}", refused.join(", "));
+    }
+    log::info!("mem: heap grown {} MiB in {:.1} ms; malloc takes no mmap, no trim", mem::PREGROW >> 20, grown.as_secs_f64() * 1e3);
+    log::info!("mem: {}", mem::lock(config.mlock));
     // The trace ring, where the supervisor finds it after a crash (the runtime directory is tmpfs): opened once the directory exists.
     if let Some(path) = config.ring_path() {
         match ring::open(&path, ring::SIZE) {
@@ -603,6 +595,7 @@ fn run(config: Config) -> io::Result<()> {
         let _ = std::fs::remove_file(control::socket_path(&config.runtime_dir));
     }
     if state.check.bad > 0 {
+        log::logger().flush();
         std::process::exit(3);
     }
     Ok(())
