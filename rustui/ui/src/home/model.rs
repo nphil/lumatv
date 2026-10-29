@@ -12,6 +12,7 @@ use super::picker::{Picker, PickerOut};
 use super::search::{Search, SearchOut};
 use crate::kit::focus::{Dir, Focus, Id, Moved, Region, Scope};
 use crate::kit::screen::{Effect, Input};
+use crate::system::extras::{Intent, Note, Page, Pick, Tile};
 use serde_json::{Value, json};
 
 pub const STATUS: Region = Region(1);
@@ -37,6 +38,8 @@ pub const THEME_TAG: u64 = 310;
 pub const LAYOUT_TAG: u64 = 311;
 pub const TINT_TAG: u64 = 312;
 pub const SWITCH_TAG: u64 = 320;
+/// The write of Quick Access's choice (`remote.quickAccess`).
+pub const ACCESS_TAG: u64 = 313;
 
 const POLL_MS: u64 = 2000;
 const APP_MGR: &str = "luna://com.webos.applicationManager";
@@ -64,11 +67,13 @@ pub struct MenuRow {
 
 /// What Home asks another kind of the shell for (the status bar's gear and bell, the Menu key's quick panel): `shell.rs` routes it to
 /// the kind that owns the surface when that kind is in the list, and logs it otherwise.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Request {
     /// The app switcher: Back from the top of Home (when the owner wants it) and a press of Home with nothing open on Home.
     Switcher,
     Settings,
+    /// Settings at one of its pages (Quick Access's More, a Search answer that is a page).
+    SettingsPage(String),
     Notifications,
 }
 
@@ -132,6 +137,8 @@ pub struct Home {
     dirty: bool,
     text_scale: f32,
     requests: Vec<Request>,
+    /// What the extras Home draws around itself are told (an app opens, a digit did something, the remote key, a story opens).
+    notes: Vec<Note>,
 }
 
 fn merge_over(base: &Value, over: &Value) -> Value {
@@ -193,6 +200,7 @@ impl Home {
             dirty: true,
             text_scale: 1.0,
             requests: Vec::new(),
+            notes: Vec::new(),
             theme,
             shipped_layout,
         };
@@ -724,6 +732,14 @@ impl Home {
             }
             return;
         }
+        // the on-screen remote's key: it opens over Home with nothing else open (`LumaHome.qml`'s `remoteKeyPressed`)
+        if name == "screenremote" {
+            if down && !repeat && self.layer == Layer::None && self.editor.is_none() && self.inner.is_none() && !self.dock.moving {
+                self.notes.push(Note::Remote);
+                self.redraw(out);
+            }
+            return;
+        }
         if name == "ok" {
             if down {
                 if repeat || self.ok_down_at.is_some() {
@@ -934,17 +950,53 @@ impl Home {
         }
     }
 
+    /// Quick Access (`remote.quickAccess.on`): a digit says what it opens in a toast, and one with nothing behind it asks what to give it.
+    fn access_on(&self) -> bool {
+        self.theme.pointer("/remote/quickAccess/on").and_then(Value::as_bool) == Some(true)
+    }
+
+    /// The app the owner gave `digit` (`remote.quickAccess.slots`): it comes before the dock's tile of that number.
+    fn access_slot(&self, digit: &str) -> Option<String> {
+        self.theme.pointer(&format!("/remote/quickAccess/slots/{digit}")).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned)
+    }
+
+    /// The apps no digit opens yet, for the question: the dock's order then the rest by name, hidden ones left out, at most `n`.
+    fn access_picks(&self, n: usize) -> Vec<Pick> {
+        let mut used: Vec<String> = self.theme.pointer("/remote/quickAccess/slots").and_then(Value::as_object).map(|o| o.values().filter_map(Value::as_str).map(str::to_owned).collect()).unwrap_or_default();
+        used.extend(self.dock.ids().into_iter().take(10));
+        self.apps.all().iter().filter(|a| !a.hidden && !used.contains(&a.id)).take(n).map(|a| Pick { id: a.id.clone(), title: a.title.clone(), icon: a.icon.clone() }).collect()
+    }
+
     fn digit(&mut self, d: char, out: &mut Vec<Effect>) {
-        if self.layer != Layer::None || self.theme.pointer("/remote/numberKeys").and_then(Value::as_bool) == Some(false) {
+        if self.layer != Layer::None || self.theme.pointer("/remote/numberKeys").and_then(Value::as_bool) == Some(false) || self.dock.moving {
             return;
         }
+        let digit = d.to_string();
         let i = if d == '0' { 9 } else { (d as u8 - b'1') as usize };
-        if self.dock.moving || !self.dock.focus(i) {
+        if self.access_on() {
+            if let Some(app) = self.access_slot(&digit).and_then(|id| self.apps.by_id(&id).cloned()) {
+                self.launch(&app.id, &app.params, &app.title, out);
+                self.notes.push(Note::Toast { digit, title: app.title, line: "Opening.".into() });
+                self.redraw(out);
+                return;
+            }
+            if self.access_slot(&digit).is_none() && i >= self.dock.points.len() {
+                self.notes.push(Note::Ask { digit, picks: self.access_picks(4) });
+                self.redraw(out);
+                return;
+            }
+        }
+        if !self.dock.focus(i) {
             return;
         }
         self.register_dock();
         self.focus.focus(Id(DOCK_ID + i as u32));
+        let title = self.dock.focused().map(|p| if p.title.is_empty() { p.id.clone() } else { p.title.clone() }).unwrap_or_default();
         self.activate_tile(out);
+        // the Apps tile opens the library, which is not a launch to say anything about
+        if self.access_on() && self.layer == Layer::None {
+            self.notes.push(Note::Toast { digit, title, line: "Opening.".into() });
+        }
         self.redraw(out);
     }
 
@@ -957,11 +1009,66 @@ impl Home {
         self.launch(&p.id, &p.params, &p.title, out);
     }
 
+    /// Opens an app: the launch screen is told what it is and where its tile is, and the layers over Home close.
     fn launch(&mut self, id: &str, params: &Value, title: &str, out: &mut Vec<Effect>) {
+        let icon = self.dock.points.iter().find(|p| p.id == id).map(|p| p.icon.clone()).or_else(|| self.apps.by_id(id).map(|a| a.icon.clone())).unwrap_or_default();
+        let tile = self.launch_tile(id);
+        self.notes.push(Note::Launch { id: id.to_owned(), title: if title.is_empty() { id.to_owned() } else { title.to_owned() }, icon, tile });
+        self.start_app(id, params, title, out);
+    }
+
+    /// Opens an app with no launch screen (the web search and the browser: nothing of LumaTV's own to show while it opens).
+    fn start_app(&mut self, id: &str, params: &Value, title: &str, out: &mut Vec<Effect>) {
         self.launching = Some(title.to_owned());
         self.close_all();
         out.push(Effect::Luna { tag: LAUNCH_TAG, uri: format!("{APP_MGR}/launch"), payload: json!({"id": id, "params": params}), subscribe: false });
         out.push(Effect::Log(format!("launch {id}")));
+    }
+
+    /// Where the dock's tile of `id` is on the screen when the card of its app is to grow out of it: the tile that has the focus is lifted by
+    /// `focus.tileScale` about its centre, and the card grows out of what is drawn, not out of its place. None for an app that is not on the dock
+    /// or whose row is scrolled out of the card.
+    fn launch_tile(&self, id: &str) -> Option<Tile> {
+        let i = self.dock.points.iter().position(|p| p.id == id)?;
+        let row = self.dock.row_of(i);
+        if row < self.dock.scroll_row || row >= self.dock.scroll_row + self.dock.visible_rows() {
+            return None;
+        }
+        let card = self.dock_rect()?;
+        let tokens = lumatv_tokens::Tokens::from_json(&self.theme);
+        let lifted = self.layer == Layer::None && self.focus.current() == Some(Id(DOCK_ID + i as u32));
+        let k = if lifted { tokens.focus.tile_scale } else { 1.0 };
+        let (sx, sy) = self.dock.slot(i);
+        let side = self.dock.tile as f32;
+        let (cx, cy) = (card.x as f32 + sx as f32 + side / 2.0, card.y as f32 + sy as f32 - self.dock.scroll_px() + side / 2.0);
+        Some(Tile { x: cx - side * k / 2.0, y: cy - side * k / 2.0, w: side * k, h: side * k, radius: tokens.radius(lumatv_tokens::Radius::Tile) * k })
+    }
+
+    /// What the extras asked of Home: a pick of the question is kept as the digit's app and opens, More is Settings at its remote page.
+    pub fn extras_intent(&mut self, intent: Intent, out: &mut Vec<Effect>) {
+        match intent {
+            Intent::Assign { digit, app } => {
+                let mut slots = self.theme.pointer("/remote/quickAccess/slots").cloned().filter(Value::is_object).unwrap_or_else(|| json!({}));
+                slots[&digit] = json!(app);
+                let cfg = json!({"on": self.access_on(), "slots": slots});
+                if !self.theme.get("remote").is_some_and(Value::is_object) {
+                    self.theme["remote"] = json!({});
+                }
+                self.theme["remote"]["quickAccess"] = cfg.clone();
+                out.push(Effect::Theme { tag: ACCESS_TAG, patch: json!({"remote": {"quickAccess": cfg}}) });
+                if let Some(a) = self.apps.by_id(&app).cloned() {
+                    self.launch(&a.id, &a.params, &a.title, out);
+                    self.notes.push(Note::Toast { digit, title: a.title, line: "Assigned. Opening.".into() });
+                }
+            }
+            Intent::More(_) => self.requests.push(Request::SettingsPage("remote".into())),
+        }
+        self.redraw(out);
+    }
+
+    /// What the extras are to be told since the last take.
+    pub fn take_notes(&mut self) -> Vec<Note> {
+        std::mem::take(&mut self.notes)
     }
 
     fn keep_apps(&mut self, part: Value, out: &mut Vec<Effect>) {
@@ -1015,15 +1122,33 @@ impl Home {
                 }
                 if kind == "news"
                     && let Some(item) = self.news_items().get(i)
-                    && let Some(link) = item.get("link").and_then(Value::as_str).filter(|l| !l.is_empty())
                 {
-                    let link = link.to_owned();
-                    self.launch("com.webos.app.browser", &json!({"target": link}), "Browser", out);
+                    self.open_story(wid, item, out);
                 }
             }
             _ => {}
         }
         true
+    }
+
+    /// A story of the news card opens in the mini frame, which grows out of the card (`NewsWidget.qml`'s `openMini`).
+    fn open_story(&mut self, wid: &str, item: &Value, out: &mut Vec<Effect>) {
+        let text = |k: &str| item.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+        let link = text("link");
+        if link.is_empty() {
+            return;
+        }
+        let Some(entry) = self.cards().into_iter().find(|e| e.id == wid) else { return };
+        let from = self.rect(&entry);
+        let area = grid::area(&self.drawn_layout());
+        // 1520 by 860, or what the room under the bar leaves at a large text size (the bar grows with it)
+        let (w, h) = (1520.0, 860.0f32.min(area.h as f32));
+        let to = [((1920.0 - w) / 2.0f32).round(), (area.y as f32 + (area.h as f32 - h) / 2.0).round(), w, h];
+        let ago = item.get("pubMs").and_then(Value::as_u64).map(|p| super::widgets::ago(self.now.saturating_sub(p))).unwrap_or_default();
+        let source = text("src");
+        let subtitle = if ago.is_empty() { source.clone() } else { format!("{source} \u{b7} {ago}") };
+        self.notes.push(Note::Frame { page: Page { url: link, title: text("title"), subtitle, source, ago }, from: [from.x as f32, from.y as f32, from.w as f32, from.h as f32], to });
+        self.redraw(out);
     }
 
     fn activate_card(&mut self, wid: &str, out: &mut Vec<Effect>) {
@@ -1197,7 +1322,7 @@ impl Home {
                             self.launch(&a.id, &a.params, &a.title, out);
                         }
                     }
-                    "web" => self.launch("com.webos.app.browser", &json!({"target": format!("https://duckduckgo.com/?q={}", text.replace(' ', "+"))}), "Browser", out),
+                    "web" => self.start_app("com.webos.app.browser", &json!({"target": format!("https://duckduckgo.com/?q={}", text.replace(' ', "+"))}), "Browser", out),
                     _ => out.push(Effect::Log(format!("search picked {kind} {id}"))),
                 }
             }
@@ -1675,5 +1800,119 @@ mod tests {
         h.update(&Input::Pointer { x, y, buttons: 0, visible: true }, 2200);
         h.update(&Input::Key { name: "left".into(), down: true, repeat: false }, 2300);
         assert_eq!(h.focus.hovered(), None, "the next key hides the cue");
+    }
+
+    fn notes_of(h: &mut Home) -> Vec<Note> {
+        h.take_notes()
+    }
+
+    #[test]
+    fn an_app_that_opens_tells_the_launch_screen_its_name_its_icon_and_where_its_tile_is_grown_by_the_lift_when_the_tile_had_the_focus() {
+        let mut h = home();
+        press(&mut h, "down", 2000);
+        press(&mut h, "down", 2100);
+        press(&mut h, "down", 2200);
+        assert_eq!(h.focus.current(), Some(Id(DOCK_ID + 1)));
+        press(&mut h, "ok", 2400);
+        let notes = notes_of(&mut h);
+        let Some(Note::Launch { id, title, icon, tile: Some(tile) }) = notes.first() else { panic!("a launch: {notes:?}") };
+        assert_eq!((id.as_str(), title.as_str(), icon.as_str()), ("netflix", "Netflix", "/netflix.png"));
+        let card = h.dock_rect().unwrap();
+        let (sx, sy) = h.dock.slot(1);
+        let (cx, cy) = (card.x as f32 + sx as f32 + h.dock.tile as f32 / 2.0, card.y as f32 + sy as f32 + h.dock.tile as f32 / 2.0);
+        let k = lumatv_tokens::Tokens::shipped().focus.tile_scale;
+        assert!((tile.w - h.dock.tile as f32 * k).abs() < 0.01 && (tile.x + tile.w / 2.0 - cx).abs() < 0.01 && (tile.y + tile.h / 2.0 - cy).abs() < 0.01, "the lifted tile about its centre: {tile:?}");
+        assert!((tile.radius - lumatv_tokens::Tokens::shipped().radius(lumatv_tokens::Radius::Tile) * k).abs() < 0.01);
+        // the library's launch of the same app is not from a lifted tile, and an app that is not on the dock has no tile at all
+        h.open_apps(&mut Vec::new());
+        let mut out = Vec::new();
+        h.launch("netflix", &json!({}), "Netflix", &mut out);
+        let notes = notes_of(&mut h);
+        assert!(matches!(&notes[0], Note::Launch { tile: Some(t), .. } if (t.w - h.dock.tile as f32).abs() < 0.01), "{notes:?}");
+        h.launch("not.on.the.dock", &json!({}), "", &mut out);
+        assert!(matches!(&notes_of(&mut h)[0], Note::Launch { title, tile: None, icon, .. } if title == "not.on.the.dock" && icon.is_empty()));
+    }
+
+    #[test]
+    fn the_web_search_opens_the_browser_with_no_launch_screen() {
+        let mut h = home();
+        let mut out = Vec::new();
+        h.start_app("com.webos.app.browser", &json!({"target": "https://x"}), "Browser", &mut out);
+        assert!(notes_of(&mut h).is_empty());
+        assert!(out.iter().any(|e| matches!(e, Effect::Luna { payload, .. } if payload["id"] == "com.webos.app.browser")));
+    }
+
+    fn with_quick_access(h: &mut Home, slots: Value) {
+        h.theme["remote"] = json!({"quickAccess": {"on": true, "slots": slots}});
+    }
+
+    #[test]
+    fn with_quick_access_on_a_digit_says_what_it_opens_and_the_owners_own_choice_comes_before_the_dock() {
+        let mut h = home();
+        press(&mut h, "3", 1500);
+        assert!(!notes_of(&mut h).iter().any(|n| matches!(n, Note::Toast { .. })), "off: the number keys are what they were and say nothing");
+        with_quick_access(&mut h, json!({}));
+        press(&mut h, "3", 2000);
+        let notes = notes_of(&mut h);
+        assert!(matches!(&notes[..], [Note::Launch { id, .. }, Note::Toast { digit, title, line }] if id == "youtube" && digit == "3" && title == "YouTube" && line == "Opening."), "{notes:?}");
+        with_quick_access(&mut h, json!({"3": "plex"}));
+        let out = press(&mut h, "3", 2200);
+        assert!(out.iter().any(|e| matches!(e, Effect::Luna { payload, .. } if payload["id"] == "plex")), "the owner's choice: not the dock's third tile");
+        assert!(matches!(&notes_of(&mut h)[..], [Note::Launch { id, .. }, Note::Toast { title, .. }] if id == "plex" && title == "Plex"));
+        // the Apps tile opens the library, which is no launch to speak of
+        press(&mut h, "1", 2400);
+        assert_eq!(h.layer, Layer::Apps);
+        assert!(notes_of(&mut h).is_empty());
+    }
+
+    #[test]
+    fn a_digit_with_nothing_behind_it_asks_with_the_apps_no_digit_opens_and_the_answer_is_kept_and_opens_the_app() {
+        let mut h = home();
+        h.theme["apps"] = json!({"dockHide": ["extra.a", "extra.b", "extra.c", "extra.d", "extra.e"], "hidden": ["extra.e"]});
+        let mut lps = vec![json!({"id": APPS_TILE, "title": "Apps", "unmovable": true, "icon": "/a.png"})];
+        for (id, t) in [("netflix", "Netflix"), ("youtube", "YouTube"), ("plex", "Plex"), ("extra.a", "A"), ("extra.b", "B"), ("extra.c", "C"), ("extra.d", "D"), ("extra.e", "E")] {
+            lps.push(json!({"id": id, "title": t, "icon": format!("/{id}.png")}));
+        }
+        h.update(&Input::Luna { tag: LP_TAG, payload: json!({"launchPoints": lps}) }, 1100);
+        with_quick_access(&mut h, json!({"7": "extra.a"}));
+        press(&mut h, "9", 2000);
+        let notes = notes_of(&mut h);
+        let [Note::Ask { digit, picks }] = &notes[..] else { panic!("a question: {notes:?}") };
+        assert_eq!(digit, "9");
+        assert_eq!(picks.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), ["extra.b", "extra.c", "extra.d"], "not the one a digit opens already, not the hidden one, not the dock's");
+        assert!(h.layer == Layer::None && h.dock.focused().is_some_and(|p| p.id != "extra.b"), "asking opened nothing");
+        let mut out = Vec::new();
+        h.extras_intent(Intent::Assign { digit: "9".into(), app: "extra.b".into() }, &mut out);
+        assert_eq!(h.theme.pointer("/remote/quickAccess/slots/9"), Some(&json!("extra.b")));
+        assert_eq!(h.theme.pointer("/remote/quickAccess/slots/7"), Some(&json!("extra.a")), "the others stay");
+        assert!(out.iter().any(|e| matches!(e, Effect::Theme { patch, .. } if patch["remote"]["quickAccess"]["slots"]["9"] == "extra.b" && patch["remote"]["quickAccess"]["on"] == true)), "kept for the next start");
+        assert!(out.iter().any(|e| matches!(e, Effect::Luna { payload, .. } if payload["id"] == "extra.b")), "and the app opens");
+        assert!(matches!(&notes_of(&mut h)[..], [Note::Launch { .. }, Note::Toast { line, .. }] if line == "Assigned. Opening."));
+        h.extras_intent(Intent::More("9".into()), &mut out);
+        assert_eq!(h.take_requests(), vec![Request::SettingsPage("remote".into())]);
+    }
+
+    #[test]
+    fn the_remote_key_opens_the_on_screen_remote_over_a_quiet_home_and_a_story_opens_the_frame_out_of_its_card() {
+        let mut h = home();
+        press(&mut h, "screenremote", 2000);
+        assert_eq!(notes_of(&mut h), vec![Note::Remote]);
+        h.open_apps(&mut Vec::new());
+        press(&mut h, "screenremote", 2200);
+        assert!(notes_of(&mut h).is_empty(), "not over the library");
+        h.close_all();
+        h.news = json!({"doc": {"items": [{"link": "https://news.example/a", "title": "A story", "src": "BBC", "pubMs": 1_000u64}]}});
+        let card = h.cards().into_iter().find(|e| e.kind == "news").expect("the shipped layout has a news card");
+        let mut out = Vec::new();
+        h.now = 1_000 + 3 * 3_600_000;
+        assert!(h.inner_key(&card.id, "ok", &mut out));
+        let notes = notes_of(&mut h);
+        let [Note::Frame { page, from, to }] = &notes[..] else { panic!("a frame: {notes:?}") };
+        assert_eq!((page.url.as_str(), page.title.as_str(), page.source.as_str(), page.ago.as_str()), ("https://news.example/a", "A story", "BBC", "3 h ago"));
+        assert_eq!(page.subtitle, "BBC \u{b7} 3 h ago");
+        let r = h.rect(&card);
+        assert_eq!(*from, [r.x as f32, r.y as f32, r.w as f32, r.h as f32]);
+        assert_eq!((to[0], to[1], to[2], to[3]), (200.0, 150.0, 1520.0, 860.0), "centred under the status bar");
+        assert!(!out.iter().any(|e| matches!(e, Effect::Luna { .. })), "the browser is not opened: the frame is");
     }
 }

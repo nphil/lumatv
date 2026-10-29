@@ -11,6 +11,7 @@ pub mod capture;
 pub mod cards;
 pub mod cards_surface;
 pub mod extras;
+pub mod extras_surface;
 pub mod format;
 pub mod layer;
 pub mod layout_surface;

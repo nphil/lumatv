@@ -5,7 +5,8 @@ logic against the engine in its own process on Mesa) against the stand-in of the
 
 - the AI access prompt (kind `ai`): the helper's `ai.prompt` topic drawn over an app with the keys swallowed and nothing that can answer it;
 - the input banners (kind `banner`): the input pill, the one with its buttons, and the black no-signal screen;
-- Home's own: the launch splash and the hold ring, Quick Access, the on-screen remote, the voice bar and the mic mark, and the mini frame.
+- Home's own, on the Home host (kind `home`): the launch screen, Quick Access, the on-screen remote, the voice bar and the mic mark, the mini frame, the
+  moving wallpaper's controller, and the two ways into Settings (a Search answer that is a page, the status bar's popover).
 
 Every screen is checked by the host's layout and contrast lint at 100 % and 200 % text in both looks, and `RUST_GAPS_RENDERS=<dir>` writes the renders
 (1280-wide JPEGs) the docs keep beside the mocks (docs/mocks/host-rust/gaps/).
@@ -23,6 +24,7 @@ sys.path.insert(0, os.path.join(HERE, 'qmlhost'))
 import lgsettings  # noqa: E402
 import render_rust_settings as rs  # noqa: E402
 import rust_settings_host as host  # noqa: E402
+import test_rust_home as home_host  # noqa: E402  (the module: importing its test class would run its tests here too)
 from test_rust_panels import APP, HOME, OPEN, Scene, jpeg  # noqa: E402
 
 RENDERS = os.environ.get('RUST_GAPS_RENDERS')
@@ -202,6 +204,172 @@ class RustGaps(unittest.TestCase):
                 for name, scene in scenes:
                     ev = self.ok(self.shot(scene, name, mode, scale))
                     self.assertEqual(ev['lint'], [], '%s %s at %s: %s' % (name, mode, scale, ev['lint']))
+
+
+def looks():
+    """The looks the Home renders are made in: all four with `RUST_GAPS_RENDERS`, else the two that differ the most."""
+    return [(m, c) for m in ('dark', 'light') for c in (1, 2)] if RENDERS else [('dark', 1), ('light', 2)]
+
+
+@unittest.skipUnless(host.available(), 'needs rustui/target/debug/lumatv-ui and Mesa')
+class RustGapsHome(unittest.TestCase):
+    """Home's own extras, on the Home host (`test_rust_home.RustHome.host`: Home in front, the launch points answered, the feeds published)."""
+
+    def home(self, wait, steps, render=None, mode='dark', scale=1, **kw):
+        """Runs Home; `render` is (ms, name): a snapshot at that time kept under RUST_GAPS_RENDERS as `name-mode-scale`."""
+        steps = list(steps)
+        png = None
+        if render and RENDERS:
+            png = os.path.join(tempfile.mkdtemp(prefix='rustgaps-'), render[1] + '.png')
+            steps.append(['--snap', '%d:%s' % (render[0], png)])
+        if kw.get('theme') is not None:
+            # a theme file in the data directory is read again by Home, which would drop the material the harness forced
+            kw['theme'] = {**kw['theme'], 'material': mode}
+        out, ev, data = home_host.RustHome.host(self, wait, steps, mode=mode, scale=scale, **kw)
+        if png and os.path.exists(png):
+            jpeg(png, os.path.join(RENDERS, '%s-%s-%d.jpg' % (render[1], mode, scale * 100)))
+        return out, ev, data
+
+    k = staticmethod(home_host.RustHome.k)
+
+    # ---- the launch screen
+    def test_the_launch_screen_covers_home_with_the_apps_icon_name_and_ring_while_it_opens_and_reads_clean(self):
+        for mode, scale in looks():
+            steps = [self.k(500, '2'), ['--eval', '3300:geometry'], ['--eval', '3300:lint'], ['--eval', '3300:state']]
+            out, ev, _ = self.home(4000, steps, (3500, 'launch-screen'), mode, scale)
+            geometry, lint, state = ev[0], ev[1], ev[2]
+            splash = geometry['extras']['splash']
+            self.assertEqual(splash['icon']['w'], 180.0, '%s %s: %s' % (mode, scale, splash))
+            self.assertEqual(splash['caption'], 'Opening')
+            self.assertEqual(state['extras']['splash']['name'], splash['name'], 'the model and the surface say the same app')
+            self.assertEqual(lint, [], '%s at %s: %s' % (mode, scale, lint))
+            self.assertIn('launch', out)
+
+    # ---- Quick Access
+    ACCESS = {'remote': {'quickAccess': {'on': True, 'slots': {}}}}
+
+    def few_on_the_dock(self, keep=4):
+        """A theme with Quick Access on and the dock cut to its first `keep` tiles, so a number past them has nothing behind it."""
+        launch_points = home_host.launch_points
+        ids = [p['id'] for p in launch_points()]
+        return {**self.ACCESS, 'apps': {'dockHide': ids[keep:]}}
+
+    def test_a_number_that_opens_a_tile_says_so_in_a_toast_at_the_top_right(self):
+        for mode, scale in looks():
+            steps = [self.k(2600, '3'), ['--eval', '3400:geometry'], ['--eval', '3400:lint'], ['--eval', '3400:state']]
+            _, ev, _ = self.home(4400, steps, (3600, 'access-toast'), mode, scale, theme=self.ACCESS)
+            toast = ev[0]['extras']['toast']
+            self.assertEqual((toast['y'], toast['x'] + toast['w']), (137.0, 1856.0))
+            self.assertTrue(toast['title'].startswith('3 \u00b7 '), toast)
+            self.assertEqual(toast['line'], 'Opening.')
+            self.assertEqual(ev[1], [], '%s at %s: %s' % (mode, scale, ev[1]))
+            self.assertEqual(ev[2]['extras']['toast']['digit'], '3')
+
+    def test_a_number_with_nothing_behind_it_asks_what_to_give_it_and_Back_leaves_it(self):
+        for mode, scale in looks():
+            steps = [self.k(900, '9'), ['--eval', '1800:geometry'], ['--eval', '1800:lint'], ['--eval', '1800:report'],
+                     self.k(2000, 'right'), ['--eval', '2500:geometry'], self.k(4000, 'back'), ['--eval', '4600:state']]
+            _, ev, _ = self.home(5000, steps, (3500, 'access-question'), mode, scale, theme=self.few_on_the_dock())
+            ask = ev[0]['extras']['ask']
+            self.assertEqual(ask['card']['w'], 820.0 if scale == 1 else 1496.0, 'the cards grow with the text so no name is broken')
+            self.assertEqual(len(ask['picks']), 5, 'four apps and More')
+            self.assertEqual(ask['hints'][-2:], ['OK, confirm', 'Back, close'])
+            self.assertEqual(ask['hints'][:-2], ['Left and Right, move'] if scale == 1 else [], 'the D-pad glyph is the first to give way at a large text size')
+            self.assertEqual(ev[1], [], '%s at %s: %s' % (mode, scale, ev[1]))
+            self.assertTrue(ev[2]['wants'])
+            self.assertEqual(ev[3]['extras']['ask']['focus'], 1, 'Right moved the choice')
+            self.assertIsNone(ev[4]['extras']['ask'], 'Back leaves it and opens nothing')
+            self.assertIsNone(ev[4]['home']['launching'])
+
+    def test_the_choice_is_kept_in_the_owners_theme_and_the_app_opens(self):
+        out, ev, data = self.home(3200, [self.k(900, '9'), self.k(1400, 'ok'), ['--eval', '2400:state']], theme=self.few_on_the_dock())
+        with open(os.path.join(data, 'theme', 'theme.json')) as f:
+            kept = json.load(f)
+        slots = kept['remote']['quickAccess']['slots']
+        self.assertEqual(list(slots), ['9'], kept['remote'])
+        self.assertTrue(kept['remote']['quickAccess']['on'])
+        self.assertIn('launch %s' % slots['9'], out)
+        self.assertEqual(ev[0]['extras']['toast']['line'], 'Assigned. Opening.')
+
+    # ---- the on-screen remote
+    def test_the_remote_key_opens_the_on_screen_remote_over_home_and_it_reads_clean(self):
+        for mode, scale in looks():
+            steps = [self.k(900, 'screenremote'), self.k(1300, 'right', 'down'), ['--eval', '2000:geometry'], ['--eval', '2000:lint'], ['--eval', '2000:report']]
+            out, ev, _ = self.home(4000, steps, (3500, 'on-screen-remote'), mode, scale)
+            remote = ev[0]['extras']['remote']
+            self.assertEqual(remote['sheet']['x'], 64.0)
+            self.assertEqual(len(remote['keys']), 21)
+            self.assertNotIn('ok', [k['name'] for k in remote['keys']])
+            self.assertEqual(remote['focus'], '4', 'Right to Play, Down to the number pad')
+            self.assertEqual(ev[1], [], '%s at %s: %s' % (mode, scale, ev[1]))
+            self.assertTrue(ev[2]['wants'])
+
+    # ---- the voice bar
+    def voice_run(self, mode, scale, steps, routes, wait, snap=None, theme=None):
+        """Home on the host harness with a fake helper that answers the voice routes (`routes`): returns (the evals, the helper)."""
+        launch_points, profiles = home_host.launch_points, home_host.profiles
+        extra = ['--push', '50:foreground:' + json.dumps(HOME), '--luna', '80:300:' + json.dumps({'launchPoints': launch_points()}),
+                 '--helper', '100:profiles:' + json.dumps(profiles())]
+        for st in steps:
+            extra += st
+        png = None
+        if snap and RENDERS:
+            png = os.path.join(tempfile.mkdtemp(prefix='rustgaps-'), snap[1] + '.png')
+            extra += ['--snap', '%d:%s' % (snap[0], png)]
+        helper = host.FakeHelper({'topics': {'voice': {'ready': True, 'state': 'idle', 'reason': ''}}, **routes})
+        rc, out, chan, lg, helper = host.run(wait=wait, extra=extra, lg=lgsettings.LgService(answers=rs.ONLINE), helper=helper, kinds='home', text_scale=scale, mode=mode, theme=theme)
+        self.assertEqual(rc, 0, out[-2000:])
+        if png and os.path.exists(png):
+            jpeg(png, os.path.join(RENDERS, '%s-%s-%d.jpg' % (snap[1], mode, scale * 100)))
+        return host.evals(out), helper
+
+    @staticmethod
+    def voice_key(ms, hold):
+        return ['--key', '%d:voice' % ms, '--key', '%d:voice:up' % (ms + hold)]
+
+    def test_holding_the_voice_key_listens_with_a_bar_and_a_mark_and_letting_go_works_it_out(self):
+        listen = {'POST /v1/voice/listen': {'ok': True, 'session': 7}, 'POST /v1/voice/stop': {'ok': True}}
+        for mode, scale in looks():
+            held = [['--key', '900:voice'], ['--eval', '3000:geometry'], ['--eval', '3000:lint'], ['--eval', '3000:report'], ['--eval', '3000:state']]
+            ev, helper = self.voice_run(mode, scale, held, listen, 4000, (3400, 'voice-bar-listening'))
+            voice = ev[0]['extras']['voice']
+            self.assertEqual(voice['bar']['caption'], 'Listening', voice)
+            self.assertEqual(voice['bar']['frame']['x'], 64.0)
+            self.assertIsNotNone(voice['mark'], 'the microphone is open')
+            self.assertEqual(ev[1], [], '%s at %s: %s' % (mode, scale, ev[1]))
+            self.assertIn('voice', ev[2]['takes'], 'the helper says it can listen: the key is the shell\'s')
+            self.assertEqual(ev[3]['extras']['mic'], True)
+            self.assertIn(('POST', '/v1/voice/listen', {}), helper.requests)
+            working = [['--key', '900:voice'], ['--key', '1500:voice:up'], ['--helper', '1700:voice:' + json.dumps({'ready': True, 'state': 'thinking', 'session': 7})],
+                       ['--eval', '3000:geometry'], ['--eval', '3000:lint']]
+            ev, helper = self.voice_run(mode, scale, working, listen, 4000, (3400, 'voice-bar-working'))
+            self.assertEqual(ev[0]['extras']['voice']['bar']['caption'], 'Working it out')
+            self.assertEqual(ev[1], [], '%s at %s: %s' % (mode, scale, ev[1]))
+            self.assertIn(('POST', '/v1/voice/stop', {}), helper.requests)
+
+    def test_a_voice_search_that_cannot_listen_says_why_in_the_bar(self):
+        refused = {'POST /v1/voice/listen': {'ok': False, 'error': {'message': 'Voice search is not linked to Home Assistant'}}}
+        for mode, scale in looks():
+            ev, _ = self.voice_run(mode, scale, [['--key', '3000:voice'], ['--eval', '3500:geometry'], ['--eval', '3500:lint']], refused, 4200, (3600, 'voice-bar-failed'))
+            bar = ev[0]['extras']['voice']['bar']
+            self.assertEqual((bar['caption'], ' '.join(bar['title'])), ('Voice search', 'Voice search is not linked to Home Assistant'), bar)
+            self.assertEqual(ev[1], [], '%s at %s: %s' % (mode, scale, ev[1]))
+
+    # ---- the mini frame
+    def test_a_story_opens_in_the_mini_frame_which_grows_out_of_its_card_and_reads_clean(self):
+        for mode, scale in looks():
+            steps = [self.k(900, 'down', 'right', 'ok', 'ok'), ['--eval', '3300:geometry'], ['--eval', '3300:lint'], ['--eval', '3300:state']]
+            out, ev, _ = self.home(4200, steps, (3800, 'mini-frame'), mode, scale)
+            frame = ev[0]['extras']['frame']
+            self.assertEqual((frame['x'], frame['w']), (200.0, 1520.0))
+            if scale == 1:
+                self.assertEqual((frame['y'], frame['h']), (150.0, 860.0))
+                self.assertEqual(frame['interior'], {'x': 232.0, 'y': 214.0, 'w': 1456.0, 'h': 764.0})
+            else:
+                self.assertLessEqual(frame['y'] + frame['h'], 1080 - 54, 'inside the safe area under the taller bar: %s' % frame)
+            self.assertTrue(frame['title'].startswith('Denmark says'), frame)
+            self.assertEqual(ev[1], [], '%s at %s: %s' % (mode, scale, ev[1]))
+            self.assertTrue(ev[2]['extras']['frame']['landed'] and ev[2]['extras']['frame']['wanted'], 'the web half was asked for')
 
 
 if __name__ == '__main__':

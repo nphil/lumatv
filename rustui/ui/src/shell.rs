@@ -367,12 +367,21 @@ impl Shell {
                                 self.carry(e, now, acts);
                             }
                         }
+                        // Settings at a page: Quick Access's More, a Search answer that is a page
+                        crate::home::model::Request::SettingsPage(page) if self.kinds.settings => {
+                            for e in self.settings.open(Some(&page), now) {
+                                self.carry(e, now, acts);
+                            }
+                            self.redraw = true;
+                        }
+                        crate::home::model::Request::SettingsPage(page) => acts.push(Act::Log(format!("home asks for settings at {page}"))),
                         crate::home::model::Request::Settings => acts.push(Act::Log("home asks for settings".into())),
                         crate::home::model::Request::Notifications => acts.push(Act::Log("home asks for notifications".into())),
                     }
                 }
             }
         }
+        self.extras_flow(now, acts);
         // the Cameras viewer takes the keys unless an alert, a PIN prompt or the keyboard is up over it, or Settings, which its grid opens
         let over = matches!(input, Input::Key { .. }) && (self.sys.busy() || (self.kinds.settings && self.settings.is_open()));
         if self.kinds.cameras && !over && !layer_had {
@@ -390,6 +399,24 @@ impl Shell {
         let mut fx = self.vwin.update(input, now);
         fx.extend(self.vwin.want(&self.vwin_wants(), now));
         for e in fx {
+            self.carry(e, now, acts);
+        }
+    }
+
+    /// What Home draws around itself (the launch screen, Quick Access, the remote, the voice bar, the mini frame) and Home tell each other: the
+    /// question's answer goes to Home, and what Home did goes to the screens.
+    fn extras_flow(&mut self, now: u64, acts: &mut Vec<Act>) {
+        if !self.kinds.home {
+            return;
+        }
+        let mut out = Vec::new();
+        for intent in self.sys.take_extras_intents() {
+            self.home.extras_intent(intent, &mut out);
+        }
+        for note in self.home.take_notes() {
+            out.extend(self.sys.extras_note(note, now));
+        }
+        for e in out {
             self.carry(e, now, acts);
         }
     }
@@ -551,6 +578,18 @@ impl Shell {
     /// are the kit's rule.
     pub fn key(&mut self, event: &KeyEvent, now: u64) -> Vec<Act> {
         let mut acts = Vec::new();
+        // the voice key is held while the person speaks: its press starts the microphone, its release ends it, and nothing else hears it
+        if let KeyEvent::Key { name, down, repeat, .. } = event
+            && name == "voice"
+        {
+            if self.kinds.home && !*repeat {
+                for e in self.sys.voice_key(*down, now) {
+                    self.carry(e, now, &mut acts);
+                }
+            }
+            self.after(now, &mut acts);
+            return acts;
+        }
         match event {
             KeyEvent::Key { name, down, repeat, .. } => {
                 if *down {
@@ -812,7 +851,18 @@ impl Shell {
         can.extend(self.panels.can(&self.kinds));
         // Home in front wants the keys too: the compositor sends every key of the remote to the layer that wants them
         let wants = self.sys.wants(&self.kinds) || self.panels.wants(&self.kinds) || (self.kinds.home && self.home.active) || (self.kinds.cameras && self.cameras.wants()) || (self.kinds.settings && self.settings.wants());
-        json!({"can": can, "wants": wants, "takes": self.sys.takes(&self.kinds), "live": self.live, "state": self.state()})
+        let mut takes = self.sys.takes(&self.kinds);
+        if self.kinds.home {
+            // the keys the compositor has no name for until it is told they are the shell's: the voice key while the helper can listen, the
+            // on-screen remote's and Search's while Home is in front
+            if self.sys.takes_voice() {
+                takes.push("voice");
+            }
+            if self.home.active {
+                takes.extend(["screenremote", "search"]);
+            }
+        }
+        json!({"can": can, "wants": wants, "takes": takes, "live": self.live, "state": self.state()})
     }
 
     pub fn state(&self) -> Value {
@@ -875,7 +925,7 @@ impl Shell {
             "osd": self.volume_surface.pane_rect().map(|r| json!({"x": r.x, "y": r.y, "w": r.w, "h": r.h})),
             "toasts": self.toast_surface.rects().iter().map(|r| json!({"x": r.x, "y": r.y, "w": r.w, "h": r.h})).collect::<Vec<_>>(),
         });
-        for (k, v) in self.sys.geometry(&self.kinds, &self.kit).as_object().into_iter().flatten() {
+        for (k, v) in self.sys.geometry(&self.kinds, &self.kit, &self.engine).as_object().into_iter().flatten() {
             g[k] = v.clone();
         }
         for (k, v) in self.panels.geometry(&self.kinds, &self.engine).as_object().into_iter().flatten() {
@@ -904,7 +954,8 @@ impl Shell {
             return json!(lint.findings().iter().map(|f| json!({"kind": f.kind.name(), "subject": f.subject, "detail": f.detail})).collect::<Vec<_>>());
         }
         self.sys.feed_lint(&self.kinds, &mut self.kit, &mut lint);
-        if self.kinds.home {
+        // what Home draws around itself stands over Home like the entry sheet does over Settings: while one is up only it is read
+        if self.kinds.home && !self.sys.extras_up() {
             lint = self.home_surface.lint(&mut self.kit, &self.home);
         }
         if self.kinds.cameras {
@@ -1121,6 +1172,279 @@ mod tests {
         assert!(height_of(&shell, "cards") > cards, "the cards' stand-in is taller at 200 % text, with the editor still open");
         assert!(height_of(&shell, "popup") > popup, "so is the camera window's");
         assert_eq!(shell.state()["layout"], json!({"open": true}), "the editor stayed open through it");
+    }
+
+    /// A Home shell on `kinds` (always with `home`) with the launch points of the dock and Home in front.
+    fn home_shell(kinds: &str) -> (ui::testing::Harness, Shell) {
+        home_shell_with(kinds, &json!({}))
+    }
+
+    /// The same with the owner's theme `patch` over the shipped one, and launch points two of which are the library's only.
+    fn home_shell_with(kinds: &str, patch: &Value) -> (ui::testing::Harness, Shell) {
+        let (h, kit) = testkit::kit(1.0);
+        let mut theme = lumatv_tokens::Tokens::shipped().json().clone();
+        lumatv_tokens::merge(&mut theme, patch);
+        let mut shell = Shell::new(kit, Kinds::parse(kinds), 2000, &testkit::module_dir().join("icons/audio"), &theme, &json!({})).expect("a shell");
+        shell.start();
+        shell.channel(&Event::Topic { topic: "foreground".into(), data: json!({"app": "com.webos.app.home", "home": true, "covered": false}) }, 1_000);
+        let mut lps = vec![json!({"id": "com.webos.app.discovery", "title": "Apps", "unmovable": true, "icon": "/a.png"})];
+        for (id, t) in [("netflix", "Netflix"), ("youtube", "YouTube"), ("plex", "Plex"), ("extra.a", "Extra A"), ("extra.b", "Extra B")] {
+            lps.push(json!({"id": id, "title": t, "icon": format!("/{id}.png"), "iconColor": "#101010"}));
+        }
+        shell.channel(&Event::Topic { topic: "luna".into(), data: json!({"tag": crate::home::model::LP_TAG, "payload": {"launchPoints": lps}}) }, 1_010);
+        (h, shell)
+    }
+
+    fn key(shell: &mut Shell, name: &str, at: u64) -> Vec<Act> {
+        let mut acts = shell.key(&KeyEvent::Key { name: name.into(), down: true, repeat: false, seat: 0 }, at);
+        acts.extend(shell.key(&KeyEvent::Key { name: name.into(), down: false, repeat: false, seat: 0 }, at + 30));
+        acts
+    }
+
+    fn luna_calls(acts: &[Act], method: &str) -> Vec<Value> {
+        acts.iter()
+            .filter_map(|a| match a {
+                Act::Channel(o) if o.path == "/v1/luna" => o.body.clone(),
+                _ => None,
+            })
+            .filter(|b| b["uri"].as_str().is_some_and(|u| u.ends_with(method)))
+            .collect()
+    }
+
+    #[test]
+    fn an_app_that_opens_from_home_shows_the_launch_screen_after_the_compositors_wait_and_tells_it_where_the_icon_is_and_it_goes_when_the_app_has_the_front() {
+        let (_h, mut shell) = home_shell("home");
+        shell.channel(&Event::Topic { topic: "transitions".into(), data: json!({"on": true, "reduced": false}) }, 1_020);
+        for (i, k) in ["down", "down", "down"].into_iter().enumerate() {
+            key(&mut shell, k, 2_000 + i as u64 * 100);
+        }
+        let acts = key(&mut shell, "ok", 2_400);
+        assert_eq!(luna_calls(&acts, "/launch").len(), 1, "the app is asked for");
+        let origin = luna_calls(&acts, "/setLaunchOrigin");
+        assert_eq!(origin.len(), 1, "the compositor is told where the tile is at once: {acts:?}");
+        assert_eq!(origin[0]["payload"]["appId"], "netflix");
+        assert!(origin[0]["payload"]["tile"]["width"].as_f64().unwrap() > 100.0 && origin[0]["payload"]["tile"]["radius"].as_f64().unwrap() > 0.0);
+        assert_eq!(shell.state()["extras"]["splashWaiting"], true, "the screen waits for the card to be what is seen");
+        assert!(shell.state()["extras"]["splash"].is_null() && shell.geometry()["extras"]["splash"].is_null(), "nothing drawn yet");
+        // the wait is over and the app has no window: the launch screen shows, with the icon where the card is to grow from next
+        let acts = shell.tick(2_850);
+        assert_eq!(shell.state()["extras"]["splash"]["name"], "Netflix");
+        assert_eq!(shell.geometry()["extras"]["splash"]["icon"]["w"], 180.0, "and it is drawn");
+        let acts: Vec<Act> = acts.into_iter().chain(shell.tick(2_950)).collect();
+        let from = luna_calls(&acts, "/setLaunchOrigin");
+        assert_eq!(from.len(), 1, "one more note: where the icon is: {acts:?}");
+        assert_eq!(from[0]["payload"]["from"]["width"], 180.0);
+        assert_eq!(from[0]["payload"]["from"]["radius"], 38.0);
+        // the app has the front: Home is behind it and the launch screen is gone
+        shell.channel(&Event::Topic { topic: "foreground".into(), data: json!({"app": "netflix", "home": false, "covered": true}) }, 3_100);
+        assert!(shell.state()["extras"]["splash"].is_null() && shell.geometry()["extras"]["splash"].is_null());
+    }
+
+    #[test]
+    fn without_the_compositors_transitions_the_launch_screen_is_there_at_once_as_it_always_was() {
+        let (_h, mut shell) = home_shell("home");
+        for (i, k) in ["down", "down", "down"].into_iter().enumerate() {
+            key(&mut shell, k, 2_000 + i as u64 * 100);
+        }
+        let acts = key(&mut shell, "ok", 2_400);
+        assert!(luna_calls(&acts, "/setLaunchOrigin").is_empty(), "nothing grows out of a tile");
+        assert_eq!(shell.state()["extras"]["splash"]["name"], "Netflix");
+    }
+
+    fn quick_access() -> Value {
+        json!({"remote": {"quickAccess": {"on": true, "slots": {}}}, "apps": {"dockHide": ["extra.a", "extra.b"]}})
+    }
+
+    #[test]
+    fn a_digit_with_nothing_behind_it_opens_the_question_which_has_every_key_and_the_pointer_and_its_answer_is_kept_and_opens_the_app() {
+        let (_h, mut shell) = home_shell_with("home,settings", &quick_access());
+        key(&mut shell, "9", 2_000);
+        assert_eq!(shell.state()["extras"]["ask"]["digit"], "9");
+        assert_eq!(shell.state()["extras"]["ask"]["picks"], json!(["extra.a", "extra.b"]));
+        assert_eq!(shell.geometry()["extras"]["ask"]["picks"].as_array().map(Vec::len), Some(3), "two apps and More");
+        assert_eq!(shell.report()["wants"], true);
+        // a digit is not an answer and is not Home's while the question is up; the arrows move the choice
+        let acts = key(&mut shell, "2", 2_100);
+        assert!(luna_calls(&acts, "/launch").is_empty(), "{acts:?}");
+        key(&mut shell, "right", 2_200);
+        assert_eq!(shell.state()["extras"]["ask"]["index"], 1);
+        key(&mut shell, "left", 2_300);
+        let acts = key(&mut shell, "ok", 2_400);
+        let launched = luna_calls(&acts, "/launch");
+        assert_eq!(launched.len(), 1, "the app opens: {acts:?}");
+        assert_eq!(launched[0]["payload"]["id"], "extra.a");
+        assert!(shell.state()["extras"]["ask"].is_null(), "answered");
+        assert_eq!(shell.state()["extras"]["toast"]["title"], "Extra A");
+        assert_eq!(shell.state()["home"]["launching"], "Extra A");
+    }
+
+    #[test]
+    fn back_leaves_the_question_with_nothing_opened_and_more_is_settings_at_its_remote_page() {
+        let (_h, mut shell) = home_shell_with("home,settings", &quick_access());
+        key(&mut shell, "9", 2_000);
+        let acts = key(&mut shell, "back", 2_100);
+        assert!(shell.state()["extras"]["ask"].is_null() && luna_calls(&acts, "/launch").is_empty());
+        key(&mut shell, "9", 2_200);
+        key(&mut shell, "right", 2_300);
+        key(&mut shell, "right", 2_400);
+        key(&mut shell, "ok", 2_500);
+        assert_eq!(shell.state()["settings"]["open"], true);
+        assert_eq!(shell.state()["settings"]["page"], "remote");
+    }
+
+    #[test]
+    fn a_click_on_a_card_of_the_question_answers_it_and_nothing_under_the_question_hears_the_pointer() {
+        let (_h, mut shell) = home_shell_with("home", &quick_access());
+        key(&mut shell, "9", 2_000);
+        let card = shell.geometry()["extras"]["ask"]["picks"][1].clone();
+        let (x, y) = ((card["x"].as_f64().unwrap() + card["w"].as_f64().unwrap() / 2.0) as f32, (card["y"].as_f64().unwrap() + 20.0) as f32);
+        let mut acts = Vec::new();
+        for (i, buttons) in [0, 0, 1, 0].into_iter().enumerate() {
+            acts.extend(shell.key(&KeyEvent::Pointer { x, y, buttons, visible: true }, 2_100 + i as u64 * 50));
+            shell.tick(2_100 + i as u64 * 50);
+        }
+        let launched = luna_calls(&acts, "/launch");
+        assert_eq!(launched.len(), 1, "{acts:?}");
+        assert_eq!(launched[0]["payload"]["id"], "extra.b", "the second card");
+    }
+
+    #[test]
+    fn the_remote_key_opens_the_on_screen_remote_which_presses_the_micom_keycodes_and_has_no_key_of_the_prompts_and_back_closes_it() {
+        let (_h, mut shell) = home_shell("home");
+        key(&mut shell, "screenremote", 2_000);
+        assert_eq!(shell.state()["extras"]["remote"], "rewind");
+        assert_eq!(shell.geometry()["extras"]["remote"]["keys"].as_array().map(Vec::len), Some(21));
+        // the D-pad walks it: Right to Play, OK presses it
+        key(&mut shell, "right", 2_100);
+        let acts = key(&mut shell, "ok", 2_200);
+        let sent = luna_calls(&acts, "/sendKeycode");
+        assert_eq!(sent.len(), 1, "{acts:?}");
+        assert_eq!((sent[0]["uri"].as_str(), sent[0]["payload"]["keycode"].as_u64()), (Some("luna://com.webos.service.micomservice/sendKeycode"), Some(176)));
+        assert_eq!(shell.state()["extras"]["remote"], "play");
+        // the keys of Home are not Home's while it is up
+        let acts = key(&mut shell, "3", 2_300);
+        assert!(luna_calls(&acts, "/launch").is_empty());
+        key(&mut shell, "back", 2_400);
+        assert!(shell.state()["extras"]["remote"].is_null() && shell.geometry()["extras"]["remote"].is_null());
+        // and the key again toggles it
+        key(&mut shell, "screenremote", 2_500);
+        key(&mut shell, "screenremote", 2_600);
+        assert!(shell.state()["extras"]["remote"].is_null());
+    }
+
+    #[test]
+    fn a_click_on_a_key_of_the_on_screen_remote_presses_it_and_never_reaches_the_home_under_it() {
+        let (_h, mut shell) = home_shell("home");
+        key(&mut shell, "screenremote", 2_000);
+        let keys = shell.geometry()["extras"]["remote"]["keys"].clone();
+        let f = keys.as_array().unwrap().iter().find(|k| k["name"] == "blue").unwrap()["frame"].clone();
+        let (x, y) = ((f["x"].as_f64().unwrap() + 30.0) as f32, (f["y"].as_f64().unwrap() + 30.0) as f32);
+        let mut acts = Vec::new();
+        for (i, buttons) in [0, 0, 1, 0].into_iter().enumerate() {
+            acts.extend(shell.key(&KeyEvent::Pointer { x, y, buttons, visible: true }, 2_100 + i as u64 * 50));
+            shell.tick(2_100 + i as u64 * 50);
+        }
+        let sent = luna_calls(&acts, "/sendKeycode");
+        assert_eq!(sent.len(), 1, "{acts:?}");
+        assert_eq!(sent[0]["payload"]["keycode"], 97, "blue");
+        assert!(luna_calls(&acts, "/launch").is_empty(), "the dock under the sheet heard nothing");
+    }
+
+    fn helper_answer(shell: &mut Shell, tag: u64, body: Value, at: u64) -> Vec<Act> {
+        shell.helper(&Event::Answer { tag, status: 200, body }, at)
+    }
+
+    fn helper_calls(acts: &[Act], path: &str) -> usize {
+        acts.iter().filter(|a| matches!(a, Act::Helper(o) if o.path == path)).count()
+    }
+
+    #[test]
+    fn holding_the_voice_key_listens_the_bar_and_the_mark_show_letting_go_stops_and_the_words_open_the_search() {
+        let (_h, mut shell) = home_shell("home");
+        assert!(!shell.report()["takes"].as_array().unwrap().iter().any(|t| t == "voice"), "the helper cannot listen yet: the key stays LG's");
+        shell.helper(&Event::Topic { topic: "voice".into(), data: json!({"ready": true, "state": "idle"}) }, 1_500);
+        let takes: Vec<String> = shell.report()["takes"].as_array().unwrap().iter().map(|t| t.as_str().unwrap().to_string()).collect();
+        assert!(takes.contains(&"voice".to_string()) && takes.contains(&"screenremote".to_string()) && takes.contains(&"search".to_string()), "{takes:?}");
+        let acts = shell.key(&KeyEvent::Key { name: "voice".into(), down: true, repeat: false, seat: 0 }, 2_000);
+        assert_eq!(helper_calls(&acts, "/v1/voice/listen"), 1, "{acts:?}");
+        assert_eq!((shell.state()["extras"]["voice"].as_str(), shell.state()["extras"]["mic"].as_bool()), (Some("listening"), Some(true)));
+        assert_eq!(shell.geometry()["extras"]["voice"]["bar"]["caption"], "Listening");
+        assert!(shell.geometry()["extras"]["voice"]["mark"].is_object(), "the microphone is open");
+        let acts = helper_answer(&mut shell, crate::system::extras::VOICE_TAG + 1, json!({"ok": true, "session": 7}), 2_050);
+        assert_eq!(helper_calls(&acts, "/v1/voice/stop"), 0, "the key is still held");
+        let acts = shell.key(&KeyEvent::Key { name: "voice".into(), down: false, repeat: false, seat: 0 }, 2_600);
+        assert_eq!(helper_calls(&acts, "/v1/voice/stop"), 1, "{acts:?}");
+        assert_eq!(shell.state()["extras"]["voice"], "working");
+        shell.helper(&Event::Topic { topic: "voice".into(), data: json!({"ready": true, "state": "heard", "session": 7, "text": "the news"}) }, 3_000);
+        assert_eq!(shell.state()["extras"]["voice"], "");
+        assert_eq!(shell.state()["home"]["layer"], "search", "the words go to Search and nothing acts on them");
+        assert_eq!(shell.state()["extras"]["mic"], false);
+    }
+
+    #[test]
+    fn back_ends_the_microphone_and_a_voice_key_nobody_can_answer_does_nothing() {
+        let (_h, mut shell) = home_shell("home");
+        // the helper cannot listen: the key's press asks the helper and is told why, the bar says so and goes by itself
+        shell.helper(&Event::Up(true), 1_400);
+        shell.helper(&Event::Topic { topic: "voice".into(), data: json!({"ready": false, "reason": "voice_off"}) }, 1_500);
+        shell.key(&KeyEvent::Key { name: "voice".into(), down: true, repeat: false, seat: 0 }, 2_000);
+        helper_answer(&mut shell, crate::system::extras::VOICE_TAG + 1, json!({"ok": false}), 2_050);
+        assert_eq!(shell.state()["extras"]["voice"], "failed");
+        assert_eq!(shell.state()["extras"]["voiceWords"], "Voice search is switched off");
+        shell.tick(2_050 + 2_700);
+        assert_eq!(shell.state()["extras"]["voice"], "");
+        // listening, then Back
+        shell.helper(&Event::Topic { topic: "voice".into(), data: json!({"ready": true}) }, 6_000);
+        shell.key(&KeyEvent::Key { name: "voice".into(), down: true, repeat: false, seat: 0 }, 6_100);
+        let acts = key(&mut shell, "back", 6_200);
+        assert_eq!(helper_calls(&acts, "/v1/voice/cancel"), 1, "{acts:?}");
+        assert_eq!((shell.state()["extras"]["voice"].as_str(), shell.state()["extras"]["mic"].as_bool()), (Some(""), Some(false)));
+    }
+
+    #[test]
+    fn a_story_opens_the_mini_frame_out_of_its_card_the_web_half_is_launched_into_its_interior_and_back_closes_both() {
+        let (_h, mut shell) = home_shell("home");
+        let news = json!({"doc": {"fetchedAt": 1, "items": [{"tag": "WORLD", "src": "BBC News", "title": "A story", "summary": "", "link": "https://news.example/a", "pubMs": 1}]}, "state": "fresh"});
+        shell.helper(&Event::Topic { topic: "news".into(), data: news }, 1_500);
+        key(&mut shell, "down", 2_000);
+        for i in 0..6 {
+            if shell.state()["home"]["widgetFocusId"] == "news" {
+                break;
+            }
+            key(&mut shell, "right", 2_100 + i * 100);
+        }
+        assert_eq!(shell.state()["home"]["widgetFocusId"], "news", "{}", shell.state()["home"]);
+        key(&mut shell, "ok", 3_000);
+        let acts = key(&mut shell, "ok", 3_200);
+        assert!(luna_calls(&acts, "/launch").is_empty(), "the browser is not opened: the frame is");
+        assert_eq!(shell.state()["extras"]["frame"]["title"], "A story");
+        assert_eq!(shell.state()["extras"]["frame"]["landed"], false);
+        let g = shell.geometry()["extras"]["frame"].clone();
+        assert_eq!((g["x"].as_f64(), g["y"].as_f64(), g["w"].as_f64(), g["h"].as_f64()), (Some(200.0), Some(150.0), Some(1520.0), Some(860.0)));
+        // it has landed: the web half is launched into the room the frame leaves clear
+        let acts = shell.tick(3_200 + 300);
+        let launched = luna_calls(&acts, "/launch");
+        assert_eq!(launched.len(), 1, "{acts:?}");
+        assert_eq!(launched[0]["payload"]["id"], crate::system::extras::FRAME_APP);
+        assert_eq!(launched[0]["payload"]["params"]["rect"], json!({"x": 232.0, "y": 214.0, "w": 1456.0, "h": 764.0}));
+        assert_eq!(launched[0]["payload"]["params"]["url"], "https://news.example/a");
+        assert_eq!(shell.geometry()["extras"]["frame"]["title"], "A story", "and the words are drawn");
+        // the web half is up: the loading ring goes after its grace
+        shell.channel(&Event::Topic { topic: "luna".into(), data: json!({"tag": crate::system::extras::RUNNING_TAG, "payload": {"running": [{"id": crate::system::extras::FRAME_APP}]}}) }, 3_600);
+        shell.tick(4_000);
+        assert_eq!(shell.state()["extras"]["frame"]["loading"], false);
+        // Back closes the frame and the web half with it
+        let acts = key(&mut shell, "back", 4_100);
+        assert_eq!(luna_calls(&acts, "/closeByAppId").len(), 1, "{acts:?}");
+        assert!(shell.state()["extras"]["frame"].is_null());
+        shell.tick(4_100 + 400);
+        assert!(shell.geometry()["extras"]["frame"].is_null(), "it shrank back and is gone");
+    }
+
+    #[test]
+    fn with_the_home_kind_off_nothing_of_the_extras_is_reported_or_drawn() {
+        let (_h, shell) = home_shell("osd");
+        assert!(shell.state().get("extras").is_none() && shell.geometry().get("extras").is_none());
     }
 
     fn claims(acts: &[Act]) -> Vec<Value> {

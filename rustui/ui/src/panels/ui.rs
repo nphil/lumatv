@@ -30,6 +30,9 @@ pub enum Arrive {
     Right(f32),
     Bottom(f32),
     Fade,
+    /// Out of a rectangle (a card's) into another: the whole panel grows from the place and size of `from` to `to` (both `[x, y, w, h]`) as it
+    /// fades in, uniformly (its width against the card's width). Reduced motion makes it a fade.
+    Grow { from: [f32; 4], to: [f32; 4] },
 }
 
 /// The group a panel's layers hang under. Its pose follows a motion track from 0 (away) to 1 (rest); the track is the compositor's.
@@ -51,6 +54,11 @@ impl Root {
             Arrive::Right(travel) => (GroupPose { x: travel, ..GroupPose::IDENTITY }, GroupPose::IDENTITY, PoseProperties::TRANSLATION),
             Arrive::Bottom(rise) => (GroupPose { y: rise, ..GroupPose::IDENTITY }, GroupPose::IDENTITY, PoseProperties::TRANSLATION),
             Arrive::Fade => (GroupPose { opacity: 0.0, ..GroupPose::IDENTITY }, GroupPose::IDENTITY, PoseProperties::OPACITY),
+            Arrive::Grow { from, to } => {
+                let (cf, ct) = ((from[0] + from[2] / 2.0, from[1] + from[3] / 2.0), (to[0] + to[2] / 2.0, to[1] + to[3] / 2.0));
+                let scale = (from[2] / to[2].max(1.0)).clamp(0.05, 1.0);
+                (GroupPose { x: cf.0 - ct.0, y: cf.1 - ct.1, scale, pivot_x: ct.0, pivot_y: ct.1, opacity: 0.0, ..GroupPose::IDENTITY }, GroupPose::IDENTITY, PoseProperties::ALL)
+            }
         };
         group.bind(&track, PoseBinding { values: [0.0, 1.0], from, to, properties }).map_err(other)?;
         group.set_inert(!at_rest);

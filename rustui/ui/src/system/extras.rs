@@ -2,9 +2,9 @@
 //! `panels/VoiceBar.qml`, `MiniFrame.qml` and the parts of `LumaHome.qml` that drove them). They belong to the Rust `home` kind: with it on the QML
 //! Home is not in the stack, so these are Home's too, and `ctl shell rust -home` gives all of them back to the QML together.
 //!
-//! Status: the models only, with their behaviour tests. No surface draws them, the shell does not feed them (`Home` hands no [`Note`] over and
-//! nothing calls [`Extras::update`]) and the compositor has no key names for the mic, on-screen remote and Search keys yet, so none of this is on the
-//! screen. `docs/research/rust-gaps-result.md` ("Resume here") lists what remains.
+//! The surfaces that draw them are in [`super::extras_surface`], the system layer feeds them ([`super::layer::Layer`]) and Home tells them what it did
+//! ([`Note`]: `home/model.rs` pushes them, the shell hands them over after every input). The compositor's key names for the mic, on-screen remote and
+//! Search keys are taught in `keys.conf` (`voice N`, `screenremote N`, `search N`) and the shell asks for them in its report's `takes`.
 //!
 //! - the **launch screen**: the icon, the app's name and a ring while an app opens. With the compositor's transitions on, the card grows out of the
 //!   tile, the screen waits 400 ms (an app that has a window by then never shows it) and tells the compositor where its icon is, which is where
@@ -80,6 +80,14 @@ pub enum Note {
     Ask { digit: String, picks: Vec<Pick> },
     Remote,
     Frame { page: Page, from: [f32; 4], to: [f32; 4] },
+}
+
+/// What a click of the pointer landed on: a card of the question (the apps, then More), its Not now button, a key of the on-screen remote.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Click {
+    Pick(usize),
+    Later,
+    Key(usize),
 }
 
 /// What the extras ask Home for: it keeps the choice and opens the app, or takes the person to Settings.
@@ -719,6 +727,15 @@ impl Extras {
         }
         if let Some(code) = remote_code(k.name) {
             out.push(Effect::Luna { tag: MICOM_TAG, uri: format!("{MICOM}/sendKeycode"), payload: json!({"keycode": code}), subscribe: false });
+        }
+    }
+
+    /// A click: a card or Not now answers the question, a key of the remote is pressed.
+    pub fn hit(&mut self, click: Click, out: &mut Vec<Effect>) {
+        match click {
+            Click::Pick(i) => self.pick(i),
+            Click::Later => self.pick(usize::MAX),
+            Click::Key(i) => self.press(i, out),
         }
     }
 

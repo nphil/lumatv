@@ -13,6 +13,8 @@ use super::banner_surface::BannerSurface;
 use super::alert::{Alerts, Target};
 use super::alert_surface::AlertSurface;
 use super::capture::{Capture, CaptureSurface};
+use super::extras::{Extras, View as ExtrasView};
+use super::extras_surface::ExtrasSurface;
 use super::layout_surface::LayoutSurface;
 use super::cards_surface::{CardsSurface, Column};
 use super::overlay::{self, Overlay};
@@ -73,6 +75,15 @@ fn banner_intent(i: banner::Intent) -> Intent {
     }
 }
 
+/// What a click on the extras landed on, as the model has it.
+fn hit_of(hit: super::extras_surface::Hit) -> super::extras::Click {
+    match hit {
+        super::extras_surface::Hit::Pick(i) => super::extras::Click::Pick(i),
+        super::extras_surface::Hit::Later => super::extras::Click::Later,
+        super::extras_surface::Hit::Key(i) => super::extras::Click::Key(i),
+    }
+}
+
 /// What the channel says is in front.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Foreground {
@@ -101,6 +112,13 @@ pub struct Layer {
     banner_surface: BannerSurface,
     capture: Capture,
     capture_surface: CaptureSurface,
+    /// What Home draws around itself (kind `home`): the launch screen, Quick Access, the on-screen remote, the voice bar, the mini frame.
+    extras: Extras,
+    extras_surface: ExtrasSurface,
+    /// The view the extras' surface was last drawn from: a different one is a redraw.
+    extras_seen: ExtrasView,
+    /// The clock as the layer last heard it, for the timers of the extras' rings.
+    now_ms: u64,
     overlay: Overlay,
     cards_surface: CardsSurface,
     popup: Popup,
@@ -143,6 +161,10 @@ impl Layer {
             saver_surface: SaverSurface::new(base + z::SAVER),
             capture: Capture::new(theme.pointer("/motion/reduced").and_then(Value::as_bool) == Some(true)),
             capture_surface: CaptureSurface::new(base + z::CAPTURE),
+            extras: Extras::new(),
+            extras_surface: ExtrasSurface::new(),
+            extras_seen: ExtrasView::default(),
+            now_ms: 0,
             overlay: Overlay::new(theme.get("overlays").unwrap_or(&Value::Null)),
             cards_surface: CardsSurface::new(base + z::CARDS, theme, layout),
             popup: Popup::new(),
@@ -213,6 +235,37 @@ impl Layer {
         }
     }
 
+    /// Home told the extras something (an app opens, a digit did something, the remote key, a story opens).
+    pub fn extras_note(&mut self, note: super::extras::Note, now: u64) -> Vec<Effect> {
+        let out = self.extras.note(note, now);
+        self.now_ms = now;
+        self.redraw = true;
+        out
+    }
+
+    /// The voice key went down or up (the compositor sends it when the helper says voice search is ready).
+    pub fn voice_key(&mut self, down: bool, now: u64) -> Vec<Effect> {
+        self.now_ms = now;
+        let out = self.extras.voice_key(down, now);
+        self.redraw = true;
+        out
+    }
+
+    /// Whether the voice key is the extras' to take (Home is in front and the helper can listen, or a request is under way).
+    pub fn takes_voice(&self) -> bool {
+        self.extras.takes_voice()
+    }
+
+    /// Whether a screen of what Home draws around itself is on the screen.
+    pub fn extras_up(&self) -> bool {
+        self.extras_surface.is_up()
+    }
+
+    /// What the extras asked Home for (a pick of the question, More).
+    pub fn take_extras_intents(&mut self) -> Vec<super::extras::Intent> {
+        self.extras.take_intents()
+    }
+
     /// A banner asked for by name (`ctl shell show banner pill|bar|nosignal`, a TV check).
     pub fn show_banner(&mut self, page: &str, now: u64) -> Vec<Effect> {
         let out = self.banner.show_sample(page, now);
@@ -239,6 +292,9 @@ impl Layer {
         let mut out = Vec::new();
         if kinds.alert {
             out.extend(self.alerts.subscribe());
+        }
+        if kinds.home {
+            out.extend(self.extras.start());
         }
         out
     }
@@ -309,6 +365,17 @@ impl Layer {
             out.extend(self.capture.update(input, now));
         }
         let key_like = matches!(input, Input::Key { .. } | Input::Pointer { .. });
+        self.now_ms = now;
+        // what Home draws around itself: its question, remote, frame and voice bar have the keys while they are up, unless a question of the alerts
+        // (or the editor) has them
+        if kinds.home && !(key_like && (alert_has_keys || self.layout_open())) {
+            out.extend(self.extras.update(input, now));
+            let view = self.extras.view();
+            if view != self.extras_seen {
+                self.extras_seen = view;
+                self.redraw = true;
+            }
+        }
         if kinds.layout && self.layout_open() && !alert_has_keys {
             match input {
                 Input::Key { name, down: true, .. } => {
@@ -581,6 +648,19 @@ impl Layer {
                 self.layout_surface.close(engine);
             }
         }
+        if kinds.home {
+            self.extras.set_light(kit.mode == ui::lucent::palette::Mode::Light);
+            let view = self.extras.view();
+            let now_ns = kit.ui.scene.now_ns();
+            match self.extras_surface.apply(kit, engine, &view, now_ms, now_ns) {
+                Ok(on) => live |= on,
+                Err(e) => return Err(format!("home extras: {e}")),
+            }
+            if let Some(icon) = self.extras_surface.splash_icon() {
+                self.extras.set_splash_icon(icon);
+            }
+            self.extras_seen = view;
+        }
         if kinds.capture {
             match self.capture_surface.apply(kit, &self.capture.view(), over, now_ms) {
                 Ok(on) => live |= on,
@@ -594,6 +674,7 @@ impl Layer {
     pub fn on_key(&mut self, kit: &Kit, engine: &mut Engine) {
         self.alert_surface.on_key(kit, engine);
         self.banner_surface.on_key(kit, engine);
+        self.extras_surface.on_key(kit, engine);
         self.layout_surface.on_key(kit, engine);
     }
 
@@ -617,12 +698,21 @@ impl Layer {
             self.editor_effects(effects);
             return None;
         }
+        // what Home draws around itself that takes the pointer (the question, the on-screen remote): a click is what it ended on, and nothing under it hears the pointer
+        if self.extras_surface.has_pointer() && !self.alerts.wants() {
+            if let Some(hit) = self.extras_surface.pointer(kit, engine, now_ns, sample) {
+                let mut out = Vec::new();
+                self.extras.hit(hit_of(hit), &mut out);
+                self.effects.extend(out);
+                self.redraw = true;
+            }
+            return None;
+        }
         self.alert_surface.pointer(kit, engine, now_ns, sample)
     }
 
     /// The layer's timers: the surfaces' fades are dropped when over, the saver's hands move. Returns whether a redraw is wanted.
     pub fn tick(&mut self, kit: &Kit, kinds: &Kinds, now_ms: u64) -> bool {
-        let _ = kit;
         let mut redraw = self.alert_surface.tick(now_ms);
         if kinds.saver {
             redraw |= self.saver_surface.tick(now_ms);
@@ -635,6 +725,9 @@ impl Layer {
         }
         if kinds.capture {
             redraw |= self.capture_surface.tick(now_ms);
+        }
+        if kinds.home {
+            redraw |= self.extras_surface.tick(kit, now_ms);
         }
         if kinds.popup {
             redraw |= self.popup_surface.tick(now_ms);
@@ -671,12 +764,15 @@ impl Layer {
         if kinds.capture {
             due = [due, self.capture.due_at(), self.capture_surface.due_at()].into_iter().flatten().min();
         }
+        if kinds.home {
+            due = [due, self.extras.due_at(self.now_ms), self.extras_surface.due_at()].into_iter().flatten().min();
+        }
         due
     }
 
     /// Whether the layer wants every key: an alert, the input popup or a PIN prompt is up, or the saver is (any key wakes it).
     pub fn wants(&self, kinds: &Kinds) -> bool {
-        (kinds.alert && self.alerts.wants()) || (kinds.ai && self.ai.wants()) || (kinds.banner && self.banner.wants()) || (kinds.saver && self.saver.wants_keys()) || (kinds.layout && self.layout_open())
+        (kinds.alert && self.alerts.wants()) || (kinds.ai && self.ai.wants()) || (kinds.banner && self.banner.wants()) || (kinds.saver && self.saver.wants_keys()) || (kinds.layout && self.layout_open()) || (kinds.home && self.extras.wants())
     }
 
     /// The keys the layer takes by name while an app has the focus (the cards' OK and Back).
@@ -717,6 +813,9 @@ impl Layer {
         if kinds.layout {
             s["layout"] = json!({"open": self.layout_open()});
         }
+        if kinds.home {
+            s["extras"] = self.extras.state();
+        }
         if kinds.cards {
             s["cards"] = self.overlay.state();
         }
@@ -724,7 +823,7 @@ impl Layer {
     }
 
     /// Where the surfaces are (the harness reads them).
-    pub fn geometry(&self, kinds: &Kinds, kit: &Kit) -> Value {
+    pub fn geometry(&self, kinds: &Kinds, kit: &Kit, engine: &Engine) -> Value {
         let mut g = json!({});
         if kinds.banner {
             g["banner"] = self.banner_surface.geometry();
@@ -746,6 +845,9 @@ impl Layer {
         }
         if kinds.layout {
             g["layout"] = self.layout_surface.geometry();
+        }
+        if kinds.home {
+            g["extras"] = self.extras_surface.geometry(engine);
         }
         if kinds.cards {
             g["cards"] = self.cards_surface.geometry();
@@ -779,6 +881,9 @@ impl Layer {
         if kinds.cards {
             self.cards_surface.feed_lint(kit, lint);
         }
+        if kinds.home {
+            self.extras_surface.feed_lint(kit, lint);
+        }
     }
 
     /// The look changed: the surfaces are made again at the next draw.
@@ -791,6 +896,7 @@ impl Layer {
         self.popup_surface.restyle();
         self.cards_surface.restyle();
         self.layout_surface.restyle(engine);
+        self.extras_surface.restyle(engine);
         self.redraw = true;
     }
 
