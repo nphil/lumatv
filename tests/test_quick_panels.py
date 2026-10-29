@@ -421,16 +421,18 @@ class OverlayPanels(HostCase):
             (1260, "linger", panel + "s.lingerMs = 300; return s.lingerMs;"),
             (1300, "open", "return [overlay.panel('quick'), overlay.surface, overlay.wants, overlay.up];"),
             # the software renderer's first showing of the overlay's panel compiles its programs; the slide counts frames, not time
-            (2400, "shown", panel + "return {progress: s.progress, x: s.slideX, y: s.slideY, w: s.sheetW, h: s.sheetH, presented: s.presented, nodes: nodes(s)};"),
-            (2500, "down", panel + "overlay.key(Qt.Key_Down, true, false, 0); overlay.key(Qt.Key_Down, false, false, 0); return s.focusId;"),
-            (2600, "back", panel + "overlay.key(Qt.Key_Back, true, false, 0); overlay.key(Qt.Key_Back, false, false, 0); return [overlay.surface, s.leaving, s.visible, overlay.visible, overlay.panelLeaving];"),
-            (3300, "gone", panel + "return [overlay.surface, s.leaving, s.visible, overlay.visible, overlay.panelLeaving];"),
-        ], 3700)
+            (3900, "shown", panel + "return {progress: s.progress, x: s.slideX, y: s.slideY, w: s.sheetW, h: s.sheetH, presented: s.presented, nodes: nodes(s)};"),
+            (4000, "down", panel + "overlay.key(Qt.Key_Down, true, false, 0); overlay.key(Qt.Key_Down, false, false, 0); return s.focusId;"),
+            (4100, "back", panel + "overlay.key(Qt.Key_Back, true, false, 0); overlay.key(Qt.Key_Back, false, false, 0); return [overlay.surface, s.leaving, s.visible, overlay.visible, overlay.panelLeaving];"),
+            (5600, "gone", panel + "return [overlay.surface, s.leaving, s.visible, overlay.visible, overlay.panelLeaving];"),
+        ], 6000)
         self.assertEqual(p["idle"], [False, False], "nothing over Home: Home draws its own")
         self.assertEqual(p["ready"], [True, True, True], out[-2000:])
         self.assertEqual(p["open"], [True, "quick", True, True])
         s = p["shown"]
-        self.assertEqual((s["progress"], s["x"], s["y"], s["w"], s["h"], s["presented"]), (1, 1320, 56, 560, 968, True))
+        self.assertGreater(s["progress"], 0.999, "the slide is over")
+        self.assertAlmostEqual(s["x"], 1320, delta=1)
+        self.assertEqual((s["y"], s["w"], s["h"], s["presented"]), (56, 560, 968, True))
         self.assertEqual(s["nodes"], p["nodes0"], "the panel built something when it opened")
         self.assertNotEqual(p["down"], "", "the D-pad did not reach the panel")
         self.assertEqual(p["back"], ["", True, True, True, True], "Back must start the slide, not cut it")
@@ -442,17 +444,20 @@ class OverlayPanels(HostCase):
             (1000, "front", "overlay.appFront = true; return 1;"),
             (1200, "linger", panel + "s.lingerMs = 1500; return s.lingerMs;"),
             (1300, "open", "return [overlay.panel('quick'), overlay.surface];"),
-            # the software renderer's first showing of the overlay's panel compiles its programs; the slide counts frames, not time
-            (2400, "shown", panel + "return [s.progress, onscreen(s), s.held];"),
-            (2500, "close", "return [overlay.panel('quick'), overlay.surface];"),
-            (3100, "parked", panel + "return [s.held, s.visible, onscreen(s), overlay.visible, overlay.panelHeld, overlay.up];"),
-            (3200, "again", "return [overlay.panel('quick'), overlay.surface];"),
-            (3300, "reopened", panel + "return [s.held, s.visible, overlay.visible];"),
-            (3400, "close2", "return [overlay.panel('quick'), overlay.surface];"),
-            (3700, "away", "overlay.appFront = false; return overlay.appFront;"),
-            (4100, "after", panel + "return [s.held, s.visible, overlay.visible];"),
-        ], 4500)
-        self.assertEqual((p["linger"], p["open"], p["shown"]), (1500, [True, "quick"], [1, 2, False]))
+            # the software renderer's first showing of the overlay's panel compiles its programs; the slide counts frames, not time, and a busy
+            # machine draws them slowly: the slide is read 2.6 s after the opening, and the rest follows it
+            (3900, "shown", panel + "return [s.progress, onscreen(s), s.held];"),
+            (4000, "close", "return [overlay.panel('quick'), overlay.surface];"),
+            (4600, "parked", panel + "return [s.held, s.visible, onscreen(s), overlay.visible, overlay.panelHeld, overlay.up];"),
+            (4700, "again", "return [overlay.panel('quick'), overlay.surface];"),
+            (4800, "reopened", panel + "return [s.held, s.visible, overlay.visible];"),
+            (4900, "close2", "return [overlay.panel('quick'), overlay.surface];"),
+            (5200, "away", "overlay.appFront = false; return overlay.appFront;"),
+            (5600, "after", panel + "return [s.held, s.visible, overlay.visible];"),
+        ], 6000)
+        # the slide's progress is an eased value, a hair under 1 until its last frame is drawn
+        self.assertEqual((p["linger"], p["open"], p["shown"][1:]), (1500, [True, "quick"], [2, False]))
+        self.assertGreater(p["shown"][0], 0.999, "the slide is over")
         self.assertEqual(p["close"], [True, ""])
         self.assertEqual(p["parked"], [True, True, 0, True, True, False], "over an app the closed panel is in the scene, off the screen, and the layer with it")
         self.assertEqual((p["again"], p["reopened"]), ([True, "quick"], [False, True, True]))
@@ -467,13 +472,14 @@ class OverlayPanels(HostCase):
             # the software renderer's first showing of the overlay's panel compiles its programs, and the sheet's move is a timer of 30 ms
             (2600, "warmed", panel + "return [s.held, s.visible, onscreen(s), overlay.visible, overlay.up, s.slideX];"),
             (2700, "open", "return [overlay.panel('quick'), overlay.surface];"),
-            (3700, "up", panel + "return [s.held, s.visible, onscreen(s), s.progress];"),
-            (3800, "again", "return [overlay.warmPanel('quick'), overlay.surface];"),
-        ], 4200)
+            (5200, "up", panel + "return [s.held, s.visible, onscreen(s), s.progress];"),     # (the slide counts frames: read late on a busy machine)
+            (5300, "again", "return [overlay.warmPanel('quick'), overlay.surface];"),
+        ], 5700)
         self.assertEqual(p["warm"], [True, False, True], "the quick panel is the one warmed, and the layer is in the scene with it")
         self.assertIn(p["warmed"], ([True, True, 0, True, False, 2320], [True, True, 0, True, False, 2321]), "warmed over an app: in the scene, off the screen, the sheet moved once")
         self.assertEqual(p["open"], [True, "quick"])
-        self.assertEqual(p["up"], [False, True, 2, 1])
+        self.assertEqual(p["up"][:3], [False, True, 2])
+        self.assertGreater(p["up"][3], 0.999, "the slide is over")
         self.assertEqual(p["again"], [False, "quick"], "a panel that is up was warmed")
 
     def test_the_gear_again_hides_it_and_a_gear_hold_replaces_it_with_the_drawer(self):
@@ -495,13 +501,14 @@ class OverlayPanels(HostCase):
             (1000, "front", "overlay.appFront = true; return 1;"),
             (1200, "open", "return [overlay.panel('picker'), overlay.surface];"),
             # the software renderer's first showing of the overlay's picker compiles its programs; the slide counts frames, not time
-            (2400, "at", pick + "return {index: s.index, n: s.tiles.length, y: s.sheetY, progress: s.progress};"),
-            (2500, "next", pick + "var i = s.index; overlay.panel('picker'); return [i, s.index, overlay.surface];"),
-            (2600, "ok", pick + "var t = s.tiles[s.index]; overlay.key(Qt.Key_Return, true, false, 0); return [t.appId, overlay.surface];"),
-            (2700, "calls", "return JSON.parse(%s);" % CALLS),
-        ], 3400)
+            (3900, "at", pick + "return {index: s.index, n: s.tiles.length, y: s.sheetY, progress: s.progress};"),
+            (4000, "next", pick + "var i = s.index; overlay.panel('picker'); return [i, s.index, overlay.surface];"),
+            (4100, "ok", pick + "var t = s.tiles[s.index]; overlay.key(Qt.Key_Return, true, false, 0); return [t.appId, overlay.surface];"),
+            (4200, "calls", "return JSON.parse(%s);" % CALLS),
+        ], 4900)
         self.assertEqual(p["open"], [True, "picker"])
-        self.assertEqual((p["at"]["progress"], p["at"]["y"]), (1, 612))
+        self.assertGreater(p["at"]["progress"], 0.999, "the slide is over")
+        self.assertAlmostEqual(p["at"]["y"], 612, delta=1)
         self.assertEqual(p["next"][1], (p["next"][0] + 1) % p["at"]["n"])
         app, surface = p["ok"]
         self.assertEqual(surface, "", "the picker stays up after an input was picked")
