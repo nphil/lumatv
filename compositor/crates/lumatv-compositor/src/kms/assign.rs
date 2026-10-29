@@ -26,6 +26,9 @@ pub struct Assignment {
     pub primary: Source,
     /// The overlay plane's source and output rectangle, if used.
     pub overlay: Option<(Source, Rect)>,
+    /// Where the primary plane puts a direct frame: the OLED care's orbit (`scanout::Policy::offset`), (0, 0) at the origin and for every
+    /// composed page.
+    pub at: (i32, i32),
 }
 
 /// The facts the decision needs, gathered from the plan and the device.
@@ -35,8 +38,8 @@ pub struct Facts {
     pub sole_fullscreen: bool,
     /// That item's buffer is a dma-buf whose (format, modifier) the primary plane lists.
     pub layout_accepted: bool,
-    /// Its framebuffer id once imported.
-    pub direct_fb: Option<u32>,
+    /// Its framebuffer id once imported, and where the plane is to put it.
+    pub direct_fb: Option<(u32, (i32, i32))>,
     /// The ring page that would be composed into.
     pub next_page: usize,
     /// The system UI shows something over the windows this frame.
@@ -51,9 +54,9 @@ pub struct Facts {
 pub fn decide(f: &Facts) -> Assignment {
     let direct = if f.sole_fullscreen && f.layout_accepted { f.direct_fb } else { None };
     match (direct, f.ui_over, f.ui_page) {
-        (Some(fb), false, _) => Assignment { primary: Source::Direct(fb), overlay: None },
-        (Some(fb), true, Some(page)) => Assignment { primary: Source::Direct(fb), overlay: Some((Source::UiPage(page), f.output)) },
-        _ => Assignment { primary: Source::Page(f.next_page), overlay: None },
+        (Some((fb, at)), false, _) => Assignment { primary: Source::Direct(fb), overlay: None, at },
+        (Some((fb, at)), true, Some(page)) => Assignment { primary: Source::Direct(fb), overlay: Some((Source::UiPage(page), f.output)), at },
+        _ => Assignment { primary: Source::Page(f.next_page), overlay: None, at: (0, 0) },
     }
 }
 
@@ -71,7 +74,7 @@ mod tests {
         Facts {
             sole_fullscreen: true,
             layout_accepted: true,
-            direct_fb: Some(77),
+            direct_fb: Some((77, (0, 0))),
             next_page: 1,
             ui_over: false,
             ui_page: Some(2),
@@ -82,28 +85,38 @@ mod tests {
     #[test]
     fn a_full_screen_client_buffer_the_plane_takes_is_scanned_out_directly() {
         let f = facts();
-        assert_eq!(decide(&f), Assignment { primary: Source::Direct(77), overlay: None });
+        assert_eq!(decide(&f), Assignment { primary: Source::Direct(77), overlay: None, at: (0, 0) });
         assert!(needs_commit(&decide(&f), false));
     }
 
     #[test]
     fn the_ui_over_a_direct_window_goes_to_the_overlay_plane() {
         let f = Facts { ui_over: true, ..facts() };
-        assert_eq!(decide(&f), Assignment { primary: Source::Direct(77), overlay: Some((Source::UiPage(2), Rect::new(0, 0, 1920, 1080))) });
+        assert_eq!(decide(&f), Assignment { primary: Source::Direct(77), overlay: Some((Source::UiPage(2), Rect::new(0, 0, 1920, 1080))), at: (0, 0) });
     }
 
     #[test]
     fn without_an_overlay_the_ui_over_a_window_means_composition() {
         let f = Facts { ui_over: true, ui_page: None, ..facts() };
-        assert_eq!(decide(&f), Assignment { primary: Source::Page(1), overlay: None });
+        assert_eq!(decide(&f), Assignment { primary: Source::Page(1), overlay: None, at: (0, 0) });
+    }
+
+    #[test]
+    fn a_direct_frame_keeps_the_place_the_care_gave_it_and_a_composed_one_is_at_the_origin() {
+        let f = Facts { direct_fb: Some((77, (2, 3))), ..facts() };
+        assert_eq!(decide(&f), Assignment { primary: Source::Direct(77), overlay: None, at: (2, 3) });
+        let f = Facts { direct_fb: Some((77, (2, 3))), ui_over: true, ..facts() };
+        assert_eq!(decide(&f).at, (2, 3), "the split keeps the window where it is; the UI's overlay covers the output");
+        let f = Facts { direct_fb: Some((77, (2, 3))), sole_fullscreen: false, ..facts() };
+        assert_eq!(decide(&f), Assignment { primary: Source::Page(1), overlay: None, at: (0, 0) });
     }
 
     #[test]
     fn anything_else_is_composed_into_the_next_page() {
         let f = Facts { layout_accepted: false, direct_fb: None, next_page: 2, ..facts() };
         assert_eq!(decide(&f).primary, Source::Page(2));
-        let f = Facts { sole_fullscreen: false, direct_fb: Some(5), next_page: 0, ui_over: true, ..facts() };
-        assert_eq!(decide(&f), Assignment { primary: Source::Page(0), overlay: None }, "a windowed scene composes the UI with it");
+        let f = Facts { sole_fullscreen: false, direct_fb: Some((5, (0, 0))), next_page: 0, ui_over: true, ..facts() };
+        assert_eq!(decide(&f), Assignment { primary: Source::Page(0), overlay: None, at: (0, 0) }, "a windowed scene composes the UI with it");
         assert!(!needs_commit(&decide(&f), false));
         assert!(needs_commit(&decide(&f), true));
     }

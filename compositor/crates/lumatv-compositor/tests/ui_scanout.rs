@@ -65,7 +65,7 @@ impl Output for ScanOut {
 
     fn render(&mut self, plan: &Plan, surfaces: &Surfaces) -> io::Result<RenderStats> {
         // the device would take the window's buffer whenever the plan allows it
-        let direct = plan.sole_fullscreen().map(|_| FB);
+        let direct = plan.sole_fullscreen().map(|_| (FB, (0, 0)));
         let (assignment, stats) = self.frames.draw(&mut self.gl, plan, surfaces, direct)?;
         self.sources.lock().push(assignment);
         Ok(stats)
@@ -177,15 +177,15 @@ impl Drop for Rig {
 }
 
 fn composed(page: usize) -> Assignment {
-    Assignment { primary: Source::Page(page), overlay: None }
+    Assignment { primary: Source::Page(page), overlay: None, at: (0, 0) }
 }
 
 fn direct() -> Assignment {
-    Assignment { primary: Source::Direct(FB), overlay: None }
+    Assignment { primary: Source::Direct(FB), overlay: None, at: (0, 0) }
 }
 
 fn split(ui_page: usize) -> Assignment {
-    Assignment { primary: Source::Direct(FB), overlay: Some((Source::UiPage(ui_page), lumatv_compositor::Rect::new(0, 0, 1920, 1080))) }
+    Assignment { primary: Source::Direct(FB), overlay: Some((Source::UiPage(ui_page), lumatv_compositor::Rect::new(0, 0, 1920, 1080))), at: (0, 0) }
 }
 
 /// A full-screen opaque card over Home, presented and on the screen.
@@ -226,7 +226,7 @@ fn a_full_screen_window_is_scanned_out_directly_unless_the_ui_shows_something_ov
     rig.osd.set(Props::at(760.0, 900.0));
     rig.commit();
     let now = rig.taken();
-    assert!(matches!(now[before.len()..], [Assignment { primary: Source::Page(_), overlay: None }]), "{now:?}");
+    assert!(matches!(now[before.len()..], [Assignment { primary: Source::Page(_), overlay: None, .. }]), "{now:?}");
     let image = rig.capture();
     assert_eq!(image.pixel(780, 920), [245, 245, 255, 255], "the system layer is on the page");
     assert_eq!(image.pixel(600, 400), [25, 128, 230, 255], "the card is on the page, not the stale Home");
@@ -295,14 +295,14 @@ fn with_a_ui_ring_the_system_layer_goes_to_the_overlay_over_the_direct_window() 
     // The card goes: Home composed again into the primary ring, drawn whole, with the system layer on it.
     drop(_client);
     let deadline = Instant::now() + Duration::from_secs(3);
-    while !matches!(rig.taken().last(), Some(Assignment { primary: Source::Page(_), overlay: None })) {
+    while !matches!(rig.taken().last(), Some(Assignment { primary: Source::Page(_), overlay: None, .. })) {
         assert!(Instant::now() < deadline, "the frame after the card went: {:?}", rig.taken());
         std::thread::sleep(Duration::from_millis(5));
     }
     rig.under.set(Props::at(600.0, 500.0));
     rig.commit();
     let now = rig.taken();
-    assert!(matches!(now.last(), Some(Assignment { primary: Source::Page(_), overlay: None })), "{now:?}");
+    assert!(matches!(now.last(), Some(Assignment { primary: Source::Page(_), overlay: None, .. })), "{now:?}");
     let image = rig.capture();
     assert_eq!(image.pixel(780, 920), [245, 245, 255, 255], "the system layer is composed with Home");
     assert_eq!(image.pixel(100, 100), [18, 20, 32, 255], "Home is drawn whole");

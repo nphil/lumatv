@@ -388,8 +388,9 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
         },
         // Direct scan-out of a full-screen client buffer (`scanout`, docs/research/scanout-research.md): `scanout` reads the counters (direct and
         // composed frames, the reason of each composed one, the last frame's state, the protocol tap and the off-screen proof), `scanout off|direct`
-        // switches it for a TV check (the screen is redrawn through the new path in the next frame), `scanout shell-env NAME=VALUE...|none` sets the
-        // environment the shell client is started with beyond its own, for the next `ctl shell restart` (what asks its window for buffers the plane takes).
+        // switches it for a TV check (the screen is redrawn through the new path in the next frame), `scanout offset on|off` lets a direct frame
+        // carry the OLED care's orbit as the plane's position, `scanout shell-env NAME=VALUE...|none` sets the environment the shell client is
+        // started with beyond its own, for the next `ctl shell restart` (what asks its window for buffers the plane takes).
         "scanout" => match words.next() {
             None => json!({"ok": true, "scanout": state.scanout_report()}),
             Some("shell-env") => {
@@ -404,6 +405,16 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
                 }
                 json!({"ok": true, "scanout": state.scanout_report(), "note": "the shell client takes it at its next start (ctl shell restart)"})
             }
+            Some("offset") => match words.next() {
+                Some(w @ ("on" | "off")) => match state.set_scanout_offset(w == "on") {
+                    Ok(()) => {
+                        state.scene.redraw_all();
+                        json!({"ok": true, "scanout": state.scanout_report()})
+                    }
+                    Err(e) => json!({"ok": false, "error": format!("scanout offset {w}: {e}"), "scanout": state.scanout_report()}),
+                },
+                _ => json!({"ok": false, "error": "scanout offset on|off"}),
+            },
             Some(w) => match crate::scanout::Mode::parse(w) {
                 Some(mode) => match state.set_scanout(mode) {
                     Ok(()) => {
@@ -412,7 +423,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
                     }
                     Err(e) => json!({"ok": false, "error": format!("scanout {w}: {e}"), "scanout": state.scanout_report()}),
                 },
-                None => json!({"ok": false, "error": "scanout [off|direct|shell-env NAME=VALUE...|none]"}),
+                None => json!({"ok": false, "error": "scanout [off|direct|offset on|off|shell-env NAME=VALUE...|none]"}),
             },
         },
         "quit" => {
@@ -428,7 +439,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
         }
         "" => json!({"ok": false, "error": "empty command"}),
         other => {
-            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, screencap [status|shot|record start|record stop], key CODE, remote CODE, pointer X Y, click, sched mali fifo|other, callbacks shell|clients early|landing, mem, wake [reset|probe start|probe stop], ring [N], idle [MS], refresh [60|120], scanout [off|direct], pointer [plane|gpu|X Y], afbc [on|off], pagealpha [on|off], vwin [off|idle|apps|claim|move|release], fallback [reason], quit")})
+            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, screencap [status|shot|record start|record stop], key CODE, remote CODE, pointer X Y, click, sched mali fifo|other, callbacks shell|clients early|landing, mem, wake [reset|probe start|probe stop], ring [N], idle [MS], refresh [60|120], scanout [off|direct|offset on|off], pointer [plane|gpu|X Y], afbc [on|off], pagealpha [on|off], vwin [off|idle|apps|claim|move|release], fallback [reason], quit")})
         }
     };
     Reply::Now(reply.to_string())

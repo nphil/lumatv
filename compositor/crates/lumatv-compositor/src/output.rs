@@ -139,6 +139,11 @@ pub trait Output {
         Err(io::Error::other("this output has no direct scan-out"))
     }
 
+    /// Switches whether a direct frame may carry the OLED care's orbit as the plane's position (`ctl scanout offset`).
+    fn set_scanout_offset(&mut self, _on: bool) -> io::Result<()> {
+        Err(io::Error::other("this output has no direct scan-out"))
+    }
+
     /// The pointer on the cursor plane (`pointer`): `Some(at)` shows it with its hotspot at `at` (output pixels), `None` takes it away. Returns
     /// whether the plane carries the pointer now; `false` (the default, and any output without the plane or whose plane failed) means the caller
     /// draws the sprite into the frame.

@@ -51,6 +51,8 @@ struct Knobs {
 #[derive(Default)]
 struct Log {
     frames: Vec<Frame>,
+    /// Where the plane put each direct frame (`Choice::at`).
+    places: Vec<(i32, i32)>,
     imports: Vec<(u32, u64)>,
     destroyed: Vec<u32>,
     acquires: u32,
@@ -141,7 +143,12 @@ impl Output for DirectOut {
             Ok(c) => Frame::Direct(c.fb),
             Err(r) => Frame::Composed(r.key().to_string()),
         };
-        self.knobs.log.lock().frames.push(frame);
+        let mut log = self.knobs.log.lock();
+        if let Ok(c) = &verdict {
+            log.places.push(c.at);
+        }
+        log.frames.push(frame);
+        drop(log);
         self.rendered = true;
         if took { Ok(RenderStats { items: plan.items.len(), ..Default::default() }) } else { self.inner.render(plan, surfaces) }
     }
@@ -195,17 +202,25 @@ impl Output for DirectOut {
         Ok(())
     }
 
+    fn set_scanout_offset(&mut self, on: bool) -> std::io::Result<()> {
+        self.scanout.set_offset(on);
+        Ok(())
+    }
+
     fn take_journal(&mut self) -> Vec<String> {
         self.scanout.take_journal()
     }
 }
 
 fn rig() -> (Server, Arc<Knobs>) {
+    rig_with(Policy { mode: Mode::Direct, ..Policy::default() })
+}
+
+fn rig_with(policy: Policy) -> (Server, Arc<Knobs>) {
     let knobs = Arc::new(Knobs::default());
     let k = knobs.clone();
     let server = Server::start_with(Box::new(move || {
-        let policy = Policy { mode: Mode::Direct, ..Policy::default() };
-        let scanout = Scanout::new(policy, meta::Registry::default());
+        let scanout = Scanout::new(policy.clone(), meta::Registry::default());
         Box::new(DirectOut {
             inner: Software::new(1920, 1080),
             scanout,
@@ -385,6 +400,73 @@ fn the_shells_home_as_a_linear_buffer_is_taken_and_in_the_clients_own_layout_it_
     let afbc = dmabuf(&mut client, &mali, (1920, 1080), 7680, fourcc::ABGR8888, modifier::AFBC_16X16_YTR_SPARSE_TILED);
     show(&mut client, &home.surface, &afbc);
     assert_eq!(frames(&knobs).last(), Some(&Frame::Composed("modifier".into())));
+}
+
+/// Home's buffers presented one after another while the OLED care's orbit walks one pixel a frame (a beat due at every frame rides on the
+/// frame drawn anyway): the care's offset at each frame, with what the output did.
+fn orbit_frames(server: &mut Server, client: &mut Client, mali: &MaliBufferSharing, home: &harness::Window, knobs: &Arc<Knobs>, n: usize) -> Vec<((i32, i32), Frame)> {
+    let mut out = Vec::new();
+    for _ in 0..n {
+        let buf = takeable(client, mali);
+        show(client, &home.surface, &buf);
+        let offset = server.eval(|s| s.scene.care.offset());
+        out.push((offset, frames(knobs).last().cloned().unwrap()));
+    }
+    out
+}
+
+#[test]
+fn the_cares_orbit_is_the_planes_position_right_or_down_of_the_origin_when_allowed_and_composes_the_frame_otherwise() {
+    let (mut server, knobs) = rig_with(Policy { mode: Mode::Direct, offset: true, ..Policy::default() });
+    let mut client = Client::connect(&mut server);
+    let mali: MaliBufferSharing = client.globals.bind(&client.qh, 5..=5, ()).unwrap();
+    let home = client.card("_WEBOS_WINDOW_TYPE_LUMATV_HOME", "LumaTV Home");
+    server.eval(|s| {
+        s.scene.care.settings.enabled = true;
+        s.scene.care.settings.radius = 1;
+        s.scene.care.settings.step_ns = 1;
+    });
+    // Radius 1: the ring's eight points, one pixel a beat, beginning top left; one and a half turns show every point under both rules.
+    let walked = orbit_frames(&mut server, &mut client, &mali, &home, &knobs, 14);
+    let seen: std::collections::BTreeSet<(i32, i32)> = walked.iter().map(|(o, _)| *o).collect();
+    assert!(seen.len() >= 8, "the orbit walked its ring: {walked:?}");
+    for (offset, frame) in &walked {
+        if offset.0 >= 0 && offset.1 >= 0 {
+            assert!(matches!(frame, Frame::Direct(_)), "at {offset:?}: the plane carries a shift right or down: {walked:?}");
+        } else {
+            assert_eq!(frame, &Frame::Composed("shifted".into()), "at {offset:?}: a shift up or left is never the plane's (its position is unsigned)");
+        }
+    }
+    // What the plane was told: the frames' places are the care's offsets, in order, for every direct frame.
+    let direct_offsets: Vec<(i32, i32)> = walked.iter().filter(|(_, f)| matches!(f, Frame::Direct(_))).map(|(o, _)| *o).collect();
+    assert_eq!(knobs.log.lock().places, direct_offsets);
+    assert!(direct_offsets.iter().any(|&o| o != (0, 0)), "a placed frame happened: {walked:?}");
+    let report = server.eval(|s| s.scanout_report());
+    assert_eq!(report["offset"]["on"], true);
+    assert!(report["offset"]["placedFrames"].as_u64() >= Some(1), "{report}");
+    assert!(report["refused"]["shifted"].as_u64() >= Some(1), "{report}");
+    let lines = journal(&server);
+    assert!(lines.iter().any(|l| l.starts_with("scanout: direct at (1, ")), "the place is told when it changes: {lines:?}");
+
+    // Switched off while running: the same orbit composes every shifted frame, and the plane is at the origin for the rest.
+    assert!(server.eval(|s| s.set_scanout_offset(false).is_ok()));
+    let places_before = knobs.log.lock().places.len();
+    let walked = orbit_frames(&mut server, &mut client, &mali, &home, &knobs, 10);
+    for (offset, frame) in &walked {
+        if *offset == (0, 0) {
+            assert!(matches!(frame, Frame::Direct(_)), "{walked:?}");
+        } else {
+            assert_eq!(frame, &Frame::Composed("shifted".into()), "at {offset:?}: {walked:?}");
+        }
+    }
+    assert!(knobs.log.lock().places[places_before..].iter().all(|&p| p == (0, 0)));
+    let report = server.eval(|s| s.scanout_report());
+    assert_eq!(report["offset"]["on"], false);
+
+    // The care off again: Home is back at the origin and direct, whatever the switch.
+    server.eval(|s| s.scene.care.settings.enabled = false);
+    let walked = orbit_frames(&mut server, &mut client, &mali, &home, &knobs, 2);
+    assert!(matches!(walked.last(), Some(((0, 0), Frame::Direct(_)))), "{walked:?}");
 }
 
 #[test]
@@ -596,7 +678,14 @@ fn a_capture_composes_every_frame_and_the_switch_works_at_run_time() {
     let status: serde_json::Value = serde_json::from_str(&server.eval(|s| control::handle(s, "status").text())).unwrap();
     assert_eq!(status["scanout"]["mode"], "direct");
     assert!(status["scanout"]["frames"]["direct"].as_u64() >= Some(2));
-    assert!(server.eval(|s| control::handle(s, "scanout sideways").text()).contains("scanout [off|direct|shell-env"));
+    assert!(server.eval(|s| control::handle(s, "scanout sideways").text()).contains("scanout [off|direct|offset on|off|shell-env"));
+    // The plane offset's switch over the socket: on, read back, a word it does not take, off.
+    let v: serde_json::Value = serde_json::from_str(&server.eval(|s| control::handle(s, "scanout offset on").text())).unwrap();
+    assert_eq!((v["ok"].as_bool(), v["scanout"]["offset"]["on"].as_bool()), (Some(true), Some(true)), "{v}");
+    assert!(server.eval(|s| s.config.scanout.offset));
+    assert!(server.eval(|s| control::handle(s, "scanout offset sideways").text()).contains("scanout offset on|off"));
+    let v: serde_json::Value = serde_json::from_str(&server.eval(|s| control::handle(s, "scanout offset off").text())).unwrap();
+    assert_eq!(v["scanout"]["offset"]["on"].as_bool(), Some(false), "{v}");
 
     // The shell client's extra environment: set, read back in the report, refused when it is not NAME=VALUE, cleared.
     let reply = server.eval(|s| control::handle(s, "scanout shell-env WAYLAND_AFBC=0 A=b=c").text());

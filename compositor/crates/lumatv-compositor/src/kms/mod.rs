@@ -809,11 +809,14 @@ impl Kms {
         // A composed page waits for the job that drew it, a window's own buffer for the job that sampled it (`Choice::acquired`).
         let waits = matches!(a.primary, Source::Page(_)) || (acquire && matches!(a.primary, Source::Direct(_)));
         let primary_fence = if waits { in_fence.as_ref().map(|f| f.as_raw_fd()) } else { None };
-        let primary_state = PlaneState { fb: primary_fb, dst: full };
+        // A direct frame the OLED care moved is placed by `CRTC_X/Y` (the driver writes them to the OSD header's position, never negative
+        // here: `scanout` refuses a shift up or left); its size and source stay the mode's, which the driver ignores for the OSD planes.
+        let dst = full.translated(a.at.0, a.at.1);
+        let primary_state = PlaneState { fb: primary_fb, dst };
         let mut new_state = self.state;
         // (a fence goes with the plane's properties, so a frame that waits sets them even when the framebuffer is the one already shown)
         if primary_state != self.state[0] || !self.modeset_done || primary_fence.is_some() {
-            set_plane(&mut req, &self.primary, self.crtc, primary_fb, full, full, primary_fence);
+            set_plane(&mut req, &self.primary, self.crtc, primary_fb, dst, full, primary_fence);
             new_state[0] = primary_state;
         }
         if let Some(ov) = &self.overlay {
@@ -1300,6 +1303,11 @@ impl Output for Kms {
         Ok(())
     }
 
+    fn set_scanout_offset(&mut self, on: bool) -> io::Result<()> {
+        self.scanout.set_offset(on);
+        Ok(())
+    }
+
     /// The pointer's thread is made on the first `plane` and ended by `gpu` (which takes the image off the screen); a refusal leaves the pointer in the
     /// frame and keeps the reason.
     fn set_pointer_mode(&mut self, mode: crate::pointer::Mode) -> io::Result<()> {
@@ -1456,7 +1464,7 @@ impl Output for Kms {
             let (mut drm, scanout) = self.split();
             scanout.choose(&mut drm, plan, capture)
         };
-        let direct = verdict.as_ref().ok().map(|c| c.fb);
+        let direct = verdict.as_ref().ok().map(|c| (c.fb, c.at));
         if direct.is_some() {
             // A composed frame retires the textures of buffers that died (`render_rects`); a run of direct frames must too.
             self.gl.prune(surfaces, &plan.items);

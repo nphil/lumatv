@@ -986,6 +986,13 @@ impl State {
         Ok(())
     }
 
+    /// `ctl scanout offset on|off`: whether a direct frame may carry the OLED care's orbit as the plane's position (`scanout::Policy::offset`).
+    pub fn set_scanout_offset(&mut self, on: bool) -> std::io::Result<()> {
+        self.output.set_scanout_offset(on)?;
+        self.config.scanout.offset = on;
+        Ok(())
+    }
+
     /// Outbound luna calls so far (what the bridge would have sent).
     pub fn luna_sent(&self) -> Vec<(String, serde_json::Value)> {
         self.luna.sent()

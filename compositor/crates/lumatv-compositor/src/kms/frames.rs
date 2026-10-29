@@ -96,9 +96,10 @@ impl Frames {
         }
     }
 
-    /// Draws the frame: `direct` is the sole full-screen window's framebuffer when the plane could take it. The UI engine takes the
-    /// app's commits in either way, and a direct frame carries its receipt as a composed one does.
-    pub fn draw(&mut self, gl: &mut Gl, plan: &Plan, surfaces: &Surfaces, direct: Option<u32>) -> io::Result<(Assignment, RenderStats)> {
+    /// Draws the frame: `direct` is the sole full-screen window's framebuffer when the plane could take it, with where the plane is to put it
+    /// (the OLED care's orbit, or the origin). The UI engine takes the app's commits in either way, and a direct frame carries its receipt as
+    /// a composed one does.
+    pub fn draw(&mut self, gl: &mut Gl, plan: &Plan, surfaces: &Surfaces, direct: Option<(u32, (i32, i32))>) -> io::Result<(Assignment, RenderStats)> {
         let mut tiles = plan.tiles.as_ref().cloned().unwrap_or_else(|| Tiles::new(self.width, self.height));
         tiles.add(&plan.damage);
         if gl.take_redraw_all() {
@@ -121,14 +122,14 @@ impl Frames {
         };
         let assignment = decide(&facts);
         let stats = match assignment {
-            Assignment { primary: Source::Direct(_), overlay: None } => {
+            Assignment { primary: Source::Direct(_), overlay: None, .. } => {
                 gl.skip_ui_frame()?;
                 gl.set_standin_source(None);
                 self.last_direct = true;
                 self.last_split = false;
                 RenderStats { items: plan.items.len(), ..Default::default() }
             }
-            Assignment { primary: Source::Direct(_), overlay: Some((Source::UiPage(page), _)) } => {
+            Assignment { primary: Source::Direct(_), overlay: Some((Source::UiPage(page), _)), .. } => {
                 if !std::mem::replace(&mut self.last_split, true) {
                     self.ui_ring.forget();
                 }

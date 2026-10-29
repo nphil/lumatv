@@ -99,11 +99,15 @@ pub struct Policy {
     /// Modifiers tried although the plane does not list them for the format (`--scanout-trust`): the experiment that shows whether the
     /// OSD decodes a client's layout. Never set in production.
     pub trust: Vec<u64>,
+    /// A direct frame may carry the OLED care's orbit as the primary plane's position (`CRTC_X/Y`, `--scanout-offset`): a window the care
+    /// moved right or down stays on the plane instead of being composed for the shift. A shift up or left is still composed: the driver
+    /// passes the position on unsigned, and what one output pixel of it is on the panel is not measured yet (`docs/research/layer-deep-result.md`).
+    pub offset: bool,
 }
 
 impl Default for Policy {
     fn default() -> Self {
-        Policy { mode: Mode::Off, acquire: Acquire::Sample, trust: Vec::new() }
+        Policy { mode: Mode::Off, acquire: Acquire::Sample, trust: Vec::new(), offset: false }
     }
 }
 
@@ -419,6 +423,8 @@ pub struct Choice {
     pub buffer: WlBuffer,
     /// The commit carries the acquire job's fence.
     pub acquired: bool,
+    /// Where the plane puts the picture: the OLED care's orbit, (0, 0) at the origin ([`Policy::offset`]).
+    pub at: (i32, i32),
 }
 
 /// What a frame put on the primary plane, as the display holds it.
@@ -476,6 +482,8 @@ pub struct Stats {
     pub transitions: u64,
     pub imports: u64,
     pub import_failures: u64,
+    /// Direct frames the plane carried off the origin ([`Policy::offset`]).
+    pub placed: u64,
 }
 
 pub struct Scanout {
@@ -488,6 +496,8 @@ pub struct Scanout {
     holds: Holds,
     state: Shown,
     last_direct: Option<(Candidate, u32)>,
+    /// Where the last direct frame was placed, for the journal line when it changes.
+    last_at: (i32, i32),
     last_refusal: Option<Refusal>,
     logged: HashSet<String>,
     journal: Vec<String>,
@@ -505,6 +515,7 @@ impl Scanout {
             holds: Holds::default(),
             state: Shown::Composed(None),
             last_direct: None,
+            last_at: (0, 0),
             last_refusal: None,
             logged: HashSet::new(),
             journal: Vec::new(),
@@ -528,6 +539,14 @@ impl Scanout {
         }
     }
 
+    /// Switches whether a direct frame may carry the OLED care's orbit as the plane's position (`ctl scanout offset on|off`).
+    pub fn set_offset(&mut self, on: bool) {
+        if on != self.policy.offset {
+            self.policy.offset = on;
+            self.journal.push(format!("scanout: plane offset {} (switch)", if on { "on" } else { "off" }));
+        }
+    }
+
     pub fn stats(&self) -> &Stats {
         &self.stats
     }
@@ -542,7 +561,12 @@ impl Scanout {
         if capture {
             return Err(Refusal::Capture);
         }
-        let item = plan.sole_candidate().map_err(Refusal::Plan)?;
+        // The care's orbit is the plane's position only right or down of the origin: the driver passes it on unsigned (`NotSole::Shifted`).
+        let (item, at) = match plan.sole_placed().map_err(Refusal::Plan)? {
+            (item, (0, 0)) => (item, (0, 0)),
+            (item, at) if self.policy.offset && at.0 >= 0 && at.1 >= 0 => (item, at),
+            _ => return Err(Refusal::Plan(NotSole::Shifted)),
+        };
         if !device.live() {
             return Err(Refusal::NoMode);
         }
@@ -591,7 +615,7 @@ impl Scanout {
             Acquire::Trust => false,
         };
         self.last_direct = Some((candidate, fb));
-        Ok(Choice { fb, id, buffer: item.buffer.clone(), acquired })
+        Ok(Choice { fb, id, buffer: item.buffer.clone(), acquired, at })
     }
 
     /// Remembers a refusal that is about the buffer.
@@ -627,11 +651,21 @@ impl Scanout {
         match refusal {
             None => {
                 self.stats.direct += 1;
+                let at = verdict.as_ref().map_or((0, 0), |c| c.at);
+                if at != (0, 0) {
+                    self.stats.placed += 1;
+                }
                 if self.state != Shown::Direct {
                     self.stats.transitions += 1;
                     let what = self.last_direct.as_ref().map(|(c, fb)| format!("{} as fb {fb}", c.text())).unwrap_or_default();
                     self.journal.push(format!("scanout: direct ({what})"));
                     self.state = Shown::Direct;
+                    self.last_at = (0, 0);
+                }
+                // Where the plane puts it: told when it changes (a beat of the care, or the window back at the origin).
+                if at != self.last_at {
+                    self.journal.push(format!("scanout: direct at ({}, {})", at.0, at.1));
+                    self.last_at = at;
                 }
             }
             Some(r) => {
@@ -763,6 +797,7 @@ impl Scanout {
             "mode": self.policy.mode.name(),
             "acquire": self.policy.acquire.name(),
             "trust": self.policy.trust.iter().map(|m| format!("0x{m:016x}")).collect::<Vec<_>>(),
+            "offset": {"on": self.policy.offset, "placedFrames": self.stats.placed, "lastAt": [self.last_at.0, self.last_at.1]},
             "frames": {"direct": self.stats.direct, "composed": self.stats.composed},
             "refused": self.stats.refused,
             "transitions": self.stats.transitions,

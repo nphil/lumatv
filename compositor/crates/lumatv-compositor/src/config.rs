@@ -208,6 +208,8 @@ pub const USAGE: &str = "lumatv-compositor [options]
                          the buffer and the commit carries that job's fence; none trusts the commit, for a measurement)
   --scanout-trust 0xMOD  try this modifier although the primary plane does not list it (repeatable): the experiment that shows whether the
                          OSD decodes a client's layout; never for production
+  --scanout-offset       let a direct frame carry the OLED care's orbit as the primary plane's position (CRTC_X/Y), so a shifted Home stays
+                         direct; shifts right or down only (default off; `ctl scanout offset on|off` switches it; docs/research/layer-deep-result.md)
   --scanout-probe        the off-screen proof: record every driver-served buffer's descriptor and PRIME-import it into the display driver
                          without taking master or showing anything (tools/tv-scanout-proof.sh; needs --buffers driver)
   --scanout-shell-env K=V  one more environment variable for the shell client (repeatable), the way to ask its window for a layout the plane takes
@@ -361,6 +363,7 @@ impl Config {
                     let m = u64::from_str_radix(v.trim_start_matches("0x"), 16).map_err(|_| format!("--scanout-trust takes a hex modifier, not {v}"))?;
                     c.scanout.trust.push(m);
                 }
+                "--scanout-offset" => c.scanout.offset = true,
                 "--scanout-probe" => c.scanout_probe = true,
                 "--scanout-shell-env" => {
                     let v = value()?;
@@ -487,6 +490,7 @@ mod tests {
                 "0x0800000000000151",
                 "--scanout-shell-env",
                 "WAYLAND_AFBC=0",
+                "--scanout-offset",
             ]
             .map(String::from),
         )
@@ -495,6 +499,7 @@ mod tests {
         assert_eq!(c.scanout.acquire, crate::scanout::Acquire::Trust);
         assert_eq!(c.scanout.trust, vec![0x0800_0000_0000_0151]);
         assert_eq!(c.scanout_shell_env, vec![("WAYLAND_AFBC".to_string(), "0".to_string())]);
+        assert!(c.scanout.offset);
         let direct_without_the_plane = ["--renderer", "gl", "--driver", "/x/libmali.so", "--scanout", "direct"].map(String::from);
         assert!(Config::parse(direct_without_the_plane).unwrap_err().contains("--renderer kms"));
         assert!(Config::parse(["--scanout", "on"].map(String::from)).is_err());

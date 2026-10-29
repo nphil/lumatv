@@ -234,8 +234,9 @@ pub struct Item {
     pub ghost: bool,
     /// An app window's picture (not the shell's, not the wallpaper's): the box dim's map applies to it while [`Plan::gain`] is on.
     pub gain: bool,
-    /// How far the OLED care moved `rect` from where the window places it (the app features' shift; (0, 0) otherwise): the box dim's sample
-    /// takes it away, so it reads the app's own picture and a shift is never a change of it.
+    /// How far the OLED care moved `rect` from where the window places it: the shell's orbit for its own screens, the app features' shift for
+    /// the card in front, (0, 0) otherwise. The box dim's sample takes it away, so it reads the app's own picture and a shift is never a
+    /// change of it; a plane that can be placed carries it instead of composing the frame ([`Plan::sole_placed`]).
     pub drift: (i32, i32),
     /// The surface asked for a buffer transform or a scale: the output draws the picture as it is (it applies neither), but a plane could not
     /// show it any other way either, so a window that did is never scanned out whole.
@@ -270,6 +271,9 @@ pub enum NotSole {
     Gain,
     /// The picture does not cover the output exactly.
     Geometry,
+    /// The picture covers the output but the OLED care's orbit has it off the origin, where the plane cannot put it: a shift up or left (its
+    /// position is unsigned), or any shift while the plane is not allowed to carry one (`--scanout-offset`).
+    Shifted,
     /// Neither the surface nor the buffer's format says the picture is opaque.
     Translucent,
     /// The surface asked for a buffer transform or a scale.
@@ -289,6 +293,7 @@ impl NotSole {
             NotSole::Dimmed => "dimmed",
             NotSole::Gain => "gain",
             NotSole::Geometry => "geometry",
+            NotSole::Shifted => "shifted",
             NotSole::Translucent => "translucent",
             NotSole::Transformed => "transformed",
         }
@@ -306,6 +311,7 @@ impl NotSole {
             NotSole::Dimmed => "the OLED care dims the picture".into(),
             NotSole::Gain => "the box dim's map is on".into(),
             NotSole::Geometry => "the window does not cover the output".into(),
+            NotSole::Shifted => "the OLED care's orbit has the window off the origin".into(),
             NotSole::Translucent => "the picture is not opaque".into(),
             NotSole::Transformed => "the surface has a buffer transform or scale".into(),
         }
@@ -344,12 +350,24 @@ impl Plan {
     /// cannot show is the error. Opacity is for the caller: the plan says whether the surface declared one, the buffer's own format may say it
     /// too ([`crate::scanout`]).
     pub fn sole_candidate(&self) -> Result<&Item, NotSole> {
+        match self.sole_placed()? {
+            (item, (0, 0)) => Ok(item),
+            _ => Err(NotSole::Shifted),
+        }
+    }
+
+    /// [`Plan::sole_candidate`] for a plane that can be placed: the window and where the OLED care's orbit has it, (0, 0) at the origin. The
+    /// picture is the output's size and sits exactly where the care moved it from the origin ([`Item::drift`]); a window placed anywhere else
+    /// by its own position is `Geometry`, as a plane cannot show it the way composition does. The sign is the caller's: the primary plane's
+    /// position is unsigned in the driver (`osd_hdr_xpos/ypos`, 12 bits), so a shift up or left is not for it.
+    pub fn sole_placed(&self) -> Result<(&Item, (i32, i32)), NotSole> {
         let full = Rect::new(0, 0, OUTPUT_WIDTH as i32, OUTPUT_HEIGHT as i32);
         let one = match self.items.as_slice() {
             [] => return Err(NotSole::Empty),
             [one] => one,
             many => return Err(NotSole::Layers(many.len())),
         };
+        let at = (one.rect.x, one.rect.y);
         if self.backdrop.is_some() {
             Err(NotSole::Switcher)
         } else if one.pose.is_some() {
@@ -362,12 +380,12 @@ impl Plan {
             Err(NotSole::Dimmed)
         } else if self.gain_on {
             Err(NotSole::Gain)
-        } else if one.rect != full {
+        } else if (one.rect.w, one.rect.h) != (full.w, full.h) || at != one.drift {
             Err(NotSole::Geometry)
         } else if one.xform {
             Err(NotSole::Transformed)
         } else {
-            Ok(one)
+            Ok((one, at))
         }
     }
 
@@ -1139,6 +1157,7 @@ impl Scene {
             } else if matches!(w.kind, WindowType::ShellHome | WindowType::ShellSystem) {
                 // LumaTV's own screens orbit and dim (`oledcare`); an app's card, the video under Home and the keyboard do not.
                 dim = dims[(w.kind == WindowType::ShellSystem) as usize];
+                drift = shift;
                 (w.position.0 + shift.0, w.position.1 + shift.1)
             } else {
                 w.position
