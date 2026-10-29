@@ -136,5 +136,5 @@ Jump to event: from 2:20 PM with events at 1:58, 2:12 and 2:31 PM, next is 2:31,
 
 ## Not built
 
-Every screen above. The existing QML surface (`panels/Cameras.qml`, `kit/CameraFrame.qml`) still draws the Home Assistant era's pop-up and viewer and reads two things the new topics change: `topic.live` (now per camera and in `cameras.live`),
-the pop-up's `at` in seconds (now milliseconds), and it draws text hints that the no-sentence rule removes. The first two are one-line fixes (`liveAvailable`, `tick()`) if the old surface must run against the Scrypted topics until the Rust screens replace it.
+Every screen above. Until they exist the old QML surface (`panels/Cameras.qml`, `kit/CameraFrame.qml`) draws the pop-up and a viewer of at most six tiles on the Scrypted topics: it gates live on `cameras.state` being
+`ready` and, over an app, on `theme.cameras.liveOverApps`, reads the pop-up's `at` in milliseconds and leaves out a label that only repeats the kind. It still draws text hints, which the no-sentence rule removes.

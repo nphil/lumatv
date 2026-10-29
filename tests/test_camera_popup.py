@@ -1,10 +1,12 @@
 """Run with: cd tests && python3 -m unittest test_camera_popup   (needs Xvfb and PyQt5; skipped without them)
 
 The camera pop-up and viewer (payload/compositor/lumatv/panels/Cameras.qml) in the overlay over Home and over an app, against the fake
-helper: a `cameras.popup` topic shows the card within a moment and its preview asks the helper for pictures of its own size; the card goes
-by itself at `untilMs`; Back dismisses it and tells the helper; OK expands it to the full view, which takes every key, goes to the grid and
-back; over an app the D-pad passes through a pop-up and is taken by the viewer; over Home the keys reach the surface through the bus; a
-pop-up waits while the host is busy and arrives when it is free; nothing asks for a picture once the surface is down.
+helper and the topics of the Scrypted design (docs/research/scrypted-cameras-design.md 3.4: `cameras` with a `state`, `cameras.popup` with times
+in milliseconds, `cameras.live`): a `cameras.popup` topic shows the card within a moment and its preview asks the helper for pictures of its own
+size; the card goes by itself at `untilMs`; Back dismisses it and tells the helper; OK expands it to the full view, which takes every key, goes to
+the grid and back; over an app the D-pad passes through a pop-up and is taken by the viewer; over Home the keys reach the surface through the bus; a
+pop-up waits while the host is busy and arrives when it is free; nothing asks for a picture once the surface is down; live video is asked for over
+Home while the link is `ready`, and over an app only when the theme says so.
 """
 import json
 import unittest
@@ -13,11 +15,18 @@ from test_settings import HostCase
 from xdisplay import DISPLAY, HAVE_QT
 
 READY = 7000                                      # Home has presented and built the chain; the overlay is warm
-CAMERAS = {"enabled": True, "paired": True, "port": 6054, "state": "connected", "detail": "", "entities": 3, "problem": None,
-           "popupKinds": ["person", "vehicle", "animal", "doorbell"], "popupSeconds": 12,
-           "cameras": [{"id": "camera.back_door", "name": "Back door", "area": None, "picture": True, "stream": False, "kinds": ["person", "vehicle"]},
-                       {"id": "camera.front_door", "name": "Front door", "area": "entry", "picture": True, "stream": False, "kinds": ["person", "vehicle", "doorbell"]},
-                       {"id": "camera.garden", "name": "Garden", "area": None, "picture": True, "stream": False, "kinds": ["animal"]}]}
+
+
+def camera(ident, name, room="", **extra):
+    doc = {"id": ident, "name": name, "room": room, "type": "camera", "online": True, "live": True, "recordings": True, "events": True, "clips": False,
+           "since": 0, "native": {"codec": "h264", "width": 1920, "height": 1080, "fps": 15}, "prebuffered": True}
+    doc.update(extra)
+    return doc
+
+
+# the `cameras` topic of the Scrypted helper: the cameras are already ordered and filtered by what Settings shows
+CAMERAS = {"state": "ready", "reason": "", "now_skew_ms": 0, "rev": 1,
+           "cameras": [camera("274", "Back Door"), camera("273", "Front Door", "Entry", type="doorbell"), camera("275", "Garden")]}
 # Qt's key codes, as the key filter hands them to the overlay and to Home
 OK, BACK, LEFT, RIGHT, DOWN = 0x01000004, 0x01000061, 0x01000012, 0x01000014, 0x01000015
 
@@ -27,12 +36,12 @@ def publish(topic, doc):
             "x.setRequestHeader('Content-Type','application/json'); x.send(JSON.stringify(d));" % (json.dumps(doc), topic))
 
 
-def popup(camera="camera.front_door", kind="person", lasts=12000, ident=1, label=None):
-    doc = {"id": ident, "camera": camera, "name": "Front door" if camera == "camera.front_door" else camera, "kind": kind, "label": label,
-           "at": 0, "source": "binary_sensor.x", "lastsMs": lasts, "untilMs": 0, "test": False}
-    # `at` and `untilMs` are set in the host's own clock
-    return ("var d=%s; d.at = Date.now() / 1000 - 5; d.untilMs = Date.now() + %d; var x=new XMLHttpRequest(); x.open('POST','http://127.0.0.1:18731/__publish/cameras.popup');"
-            "x.setRequestHeader('Content-Type','application/json'); x.send(JSON.stringify(d));" % (json.dumps(doc), lasts))
+def popup(camera="273", kind="person", lasts=12000, ident=1, label=None, age=5000):
+    doc = {"id": ident, "event": "e%d" % ident, "camera": camera, "name": "Front Door" if camera == "273" else camera, "kind": kind, "label": label,
+           "at": 0, "untilMs": 0, "seq": ident}
+    # `at` and `untilMs` are epoch milliseconds, set in the host's own clock
+    return ("var d=%s; d.at = Date.now() - %d; d.untilMs = Date.now() + %d; var x=new XMLHttpRequest(); x.open('POST','http://127.0.0.1:18731/__publish/cameras.popup');"
+            "x.setRequestHeader('Content-Type','application/json'); x.send(JSON.stringify(d));" % (json.dumps(doc), age, lasts))
 
 
 def frames():
@@ -47,6 +56,11 @@ STATE = ("JSON.stringify({mode: %s.mode, up: %s.up, wants: %s.wants, popupUp: %s
 
 def key(code):
     return "overlay.key(%d, true, false, 0); overlay.key(%d, false, false, 0);" % (code, code)
+
+
+def hkey(name):
+    """A key over Home, which reaches the surface through the bus (`root.keyAction`)."""
+    return "root.keyAction('%s');" % name
 
 
 @unittest.skipUnless(DISPLAY and HAVE_QT, "needs Xvfb and PyQt5")
@@ -68,14 +82,14 @@ class CameraPopup(HostCase):
                  (READY + 300, popup(lasts=4000)),
                  (READY + 2300, "var c = %s; console.info('[p1] ' + JSON.stringify({mode: c.mode, popupUp: c.popupUp, wants: c.wants, overlayWants: overlay.wants, "
                                "name: c.popup ? c.popup.name : '', what: c.kindWord(c.popup), ago: c.ago, "
-                               "shownAt: c.shownAt - (c.popup ? c.popup.untilMs - c.popup.lastsMs : 0), pad: c.padX, pw: c.previewW, ph: c.previewH}));" % C),
+                               "shownAt: c.shownAt - (c.popup ? c.popup.untilMs - 4000 : 0), pad: c.padX, pw: c.previewW, ph: c.previewH}));" % C),
                  (READY + 2800, frames() + "console.info('[f1] ' + JSON.stringify(frames));")]
         doc, out = self.run_overlay(steps, READY + 6000)
         p1 = self.tagged(out, "p1")[0]
         self.assertEqual(p1["mode"], "popup", out[-2000:])
         self.assertTrue(p1["popupUp"] and p1["overlayWants"], "the overlay takes OK and Back for the pop-up over an app")
         self.assertFalse(p1["wants"], "the surface asks for no other key")
-        self.assertEqual((p1["name"], p1["what"], p1["ago"]), ("Front door", "Person", "Just now"))
+        self.assertEqual((p1["name"], p1["what"], p1["ago"]), ("Front Door", "Person", "Just now"))
         # the host's clock, from the publish to the show: one long-poll wake. The bound is loose because the host's main thread can still be
         # building Home when the step runs; the helper's own event-to-pop-up time is held under a second by helper/app/tests/cameras.rs.
         self.assertLess(p1["shownAt"], 2000, "the card is up within a moment of the topic")
@@ -83,7 +97,7 @@ class CameraPopup(HostCase):
         self.assertEqual((p1["pw"], p1["ph"]), (520, 292))
         frames_asked = self.tagged(out, "f1")[0]
         self.assertTrue(frames_asked, "the preview asks the helper for pictures")
-        self.assertEqual(frames_asked[0], ["camera.front_door", 520, 292], "a picture of the preview's own size")
+        self.assertEqual(frames_asked[0], ["273", 520, 292], "a picture of the preview's own size")
         self.assertEqual(doc["mode"], "", "gone by itself at untilMs")
         self.assertFalse(doc["overlayWants"])
 
@@ -118,7 +132,7 @@ class CameraPopup(HostCase):
         o1 = self.tagged(out, "o1")[0]
         self.assertEqual(o1["mode"], "full")
         self.assertTrue(o1["wants"] and o1["overlayWants"], "the viewer takes every key")
-        self.assertEqual((o1["current"], o1["name"]), (1, "Front door"))
+        self.assertEqual((o1["current"], o1["name"]), (1, "Front Door"))
         self.assertEqual(self.tagged(out, "r1")[0]["current"], 0, "right twice from the second of three wraps to the first")
         g1 = self.tagged(out, "g1")[0]
         self.assertEqual((g1["mode"], g1["focus"], g1["cols"], g1["n"]), ("grid", 0, 2, 3))
@@ -161,28 +175,68 @@ class CameraPopup(HostCase):
         self.assertEqual(doc["mode"], "")
 
 
-    def test_the_full_view_asks_for_the_live_stream_opens_a_hole_while_it_plays_and_stops_it_on_close(self):
-        live = dict(CAMERAS, live=True)
-        steps = [(READY, publish("cameras", live)),
+    def test_over_home_the_full_view_asks_for_the_live_stream_opens_a_hole_while_it_plays_and_stops_it_on_close(self):
+        steps = [(READY, publish("cameras", CAMERAS)),
                  (READY + 300, popup()),
-                 (READY + 900, key(OK) + "console.info('[l1] ' + JSON.stringify({mode: %s.mode, asked: %s.liveAsked, hole: %s.hole, frame: %s.children.length > 0}));" % ((C,) * 4)),
-                 (READY + 1300, publish("cameras.live", {"camera": "camera.front_door", "state": "playing", "reason": "", "fed": 12, "dropped": 0, "pieceMs": 1000, "window": "_Window_Id_7", "since": 0})),
-                 (READY + 1900, "console.info('[l2] ' + JSON.stringify({hole: %s.hole, playing: %s.livePlaying}));" % (C, C) + key(RIGHT) +
+                 (READY + 900, hkey("ok") + "console.info('[l1] ' + JSON.stringify({mode: %s.mode, asked: %s.liveAsked, hole: %s.hole, frame: %s.children.length > 0}));" % ((C,) * 4)),
+                 (READY + 1300, publish("cameras.live", {"camera": "273", "mode": "live", "state": "playing", "reason": "", "codec": "h265", "width": 3840, "height": 2160, "fps": 15,
+                                                        "startedAt": 0, "positionMs": 0, "rate": 1, "paused": False, "fed": 12, "dropped": 0, "lost": 0, "delayMs": 4, "window": "card", "since": 0})),
+                 (READY + 1900, "console.info('[l2] ' + JSON.stringify({hole: %s.hole, playing: %s.livePlaying}));" % (C, C) + hkey("right") +
                                 "console.info('[l3] ' + JSON.stringify({asked: %s.liveAsked, hole: %s.hole, current: %s.current, id: %s.currentId, avail: %s.liveAvailable, mode: %s.mode}));" % ((C,) * 6)),
-                 (READY + 2300, key(BACK) + "console.info('[l4] ' + JSON.stringify({asked: %s.liveAsked, mode: %s.mode}));" % (C, C)),
+                 (READY + 2300, hkey("back") + "console.info('[l4] ' + JSON.stringify({asked: %s.liveAsked, mode: %s.mode}));" % (C, C)),
                  (READY + 2800, "var x=new XMLHttpRequest(); x.open('GET','http://127.0.0.1:18731/__posts', false); x.send(); console.info('[posts] ' + x.responseText);")]
-        doc, out = self.run_overlay(steps, READY + 3300)
+        doc, out = self.run_overlay(steps, READY + 3300, app=False)
         l1 = self.tagged(out, "l1")[0]
-        self.assertEqual((l1["mode"], l1["asked"], l1["hole"]), ("full", "camera.front_door", False), "asked for the stream, pictures until it plays")
+        self.assertEqual((l1["mode"], l1["asked"], l1["hole"]), ("full", "273", False), "asked for the stream, pictures until it plays")
         l2 = self.tagged(out, "l2")[0]
         self.assertTrue(l2["hole"] and l2["playing"], "the layer is a hole over the video plane while the stream plays")
         l3 = self.tagged(out, "l3")[0]
-        self.assertEqual((l3["asked"], l3["hole"]), ("camera.garden", False), "the next camera is asked for; the hole waits for its stream")
+        self.assertEqual((l3["asked"], l3["hole"]), ("275", False), "the next camera is asked for; the hole waits for its stream")
         l4 = self.tagged(out, "l4")[0]
         self.assertEqual((l4["asked"], l4["mode"]), ("", ""))
         posts = [p for p in self.tagged(out, "posts")[0]["posts"] if p[0].startswith("/v1/cameras/live")]
-        self.assertEqual(posts, [["/v1/cameras/live", {"camera": "camera.front_door"}], ["/v1/cameras/live", {"camera": "camera.garden"}], ["/v1/cameras/live/stop", {}]])
+        self.assertEqual(posts, [["/v1/cameras/live", {"camera": "273"}], ["/v1/cameras/live", {"camera": "275"}], ["/v1/cameras/live/stop", {}]])
         self.assertEqual(doc["mode"], "")
+
+    def test_over_an_app_the_full_view_is_pictures_only_and_asks_for_no_live_stream(self):
+        steps = [(READY, publish("cameras", CAMERAS)),
+                 (READY + 300, popup()),
+                 (READY + 900, key(OK) + "console.info('[a1] ' + JSON.stringify({mode: %s.mode, avail: %s.liveAvailable, asked: %s.liveAsked, hole: %s.hole}));" % ((C,) * 4)),
+                 (READY + 1500, frames() + "console.info('[f1] ' + JSON.stringify(frames));"),
+                 (READY + 1800, "var x=new XMLHttpRequest(); x.open('GET','http://127.0.0.1:18731/__posts', false); x.send(); console.info('[posts] ' + x.responseText);")]
+        doc, out = self.run_overlay(steps, READY + 2300)
+        a1 = self.tagged(out, "a1")[0]
+        self.assertEqual((a1["mode"], a1["avail"], a1["asked"], a1["hole"]), ("full", False, "", False), "an app is playing: the feeder's window over it is unmeasured")
+        self.assertTrue([f for f in self.tagged(out, "f1")[0] if f[0] == "273"], "the full view draws the camera's pictures")
+        posts = [p for p in self.tagged(out, "posts")[0]["posts"] if p[0].startswith("/v1/cameras/live")]
+        self.assertEqual(posts, [])
+
+    def test_over_an_app_live_is_asked_for_only_when_the_theme_offers_it(self):
+        offer = "root.theme = root.mergeDeep(root.theme, {cameras: {liveOverApps: true}});"
+        steps = [(READY, publish("cameras", CAMERAS) + offer),
+                 (READY + 300, popup()),
+                 (READY + 900, key(OK) + "console.info('[a1] ' + JSON.stringify({mode: %s.mode, avail: %s.liveAvailable, asked: %s.liveAsked}));" % ((C,) * 3))]
+        doc, out = self.run_overlay(steps, READY + 1500)
+        a1 = self.tagged(out, "a1")[0]
+        self.assertEqual((a1["mode"], a1["avail"], a1["asked"]), ("full", True, "273"))
+
+    def test_a_link_that_is_not_ready_asks_for_no_live_stream(self):
+        offline = dict(CAMERAS, state="offline", reason="Scrypted does not answer")
+        steps = [(READY, publish("cameras", offline)),
+                 (READY + 300, popup()),
+                 (READY + 900, hkey("ok") + "console.info('[o1] ' + JSON.stringify({mode: %s.mode, avail: %s.liveAvailable, asked: %s.liveAsked}));" % ((C,) * 3))]
+        doc, out = self.run_overlay(steps, READY + 1500, app=False)
+        o1 = self.tagged(out, "o1")[0]
+        self.assertEqual((o1["mode"], o1["avail"], o1["asked"]), ("full", False, ""))
+
+    def test_the_card_says_what_was_seen_without_repeating_the_class_and_how_long_ago_from_milliseconds(self):
+        steps = [(READY, publish("cameras", CAMERAS)),
+                 (READY + 300, popup(label="person", age=125000, lasts=20000)),
+                 (READY + 900, "var c = %s; console.info('[w1] ' + JSON.stringify({what: c.kindWord(c.popup), ago: c.ago}));" % C +
+                               "console.info('[w2] ' + JSON.stringify({animal: c.kindWord({kind: 'animal', label: 'Animal'}), named: c.kindWord({kind: 'animal', label: 'Domestic Cat'}), bell: c.kindWord({kind: 'doorbell', label: 'doorbell'})}));")]
+        doc, out = self.run_overlay(steps, READY + 1500)
+        self.assertEqual(self.tagged(out, "w1")[0], {"what": "Person", "ago": "2 min ago"})
+        self.assertEqual(self.tagged(out, "w2")[0], {"animal": "Animal", "named": "Animal \u00b7 Domestic Cat", "bell": "Doorbell rang"})
 
 
 if __name__ == "__main__":

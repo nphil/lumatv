@@ -23,9 +23,9 @@ ON = {"perf": {"syncResidents": True}, "overlays": {"enabled": True, "armMs": 30
 ROSTER = {"plugins": [{"id": "ha", "name": "Home Assistant", "version": "0.2.0", "class": "L", "state": "connected", "registered": True},
                       {"id": "sports", "name": "Scores", "version": "1", "class": "S", "state": "connected", "registered": True}],
           "firstParty": [], "problem": None}
-CAMERAS = {"enabled": True, "paired": True, "port": 6054, "state": "connected", "detail": "", "entities": 3, "problem": None,
-           "popupKinds": ["person", "doorbell"], "popupSeconds": 12,
-           "cameras": [{"id": "camera.front_door", "name": "Front door", "area": "entry", "picture": True, "stream": False, "kinds": ["person", "doorbell"]}]}
+CAMERAS = {"state": "ready", "reason": "", "now_skew_ms": 0, "rev": 1,
+           "cameras": [{"id": "273", "name": "Front Door", "room": "Entry", "type": "doorbell", "online": True, "live": True, "recordings": True, "events": True, "clips": False,
+                        "since": 0, "native": {"codec": "h264", "width": 1920, "height": 1080, "fps": 15}, "prebuffered": True}]}
 
 
 def rec(ident, title, body="", channel="ha", icon="base.icons/home", ctitle="Home Assistant", revision=1, actions=None, expires=None, **post):
@@ -45,9 +45,9 @@ def notes(plugin, *items):
     return publish("plugin.%s.notifications" % plugin, {"items": list(items)})
 
 
-def popup(camera="camera.front_door", kind="person", lasts=12000, ident=1):
-    doc = {"id": ident, "camera": camera, "name": "Front door", "kind": kind, "label": None, "at": 0, "source": "binary_sensor.x", "lastsMs": lasts, "untilMs": 0, "test": False}
-    return ("var d=%s; d.at = Date.now() / 1000 - 5; d.untilMs = Date.now() + %d; var x=new XMLHttpRequest(); x.open('POST','http://127.0.0.1:18731/__publish/cameras.popup');"
+def popup(camera="273", kind="person", lasts=12000, ident=1):
+    doc = {"id": ident, "event": "e%d" % ident, "camera": camera, "name": "Front Door", "kind": kind, "label": None, "at": 0, "untilMs": 0, "seq": ident}
+    return ("var d=%s; d.at = Date.now() - 5000; d.untilMs = Date.now() + %d; var x=new XMLHttpRequest(); x.open('POST','http://127.0.0.1:18731/__publish/cameras.popup');"
             "x.setRequestHeader('Content-Type','application/json'); x.send(JSON.stringify(d));" % (json.dumps(doc), lasts))
 
 

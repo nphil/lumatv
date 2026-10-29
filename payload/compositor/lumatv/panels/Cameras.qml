@@ -30,8 +30,9 @@ Item {
     readonly property var cameras: topic && topic.cameras ? topic.cameras : []
     readonly property int count: cameras.length
     // the live path (the helper's `cameras.live`): the full view's camera on the video plane through the feeder, this layer transparent
-    // over it (the hole) with its chrome above; until it plays, and wherever it is off or fails, the pictures stay
-    readonly property bool liveAvailable: !!topic && topic.live === true
+    // over it (the hole) with its chrome above; until it plays, and wherever it is off or fails, the pictures stay. Live is asked for while the link
+    // is `ready` and, over an app, only with theme `cameras.liveOverApps` (the feeder's window over a playing app is unmeasured, check C12)
+    readonly property bool liveAvailable: !!topic && topic.state === "ready" && (!appFront || (!!Lu.theme.cameras && Lu.theme.cameras.liveOverApps === true))
     readonly property var liveTopic: Helper.topics["cameras.live"] || null
     readonly property string currentId: current >= 0 && current < count ? cameras[current].id : ""
     readonly property bool livePlaying: mode === "full" && !!liveTopic && liveTopic.state === "playing" && liveTopic.camera === currentId
@@ -185,12 +186,12 @@ Item {
         if (!p) return ""
         var w = kindWords[p.kind] || p.kind
         if (p.kind === "doorbell") return "Doorbell rang"
-        return p.label ? w + " \u00b7 " + p.label : w
+        return p.label && String(p.label).toLowerCase() !== p.kind ? w + " \u00b7 " + p.label : w
     }
     property string ago: ""
     function tick() {
         if (!popup) { ago = ""; return }
-        var s = Math.max(0, Math.round(Date.now() / 1000 - popup.at))
+        var s = Math.max(0, Math.round((Date.now() - popup.at) / 1000))
         ago = s < 60 ? "Just now" : Math.round(s / 60) + " min ago"
     }
     Timer { interval: 30000; repeat: true; running: cams.popupUp; onTriggered: cams.tick() }

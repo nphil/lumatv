@@ -22,9 +22,9 @@ ROSTER = {"plugins": [{"id": "ha", "name": "Home Assistant", "version": "0.2.0",
                       {"id": "scores", "name": "Scores", "version": "1", "class": "S", "state": "connected", "registered": True},
                       {"id": "clock", "name": "Timers", "version": "1", "class": "S", "state": "connected", "registered": True}],
           "firstParty": [], "problem": None}
-CAMERAS = {"enabled": True, "paired": True, "port": 6054, "state": "connected", "detail": "", "entities": 3, "problem": None,
-           "popupKinds": ["person", "doorbell"], "popupSeconds": 12,
-           "cameras": [{"id": "camera.front_door", "name": "Front door", "area": "entry", "picture": True, "stream": False, "kinds": ["person", "doorbell"]}]}
+CAMERAS = {"state": "ready", "reason": "", "now_skew_ms": 0, "rev": 1,
+           "cameras": [{"id": "273", "name": "Front Door", "room": "Entry", "type": "doorbell", "online": True, "live": True, "recordings": True, "events": True, "clips": False,
+                        "since": 0, "native": {"codec": "h264", "width": 1920, "height": 1080, "fps": 15}, "prebuffered": True}]}
 SCORE = {"league": "NBA", "status": "Q4 2:31", "live": True, "home": {"name": "Celtics", "abbr": "BOS", "score": 99}, "away": {"name": "Lakers", "abbr": "LAL", "score": 102}}
 
 
@@ -47,8 +47,8 @@ def notes(at, plugin, *items):
 
 
 def popup_at(at):
-    doc = {"id": 1, "camera": "camera.front_door", "name": "Front door", "kind": "doorbell", "label": None, "at": 0, "source": "binary_sensor.x", "lastsMs": 30000, "untilMs": 0, "test": False}
-    return (at, "(function(){var d=%s; d.at = Date.now() / 1000 - 5; d.untilMs = Date.now() + 30000; var x=new XMLHttpRequest(); x.open('POST','http://127.0.0.1:18731/__publish/cameras.popup');"
+    doc = {"id": 1, "event": "e1", "camera": "273", "name": "Front Door", "kind": "doorbell", "label": None, "at": 0, "untilMs": 0, "seq": 1}
+    return (at, "(function(){var d=%s; d.at = Date.now() - 5000; d.untilMs = Date.now() + 30000; var x=new XMLHttpRequest(); x.open('POST','http://127.0.0.1:18731/__publish/cameras.popup');"
                 "x.setRequestHeader('Content-Type','application/json'); x.send(JSON.stringify(d)); return 1})()" % json.dumps(doc))
 
 
