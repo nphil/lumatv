@@ -1,9 +1,36 @@
 //! What several pages ask the TV the same way: whether it has an ATSC 3.0 tuner, the panel's hours, a row that waits for another.
 
+use crate::host::inputs::Inputs;
+use crate::host::net::Net;
 use crate::settings::ctx::Ctx;
 use crate::settings::page::Read;
-use crate::settings::row::Row;
+use crate::settings::row::{Op, PageArg, Row};
 use serde_json::{Value, json};
+
+/// Opens another page (`host.openPage(id)`).
+pub fn go(page: &str) -> Vec<Op> {
+    vec![Op::Open { page: page.into(), arg: PageArg::None }]
+}
+
+/// The TV's inputs, subscribed once (`Inputs.refresh()`): the page keeps the answer as the document `inputs`.
+pub fn inputs_read() -> Read {
+    Read::Watch { name: "inputs", uri: crate::host::inputs::EIM, payload: json!({}) }
+}
+
+/// The inputs as the external input manager lists them, with the app in front (`Inputs.list`, `Inputs.current`).
+pub fn inputs(c: &Ctx) -> Inputs {
+    let mut i = Inputs::new();
+    i.parse(c.docs.get("inputs"));
+    i.foreground = c.topics.channel("foreground").and_then(|f| f.get("app")).and_then(Value::as_str).unwrap_or("").to_string();
+    i
+}
+
+/// The network as the connection manager says it (`kit/Net.qml`); the model keeps that subscription while Settings is open.
+pub fn net(c: &Ctx) -> Net {
+    let mut n = Net::new();
+    n.parse(c.docs.get("net"));
+    n
+}
 
 /// The config `system.supportATSC3tuner` (`settings/Atsc3.qml`): LG's NEXTGEN TV rows are on show only where it is true.
 pub fn atsc3_read() -> Read {

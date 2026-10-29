@@ -397,6 +397,7 @@ impl Model {
     pub fn close(&mut self, now: u64) -> Vec<Effect> {
         self.now = now;
         let mut out = Vec::new();
+        self.leave(now, &mut out);
         self.open = false;
         self.sheet = None;
         self.timers.clear();
@@ -410,6 +411,13 @@ impl Model {
         out
     }
 
+    /// The page in front is left: what it said to do then (stop a search, let go of a subscription) is done.
+    fn leave(&mut self, now: u64, out: &mut Vec<Effect>) {
+        let Some((id, title, f)) = self.page(&self.current).and_then(|p| p.closed.map(|f| (p.id, p.title, f))) else { return };
+        let ops = f(&self.ctx(id, title, &self.arg));
+        self.apply(ops, now, out);
+    }
+
     /// Comes to a page from outside (a tile of the quick panel, a card of Home): its section is the one on the rail and the page has
     /// the focus. An id this Settings has no page for leaves it where it was.
     fn go_to(&mut self, id: &str, now: u64, out: &mut Vec<Effect>) {
@@ -417,6 +425,9 @@ impl Model {
         let parent = page.parent.unwrap_or(page.id);
         if let Some(i) = self.sections.iter().position(|s| self.pages[*s].id == parent) {
             self.rail_index = i;
+        }
+        if self.current != id {
+            self.leave(now, out);
         }
         self.trail.clear();
         self.current = id.to_string();
@@ -783,6 +794,7 @@ impl Model {
         self.rail_index = i;
         self.trail.clear();
         if i < self.sections.len() {
+            self.leave(now, out);
             self.current = self.pages[self.sections[i]].id.to_string();
             self.arg = PageArg::None;
             let id = self.current.clone();
@@ -1048,6 +1060,9 @@ impl Model {
             self.trail.truncate(at);
         } else if self.current != id {
             self.trail.push(self.current.clone());
+        }
+        if self.current != id {
+            self.leave(now, out);
         }
         self.current = id.to_string();
         self.arg = arg;

@@ -38,7 +38,7 @@ fn reads(_: &Ctx) -> Vec<Read> {
         Read::call("device", "luna://com.palm.systemservice/deviceInfo/query", json!({"parameters": ["product_id", "serial_number"]})),
         Read::call("os", "luna://com.palm.systemservice/osInfo/query", json!({"parameters": ["core_os_release", "core_os_release_codename"]})),
         Read::call("storage", "luna://com.webos.service.attachedstoragemanager/getProperties", json!({"deviceId": "INTERNAL_STORAGE"})),
-        Read::call("net", "luna://com.webos.service.connectionmanager/getinfo", json!({})),
+        Read::call("netinfo", "luna://com.webos.service.connectionmanager/getinfo", json!({})),
         Read::call("dolby", "luna://com.webos.service.pqcontroller/getInfo", json!({"key": "dolbySWVersion"})),
         Read::call("keys", "luna://com.webos.service.sm/crypto/checkSeStore", json!({"id": ["esn", "widevine"]})),
         Read::call("update", "luna://com.webos.service.update/getStatus", json!({})),
@@ -256,11 +256,11 @@ fn rows(c: &Ctx) -> Vec<Row> {
     hours.visible = panel_shown(c);
     rows.push(hours);
     rows.push(info(0, "hard-drive", "Available Internal Storage", &storage(c)));
-    let wired = text(doc(c, "net").get("wiredInfo").unwrap_or(&Value::Null), "macAddress");
+    let wired = text(doc(c, "netinfo").get("wiredInfo").unwrap_or(&Value::Null), "macAddress");
     let mut wired_row = info(0, "ethernet-port", "MAC Address (Wired)", &wired);
     wired_row.visible = !wired.is_empty();
     rows.push(wired_row);
-    rows.push(info(0, "wifi", "MAC Address (Wireless)", &text(doc(c, "net").get("wifiInfo").unwrap_or(&Value::Null), "macAddress")));
+    rows.push(info(0, "wifi", "MAC Address (Wireless)", &text(doc(c, "netinfo").get("wifiInfo").unwrap_or(&Value::Null), "macAddress")));
     rows.push(info(0, "key-round", "ESN", &key_of(c, "esn")));
     let mut vsn = info(0, "hash", "VSN", &c.lg.opt_text("option.vsn").unwrap_or_default());
     vsn.visible = c.lg.shown("option.vsn");
@@ -647,7 +647,7 @@ mod tests {
         w.docs.set("device", json!({"returnValue": true, "product_id": "OLED65G2PUA.AUSQLJR", "serial_number": "S123"}));
         w.docs.set("os", json!({"returnValue": true, "core_os_release": "7.1.2"}));
         w.docs.set("storage", json!({"returnValue": true, "totalSpace": 6144.0, "freeSpace": 2048.0}));
-        w.docs.set("net", json!({"returnValue": true, "wiredInfo": {"macAddress": ""}, "wifiInfo": {"macAddress": "aa:bb"}, "isInternetConnectionAvailable": true}));
+        w.docs.set("netinfo", json!({"returnValue": true, "wiredInfo": {"macAddress": ""}, "wifiInfo": {"macAddress": "aa:bb"}, "isInternetConnectionAvailable": true}));
         w.docs.set("keys", json!({"keyStatusList": [{"id": "esn", "isOk": true, "identifier": "E-1"}, {"id": "widevine", "isOk": false, "identifier": "W-1"}]}));
         w.docs.set("update", json!({"status": "paused"}));
         w

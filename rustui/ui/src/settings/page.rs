@@ -91,6 +91,8 @@ pub struct Page {
     pub figure: Option<Figures>,
     pub answered: Option<Answered>,
     pub opened: Option<Opened>,
+    /// What a page does when it is left (stops a search, lets go of a subscription): the QML pages' `onVisibleChanged`.
+    pub closed: Option<Opened>,
     /// Whether the rail shows the summary without the page having been opened (the rail's live line).
     pub warm: bool,
 }
@@ -115,6 +117,7 @@ impl Page {
             figure: None,
             answered: None,
             opened: None,
+            closed: None,
             warm: false,
         }
     }
@@ -182,6 +185,11 @@ impl Page {
 
     pub fn answered(mut self, answered: Answered) -> Self {
         self.answered = Some(answered);
+        self
+    }
+
+    pub fn closed(mut self, closed: Opened) -> Self {
+        self.closed = Some(closed);
         self
     }
 

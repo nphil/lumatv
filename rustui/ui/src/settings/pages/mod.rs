@@ -11,11 +11,43 @@ pub mod picture;
 pub mod privacy;
 pub mod profiles;
 pub mod saver;
+pub mod sound;
 pub mod support;
 pub mod system;
 pub mod util;
 
-/// Every page, the rail's sections first.
+/// Every page: the rail's sections in the rail's order (Privacy and Profiles first, then LG's order), then the pages that hang under one.
 pub fn all() -> Vec<Page> {
-    vec![privacy::page(), profiles::page(), home::page(), privacy::held(), profiles::person(), profiles::avatars(), home::popups(), saver::page(), system::page(), system::clock(), system::timer_on(), system::timer_off(), language::page(), access::safety(), access::audio_guide(), access::audio_options(), access::emergency(), access::captions(), support::page(), support::delete_data(), support::permissions(), capture::page(), picture::page(), picture::fine_tune(), picture::white_balance(), picture::signalling()]
+    vec![
+        privacy::page(),
+        profiles::page(),
+        picture::page(),
+        sound::page(),
+        home::page(),
+        system::page(),
+        privacy::held(),
+        profiles::person(),
+        profiles::avatars(),
+        home::popups(),
+        saver::page(),
+        system::clock(),
+        system::timer_on(),
+        system::timer_off(),
+        language::page(),
+        access::safety(),
+        access::audio_guide(),
+        access::audio_options(),
+        access::emergency(),
+        access::captions(),
+        support::page(),
+        support::delete_data(),
+        support::permissions(),
+        capture::page(),
+        picture::fine_tune(),
+        picture::white_balance(),
+        picture::signalling(),
+        sound::equalizer(),
+        sound::hdmi_audio(),
+        sound::usb(),
+    ]
 }
