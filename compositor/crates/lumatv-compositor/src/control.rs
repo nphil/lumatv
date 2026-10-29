@@ -43,6 +43,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             "pointer": {"x": state.seat.pointer_position.0, "y": state.seat.pointer_position.1, "visible": state.seat.cursor_visible, "focus": state.seat.pointer_focus.map(|s| s.0), "motions": state.seat.motions, "lastInput": state.seat.last_input},
             "lastCapture": state.last_capture,
             "oledcare": oledcare,
+            "scanout": state.scanout_report(),
             })
         }
         "windows" => {
@@ -286,6 +287,35 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
                 None => json!({"ok": false, "error": "refresh [60|120|reset]"}),
             },
         },
+        // Direct scan-out of a full-screen client buffer (`scanout`, docs/research/scanout-research.md): `scanout` reads the counters (direct and
+        // composed frames, the reason of each composed one, the last frame's state, the protocol tap and the off-screen proof), `scanout off|direct`
+        // switches it for a TV check (the screen is redrawn through the new path in the next frame), `scanout shell-env NAME=VALUE...|none` sets the
+        // environment the shell client is started with beyond its own, for the next `ctl shell restart` (what asks its window for buffers the plane takes).
+        "scanout" => match words.next() {
+            None => json!({"ok": true, "scanout": state.scanout_report()}),
+            Some("shell-env") => {
+                let given: Vec<&str> = words.collect();
+                let parsed: Option<Vec<(String, String)>> =
+                    given.iter().map(|w| w.split_once('=').filter(|(k, _)| !k.is_empty()).map(|(k, v)| (k.to_string(), v.to_string()))).collect();
+                match (given.as_slice(), parsed) {
+                    ([], _) => {}
+                    (["none"], _) => state.config.scanout_shell_env.clear(),
+                    (_, Some(env)) => state.config.scanout_shell_env = env,
+                    (_, None) => return Reply::Now(json!({"ok": false, "error": "scanout shell-env NAME=VALUE... | none"}).to_string()),
+                }
+                json!({"ok": true, "scanout": state.scanout_report(), "note": "the shell client takes it at its next start (ctl shell restart)"})
+            }
+            Some(w) => match crate::scanout::Mode::parse(w) {
+                Some(mode) => match state.set_scanout(mode) {
+                    Ok(()) => {
+                        state.scene.redraw_all();
+                        json!({"ok": true, "scanout": state.scanout_report()})
+                    }
+                    Err(e) => json!({"ok": false, "error": format!("scanout {w}: {e}"), "scanout": state.scanout_report()}),
+                },
+                None => json!({"ok": false, "error": "scanout [off|direct|shell-env NAME=VALUE...|none]"}),
+            },
+        },
         "quit" => {
             state.should_exit = true;
             json!({"ok": true})
@@ -299,7 +329,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
         }
         "" => json!({"ok": false, "error": "empty command"}),
         other => {
-            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, screencap [status|shot|record start|record stop], key CODE, remote CODE, pointer X Y, click, sched mali fifo|other, callbacks shell early|landing, mem, wake [reset|probe start|probe stop], ring [N], idle [MS], refresh [60|120], fallback [reason], quit")})
+            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, screencap [status|shot|record start|record stop], key CODE, remote CODE, pointer X Y, click, sched mali fifo|other, callbacks shell early|landing, mem, wake [reset|probe start|probe stop], ring [N], idle [MS], refresh [60|120], scanout [off|direct], fallback [reason], quit")})
         }
     };
     Reply::Now(reply.to_string())

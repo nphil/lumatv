@@ -123,6 +123,17 @@ fn run(config: Config) -> io::Result<()> {
     let wl_display_ptr: Option<*mut std::ffi::c_void> = Some(dh.backend_handle().display_ptr() as *mut std::ffi::c_void);
     #[cfg(not(target_arch = "aarch64"))]
     let wl_display_ptr: Option<*mut std::ffi::c_void> = None;
+    // The descriptors of the buffers the driver serves (`scanout::tap`): the tap is on while direct scan-out or its off-screen proof is asked for,
+    // and not otherwise, so a compositor run without them has no more in its message path than before (`ctl scanout direct` puts it on later).
+    let scanout_meta = lumatv_compositor::scanout::meta::Registry::default();
+    let scanout_tap = if config.scanout.mode == lumatv_compositor::scanout::Mode::Direct || config.scanout_probe {
+        lumatv_compositor::scanout::tap::Tap::install(wl_display_ptr, &scanout_meta)
+    } else {
+        lumatv_compositor::scanout::tap::Tap::off()
+    };
+    if config.scanout.mode == lumatv_compositor::scanout::Mode::Direct || config.scanout_probe {
+        log::info!("scanout: switch {}, acquire {}, protocol tap {}", config.scanout.mode.name(), config.scanout.acquire.name(), scanout_tap.status().report());
+    }
 
     #[cfg(feature = "ui")]
     let mut ui_demo = None;
@@ -150,7 +161,8 @@ fn run(config: Config) -> io::Result<()> {
         }
         RendererKind::Kms => {
             let gl = make_gl()?;
-            Box::new(lumatv_compositor::kms::Kms::open(&config.card, gl, config.width, config.height)?)
+            let scanout = lumatv_compositor::scanout::Scanout::new(config.scanout.clone(), scanout_meta.clone());
+            Box::new(lumatv_compositor::kms::Kms::open(&config.card, gl, config.width, config.height, scanout)?)
         }
     };
     let own_mali = config.renderer == RendererKind::Software || config.buffers == BufferPath::Own;
@@ -169,6 +181,12 @@ fn run(config: Config) -> io::Result<()> {
     let mut state = State::new(dh, config.clone(), output, luna);
     if state.luna.is_connected() {
         state.luna_register();
+    }
+    state.tap = scanout_tap;
+    state.meta = scanout_meta;
+    state.wl_display = wl_display_ptr;
+    if config.scanout_probe {
+        state.probe = Some(lumatv_compositor::scanout::probe::Probe::open(&config.card));
     }
     // `--refresh 120`: the output is asked once it exists; a refusal (no divider on this kernel) keeps the default, and says so.
     if config.refresh_hz != lumatv_compositor::refresh::DEFAULT_HZ {
@@ -496,6 +514,11 @@ fn run(config: Config) -> io::Result<()> {
     }
     display.flush_clients()?;
     state.pngs.finish();
+    state.probe_poll();
+    if let Some(p) = &state.probe {
+        log::info!("{}", p.summary());
+        println!("{}", p.summary());
+    }
     log::info!("summary: {}", state.summary());
     println!("summary: {}", state.summary());
     if let Some(l) = control_listener {

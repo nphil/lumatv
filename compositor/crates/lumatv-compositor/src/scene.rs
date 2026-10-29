@@ -232,12 +232,78 @@ pub struct Item {
     pub ghost: bool,
     /// An app window's picture (not the shell's, not the wallpaper's): the box dim's map applies to it while [`Plan::gain`] is on.
     pub gain: bool,
+    /// The surface asked for a buffer transform or a scale: the output draws the picture as it is (it applies neither), but a plane could not
+    /// show it any other way either, so a window that did is never scanned out whole.
+    pub xform: bool,
 }
 
 impl Item {
     /// The pixels this item is drawn on: `rect`, or what its pose moves it to.
     pub fn drawn_rect(&self) -> Rect {
         self.pose.map_or(self.rect, |p| p.bounds())
+    }
+}
+
+/// Why a plan is not one window the plane could take whole: the first thing it has that a scan-out cannot show ([`Plan::sole_candidate`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NotSole {
+    /// No window to show.
+    Empty,
+    /// More than one picture: a system layer, a keyboard, a member over or under the card, the wallpaper's window.
+    Layers(usize),
+    /// The app switcher's scrim and pictures are drawn over the windows.
+    Switcher,
+    /// A window is in a transition (drawn through a pose).
+    Transition,
+    /// The pointer's sprite is drawn over the windows.
+    Cursor,
+    /// A hole for the video plane, or a window that has exported video and expects one.
+    Video,
+    /// The OLED care dims the picture.
+    Dimmed,
+    /// The box dim's map multiplies the picture.
+    Gain,
+    /// The picture does not cover the output exactly.
+    Geometry,
+    /// Neither the surface nor the buffer's format says the picture is opaque.
+    Translucent,
+    /// The surface asked for a buffer transform or a scale.
+    Transformed,
+}
+
+impl NotSole {
+    /// A short name, the key of the counters on the control socket.
+    pub fn key(self) -> &'static str {
+        match self {
+            NotSole::Empty => "empty",
+            NotSole::Layers(_) => "layers",
+            NotSole::Switcher => "switcher",
+            NotSole::Transition => "transition",
+            NotSole::Cursor => "cursor",
+            NotSole::Video => "video",
+            NotSole::Dimmed => "dimmed",
+            NotSole::Gain => "gain",
+            NotSole::Geometry => "geometry",
+            NotSole::Translucent => "translucent",
+            NotSole::Transformed => "transformed",
+        }
+    }
+
+    /// What it says in the journal.
+    pub fn text(self) -> String {
+        match self {
+            NotSole::Empty => "no window".into(),
+            NotSole::Layers(n) => format!("{n} pictures on the screen (a system layer, keyboard or member over the window)"),
+            NotSole::Switcher => "the app switcher is open".into(),
+            NotSole::Transition => "a window is moving (transition)".into(),
+            NotSole::Cursor => "the pointer shows".into(),
+            NotSole::Video => "a video hole or a window expecting one".into(),
+            NotSole::Dimmed => "the OLED care dims the picture".into(),
+            NotSole::Gain => "the box dim's map is on".into(),
+            NotSole::Geometry => "the window does not cover the output".into(),
+            NotSole::Translucent => "the picture is not opaque".into(),
+            NotSole::Transformed => "the surface has a buffer transform or scale".into(),
+        }
     }
 }
 
@@ -263,28 +329,46 @@ pub struct Plan {
     pub gain: crate::boxdim::GainMap,
     pub gain_on: bool,
     pub gain_serial: u64,
+    /// A window of the plan has exported a video element (it has a hole or expects one): its picture shares the screen with the video plane.
+    pub video: bool,
 }
 
 impl Plan {
-    /// The C3 direct scan-out hook: the single opaque item that covers the output with nothing above or below
-    /// it, if there is one.
-    pub fn sole_fullscreen(&self) -> Option<&Item> {
+    /// The window the plane could take whole, if the plan is one: a single picture that covers the output exactly, nothing drawn above or
+    /// below it (no layer, hole, pointer, switcher, pose, dim or gain map), whatever its opacity. The first thing the plan has that a scan-out
+    /// cannot show is the error. Opacity is for the caller: the plan says whether the surface declared one, the buffer's own format may say it
+    /// too ([`crate::scanout`]).
+    pub fn sole_candidate(&self) -> Result<&Item, NotSole> {
         let full = Rect::new(0, 0, OUTPUT_WIDTH as i32, OUTPUT_HEIGHT as i32);
-        match self.items.as_slice() {
-            [one]
-                if one.opaque
-                    && one.rect == full
-                    && one.dim == 1.0
-                    && one.pose.is_none()
-                    && !self.gain_on
-                    && self.holes.is_empty()
-                    && self.cursor.is_none()
-                    && self.backdrop.is_none() =>
-            {
-                Some(one)
-            }
-            _ => None,
+        let one = match self.items.as_slice() {
+            [] => return Err(NotSole::Empty),
+            [one] => one,
+            many => return Err(NotSole::Layers(many.len())),
+        };
+        if self.backdrop.is_some() {
+            Err(NotSole::Switcher)
+        } else if one.pose.is_some() {
+            Err(NotSole::Transition)
+        } else if self.cursor.is_some() {
+            Err(NotSole::Cursor)
+        } else if !self.holes.is_empty() || self.video {
+            Err(NotSole::Video)
+        } else if one.dim != 1.0 {
+            Err(NotSole::Dimmed)
+        } else if self.gain_on {
+            Err(NotSole::Gain)
+        } else if one.rect != full {
+            Err(NotSole::Geometry)
+        } else if one.xform {
+            Err(NotSole::Transformed)
+        } else {
+            Ok(one)
         }
+    }
+
+    /// [`Plan::sole_candidate`] when the surface declared the picture opaque.
+    pub fn sole_fullscreen(&self) -> Option<&Item> {
+        self.sole_candidate().ok().filter(|i| i.opaque)
     }
 
     pub fn item_damage(&self, item: &Item) -> Option<&[Rect]> {
@@ -304,6 +388,7 @@ impl Plan {
         self.damage = Rect::default();
         self.cursor = None;
         self.content_ns = None;
+        self.video = false;
         if let Some(t) = &mut self.tiles {
             t.clear();
         }
@@ -823,6 +908,7 @@ impl Scene {
             pose: Some(posed),
             ghost: true,
             gain: false,
+            xform: false,
         });
     }
 
@@ -1018,6 +1104,7 @@ impl Scene {
                         pose: None,
                         ghost: true,
                         gain: false,
+                        xform: false,
                     });
                 }
                 continue;
@@ -1076,6 +1163,7 @@ impl Scene {
                 w.commits_drawn = w.commits;
             }
         }
+        self.plan.video = self.plan.items.iter().any(|i| self.video.contains(&i.surface));
         for h in &self.holes {
             let Some(before) = self.plan.items.iter().position(|i| i.surface == h.surface) else { continue };
             let item = &self.plan.items[before];
@@ -1331,7 +1419,8 @@ impl Scene {
             if let Some(c) = s.current.content_ns {
                 self.plan.content_ns = Some(self.plan.content_ns.map_or(c, |p| p.min(c)));
             }
-            self.plan.items.push(Item { window, surface: sid, buffer, rect, damage, opaque, y_invert, dim, pose: posed, ghost, gain });
+            let xform = s.current.transform != 0 || s.current.scale != 1;
+            self.plan.items.push(Item { window, surface: sid, buffer, rect, damage, opaque, y_invert, dim, pose: posed, ghost, gain, xform });
         }
     }
 }

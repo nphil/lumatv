@@ -122,6 +122,28 @@ pub trait Output {
     /// re-attach the same buffers every few frames.
     fn forget_buffer(&mut self, buffer: &WlBuffer);
 
+    /// Whether the display reads `buffer`, or will once a frame already drawn is committed (direct scan-out): the client may not draw into it,
+    /// so it is not released to it, until a later frame has replaced it on the screen. The default holds nothing: a frame that was composed has
+    /// copied what it needed.
+    fn holds(&self, _buffer: &WlBuffer) -> bool {
+        false
+    }
+
+    /// The direct scan-out's counters and state, for `ctl status` and `ctl scanout`; `None` for an output without one.
+    fn scanout_report(&self) -> Option<serde_json::Value> {
+        None
+    }
+
+    /// Switches direct scan-out (`ctl scanout`); an output that has none says so.
+    fn set_scanout(&mut self, _mode: crate::scanout::Mode) -> io::Result<()> {
+        Err(io::Error::other("this output has no direct scan-out"))
+    }
+
+    /// Journal lines the output has to tell (direct scan-out's changes of state), taken once.
+    fn take_journal(&mut self) -> Vec<String> {
+        Vec::new()
+    }
+
     /// Takes in system UI requests, including changes that do not damage any application window.
     fn ui_needs_frame(&mut self) -> io::Result<bool> {
         Ok(false)

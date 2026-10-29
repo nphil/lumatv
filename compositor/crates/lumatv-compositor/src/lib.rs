@@ -31,6 +31,7 @@ pub mod pacer;
 pub mod refresh;
 pub mod render;
 pub mod ring;
+pub mod scanout;
 pub mod scene;
 pub mod sched;
 pub mod screencap;

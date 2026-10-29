@@ -588,19 +588,7 @@ impl Gl {
             let t = &self.textures[&buffer.id()];
             (t.tex, t.y_invert)
         };
-        let (fbo, _) = match self.warm {
-            Some(w) => w,
-            None => match offscreen_target(&self.egl, 16, 16) {
-                Ok(w) => {
-                    self.warm = Some(w);
-                    w
-                }
-                Err(e) => {
-                    log::warn!("warm target: {e}");
-                    return true;
-                }
-            },
-        };
+        let Some((fbo, _)) = self.warm_target() else { return true };
         let a = &self.egl.api;
         // SAFETY: state calls on the current context; the warm framebuffer and the program are this renderer's.
         unsafe {
@@ -639,6 +627,61 @@ impl Gl {
         if err != egl::GL_NO_ERROR {
             self.gl_errors += 1;
             log::warn!("gl error 0x{err:x} warming a buffer");
+        }
+        true
+    }
+
+    /// The 16x16 target the warm draws and the acquire samples go into, made on first use.
+    fn warm_target(&mut self) -> Option<(GLuint, GLuint)> {
+        if self.warm.is_none() {
+            match offscreen_target(&self.egl, 16, 16) {
+                Ok(w) => self.warm = Some(w),
+                Err(e) => {
+                    log::warn!("warm target: {e}");
+                    return None;
+                }
+            }
+        }
+        self.warm
+    }
+
+    /// The acquire barrier for a buffer the display is about to read directly (`scanout`): one texel of it is sampled into the warm target, so that
+    /// a job exists that waits for whatever the dma-buf's fences say its client is still doing, and the commit's fence ([`Gl::export_fence`]) is
+    /// behind that job. `false` when the buffer cannot be imported or sampled.
+    pub fn acquire(&mut self, buffer: &WlBuffer) -> bool {
+        if self.import(buffer).is_none() {
+            return false;
+        }
+        let (tex, y_invert) = {
+            let t = &self.textures[&buffer.id()];
+            (t.tex, t.y_invert)
+        };
+        let Some((fbo, _)) = self.warm_target() else { return false };
+        let a = &self.egl.api;
+        // SAFETY: state calls on the current context; the warm framebuffer and the program are this renderer's.
+        unsafe {
+            (a.glBindFramebuffer)(egl::GL_FRAMEBUFFER, fbo);
+            (a.glViewport)(0, 0, 16, 16);
+            (a.glUseProgram)(self.program);
+            (a.glEnable)(egl::GL_SCISSOR_TEST);
+            (a.glScissor)(0, 0, 1, 1);
+            (a.glDisable)(egl::GL_BLEND);
+        }
+        self.set_dim(1.0);
+        self.draw_quad(tex, &Rect::new(0, 0, self.width as i32, self.height as i32), y_invert);
+        // The same start as a frame's (LumaShow lesson 3: a fence, not glFlush, is what starts the work on Mali).
+        if let Some(sync) = self.egl.kick_fence() {
+            // SAFETY: a fence this renderer just created, consumed here.
+            unsafe { self.egl.wait_fence(sync, 0) };
+        } else {
+            // SAFETY: plain call.
+            unsafe { (self.egl.api.glFlush)() };
+        }
+        let err = self.egl.gl_error();
+        if err != egl::GL_NO_ERROR {
+            self.gl_errors += 1;
+            log::warn!("gl error 0x{err:x} sampling a buffer to scan out");
+            return false;
         }
         true
     }

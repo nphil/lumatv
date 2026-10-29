@@ -71,6 +71,14 @@ pub struct Config {
     /// The refresh the output is asked to run at, Hz: 60 (the set's OSD vblank as LG leaves it) or 120 (`refresh`: the test mode, the
     /// OSD's vblank divider at 1). `ctl refresh HZ` changes it while running.
     pub refresh_hz: u32,
+    /// Direct scan-out of a full-screen client buffer (`scanout`): the switch (off by default), how the client's rendering is waited for, the
+    /// modifiers tried beyond the plane's list. `ctl scanout` switches it while running.
+    pub scanout: crate::scanout::Policy,
+    /// The off-screen proof of route A: record and PRIME-import every driver-served buffer's descriptor, without taking the screen
+    /// (`scanout::probe`).
+    pub scanout_probe: bool,
+    /// More environment for the shell client, so that its window buffers are ones the plane can take (`--scanout-shell-env`).
+    pub scanout_shell_env: Vec<(String, String)>,
 }
 
 /// Where the trace ring lives.
@@ -121,6 +129,9 @@ impl Default for Config {
             ring: RingSetting::Auto,
             idle_tick_ns: crate::ticker::IDLE_TICK_NS,
             refresh_hz: crate::refresh::DEFAULT_HZ,
+            scanout: crate::scanout::Policy::default(),
+            scanout_probe: false,
+            scanout_shell_env: Vec::new(),
         }
     }
 }
@@ -162,6 +173,15 @@ pub const USAGE: &str = "lumatv-compositor [options]
   --shell off|auto|PATH  the shell client (LumaTV's QML on LG's Qt through /usr/bin/qml-runner): auto (default) runs it with
                          --input when <bundle>/shell/Shell.qml sits beside this executable's bin/; PATH names another root QML
   --shell-port N         the loopback port of the UI channel (default 18750)
+  --scanout off|direct   direct scan-out of a full-screen client buffer, so that the compositor does not copy it (default off; needs --renderer kms):
+                         `ctl scanout [off|direct]` reads the counters and switches it while running (docs/research/scanout-research.md)
+  --scanout-acquire sample|none  how the client's rendering is waited for before the plane reads its buffer (default sample: the GL side samples
+                         the buffer and the commit carries that job's fence; none trusts the commit, for a measurement)
+  --scanout-trust 0xMOD  try this modifier although the primary plane does not list it (repeatable): the experiment that shows whether the
+                         OSD decodes a client's layout; never for production
+  --scanout-probe        the off-screen proof: record every driver-served buffer's descriptor and PRIME-import it into the display driver
+                         without taking master or showing anything (tools/tv-scanout-proof.sh; needs --buffers driver)
+  --scanout-shell-env K=V  one more environment variable for the shell client (repeatable), the way to ask its window for a layout the plane takes
   ctl CMD                talk to a running compositor's control socket (status, windows, capture PATH, quit)
 ";
 
@@ -284,6 +304,25 @@ impl Config {
                     c.tick_ns = crate::refresh::period_ns(hz);
                 }
                 "--shell-port" => c.shell_port = value()?.parse().map_err(|_| "--shell-port")?,
+                "--scanout" => {
+                    let v = value()?;
+                    c.scanout.mode = crate::scanout::Mode::parse(&v).ok_or_else(|| format!("--scanout takes off or direct, not {v}"))?;
+                }
+                "--scanout-acquire" => {
+                    let v = value()?;
+                    c.scanout.acquire = crate::scanout::Acquire::parse(&v).ok_or_else(|| format!("--scanout-acquire takes sample or none, not {v}"))?;
+                }
+                "--scanout-trust" => {
+                    let v = value()?;
+                    let m = u64::from_str_radix(v.trim_start_matches("0x"), 16).map_err(|_| format!("--scanout-trust takes a hex modifier, not {v}"))?;
+                    c.scanout.trust.push(m);
+                }
+                "--scanout-probe" => c.scanout_probe = true,
+                "--scanout-shell-env" => {
+                    let v = value()?;
+                    let (k, val) = v.split_once('=').filter(|(k, _)| !k.is_empty()).ok_or("--scanout-shell-env NAME=VALUE")?;
+                    c.scanout_shell_env.push((k.to_string(), val.to_string()));
+                }
                 "-h" | "--help" => return Err(USAGE.to_string()),
                 o => return Err(format!("unknown option {o}\n{USAGE}")),
             }
@@ -296,6 +335,12 @@ impl Config {
         }
         if c.ui_demo && (!cfg!(feature = "ui") || c.renderer == RendererKind::Software) {
             return Err("--ui-demo requires a build with feature ui and --renderer gl|kms".into());
+        }
+        if c.scanout.mode == crate::scanout::Mode::Direct && c.renderer != RendererKind::Kms {
+            return Err("--scanout direct needs --renderer kms (the plane it scans out on)".into());
+        }
+        if c.scanout_probe && c.renderer == RendererKind::Software {
+            return Err("--scanout-probe needs --renderer gl|kms and --buffers driver (the driver's buffers are what it records)".into());
         }
         if c.capture_every == 0 {
             c.capture_every = 1;
@@ -322,5 +367,44 @@ mod tests {
         let c = Config::parse(["--refresh", "120"].map(String::from)).unwrap();
         assert_eq!((c.refresh_hz, c.tick_ns), (120, 8_333_333));
         assert!(Config::parse(["--refresh", "90"].map(String::from)).is_err());
+    }
+
+    #[test]
+    fn the_scanout_switch_is_off_unless_asked_and_needs_the_plane() {
+        let c = Config::parse(["--driver", "/x/libmali.so"].map(String::from)).unwrap();
+        assert_eq!(c.scanout, crate::scanout::Policy::default());
+        assert!(c.scanout.mode == crate::scanout::Mode::Off && !c.scanout_probe && c.scanout_shell_env.is_empty());
+        let c = Config::parse(
+            [
+                "--renderer",
+                "kms",
+                "--driver",
+                "/x/libmali.so",
+                "--scanout",
+                "direct",
+                "--scanout-acquire",
+                "none",
+                "--scanout-trust",
+                "0x0800000000000151",
+                "--scanout-shell-env",
+                "WAYLAND_AFBC=0",
+            ]
+            .map(String::from),
+        )
+        .unwrap();
+        assert_eq!(c.scanout.mode, crate::scanout::Mode::Direct);
+        assert_eq!(c.scanout.acquire, crate::scanout::Acquire::Trust);
+        assert_eq!(c.scanout.trust, vec![0x0800_0000_0000_0151]);
+        assert_eq!(c.scanout_shell_env, vec![("WAYLAND_AFBC".to_string(), "0".to_string())]);
+        let direct_without_the_plane = ["--renderer", "gl", "--driver", "/x/libmali.so", "--scanout", "direct"].map(String::from);
+        assert!(Config::parse(direct_without_the_plane).unwrap_err().contains("--renderer kms"));
+        assert!(Config::parse(["--scanout", "on"].map(String::from)).is_err());
+        assert!(Config::parse(["--scanout-acquire", "fence"].map(String::from)).is_err());
+        assert!(Config::parse(["--scanout-trust", "zz"].map(String::from)).is_err());
+        assert!(Config::parse(["--scanout-shell-env", "NOEQUALS"].map(String::from)).is_err());
+        assert!(Config::parse(["--scanout-shell-env", "=1"].map(String::from)).is_err());
+        let probe = Config::parse(["--renderer", "gl", "--driver", "/x/libmali.so", "--buffers", "driver", "--scanout-probe"].map(String::from)).unwrap();
+        assert!(probe.scanout_probe && probe.scanout.mode == crate::scanout::Mode::Off, "the proof shows nothing: the switch stays off");
+        assert!(Config::parse(["--scanout-probe"].map(String::from)).is_err(), "no renderer, no driver buffers to record");
     }
 }

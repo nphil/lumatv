@@ -479,6 +479,7 @@ impl State {
             data_dir: self.config.data_dir.clone(),
             runtime_dir: self.config.runtime_dir.clone(),
             socket: self.config.socket.clone(),
+            extra_env: self.config.scanout_shell_env.clone(),
         };
         let (tx, rx) = channel();
         let spawner = match &self.shell.spawner {
@@ -981,6 +982,8 @@ struct SpawnJob {
     data_dir: PathBuf,
     runtime_dir: PathBuf,
     socket: String,
+    /// More environment for the client (`--scanout-shell-env`): what asks its window for buffers the plane can scan out.
+    extra_env: Vec<(String, String)>,
 }
 
 /// A start asked of the spawn thread, and where its child goes.
@@ -1034,6 +1037,9 @@ fn spawn_client(job: SpawnJob) -> Result<Child, SpawnFailure> {
         .env("QML2_IMPORT_PATH", format!("{}:/usr/lib/qt5/qml", imports.display()))
         .env("LUMATV_SHELL_PORT", job.port.to_string())
         .stdin(Stdio::null());
+    for (k, v) in &job.extra_env {
+        cmd.env(k, v);
+    }
     match log {
         Ok(f) => {
             let err = f.try_clone().map(Stdio::from).unwrap_or_else(|_| Stdio::null());

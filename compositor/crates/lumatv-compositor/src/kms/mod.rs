@@ -27,14 +27,13 @@ use drm::control::atomic::AtomicModeReq;
 use drm::control::dumbbuffer::DumbBuffer;
 use drm::control::{AtomicCommitFlags, Device as ControlDevice, Event, FbCmd2Flags, PlaneType, connector, crtc, framebuffer, plane, property};
 use drm::{ClientCapability, Device, DriverCapability};
-use wayland_backend::server::ObjectId;
 use wayland_server::Resource;
 use wayland_server::protocol::wl_buffer::WlBuffer;
 
 use crate::Rect;
-use crate::buffer::{BufferKindRef, kind_of};
 use crate::output::{Image, Output, Presented, RenderStats, monotonic_ns as mono_ns};
 use crate::render::gl::{Gl, TargetId};
+use crate::scanout::{self, Scanout};
 use crate::scene::Plan;
 use crate::surface::Surfaces;
 use assign::{Assignment, Source};
@@ -74,19 +73,24 @@ pub struct PlaneInfo {
     pub formats: Vec<(u32, u64)>,
 }
 
+impl PlaneInfo {
+    /// Whether `fourcc` with `modifier` is in the plane's `IN_FORMATS`.
+    pub fn takes(&self, fourcc: u32, modifier: u64) -> bool {
+        self.formats.iter().any(|(f, m)| *f == fourcc && *m == modifier)
+    }
+
+    /// Whether `fourcc` is in it with any modifier.
+    pub fn knows(&self, fourcc: u32) -> bool {
+        self.formats.iter().any(|(f, _)| *f == fourcc)
+    }
+}
+
 /// One page of the compositor's own scan-out ring.
 struct Page {
     dumb: DumbBuffer,
     fd: OwnedFd,
     fb: framebuffer::Handle,
     target: TargetId,
-}
-
-/// A client dma-buf imported for direct scan-out.
-struct DirectFb {
-    fb: framebuffer::Handle,
-    gem: drm::buffer::Handle,
-    buffer: WlBuffer,
 }
 
 /// What a plane showed in the last commit, to leave unchanged planes out of the request.
@@ -100,6 +104,8 @@ struct PlaneState {
 struct Frame {
     assignment: Assignment,
     timing: Timing,
+    /// The commit carries the fence of the job that sampled the window's buffer: a direct frame that waited for its client.
+    acquire: bool,
     #[cfg(feature = "ui")]
     ui: Option<lumatv_render::host::FrameCost>,
 }
@@ -131,9 +137,7 @@ pub struct Kms {
     /// The UI ring for the overlay plane (ARGB8888), made when a UI is attached and the overlay takes the format.
     ui_pages: Vec<Page>,
     frames: frames::Frames,
-    direct: HashMap<ObjectId, DirectFb>,
-    /// Modifiers the driver refused in ADDFB2, so they are not tried again.
-    refused_modifiers: Vec<u64>,
+    scanout: Scanout,
     state: [PlaneState; 2],
     modeset_done: bool,
     pending_flip: bool,
@@ -232,7 +236,7 @@ fn make_page(card: &Card, gl: &mut Gl, width: u32, height: u32, alpha: bool) -> 
 impl Kms {
     /// Opens `path` (`/dev/dri/card0`), becomes master and finds the CRTC, connector and planes. `gl` renders into
     /// the pages this makes.
-    pub fn open(path: &str, mut gl: Gl, width: u32, height: u32) -> io::Result<Kms> {
+    pub fn open(path: &str, mut gl: Gl, width: u32, height: u32, scanout: Scanout) -> io::Result<Kms> {
         let file = OpenOptions::new().read(true).write(true).open(path)?;
         let card = Card(file);
         card.acquire_master_lock().map_err(|e| other(format!("DRM master on {path}: {e} (is LG's compositor still running?)")))?;
@@ -378,8 +382,7 @@ impl Kms {
             },
             pages,
             ui_pages,
-            direct: HashMap::new(),
-            refused_modifiers: Vec::new(),
+            scanout,
             state: [PlaneState::default(); 2],
             modeset_done: false,
             pending_flip: false,
@@ -427,59 +430,13 @@ impl Kms {
 
     /// Whether `fourcc`/`modifier` is in the primary plane's `IN_FORMATS`.
     pub fn primary_takes(&self, fourcc: u32, modifier: u64) -> bool {
-        self.primary.formats.iter().any(|(f, m)| *f == fourcc && *m == modifier)
+        self.primary.takes(fourcc, modifier)
     }
 
-    /// A framebuffer for a client dma-buf (direct scan-out), made once per buffer; `None` when the driver
-    /// refuses its layout.
-    fn direct_fb(&mut self, buffer: &WlBuffer) -> Option<framebuffer::Handle> {
-        let id = buffer.id();
-        if let Some(d) = self.direct.get(&id) {
-            return Some(d.fb);
-        }
-        let BufferKindRef::Dmabuf(d) = kind_of(buffer) else { return None };
-        if self.refused_modifiers.contains(&d.modifier) || d.planes.is_empty() {
-            return None;
-        }
-        let gem = match self.card.prime_fd_to_buffer(d.planes[0].fd.as_fd()) {
-            Ok(g) => g,
-            Err(e) => {
-                log::warn!("direct: prime import: {e}");
-                return None;
-            }
-        };
-        let pb = Planar {
-            size: (d.width as u32, d.height as u32),
-            fourcc: d.format,
-            modifier: d.modifier,
-            pitch: d.planes[0].stride,
-            offset: d.planes[0].offset,
-            handle: gem,
-        };
-        let flags = if d.modifier != 0 { FbCmd2Flags::MODIFIERS } else { FbCmd2Flags::empty() };
-        match self.card.add_planar_framebuffer(&pb, flags) {
-            Ok(fb) => {
-                log::info!("direct: fb {} for {}x{} {} modifier 0x{:x}", u32::from(fb), d.width, d.height, crate::buffer::fourcc::name(d.format), d.modifier);
-                self.direct.insert(id, DirectFb { fb, gem, buffer: buffer.clone() });
-                Some(fb)
-            }
-            Err(e) => {
-                log::warn!("direct: ADDFB2 refused {} modifier 0x{:x}: {e}; composing instead", crate::buffer::fourcc::name(d.format), d.modifier);
-                self.refused_modifiers.push(d.modifier);
-                let _ = self.card.close_buffer(gem);
-                None
-            }
-        }
-    }
-
-    fn prune_direct(&mut self) {
-        let dead: Vec<ObjectId> = self.direct.iter().filter(|(_, d)| !d.buffer.is_alive()).map(|(id, _)| id.clone()).collect();
-        for id in dead {
-            if let Some(d) = self.direct.remove(&id) {
-                let _ = self.card.destroy_framebuffer(d.fb);
-                let _ = self.card.close_buffer(d.gem);
-            }
-        }
+    /// The device the direct scan-out decision works through, and the controller, borrowed apart from the rest of the output.
+    fn split(&mut self) -> (Drm<'_>, &mut Scanout) {
+        let Kms { card, primary, crtc, gl, width, height, modeset_done, scanout, .. } = self;
+        (Drm { card, primary, crtc: *crtc, size: (*width, *height), live: *modeset_done, gl }, scanout)
     }
 
     /// Reads the DRM events that have arrived; returns how many page flips landed. Never waits: the card's descriptor
@@ -502,6 +459,7 @@ impl Kms {
 
     fn flip_landed(&mut self, stamp_ns: u64) {
         self.pending_flip = false;
+        self.scanout.landed();
         let presented_ns = if self.monotonic_flips {
             stamp_ns
         } else {
@@ -583,11 +541,11 @@ impl Kms {
     fn commit_frame(&mut self, frame: Frame) -> io::Result<()> {
         let a = frame.assignment;
         let t0 = Instant::now();
-        let drawn = matches!(a.primary, Source::Page(_)) || matches!(a.overlay, Some((Source::UiPage(_), _)));
+        let drawn = matches!(a.primary, Source::Page(_)) || matches!(a.overlay, Some((Source::UiPage(_), _))) || frame.acquire;
         let fence = if drawn { self.gl.export_fence() } else { None };
         let kept = fence.as_ref().and_then(|f| f.try_clone().ok());
         let t1 = Instant::now();
-        let committed = self.commit(&a, fence);
+        let committed = self.commit(&a, fence, frame.acquire);
         let t2 = Instant::now();
         if t2 - t0 > Duration::from_millis(4) {
             log::info!("present: fence export {:.1} ms, atomic commit {:.1} ms", (t1 - t0).as_secs_f64() * 1000.0, (t2 - t1).as_secs_f64() * 1000.0);
@@ -600,7 +558,12 @@ impl Kms {
                 (t2 - t1).as_secs_f64() * 1000.0
             );
         }
-        committed?;
+        if let Err(e) = committed {
+            // The frame never went out: what it would have held, the display does not.
+            self.scanout.dropped();
+            return Err(e);
+        }
+        self.scanout.committed();
         self.in_flight = Some(InFlight {
             timing: frame.timing,
             fence: kept,
@@ -622,7 +585,7 @@ impl Kms {
         false
     }
 
-    fn commit(&mut self, a: &Assignment, in_fence: Option<OwnedFd>) -> io::Result<()> {
+    fn commit(&mut self, a: &Assignment, in_fence: Option<OwnedFd>, acquire: bool) -> io::Result<()> {
         let mut req = AtomicModeReq::new();
         let mut flags = AtomicCommitFlags::PAGE_FLIP_EVENT | AtomicCommitFlags::NONBLOCK;
         if !self.modeset_done {
@@ -638,10 +601,13 @@ impl Kms {
             Source::Direct(fb) => Some(fb),
             Source::Off => None,
         };
-        let primary_fence = if matches!(a.primary, Source::Page(_)) { in_fence.as_ref().map(|f| f.as_raw_fd()) } else { None };
+        // A composed page waits for the job that drew it, a window's own buffer for the job that sampled it (`Choice::acquired`).
+        let waits = matches!(a.primary, Source::Page(_)) || (acquire && matches!(a.primary, Source::Direct(_)));
+        let primary_fence = if waits { in_fence.as_ref().map(|f| f.as_raw_fd()) } else { None };
         let primary_state = PlaneState { fb: primary_fb, dst: full };
         let mut new_state = self.state;
-        if primary_state != self.state[0] || !self.modeset_done {
+        // (a fence goes with the plane's properties, so a frame that waits sets them even when the framebuffer is the one already shown)
+        if primary_state != self.state[0] || !self.modeset_done || primary_fence.is_some() {
             set_plane(&mut req, &self.primary, self.crtc, primary_fb, full, full, primary_fence);
             new_state[0] = primary_state;
         }
@@ -689,7 +655,13 @@ impl Kms {
                 self.pending_flip = true;
                 Ok(())
             }
-            Err(e) => Err(other(format!("atomic commit: {e}"))),
+            Err(e) => {
+                if let Source::Direct(fb) = a.primary {
+                    // The test-only commit took this framebuffer; a refusal now is the next frame's composition, not the same commit again.
+                    self.scanout.refused_at_commit(fb, e.raw_os_error().unwrap_or(libc::EIO));
+                }
+                Err(other(format!("atomic commit: {e}")))
+            }
         }
     }
 }
@@ -785,6 +757,73 @@ impl PlanarBuffer for Planar {
     }
     fn offsets(&self) -> [u32; 4] {
         [self.offset, 0, 0, 0]
+    }
+}
+
+/// The DRM device and the primary plane as the scan-out decision sees them (`scanout::Device`).
+struct Drm<'a> {
+    card: &'a Card,
+    primary: &'a PlaneInfo,
+    crtc: crtc::Handle,
+    size: (u32, u32),
+    /// The mode is set (the session's first commit went out), so the driver can be asked whether a plane state would do.
+    live: bool,
+    gl: &'a mut Gl,
+}
+
+impl scanout::Device for Drm<'_> {
+    fn mode(&self) -> (i32, i32) {
+        (self.size.0 as i32, self.size.1 as i32)
+    }
+
+    fn live(&self) -> bool {
+        self.live
+    }
+
+    fn lists(&self, format: u32, modifier: u64) -> bool {
+        self.primary.takes(format, modifier)
+    }
+
+    fn lists_format(&self, format: u32) -> bool {
+        self.primary.knows(format)
+    }
+
+    /// PRIME import, `ADDFB2` and a test-only commit of the plane with the framebuffer: the driver's own word on whether it would take it. None of
+    /// it shows anything; whatever was made is destroyed on failure.
+    fn import(&mut self, c: &scanout::Candidate, fd: BorrowedFd<'_>) -> Result<scanout::Imported, scanout::ImportError> {
+        let errno = |e: io::Error| e.raw_os_error().unwrap_or(libc::EIO);
+        let gem = self.card.prime_fd_to_buffer(fd).map_err(|e| scanout::ImportError { stage: scanout::Stage::Prime, errno: errno(e) })?;
+        let pb = Planar { size: (c.width as u32, c.height as u32), fourcc: c.format, modifier: c.modifier, pitch: c.stride, offset: c.offset, handle: gem };
+        let flags = if c.modifier != 0 { FbCmd2Flags::MODIFIERS } else { FbCmd2Flags::empty() };
+        let fb = match self.card.add_planar_framebuffer(&pb, flags) {
+            Ok(fb) => fb,
+            Err(e) => {
+                let _ = self.card.close_buffer(gem);
+                return Err(scanout::ImportError { stage: scanout::Stage::AddFb, errno: errno(e) });
+            }
+        };
+        let mut req = AtomicModeReq::new();
+        let full = Rect::new(0, 0, self.size.0 as i32, self.size.1 as i32);
+        set_plane(&mut req, self.primary, self.crtc, Some(u32::from(fb)), full, full, None);
+        if let Err(e) = self.card.atomic_commit(AtomicCommitFlags::TEST_ONLY, req) {
+            let _ = self.card.destroy_framebuffer(fb);
+            let _ = self.card.close_buffer(gem);
+            return Err(scanout::ImportError { stage: scanout::Stage::Test, errno: errno(e) });
+        }
+        Ok(scanout::Imported { fb: u32::from(fb), gem: u32::from(gem) })
+    }
+
+    fn destroy(&mut self, imported: scanout::Imported) {
+        if let Some(fb) = std::num::NonZeroU32::new(imported.fb) {
+            let _ = self.card.destroy_framebuffer(framebuffer::Handle::from(fb));
+        }
+        if let Some(gem) = std::num::NonZeroU32::new(imported.gem) {
+            let _ = self.card.close_buffer(drm::buffer::Handle::from(gem));
+        }
+    }
+
+    fn acquire(&mut self, buffer: &WlBuffer) -> bool {
+        self.gl.acquire(buffer)
     }
 }
 
@@ -900,7 +939,8 @@ impl Output for Kms {
             // frame went out just above, so the driver's unmapping never sits between a draw and its commit; when a
             // tick took the flip, its frame starts after the frees (`BURY_BUDGET` at most).
             self.gl.bury();
-            self.prune_direct();
+            let (mut drm, scanout) = self.split();
+            scanout.reap(&mut drm);
         }
         Ok(landed)
     }
@@ -1014,10 +1054,25 @@ impl Output for Kms {
 
     fn forget_buffer(&mut self, buffer: &WlBuffer) {
         self.gl.forget_buffer(buffer);
-        if let Some(d) = self.direct.remove(&buffer.id()) {
-            let _ = self.card.destroy_framebuffer(d.fb);
-            let _ = self.card.close_buffer(d.gem);
-        }
+        let (mut drm, scanout) = self.split();
+        scanout.forget(&mut drm, buffer);
+    }
+
+    fn holds(&self, buffer: &WlBuffer) -> bool {
+        self.scanout.holds(buffer)
+    }
+
+    fn scanout_report(&self) -> Option<serde_json::Value> {
+        Some(self.scanout.report())
+    }
+
+    fn set_scanout(&mut self, mode: scanout::Mode) -> io::Result<()> {
+        self.scanout.set_mode(mode);
+        Ok(())
+    }
+
+    fn take_journal(&mut self) -> Vec<String> {
+        self.scanout.take_journal()
     }
 
     /// Draws the plan: direct scan-out or composition into the next page (only the tiles the page owes; `frames`
@@ -1049,6 +1104,7 @@ impl Output for Kms {
         // no new commit counts as due since the last flip).
         let mut content_ns = plan.content_ns;
         if let Some(q) = self.queued.take() {
+            self.scanout.dropped();
             self.frames.redraw(q.assignment.primary);
             if let Some((s, _)) = q.assignment.overlay {
                 self.frames.redraw(s);
@@ -1059,14 +1115,26 @@ impl Output for Kms {
                 _ => None,
             };
         }
-        let direct = plan.sole_fullscreen().filter(|_| !self.compose_only).and_then(|item| {
-            let fb = self.direct_fb(&item.buffer)?;
-            Some(u32::from(fb))
-        });
+        // The plane takes the window's own buffer when it can (`scanout`); a frame it cannot take is composed below, in this frame.
+        let capture = self.compose_only;
+        let verdict = {
+            let (mut drm, scanout) = self.split();
+            scanout.choose(&mut drm, plan, capture)
+        };
+        let direct = verdict.as_ref().ok().map(|c| c.fb);
+        if direct.is_some() {
+            // A composed frame retires the textures of buffers that died (`render_rects`); a run of direct frames must too.
+            self.gl.prune(surfaces, &plan.items);
+        }
         let (assignment, stats) = self.frames.draw(&mut self.gl, plan, surfaces, direct)?;
-        if matches!(assignment.primary, Source::Direct(_)) {
+        let took_direct = matches!(assignment.primary, Source::Direct(_));
+        if took_direct {
             self.direct_frames += 1;
         }
+        self.scanout.settle(&verdict, took_direct);
+        let shown = verdict.as_ref().ok().filter(|_| took_direct);
+        self.scanout.drawn(shown);
+        let acquire = shown.is_some_and(|c| c.acquired);
         if assignment.overlay.is_some() {
             if self.split_frames == 0 {
                 log::info!("kms: first split frame: the window stays on the primary plane, the UI goes to the overlay");
@@ -1087,6 +1155,7 @@ impl Output for Kms {
         self.last_assignment = Some(Frame {
             assignment,
             timing: Timing { slot_ns, started_ns: now, ready_ns: self.now_ns(), content_ns },
+            acquire,
             #[cfg(feature = "ui")]
             ui: self.gl.take_ui_frame(),
         });
@@ -1153,10 +1222,8 @@ impl Output for Kms {
 
 impl Drop for Kms {
     fn drop(&mut self) {
-        for d in self.direct.values() {
-            let _ = self.card.destroy_framebuffer(d.fb);
-            let _ = self.card.close_buffer(d.gem);
-        }
+        let (mut drm, scanout) = self.split();
+        scanout.close(&mut drm);
         for p in self.pages.drain(..).chain(self.ui_pages.drain(..)) {
             let _ = self.card.destroy_framebuffer(p.fb);
             drop(p.fd);

@@ -170,6 +170,9 @@ pub struct State {
     serial: u32,
     /// Buffers released at the end of the tick that presented the frame which stopped reading them.
     release_after_present: Vec<WlBuffer>,
+    /// Buffers a client let go of that the display still reads (a direct scan-out): released once the output stops holding them
+    /// ([`State::release_buffer`]), never while a frame that shows them is on the screen or on its way.
+    display_held: Vec<WlBuffer>,
     /// What frames on their way to the screen owe, oldest first, paid when each lands ([`State::frames_landed`]). Frame callbacks go
     /// out at the flip: firing at the tick paced clients to the latch, which the pacer moves by a few milliseconds whenever a
     /// slow frame enters or leaves its window; at the flip they follow the refresh. The shell client's go ahead of it ([`Owed::ahead`]).
@@ -179,6 +182,13 @@ pub struct State {
     cadence: HashMap<SurfaceId, (Instant, u32)>,
     /// The last tick drew nothing because a driver buffer was warming (one log line per such run).
     holding: bool,
+    /// The off-screen proof of route A (`--scanout-probe`, `scanout::probe`): polled every tick.
+    pub probe: Option<crate::scanout::probe::Probe>,
+    /// The protocol tap on the C display (`scanout::tap`), the descriptors it keeps, and the display it goes on (`None` on the Rust backend).
+    /// Installed at start when direct scan-out or its proof is asked for, or by `ctl scanout direct`.
+    pub tap: crate::scanout::tap::Tap,
+    pub meta: crate::scanout::meta::Registry,
+    pub wl_display: Option<*mut std::ffi::c_void>,
 }
 
 impl State {
@@ -215,9 +225,14 @@ impl State {
             shell_ahead: true,
             serial: 0,
             release_after_present: Vec::new(),
+            display_held: Vec::new(),
             cadence: HashMap::new(),
             frames_in_flight: std::collections::VecDeque::new(),
             holding: false,
+            probe: None,
+            tap: crate::scanout::tap::Tap::off(),
+            meta: crate::scanout::meta::Registry::default(),
+            wl_display: None,
         }
     }
 
@@ -419,6 +434,7 @@ impl State {
     pub fn tick_at(&mut self, now_ns: u64) -> Presented {
         let t0 = Instant::now();
         let prev_tick_us = self.stats.tick_us_last;
+        self.probe_poll();
         self.stats.ticks += 1;
         // A flip that landed while the pass did other work goes out before this frame is drawn, and one that landed
         // while it was drawn goes out before the tick's own bookkeeping: its callbacks start the clients' next frames.
@@ -469,6 +485,9 @@ impl State {
             }
         }
         let t_rendered = Instant::now();
+        for line in self.output.take_journal() {
+            self.journal(line);
+        }
         // While a transition moves the frees of destroyed buffers wait (the flip of this frame lands after this).
         self.output.defer_frees(self.scene.transitions.animating(now_ns));
         if drew && self.scene.care_frame() {
@@ -511,12 +530,13 @@ impl State {
         let (retired, held) = surfaces.take_retired(ahead);
         self.route_callbacks(Owed { callbacks, ahead: ahead_callbacks, buffers: held }, presented);
         let t_callbacks = Instant::now();
-        for b in self.release_after_present.drain(..).chain(retired) {
-            if b.is_alive() {
-                b.release();
-                self.stats.releases += 1;
-            }
+        // What clients let go of: released now, or kept while the display still reads it.
+        let mut gone = std::mem::take(&mut self.release_after_present);
+        for b in gone.drain(..).chain(retired) {
+            self.release_buffer(b);
         }
+        self.release_after_present = gone;
+        self.release_displayed();
         self.surfaces.clear_damage();
         let t_released = Instant::now();
         if drew {
@@ -590,6 +610,9 @@ impl State {
             self.pay(owed, crate::output::monotonic_ms());
             fired = true;
         }
+        if n > 0 {
+            self.release_displayed();
+        }
         if fired {
             self.fire_ahead(crate::output::monotonic_ms());
             if let Err(e) = self.dh.flush_clients() {
@@ -643,7 +666,36 @@ impl State {
 
     fn release(&mut self, buffers: Vec<WlBuffer>) {
         for b in buffers {
-            if b.is_alive() {
+            self.release_buffer(b);
+        }
+    }
+
+    /// Tells a client it may draw into `b` again, unless the display reads it (a direct scan-out): then it waits in `display_held` for the
+    /// frame that replaces it to land.
+    fn release_buffer(&mut self, b: WlBuffer) {
+        if !b.is_alive() {
+            return;
+        }
+        if self.output.holds(&b) {
+            if !self.display_held.iter().any(|h| h.id() == b.id()) {
+                self.display_held.push(b);
+            }
+        } else {
+            b.release();
+            self.stats.releases += 1;
+        }
+    }
+
+    /// Releases what waited for the display, now that it no longer reads it.
+    fn release_displayed(&mut self) {
+        let mut i = 0;
+        while i < self.display_held.len() {
+            if !self.display_held[i].is_alive() {
+                self.display_held.swap_remove(i);
+            } else if self.output.holds(&self.display_held[i]) {
+                i += 1;
+            } else {
+                let b = self.display_held.swap_remove(i);
                 b.release();
                 self.stats.releases += 1;
             }
@@ -785,6 +837,49 @@ impl State {
 
     pub fn buffer_path(&self) -> BufferPath {
         self.config.buffers
+    }
+
+    /// The off-screen proof: records and imports the descriptors the tap has kept since the last look, and journals each. A tick and the end of a run
+    /// do it; without a probe it is nothing.
+    pub fn probe_poll(&mut self) {
+        let lines = match &mut self.probe {
+            Some(p) => p.poll(&self.meta),
+            None => return,
+        };
+        for line in lines {
+            self.journal(line);
+        }
+    }
+
+    /// Direct scan-out for the control socket: the output's counters and state (the KMS output's), the protocol tap's, and the off-screen
+    /// proof's.
+    pub fn scanout_report(&self) -> serde_json::Value {
+        let mut v = self.output.scanout_report().unwrap_or_else(|| {
+            let m = self.meta.stats();
+            serde_json::json!({
+                "mode": self.config.scanout.mode.name(),
+                "output": self.output.name(),
+                "descriptors": {"retained": m.retained, "created": m.created, "destroyed": m.destroyed, "withClient": m.with_client, "undecoded": m.undecoded, "allocDevices": self.meta.alloc_devices()},
+            })
+        });
+        v["tap"] = self.tap.status().report();
+        v["shellEnv"] = self.config.scanout_shell_env.iter().map(|(k, val)| format!("{k}={val}")).collect::<Vec<_>>().into();
+        if let Some(p) = &self.probe {
+            v["probe"] = p.report();
+        }
+        v
+    }
+
+    /// `ctl scanout off|direct`: the output's switch. Direct needs the descriptors of the driver's buffers, so the tap goes on the display now if it is
+    /// not on yet; the buffers a client made before that have no descriptor and are composed (`no-descriptor`) until the client makes new ones.
+    pub fn set_scanout(&mut self, mode: crate::scanout::Mode) -> std::io::Result<()> {
+        if mode == crate::scanout::Mode::Direct && self.tap.status() == crate::scanout::tap::Status::Off {
+            self.tap = crate::scanout::tap::Tap::install(self.wl_display, &self.meta);
+            self.journal(format!("scanout: protocol tap {}", self.tap.status().report()));
+        }
+        self.output.set_scanout(mode)?;
+        self.config.scanout.mode = mode;
+        Ok(())
     }
 
     /// Outbound luna calls so far (what the bridge would have sent).
