@@ -803,42 +803,53 @@ early_hook_ready() {
     && grep -q '"persist"[[:space:]]*:[[:space:]]*true' "$ROOT$BRAND_DATA_DIR/config.json" 2>/dev/null
 }
 
+# The boot's clock to the hundredth (the wall clock is not set for the first seconds), and the boot's
+# own id: a record of an early pass is this boot's only when the two ids agree.
+boot_clock() { cut -d' ' -f1 /proc/uptime; }
+boot_id() { printf '%s' "${DECLUTTER_BOOT_ID:-$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)}"; }
+
 # The early step's state for `status`: whether it will run at the next boot (the shim, the
 # worker's flag, this tool's own persist link and no skip file), a marker left by an early pass
-# that has not settled yet, and the record of the last pass under the groups that are on now
-# (uptimeSec is the boot's clock; the wall clock is not set for the first seconds).
+# that has not settled yet, the record of the last pass under the groups that are on now, and
+# whether that record is this boot's.
 early_json() {
   ej_hook=false
   [ -L "$INIT_LINK" ] && [ ! -f "$SKIP" ] && early_hook_ready && ej_hook=true
-  ej_last=null
-  [ -s "$EARLY_RECORD" ] && ej_last=$(cat "$EARLY_RECORD")
-  printf '{"hook":%s,"pending":%s,"last":%s}' "$ej_hook" "$([ -f "$EARLY_PENDING" ] && echo true || echo false)" "$ej_last"
+  ej_last=null ej_this=false
+  if [ -s "$EARLY_RECORD" ]; then
+    ej_last=$(cat "$EARLY_RECORD")
+    [ "$(printf '%s' "$ej_last" | sed -n 's/.*"bootId":"\([^"]*\)".*/\1/p')" = "$(boot_id)" ] && ej_this=true
+  fi
+  printf '{"hook":%s,"pending":%s,"thisBoot":%s,"last":%s}' "$ej_hook" "$([ -f "$EARLY_PENDING" ] && echo true || echo false)" "$ej_this" "$ej_last"
 }
 
 # $1 ran (true|false), $2 why not, $3 masked units, $4 stubbed programs, $5 what was already running.
-# startSec and uptimeSec are the boot's clock at the start and at the end of the pass, to the hundredth.
+# startSec, stubbedSec, maskedSec and uptimeSec are the boot's clock when the pass began, when the
+# last stub was in place, when the masks were loaded and when it ended.
 early_write() {
   [ "$DRY" = 1 ] && return 0
   mkdir -p "$DCS" 2>/dev/null
-  printf '{"ran":%s,"why":"%s","startSec":%s,"uptimeSec":%s,"masked":%s,"stubbed":%s,"running":%s}\n' \
-    "$1" "$(json_escape "$2")" "${EV_T0:-null}" "$(cut -d' ' -f1 /proc/uptime)" "$(json_list "$3")" "$(json_list "$4")" "$(json_list "$5")" \
-    > "$EARLY_RECORD.tmp" 2>/dev/null && mv "$EARLY_RECORD.tmp" "$EARLY_RECORD"
+  printf '{"ran":%s,"why":"%s","bootId":"%s","startSec":%s,"stubbedSec":%s,"maskedSec":%s,"uptimeSec":%s,"masked":%s,"stubbed":%s,"running":%s}\n' \
+    "$1" "$(json_escape "$2")" "$(boot_id)" "${EV_T0:-null}" "${EV_T1:-null}" "${EV_T2:-null}" "$(boot_clock)" \
+    "$(json_list "$3")" "$(json_list "$4")" "$(json_list "$5")" > "$EARLY_RECORD.tmp" 2>/dev/null && mv "$EARLY_RECORD.tmp" "$EARLY_RECORD"
 }
 
-# The early boot step, started by autostart.sh's worker about 14 s after power-on, the earliest
-# the mod can act (/var is not writable before mount-readwrite at 11 to 13 s). LG starts its own
-# pieces after that: pbs at +17 s, contentminer at +19 s, the targets that pull nudge, uploadd and
-# the rest at +22 s and +30 s, while the first pass of `boot` (init.d) only came at +73 s. So what
-# needs neither luna-send nor LG's settings service goes down at once: the masks of the units of
-# the groups that are on (one systemd reload), the stub over each on-demand service's program,
-# and a stop for whatever of them already runs. Settings and apps persist across a boot and need
-# no early step. Nothing is touched on a boot that is not to be: no group on, persist off (nothing
-# would settle the marker), the skip file, a boot that never completed (which `boot` consumes), or
-# one that did not settle after the last early pass (skipped once). One JSON line, always exit 0;
-# the record is for `status`.
+# The early boot step, started by autostart.sh's worker about 13 to 14 s after power-on, the earliest
+# the mod can act (/var is not writable before mount-readwrite at 10.7 s, and kdump's script, the
+# hook, starts at 13.4 s). On the stock boot the network came up at 17.5 s, pbs started at 16.9 s,
+# the content miner at 18.7 s and the targets that pull nudge, uploadd and the rest at 22 s and 30 s,
+# while acr2, admanager, adoverlay-service and sportsalarm were launched at 43 to 46 s; the first
+# pass of `boot` (init.d) only came at 73 s. So what needs neither luna-send nor LG's settings
+# service goes down at once, in the order of how soon LG can start it: the stub over each on-demand
+# program (a mount each, nothing else to wait for), then the masks of the units (one systemd
+# reload), then a stop for whatever of them already runs and a kill for the programs. Settings and
+# apps persist across a boot and need no early step. Nothing is touched on a boot that is not to
+# be: no group on, persist off (nothing would settle the marker), the skip file, a boot that never
+# completed (which `boot` consumes), or one that did not settle after the last early pass (skipped
+# once). One JSON line, always exit 0; the record is for `status`.
 verb_early() {
   [ -s "$ACTIVE" ] || { printf '{"ok":true,"early":false,"why":"no group is on"}\n'; exit 0; }
-  EV_T0=$(cut -d' ' -f1 /proc/uptime)
+  EV_T0=$(boot_clock) EV_T1="" EV_T2=""
   ev_why=""
   if [ ! -L "$INIT_LINK" ]; then ev_why="persist is off"
   elif [ -f "$SKIP" ]; then ev_why="the skip file is present"
@@ -849,40 +860,65 @@ verb_early() {
   fi
   if [ -n "$ev_why" ]; then
     early_write false "$ev_why" "" "" ""
-    [ "$DRY" = 1 ] || log_line "early: skipped ($ev_why) at uptime $(cut -d. -f1 /proc/uptime) s"
+    [ "$DRY" = 1 ] || log_line "early: skipped ($ev_why) at uptime $(boot_clock) s"
     printf '{"ok":true,"early":false,"why":"%s"}\n' "$(json_escape "$ev_why")"
     exit 0
   fi
   [ -f "$STUB" ] || { mkdir -p "$DCS"; mut cp "$SRC/stub.sh" "$STUB"; mut chmod 755 "$STUB"; }
   [ "$DRY" = 1 ] || : > "$EARLY_PENDING"
-  ev_masked="" ev_stubbed="" ev_stop="" ev_pats="" ev_reload=0
+  # What there is to do, from the items of the groups that are on (reads only).
+  ev_units="" ev_progs="" ev_pats=""
   for g in $(cat "$ACTIVE" 2>/dev/null); do
-    for u in $(group_items "$g" | awk -F'|' '$1=="unit" {print $3}'); do
-      unit_exists "$u" || continue
-      if ! unit_masked "$u"; then
-        mut mkdir -p "$RUNSYS"
-        mut ln -sf /dev/null "$RUNSYS/$u" || continue
-        [ -L "$RUNSYS_OLD/$u" ] && mut rm -f "$RUNSYS_OLD/$u"
-        ev_reload=1
-      fi
-      ev_masked="$ev_masked $u"
-      [ "$(unit_state "$u")" = active ] && ev_stop="$ev_stop $u"
+    ev_items=$(group_items "$g")
+    for u in $(printf '%s\n' "$ev_items" | awk -F'|' '$1=="unit" {print $3}'); do
+      unit_exists "$u" && ev_units="$ev_units $u"
     done
-    for x in $(group_items "$g" | awk -F'|' '$1=="luna" && $4=="stub" {print $3}'); do
+    for x in $(printf '%s\n' "$ev_items" | awk -F'|' '$1=="luna" && $4=="stub" {print $3}'); do
       [ -f "$ROOT$x" ] || continue
-      ev_stubbed="$ev_stubbed $x"
+      ev_progs="$ev_progs $x"
       ev_pats="$ev_pats$x
 "
     done
   done
+  # What already runs, read before anything changes: the units in one call, the programs in one pass over /proc.
+  ev_stop=""
+  if [ -n "$ev_units" ]; then
+    # shellcheck disable=SC2086
+    ev_states=$(systemctl is-active $ev_units 2>/dev/null)
+    # shellcheck disable=SC2086
+    set -- $ev_units
+    for ev_state in $ev_states; do
+      [ "$ev_state" = active ] && ev_stop="$ev_stop $1"
+      shift
+    done
+  fi
+  ev_running=""
+  # shellcheck disable=SC2086
+  [ -n "$ev_pats" ] && ev_running=$(exe_pids "$ev_pats" name | sort -u | tr '\n' ' ')
+  # shellcheck disable=SC2086
+  ev_run=$(echo $ev_stop $ev_running)
+  # 1. The stubs: nothing launches as the real program from here on.
+  ev_stubbed=""
+  for x in $ev_progs; do
+    luna_bind "$x"
+    if [ "$DRY" = 1 ] || is_bound "$ROOT$x"; then ev_stubbed="$ev_stubbed $x"; fi
+  done
+  EV_T1=$(boot_clock)
+  # 2. The masks, one reload.
+  ev_masked="" ev_reload=0
+  [ -n "$ev_units" ] && mut mkdir -p "$RUNSYS"
+  for u in $ev_units; do
+    if unit_masked "$u"; then
+      ev_masked="$ev_masked $u"
+    elif mut ln -sf /dev/null "$RUNSYS/$u"; then
+      [ -L "$RUNSYS_OLD/$u" ] && mut rm -f "$RUNSYS_OLD/$u"
+      ev_masked="$ev_masked $u"
+      ev_reload=1
+    fi
+  done
   [ "$ev_reload" = 1 ] && mut systemctl daemon-reload >/dev/null 2>&1
-  # Stubs first, so nothing launches as the real program from here on; then what already runs goes.
-  ev_run="$ev_stop"
-  # shellcheck disable=SC2086
-  [ -n "$ev_pats" ] && ev_run="$ev_run $(exe_pids "$ev_pats" name | sort -u | tr '\n' ' ')"
-  # shellcheck disable=SC2086
-  ev_run=$(echo $ev_run)
-  for x in $ev_stubbed; do luna_bind "$x"; done
+  EV_T2=$(boot_clock)
+  # 3. What was running: the units stop, the programs are killed.
   # shellcheck disable=SC2086
   [ -n "$ev_stop" ] && mut systemctl stop --no-block $ev_stop >/dev/null 2>&1
   [ -n "$ev_pats" ] && kill_exes "$ev_pats"
@@ -890,12 +926,12 @@ verb_early() {
   early_write true "" "$ev_masked" "$ev_stubbed" "$ev_run"
   n_masked=$(echo $ev_masked | wc -w | tr -d ' ')
   n_stubbed=$(echo $ev_stubbed | wc -w | tr -d ' ')
-  log_line "early: $n_masked unit(s) masked, $n_stubbed program(s) stubbed, already running: ${ev_run:-none}, at uptime $(cut -d. -f1 /proc/uptime) s"
+  log_line "early: $n_masked unit(s) masked, $n_stubbed program(s) stubbed, already running: ${ev_run:-none}, stubs at $EV_T1 s, masks at $EV_T2 s, done at uptime $(boot_clock) s"
   if [ "$DRY" != 1 ]; then
     setsid "$SELF" --early-settle </dev/null >/dev/null 2>&1 &
   fi
-  printf '{"ok":true,"early":true,"uptimeSec":%s,"masked":%s,"stubbed":%s,"running":%s}\n' \
-    "$(cut -d' ' -f1 /proc/uptime)" "$n_masked" "$n_stubbed" "$(json_list "$ev_run")"
+  printf '{"ok":true,"early":true,"startSec":%s,"stubbedSec":%s,"maskedSec":%s,"uptimeSec":%s,"masked":%s,"stubbed":%s,"running":%s}\n' \
+    "$EV_T0" "$EV_T1" "$EV_T2" "$(boot_clock)" "$n_masked" "$n_stubbed" "$(json_list "$ev_run")"
   exit 0
 }
 

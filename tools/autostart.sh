@@ -84,6 +84,12 @@ if [ "$1" = "--worker" ]; then
   echo $$ > "$WORKER_MARK" 2>/dev/null
   # Tells apply it is on the boot path: never force the panel on.
   LUMA_BOOT=1; export LUMA_BOOT
+  # LG's ad, recognition and upload pieces start from +11.8 s (the push client), +16.9 s (pbs) and +18.7 s (the content miner), and
+  # the network comes up at about +17.5 s: declutter's early step goes first and in parallel with everything below, so that nothing
+  # waits for the Home stub or the compositor. Bounded; it only reports that no group is on when none is.
+  if [ -x "$APPDIR/tools/declutter.sh" ]; then
+    ( de=$(timeout 20 "$APPDIR/tools/declutter.sh" early </dev/null 2>&1); log "declutter early: $(echo "$de" | tr -d '\n' | cut -c1-300)" ) &
+  fi
   # The logo check's frames (tools/bootcap.sh): `echo <seconds> > $STATE/bootcap` before a reboot.
   # One boot only, and detached like everything else here.
   if [ -f "$STATE/bootcap" ] && [ -x "$APPDIR/tools/bootcap.sh" ]; then
@@ -94,13 +100,6 @@ if [ "$1" = "--worker" ]; then
   fi
   hs=$("$CLI" homestub-boot 2>&1)
   log "homestub-boot: $(echo "$hs" | tr -d '\n' | cut -c1-200)"
-  # LG's ad, content-recognition and upload pieces start from about +17 s and the targets that pull the rest at +22 s and +30 s
-  # (the first pass of declutter's init.d hook came at +73 s on the set): its masks and stubs go down here, before the heavier
-  # steps below. Bounded; a boot with no group on only prints that.
-  if [ -x "$APPDIR/tools/declutter.sh" ]; then
-    de=$(timeout 20 "$APPDIR/tools/declutter.sh" early </dev/null 2>&1)
-    log "declutter early: $(echo "$de" | tr -d '\n' | cut -c1-300)"
-  fi
   # LumaTV's own compositor, when it is enabled: the supervisor goes over LG's binary here, before the
   # restart that apply makes, so that restart starts it. A set that never enabled it answers "off".
   cb=$("$CLI" compositor-boot 2>&1)

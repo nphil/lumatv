@@ -275,7 +275,7 @@ exit 0
 SYSTEMCTL_EARLY = r'''#!/bin/sh
 echo "systemctl $*" >> "$FAKE_CALLS"
 case "$1" in
-  is-active) case " $FAKE_ACTIVE " in *" $2 "*) echo active ;; *) echo inactive ;; esac ;;
+  is-active) shift; for u; do case " $FAKE_ACTIVE " in *" $u "*) echo active ;; *) echo inactive ;; esac; done ;;
 esac
 exit 0
 '''
@@ -293,6 +293,7 @@ class Early(unittest.TestCase):
     """
 
     def setUp(self):
+        self.boot_id = "boot-1"
         self.base = tempfile.mkdtemp(prefix="declutter-early-")
         self.addCleanup(shutil.rmtree, self.base, True)
         self.fake = FakeSet(self.base)
@@ -318,7 +319,7 @@ class Early(unittest.TestCase):
                     write(self.fake.path(name.lstrip("/")), "#!/bin/sh\necho the real program\n")
 
     def dc(self, *verb, **env):
-        env = dict({"DECLUTTER_MOUNTS": self.mounts, "FAKE_CALLS": self.log, "FAKE_ACTIVE": "", "DECLUTTER_SETTLE_STEP": "0.1"}, **env)
+        env = dict({"DECLUTTER_MOUNTS": self.mounts, "FAKE_CALLS": self.log, "FAKE_ACTIVE": "", "DECLUTTER_SETTLE_STEP": "0.1", "DECLUTTER_BOOT_ID": self.boot_id}, **env)
         return self.fake.run(*verb, env=env)
 
     def status(self):
@@ -340,6 +341,7 @@ class Early(unittest.TestCase):
     def reboot(self):
         shutil.rmtree(self.fake.path("run"), ignore_errors=True)
         write(self.mounts, "")
+        self.boot_id = "boot-%d" % (int(self.boot_id.split("-")[1]) + 1)
 
     def mounted(self):
         with open(self.mounts) as f:
@@ -376,7 +378,7 @@ class Early(unittest.TestCase):
         early = self.status()["early"]
         self.assertEqual((early["last"]["ran"], early["pending"]), (True, True), "the marker stays until the set has answered")
         with open(self.d("log")) as f:
-            self.assertRegex(f.read(), r"early: %d unit\(s\) masked, %d program\(s\) stubbed, already running: none, at uptime \d+ s" % (len(units), len(programs)))
+            self.assertRegex(f.read(), r"early: %d unit\(s\) masked, %d program\(s\) stubbed, already running: none, stubs at [\d.]+ s, masks at [\d.]+ s, done at uptime [\d.]+ s" % (len(units), len(programs)))
 
     def test_a_second_pass_lays_nothing_twice(self):
         self.activate("ads")
@@ -410,7 +412,7 @@ class Early(unittest.TestCase):
         with open(self.d("log")) as f:
             log = f.read()
         self.assertIn("killed a running copy, pid %d" % proc.pid, log)
-        self.assertIn("already running: contentminer.service /usr/sbin/pbs, at uptime", log)
+        self.assertIn("already running: contentminer.service /usr/sbin/pbs, stubs at", log)
         self.assertEqual(read_json(self.d("early.json"))["running"], ["contentminer.service", "/usr/sbin/pbs"])
 
     def test_a_boot_that_is_not_to_be_touched_is_left_alone_and_says_why(self):
@@ -460,7 +462,7 @@ class Early(unittest.TestCase):
         def hook():
             return self.status()["early"]["hook"]
         self.activate("ads")
-        self.assertEqual(self.status()["early"], {"hook": False, "pending": False, "last": None})
+        self.assertEqual(self.status()["early"], {"hook": False, "pending": False, "thisBoot": False, "last": None})
         write(self.fake.path("var/systemd/system/env/kdump.env"), "PATH=/var/lib/lumatv/earlybin:/usr/sbin:/usr/bin:/sbin:/bin\n")
         write(self.fake.path("var/lib/lumatv/earlybin/grep"), "#!/bin/sh\n")
         os.chmod(self.fake.path("var/lib/lumatv/earlybin/grep"), 0o755)
@@ -490,12 +492,44 @@ class Early(unittest.TestCase):
         self.assertEqual(self.dc("on", "--group", "uploaders")[0], 0)
         self.assertIsNone(self.status()["early"]["last"], "a pass says nothing about a group switched on after it")
 
-    def test_the_worker_runs_it_after_the_home_stub_and_before_the_heavy_steps_and_bounded(self):
+    def test_the_worker_starts_it_first_in_parallel_and_bounded(self):
         with open(os.path.join(REPO, "tools", "autostart.sh"), encoding="utf-8") as f:
             text = f.read()
-        order = [text.index(s) for s in ('"$CLI" homestub-boot', 'timeout 20 "$APPDIR/tools/declutter.sh" early', '"$CLI" compositor-boot', '"$CLI" boot-bind')]
-        self.assertEqual(order, sorted(order))
-        self.assertLess(text.index("--worker"), order[1])
+        call = 'timeout 20 "$APPDIR/tools/declutter.sh" early'
+        order = [text.index(s) for s in ("--worker", call, 'if [ -f "$STATE/bootcap" ]', '"$CLI" homestub-boot', '"$CLI" compositor-boot', '"$CLI" boot-bind')]
+        self.assertEqual(order, sorted(order), "the early step comes before the logo capture and the Home stub")
+        line = [l for l in text.split("\n") if call in l][0]
+        self.assertTrue(line.rstrip().endswith(") &"), "it must not hold the worker back")
+        self.assertIn("</dev/null", line)
+
+    def test_the_stubs_are_in_before_the_masks_are_loaded_and_the_pass_times_itself(self):
+        self.activate(*PRIVACY_GROUPS)
+        self.persist()
+        rc, out, err = self.dc("early")
+        self.assertEqual(rc, 0, err)
+        calls = self.calls()
+        binds = [i for i, c in enumerate(calls) if c.startswith("mount --bind")]
+        reload = [i for i, c in enumerate(calls) if c == "systemctl daemon-reload"]
+        self.assertTrue(binds and reload and max(binds) < min(reload), "every stub before the one reload: %r" % calls)
+        self.assertEqual([c for c in calls if c.startswith("systemctl stop")], [], "nothing was running, nothing to stop")
+        rec = read_json(self.d("early.json"))
+        self.assertLessEqual(rec["startSec"], rec["stubbedSec"])
+        self.assertLessEqual(rec["stubbedSec"], rec["maskedSec"])
+        self.assertLessEqual(rec["maskedSec"], rec["uptimeSec"])
+        self.assertEqual(rec["bootId"], self.boot_id)
+        self.assertEqual(len([c for c in calls if c.startswith("systemctl is-active")]), 1, "the unit states come in one call")
+
+    def test_a_record_is_this_boots_only_when_the_boot_id_agrees(self):
+        self.activate("ads")
+        self.persist()
+        self.dc("early")
+        early = self.status()["early"]
+        self.assertEqual((early["thisBoot"], early["last"]["ran"]), (True, True))
+        self.reboot()
+        early = self.status()["early"]
+        self.assertEqual((early["thisBoot"], early["last"]["ran"]), (False, True), "the old record stays, and says it is not this boot's")
+        self.dc("early")
+        self.assertTrue(self.status()["early"]["thisBoot"])
 
 
 if __name__ == "__main__":

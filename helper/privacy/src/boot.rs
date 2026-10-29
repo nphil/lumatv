@@ -1,6 +1,6 @@
 //! Whether what a declutter group stops is in place before LG starts it. Read from the group's items
 //! (payload/declutter/items.txt) and the `early` object of `declutter.sh status` (tools/declutter.sh, `verb_early`),
-//! which reports the early step: autostart.sh's worker, started by the kdump shim about 14 s into a boot.
+//! which reports the early step: autostart.sh's worker, started by the kdump shim about 13 to 14 s into a boot.
 use serde_json::{Value, json};
 
 const ITEMS: &str = include_str!("../../../payload/declutter/items.txt");
@@ -34,12 +34,14 @@ fn parts(group: &str) -> Parts {
 }
 
 /// The `boot` object of one group's row. `blocked` is yes only when the group is on, everything it stops can be
-/// put in place by the early step (which is installed), the last pass did not skip its boot, and it found none of
-/// it already running.
+/// put in place by the early step (which is installed), a pass has run since this boot started and did not skip
+/// it, and it found none of the group's items already running. A record from an earlier boot proves nothing.
 pub fn group(id: &str, on: Option<bool>, early: Option<&Value>) -> Value {
     let p = parts(id);
     let hook = early.is_some_and(|e| e["hook"] == true);
-    let last = early.map(|e| &e["last"]).filter(|l| l.is_object());
+    let record = early.map(|e| &e["last"]).filter(|l| l.is_object());
+    let stale = record.is_some() && !early.is_some_and(|e| e["thisBoot"] == true);
+    let last = record.filter(|_| !stale);
     let ran = last.is_some_and(|l| l["ran"] == true);
     let skipped = !p.early.is_empty() && last.is_some() && !ran;
     let up = last.and_then(|l| l["uptimeSec"].as_f64());
@@ -57,7 +59,8 @@ pub fn group(id: &str, on: Option<bool>, early: Option<&Value>) -> Value {
         .collect();
     let on_now = on == Some(true);
     let in_place = on_now && (p.early.is_empty() || hook);
-    let blocked = in_place && p.late.is_empty() && before.is_empty() && !skipped;
+    let stale_here = stale && !p.early.is_empty();
+    let blocked = in_place && p.late.is_empty() && before.is_empty() && !skipped && !stale_here;
     let reason = if on.is_none() {
         "The TV's privacy tool did not answer.".to_owned()
     } else if !on_now {
@@ -71,6 +74,8 @@ pub fn group(id: &str, on: Option<bool>, early: Option<&Value>) -> Value {
         "LG keeps these values across a reboot; the boot pass sets them again.".to_owned()
     } else if !hook {
         "The early boot step is not installed: LG starts these first and only the boot pass stops them.".to_owned()
+    } else if stale_here {
+        "The early step has not run since this boot started; the last pass belongs to an earlier boot.".to_owned()
     } else if !before.is_empty() {
         let at = up
             .map(|s| format!(" ({s:.1} s into the boot)"))
@@ -83,8 +88,12 @@ pub fn group(id: &str, on: Option<bool>, early: Option<&Value>) -> Value {
         let why = last.and_then(|l| l["why"].as_str()).unwrap_or("");
         format!("The early step skipped the last boot: {why}.")
     } else if ran {
+        let stubs = last
+            .and_then(|l| l["stubbedSec"].as_f64())
+            .map(|s| format!(" (stubs at {s:.1} s)"))
+            .unwrap_or_default();
         format!(
-            "Put in place {:.1} s into the last boot; none of it was running by then.",
+            "Put in place {:.1} s into this boot{stubs}; none of it was running by then.",
             up.unwrap_or(0.0)
         )
     } else {
@@ -92,7 +101,7 @@ pub fn group(id: &str, on: Option<bool>, early: Option<&Value>) -> Value {
     };
     let item = |name: &str, kind: &str, early_capable: bool| {
         let started = before.contains(&name);
-        json!({"name": name, "kind": kind, "blocked": in_place && early_capable && !started && !skipped, "startedBefore": started})
+        json!({"name": name, "kind": kind, "blocked": in_place && early_capable && !started && !skipped && !stale_here, "startedBefore": started})
     };
     let items: Vec<Value> = p
         .early
@@ -104,9 +113,14 @@ pub fn group(id: &str, on: Option<bool>, early: Option<&Value>) -> Value {
         "blocked": blocked,
         "reason": reason,
         "verified": (on_now && !p.early.is_empty() && ran).then_some(before.is_empty()),
-        "lastPass": last.map(|l| json!({"ran": l["ran"], "uptimeSec": l["uptimeSec"], "why": l["why"]})),
+        "lastPass": record.map(pass),
         "items": items,
     })
+}
+
+/// The fields of a pass that a menu shows. The boot's clock values are seconds to the hundredth.
+fn pass(l: &Value) -> Value {
+    json!({"ran": l["ran"], "why": l["why"], "startSec": l["startSec"], "stubbedSec": l["stubbedSec"], "maskedSec": l["maskedSec"], "uptimeSec": l["uptimeSec"]})
 }
 
 /// A switch the helper applies itself, once it starts: after the early step, so not blocked from boot.
@@ -122,6 +136,7 @@ pub fn root(early: Option<&Value>) -> Value {
     json!({
         "earlyStep": early.is_some_and(|e| e["hook"] == true),
         "pending": early.is_some_and(|e| e["pending"] == true),
-        "lastPass": early.map(|e| &e["last"]).filter(|l| l.is_object()),
+        "thisBoot": early.is_some_and(|e| e["thisBoot"] == true),
+        "lastPass": early.map(|e| &e["last"]).filter(|l| l.is_object()).map(pass),
     })
 }

@@ -75,7 +75,7 @@ fn rig() -> (tempfile::TempDir, Paths, Arc<Fake>, Privacy) {
         ),
         dc: Mutex::new(status_json(
             false,
-            json!({"hook":false,"pending":false,"last":null}),
+            json!({"hook":false,"pending":false,"thisBoot":false,"last":null}),
         )),
         ..Fake::default()
     });
@@ -267,7 +267,7 @@ fn boot_of(privacy: &Privacy, id: &str) -> Value {
         .clone()
 }
 fn pass(ran: bool, running: Value) -> Value {
-    json!({"ran":ran,"why":if ran{""}else{"the skip file is present"},"uptimeSec":14,"masked":[],"stubbed":[],"running":running})
+    json!({"ran":ran,"why":if ran{""}else{"the skip file is present"},"startSec":13.5,"stubbedSec":13.6,"maskedSec":14.0,"uptimeSec":14.2,"masked":[],"stubbed":[],"running":running})
 }
 #[test]
 fn each_item_says_whether_it_is_blocked_from_boot_and_why() {
@@ -276,7 +276,7 @@ fn each_item_says_whether_it_is_blocked_from_boot_and_why() {
         *p.dc.lock() = status_json(true, early);
     };
     // Without the early step only the boot pass stops LG's services, after LG started them.
-    set(json!({"hook":false,"pending":false,"last":null}));
+    set(json!({"hook":false,"pending":false,"thisBoot":false,"last":null}));
     let ads = boot_of(&privacy, "ads");
     assert_eq!(ads["blocked"], false);
     assert!(ads["reason"].as_str().unwrap().contains("not installed"));
@@ -289,7 +289,7 @@ fn each_item_says_whether_it_is_blocked_from_boot_and_why() {
     assert_eq!(boot_of(&privacy, "push")["blocked"], false, "off");
     assert_eq!(boot_of(&privacy, "push")["reason"], "Off.");
     // Installed, no boot since: promised for the next boot, not yet shown.
-    set(json!({"hook":true,"pending":false,"last":null}));
+    set(json!({"hook":true,"pending":false,"thisBoot":false,"last":null}));
     let ads = boot_of(&privacy, "ads");
     assert_eq!(
         (ads["blocked"].clone(), ads["verified"].clone()),
@@ -312,7 +312,7 @@ fn each_item_says_whether_it_is_blocked_from_boot_and_why() {
         assert!(names.contains(&want), "{want}");
     }
     // The last pass found nothing running: shown.
-    set(json!({"hook":true,"pending":false,"last":pass(true,json!([]))}));
+    set(json!({"hook":true,"pending":false,"thisBoot":true,"last":pass(true,json!([]))}));
     let ads = boot_of(&privacy, "ads");
     assert_eq!(
         (ads["blocked"].clone(), ads["verified"].clone()),
@@ -325,10 +325,11 @@ fn each_item_says_whether_it_is_blocked_from_boot_and_why() {
             .iter()
             .all(|i| i["blocked"] == true && i["startedBefore"] == false)
     );
-    assert_eq!(ads["lastPass"]["uptimeSec"], 14);
+    assert_eq!(ads["lastPass"]["uptimeSec"], 14.2);
+    assert_eq!(ads["lastPass"]["stubbedSec"], 13.6);
     // LG had started pbs and the content miner before the step could act: those are not blocked from boot, the others in other groups are.
     set(
-        json!({"hook":true,"pending":false,"last":pass(true,json!(["/usr/sbin/pbs","contentminer.service"]))}),
+        json!({"hook":true,"pending":false,"thisBoot":true,"last":pass(true,json!(["/usr/sbin/pbs","contentminer.service"]))}),
     );
     let ads = boot_of(&privacy, "ads");
     assert_eq!(
@@ -352,7 +353,7 @@ fn each_item_says_whether_it_is_blocked_from_boot_and_why() {
     assert_eq!(started, ["contentminer.service", "/usr/sbin/pbs"]);
     assert_eq!(boot_of(&privacy, "uploaders")["blocked"], true);
     // A boot the step skipped is not covered, and says why.
-    set(json!({"hook":true,"pending":false,"last":pass(false,json!([]))}));
+    set(json!({"hook":true,"pending":false,"thisBoot":true,"last":pass(false,json!([]))}));
     let ads = boot_of(&privacy, "ads");
     assert_eq!(ads["blocked"], false);
     assert!(
@@ -365,8 +366,34 @@ fn each_item_says_whether_it_is_blocked_from_boot_and_why() {
     assert_eq!(boot_of(&privacy, "hosts")["blocked"], false);
     assert_eq!(
         privacy.status(true)["boot"],
-        json!({"earlyStep":true,"pending":false,"lastPass":pass(false,json!([]))})
+        json!({"earlyStep":true,"pending":false,"thisBoot":true,"lastPass":{"ran":false,"why":"the skip file is present","startSec":13.5,"stubbedSec":13.6,"maskedSec":14.0,"uptimeSec":14.2}})
     );
+    // A record from an earlier boot proves nothing about this one: not blocked until a pass has run since it started.
+    set(json!({"hook":true,"pending":false,"thisBoot":false,"last":pass(true,json!([]))}));
+    let ads = boot_of(&privacy, "ads");
+    assert_eq!(
+        (ads["blocked"].clone(), ads["verified"].clone()),
+        (json!(false), Value::Null)
+    );
+    assert!(
+        ads["reason"]
+            .as_str()
+            .unwrap()
+            .contains("since this boot started")
+    );
+    assert!(
+        ads["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|i| i["blocked"] == false)
+    );
+    assert_eq!(
+        boot_of(&privacy, "settings")["blocked"],
+        true,
+        "settings persist across a boot, no pass needed"
+    );
+    assert_eq!(privacy.status(true)["boot"]["thisBoot"], false);
     // The tool not answering is not "blocked".
     *p.fail.lock() = true;
     let ads = boot_of(&privacy, "ads");
