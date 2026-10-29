@@ -175,7 +175,7 @@
   const q = new URLSearchParams(location.search);
   if (q.get('text')) document.documentElement.dataset.text = q.get('text');
   const v = q.get('v') || 'editor';
-  // ---- Placement.js, as far as this page needs: the zones, the anchors and the room an item has left
+  // ---- the model (placement/src/model.rs), as far as this page needs: the zones, the anchors and the room an item has left
   const Z = { content: { x: 64, y: 134, w: 1792, h: 676 }, edge: { x: 64, y: 134, w: 1792, h: 882 }, toast: { x: 24, y: 24, w: 1872, h: 786 } };
   const A = { 'top-left': [0, 0], 'top': [.5, 0], 'top-right': [1, 0], 'left': [0, .5], 'center': [.5, .5], 'right': [1, .5], 'bottom-left': [0, 1], 'bottom': [.5, 1], 'bottom-right': [1, 1] };
   const clamp = (x) => Math.max(0, Math.min(1, x));
