@@ -41,6 +41,7 @@
 
 #define SCREEN_W 1920
 #define SCREEN_H 1080
+#define VIDEO_WINDOW 16 /* a video window (-w video) draws nothing: the compositor puts its video at the rectangle it granted */
 #define SAMPLES 4096
 #define DEFAULT_APP_ID "org.nphil.lumatv.gfn"
 #define DEFAULT_SOCKET "/tmp/lumatv-gfn/feed.sock"
@@ -344,6 +345,12 @@ static int open_window(struct feeder *f, char *err, size_t cap) {
     if (!strcmp(f->window_type, "card")) wo.window_type = "_WEBOS_WINDOW_TYPE_CARD";
     else if (!strcmp(f->window_type, "overlay")) wo.window_type = "_WEBOS_WINDOW_TYPE_OVERLAY";
     else if (!strcmp(f->window_type, "screensaver")) wo.window_type = "_WEBOS_WINDOW_TYPE_SCREENSAVER", wo.play_video = 1;
+    else if (!strcmp(f->window_type, "video")) {
+        /* LumaTV's own video window (the compositor's `vwin`): it draws the hole and the placement only for a granted claim, at the claim's rectangle */
+        wo.window_type = "_WEBOS_WINDOW_TYPE_LUMATV_VIDEO";
+        wo.title = "LumaTV video";
+        wo.width = wo.height = VIDEO_WINDOW;
+    }
     if (vpl_wl_open(&f->wl, &wo, err, cap) != 0) return -1;
     snprintf(f->window_id, sizeof f->window_id, "%s", vpl_wl_window_id(f->wl));
     return 0;
@@ -1191,7 +1198,7 @@ static void usage(void) {
             "usage: lumatv-gfn-feeder --probe | --play FILE [--codec h264|h265|av1] [--size WxH] [--fps N] [--seconds S] [--loop] [--hdr]\n"
             "         [--audio PKTS] [--audio-mode auto|opus|pcm] [--drop-threshold N] [--pts-unit ns|us|ms] [--full-wait-ms N] [--burst] [--no-ndl] [--stats FILE]\n"
             "       | --serve SOCKET [--once]\n"
-            "  common: [-w card|overlay|default|screensaver] [--window-id ID] [--window-id-file F] [--no-window] [-a APP_ID] [-L NDL_LIB] [-e first|after]\n"
+            "  common: [-w card|overlay|default|screensaver|video] [--window-id ID] [--window-id-file F] [--no-window] [-a APP_ID] [-L NDL_LIB] [-e first|after]\n"
             "  serve: [--ui-home DIR] starts DIR/bin64/lumatv-gfn-app through DIR/gfx64/launch.sh (SAM mode does this from the app's own directory);\n"
             "         [--sam] registers with SAM (no arguments, or SAM's launch object as the one argument, means serve with --sam)\n");
 }

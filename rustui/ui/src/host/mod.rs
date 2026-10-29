@@ -11,6 +11,7 @@ pub mod power;
 pub mod receiver;
 pub mod sio;
 pub mod theme;
+pub mod vwin;
 
 /// What the models' clock is ahead of the system's, in milliseconds (the harness's `--clock` sets it, so a render of the saver's clock does
 /// not depend on the day it is made).

@@ -240,6 +240,18 @@ class Play(unittest.TestCase):
         finally:
             r.close()
 
+    def test_a_video_window_is_the_compositors_own_kind_and_draws_nothing(self):
+        """`-w video`: the window type of LumaTV's own video windows (the compositor's `vwin`), without the saver's playVideo flag."""
+        r = Run(["--play", self.clip, "--size", "320x240", "--fps", "60", "-w", "video"]).go()
+        try:
+            self.assertEqual(r.proc.returncode, 0, r.err())
+            self.assertEqual(r.fc.props["_WEBOS_WINDOW_TYPE"], "_WEBOS_WINDOW_TYPE_LUMATV_VIDEO")
+            self.assertNotIn("playVideo", r.fc.props)
+            self.assertIn("wl_webos_foreign.export_element", r.fc.names())
+            self.assertIn("wl_webos_exported.set_exported_window", r.fc.names())
+        finally:
+            r.close()
+
     def test_hdr_drop_threshold_and_pts_unit(self):
         r = Run(["--play", self.clip, "--size", "320x240", "--fps", "60", "--hdr", "--drop-threshold", "2", "--pts-unit", "us"]).go()
         try:
