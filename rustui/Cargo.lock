@@ -414,6 +414,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "lumatv-saver"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "lumatv-tokens"
 version = "0.1.0"
 dependencies = [
@@ -431,6 +439,7 @@ dependencies = [
  "libc",
  "lumatv-placement",
  "lumatv-render",
+ "lumatv-saver",
  "lumatv-tokens",
  "png 0.17.16",
  "serde_json",

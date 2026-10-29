@@ -1016,8 +1016,8 @@ Item {
     Component.onCompleted: {
         Lu.backdrop = blurTex
         Bus.setHandler(root.key); Bus.setEscapeHandler(root.escapeRequested); Bus.setGear({ ready: root.gearReady, hold: root.gearHold }); Bus.setAppKey(root.appKey)
-        // what a camera pop-up must not cover: a prompt, a layer that has the keys (a PIN, a confirmation, Settings), the layout editor
-        Bus.setHomeBusy(function() { return root.hostActive && (aiPrompt.up || layers.open !== "" || root.editing || root.trialOn) })
+        // what a camera pop-up must not cover: a prompt, a layer that has the keys (a PIN, a confirmation, Settings), the layout editor, the screensaver
+        Bus.setHomeBusy(function() { return root.hostActive && (aiPrompt.up || layers.open !== "" || root.editing || root.trialOn || layers.saverUp) })
         Bus.setThemeWriter({ patch: root.patchTheme, persist: root.persistTheme })
         root.beatOnce()
         console.info("[LumaHome] loaded, first beat written")

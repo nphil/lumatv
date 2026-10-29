@@ -501,6 +501,7 @@ dependencies = [
  "lumatv-feeds",
  "lumatv-placement",
  "lumatv-privacy",
+ "lumatv-saver",
  "mdns",
  "parking_lot",
  "plugin-api",
@@ -544,6 +545,14 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+]
+
+[[package]]
+name = "lumatv-saver"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
