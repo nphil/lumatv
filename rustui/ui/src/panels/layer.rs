@@ -17,6 +17,8 @@ use super::confirm::{Confirm, Spec as ConfirmSpec};
 use super::confirm_surface::{ConfirmSurface, Target as ConfirmTarget};
 use super::drawer::Drawer;
 use super::drawer_surface::{DrawerSurface, Target as DrawerTarget};
+use super::entry::Entry;
+use super::entry_surface::{EntrySurface, Target as EntryTarget};
 use super::env::Env;
 use super::hold::Released;
 use super::life::{Change, Life};
@@ -28,7 +30,7 @@ use super::quick::Quick;
 use super::quick_surface::QuickSurface;
 use super::switcher::Switcher;
 use super::switcher_surface::{SwitcherSurface, Target as SwitcherTarget};
-use super::{Ask, K, Out};
+use super::{Ask, K, Out, Typed};
 use crate::kit::lint::Lint;
 use crate::kit::pointer::Sample;
 use crate::kit::screen::{Effect, Input};
@@ -50,10 +52,11 @@ pub enum Which {
     Menu,
     Confirm,
     Switcher,
+    Entry,
 }
 
 impl Which {
-    pub const ALL: [Which; 6] = [Which::Quick, Which::Picker, Which::Drawer, Which::Menu, Which::Confirm, Which::Switcher];
+    pub const ALL: [Which; 7] = [Which::Quick, Which::Picker, Which::Drawer, Which::Menu, Which::Confirm, Which::Switcher, Which::Entry];
     /// The kinds the compositor's `show` asks for (the gear, Input, the long press of the gear): the others open by their owners' topics.
     pub const SHOWN: [Which; 3] = [Which::Quick, Which::Picker, Which::Drawer];
 
@@ -65,6 +68,7 @@ impl Which {
             Which::Menu => "menu",
             Which::Confirm => "confirm",
             Which::Switcher => "switcher",
+            Which::Entry => "entry",
         }
     }
 
@@ -80,6 +84,7 @@ impl Which {
             Which::Menu => kinds.menu,
             Which::Confirm => kinds.confirm,
             Which::Switcher => kinds.switcher,
+            Which::Entry => kinds.entry,
         }
     }
 }
@@ -111,6 +116,10 @@ pub struct Panels {
     /// How the switcher's chrome comes and goes: it follows the compositor's `switcher` topic.
     switcher_life: Life,
     switcher_s: SwitcherSurface,
+    entry: Entry,
+    entry_s: EntrySurface,
+    /// What was typed on the entry sheet, for the one screen that asked (taken by the shell; never an event, never printed).
+    typed: Vec<Typed>,
     redraw: bool,
     idle_due: Option<u64>,
     /// The number of the last `show` taken (the compositor counts them; a replayed one is not a new press).
@@ -140,6 +149,9 @@ impl Panels {
             switcher_life: Life::new(SWITCHER_LIFE.0, SWITCHER_LIFE.1, SWITCHER_LIFE.2),
             // over the panels: the compositor's pictures are under every layer of the shell, the chrome is the top of the band
             switcher_s: SwitcherSurface::new(base + 40),
+            entry: Entry::new(),
+            entry_s: EntrySurface::new(base),
+            typed: Vec::new(),
             redraw: false,
             idle_due: None,
             last_show: 0,
@@ -156,6 +168,7 @@ impl Panels {
             Which::Menu => &self.menu.life,
             Which::Confirm => &self.confirm.life,
             Which::Switcher => &self.switcher_life,
+            Which::Entry => &self.entry.life,
         }
     }
 
@@ -167,6 +180,7 @@ impl Panels {
             Which::Menu => &mut self.menu.life,
             Which::Confirm => &mut self.confirm.life,
             Which::Switcher => &mut self.switcher_life,
+            Which::Entry => &mut self.entry.life,
         }
     }
 
@@ -178,7 +192,7 @@ impl Panels {
     /// The subscriptions the panels ask for at the start.
     pub fn start(&mut self, kinds: &Kinds) -> Vec<Effect> {
         let mut out = Vec::new();
-        if kinds.quick || kinds.picker || kinds.drawer || kinds.menu || kinds.confirm || kinds.switcher {
+        if kinds.quick || kinds.picker || kinds.drawer || kinds.menu || kinds.confirm || kinds.switcher || kinds.entry {
             out.extend(self.env.start());
         }
         if kinds.drawer {
@@ -323,7 +337,7 @@ impl Panels {
             Which::Quick => self.quick.open(&mut self.env, now),
             Which::Picker => self.picker.open(&mut self.env, now),
             Which::Drawer => self.drawer.open(&self.env, now),
-            Which::Menu | Which::Confirm | Which::Switcher => Out::default(),
+            Which::Menu | Which::Confirm | Which::Switcher | Which::Entry => Out::default(),
         };
         self.run(w, opened, kinds, now, out);
         self.idle_due = Some(now + IDLE_MS);
@@ -356,6 +370,21 @@ impl Panels {
         self.redraw = true;
     }
 
+    /// A screen of the shell asks for text (a Wi-Fi password, a name): the entry sheet opens over whatever panel was up. What is typed (or that
+    /// the person backed out) is handed back once by [`Panels::take_typed`]. Returns whether the sheet opened: not without its kind, not over
+    /// the switcher.
+    pub fn ask_text(&mut self, prompt: &str, text: &str, secret: bool, kinds: &Kinds, now: u64, out: &mut Vec<Effect>) -> bool {
+        if !kinds.entry || self.switcher_life.presented() {
+            return false;
+        }
+        self.make_room(Which::Entry, kinds, now, out);
+        self.entry.open(prompt, text, secret, now);
+        self.entry.life.show(now);
+        self.idle_due = Some(now + IDLE_MS);
+        self.redraw = true;
+        true
+    }
+
     fn hide(&mut self, w: Which, now: u64, kinds: &Kinds, out: &mut Vec<Effect>) {
         // the compositor opens and closes the switcher: this does not take its chrome from under its pictures
         if w == Which::Switcher || self.life_mut(w).hide(now).is_none() {
@@ -373,6 +402,12 @@ impl Panels {
                 // not yet answered: the way out is the safe answer, as Back is
                 let answer = if self.confirm.is_up() { self.confirm.key(K::Back) } else { Out::default() };
                 self.confirm.close();
+                answer
+            }
+            Which::Entry => {
+                // not yet typed: the way out is to cancel, as Back does
+                let answer = if self.entry.is_up() { self.entry.key(K::Back, now) } else { Out::default() };
+                self.entry.close();
                 answer
             }
         };
@@ -397,11 +432,13 @@ impl Panels {
             }
         }
         self.events.extend(o.events);
+        self.typed.extend(o.typed);
         // a dialog that has been answered is closed: leaving it must not answer it again
         if o.close {
             match w {
                 Which::Confirm => self.confirm.close(),
                 Which::Menu => self.menu.close(),
+                Which::Entry => self.entry.close(),
                 _ => {}
             }
         }
@@ -445,6 +482,7 @@ impl Panels {
             (Which::Menu, k) => self.menu.key(k),
             (Which::Confirm, k) => self.confirm.key(k),
             (Which::Switcher, k) => self.switcher.key(k, now),
+            (Which::Entry, k) => self.entry.key(k, now),
         };
         self.run(w, o, kinds, now, &mut out);
         out
@@ -458,6 +496,7 @@ impl Panels {
         self.menu_s.on_key(engine);
         self.confirm_s.on_key(engine);
         self.switcher_s.on_key(engine);
+        self.entry_s.on_key(engine);
     }
 
     /// A sample of the pointer: the cue follows it and a click acts. Any sample keeps the panel up.
@@ -508,6 +547,11 @@ impl Panels {
                 Some(SwitcherTarget::Backdrop) => self.switcher.click_outside(now),
                 None => return out,
             },
+            Which::Entry => match self.entry_s.pointer(kit, engine, now_ns, s) {
+                Some(EntryTarget::Key(i)) => self.entry.click(i, now),
+                Some(EntryTarget::Backdrop) => self.entry.click_outside(),
+                None => return out,
+            },
         };
         self.run(w, o, kinds, now, &mut out);
         out
@@ -536,6 +580,9 @@ impl Panels {
             let o = self.switcher.tick(now);
             self.run(Which::Switcher, o, kinds, now, &mut out);
         }
+        if kinds.entry && self.entry_s.tick(crate::host::now_ms()) {
+            self.redraw = true;
+        }
         let (effects, _) = self.env.update(&Input::Tick, now);
         out.extend(effects);
         if self.idle_due.is_some_and(|d| now >= d) {
@@ -563,6 +610,11 @@ impl Panels {
         }
         if kinds.switcher {
             due = [due, self.switcher.due_at()].into_iter().flatten().min();
+        }
+        if kinds.entry
+            && let Some(d) = self.entry_s.due_at(crate::host::now_ms())
+        {
+            due = Some(due.map_or(d, |x| x.min(d)));
         }
         due
     }
@@ -622,12 +674,24 @@ impl Panels {
             // the cards' places go to the compositor, which moves the pictures there on its own clock
             self.drawn.extend(self.switcher.layout(straight(kit.tokens.extra(kit.mode).scrim_hide), kit.ui.look.reduced_motion));
         }
+        if kinds.entry {
+            let view = self.entry.view(over_video);
+            match self.entry_s.apply(kit, engine, &view, self.entry.life.phase(), now_ms, now_ns) {
+                Ok(on) => live |= on && self.entry.life.visible(),
+                Err(e) => return Err(format!("text entry: {e}")),
+            }
+        }
         Ok(live)
     }
 
     /// What the last draw asks of the compositor.
     pub fn take_drawn(&mut self) -> Vec<Effect> {
         std::mem::take(&mut self.drawn)
+    }
+
+    /// What was typed on the entry sheet since the last take, in order: for the one screen that asked.
+    pub fn take_typed(&mut self) -> Vec<Typed> {
+        std::mem::take(&mut self.typed)
     }
 
     /// Opens the app switcher over what is on the screen (a press of Home with nothing open on Home; Back from the top of Home when the owner
@@ -703,6 +767,9 @@ impl Panels {
         if kinds.switcher {
             g["switcher"] = self.switcher_s.geometry(engine);
         }
+        if kinds.entry {
+            g["entry"] = self.entry_s.geometry(engine);
+        }
         g
     }
 
@@ -726,6 +793,9 @@ impl Panels {
         if kinds.switcher {
             self.switcher_s.feed_lint(kit, lint);
         }
+        if kinds.entry {
+            self.entry_s.feed_lint(kit, lint);
+        }
     }
 
     /// The look changed: the surfaces are made again at the next draw.
@@ -736,6 +806,7 @@ impl Panels {
         self.menu_s.restyle(engine);
         self.confirm_s.restyle(engine);
         self.switcher_s.restyle(engine);
+        self.entry_s.restyle(engine);
         self.redraw = true;
     }
 
@@ -1024,5 +1095,51 @@ mod tests {
         assert!(on.p.recents_on());
         on.topic("screen", json!({"on": false}));
         assert!(on.p.open_switcher(&on.kinds).is_none(), "not with the screen off");
+    }
+
+    #[test]
+    fn a_screen_asks_for_text_types_it_and_is_handed_it_once_and_never_as_an_event() {
+        let mut r = rig_with("entry,quick", json!({}));
+        let mut out = Vec::new();
+        assert!(r.p.ask_text("Wi-Fi password", "", true, &r.kinds, r.now, &mut out));
+        assert_eq!(r.p.up(&r.kinds), Some(Which::Entry));
+        assert!(r.apply());
+        assert_eq!(r.p.geometry(&r.kinds, &r.engine)["entry"]["caps"][14], "t");
+        r.press("ok");
+        r.press("5");
+        r.press("down");
+        r.press("down");
+        r.press("down");
+        r.press("right");
+        // the second key row from the bottom is `zxcv`: down from `y`'s neighbour reaches the bottom row's space bar, Done is the last key
+        for _ in 0..3 {
+            r.press("right");
+        }
+        r.press("ok");
+        assert_eq!(r.p.take_typed(), vec![Typed::Entered("t5".into())]);
+        assert!(r.p.take_typed().is_empty(), "handed over once");
+        assert!(r.p.take_events().is_empty(), "no model is told what was typed");
+        assert!(!r.p.wants(&r.kinds) && r.phase(Which::Entry) == "Leaving");
+    }
+
+    #[test]
+    fn backing_out_idling_and_an_app_coming_to_the_front_all_say_cancelled_and_a_closed_sheet_says_nothing_more() {
+        let mut r = rig_with("entry", json!({}));
+        let mut out = Vec::new();
+        r.p.ask_text("Name", "Den", false, &r.kinds, r.now, &mut out);
+        r.press("back");
+        assert_eq!(r.p.take_typed(), vec![Typed::Cancelled]);
+        r.tick(5000);
+        r.p.ask_text("Name", "Den", false, &r.kinds, r.now, &mut out);
+        r.tick(46_000);
+        assert_eq!(r.p.take_typed(), vec![Typed::Cancelled], "left alone it is let go");
+        r.tick(5000);
+        r.topic("foreground", json!({"app": "com.a", "home": false}));
+        r.p.ask_text("Name", "Den", false, &r.kinds, r.now, &mut out);
+        r.topic("foreground", json!({"app": "com.b", "home": false}));
+        assert_eq!(r.p.take_typed(), vec![Typed::Cancelled]);
+        assert!(r.p.take_typed().is_empty());
+        let mut off = rig_with("quick", json!({}));
+        assert!(!off.p.ask_text("Name", "", false, &off.kinds, off.now, &mut out), "without its kind nothing opens");
     }
 }

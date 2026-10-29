@@ -11,6 +11,8 @@ pub mod confirm;
 pub mod confirm_surface;
 pub mod drawer;
 pub mod drawer_surface;
+pub mod entry;
+pub mod entry_surface;
 pub mod env;
 pub mod hold;
 pub mod hub;
@@ -68,14 +70,32 @@ pub enum Ask {
     Settings(String),
 }
 
+/// What was typed on the entry sheet, for the one screen that asked: handed back once and never made an event (events are fed to every
+/// model), and never printed (a password is typed there).
+#[derive(Clone, PartialEq)]
+pub enum Typed {
+    Entered(String),
+    Cancelled,
+}
+
+impl std::fmt::Debug for Typed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Typed::Entered(t) => write!(f, "Entered({} characters)", t.chars().count()),
+            Typed::Cancelled => write!(f, "Cancelled"),
+        }
+    }
+}
+
 /// What a key or a click did: the effects it asks for, what it asks of the shell, what it tells the owner of the surface (an event
-/// `topic` and its data, fed to every model as a topic: `menu.picked`, `confirm.answered`, `notelog.action`), and whether the panel is
-/// to close.
+/// `topic` and its data, fed to every model as a topic: `menu.picked`, `confirm.answered`, `notelog.action`), what was typed, and whether
+/// the panel is to close.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Out {
     pub effects: Vec<Effect>,
     pub asks: Vec<Ask>,
     pub events: Vec<(String, Value)>,
+    pub typed: Option<Typed>,
     pub close: bool,
 }
 
@@ -92,6 +112,7 @@ impl Out {
         self.effects.extend(other.effects);
         self.asks.extend(other.asks);
         self.events.extend(other.events);
+        self.typed = other.typed.or(self.typed.take());
         self.close |= other.close;
     }
 }

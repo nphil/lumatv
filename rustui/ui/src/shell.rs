@@ -15,6 +15,7 @@ use crate::kit::{Engine, Kit};
 use crate::settings::host::SettingsHost;
 use crate::settings::row::ShellRequest;
 use crate::system::alert::ALERT_TAG;
+use crate::panels::Typed;
 use crate::panels::layer::{Panels, Which};
 use crate::system::layer::Layer;
 use crate::system::toast::{FEED_TAG, Toasts};
@@ -57,6 +58,7 @@ pub struct Kinds {
     pub menu: bool,
     pub confirm: bool,
     pub switcher: bool,
+    pub entry: bool,
 }
 
 impl Kinds {
@@ -82,6 +84,7 @@ impl Kinds {
                 "menu" => k.menu = true,
                 "confirm" => k.confirm = true,
                 "switcher" => k.switcher = true,
+                "entry" => k.entry = true,
                 _ => {}
             }
         }
@@ -107,6 +110,7 @@ impl Kinds {
             (self.menu, "menu"),
             (self.confirm, "confirm"),
             (self.switcher, "switcher"),
+            (self.entry, "entry"),
         ]
         .into_iter()
         .filter_map(|(on, name)| on.then_some(name))
@@ -381,6 +385,21 @@ impl Shell {
                 acts.extend(self.open_settings(page.as_deref(), now));
             }
             self.feed(&Input::Topic { topic, data }, now, acts);
+        }
+        // what was typed goes back, once, to the screen that asked (Settings is the only one that does); it is no topic, so no other model
+        // hears it
+        for typed in self.panels.take_typed() {
+            if self.kinds.settings {
+                match typed {
+                    Typed::Entered(text) => {
+                        for e in self.settings.entered(&text, now) {
+                            self.carry(e, now, acts);
+                        }
+                    }
+                    Typed::Cancelled => self.settings.entry_cancelled(),
+                }
+                self.redraw = true;
+            }
         }
     }
 
@@ -833,7 +852,18 @@ impl Shell {
                         self.carry(e, now, acts);
                     }
                 }
-                ShellRequest::Text { .. } => acts.push(Act::Log("settings: text was asked for".into())),
+                ShellRequest::Text { prompt, text, secret } => {
+                    let mut out = Vec::new();
+                    if self.panels.ask_text(&prompt, &text, secret, &self.kinds, now, &mut out) {
+                        for e in out {
+                            self.carry(e, now, acts);
+                        }
+                    } else {
+                        // nothing here can type: the question is let go, so Settings does not wait for a keyboard that is not there
+                        self.settings.entry_cancelled();
+                        acts.push(Act::Log("settings: text was asked for and the entry kind is not on".into()));
+                    }
+                }
             }
         }
         if self.settings_layout != self.home.layout_text {
