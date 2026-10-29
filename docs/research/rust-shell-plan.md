@@ -482,3 +482,11 @@ The set has not run any of it. The next round, in a KMS maintenance window, from
    both runs pass.
 7. Off at any point, without a deploy: `ctl shell rust -osd -toast` (the QML client gets `audio` back at once and the toast feed
    at its next push).
+
+## 7. Phase 3 on the host
+
+Home is built on the host as the kind `home` (`rustui/ui/src/home/`, 2026-10-29): the wallpaper, the status bar with the profile chip, the
+cards, the dock, the library, search with its keyboard, the layout editor with its live preview, "Who's watching?" with the PIN pad and the
+switch veil, a tile's options; the compositor's switch knows the kind (the QML Home window is left out of the stack while the Rust client is
+on the engine). What is done, what is next and the TV round are in `rust-home-result.md`; the kit doc's "Home" section says how it is built.
+`ctl shell rust +home` is the flip, `-home` the way back, as for every kind.

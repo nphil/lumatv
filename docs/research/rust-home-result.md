@@ -38,9 +38,10 @@ Next, in this order:
 
 1. The TV round (below): the first run of the kind on the set, with `ctl shell rust +home`; the QML Home is left out of the stack by the
    compositor while the Rust client is on the engine, so a bad frame is turned off with `ctl shell rust -home` (no deploy).
-2. The other kinds' surfaces Home asks for: `Home::take_requests()` (Settings, the drawer) is logged in `shell.rs` until RustSettings and
-   RustPanels land; the tile menu and the confirm are Home's own (`layers.rs` `MenuSurface`, the editor's `Zone::Ask`) and can move to
-   RustPanels' `panels::menu`/`confirm` when they exist (`shell.panels.open_menu(spec)` answered on `Input::Topic{"menu.picked"}`).
+2. The other kinds' surfaces Home asks for: `Home::take_requests()`: Settings opens the `settings` kind when it is in the list
+   (`shell.rs`, RustSettings), the drawer is logged until RustPanels lands; the tile menu and the confirm are Home's own (`layers.rs`
+   `MenuSurface`, the editor's `Zone::Ask`) and can move to RustPanels' `panels::menu`/`confirm` when they exist
+   (`shell.panels.open_menu(spec)` answered on `Input::Topic{"menu.picked"}`).
 3. The dock's fade over overflowing rows draws (the `fade` shape) but the pill of a tile on the last visible row is not clipped by the
    card: a tile beyond the visible rows is reached by the arrows and scrolls into view on the spring.
 4. Camera stills on the cameras card (the spec's `/frame` route needs `Effect::Fetch` with a binary answer, `Input::Bytes`): the card
