@@ -323,6 +323,34 @@ class RustHome(unittest.TestCase):
                     if name == "apps-scrolled" and scale == 1 and mode == "dark":
                         self.assertEqual(values[0]["apps"]["scrollRow"], 2, "the scene scrolls")
 
+    # ---- the clock
+    def test_the_second_hand_is_one_line_in_every_frame_and_what_the_ring_draws_in_parts_is_what_it_draws_whole(self):
+        """The photo of the TV showed two second hands a few degrees apart. The hand steps 6 degrees once a second, so a camera whose exposure
+        spans a step shows both; the frames themselves hold one. `--reference` draws every frame whole as well and counts the frames that differ
+        from the ones drawn into the ring; the red of each second's frame lies on one line, six degrees on from the last."""
+        try:
+            import numpy
+            from PIL import Image
+        except ImportError:
+            self.skipTest("needs numpy and PIL")
+        data = tempfile.mkdtemp(prefix='hand-')
+        steps = [['--snap', '%d:%s' % (2500 + 1000 * i, os.path.join(data, 'h%d.png' % i))] for i in range(4)]
+        out, _, _ = self.host(6000, steps, extra=['--reference', '--clock', '2026-10-29T19:38:20'])
+        self.assertIn("frames differing from whole 0", out, "a frame drawn in parts is the frame drawn whole")
+        angles = []
+        for i in range(4):
+            rgb = numpy.asarray(Image.open(os.path.join(data, 'h%d.png' % i)).convert('RGB')).astype(int)[134:356, 64:648]
+            ys, xs = numpy.nonzero((rgb[..., 0] > 170) & (rgb[..., 0] - rgb[..., 1] > 110) & (rgb[..., 0] - rgb[..., 2] > 80))
+            pts = numpy.stack([xs, ys], 1).astype(float)
+            self.assertGreater(len(pts), 100, "the hand is drawn")
+            centre = pts.mean(0)
+            _, _, axes = numpy.linalg.svd(pts - centre, full_matrices=False)
+            spread = float(numpy.sqrt((((pts - centre) @ axes[1]) ** 2).mean()))
+            self.assertLess(spread, 1.7, "second %d: the red of one hand is one line (two hands six degrees apart spread 2.1), not two" % i)
+            angles.append(float(numpy.degrees(numpy.arctan2(axes[0][1], axes[0][0])) % 180))
+        for a, b in zip(angles, angles[1:]):
+            self.assertAlmostEqual((b - a) % 180, 6.0, delta=1.0, msg="the hand steps six degrees a second: %s" % angles)
+
     # ---- the renders beside the mocks
     def test_renders(self):
         for mode in ("dark", "light"):

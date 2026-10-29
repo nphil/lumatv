@@ -330,3 +330,55 @@ fn a_ui_commit_wakes_the_loop_and_is_drawn_without_a_tick() {
     assert_eq!(rig.capture().pixel(500 + 290 + 50, 550), [90, 200, 90, 255], "the last commit is on the page");
     assert_eq!(rig.gl_errors(), 0);
 }
+
+/// What the clock card's hands layer is made of, as the shell redraws it each second: a thick opaque stroke from the centre of a `side`
+/// square at `degrees` from twelve o'clock, on nothing.
+fn hand_picture(side: u32, degrees: f32) -> Vec<u8> {
+    let (c, a) = (side as f32 / 2.0, degrees.to_radians());
+    let (dx, dy) = (a.sin(), -a.cos());
+    let mut px = vec![0u8; (side * side * 4) as usize];
+    for y in 0..side {
+        for x in 0..side {
+            let (rx, ry) = (x as f32 + 0.5 - c, y as f32 + 0.5 - c);
+            let along = rx * dx + ry * dy;
+            let across = (rx * dy - ry * dx).abs();
+            if (0.0..c - 2.0).contains(&along) && across <= 1.5 {
+                let i = ((y * side + x) * 4) as usize;
+                px[i..i + 4].copy_from_slice(&[255, 59, 92, 255]);
+            }
+        }
+    }
+    px
+}
+
+#[test]
+fn a_picture_redrawn_whole_in_place_every_frame_leaves_nothing_of_the_last_one_on_any_page() {
+    let Some(rig) = Rig::start("hand", false) else { return };
+    const SIDE: u32 = 166;
+    let (x0, y0) = (800i32, 200i32);
+    let mut hand = rig.ui.scene.image(SIDE, SIDE, 5, Props::at(x0 as f32, y0 as f32)).unwrap();
+    rig.commit();
+    // Two turns of the ring's three pages and more, a step of the second hand each; another layer of Home moves in the same frames, as the
+    // wallpaper does, so that a frame owes two rectangles.
+    for step in 0..14u32 {
+        let want = hand_picture(SIDE, step as f32 * 6.0);
+        hand.pixels_mut().copy_from_slice(&want);
+        hand.damage(None);
+        rig.under.set(Props::at(500.0 + step as f32 * 7.0, 500.0));
+        rig.commit();
+        let image = rig.capture();
+        let mut wrong = Vec::new();
+        for y in 0..SIDE {
+            for x in 0..SIDE {
+                let i = ((y * SIDE + x) * 4) as usize;
+                let expect = if want[i + 3] > 0 { [want[i], want[i + 1], want[i + 2], 255] } else { [18, 20, 32, 255] };
+                let got = image.pixel((x0 as u32) + x, (y0 as u32) + y);
+                if got != expect {
+                    wrong.push((x, y, got, expect));
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "step {step}: {} of the hand's pixels differ from its picture, the first {:?}", wrong.len(), &wrong[..wrong.len().min(3)]);
+    }
+    assert_eq!(rig.gl_errors(), 0);
+}
