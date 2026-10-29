@@ -1,0 +1,129 @@
+{
+  "glyphs": {
+    "key-ok": {
+      "file": "key-ok.svg",
+      "kind": "key",
+      "name": "OK"
+    },
+    "key-ok-hold": {
+      "file": "key-ok-hold.svg",
+      "kind": "key",
+      "name": "Hold OK"
+    },
+    "key-up": {
+      "file": "key-up.svg",
+      "kind": "key",
+      "name": "Up"
+    },
+    "key-down": {
+      "file": "key-down.svg",
+      "kind": "key",
+      "name": "Down"
+    },
+    "key-left": {
+      "file": "key-left.svg",
+      "kind": "key",
+      "name": "Left"
+    },
+    "key-right": {
+      "file": "key-right.svg",
+      "kind": "key",
+      "name": "Right"
+    },
+    "key-back": {
+      "file": "key-back.svg",
+      "kind": "key",
+      "name": "Back"
+    },
+    "key-home": {
+      "file": "key-home.svg",
+      "kind": "key",
+      "name": "Home"
+    },
+    "key-menu": {
+      "file": "key-menu.svg",
+      "kind": "key",
+      "name": "Menu"
+    },
+    "key-mic": {
+      "file": "key-mic.svg",
+      "kind": "key",
+      "name": "Voice key"
+    },
+    "key-red": {
+      "file": "key-red.svg",
+      "kind": "key",
+      "name": "Red",
+      "tone": "danger"
+    },
+    "key-green": {
+      "file": "key-green.svg",
+      "kind": "key",
+      "name": "Green",
+      "tone": "positive"
+    },
+    "key-yellow": {
+      "file": "key-yellow.svg",
+      "kind": "key",
+      "name": "Yellow",
+      "tone": "warning"
+    },
+    "key-blue": {
+      "file": "key-blue.svg",
+      "kind": "key",
+      "name": "Blue",
+      "tone": "info"
+    },
+    "expand": {
+      "file": "expand.svg",
+      "kind": "action",
+      "name": "expand"
+    },
+    "collapse": {
+      "file": "collapse.svg",
+      "kind": "action",
+      "name": "collapse"
+    },
+    "close": {
+      "file": "close.svg",
+      "kind": "action",
+      "name": "close"
+    },
+    "open": {
+      "file": "open.svg",
+      "kind": "action",
+      "name": "open"
+    },
+    "confirm": {
+      "file": "confirm.svg",
+      "kind": "action",
+      "name": "confirm"
+    },
+    "options": {
+      "file": "options.svg",
+      "kind": "action",
+      "name": "options"
+    },
+    "move": {
+      "file": "move.svg",
+      "kind": "action",
+      "name": "move"
+    },
+    "edit": {
+      "file": "edit.svg",
+      "kind": "action",
+      "name": "edit"
+    },
+    "hold": {
+      "file": "hold.svg",
+      "kind": "action",
+      "name": "hold"
+    }
+  },
+  "_": "Hints are glyphs, not sentences (Lucent). Each glyph has one accessible name (`name`). The Magic Remote has no OK or Back lettering, so no glyph carries a word. A hint is the key glyphs, then what they do (an action glyph), then a label only where no glyph can say it (a name the data supplies). Holding is the key glyph followed by `hold`, except OK, which has `key-ok-hold`.",
+  "compose": {
+    "size": "1.45 times the type size of the text role beside the hint (label 26 and caption 24 on the TV, so 37 and 35 px at 100 %); it follows the role at 200 % text",
+    "name": "one accessible name per hint: the key names joined with 'and', then what it does, then the label ('OK, expand'); a surface may give its own where the generic words lose the meaning ('OK allows')",
+    "ink": "keys in the reading ink, what they do in the second ink; the colour keys in the palette tone named in `tone`"
+  }
+}
