@@ -39,13 +39,13 @@ Done (host-tested, pushed as "Home in the Rust shell: the home kind"):
 - `tests/test_rust_home.py`: the QML tests' cases on the harness; `test_renders` writes `docs/mocks/host-rust/home/*.png`.
 - Bell: the RustPanels drawer kind opens from Home and Back returns to the bell. The badge follows the panels' unread log, clears on opening, and caps at 99+; host tests and dark/light renders at both text sizes.
 - Library rail: a whole-row viewport follows focus at 200 % text, with Hidden pinned at the foot. Only visible rows are painted and pointer-active; list-order guides preserve D-pad order. Host tests and the library's visible-word lint cover both sizes and looks.
+- Cameras card: Scrypted stills use the helper's existing frame route, at thumbnail size, once a second after each answer, with at most two outstanding. Hidden Home, standby and offline rows fetch nothing; the last good still survives a failed refresh. Compact rows retain one named still at 200 % text. Host JPEG renders and visible-word lint cover both sizes and looks.
 
 Next, in this order:
 
 1. The TV round (below): the first run of the kind on the set, with `ctl shell rust +home`; the QML Home is left out of the stack by the
    compositor while the Rust client is on the engine, so a bad frame is turned off with `ctl shell rust -home` (no deploy).
 2. The tile menu and confirm remain Home's own (layers.rs MenuSurface, editor Zone::Ask); migration to RustPanels is outside the Home open-item slice.
-3. Camera stills on the cameras card: the card still draws names, rooms, online dots and the link's state without pictures.
 
 Decisions taken (conservative, not asked):
 

@@ -302,6 +302,9 @@ impl HomeSurface {
         }
         self.build_status(kit, engine, home)?;
         self.build_dock_tiles(kit, engine, home)?;
+        let camera_rows = self.cards.iter().filter_map(|c| match &c.content { Content::Cameras(camera) => Some(camera), _ => None })
+            .flat_map(|camera| camera.still_rows(&home.cameras)).collect::<Vec<_>>();
+        home.stills.configure(&camera_rows);
         self.update_badge(kit, home);
         self.update_contents(kit, home, now);
         self.update_dock(kit, engine, home, now_ns);
@@ -688,7 +691,7 @@ impl HomeSurface {
                 Content::Weather(w) => w.set(kit, &mut self.pictures, &home.weather),
                 Content::News(n) => n.set(kit, &home.news, if mine { inner_index.unwrap_or(0) } else { self.news_index }, now),
                 Content::AtHome(a) => a.set(kit, &home.ha_cards, row, &mut self.pictures),
-                Content::Cameras(cm) => cm.set(kit, &home.cameras, row, now),
+                Content::Cameras(cm) => cm.set(kit, &home.cameras, &home.stills, row, now),
                 Content::Unknown(_) => {}
             }
         }

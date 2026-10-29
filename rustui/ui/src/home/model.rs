@@ -89,6 +89,7 @@ pub struct Home {
     pub news: Value,
     pub ha_cards: Value,
     pub cameras: Value,
+    pub stills: super::stills::Stills,
     /// What the bell's badge counts (the panels' log and the plugins' notes since the drawer was last open).
     pub unread: usize,
     pub profiles: Value,
@@ -153,6 +154,7 @@ impl Home {
             ha_cards: Value::Null,
             voice_ready: false,
             cameras: Value::Null,
+            stills: super::stills::Stills::default(),
             unread: 0,
             profiles: Value::Null,
             inner: None,
@@ -442,7 +444,13 @@ impl Home {
             Input::Tick | Input::Bytes { .. } => {}
         }
         self.tick(&mut out);
+        let visible = self.camera_stills_visible();
+        out.extend(self.stills.update(input, visible, now));
         out
+    }
+
+    fn camera_stills_visible(&self) -> bool {
+        self.active && self.screen_on && self.layer == Layer::None && self.cameras.get("state").and_then(Value::as_str) == Some("ready")
     }
 
     fn tick(&mut self, out: &mut Vec<Effect>) {
@@ -496,6 +504,7 @@ impl Home {
         take(self.editor.as_ref().and_then(Editor::due_at));
         take(self.picker.due_at());
         take(self.search.due_at());
+        take(self.stills.due_at(self.camera_stills_visible()));
         // the clock's minute, and its second hand when the analogue face shows one
         let step = if self.theme.pointer("/clock/style").and_then(Value::as_str) == Some("analog") { 1000 } else { 60_000 };
         take(Some((self.now / step + 1) * step));
@@ -1417,6 +1426,7 @@ impl Home {
             "dock": self.dock.ids(),
             "profile": self.profile_name(),
             "unread": self.unread,
+            "cameraFrames": self.stills.revision,
             "apps": self.apps.state(),
             "picker": self.picker.state(),
             "launching": self.launching,
@@ -1446,6 +1456,25 @@ mod tests {
         let mut out = h.update(&Input::Key { name: name.into(), down: true, repeat: false }, at);
         out.extend(h.update(&Input::Key { name: name.into(), down: false, repeat: false }, at + 30));
         out
+    }
+
+    #[test]
+    fn camera_stills_pause_when_home_is_hidden_asleep_or_has_a_sheet() {
+        let mut h = home();
+        h.cameras = json!({"state": "ready"});
+        assert!(h.camera_stills_visible());
+        h.layer = Layer::Apps;
+        assert!(!h.camera_stills_visible());
+        h.layer = Layer::None;
+        h.update(&Input::Topic { topic: "screen".into(), data: json!({"on": false}) }, 2000);
+        assert!(!h.camera_stills_visible());
+        h.update(&Input::Topic { topic: "screen".into(), data: json!({"on": true}) }, 2100);
+        assert!(h.camera_stills_visible());
+        h.active = false;
+        assert!(!h.camera_stills_visible());
+        h.active = true;
+        h.cameras = json!({"state": "offline"});
+        assert!(!h.camera_stills_visible());
     }
 
     #[test]

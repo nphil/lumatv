@@ -494,7 +494,7 @@ impl Clock {
             for i in 0..7 {
                 let x = b.x + i as f32 * cell;
                 let ii = lines.len();
-                lines.push((Frame::new(x, b.y, cell, 24.0 * kc), sized(kit, (17.0 * kc).max(14.0), Weight::Medium, ink3, Align::Centre), String::new()));
+                lines.push((Frame::new(x, b.y, cell, 24.0 * kc), sized(kit, (17.0 * kc).max(14.0), Weight::Medium, ink2, Align::Centre), String::new()));
                 let ni = lines.len();
                 lines.push((Frame::new(x, b.y + 28.0 * kc, cell, 36.0 * kc), sized(kit, (22.0 * kc).max(16.0), Weight::SemiBold, ink, Align::Centre), String::new()));
                 map.strip.push((ii, ni));
@@ -559,7 +559,6 @@ impl Clock {
         let mut changes: Vec<(usize, String, Rgba)> = Vec::new();
         let ink = kit.ui.look.ink();
         let ink2 = kit.ui.look.ink2();
-        let ink3 = kit.ui.look.ink3();
         let accent = kit.ui.look.accent();
         let (time, ampm) = t.time_words(self.twelve);
         if let Some(i) = self.lines.greet {
@@ -580,7 +579,7 @@ impl Clock {
             }
             for (i, (ii, ni)) in self.lines.strip.iter().enumerate() {
                 let (n, initial, today) = t.week()[i];
-                changes.push((*ii, initial.to_owned(), ink3));
+                changes.push((*ii, initial.to_owned(), ink2));
                 changes.push((*ni, n.to_string(), if today { accent } else { ink }));
             }
             for (m, (ti, cells)) in self.lines.months.iter().enumerate() {
@@ -1174,6 +1173,9 @@ pub struct Cameras {
     head: (usize, usize),
     row_h: f32,
     row_top: f32,
+    thumb_w: u32,
+    thumb_h: u32,
+    show_detail: bool,
     at: Props,
     shown: Option<String>,
 }
@@ -1188,21 +1190,26 @@ impl Cameras {
         let lh = kit.line(TypeRole::Label);
         let mut lines: Vec<Line> = vec![(Frame::new(0.0, 0.0, w * 0.5, lh), label, "Cameras".into()), (Frame::new(w * 0.5, 0.0, w * 0.5, lh), cap_r, String::new())];
         let row_top = lh + 12.0;
-        let row_h = (64.0 * kit.text_scale).max(kit.line(TypeRole::Label) + 8.0);
+        let available_h = (h - row_top).max(0.0);
+        let show_detail = available_h >= lh + kit.line(TypeRole::Caption) + 4.0;
+        let detail_h = if show_detail { kit.line(TypeRole::Caption) } else { 0.0 };
+        let row_h = (64.0 * kit.text_scale).min(available_h).max(lh + detail_h + 4.0);
+        let thumb_h = (row_h - 12.0).round().max(1.0) as u32;
+        let thumb_w = ((thumb_h as f32 * 16.0 / 9.0).min(w * 0.4)).round().max(1.0) as u32;
+        let text_x = thumb_w as f32 + 20.0;
         let n = (((h - row_top) / row_h).floor().max(0.0) as usize).min(8);
         let mut rows = Vec::new();
         for i in 0..n {
             let y = row_top + i as f32 * row_h;
             let a = lines.len();
-            lines.push((Frame::new(28.0, y, w * 0.6 - 28.0, row_h), label, String::new()));
+            lines.push((Frame::new(text_x, y, w - text_x, lh), label, String::new()));
             let b = lines.len();
-            lines.push((Frame::new(w * 0.6, y, w * 0.4, row_h), role_style(kit, TypeRole::Caption, None, ink2, Align::Right), String::new()));
+            lines.push((Frame::new(text_x, y + lh, w - text_x, detail_h), cap, String::new()));
             rows.push((a, b));
         }
-        let _ = cap;
         let block = Words::new(kit, Frame::new(0.0, 0.0, w, h), z + 2, lines)?;
         let art = art(kit, Frame::new(0.0, 0.0, w, h), z + 1)?;
-        Ok(Self { block, art, w, rows, head: (0, 1), row_h, row_top, at: HIDDEN, shown: None })
+        Ok(Self { block, art, w, rows, head: (0, 1), row_h, row_top, thumb_w, thumb_h, show_detail, at: HIDDEN, shown: None })
     }
 
     fn show(&mut self, at: Props) {
@@ -1213,6 +1220,12 @@ impl Cameras {
 
     pub fn rows(&self) -> usize {
         self.rows.len()
+    }
+
+    pub fn still_rows(&self, topic: &Value) -> Vec<(String, u32, u32, bool)> {
+        topic.get("cameras").and_then(Value::as_array).into_iter().flatten().take(self.rows.len())
+            .filter_map(|c| Some((c.get("id")?.as_str()?.to_owned(), self.thumb_w, self.thumb_h, c.get("online").and_then(Value::as_bool) == Some(true))))
+            .collect()
     }
 
     /// The link's state in words (`cameras-ui-spec.md`), never an address.
@@ -1228,10 +1241,10 @@ impl Cameras {
         }
     }
 
-    pub fn set(&mut self, kit: &mut Kit, topic: &Value, inner: Option<usize>, now_ms: u64) {
+    pub fn set(&mut self, kit: &mut Kit, topic: &Value, stills: &super::stills::Stills, inner: Option<usize>, now_ms: u64) {
         let cams: Vec<Value> = topic.get("cameras").and_then(Value::as_array).cloned().unwrap_or_default();
         let state = topic.get("state").and_then(Value::as_str).unwrap_or("unlinked").to_owned();
-        let key = format!("{state}|{:?}|{}", inner, cams.iter().map(|c| format!("{}:{}", c.get("id").and_then(Value::as_str).unwrap_or(""), c.get("online").and_then(Value::as_bool).unwrap_or(false))).collect::<Vec<_>>().join(","));
+        let key = format!("{topic}|{inner:?}|{}|{}", stills.revision, now_ms / 60_000);
         if self.shown.as_deref() == Some(key.as_str()) {
             return;
         }
@@ -1247,8 +1260,11 @@ impl Cameras {
                     let online = c.get("online").and_then(Value::as_bool).unwrap_or(false);
                     let since = c.get("since").and_then(Value::as_u64).map(|s| ago(now_ms.saturating_sub(s))).unwrap_or_default();
                     let words = if online { c.get("room").and_then(Value::as_str).unwrap_or("").to_owned() } else if since.is_empty() { "Offline".into() } else { format!("Offline \u{b7} {since}") };
-                    changes.push((*a, name, ink));
-                    changes.push((*b, words, ink2));
+                    let available = self.w - self.thumb_w as f32 - 20.0;
+                    let title_ty = role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Left).ty;
+                    let detail_ty = role_style(kit, TypeRole::Caption, None, ink2, Align::Left).ty;
+                    changes.push((*a, ellipsise(&mut kit.ui.fonts, &name, title_ty, available), ink));
+                    changes.push((*b, if self.show_detail { ellipsise(&mut kit.ui.fonts, &words, detail_ty, available) } else { String::new() }, ink2));
                     dots.push((self.row_top + i as f32 * self.row_h, online));
                 }
                 None => {
@@ -1271,7 +1287,14 @@ impl Cameras {
                 if inner == Some(i) {
                     canvas.rounded(Frame::new(-8.0, *y, self.w + 16.0, self.row_h - 4.0), radius, ring);
                 }
-                canvas.disc(8.0, y + (self.row_h - 4.0) / 2.0, 6.0, if *online { positive } else { faded(live, 0.7) });
+                let frame = Frame::new(0.0, *y + 4.0, self.thumb_w as f32, self.thumb_h as f32);
+                canvas.rounded(frame, radius, ring);
+                if let Some(pic) = cams.get(i).and_then(|c| c.get("id")).and_then(Value::as_str).and_then(|id| stills.picture(id)) {
+                    let mut fitted = pic.fitted(self.thumb_w, self.thumb_h, Fit::Cover);
+                    fitted.round_corners(radius);
+                    canvas.picture(&fitted, 0, (*y + 4.0) as i32, self.thumb_w, self.thumb_h);
+                }
+                canvas.disc(self.thumb_w as f32 + 8.0, y + kit.line(TypeRole::Label) / 2.0, 4.0, if *online { positive } else { faded(live, 0.7) });
             }
         }
         self.art.damage(None);

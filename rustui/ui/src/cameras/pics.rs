@@ -66,6 +66,8 @@ pub struct Arrival {
 pub struct Planner {
     slots: Vec<Slot>,
     counter: u64,
+    first: u64,
+    last: u64,
 }
 
 impl Default for Planner {
@@ -76,7 +78,13 @@ impl Default for Planner {
 
 impl Planner {
     pub fn new() -> Self {
-        Self { slots: Vec::new(), counter: TAG_FIRST }
+        Self::with_tags(TAG_FIRST, TAG_LAST)
+    }
+
+    /// Another surface can share the pacing rules without sharing the Cameras app's answer tags.
+    pub fn with_tags(first: u64, last: u64) -> Self {
+        assert!(first <= last);
+        Self { slots: Vec::new(), counter: first, first, last }
     }
 
     fn slot_mut(&mut self, key: &str) -> Option<&mut Slot> {
@@ -86,7 +94,7 @@ impl Planner {
     /// A tag for an ask of the app's own (a request of the helper, not a picture).
     pub fn next_tag(&mut self) -> u64 {
         let t = self.counter;
-        self.counter = if t >= TAG_LAST { TAG_FIRST } else { t + 1 };
+        self.counter = if t >= self.last { self.first } else { t + 1 };
         t
     }
 

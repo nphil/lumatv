@@ -87,7 +87,7 @@ CAMERAS_LAYOUT = {"grid": {"rows": 16}, "widgets": [
 
 @unittest.skipUnless(os.path.exists(BIN) and os.path.exists(MESA), "needs rustui/target/debug/lumatv-ui and Mesa")
 class RustHome(unittest.TestCase):
-    def host(self, wait, steps=(), layout=None, feeds=None, mode=None, scale=None, data=None, theme=None, kinds='home'):
+    def host(self, wait, steps=(), layout=None, feeds=None, mode=None, scale=None, data=None, theme=None, kinds='home', extra=()):
         """Runs the harness with Home in front, the launch points answered and the feeds published at 100 ms; `steps` are extra
         arguments (`k`, `snap`, `ev`). Returns (the output, the evals by label, the data directory)."""
         data = data or tempfile.mkdtemp(prefix='rusthome-')
@@ -109,6 +109,7 @@ class RustHome(unittest.TestCase):
             cmd += ['--mode', mode, '--theme', json.dumps({"material": mode})]
         if scale:
             cmd += ['--text-scale', str(scale)]
+        cmd += list(extra)
         for s in steps:
             cmd += s
         env = dict(os.environ, LIBGL_ALWAYS_SOFTWARE='1')
@@ -197,6 +198,39 @@ class RustHome(unittest.TestCase):
                 self.assertGreaterEqual(values[0]["apps"]["railFirst"], int(scale == 2))
                 self.assertEqual(values[1], [], "the visible library words pass layout and contrast lint")
                 self.assertEqual(values[2]["apps"]["section"], "hidden")
+
+    def test_the_cameras_card_fetches_decodes_and_draws_the_helpers_stills(self):
+        import rust_cameras_scenes as sc
+        import channel
+        import fakehelper
+        for mode in ("dark", "light"):
+            for scale in (1, 2):
+                port, helper_port = sc.free_port(), sc.free_port()
+                chan = channel.Channel('offline-token')
+                server = channel.serve(chan, port, say=lambda _: None)
+                helper, state = fakehelper.serve(helper_port)
+                state.pictures['front'] = sc.small('still')
+                state.publish('cameras', CAMERAS)
+                data = tempfile.mkdtemp(prefix='rusthome-stills-')
+                token = os.path.join(data, 'test-token')
+                with open(token, 'w') as f:
+                    f.write('offline-token')
+                suffix = '-light' if mode == 'light' else ''
+                try:
+                    steps = [self.ev(3000), ['--eval', '3100:lint'], self.snap(3200, '43-home-camera-stills-text%d%s' % (scale * 100, suffix)),
+                             ['--push', '3400:screen:{"on":false}']]
+                    out, values, _ = self.host(4000, steps, layout=CAMERAS_LAYOUT, data=data, mode=mode, scale=scale,
+                                             extra=['--port', str(port), '--helper-port', str(helper_port), '--token-file', token])
+                    self.assertGreater(values[0]['cameraFrames'], 0, 'binary answers are decoded into Home pictures: %s %s' % (state.frames, out))
+                    self.assertEqual(values[1], [], repr(values[1]))
+                    self.assertTrue(state.frames, 'the helper supplies the card stills')
+                    self.assertEqual({frame[0] for frame in state.frames}, {'front'}, 'offline cameras ask for no still')
+                    self.assertTrue(all(w < 300 and h < 200 for _, w, h, _ in state.frames), 'only thumbnail-sized stills')
+                finally:
+                    server.shutdown()
+                    helper.shutdown()
+                    server.server_close()
+                    helper.server_close()
 
     # ---- the layout editor
     def test_the_editor_picks_up_a_card_moves_it_by_the_cell_turns_a_move_down_and_saves_the_owners_layout(self):
