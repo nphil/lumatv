@@ -89,6 +89,8 @@ pub struct Home {
     pub news: Value,
     pub ha_cards: Value,
     pub cameras: Value,
+    /// What the bell's badge counts (the panels' log and the plugins' notes since the drawer was last open).
+    pub unread: usize,
     pub profiles: Value,
     pub voice_ready: bool,
     pub helper_up: bool,
@@ -151,6 +153,7 @@ impl Home {
             ha_cards: Value::Null,
             voice_ready: false,
             cameras: Value::Null,
+            unread: 0,
             profiles: Value::Null,
             inner: None,
             inner_index: None,
@@ -269,6 +272,16 @@ impl Home {
     /// The bar's height grows with the text size (the layout's 60 at 100 %), as the chip's name does.
     pub fn status_height(&self) -> f32 {
         (self.layout.pointer("/statusBar/height").and_then(Value::as_f64).unwrap_or(60.0) as f32 * self.text_scale.max(1.0)).round()
+    }
+
+    /// The bell's count, from the panels' notification log; true when the badge has to be drawn again.
+    pub fn set_unread(&mut self, n: usize) -> bool {
+        if n == self.unread {
+            return false;
+        }
+        self.unread = n;
+        self.dirty = true;
+        true
     }
 
     /// The person's text size (the kit's), which the chrome's own sizes follow.
@@ -1392,6 +1405,7 @@ impl Home {
             "layout": grid::entries(&self.layout).iter().map(|e| json!([e.id, e.col, e.row, e.span, e.rows, e.hidden as u8])).collect::<Vec<_>>(),
             "dock": self.dock.ids(),
             "profile": self.profile_name(),
+            "unread": self.unread,
             "picker": self.picker.state(),
             "launching": self.launching,
         })

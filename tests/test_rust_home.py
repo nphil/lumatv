@@ -174,6 +174,12 @@ class RustHome(unittest.TestCase):
     def toast(ms, text):
         return ['--luna', '%d:%d:%s' % (ms, TOAST_TAG, json.dumps({"message": text}))]
 
+    def test_the_bell_counts_the_toasts_since_the_drawer_was_last_open(self):
+        out, evals, _ = self.host(4200, [self.toast(400, "Update ready\nA new version"), self.toast(500, "Backup done"), ['--eval', '1200:state'],
+                                          self.k(1300, "right", "ok"), ['--eval', '2600:state']], kinds='home,drawer')
+        self.assertEqual(evals[0]["home"]["unread"], 2, "two toasts are two unread on the bell")
+        self.assertEqual(evals[1]["home"]["unread"], 0, "opening the drawer marks them seen")
+
     def test_the_bell_is_logged_only_when_the_drawer_kind_is_not_the_shells(self):
         out, _, _ = self.host(1600, [self.k(600, "right", "ok")])
         self.assertIn("home asks for notifications", out)
@@ -261,6 +267,9 @@ class RustHome(unittest.TestCase):
             self.host(3000, [self.k(600, "down"), self.hold(900, "ok", 900), self.snap(2800, "38-home-edit" + suffix)], layout=FREE, mode=mode)
             self.host(4000, [self.k(600, "down"), self.hold(900, "ok", 900), self.k(2000, "ok", "right", "down"), self.snap(3800, "38-home-edit-move" + suffix)], layout=FREE, mode=mode)
             self.host(4000, [self.k(600, "down"), self.hold(900, "ok", 900), self.k(2000, "up", "left", "left", "ok"), self.snap(3800, "38-home-edit-add" + suffix)], layout=FREE, mode=mode)
+            for scale, size in ((None, ""), (2, "-text200")):
+                toasts = [self.toast(300, "Update ready\nA new version is ready to install"), self.toast(400, "Backup done"), self.toast(500, "Remote battery low")]
+                self.host(2400, toasts + [self.snap(2200, "41-home-bell-badge" + size + suffix)], mode=mode, scale=scale, kinds='home,drawer')
             self.host(3600, [self.toast(300, "Update ready\nA new version is ready to install"), self.toast(400, "Backup done"), self.toast(500, "Remote battery low"), self.k(1300, "right", "ok"),
                              self.snap(3400, "41-home-drawer" + suffix)], mode=mode, kinds='home,drawer')
             self.host(2200, [self.k(600, "1"), self.snap(2000, "12-all-apps" + suffix)], mode=mode)

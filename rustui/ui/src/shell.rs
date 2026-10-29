@@ -532,6 +532,10 @@ impl Shell {
         if self.panels.take_redraw() {
             self.redraw = true;
         }
+        // the bell's badge counts what the drawer's log holds unread: a toast arrives, or the drawer opens and marks it seen
+        if self.kinds.home && self.kinds.drawer && self.home.set_unread(self.panels.unread()) {
+            self.redraw = true;
+        }
         if self.kinds.settings {
             self.settings_requests(now, acts);
             if self.settings.take_redraw() {

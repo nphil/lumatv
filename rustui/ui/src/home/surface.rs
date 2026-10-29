@@ -110,7 +110,10 @@ struct StatusItem {
     icon: Option<ImageLayer>,
     avatar: Option<ImageLayer>,
     name: Option<Text>,
-    badge: Option<ShapeLayer>,
+    /// The bell's count: a pill at the button's top right corner, painted when the count changes (`None` for the other buttons).
+    badge: Option<ImageLayer>,
+    /// The count painted in `badge` now.
+    badge_n: Option<usize>,
 }
 
 struct StatusBar {
@@ -299,6 +302,7 @@ impl HomeSurface {
         }
         self.build_status(kit, engine, home)?;
         self.build_dock_tiles(kit, engine, home)?;
+        self.update_badge(kit, home);
         self.update_contents(kit, home, now);
         self.update_dock(kit, engine, home, now_ns);
         self.update_focus(kit, engine, home, now_ns);
@@ -549,7 +553,11 @@ impl HomeSurface {
                 let mut icon = None;
                 let mut avatar = None;
                 let mut name = None;
-                let badge = None;
+                let mut badge = None;
+                if kind == "notifications" {
+                    let (bw, bh, _) = Self::badge_metrics(kit, "99+");
+                    badge = Some(kit.ui.scene.image(bw as u32, bh as u32, Z_STATUS + 4, Props { opacity: 0.0, visible: false, ..Props::at(w - bw, 2.0) })?);
+                }
                 if kind == "profile" {
                     let side = (h - 8.0) as u32;
                     let mut av = kit.ui.scene.image(side, side, Z_STATUS + 3, Props::at(4.0, 4.0))?;
@@ -573,10 +581,61 @@ impl HomeSurface {
                 }
                 Ok((icon, avatar, name, badge))
             }).ok_or_else(|| std::io::Error::other("the item's group"))??;
-            items.push(StatusItem { id, kind, lift, icon, avatar, name, badge });
+            items.push(StatusItem { id, kind, lift, icon, avatar, name, badge, badge_n: None });
         }
         self.status = Some(StatusBar { pane, frame, items, profile_key });
         Ok(())
+    }
+
+    /// The pill of the bell's count for `text`: its width, its height and the type of the number. The height and the type grow with the
+    /// text size, the width with the number.
+    fn badge_metrics(kit: &mut Kit, text: &str) -> (f32, f32, ui::text::Type) {
+        let scale = kit.text_scale.max(1.0);
+        let mut ty = kit.ty(TypeRole::Label);
+        ty.px = (15.0 * scale).round() as u32;
+        ty.weight = Weight::SemiBold;
+        let h = (22.0 * scale).round();
+        let w = h.max(kit.ui.fonts.measure(text, ty).width.ceil() + 12.0 * scale);
+        (w, h, ty)
+    }
+
+    /// The bell's badge for `n` unread: hidden at none, otherwise the count (99+ past a hundred) in the danger colour, with a light ring
+    /// on the light material.
+    fn update_badge(&mut self, kit: &mut Kit, home: &Home) {
+        let n = home.unread;
+        let Some(item) = self.status.as_mut().and_then(|s| s.items.iter_mut().find(|i| i.badge.is_some())) else { return };
+        if item.badge_n == Some(n) {
+            return;
+        }
+        item.badge_n = Some(n);
+        let Some(layer) = item.badge.as_mut() else { return };
+        let (w, h) = (layer.width(), layer.height());
+        let at = Props::at(item.lift.frame.w - w as f32, 2.0);
+        if n == 0 {
+            layer.set(Props { opacity: 0.0, visible: false, ..at });
+            return;
+        }
+        let text = if n > 99 { "99+".to_owned() } else { n.to_string() };
+        let (pw, ph, ty) = Self::badge_metrics(kit, &text);
+        let fill = kit.ui.look.colour(PaletteRole::Danger);
+        layer.clear();
+        {
+            let mut canvas = super::widgets::Canvas { px: layer.pixels_mut(), w, h };
+            let pill = Frame::new(w as f32 - pw, 0.0, pw, ph);
+            if kit.mode == Mode::Light {
+                canvas.rounded(pill, ph / 2.0, Rgba(255, 255, 255, 230));
+                canvas.rounded(Frame::new(pill.x + 2.0, 2.0, pw - 4.0, ph - 4.0), (ph - 4.0) / 2.0, fill);
+            } else {
+                canvas.rounded(pill, ph / 2.0, fill);
+            }
+        }
+        let extent = kit.ui.fonts.measure(&text, ty);
+        let x = (w as f32 - pw + (pw - extent.width) / 2.0).round();
+        let baseline = ((ph - extent.height()) / 2.0 + extent.ascent).round();
+        let mut canvas = ui::text::Canvas { pixels: layer.pixels_mut(), width: w as usize };
+        kit.ui.fonts.draw(&mut canvas, &text, ty, (x, baseline), Rgba(255, 255, 255, 255));
+        layer.damage(None);
+        layer.set(Props { opacity: 1.0, visible: true, ..at });
     }
 
     /// The avatar as a rounded square: the person's picture, or their colour and letter.
