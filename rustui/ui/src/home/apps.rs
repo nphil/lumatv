@@ -64,6 +64,7 @@ pub struct Apps {
     pub scale: f32,
     pub section: String,
     pub rail_index: usize,
+    pub rail_first: usize,
     pub cell: usize,
     pub scroll_row: usize,
     pub in_grid: bool,
@@ -197,6 +198,7 @@ impl Apps {
     pub fn open(&mut self) {
         self.section = "all".into();
         self.rail_index = 0;
+        self.rail_first = 0;
         self.cell = 0;
         self.scroll_row = 0;
         self.in_grid = true;
@@ -214,6 +216,7 @@ impl Apps {
             self.section = rail[self.rail_index].id.clone();
         }
         self.scroll_row = self.scroll_row.min(n.saturating_sub(1) / COLS);
+        self.show_rail();
     }
 
     pub fn focused_app(&self) -> Option<Value> {
@@ -231,10 +234,35 @@ impl Apps {
         self.scale.max(1.0)
     }
 
+    /// Hidden stays at the foot; the other sections scroll in whole rows above it.
+    pub fn rail_slots(&self) -> usize {
+        let pinned = self.rail().last().is_some_and(|s| s.id == "hidden");
+        let available = RAIL_FRAME.h - 40.0 - if pinned { 84.0 * self.k() } else { 0.0 };
+        ((available + 4.0 * self.k()) / (84.0 * self.k())).floor().max(1.0) as usize
+    }
+
+    pub fn rail_visible(&self, i: usize) -> bool {
+        self.rail().get(i).is_some_and(|s| s.id == "hidden") || (i >= self.rail_first && i < self.rail_first + self.rail_slots())
+    }
+
+    fn show_rail(&mut self) {
+        let rail = self.rail();
+        let regular = rail.len() - usize::from(rail.last().is_some_and(|s| s.id == "hidden"));
+        let slots = self.rail_slots();
+        self.rail_first = self.rail_first.min(regular.saturating_sub(slots));
+        if self.rail_index < regular {
+            if self.rail_index < self.rail_first {
+                self.rail_first = self.rail_index;
+            } else if self.rail_index >= self.rail_first + slots {
+                self.rail_first = self.rail_index + 1 - slots;
+            }
+        }
+    }
+
     /// A rail row: 80 tall at a pitch of 84 at 100 % text, both growing with the text size.
     pub fn rail_frame(&self, i: usize, hidden: bool) -> Frame {
         let (h, pitch) = (80.0 * self.k(), 84.0 * self.k());
-        let y = if hidden { RAIL_FRAME.y + RAIL_FRAME.h - 20.0 - h } else { RAIL_FRAME.y + 20.0 + i as f32 * pitch };
+        let y = if hidden { RAIL_FRAME.y + RAIL_FRAME.h - 20.0 - h } else { RAIL_FRAME.y + 20.0 + (i as f32 - self.rail_first as f32) * pitch };
         Frame::new(RAIL_FRAME.x + 16.0, y, RAIL_FRAME.w - 32.0, h)
     }
 
@@ -255,9 +283,19 @@ impl Apps {
         for i in 0..12u32 {
             let id = Id(RAIL_ID + i);
             match rail.get(i as usize) {
-                Some(s) => focus.register(id, self.rail_frame(i as usize, s.id == "hidden"), RAIL, scope),
+                Some(s) => {
+                    let mut f = self.rail_frame(i as usize, s.id == "hidden");
+                    if !self.rail_visible(i as usize) { f.x = -2000.0; }
+                    focus.register(id, f, RAIL, scope);
+                }
                 None => focus.unregister(id),
             }
+        }
+        for i in 0..rail.len() {
+            let id = Id(RAIL_ID + i as u32);
+            // List order, not geometric distance to the pinned foot row.
+            focus.guide(id, Dir::Up, Id(RAIL_ID + i.saturating_sub(1) as u32));
+            focus.guide(id, Dir::Down, Id(RAIL_ID + (i + 1).min(rail.len() - 1) as u32));
         }
         let n = self.list().len();
         for i in 0..MAX_CELLS {
@@ -307,6 +345,7 @@ impl Apps {
         let i = i.min(rail.len() - 1);
         self.rail_index = i;
         self.section = rail[i].id.clone();
+        self.show_rail();
         self.cell = 0;
         self.scroll_row = 0;
     }
@@ -370,10 +409,39 @@ impl Apps {
     }
 
     pub fn state(&self) -> Value {
-        serde_json::json!({"section": self.section, "cell": self.cell, "scrollRow": self.scroll_row, "inGrid": self.in_grid, "search": self.search_focused, "count": self.list().len()})
+        serde_json::json!({"section": self.section, "railFirst": self.rail_first, "railIndex": self.rail_index, "cell": self.cell, "scrollRow": self.scroll_row, "inGrid": self.in_grid, "search": self.search_focused, "count": self.list().len()})
     }
 }
 
 pub fn app_json(a: &App) -> Value {
     serde_json::json!({"id": a.id, "title": a.title, "iconUrl": a.icon, "params": a.params, "hidden": a.hidden, "onDock": a.on_dock, "unmovable": a.unmovable})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_rail_follows_each_section_at_both_sizes_and_keeps_hidden_at_the_foot() {
+        for scale in [1.0, 2.0] {
+            let mut a = Apps { scale, ..Apps::default() };
+            a.apps = ["Netflix", "GeForce", "Browser", "Odd app", "Secret"].iter().enumerate().map(|(i, name)| App {
+                id: i.to_string(), title: (*name).into(), icon: String::new(), params: Value::Null,
+                hidden: i == 4, on_dock: true, plate: String::new(), unmovable: false,
+            }).collect();
+            a.open();
+            let n = a.rail().len();
+            assert_eq!(n, 7);
+            for i in (0..n).chain((0..n).rev()) {
+                a.set_section(i);
+                assert!(a.rail_visible(i));
+                let f = a.rail_frame(i, i == n - 1);
+                assert!(f.y >= RAIL_FRAME.y + 20.0 && f.bottom() <= RAIL_FRAME.bottom() - 20.0);
+                if i != n - 1 {
+                    assert!(f.bottom() < a.rail_frame(n - 1, true).y);
+                }
+            }
+            assert_eq!(a.rail_first, 0);
+        }
+    }
 }

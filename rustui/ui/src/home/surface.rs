@@ -937,6 +937,10 @@ impl HomeSurface {
     pub fn lint(&self, kit: &mut Kit, home: &Home) -> crate::kit::lint::Lint {
         use crate::kit::lint::Lint;
         let mut lint = Lint::new();
+        if home.layer == Layer::Apps {
+            if let Some(apps) = &self.apps { apps.lint(kit, &mut lint); }
+            return lint;
+        }
         // A pane's paint as the lint composites it: the glass tint over the mode's scrim over the canvas. The material is chosen by
         // the wallpaper's luma (`material: auto`, the threshold 0.6), so under the dark glass the picture is never lighter than mid
         // grey, which the canvas stands for; a lighter picture gets the light material and its dark ink.
@@ -978,6 +982,9 @@ impl HomeSurface {
         }
         if let Some(p) = &self.picker {
             p.lint(kit, &mut lint, home);
+        }
+        if let Some(apps) = &self.apps {
+            apps.lint(kit, &mut lint);
         }
         lint
     }
@@ -1086,6 +1093,32 @@ mod tests {
         }
     }
 
+    #[test]
+    fn the_library_rail_passes_lint_when_scrolled_at_both_sizes_and_looks() {
+        for mode in [Mode::Dark, Mode::Light] {
+            for scale in [1.0, 2.0] {
+                let (h, mut kit) = testkit::kit_in(mode, scale);
+                let mut engine = Engine::new(&kit).unwrap();
+                let theme = lumatv_tokens::Tokens::shipped().json().clone();
+                let mut home = Home::new(theme, super::super::grid::shipped(), json!({}));
+                fixtures(&mut home);
+                home.set_text_scale(scale);
+                home.apps.open();
+                home.layer = Layer::Apps;
+                let mut surface = HomeSurface::new(1000);
+                surface.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
+                for i in (0..home.apps.rail().len()).chain((0..home.apps.rail().len()).rev()) {
+                    home.apps.set_section(i);
+                    surface.apply(&mut kit, &mut engine, &mut home, 2300).unwrap();
+                    let lint = surface.lint(&mut kit, &home);
+                    let bad: Vec<_> = lint.findings().into_iter().filter(|f| f.subject.starts_with("apps.")).collect();
+                    assert!(bad.is_empty(), "{mode:?} {scale} rail {i}: {bad:?}");
+                    assert!(lint.words().iter().any(|w| w.name.starts_with("apps.rail")));
+                }
+                std::mem::forget(h);
+            }
+        }
+    }
     #[test]
     fn the_halves_and_the_thirds_pass_the_lint() {
         let halves = json!({"grid": {"rows": 16}, "widgets": [

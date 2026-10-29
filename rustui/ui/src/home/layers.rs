@@ -10,6 +10,7 @@ use super::model::{Home, Layer};
 use super::picker;
 use super::search::{self, Search};
 use super::surface::{HIDDEN, HomeSurface, Lift, faded, glass_of};
+use super::widgets::Words;
 use crate::kit::button::{Button, Place, Spec, Tone};
 use crate::kit::flow::Lifted;
 use crate::kit::focus::Region;
@@ -102,11 +103,11 @@ pub struct AppsSurface {
     bar: GlassLayer,
     bar_text: Block,
     rail: GlassLayer,
-    rail_rows: Block,
+    rail_rows: Words,
     rail_mark: ShapeLayer,
     rail_focus: ShapeLayer,
     page: GlassLayer,
-    heading: Block,
+    heading: Words,
     search: Button,
     grid: Group,
     cells: Vec<Cell>,
@@ -137,13 +138,20 @@ impl AppsSurface {
         let (lh, ch) = (kit.line(TypeRole::Label), kit.line(TypeRole::Caption));
         let row_h = home.apps.rail_frame(0, false).h;
         let two = lh + ch + 8.0 <= row_h;
+        let rail_list = home.apps.rail();
+        let pinned = rail_list.last().is_some_and(|s| s.id == "hidden");
+        let regular = rail_list.len() - usize::from(pinned);
         for i in 0..12 {
-            let f = home.apps.rail_frame(i, false);
+            let hidden = pinned && i == 11;
+            let f = home.apps.rail_frame(home.apps.rail_first + i, hidden);
             let top = if two { ((row_h - lh - ch) / 2.0).round() } else { ((row_h - lh) / 2.0).round() };
-            rows.push((Frame::new(f.x - rail_f.x + 24.0, f.y - rail_f.y + top, f.w - 48.0, lh), role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Left), String::new()));
-            rows.push((Frame::new(f.x - rail_f.x + 24.0, f.y - rail_f.y + top + lh, f.w - 48.0, if two { ch } else { 0.0 }), role_style(kit, TypeRole::Caption, None, ink2, Align::Left), String::new()));
+            let shown = hidden || i < regular.min(home.apps.rail_slots());
+            let y = if shown { f.y - rail_f.y + top } else { 0.0 };
+            rows.push((Frame::new(f.x - rail_f.x + 24.0, y, f.w - 48.0, lh), role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Left), String::new()));
+            rows.push((Frame::new(f.x - rail_f.x + 24.0, y + lh, f.w - 48.0, if two { ch } else { 0.0 }), role_style(kit, TypeRole::Caption, None, ink2, Align::Left), String::new()));
         }
-        let rail_rows = Block::new(&mut kit.ui, rail_f, z + 3, rows)?;
+        let mut rail_rows = Words::new(kit, rail_f, z + 3, rows)?;
+        rail_rows.set_props(Props::at(rail_f.x, rail_f.y));
         let rail_mark = kit.ui.scene.shape(5, (row_h - 44.0).max(12.0) as u32, z + 3, plate::solid(kit.ui.look.accent(), 3.0), HIDDEN);
         let rail_focus = kit.ui.scene.shape((rail_f.w - 32.0) as u32, row_h as u32, z + 2, plate::solid(faded(ink, kit.tokens.states.focus_wash[0]), kit.tokens.radius(Radius::Row)), HIDDEN);
         let page_f = apps::PAGE_FRAME;
@@ -156,7 +164,9 @@ impl AppsSurface {
             (Frame::new(0.0, 0.0, title_w, head_h), role_style(kit, TypeRole::Title, None, ink, Align::Left), String::new()),
             (Frame::new(title_w + 10.0, 0.0, sub_w, head_h), role_style(kit, TypeRole::Caption, None, ink2, Align::Left), String::new()),
         ];
-        let heading = Block::new(&mut kit.ui, Frame::new(page_f.x + 40.0, page_f.y + 28.0, title_w + 10.0 + sub_w, head_h), z + 2, heading_lines)?;
+        let heading_frame = Frame::new(page_f.x + 40.0, page_f.y + 28.0, title_w + 10.0 + sub_w, head_h);
+        let mut heading = Words::new(kit, heading_frame, z + 2, heading_lines)?;
+        heading.set_props(Props::at(heading_frame.x, heading_frame.y));
         let mut search = Button::new(kit, engine, Place { id: Id(apps::SEARCH_ID), frame: sf, region: apps::TOP, scope: super::model::SCOPE_APPS, z: z + 3 }, Spec::new("Search apps", Tone::Plain).with_icon("search"))?;
         search.show(kit, true);
         let grid_y = home.apps.grid_y();
@@ -219,10 +229,16 @@ impl AppsSurface {
         let rail = home.apps.rail();
         let mut changes: Vec<(usize, String, Rgba)> = Vec::new();
         for i in 0..12 {
-            match rail.get(i) {
+            let section = if i == 11 { rail.last().filter(|s| s.id == "hidden") } else if i < home.apps.rail_slots() { rail.get(home.apps.rail_first + i).filter(|s| s.id != "hidden") } else { None };
+            match section {
                 Some(s) => {
-                    changes.push((2 * i, s.title.clone(), ink));
-                    changes.push((2 * i + 1, s.sub.clone(), ink2));
+                    let w = apps::RAIL_FRAME.w - 80.0;
+                    let title_style = role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Left);
+                    let sub_style = role_style(kit, TypeRole::Caption, None, ink2, Align::Left);
+                    let title = ui::components::text::ellipsise(&mut kit.ui.fonts, &s.title, title_style.ty, w);
+                    let sub = ui::components::text::ellipsise(&mut kit.ui.fonts, &s.sub, sub_style.ty, w);
+                    changes.push((2 * i, title, ink));
+                    changes.push((2 * i + 1, sub, ink2));
                 }
                 None => {
                     changes.push((2 * i, String::new(), ink));
@@ -231,10 +247,10 @@ impl AppsSurface {
             }
         }
         let refs: Vec<(usize, &str, Rgba)> = changes.iter().map(|(i, s, c)| (*i, s.as_str(), *c)).collect();
-        self.rail_rows.set_many(&mut kit.ui, &refs);
+        self.rail_rows.set_many(kit, &refs);
         let h = home.apps.heading();
-        let sub = Apps::sub_of(&h.id).to_owned();
-        self.heading.set_many(&mut kit.ui, &[(0, &h.title, ink), (1, &sub, ink2)]);
+        let sub = if kit.text_scale > 1.5 { String::new() } else { Apps::sub_of(&h.id).to_owned() };
+        self.heading.set_many(kit, &[(0, &h.title, ink), (1, &sub, ink2)]);
         let rf = home.apps.rail_frame(home.apps.rail_index, h.id == "hidden");
         self.rail_mark.set(Props::at(rf.x - 6.0, rf.y + 22.0 * kit.text_scale.max(1.0)));
         let on_rail = !home.apps.in_grid && !home.apps.search_focused && home.layer == Layer::Apps;
@@ -253,6 +269,14 @@ impl AppsSurface {
         self.search.set_hover(kit, home.focus.hovered() == Some(Id(apps::SEARCH_ID)));
         let _ = (&self.scrim, &self.bar, &self.bar_text, &self.rail, &self.page);
         Ok(())
+    }
+
+    pub fn lint(&self, kit: &mut Kit, lint: &mut crate::kit::lint::Lint) {
+        let paint = kit.ui.look.colour(PaletteRole::Sheet);
+        let p = lint.panel("apps.rail", apps::RAIL_FRAME, paint, true);
+        self.rail_rows.lint(kit, lint, "apps.rail", (0.0, 0.0), Some(p));
+        let p = lint.panel("apps.page", apps::PAGE_FRAME, paint, true);
+        self.heading.lint(kit, lint, "apps.heading", (0.0, 0.0), Some(p));
     }
 
     pub fn destroy(self, engine: &mut Engine) {

@@ -184,6 +184,20 @@ class RustHome(unittest.TestCase):
         out, _, _ = self.host(1600, [self.k(600, "right", "ok")])
         self.assertIn("home asks for notifications", out)
 
+    def test_the_library_rail_follows_the_last_section_at_both_text_sizes(self):
+        for mode in ("dark", "light"):
+            for scale in (1, 2):
+                suffix = "-light" if mode == "light" else ""
+                steps = [self.k(500, "1"), ['--pointer', '900:120:200:1'], ['--pointer', '940:120:200:0'],
+                         self.k(1100, "down", "down", "down", "down", "down"), self.ev(2400),
+                         ['--eval', '2500:lint'], self.snap(2600, "42-library-rail-text%d%s" % (scale * 100, suffix)),
+                         self.k(2700, "down"), self.ev(3100)]
+                _, values, _ = self.host(3400, steps, mode=mode, scale=scale, theme={"apps": {"hidden": ["netflix"]}})
+                self.assertEqual(values[0]["apps"]["section"], "dock")
+                self.assertGreaterEqual(values[0]["apps"]["railFirst"], int(scale == 2))
+                self.assertEqual(values[1], [], "the visible library words pass layout and contrast lint")
+                self.assertEqual(values[2]["apps"]["section"], "hidden")
+
     # ---- the layout editor
     def test_the_editor_picks_up_a_card_moves_it_by_the_cell_turns_a_move_down_and_saves_the_owners_layout(self):
         steps = [self.k(600, "down"), self.hold(900, "ok", 900), self.ev(2000),

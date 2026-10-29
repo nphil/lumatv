@@ -1128,7 +1128,12 @@ impl Home {
     }
 
     fn apps_key(&mut self, name: &str, dir: Option<Dir>, out: &mut Vec<Effect>) {
-        match self.apps.key(name, dir, &mut self.focus) {
+        let action = self.apps.key(name, dir, &mut self.focus);
+        self.apps_out(action, out);
+    }
+
+    fn apps_out(&mut self, action: super::apps::AppsOut, out: &mut Vec<Effect>) {
+        match action {
             super::apps::AppsOut::Nothing => {}
             super::apps::AppsOut::Close => {
                 self.apps.unregister(&mut self.focus);
@@ -1319,6 +1324,12 @@ impl Home {
                 return;
             }
             if let Some(id) = self.focus.click(x, y) {
+                if self.layer == Layer::Apps {
+                    let action = self.apps.clicked(id, &mut self.focus);
+                    self.apps_out(action, out);
+                    self.redraw(out);
+                    return;
+                }
                 if let Some(i) = Self::dock_index_of(id) {
                     self.dock.focus(i);
                     self.register_dock();
@@ -1406,6 +1417,7 @@ impl Home {
             "dock": self.dock.ids(),
             "profile": self.profile_name(),
             "unread": self.unread,
+            "apps": self.apps.state(),
             "picker": self.picker.state(),
             "launching": self.launching,
         })

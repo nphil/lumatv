@@ -37,20 +37,15 @@ Done (host-tested, pushed as "Home in the Rust shell: the home kind"):
 - Compositor: `home` in `KINDS`; `Scene::set_home_rust` (the QML Home window left out of the stack, Home counts as drawn while no app's
   card is in front); `shell_rust_sync_home` on the engine's handshake, the client going and a kinds change; `shell_home_drawn` reads it.
 - `tests/test_rust_home.py`: the QML tests' cases on the harness; `test_renders` writes `docs/mocks/host-rust/home/*.png`.
+- Bell: the RustPanels drawer kind opens from Home and Back returns to the bell. The badge follows the panels' unread log, clears on opening, and caps at 99+; host tests and dark/light renders at both text sizes.
+- Library rail: a whole-row viewport follows focus at 200 % text, with Hidden pinned at the foot. Only visible rows are painted and pointer-active; list-order guides preserve D-pad order. Host tests and the library's visible-word lint cover both sizes and looks.
 
 Next, in this order:
 
 1. The TV round (below): the first run of the kind on the set, with `ctl shell rust +home`; the QML Home is left out of the stack by the
    compositor while the Rust client is on the engine, so a bad frame is turned off with `ctl shell rust -home` (no deploy).
-2. The other kinds' surfaces Home asks for: `Home::take_requests()`: Settings opens the `settings` kind when it is in the list
-   (`shell.rs`, RustSettings), the drawer is logged until RustPanels lands; the tile menu and the confirm are Home's own (`layers.rs`
-   `MenuSurface`, the editor's `Zone::Ask`) and can move to RustPanels' `panels::menu`/`confirm` when they exist
-   (`shell.panels.open_menu(spec)` answered on `Input::Topic{"menu.picked"}`).
-3. At 200 % text the library's rail does not scroll: rows past the sixth are registered below the pane (the arrows reach them, the pane
-   does not follow); the editor's bar drops its heading and hint when the buttons fill it (`layers.rs`, `EditorSurface::new`).
-4. Camera stills on the cameras card (the spec's `/frame` route needs `Effect::Fetch` with a binary answer, `Input::Bytes`): the card
-   draws names, rooms, the online dot and the link's state in words today.
-5. The status bar's bell badge (the toast log's unread count) is not drawn (`StatusItem.badge` is `None`).
+2. The tile menu and confirm remain Home's own (layers.rs MenuSurface, editor Zone::Ask); migration to RustPanels is outside the Home open-item slice.
+3. Camera stills on the cameras card: the card still draws names, rooms, online dots and the link's state without pictures.
 
 Decisions taken (conservative, not asked):
 
