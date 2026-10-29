@@ -283,7 +283,7 @@ fn reads_of(kind: Kind) -> Vec<Read> {
         Kind::Audio => {
             r.push(Read::Watch { name: "btpaired", uri: AUDIO_LIST, payload: json!({}) });
             r.push(Read::Watch { name: "btstatus", uri: "luna://com.webos.service.btaudiosrc/getDeviceStatus", payload: json!({}) });
-            r.push(Read::Watch { name: "btbalance", uri: "luna://com.webos.service.btaudiosrc/surround/getVolumeBalancing".into(), payload: json!({}) });
+            r.push(Read::Watch { name: "btbalance", uri: "luna://com.webos.service.btaudiosrc/surround/getVolumeBalancing", payload: json!({}) });
         }
         Kind::Hid => {
             r.push(Read::Call { name: "hidpaired", uri: HID_LIST, payload: json!({}) });
