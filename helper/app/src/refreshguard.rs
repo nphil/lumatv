@@ -162,7 +162,7 @@ impl LunaSource {
         }
     }
 
-    fn call(&self, uri: &str, payload: &str) -> Result<String, String> {
+    pub(crate) fn call(&self, uri: &str, payload: &str) -> Result<String, String> {
         let mut child = Command::new(&self.program)
             .args(["-n", "1", uri, payload])
             .stdin(Stdio::null())

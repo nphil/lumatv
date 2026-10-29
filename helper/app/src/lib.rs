@@ -25,6 +25,7 @@
 //! | [`framerate`] | the panel's rate after 25 or 50 fps video: back to 120 Hz once Home is in front with no video window |
 //! | [`ble`], [`ble_proxy`], [`ble_scan`], [`ble_duty`], [`ble_store`] | the Bluetooth proxy: the TV as a Home Assistant Bluetooth proxy (ESPHome native API) for presence and BLE sensors, through LG's `bluetooth2` scan with the radio's duty limits |
 //! | [`refreshguard`] | LG's panel refresh (the `panel` topic) and the guard that keeps an assistant's wake from cutting a run short, behind `theme.oledcare.refreshGuard` |
+//! | [`paneldim`] | the net under the compositor's panel dim: a journal left by a compositor that died puts the panel's OLED pixel brightness back |
 //! | [`updateblock`] | whether LG's system updates are blocked (the Homebrew Channel's flag and its `/etc/hosts` block), read only |
 //! | [`openapps`] | open apps without updating: LG's list of apps that must be updated before they open, kept empty while the owner has it on, and put back when off |
 //! | [`crash`] | the crash notice Settings shows: what the supervisor saved when LumaTV's compositor was put out of the way (reason, time, last log and trace lines), read when the page opens |
@@ -72,6 +73,7 @@ pub mod log;
 pub mod placement;
 pub mod plugins;
 pub mod preload;
+pub mod paneldim;
 pub mod privacy;
 pub mod profiles;
 pub mod receiver;

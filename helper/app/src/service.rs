@@ -202,6 +202,7 @@ impl Service {
         ));
         threads.push(("preload", preload::spawn(&ctx)?));
         threads.push(("updateblock", crate::updateblock::spawn(&ctx)?));
+        threads.push(("paneldim", crate::paneldim::spawn(&ctx)?));
         threads.push(("openapps", crate::openapps::spawn(&ctx)?));
         // Local profiles: the first open makes Nitin and Isabel from the working copy in theme/; the thread carries edits back to their profile.
         let profiles = crate::profiles::Profiles::open(&ctx);
