@@ -332,8 +332,9 @@ impl Panels {
         }
         self.last_show = self.last_show.max(n);
         let Some(w) = data.get("kind").and_then(Value::as_str).and_then(Which::parse).filter(|w| w.on(kinds)) else { return };
-        // the switcher is over everything: the gear's press goes to its keys, not to a panel behind it
-        if self.switcher_life.presented() {
+        // the switcher is over everything: the gear's press goes to its keys, not to a panel behind it; the AI prompt owns the remote too (the QML's
+        // Home took the gear and Input keys and did nothing while it was up), so a panel never opens over a question that waits for an answer
+        if self.switcher_life.presented() || self.env.ai_prompt_up() {
             return;
         }
         self.show(w, data.get("warm").and_then(Value::as_bool) == Some(true), kinds, now, out);
