@@ -756,7 +756,7 @@ impl HomeSurface {
                     let ink = kit.ui.look.ink();
                     let style = role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Centre);
                     let w = (width_of(kit, style, &title) + 26.0).round().max(40.0);
-                    let above = home.dock.row_of(i) == home.dock.scroll_row && home.dock.scrollable();
+                    let above = home.dock.label_above(i);
                     let lift = home.dock.tile as f32 * (kit.tokens.focus.tile_scale - 1.0) / 2.0;
                     // on whole pixels (the lift is 7.2 at a 120 tile): a run between pixels is sampled soft
                     let y = (if above { sy as f32 - lift - 4.0 - 10.0 - 43.0 } else { sy as f32 + home.dock.tile as f32 + lift - 4.0 + 10.0 } - scroll).round();
@@ -1157,6 +1157,59 @@ mod tests {
                     let bad: Vec<_> = lint.findings().into_iter().filter(|f| f.subject.starts_with("apps.")).collect();
                     assert!(bad.is_empty(), "{mode:?} {scale} rail {i}: {bad:?}");
                     assert!(lint.words().iter().any(|w| w.name.starts_with("apps.rail")));
+                }
+                std::mem::forget(h);
+            }
+        }
+    }
+
+    /// The focused tile's name against its box (in the dock's coordinates): `Some(true)` above it, `Some(false)` below it.
+    fn pill_side(s: &HomeSurface, home: &Home) -> Option<bool> {
+        let d = s.dock.as_ref()?;
+        d.pill_for?;
+        let (_, top) = home.dock.slot(home.dock.index);
+        let (top, tile) = (top as f32 - d.scroll, home.dock.tile as f32);
+        let f = d.pill_text.frame();
+        if f.y + f.h <= top {
+            Some(true)
+        } else if f.y >= top + tile {
+            Some(false)
+        } else {
+            None
+        }
+    }
+
+    #[test]
+    fn a_focused_tiles_name_stands_above_it_on_the_docks_top_row_and_below_it_on_the_others_at_both_text_sizes() {
+        let many: Vec<Value> = std::iter::once(json!({"id": "com.webos.app.discovery", "title": "Apps", "unmovable": true, "icon": ""}))
+            .chain((1..20).map(|n| json!({"id": format!("app{n}"), "title": format!("App {n}"), "icon": "", "iconColor": "#101010"})))
+            .collect();
+        for scale in [1.0, 2.0] {
+            // one row of six apps, then two rows of them
+            for (count, second_row) in [(6, false), (20, true)] {
+                let (h, mut kit) = testkit::kit_in(Mode::Dark, scale);
+                let mut engine = Engine::new(&kit).expect("an engine");
+                let mut home = Home::new(lumatv_tokens::Tokens::shipped().json().clone(), super::super::grid::shipped(), json!({}));
+                fixtures(&mut home);
+                home.update(&Input::Luna { tag: model::LP_TAG, payload: json!({"launchPoints": many[..count]}) }, 1500);
+                for (i, k) in ["down", "down", "down", "right"].into_iter().enumerate() {
+                    press(&mut home, k, 2000 + i as u64 * 100);
+                }
+                let mut s = HomeSurface::new(1000);
+                s.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
+                s.apply(&mut kit, &mut engine, &mut home, 2500).expect("Home drawn");
+                assert_eq!(home.dock.row_of(home.dock.index), 0, "{scale}: the dock's top row has the focus");
+                assert_eq!(pill_side(&s, &home), Some(true), "{scale}, {count} apps: the top row's name is above its tile");
+                // the name stays on the dock's card
+                let d = s.dock.as_ref().unwrap();
+                let f = d.pill_text.frame();
+                assert!(f.y >= 0.0 && f.y + f.h <= d.frame.h, "{scale}, {count} apps: {f:?} on a card {} high", d.frame.h);
+                if second_row {
+                    assert_eq!(home.dock.total_rows(), 2);
+                    press(&mut home, "down", 3000);
+                    s.apply(&mut kit, &mut engine, &mut home, 3300).expect("Home drawn");
+                    assert_eq!(home.dock.row_of(home.dock.index), 1, "{scale}");
+                    assert_eq!(pill_side(&s, &home), Some(false), "{scale}: the second row's name is below its tile");
                 }
                 std::mem::forget(h);
             }

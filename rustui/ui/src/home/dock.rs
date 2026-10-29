@@ -216,6 +216,12 @@ impl Dock {
         }
     }
 
+    /// Whether tile `i`'s name stands above it: the dock's top visible row puts it above so the name never covers the row beneath
+    /// (`Dock.qml` `labelAbove`, a row against `scrollRow`, whether or not the dock scrolls); every other row puts it below.
+    pub fn label_above(&self, i: usize) -> bool {
+        self.row_of(i) == self.scroll_row
+    }
+
     // ---- navigation
     pub fn ensure_visible(&mut self) {
         let row = self.row_of(self.index);
