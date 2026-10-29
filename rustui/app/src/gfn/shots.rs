@@ -212,8 +212,8 @@ fn art_file(dir: &Path, i: usize) -> PathBuf {
         let t = 1.0 - 0.55 * y as f32 / h as f32;
         for x in 0..w {
             let band = y > h * 2 / 5 && y < h * 3 / 5 && x > w / 6 && x < w * 5 / 6;
-            for k in 0..3 {
-                let v = if band { 0.5 + 0.5 * c[k] } else { c[k] * t * (0.9 + 0.1 * (x as f32 / w as f32)) };
+            for ck in c {
+                let v = if band { 0.5 + 0.5 * ck } else { ck * t * (0.9 + 0.1 * (x as f32 / w as f32)) };
                 px.push((v.clamp(0.0, 1.0) * 255.0) as u8);
             }
         }
@@ -261,11 +261,10 @@ fn the_screens_render_in_both_materials_at_100_and_200_percent_with_the_art_on_t
             let with_art = shots.shot(&library_with_art(&art_dir)).expect("the library with art");
             with_art.write_png(&dir.join("library-art.png")).unwrap();
             let hues: [[f32; 3]; 6] = [[0.85, 0.25, 0.2], [0.2, 0.55, 0.85], [0.95, 0.7, 0.15], [0.3, 0.75, 0.4], [0.7, 0.35, 0.85], [0.15, 0.8, 0.8]];
-            for i in 0..6 {
+            for (i, c) in hues.iter().enumerate() {
                 let (x, y) = tile_centre(&m, i);
                 // above the band (the band is the middle fifth of the picture), where the picture is its colour at about 0.8 of its brightness
                 let p = with_art.px(x, y);
-                let c = hues[i];
                 let hit = (0..3).all(|k| {
                     let want = c[k] * 0.84 * 255.0;
                     (f32::from(p[k]) - want).abs() < 48.0

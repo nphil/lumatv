@@ -291,6 +291,7 @@ fn panel_hint(p: &mut Plan, f: &mut Fonts, m: &Metrics, panel: Frame, hint: &str
 
 /// Name and value rows from `y0` (panel-relative): the name in a column as wide as the longest asks, the value wrapped to the rest.
 /// Returns where the rows end.
+#[allow(clippy::too_many_arguments)]
 fn panel_rows(p: &mut Plan, f: &mut Fonts, m: &Metrics, panel: Frame, y0: f32, rows: &[(String, String)], max_lines: usize, panel_surf: usize) -> f32 {
     let t = &m.ty;
     let (lhv, lhl) = (line_height(t.value), line_height(t.label));
@@ -814,7 +815,7 @@ fn plan_overlay(app: &App, m: &Metrics, f: &mut Fonts) -> Plan {
 
 /// The status line's pill: bottom left, wide enough for the longest line the stream puts in it.
 pub fn status_frame(f: &mut Fonts, m: &Metrics) -> Frame {
-    let w = (width(f, "120 fps · 120 Mbit/s · 99999 dropped · no input yet", m.ty.value) + 48.0).ceil().max(760.0).min(W - 2.0 * SAFE_X);
+    let w = (width(f, "120 fps · 120 Mbit/s · 99999 dropped · no input yet", m.ty.value) + 48.0).ceil().clamp(760.0, W - 2.0 * SAFE_X);
     let h = line_height(m.ty.value) + 16.0;
     Frame::new(SAFE_X, H - SAFE_Y - h, w, h)
 }
