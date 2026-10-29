@@ -775,6 +775,11 @@ impl Panels {
         kinds.entry && self.entry.life.presented()
     }
 
+    /// Whether the apps' keyboard is up: it is under the pointer and has the keys of the field it types into.
+    pub fn keyboard_up(&self, kinds: &Kinds) -> bool {
+        kinds.keyboard && self.ime.life.presented()
+    }
+
     /// What was typed on the entry sheet since the last take, in order: for the one screen that asked.
     pub fn take_typed(&mut self) -> Vec<Typed> {
         std::mem::take(&mut self.typed)

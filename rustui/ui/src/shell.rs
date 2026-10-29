@@ -348,9 +348,10 @@ impl Shell {
         }
         self.panel_events(now, acts);
         if self.kinds.home {
-            // a system-layer kind that has the keys (a panel up over Home) takes them before Home sees them
-            let taken = system_had;
-            if !taken {
+            // a kind above Home that owns input takes the keys and the pointer before Home sees them (`system_wants` is the one order of owners)
+            if system_had {
+                self.home.input_taken(input);
+            } else {
                 for e in self.home.update(input, now) {
                     self.carry(e, now, acts);
                 }
@@ -437,10 +438,16 @@ impl Shell {
         }
     }
 
-    /// Whether a kind of the system layer has the keys now (an alert, the input popup, a PIN prompt; the panels when they land); the
-    /// volume display and the toasts never do.
+    /// Whether a kind that sits above Home owns input now: an alert, the input popup, a PIN prompt, the saver, the layout editor, Home's own
+    /// extras, a panel (quick, picker, drawer, menu, confirm, switcher, the entry sheet), the apps' keyboard, the Cameras viewer or Settings.
+    /// Home gets no key and no pointer sample while one does; the volume display and the toasts never own input. Every gate that keeps Home
+    /// out of input asks this, so a new owner is added here and nowhere else.
     pub fn system_wants(&self) -> bool {
-        self.sys.wants(&self.kinds) || self.panels.wants(&self.kinds) || (self.kinds.cameras && self.cameras.wants())
+        self.sys.wants(&self.kinds)
+            || self.panels.wants(&self.kinds)
+            || self.panels.keyboard_up(&self.kinds)
+            || (self.kinds.cameras && self.cameras.wants())
+            || (self.kinds.settings && self.settings.is_open())
     }
 
     /// What the panels tell the rest of the shell goes to every model as a topic; "All settings" opens Settings at its page.
@@ -1594,5 +1601,123 @@ mod tests {
         acts.extend(shell.tick(1_450));
         let posted = claims(&acts);
         assert_eq!(posted.iter().map(|b| b["op"].as_str().unwrap_or("")).collect::<Vec<_>>(), vec!["release"], "{posted:?}");
+    }
+
+    /// Opens the kind `name` over Home; the kinds that nothing but their owner closes are closed by `close_owner`.
+    fn open_owner(shell: &mut Shell, name: &str, at: u64) {
+        let mut acts = Vec::new();
+        let kinds = shell.kinds.clone();
+        let mut out = Vec::new();
+        match name {
+            "settings" => {
+                shell.open_settings(None, at);
+            }
+            "quick" | "picker" | "drawer" => {
+                shell.channel(&Event::Topic { topic: "show".into(), data: json!({"kind": name, "n": at}) }, at);
+            }
+            "menu" => {
+                shell.channel(&Event::Topic { topic: "menu.open".into(), data: json!({"items": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]}) }, at);
+            }
+            "confirm" => {
+                shell.channel(&Event::Topic { topic: "confirm.ask".into(), data: json!({"title": "Sure?", "answers": [{"id": "no", "label": "No"}, {"id": "yes", "label": "Yes"}]}) }, at);
+            }
+            "entry" => {
+                shell.panels.ask_text("Name", "", false, &kinds, at, &mut out);
+            }
+            "keyboard" => {
+                shell.channel(&Event::Topic { topic: "ime".into(), data: json!({"active": true, "show": true, "model": 1}) }, at);
+            }
+            "layout" => {
+                shell.open_layout(None, at);
+            }
+            "cameras" => {
+                out.extend(shell.cameras().app.open_full("273", at));
+            }
+            "ai" => {
+                let doc = json!({"id": "a1", "kind": "tv_standby", "assistant": {"id": "c", "name": "Cody"}, "title": "Turn the TV off", "detail": "The TV goes to standby.",
+                                 "reason": "Nitin said good night", "shownAt": 1_000, "expiresAt": 90_000_000, "allow": "OK", "deny": "Back"});
+                shell.helper(&Event::Topic { topic: "ai.prompt".into(), data: doc }, at);
+            }
+            other => panic!("no way to open {other}"),
+        }
+        for e in out {
+            shell.carry(e, at, &mut acts);
+        }
+        shell.tick(at + 10);
+    }
+
+    fn close_owner(shell: &mut Shell, name: &str, at: u64) {
+        let mut acts = Vec::new();
+        match name {
+            "keyboard" => {
+                shell.channel(&Event::Topic { topic: "ime".into(), data: json!({"active": false, "show": false, "model": 1}) }, at);
+            }
+            "ai" => {
+                shell.helper(&Event::Topic { topic: "ai.prompt".into(), data: Value::Null }, at);
+            }
+            "cameras" => {
+                for e in shell.cameras().app.close(at) {
+                    shell.carry(e, at, &mut acts);
+                }
+            }
+            _ => {}
+        }
+        // what the person's own clicks opened over the kind (the Cameras grid opens Settings) goes with Back
+        for i in 0..8 {
+            if !shell.system_wants() {
+                break;
+            }
+            key(shell, "back", at + 100 + i * 100);
+        }
+        shell.tick(at + 1_000);
+    }
+
+    /// What Home shows of where the focus is and what it launched: it must not move while another kind owns input.
+    fn home_position(shell: &Shell) -> Value {
+        let h = shell.state()["home"].clone();
+        json!({"focus": h["focus"], "dock": h["dockIndex"], "layer": h["layer"], "launching": h["launching"], "moving": h["dockMoving"]})
+    }
+
+    #[test]
+    fn while_a_kind_above_home_owns_input_home_gets_no_key_ok_or_pointer_and_gets_them_again_when_it_closes() {
+        for name in ["settings", "quick", "picker", "drawer", "menu", "confirm", "entry", "keyboard", "layout", "cameras", "ai"] {
+            let (_h, mut shell) = home_shell("home,settings,cameras,quick,picker,drawer,menu,confirm,entry,keyboard,layout,ai");
+            open_owner(&mut shell, name, 2_000);
+            assert!(shell.system_wants(), "{name}: it owns input");
+            let mut at = 2_100;
+            let mut launched = 0;
+            // every input that arrives while the kind owns input leaves Home where it was
+            let mut send = |shell: &mut Shell, event: KeyEvent, at: u64, what: &str| {
+                let owned = shell.system_wants();
+                let before = home_position(shell);
+                let acts = shell.key(&event, at);
+                if owned {
+                    assert_eq!(home_position(shell), before, "{name}: {what} moved Home");
+                    // an app of Home's dock or library: the kinds' own launches (the picker's inputs) are not Home's
+                    launched += luna_calls(&acts, "/launch").iter().filter(|c| ["netflix", "youtube", "plex", "extra.a", "extra.b", "com.webos.app.discovery"].contains(&c["payload"]["id"].as_str().unwrap_or(""))).count();
+                }
+            };
+            for k in ["right", "right", "down", "left", "up", "3", "ok"] {
+                for down in [true, false] {
+                    send(&mut shell, KeyEvent::Key { name: k.into(), down, repeat: false, seat: 0 }, at, k);
+                    at += 50;
+                }
+            }
+            // clicks over the whole screen, the dock's row among them
+            for y in [140.0, 400.0, 700.0, 960.0, 1040.0] {
+                for x in [100.0, 400.0, 700.0, 960.0, 1300.0, 1600.0, 1850.0] {
+                    for buttons in [0, 0, 1, 0] {
+                        send(&mut shell, KeyEvent::Pointer { x, y, buttons, visible: true }, at, "a pointer sample");
+                        at += 20;
+                    }
+                }
+            }
+            assert_eq!(launched, 0, "{name}: Home launched nothing");
+            close_owner(&mut shell, name, at);
+            assert!(!shell.system_wants(), "{name}: closed");
+            let before = home_position(&shell);
+            key(&mut shell, "right", at + 1_000);
+            assert_ne!(home_position(&shell), before, "{name}: Home has the keys again");
+        }
     }
 }

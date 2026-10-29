@@ -786,6 +786,16 @@ impl Home {
         })
     }
 
+    /// A kind above Home owned this key or pointer sample: what Home held of it is let go, so a press it saw before the owner opened is not
+    /// a hold or a click that comes after the owner has closed.
+    pub fn input_taken(&mut self, input: &Input) {
+        match input {
+            Input::Key { name, .. } if name == "ok" => self.reset_ok(),
+            Input::Pointer { .. } => self.pointer_down = false,
+            _ => {}
+        }
+    }
+
     fn reset_ok(&mut self) {
         self.ok_down_at = None;
         self.ok_held = false;
@@ -830,10 +840,12 @@ impl Home {
                 self.ok_held = false;
                 return;
             }
+            // a release with no press of Home's before it is the end of a press that another kind took (it closed as the press came): no OK
+            let Some(at) = self.ok_down_at else {
+                return;
+            };
             // a release that comes after the hold's time without a tick in between (a slow frame) is the hold's release
-            if let Some(at) = self.ok_down_at
-                && !self.ok_held
-                && self.now >= at + self.hold_ms
+            if !self.ok_held && self.now >= at + self.hold_ms
             {
                 self.ok_held = true;
                 self.hold(out);
