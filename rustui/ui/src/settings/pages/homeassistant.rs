@@ -1,14 +1,13 @@
 //! Home Assistant, a page of Home & look (`settings/PageHomeAssistant.qml`, `PluginRows.js`): the settings page of LumaShow's Home Assistant
 //! plugin, drawn from the schema the helper serves for it (`GET /v1/settings/home-assistant`) and written through the same route, so a choice
 //! made here is the plugin's setting, as it is on the Show. The pickers (the room, its lights and scenes, the doorbell, the presence
-//! sensors) are lists the plugin makes from Home Assistant: the page asks the helper for each provider
-//! (`GET /v1/plugins/home-assistant/choices/<provider>`), which asks the plugin.
+//! sensors) are lists the plugin makes from Home Assistant (`plugin_rows`).
 //!
 //! What is not here, on purpose: the address and the access token. They are the owner's alone, given from a shell on the TV
 //! (`lumatv-helper ha-link`, the token on standard input) so that no key press, no route of the helper and no plugin can set either. This
 //! page shows the address and whether a token is kept, and can forget them: that only ever takes access away.
 
-use super::owner::{Field, slider, toggle};
+use super::plugin_rows::{Plugin, ask_all, field_rows, fields};
 use crate::settings::ctx::{Ctx, ask};
 use crate::settings::page::{Page, Read};
 use crate::settings::row::{Op, Row};
@@ -16,7 +15,7 @@ use serde_json::{Value, json};
 
 const ID: &str = "home-assistant";
 /// The sections the plugin declares, in the order the tabs are (a section it does not declare leaves its tab with a line saying so).
-const SECTIONS: [&str; 5] = ["connection", "room", "doorbell", "presence", "notifications"];
+const PLUGIN: Plugin = Plugin { id: ID, sections: &["connection", "room", "doorbell", "presence", "notifications"] };
 
 pub fn page() -> Page {
     Page::new("homeassistant", "Home Assistant", "house-wifi")
@@ -87,37 +86,6 @@ fn chip(c: &Ctx) -> Option<(String, &'static str)> {
     Some((words(c), tone))
 }
 
-/// The line the plugin published for a read-only field (`plugin.home-assistant.<key>` in its facts), when there is one.
-fn fact(c: &Ctx, capability: &str) -> Option<String> {
-    let key = capability.strip_prefix("plugin.home-assistant.").unwrap_or(capability);
-    let v = c.helper("plugin.home-assistant.facts")?.pointer(&format!("/facts/{key}"))?;
-    Some(crate::host::sio::js::string(v))
-}
-
-fn providers(schema: &Value) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for f in fields(schema) {
-        let kind = &f.1["kind"];
-        if matches!(kind["type"].as_str(), Some("choice" | "ordered-set"))
-            && let Some(p) = kind.pointer("/options/provider").and_then(Value::as_str)
-            && !out.iter().any(|o| o == p)
-        {
-            out.push(p.to_string());
-        }
-    }
-    out
-}
-
-/// Every field of the schema with the tab its section is.
-fn fields(schema: &Value) -> Vec<(usize, &Value)> {
-    let mut out = Vec::new();
-    for s in schema.get("sections").and_then(Value::as_array).into_iter().flatten() {
-        let Some(tab) = s.get("id").and_then(Value::as_str).and_then(|id| SECTIONS.iter().position(|x| *x == id)) else { continue };
-        out.extend(s.get("fields").and_then(Value::as_array).into_iter().flatten().map(|f| (tab, f)));
-    }
-    out
-}
-
 fn answered(c: &Ctx, name: &str, _: &Value) -> Vec<Op> {
     match name {
         // the link or the plugin came or went: the page's schema may have appeared or gone
@@ -132,7 +100,7 @@ fn answered(c: &Ctx, name: &str, _: &Value) -> Vec<Op> {
                 return Vec::new();
             }
             let mut ops = vec![Op::Set("asked".into(), json!(key))];
-            ops.extend(providers(&o.schema).into_iter().map(|p| Op::Send { name: Some(format!("choices:{p}")), method: "GET", path: format!("/v1/plugins/{ID}/choices/{p}?limit=64"), body: None }));
+            ops.extend(ask_all(PLUGIN, &o.schema));
             ops
         }
         _ => Vec::new(),
@@ -144,6 +112,7 @@ fn link<'a>(c: &'a Ctx, key: &str) -> Option<&'a Value> {
 }
 
 fn rows(c: &Ctx) -> Vec<Row> {
+    let token = link(c, "token").is_some_and(|t| t.as_bool() != Some(false));
     let mut own = vec![
         {
             let mut r = Row::info("address").tab(0).icon("globe").label("Address").help("Set with lumatv-helper ha-link, in a shell on the TV");
@@ -152,7 +121,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
         },
         {
             let mut r = Row::info("token").tab(0).icon("key-round").label("Access token").help("Kept on this TV and never shown. Set with lumatv-helper ha-link, in a shell on the TV");
-            r.value = if link(c, "token").is_some_and(|t| t.as_bool() != Some(false)) { "Saved" } else { "Not saved" }.into();
+            r.value = if token { "Saved" } else { "Not saved" }.into();
             r
         },
         Row::action("forget", "Forget")
@@ -161,22 +130,22 @@ fn rows(c: &Ctx) -> Vec<Row> {
             .label("Forget link")
             .help("Deletes the saved address and token")
             .danger()
-            .enabled(link(c, "token").is_some_and(|t| t.as_bool() != Some(false)) && state(c) != "off")
+            .enabled(token && state(c) != "off")
             .admin()
             .does(ask("unplug", "Forget the link?", "The saved address and token are deleted. Linking again is done from a shell on the TV.", "Forget", "Cancel", true, vec![Op::Send { name: None, method: "POST", path: format!("/v1/plugins/{ID}/actions/lease.ha.forget"), body: Some(json!({})) }])),
     ];
     let Some(o) = c.owner(ID).filter(|o| o.known) else {
         // no page from the plugin yet: the first tab only, the others say why
-        own.extend((1..SECTIONS.len()).map(|t| Row::empty("Not available yet", &format!("{} is set once Home Assistant is linked and the plugin is running.", ["", "The room", "The doorbell", "Presence", "Alerts"][t]), "house-wifi", t)));
+        own.extend((1..PLUGIN.sections.len()).map(|t| Row::empty("Not available yet", &format!("{} is set once Home Assistant is linked and the plugin is running.", ["", "The room", "The doorbell", "Presence", "Alerts"][t]), "house-wifi", t)));
         return own;
     };
     let mut first = Vec::new();
     let mut rest = Vec::new();
-    for (tab, f) in fields(&o.schema) {
-        let made = field_rows(c, tab, f);
+    for (tab, f) in fields(PLUGIN, &o.schema) {
+        let made = field_rows(c, PLUGIN, tab, f, icon(f.get("key").and_then(Value::as_str).unwrap_or("")));
         if tab == 0 { first.extend(made) } else { rest.extend(made) }
     }
-    for t in 1..SECTIONS.len() {
+    for t in 1..PLUGIN.sections.len() {
         if !rest.iter().any(|r| r.tab == t) {
             rest.push(Row::empty("Nothing to set", "The plugin has no settings for this.", "house-wifi", t));
         }
@@ -186,44 +155,6 @@ fn rows(c: &Ctx) -> Vec<Row> {
     first
 }
 
-fn text<'a>(v: &'a Value, key: &str) -> &'a str {
-    v.get(key).and_then(Value::as_str).unwrap_or("")
-}
-
-/// A heading with an explanation behind its mark is a row the D-pad can reach; one without is a plain heading.
-fn head(label: &str, help: &str, tab: usize) -> Row {
-    if help.is_empty() { Row::head(label, tab) } else { Row::info(&format!("help:{label}")).tab(tab).label(label).help(help) }
-}
-
-fn field_rows(c: &Ctx, tab: usize, f: &Value) -> Vec<Row> {
-    let (key, label, help) = (text(f, "key"), text(f, "label"), text(f, "help"));
-    let kind = &f["kind"];
-    let ours = Field::new(ID, key, tab, icon(key), label).help(help);
-    match text(kind, "type") {
-        "read-only" => {
-            let cap = kind.pointer("/value/capability").and_then(Value::as_str);
-            let mut r = Row::info(key).tab(tab).label(label).value(&cap.and_then(|k| fact(c, k)).unwrap_or_default());
-            if f.pointer("/visible_when/type").and_then(Value::as_str) == Some("capability-present") {
-                r = r.visible(f.pointer("/visible_when/capability").and_then(Value::as_str).is_some_and(|k| fact(c, k).is_some()));
-            }
-            vec![r]
-        }
-        "bool" => vec![toggle(c, ours)],
-        "integer" => {
-            let unit = kind.get("unit").and_then(Value::as_str).map(|u| format!(" {u}")).unwrap_or_default();
-            let num = |k: &str, d: f64| kind.get(k).and_then(Value::as_f64).unwrap_or(d);
-            vec![slider(c, ours, num("min", 0.0), num("max", 100.0), num("step", 1.0), &unit)]
-        }
-        "choice" | "ordered-set" => picker(c, tab, f, ours),
-        // Shown, not typed: an address is the owner's to give from a shell.
-        "text" if kind.get("secret").and_then(Value::as_bool) != Some(true) => {
-            let now = c.owner(ID).and_then(|o| o.text(key)).filter(|t| !t.is_empty());
-            vec![Row::info(key).tab(tab).label(label).value(now.as_deref().unwrap_or("Not set"))]
-        }
-        _ => Vec::new(),
-    }
-}
-
 /// A glyph for the fields the plugin names; the rest have none (the QML rows have none either).
 fn icon(key: &str) -> &'static str {
     match key {
@@ -231,76 +162,6 @@ fn icon(key: &str) -> &'static str {
         "hold" => "timer",
         _ => "",
     }
-}
-
-fn picker(c: &Ctx, tab: usize, f: &Value, field: Field) -> Vec<Row> {
-    let (key, kind) = (field.key, &f["kind"]);
-    let many = text(kind, "type") == "ordered-set";
-    let max = kind.get("max_items").and_then(Value::as_u64).unwrap_or(64) as usize;
-    let mut rows = vec![head(field.label, field.help, tab)];
-    let options = kind.get("options").cloned().unwrap_or(Value::Null);
-    let (state, list, more) = match options.get("inline").and_then(Value::as_array) {
-        Some(inline) => ("ready".to_string(), inline.clone(), false),
-        None => {
-            let page = c.docs.get(&format!("choices:{}", text(&options, "provider"))).get("page");
-            match page.filter(|p| !p.is_null()) {
-                Some(p) => (text(p, "state").to_string(), p.get("rows").and_then(Value::as_array).cloned().unwrap_or_default(), p.get("more").and_then(Value::as_bool) == Some(true)),
-                None => ("loading".to_string(), Vec::new(), false),
-            }
-        }
-    };
-    if state != "ready" {
-        rows.push(Row::note(
-            match state.as_str() {
-                "loading" => "Loading\u{2026}",
-                "unconfigured" => "Not linked",
-                "offline" => "Offline",
-                _ => "Not loaded",
-            },
-            tab,
-        ));
-        return rows;
-    }
-    if list.is_empty() {
-        rows.push(Row::note("Nothing to pick", tab));
-    }
-    let now: Vec<String> = match c.owner(ID).and_then(|o| o.get(key)) {
-        Some(Value::Array(a)) => a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect(),
-        Some(v) => vec![crate::host::sio::js::string(v)],
-        None => Vec::new(),
-    };
-    for r in &list {
-        let id = text(r, "id").to_string();
-        let at = now.iter().position(|n| *n == id);
-        let mut row = Row::link(&format!("{key}:{id}")).tab(tab).label(text(r, "label")).chevron(false).selected(at.is_some()).admin();
-        if many {
-            row = row.value(&at.map(|i| (i + 1).to_string()).unwrap_or_default());
-        }
-        row.detail = text(r, "detail").to_string();
-        let (key, now) = (key.to_string(), now.clone());
-        row = row.does(vec![Op::Owner {
-            owner: ID.into(),
-            key,
-            value: if many {
-                let mut next = now.clone();
-                match at {
-                    Some(i) => {
-                        next.remove(i);
-                    }
-                    None if next.len() < max => next.push(id.clone()),
-                    None => {}
-                }
-                json!(next)
-            } else {
-                json!(id)
-            },
-        }]);
-        rows.push(row);
-    }
-    if more {
-        rows.push(Row::note(&format!("First {} shown", list.len()), tab));
-    }
-    rows
 }
 
 #[cfg(test)]
@@ -354,8 +215,8 @@ mod tests {
     #[test]
     fn a_picker_lists_what_the_plugin_answered_marks_the_choice_and_writes_it_to_the_plugins_page() {
         let mut w = world("connected");
-        w.docs.set("choices:rooms", json!({"ok": true, "page": {"state": "ready", "rows": [{"id": "kitchen", "label": "Kitchen"}, {"id": "living_room", "label": "Living room"}], "more": false}}));
-        w.docs.set("choices:controls", json!({"ok": true, "page": {"state": "ready", "rows": [{"id": "light.lamp", "label": "Lamp", "detail": "Living room"}, {"id": "scene.movie", "label": "Movie"}, {"id": "light.hall", "label": "Hall"}], "more": true}}));
+        w.docs.set("choices:home-assistant:rooms", json!({"ok": true, "page": {"state": "ready", "rows": [{"id": "kitchen", "label": "Kitchen"}, {"id": "living_room", "label": "Living room"}], "more": false}}));
+        w.docs.set("choices:home-assistant:controls", json!({"ok": true, "page": {"state": "ready", "rows": [{"id": "light.lamp", "label": "Lamp", "detail": "Living room"}, {"id": "scene.movie", "label": "Movie"}, {"id": "light.hall", "label": "Hall"}], "more": true}}));
         let r = rows(&w.ctx());
         assert!(row(&r, "room:kitchen").selected && !row(&r, "room:living_room").selected);
         assert!(matches!(&(row(&r, "room:living_room").act.as_ref().unwrap())(Arg::Press)[..], [Op::Owner { owner, key, value }] if owner == ID && key == "room" && value == &json!("living_room")));
@@ -379,7 +240,7 @@ mod tests {
     fn a_list_not_yet_asked_says_loading_and_one_the_plugin_cannot_make_says_why() {
         let mut w = world("offline");
         assert!(rows(&w.ctx()).iter().any(|r| r.text == "Loading\u{2026}"));
-        w.docs.set("choices:rooms", json!({"ok": true, "page": {"state": "offline", "rows": [], "more": false}}));
+        w.docs.set("choices:home-assistant:rooms", json!({"ok": true, "page": {"state": "offline", "rows": [], "more": false}}));
         assert!(rows(&w.ctx()).iter().any(|r| r.text == "Offline"));
     }
 

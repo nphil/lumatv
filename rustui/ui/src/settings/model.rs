@@ -1408,7 +1408,7 @@ fn lock(rows: &mut Vec<Row>, who: &Who, tabs: usize) {
             at,
             Row::action(&format!("lock:switch:{tab}"), "Switch")
                 .label(&format!("Switch to {}", who.owner))
-                .icon("user-round")
+                .icon("user")
                 .tab(tab)
                 .does(vec![Op::Send { name: None, method: "POST", path: "/v1/profiles/switch".into(), body: Some(json!({"id": owner})) }]),
         );

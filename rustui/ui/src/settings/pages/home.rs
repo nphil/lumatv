@@ -76,6 +76,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
     rows.push(Row::link("widgets").tab(1).icon("layout-grid").label("Home widgets").value(&format!("{shown} shown")).does(vec![Op::Open { page: "widgets".into(), arg: Default::default() }]));
     rows.push(theme_toggle(c, ("twelvehour", 1, "clock", "12-hour clock", ""), "clock.twelveHour", true));
     rows.push(Row::link("homeassistant").tab(1).icon("house-wifi").label("Home Assistant").value(&super::homeassistant::words(c)).does(vec![Op::Open { page: "homeassistant".into(), arg: Default::default() }]));
+    rows.push(Row::link("cameras").tab(1).icon("video").label("Cameras").value(&super::cameras::summary(c)).does(vec![Op::Open { page: "cameras".into(), arg: Default::default() }]));
     rows.push(theme_toggle(c, ("greeting", 1, "sunrise", "Greeting", "Good morning, afternoon or evening under the digital clock."), "clock.greeting", true));
     let zip = c.theme_str("weather.zip").unwrap_or("your zip code").to_string();
     rows.push(theme_seg("units", 1, "sun-medium", "Temperature", &["\u{b0}F", "\u{b0}C"], Some(usize::from(c.theme_str("weather.units") == Some("celsius"))), |i| json!({"weather": {"units": if i == 1 { "celsius" } else { "fahrenheit" }}})).help(&format!("Weather for {zip}.")));
@@ -185,7 +186,7 @@ pub fn popups() -> Page {
 fn popup_rows(c: &Ctx) -> Vec<Row> {
     let reg = lumatv_placement::Registry::shipped();
     let user = reg.user_from_json(c.theme_at("layout.overlays").unwrap_or(&Value::Null));
-    let mut rows = vec![Row::action("edit", "Edit").icon("move").label("Edit in preview").does(vec![Op::Shell(ShellRequest::Layout { item: None })])];
+    let mut rows = vec![Row::action("edit", "Edit").icon("layout-grid").label("Edit in preview").does(vec![Op::Shell(ShellRequest::Layout { item: None })])];
     for it in reg.items() {
         let id = it.id.to_string();
         rows.push(Row::link(&format!("item:{id}")).icon(it.icon).label(it.title).value(&reg.words(it.id, &user)).does(vec![Op::Shell(ShellRequest::Layout { item: Some(id) })]));

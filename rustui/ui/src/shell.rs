@@ -25,7 +25,7 @@ use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
 /// The Settings page the Cameras grid's `Settings` button opens (the page of the cameras' settings is in Home & look).
-const CAMERAS_SETTINGS_PAGE: &str = "look";
+const CAMERAS_SETTINGS_PAGE: &str = "cameras";
 
 /// What the shell asks the host to do.
 #[derive(Clone, Debug, PartialEq)]
@@ -772,8 +772,7 @@ impl Shell {
         &self.home
     }
 
-    /// What the Cameras app asked of the shell: its grid's `Settings` button (the app closes first) opens Settings at Home & look, the page
-    /// that holds the cameras' settings.
+    /// What the Cameras app asked of the shell: its grid's `Settings` button (the app closes first) opens Settings at Cameras (a page of Home & look).
     fn cameras_asks(&mut self, now: u64, acts: &mut Vec<Act>) {
         for intent in self.cameras.take_intents() {
             match intent {
