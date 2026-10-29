@@ -37,12 +37,19 @@ QtObject {
     // ---- what has happened (read by the tests and the log)
     property int asked: 0                          // questions heard
     property int refused: 0                        // ... answered no
+    property string lastRefusal: ""                // what tvpower last said no with
     signal claimed()                               // a question was answered no: LumaTV's saver is to draw now
 
     // per list: { token, live, fails }
     property var subs: ({ "/power2": { token: 0, live: false, fails: 0 }, "/power": { token: 0, live: false, fails: 0 } })
     property int version: 0                        // bumped when a subscription changes: `registered` follows it (the objects in `subs` are changed in place)
     readonly property bool registered: { var v = version; return subs["/power2"].live || subs["/power"].live }
+
+    // for the shell's report (`ctl shell`): what the gate prints when the saver does not start
+    readonly property var summary: {
+        var v = version
+        return { want: want, power2: subs["/power2"].live, power: subs["/power"].live, fails: subs["/power2"].fails + subs["/power"].fails, asked: asked, refused: refused, lastRefusal: lastRefusal }
+    }
 
     property var service: Service {
         appId: LS.appId
@@ -111,8 +118,12 @@ QtObject {
         try { m = JSON.parse(payload) } catch (e) { return }
         if (!m) return
         if (m.returnValue === false) {
-            // tvpower said no (not up yet, not in a state to take it, or the call is not allowed): the subscription is not live, and is asked for again
+            // tvpower said no (not up yet, not in a state to take it, or the call is not allowed): the subscription is not live, and is asked for again.
+            // The call is let go as well: the compositor keeps a subscription's tag until it is cancelled, and every retry of a TV that went on
+            // refusing left one more (26 at the gate's saver step, 141 after the app loops).
+            if (s.token > 0 && typeof service.cancel === "function") service.cancel(s.token)
             s.token = 0; s.live = false; s.fails++
+            lastRefusal = list + " " + String(payload).replace(/[{}"\\]/g, "").substring(0, 160)       // (no braces or quotes: the gate cuts it out of the shell's JSON)
             note(list, "refused the subscription: " + payload)
             version++
             arm()

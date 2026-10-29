@@ -605,7 +605,7 @@ shell)
     # The screensaver: tvpower asked to start it; LumaTV's own answers and draws (on Home, LumaHome's). Any key ends it.
     ls1 com.webos.service.tvpower/power2/turnOnScreenSaver '{}' > /dev/null
     if wait_shell_bool saver true 15; then key_tap 106; if wait_shell_bool saver false 10; then res ok saver; else res no saver "a key did not end it"; fi
-    else res no saver "saver $(shell_bool saver) after turnOnScreenSaver"; fi
+    else res no saver "saver $(shell_bool saver) after turnOnScreenSaver; $(ctl shell | grep -oE '"vote":\{"shell":(null|\{[^}]*\}),"home":(null|\{[^}]*\})\}')"; fi
     sleep 2; home; sleep 2
     ctl shell > $OUT/shell-end.json
     detail="${sd# }${bad:+ NOT:$bad} (shell pid $(shell_num pid), starts $(ctl shell | grep -o '"starts":[0-9]*' | cut -d: -f2), exits $(ctl shell | grep -o '"exits":[0-9]*' | cut -d: -f2), luna calls $(ctl shell | grep -o '"lunaCalls":[0-9]*' | cut -d: -f2), refused $(ctl shell | grep -o '"lunaRefused":[0-9]*' | cut -d: -f2); $(where_now))"

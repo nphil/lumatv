@@ -237,6 +237,7 @@ pub struct Stats {
     pub events: u64,
     pub luna_calls: u64,
     pub luna_refused: u64,
+    pub luna_cancelled_early: u64,
     pub shows: u64,
 }
 
@@ -272,6 +273,10 @@ pub struct Shell {
     /// What the UI last reported about itself (`ctl shell` shows it; the gate reads it).
     pub ui_state: Value,
     pub luna_tags: Vec<LunaTag>,
+    /// Tags the client cancelled before their call reached the compositor: `/v1/cancel` and `/v1/luna` are separate requests, on
+    /// separate connections, so a cancel can be handled first. The call is dropped when it comes (the client has forgotten its tag, so it
+    /// would be a subscription nobody ever cancels and whose answers go nowhere). Oldest first, bounded.
+    cancelled_early: Vec<u64>,
     /// The last value pushed per topic, so an unchanged state is not pushed again.
     pushed: BTreeMap<String, Value>,
     /// Without a server thread (tests, `--shell off`) the events pushed, newest last.
@@ -304,6 +309,7 @@ impl Default for Shell {
             live: true,
             ui_state: Value::Null,
             luna_tags: Vec::new(),
+            cancelled_early: Vec::new(),
             pushed: BTreeMap::new(),
             recorded: Vec::new(),
             stats: Stats::default(),
@@ -578,6 +584,7 @@ impl State {
         self.shell.can.clear();
         self.shell.takes.clear();
         self.shell.took.clear();
+        self.shell.cancelled_early.clear();
         for t in std::mem::take(&mut self.shell.luna_tags) {
             if t.subscribe {
                 self.luna.send(ToBridge::Cancel { token: t.token });
@@ -684,6 +691,11 @@ impl State {
             }
             Msg::Luna { tag, uri, payload, subscribe } => {
                 self.shell.note_seen(now);
+                if let Some(i) = self.shell.cancelled_early.iter().position(|t| *t == tag) {
+                    self.shell.cancelled_early.remove(i);
+                    self.shell.stats.luna_cancelled_early += 1;
+                    return false;
+                }
                 if !allowed(&uri) {
                     self.shell.stats.luna_refused += 1;
                     self.journal(format!("shell: luna {uri} refused (not on the allowlist)"));
@@ -715,6 +727,11 @@ impl State {
                     if t.subscribe {
                         self.luna.send(ToBridge::Cancel { token: t.token });
                     }
+                } else {
+                    if self.shell.cancelled_early.len() >= 64 {
+                        self.shell.cancelled_early.remove(0);
+                    }
+                    self.shell.cancelled_early.push(tag);
                 }
             }
             Msg::Ime(body) => {
@@ -937,7 +954,7 @@ impl State {
             "ui": s.ui_state,
             "topics": s.pushed,
             "lunaOpen": s.luna_tags.iter().map(|t| json!({"tag": t.tag, "uri": t.uri, "subscribe": t.subscribe})).collect::<Vec<_>>(),
-            "stats": {"starts": s.stats.starts, "exits": s.stats.exits, "events": s.stats.events, "lunaCalls": s.stats.luna_calls, "lunaRefused": s.stats.luna_refused, "shows": s.stats.shows},
+            "stats": {"starts": s.stats.starts, "exits": s.stats.exits, "events": s.stats.events, "lunaCalls": s.stats.luna_calls, "lunaRefused": s.stats.luna_refused, "lunaCancelledEarly": s.stats.luna_cancelled_early, "shows": s.stats.shows},
         })
     }
 }

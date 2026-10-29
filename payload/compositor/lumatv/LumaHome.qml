@@ -268,6 +268,7 @@ Item {
     property string doorLayer: ""             // a layer the development door asked for
     property string badDoor: ""               // the last name the door gave that is no surface, said once
     property string layerOpen: ""             // the layer that has the keys, one Home opened itself (the quick panel, the library, a menu)
+    readonly property var voteSummary: layers.voteSummary
     readonly property bool saverUp: layers.saverUp   // the screensaver is over Home (the shell reports it under LumaTV's compositor)
 
     // ============================================================= the moving wallpaper on the video plane

@@ -138,16 +138,34 @@ QtObject {
     // ---- luna through the compositor's bridge: `cb(payload)` per answer (every push of a subscription)
     property int nextTag: 0
     property var callbacks: ({})
+    // The calls and the cancels go one at a time, each after the compositor has answered the one before: separate requests are handled on
+    // separate threads, and a cancel that got there first (the screen saver vote's close right after its open) let the call through after
+    // it, a subscription on tvpower's list that nobody could end and whose questions nobody answered.
+    property var sendQueue: []
+    property int sendGen: 0
+    function sendNext() {
+        if (sendQueue.length === 0) { sendGuard.stop(); return }
+        var job = sendQueue.shift()
+        var mine = ++sendGen
+        request("POST", job.path, job.body, function() { if (mine === sendGen) sendNext() })
+        sendGuard.restart()
+    }
+    function sendOrdered(path, body) {
+        sendQueue.push({ path: path, body: body })
+        if (!sendGuard.running) sendNext()
+    }
+    // a request that is not answered must not hold the rest back
+    property Timer sendGuard: Timer { interval: 4000; onTriggered: { console.warn("[Link] a luna request got no answer in 4 s"); link.sendNext() } }
     function luna(uri, payload, subscribe, cb) {
         var tag = ++nextTag
         callbacks[tag] = { cb: cb, subscribe: subscribe === true }
-        post("/v1/luna", { tag: tag, uri: uri, payload: payload || {}, subscribe: subscribe === true })
+        sendOrdered("/v1/luna", { tag: tag, uri: uri, payload: payload || {}, subscribe: subscribe === true })
         return tag
     }
     function cancel(tag) {
         if (!callbacks[tag]) return
         delete callbacks[tag]
-        post("/v1/cancel", { tag: tag })
+        sendOrdered("/v1/cancel", { tag: tag })
     }
     function deliver(tag, payload) {
         var c = callbacks[tag]

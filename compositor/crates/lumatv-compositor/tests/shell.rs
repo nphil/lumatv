@@ -382,6 +382,35 @@ fn luna_calls_for_the_shell_go_through_the_bridge_from_the_allowlist() {
 }
 
 #[test]
+fn a_cancel_that_arrives_before_its_call_leaves_no_subscription() {
+    // `/v1/cancel` and `/v1/luna` are separate requests, so the client's cancel can be handled first (SaverVote's close then open: the
+    // vote's subscriptions leaked this way, each one a tvpower registration whose questions nobody answered).
+    let server = Server::start();
+    let uri = "luna://com.webos.service.tvpower/power2/registerScreenSaverRequest";
+    server.eval(move |s| {
+        s.shell_handle(Msg::Connected);
+        s.shell_handle(Msg::Cancel { tag: 40 });
+        s.shell_handle(Msg::Luna { tag: 40, uri: uri.into(), payload: json!({"clientName": "x", "subscribe": true}), subscribe: true });
+        s.shell_handle(Msg::Luna { tag: 41, uri: uri.into(), payload: json!({"clientName": "x", "subscribe": true}), subscribe: true });
+    });
+    let (sent, open) = server.eval(move |s| (s.luna_sent().into_iter().filter(|(u, _)| u == uri).count(), s.shell.luna_tags.clone()));
+    assert_eq!(sent, 1, "the cancelled call never reaches tvpower");
+    assert_eq!(open.iter().map(|t| t.tag).collect::<Vec<_>>(), vec![41]);
+    assert_eq!(server.eval(cancels), Vec::<u64>::new(), "nothing was open to cancel at the bridge");
+    // the tag is forgotten once used, and the list is bounded
+    server.eval(move |s| {
+        for t in 100..200 {
+            s.shell_handle(Msg::Cancel { tag: t });
+        }
+        s.shell_handle(Msg::Luna { tag: 100, uri: uri.into(), payload: json!({"subscribe": true}), subscribe: true });
+        s.shell_handle(Msg::Luna { tag: 199, uri: uri.into(), payload: json!({"subscribe": true}), subscribe: true });
+        s.shell_handle(Msg::Luna { tag: 199, uri: uri.into(), payload: json!({"subscribe": true}), subscribe: true });
+    });
+    let open = server.eval(|s| s.shell.luna_tags.iter().map(|t| t.tag).collect::<Vec<_>>());
+    assert_eq!(open, vec![41, 100, 199], "the oldest early cancels fell off (64 kept); 199 was dropped once");
+}
+
+#[test]
 fn the_audio_state_and_the_screen_reach_the_shell_as_topics() {
     let server = Server::start();
     server.eval(|s| {

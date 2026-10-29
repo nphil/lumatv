@@ -9,7 +9,8 @@ The module is staged as the packager stages it (qmlhost.stage), the shell's own 
 compositor-only ones as they do on the set, `Eos.Window` and `WebOS.Global` are stubs, and a small HTTP server plays the
 compositor: the state and the long poll of events (`--push` sets a topic, `--show` sends a panel request), the UI reports
 (`POST /v1/ui`, printed as `[report] <json>`) and the luna calls (`POST /v1/luna`, printed as `[luna] <json>`; `POST /v1/switcher`, the app switcher's requests, as `[switcher] <json>`; `--luna`
-answers the open call whose URI ends with the suffix). `--key` sends a key by evdev code to one of the two windows, as the
+answers the open call whose URI ends with the suffix; `--tvpower` stands in for tvpower's screen saver list: it takes each `registerScreenSaverRequest` at once, or
+refuses the first `--tvpower-refuse N` of them; `--luna-delay MS` holds every luna call that long before the compositor's side handles it, so a later request can overtake it). `--key` sends a key by evdev code to one of the two windows, as the
 compositor delivers it on wl_keyboard (press and release). `--eval` runs with `home` (the Home window), `sys` and `Link`.
 
 Qt 5.15 from the PyQt5 wheel under Xvfb: it finds load errors and wrong wiring and shows what the windows draw; the set is
@@ -47,8 +48,11 @@ IGNORE = re.compile(r'\[host\]|Implicitly defined onFoo|QSslSocket|OpenSSL|place
 class Channel:
     """The compositor's side of the UI channel, as shell.rs serves it."""
 
-    def __init__(self, token):
+    def __init__(self, token, tvpower=False, refuse=0, luna_delay=0):
         self.token = token
+        self.tvpower = tvpower
+        self.refuse = refuse
+        self.luna_delay = luna_delay / 1000.0
         self.lock = threading.Condition()
         self.seq = 0
         self.boot = int(time.time() * 1000)
@@ -60,6 +64,7 @@ class Channel:
         self.ime = []
         self.switcher = []
         self.polls = 0
+        self.refused = 0
 
     def push(self, topic, data):
         with self.lock:
@@ -128,8 +133,15 @@ def serve(channel, port):
                 say('[report] ' + json.dumps(doc))
                 return self.answer(200, {'ok': True})
             if self.path == '/v1/luna':
+                if channel.luna_delay:
+                    time.sleep(channel.luna_delay)
                 channel.luna.append(doc)
                 say('[luna] ' + json.dumps(doc))
+                if channel.tvpower and doc.get('uri', '').endswith('/registerScreenSaverRequest'):
+                    with channel.lock:
+                        refused = channel.refused < channel.refuse
+                        channel.refused += refused
+                    channel.push('luna', {'tag': doc['tag'], 'payload': {'returnValue': False, 'errorText': 'refused by the stand-in'} if refused else {'returnValue': True, 'subscribed': True}})
                 return self.answer(200, {'ok': True, 'tag': doc.get('tag')})
             if self.path == '/v1/cancel':
                 channel.cancels.append(doc.get('tag'))
@@ -166,6 +178,9 @@ def main(argv=None):
     ap.add_argument('--audit-sys', action='append', default=[], metavar='MS:PATH[:KINDS]', help='write the layout audit (layoutaudit.py) of the system layer at MS')
     ap.add_argument('--backdrop', help='an image drawn behind everything in the system layer: a still of video, for a render of what is over an app')
     ap.add_argument('--frames-sys', action='append', default=[], metavar='MS:LABEL', help='print how many frames the system layer has swapped since the start, at MS, as `[frames] LABEL N`')
+    ap.add_argument('--tvpower', action='store_true', help="answer the screen saver list's subscriptions as tvpower does")
+    ap.add_argument('--tvpower-refuse', type=int, default=0, metavar='N', help='refuse the first N of them (returnValue false)')
+    ap.add_argument('--luna-delay', type=int, default=0, metavar='MS', help='hold each luna call this long before it is handled')
     ap.add_argument('--data')
     ap.add_argument('--theme', help='JSON written as the user theme.json')
     ap.add_argument('--fake-helper', action='store_true')
@@ -189,7 +204,7 @@ def main(argv=None):
         with socket.socket() as s:
             s.bind(('127.0.0.1', 0))
             port = s.getsockname()[1]
-    channel = Channel(token)
+    channel = Channel(token, a.tvpower, a.tvpower_refuse, a.luna_delay)
     srv = serve(channel, port)
 
     messages = []

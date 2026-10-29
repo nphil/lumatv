@@ -416,6 +416,7 @@ Item {
         onDone: layers.advance(step)
     }
     readonly property bool saverUp: saverRes.visible
+    readonly property var voteSummary: saverRes.item ? saverRes.item.voter.summary : null
     function saverKey() { if (saverRes.item) saverRes.item.key("") }
     function saverEnd() { if (saverRes.item && saverRes.item.owned) saverRes.item.wake() }       // a volume key: it goes on to LG, and ends a saver LumaTV owns
     // The saver answers tvpower's question about LG's saver only while Home is in front (panels/SaverVote.qml), so it is told when that is.

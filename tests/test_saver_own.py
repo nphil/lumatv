@@ -266,6 +266,7 @@ class OwnSaver(Surfaces):
             ]
         p, out = self.run_own(self.THEME, events, wait=6400, allow=("refused the subscription",))
         power_asks = lambda k: len([c for c in registers(p[k]["calls"]) if c["m"].startswith("/power/")])
+        self.assertIn(2, [c["p"]["token"] for c in cancels(p["retried"]["calls"])], "the refused call (token 2) is let go: the compositor holds a subscription's tag until it is cancelled")
         self.assertGreaterEqual(power_asks("retried"), 3, "a refused subscription is asked for again, quickly at first")
         self.assertTrue(1 <= power_asks("slow") - power_asks("retried") <= 3, "then slowly (a 300 ms round would have asked five times), and for as long as it is wanted: %d, %d" % (power_asks("retried"), power_asks("slow")))
         self.assertEqual((p["up"]["up"], p["up"]["owned"]), (True, True))

@@ -104,6 +104,58 @@ class ShellClient(unittest.TestCase):
         self.assertEqual(evals[1], ["", False], "the Hub taking the front ended it")
         self.assertEqual(rc, 0, "no warning of the shell's own:\n" + "\n".join(l for l in out.splitlines() if l.startswith("[warning]") or l.startswith("[critical]"))[-2000:])
 
+    # ---- the screen saver vote's subscriptions on tvpower's lists (panels/SaverVote.qml; Home's saver and the system layer's each have one)
+    def vote_calls(self, out):
+        """(the registrations in the order the compositor's side handled them, the cancels): both lists, every tag."""
+        order = [(m.group(1), json.loads(m.group(2))) for m in re.finditer(r"^\[(luna|cancel)\] (.*)$", out, re.M)]
+        regs = [d["tag"] for k, d in order if k == "luna" and d["uri"].endswith("/registerScreenSaverRequest")]
+        return regs, [d["tag"] for k, d in order if k == "cancel"], order
+
+    def switches(self, n, first=14000, every=1500):
+        """Pushes that put an app in front and Home back, n times; the time of the last one."""
+        args, t = [], first
+        for _ in range(n):
+            args += ["--push", "%d:foreground:%s" % (t, APP)]
+            t += every
+            args += ["--push", "%d:foreground:%s" % (t, HOME)]
+            t += every
+        return args, t
+
+    def test_the_vote_holds_at_most_one_subscription_per_list_across_app_switches(self):
+        sw, t = self.switches(10)
+        rc, out = self.host("--tvpower", "--push", "500:foreground:" + HOME, "--push", "500:screen:{\"on\":true}", *sw, wait=t + 1500)
+        regs, cancels, _ = self.vote_calls(out)
+        self.assertGreaterEqual(len(regs), 20, "each switch asked for both lists: " + out[-2000:])
+        held = [t for t in regs if t not in cancels]
+        self.assertLessEqual(len(held), 2, "every subscription but the one Home holds now (one per list) was let go: %s of %s" % (held, regs))
+
+    def test_a_refusing_tvpower_leaves_no_subscription_behind(self):
+        # tvpower says no to the first six (both lists, three rounds): each refused call is let go, the retries ask again
+        rc, out = self.host("--tvpower", "--tvpower-refuse", "6", "--push", "500:foreground:" + HOME, "--push", "500:screen:{\"on\":true}",
+                            "--eval", "9000:JSON.stringify(home.state().vote)", "--eval", "21000:JSON.stringify(home.state().vote)", wait=22000)
+        regs, cancels, _ = self.vote_calls(out)
+        early, late = self.evals(out)
+        self.assertEqual((early["shell"]["want"], early["shell"]["power2"], early["shell"]["power"]), (False, False, False), "no app is in front: the system layer's vote is not on the lists")
+        self.assertIn("refused by the stand-in", early["home"]["lastRefusal"], "the shell's report says what tvpower refused with")
+        self.assertEqual((late["home"]["power2"], late["home"]["power"]), (True, True), "and that both lists took it in the end")
+        self.assertGreaterEqual(len(regs), 8, "refused, asked again: " + out[-2000:])
+        held = [t for t in regs if t not in cancels]
+        self.assertEqual(len(held), 2, "the accepted subscription of each list is the only one held: %s of %s" % (held, regs))
+
+    def test_a_cancel_never_overtakes_the_call_it_follows_on_the_channel(self):
+        # The compositor handles requests on threads of its own: a luna call held up 150 ms is handled after the cancel that follows it,
+        # unless the client sends the two in order.
+        sw, t = self.switches(4, first=10000, every=60)
+        rc, out = self.host("--tvpower", "--luna-delay", "150", "--push", "500:foreground:" + HOME, "--push", "500:screen:{\"on\":true}", *sw, wait=t + 2500)
+        regs, cancels, order = self.vote_calls(out)
+        self.assertTrue(cancels, out[-2000:])
+        seen = set()
+        for kind, doc in order:
+            if kind == "luna":
+                seen.add(doc["tag"])
+            elif kind == "cancel":
+                self.assertIn(doc["tag"], seen, "the cancel of tag %s was handled before its call" % doc["tag"])
+
 
 if __name__ == "__main__":
     unittest.main()

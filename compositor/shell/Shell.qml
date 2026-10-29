@@ -382,7 +382,7 @@ WebOSWindow {
             homeLoaded: !!h, hostActive: !!h && h.hostActive === true, layer: h ? String(h.layerOpen || "") : "", focus: h ? String(h.focusLayer || "") : "",
             settings: !!h && h.settingsOpen === true, overlay: o ? String(o.surface || "") : "", osd: !!o && o.osdLive === true,
             cards: o ? { on: o.overlaysOn === true, popup: o.popupUp === true, stack: o.overlaysUp === true, armed: o.cardsArmed === true, dnd: o.dnd === true } : null,
-            toasts: n ? n.toasts.length : 0, alert: !!n && n.alertUp, pin: !!n && n.pinUp, saver: saverUp || (!!h && h.saverUp === true), keys: keysSeen, dropped: keysDropped,
+            toasts: n ? n.toasts.length : 0, alert: !!n && n.alertUp, pin: !!n && n.pinUp, saver: saverUp || (!!h && h.saverUp === true), vote: { shell: saver.item ? saver.item.voter.summary : null, home: h ? h.voteSummary : null }, keys: keysSeen, dropped: keysDropped,
             beat: !!h && h.lastBeatMs > 0, idleHold: !!h && h.idleHold === true, link: { up: Link.up, calls: Link.nextTag, events: Link.events },
             wall: { backend: h ? String(h.videoWallBackend || "") : "", hole: wallHole, up: !!h && h.videoWallUp === true },
             // the refresh Home draws for (the `refresh` topic as Home took it): `ctl shell` says whether the 120 Hz mode reached the client
