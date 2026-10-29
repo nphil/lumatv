@@ -1,0 +1,60 @@
+[10:32:25] registered com.webos.surfacemanager.systemui (1 methods)
+[10:32:25] registered com.webos.surfacemanager.home (1 methods)
+[10:32:25] registered com.webos.surfacemanager.extended (2 methods)
+[10:32:25] registered com.webos.keyfilter.magicnumber (1 methods)
+[10:32:25] registered com.webos.surfacemanager.input (5 methods)
+[10:32:25] registered com.webos.service.sysuicompmgr (4 methods)
+[10:32:25] compositor started: pid 17958 (kms on /tmp/xdg/wayland-0)
+[10:32:25] bridge: compositor connected
+[10:32:25] sd_notify READY=1 to /run/systemd/notify: sent
+10:32:25 recover: another recovery is running; waiting for it
+[10:32:25] lsm-ready emitted
+[10:32:25] subscription t1: com.webos.surfacemanager/getForegroundVideoWindow from com.webos.service.screenmanager
+[10:32:25] subscription t2: com.webos.surfacemanager/getFocusedWindowInfo from com.webos.service.eim
+[10:32:25] subscription t3: com.webos.surfacemanager/getForegroundWindowInfo from com.webos.service.multiviewcontroller
+[10:32:25] subscription t4: com.webos.surfacemanager/getFocusedWindowInfo from com.webos.service.multiviewcontroller
+[10:32:25] subscription t5: com.webos.surfacemanager/getMultiViewLayoutAnimationState from com.webos.service.multiviewcontroller
+[10:32:25] subscription t6: com.webos.surfacemanager/getForegroundVideoWindow from com.webos.service.multiviewcontroller
+[10:32:25] subscription t7: com.webos.surfacemanager/getForegroundWindowInfo from com.webos.service.blegattsoundbar
+[10:32:25] subscription t8: com.webos.surfacemanager/getForegroundAppInfo from com.webos.applicationManager
+[10:32:25] subscription t9: com.webos.coverUI/getStatus from com.webos.applicationManager
+[10:32:27] watchdog: progress rules on (frozen output watched, empty panel watched)
+[10:32:27] watchdog: the set is ACTIVE
+10:32:35 recover: another recovery is running; waiting for it
+10:34:36 recover: surface-manager-daemon.service active after 0s; exe /usr/bin/surface-manager
+10:34:36 recover: compositor answering on the bus after 0s
+[10:34:40] start: enabled 1 fingerprint e34f8de94ef657a4 (verified e34f8de94ef657a4) failures 0 escaped 0 dry-run 0 flag 2 on-verified-list 1
+10:34:40 recover: webapp-mgr.service restarted: activating; booster inactive; maliit inactive
+[10:34:40] registered com.webos.surfacemanager (28 methods)
+[10:34:40] registered com.webos.service.recent (4 methods)
+[10:34:40] registered com.webos.coverUI (3 methods)
+[10:34:40] registered com.webos.surfacemanager.screenSaver (1 methods)
+[10:34:40] registered com.webos.surfacemanager.hcap (2 methods)
+[10:34:40] registered com.webos.service.systemUIManager (3 methods)
+[10:34:40] registered com.webos.surfacemanager.systemui (1 methods)
+[10:34:40] registered com.webos.surfacemanager.home (1 methods)
+[10:34:40] registered com.webos.surfacemanager.extended (2 methods)
+[10:34:40] registered com.webos.keyfilter.magicnumber (1 methods)
+[10:34:40] registered com.webos.surfacemanager.input (5 methods)
+[10:34:40] registered com.webos.service.sysuicompmgr (4 methods)
+[10:34:40] compositor started: pid 20607 (kms on /tmp/xdg/wayland-0)
+[10:34:41] bridge: compositor connected
+[10:34:41] sd_notify READY=1 to /run/systemd/notify: sent
+10:34:41 recover: another recovery is running; waiting for it
+[10:34:41] lsm-ready emitted
+[10:34:41] subscription t1: com.webos.surfacemanager/getForegroundWindowInfo from com.webos.service.multiviewcontroller
+[10:34:41] subscription t2: com.webos.surfacemanager/getFocusedWindowInfo from com.webos.service.multiviewcontroller
+[10:34:41] subscription t3: com.webos.surfacemanager/getMultiViewLayoutAnimationState from com.webos.service.multiviewcontroller
+[10:34:41] subscription t4: com.webos.surfacemanager/getForegroundVideoWindow from com.webos.service.multiviewcontroller
+[10:34:41] subscription t5: com.webos.surfacemanager/getForegroundWindowInfo from com.webos.service.blegattsoundbar
+[10:34:41] subscription t6: com.webos.surfacemanager/getForegroundVideoWindow from com.webos.service.screenmanager
+[10:34:41] subscription t7: com.webos.surfacemanager/getFocusedWindowInfo from com.webos.service.eim
+[10:34:41] subscription t8: com.webos.surfacemanager/getForegroundAppInfo from com.webos.applicationManager
+[10:34:41] subscription t9: com.webos.coverUI/getStatus from com.webos.applicationManager
+10:34:41 recover: WebAppMgr answering after 0s (activating)
+10:34:42 recover: Home running under LumaTV's compositor after 0s
+[10:34:43] watchdog: progress rules on (frozen output watched, empty panel watched)
+[10:34:43] watchdog: the set is ACTIVE
+10:34:52 recover: librdx reports swept; remaining 0
+[10:35:13] subscription t12: com.webos.surfacemanager/getLastInputType from youtube.leanback.v4
+[10:35:16] fallback: heartbeat: two beats missed

@@ -1,0 +1,23 @@
+09:32:37 install: start, sha gitdir: /data/home/lumaglass/.git/worktrees/lumatv-r18
+09:32:37 before: {"ok":true,"version":"0.4.0"} | 24167238c8313ced39ad20893236ab78  /media/developer/apps/usr/palm/applications/org.nphil.lumatv/payload/helper/lumatv-helper | 759ab914b6eb54c9916c25c3955934cb  /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv
+09:32:37 power Active Standby fg  picture filmMaker
+09:32:47 ipk put: -rw-r--r--    1 root     root      81353168 Oct 29 09:32 /tmp/lumatv.ipk | c349417f66effd9ae3f7432ed70a63e6a1cf6ca53072266113d4f9e9d8427fa4  /tmp/lumatv.ipk
+09:32:48 install: "returnValue": true | "statusValue": 268, | "statusValue": 269, | "statusValue": 270,
+09:32:55 app dir helper sha matches ipk: True after 18 s
+09:32:58 installed compositor tree matches ipk: True after 21 s
+09:34:17 apply (100 s): {"ok":true,"applied":true,"mounts":1,"took":79}
+09:34:26 status: {"ok":true,"version":"0.4.0","applied":true,"live":true,"mounts":1,"persist":true,"early":true,"standby":"warm","fps":false,"ntfy":{"enabled":false,"url":"https://ntfy.sh/lumaglass-selftest-nphil"},"firmware":"10.2.1","model":"o22n2","homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0},"helper":{"healthy":true,"ok":true,"pid":28916,"port":18731,"running":true},"compositor":{"bundle":true,"enabled":false,"flag":"off","mounted":false,"live":false,"lgBinary":"same","firmware":"verified","escaped":false,"unsettled":false,"failures":0,"lastFallback":"hold Home 650 ms","smLog":"02:24:08 recover: librdx reports swept; remaining 0"},"updateBlock":{"flag":true,"hosts":{"snu.lge.com":true,"su.lge.com":true,"su-ssl.lge.com":true,"su-dev.lge.com":true},"live":true,"blocking":true,"state":"blocked"},"openApps":{"enabled
+09:34:26 homestub status: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+09:34:26 helper status: {"ok":true,"helper":{"healthy":true,"ok":true,"pid":28916,"port":18731,"running":true}}
+09:34:27 compositor status: {"ok":true,"compositor":{"bundle":true,"enabled":false,"flag":"off","mounted":false,"live":false,"lgBinary":"same","firmware":"verified","escaped":false,"unsettled":false,"failures":0,"lastFallback":"hold Home 650 ms","smLog":"02:24:08 recover: librdx reports swept; remaining 0"}}
+09:34:27 vplane status: {"ok":true,"vplane":{"installed":true,"role":true,"clips":6,"walls":2,"running":true,"pid":15504}}
+09:34:27 surfaces: {"ok":true,"surfaces":[{"id":"home","on":true,"state":"stub","fallback":"LG's Home: hold Home 650 ms, the guard, or `homestub off`"},{"id":"quicksettings","on":true,"fallback":"`systemui off` puts the stock entry back in configd"},{"id":"settings-theme","on":true,"fallback":"`webglass off` unmounts the overlays"},{"id":"store","on":true,"fallback":"`store off` unmounts the overlay; a reboot or revert clears it and LG's Content Store returns exactly"},{"id":"inputcommon","on":true,"fallback":"`inputcommon off` unmounts the overlay; a reboot or revert clears it and LG's input banners return"},{"id":"voice","on":true,"fallback":"`voice off` unmounts the overlay; a reboot or revert clears it and LG's Search app returns"},{"id":"keys","on":true,"fallback":"`keys off` unmounts the overlay and restarts the keyboard server; a reboot or revert clears it and LG's keys return"},{"id":"keyboard","on
+09:34:33 lean: {"ok":true,"profile":"lean","groups":{"uploaders":{"on":true,"inTarget":"7/7"},"ads":{"on":true,"inTarget":"6/6"},"push":{"on":true,"inTarget":"5/5"},"settings":{"on":true,"inTarget":"15/16"},"apps":{"on":true,"inTarget":"2/2"},"autoinstall":{"on":true,"inTarget":"8/8"},"voice":{"on":true,"inTarget":"16/16"},"connectivity":{"on":true,"inTarget":"3/4"},"share":{"on":true,"inTarget":"11/11"},"misc":
+09:34:33 helper log tail: 2026-10-29T13:33:33Z INFO  feeds: fetching through openssl (openssl OpenSSL 3.0.13 30 Jan 2024 (Library: OpenSSL 3.0.13 30 Jan 2024))
+2026-10-29T13:33:33Z INFO  screen: Active Standby (off)
+2026-10-29T13:33:33Z INFO  ble: linked as lumatv-ble on port 6053 (10 s window, 50 s rest, 16% of the time, standby scanning off)
+2026-10-29T13:33:33Z INFO  listening on 127.0.0.1:18731 (api 1)
+2026-10-29T13:33:33Z INFO  ble: listening on 192.168.1.242:6053 as lumatv-ble
+09:34:34 foreground: com.webos.app.home power Active Standby picture filmMaker
+09:34:34 compositor log since install: 
+09:34:34 end (117 s)

@@ -1,0 +1,200 @@
+[srv  45675.337] info trace: drew at 45675.336 for slot 45675.317 (on the panel at 45675.353): items 2, stood in 0, render 591 us
+[srv  45675.337] info trace: frame queued at 45675.337 behind the flip in flight
+[srv  45675.337] info trace: next tick at 45675.352 (latch, 16.8 ms before the refresh at 45675.369)
+[srv  45675.337] info trace: flip at 45675.337 (+0.3 ms to reach): frame drawn at 45675.319 for slot 45675.300, late 0 lost 0, gpu done 4.9 ms after the draw
+[srv  45675.337] info trace: committed at 45675.337: fence export 0.1 ms, atomic commit 0.1 ms
+[srv  45675.337] info trace: next tick at 45675.353 (latch, 16.8 ms before the refresh at 45675.369)
+[srv  45675.339] info trace: commit of buffer 67 at 45675.339 (new: warming)
+[srv  45675.351] info trace: commit of buffer 122 at 45675.351
+[srv  45675.353] info warm: driver buffer 67 1920x1080: import 1.0 ms, warm draw submitted in 0.4 ms, its fence seen done 13.4 ms after (polled at the ticks)
+[srv  45675.353] info trace: drew at 45675.353 for slot 45675.334 (on the panel at 45675.369): items 2, stood in 0, render 422 us
+[srv  45675.353] info trace: frame queued at 45675.353 behind the flip in flight
+[srv  45675.353] info trace: next tick at 45675.369 (latch, 16.8 ms before the refresh at 45675.386)
+[srv  45675.354] info trace: flip at 45675.354 (+0.1 ms to reach): frame drawn at 45675.336 for slot 45675.317, late 0 lost 0, gpu done 5.0 ms after the draw
+[srv  45675.354] info trace: committed at 45675.354: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  45675.354] info trace: next tick at 45675.369 (latch, 16.8 ms before the refresh at 45675.386)
+[srv  45675.368] info trace: commit of buffer 68 at 45675.368 (new: warming)
+[srv  45675.369] info warm: driver buffer 68 1920x1080: import 0.8 ms, warm draw submitted in 0.3 ms, its fence seen done 1.0 ms after (polled at the ticks)
+[srv  45675.370] info trace: drew at 45675.369 for slot 45675.350 (on the panel at 45675.386): items 2, stood in 0, render 292 us
+[srv  45675.370] info trace: frame queued at 45675.370 behind the flip in flight
+[srv  45675.370] info trace: next tick at 45675.386 (latch, 16.8 ms before the refresh at 45675.403)
+[srv  45675.370] info trace: flip at 45675.370 (+0.1 ms to reach): frame drawn at 45675.353 for slot 45675.334, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv  45675.370] info trace: committed at 45675.370: fence export 0.0 ms, atomic commit 0.0 ms
+[srv  45675.370] info trace: next tick at 45675.386 (latch, 16.8 ms before the refresh at 45675.403)
+[srv  45675.387] info trace: drew at 45675.386 for slot 45675.367 (on the panel at 45675.403): items 2, stood in 0, render 386 us
+[srv  45675.387] info trace: frame queued at 45675.387 behind the flip in flight
+[srv  45675.387] info trace: next tick at 45675.404 (latch, 15.8 ms before the refresh at 45675.419)
+[srv  45675.387] info trace: flip at 45675.387 (+0.1 ms to reach): frame drawn at 45675.369 for slot 45675.350, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  45675.387] info trace: committed at 45675.387: fence export 0.1 ms, atomic commit 0.1 ms
+[srv  45675.387] info trace: next tick at 45675.404 (latch, 15.8 ms before the refresh at 45675.419)
+[srv  45675.399] info trace: commit of buffer 65 at 45675.399
+[srv  45675.404] info trace: flip at 45675.404 (+0.1 ms to reach): frame drawn at 45675.386 for slot 45675.367, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv  45675.404] info trace: next tick at 45675.404 (latch, 15.8 ms before the refresh at 45675.419)
+[srv  45675.405] info trace: drew at 45675.404 for slot 45675.384 (on the panel at 45675.419): items 2, stood in 0, render 383 us
+[srv  45675.405] info trace: committed at 45675.405: fence export 0.0 ms, atomic commit 0.1 ms
+[srv  45675.405] info trace: next tick at 45675.421 (latch, 14.8 ms before the refresh at 45675.436)
+[srv  45675.420] info trace: flip at 45675.420 (+0.1 ms to reach): frame drawn at 45675.404 for slot 45675.384, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv  45675.420] info trace: next tick at 45675.421 (latch, 14.8 ms before the refresh at 45675.436)
+[srv  45675.422] info trace: drew at 45675.422 for slot 45675.400 (on the panel at 45675.436): items 2, stood in 0, render 382 us
+[srv  45675.422] info trace: committed at 45675.422: fence export 0.0 ms, atomic commit 0.1 ms
+[srv  45675.422] info trace: next tick at 45675.439 (latch, 13.8 ms before the refresh at 45675.453)
+[srv  45675.434] info trace: commit of buffer 108 at 45675.434
+[srv  45675.435] info trace: commit of buffer 67 at 45675.435
+[srv  45675.437] info trace: flip at 45675.437 (+0.1 ms to reach): frame drawn at 45675.422 for slot 45675.400, late 0 lost 0, gpu done 5.0 ms after the draw
+[srv  45675.437] info trace: next tick at 45675.439 (latch, 13.8 ms before the refresh at 45675.453)
+[srv  45675.440] info trace: drew at 45675.439 for slot 45675.417 (on the panel at 45675.453): items 1, stood in 0, render 348 us
+[srv  45675.440] info trace: committed at 45675.440: fence export 0.0 ms, atomic commit 0.0 ms
+[srv  45675.441] info trace: next tick at 45675.457 (latch, 12.8 ms before the refresh at 45675.470)
+[srv  45675.450] info trace: commit of buffer 126 at 45675.450
+[srv  45675.454] info trace: flip at 45675.454 (+0.0 ms to reach): frame drawn at 45675.439 for slot 45675.417, late 0 lost 0, gpu done 4.9 ms after the draw
+[srv  45675.454] info trace: next tick at 45675.457 (latch, 12.8 ms before the refresh at 45675.470)
+[srv  45675.457] info boxdim: sample 2: begun in 524 us, read in 119 us, 2304 cells changed
+[srv  45675.457] info trace: tick at 45675.457 drew nothing
+[srv  45675.457] info trace: idle tick at 45675.459 on the grid (10.9 ms before the refresh)
+[srv  45675.460] info trace: tick at 45675.460 drew nothing
+[srv  45675.460] info trace: idle tick at 45675.476 on the grid (10.9 ms before the refresh)
+[srv  45675.461] info trace: commit of buffer 121 at 45675.461
+[srv  45675.461] info trace: commit of buffer 123 at 45675.461
+[srv  45675.461] info trace: tick at 45675.461 drew nothing
+[srv  45675.461] info trace: idle tick at 45675.476 on the grid (10.9 ms before the refresh)
+[srv  45675.465] info trace: commit of buffer 68 at 45675.465
+[srv  45675.465] info trace: drew at 45675.465 for slot 45675.450 (on the panel at 45675.486): items 1, stood in 0, render 303 us
+[srv  45675.466] info trace: committed at 45675.466: fence export 0.0 ms, atomic commit 0.0 ms
+[srv  45675.466] info trace: next tick at 45675.491 (latch, 11.8 ms before the refresh at 45675.503)
+[srv  45675.470] info trace: flip at 45675.470 (+0.1 ms to reach): frame drawn at 45675.465 for slot 45675.450, late -1 lost 0, gpu done 4.6 ms after the draw
+[srv  45675.470] info trace: next tick at 45675.475 (latch, 11.0 ms before the refresh at 45675.486)
+[srv  45675.475] info trace: tick at 45675.475 drew nothing
+[srv  45675.475] info trace: idle tick at 45675.476 on the grid (10.7 ms before the refresh)
+[srv  45675.476] info trace: tick at 45675.476 drew nothing
+[srv  45675.476] info trace: idle tick at 45675.493 on the grid (10.7 ms before the refresh)
+[srv  45675.493] info trace: tick at 45675.493 drew nothing
+[srv  45675.493] info trace: idle tick at 45675.510 on the grid (10.7 ms before the refresh)
+[srv  45675.497] info trace: commit of buffer 65 at 45675.497
+[srv  45675.498] info trace: drew at 45675.497 for slot 45675.467 (on the panel at 45675.503): items 1, stood in 0, render 332 us
+[srv  45675.498] info trace: committed at 45675.498: fence export 0.0 ms, atomic commit 0.1 ms
+[srv  45675.498] info trace: idle tick at 45675.510 on the grid (10.7 ms before the refresh)
+[srv  45675.504] info trace: flip at 45675.504 (+0.1 ms to reach): frame drawn at 45675.497 for slot 45675.467, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  45675.504] info kms: page-flip interval 33.36 ms, nothing due at the refresh between (one refresh is 16.67)
+[srv  45675.504] info trace: next tick at 45675.509 (latch, 11.0 ms before the refresh at 45675.520)
+[srv  45675.509] info trace: tick at 45675.509 drew nothing
+[srv  45675.509] info trace: idle tick at 45675.510 on the grid (10.7 ms before the refresh)
+[srv  45675.510] info trace: tick at 45675.510 drew nothing
+[srv  45675.510] info trace: idle tick at 45675.526 on the grid (10.7 ms before the refresh)
+[srv  45675.526] info trace: tick at 45675.526 drew nothing
+[srv  45675.526] info trace: idle tick at 45675.543 on the grid (10.7 ms before the refresh)
+[srv  45675.529] info trace: commit of buffer 67 at 45675.529
+[srv  45675.530] info trace: drew at 45675.530 for slot 45675.500 (on the panel at 45675.536): items 1, stood in 0, render 325 us
+[srv  45675.530] info trace: committed at 45675.530: fence export 0.0 ms, atomic commit 0.1 ms
+[srv  45675.530] info trace: idle tick at 45675.543 on the grid (10.7 ms before the refresh)
+[srv  45675.537] info trace: flip at 45675.537 (+0.1 ms to reach): frame drawn at 45675.530 for slot 45675.500, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  45675.537] info kms: page-flip interval 33.36 ms, nothing due at the refresh between (one refresh is 16.67)
+[srv  45675.537] info trace: next tick at 45675.542 (latch, 11.0 ms before the refresh at 45675.553)
+[srv  45675.542] info trace: tick at 45675.542 drew nothing
+[srv  45675.542] info trace: idle tick at 45675.543 on the grid (10.7 ms before the refresh)
+[srv  45675.543] info trace: tick at 45675.543 drew nothing
+[srv  45675.543] info trace: idle tick at 45675.560 on the grid (10.7 ms before the refresh)
+[srv  45675.560] info trace: tick at 45675.560 drew nothing
+[srv  45675.560] info trace: idle tick at 45675.576 on the grid (10.7 ms before the refresh)
+[srv  45675.562] info trace: commit of buffer 68 at 45675.562
+[srv  45675.562] info trace: drew at 45675.562 for slot 45675.534 (on the panel at 45675.570): items 1, stood in 0, render 343 us
+[srv  45675.562] info trace: committed at 45675.562: fence export 0.0 ms, atomic commit 0.0 ms
+[srv  45675.563] info trace: idle tick at 45675.576 on the grid (10.7 ms before the refresh)
+[srv  45675.571] info trace: flip at 45675.570 (+0.1 ms to reach): frame drawn at 45675.562 for slot 45675.534, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv  45675.571] info kms: page-flip interval 33.37 ms, nothing due at the refresh between (one refresh is 16.67)
+[srv  45675.571] info trace: next tick at 45675.575 (latch, 11.0 ms before the refresh at 45675.586)
+[srv  45675.576] info trace: tick at 45675.576 drew nothing
+[srv  45675.576] info trace: idle tick at 45675.576 on the grid (10.7 ms before the refresh)
+[srv  45675.576] info trace: tick at 45675.576 drew nothing
+[srv  45675.576] info trace: idle tick at 45675.593 on the grid (10.7 ms before the refresh)
+[srv  45675.593] info trace: tick at 45675.593 drew nothing
+[srv  45675.593] info trace: idle tick at 45675.610 on the grid (10.7 ms before the refresh)
+[srv  45675.598] info trace: commit of buffer 65 at 45675.598
+[srv  45675.598] info trace: drew at 45675.598 for slot 45675.567 (on the panel at 45675.603): items 1, stood in 0, render 353 us
+[srv  45675.598] info trace: committed at 45675.598: fence export 0.0 ms, atomic commit 0.0 ms
+[srv  45675.598] info trace: idle tick at 45675.610 on the grid (10.7 ms before the refresh)
+[srv  45675.604] info trace: flip at 45675.604 (+0.1 ms to reach): frame drawn at 45675.598 for slot 45675.567, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  45675.604] info kms: page-flip interval 33.36 ms, nothing due at the refresh between (one refresh is 16.67)
+[srv  45675.604] info trace: next tick at 45675.609 (latch, 11.0 ms before the refresh at 45675.620)
+[srv  45675.609] info trace: tick at 45675.609 drew nothing
+[srv  45675.609] info trace: idle tick at 45675.610 on the grid (10.7 ms before the refresh)
+[srv  45675.610] info trace: tick at 45675.610 drew nothing
+[srv  45675.610] info trace: idle tick at 45675.626 on the grid (10.7 ms before the refresh)
+[srv  45675.627] info trace: tick at 45675.627 drew nothing
+[srv  45675.627] info trace: idle tick at 45675.643 on the grid (10.7 ms before the refresh)
+[srv  45675.642] info trace: commit of buffer 67 at 45675.642
+[srv  45675.643] info trace: drew at 45675.643 for slot 45675.617 (on the panel at 45675.653): items 1, stood in 0, render 289 us
+[srv  45675.643] info trace: committed at 45675.643: fence export 0.0 ms, atomic commit 0.0 ms
+[srv  45675.643] info trace: idle tick at 45675.660 on the grid (10.7 ms before the refresh)
+[srv  45675.654] info trace: flip at 45675.654 (+0.1 ms to reach): frame drawn at 45675.643 for slot 45675.617, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  45675.654] info trace: next tick at 45675.659 (latch, 11.0 ms before the refresh at 45675.670)
+[srv  45675.659] info trace: tick at 45675.659 drew nothing
+[srv  45675.659] info trace: idle tick at 45675.660 on the grid (10.6 ms before the refresh)
+[srv  45675.660] info trace: tick at 45675.660 drew nothing
+[srv  45675.660] info trace: idle tick at 45675.677 on the grid (10.6 ms before the refresh)
+[srv  45675.675] info trace: commit of buffer 68 at 45675.675
+[srv  45675.676] info trace: drew at 45675.675 for slot 45675.650 (on the panel at 45675.687): items 1, stood in 0, render 296 us
+[srv  45675.676] info trace: committed at 45675.676: fence export 0.0 ms, atomic commit 0.0 ms
+[srv  45675.676] info trace: next tick at 45675.692 (latch, 11.0 ms before the refresh at 45675.703)
+[srv  45675.687] info trace: flip at 45675.687 (+0.1 ms to reach): frame drawn at 45675.675 for slot 45675.650, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  45675.687] info kms: page-flip interval 33.36 ms, nothing due at the refresh between (one refresh is 16.67)
+[srv  45675.687] info trace: next tick at 45675.692 (latch, 11.0 ms before the refresh at 45675.703)
+[srv  45675.692] info trace: tick at 45675.692 drew nothing
+[srv  45675.692] info trace: idle tick at 45675.693 on the grid (10.6 ms before the refresh)
+[srv  45675.693] info trace: tick at 45675.693 drew nothing
+[srv  45675.693] info trace: idle tick at 45675.710 on the grid (10.6 ms before the refresh)
+[srv  45675.707] info trace: commit of buffer 65 at 45675.707
+[srv  45675.708] info trace: drew at 45675.707 for slot 45675.684 (on the panel at 45675.720): items 1, stood in 0, render 303 us
+[srv  45675.708] info trace: committed at 45675.708: fence export 0.0 ms, atomic commit 0.0 ms
+[srv  45675.708] info trace: next tick at 45675.726 (latch, 10.9 ms before the refresh at 45675.737)
+[srv  45675.721] info trace: flip at 45675.721 (+0.1 ms to reach): frame drawn at 45675.707 for slot 45675.684, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  45675.721] info kms: page-flip interval 33.37 ms, nothing due at the refresh between (one refresh is 16.67)
+[srv  45675.721] info trace: next tick at 45675.726 (latch, 10.9 ms before the refresh at 45675.737)
+[srv  45675.726] info trace: tick at 45675.726 drew nothing
+[srv  45675.726] info trace: idle tick at 45675.727 on the grid (10.6 ms before the refresh)
+[srv  45675.727] info trace: tick at 45675.727 drew nothing
+[srv  45675.727] info trace: idle tick at 45675.743 on the grid (10.6 ms before the refresh)
+[srv  45675.740] info trace: commit of buffer 67 at 45675.740
+[srv  45675.740] info trace: drew at 45675.740 for slot 45675.717 (on the panel at 45675.753): items 1, stood in 0, render 363 us
+[srv  45675.741] info trace: committed at 45675.741: fence export 0.0 ms, atomic commit 0.0 ms
+[srv  45675.741] info trace: next tick at 45675.759 (latch, 10.7 ms before the refresh at 45675.770)
+[srv  45675.754] info trace: flip at 45675.754 (+0.1 ms to reach): frame drawn at 45675.740 for slot 45675.717, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv  45675.754] info kms: page-flip interval 33.36 ms, nothing due at the refresh between (one refresh is 16.67)
+[srv  45675.754] info trace: next tick at 45675.759 (latch, 10.7 ms before the refresh at 45675.770)
+[srv  45675.759] info trace: tick at 45675.759 drew nothing
+[srv  45675.759] info trace: idle tick at 45675.760 on the grid (10.6 ms before the refresh)
+[srv  45675.760] info trace: tick at 45675.760 drew nothing
+[srv  45675.760] info trace: idle tick at 45675.777 on the grid (10.6 ms before the refresh)
+[srv  45675.772] info trace: commit of buffer 68 at 45675.772
+[srv  45675.772] info trace: drew at 45675.772 for slot 45675.750 (on the panel at 45675.787): items 1, stood in 0, render 302 us
+[srv  45675.772] info trace: committed at 45675.772: fence export 0.0 ms, atomic commit 0.0 ms
+[srv  45675.773] info trace: next tick at 45675.793 (latch, 10.7 ms before the refresh at 45675.803)
+[srv  45675.787] info trace: flip at 45675.787 (+0.1 ms to reach): frame drawn at 45675.772 for slot 45675.750, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  45675.787] info kms: page-flip interval 33.37 ms, nothing due at the refresh between (one refresh is 16.67)
+[srv  45675.787] info trace: next tick at 45675.793 (latch, 10.7 ms before the refresh at 45675.803)
+[srv  45675.793] info trace: tick at 45675.793 drew nothing
+[srv  45675.793] info trace: idle tick at 45675.793 on the grid (10.6 ms before the refresh)
+[srv  45675.793] info trace: tick at 45675.793 drew nothing
+[srv  45675.793] info trace: idle tick at 45675.810 on the grid (10.6 ms before the refresh)
+[srv  45675.806] info trace: commit of buffer 65 at 45675.806
+[srv  45675.806] info trace: drew at 45675.806 for slot 45675.784 (on the panel at 45675.820): items 1, stood in 0, render 333 us
+[srv  45675.806] info trace: committed at 45675.806: fence export 0.0 ms, atomic commit 0.0 ms
+[srv  45675.806] info trace: next tick at 45675.826 (latch, 10.7 ms before the refresh at 45675.837)
+[srv  45675.821] info trace: flip at 45675.821 (+0.1 ms to reach): frame drawn at 45675.806 for slot 45675.784, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  45675.821] info kms: page-flip interval 33.36 ms, nothing due at the refresh between (one refresh is 16.67)
+[srv  45675.821] info trace: next tick at 45675.826 (latch, 10.7 ms before the refresh at 45675.837)
+[srv  45675.826] info trace: tick at 45675.826 drew nothing
+[srv  45675.826] info trace: idle tick at 45675.827 on the grid (10.6 ms before the refresh)
+[srv  45675.827] info trace: tick at 45675.827 drew nothing
+[srv  45675.827] info trace: idle tick at 45675.843 on the grid (10.6 ms before the refresh)
+[srv  45675.838] info trace: commit of buffer 67 at 45675.838
+[srv  45675.838] info trace: drew at 45675.838 for slot 45675.817 (on the panel at 45675.853): items 1, stood in 0, render 316 us
+[srv  45675.838] info trace: committed at 45675.838: fence export 0.0 ms, atomic commit 0.1 ms
+[srv  45675.839] info trace: next tick at 45675.859 (latch, 10.7 ms before the refresh at 45675.870)
+[srv  45675.854] info trace: flip at 45675.854 (+0.1 ms to reach): frame drawn at 45675.838 for slot 45675.817, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  45675.854] info kms: page-flip interval 33.37 ms, nothing due at the refresh between (one refresh is 16.67)
+[srv  45675.854] info trace: next tick at 45675.859 (latch, 10.7 ms before the refresh at 45675.870)
+[srv  45675.855] info shell-rust: answers drawer, picker, quick, settings
+[srv  45675.858] info shell-rust: UI channel on 127.0.0.1:18751, answers drawer, picker, quick, settings
+[srv  45675.859] info trace: tick at 45675.859 drew nothing
+[srv  45677.414] info renderer: mesh program ready in 9.5 ms, 4x multisampling resolved in the tile
+[srv  45677.414] info renderer: shader programs compiled and linked in 1547 ms

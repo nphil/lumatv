@@ -1,0 +1,14 @@
+Build 750bd99 (compositor 116d7692f63296f1bab27f5c9ca5859f, lumatv-ui 794c808c1d307b7c374679a66672b8d9), session started 11:38, shell-rust.conf empty at the start.
+ctl shell rust +settings +quick +picker +drawer: returned after 0.04 s; kinds answering after 1.78 s; compositor status live true, failures 0, lastFallback "".
+compositor.log:
+[srv  49473.984] info ui: 48 programs linked on a thread of its own in 1301 ms, drawn once in 22 ms
+[srv  49473.986] info renderer: engine built in 1.8 ms: 0 programs linked here, 48 taken from the cache
+[srv  49473.986] info ui: the engine attached in 2.2 ms on the loop thread
+ctl status: stats.passUsMax 25523 us; ui frames 41 (empty 0), gl errors 0.
+ctl shell restart x3:
+[srv  49477.896] info renderer: engine built in 2.4 ms: 0 programs linked here, 48 taken from the cache
+[srv  49477.896] info ui: the engine attached in 2.8 ms on the loop thread
+[srv  49479.566] info renderer: engine built in 2.5 ms: 0 programs linked here, 48 taken from the cache
+[srv  49479.566] info ui: the engine attached in 2.9 ms on the loop thread
+[srv  49481.228] info renderer: engine built in 2.3 ms: 0 programs linked here, 48 taken from the cache
+[srv  49481.228] info ui: the engine attached in 2.7 ms on the loop thread

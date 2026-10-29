@@ -1,0 +1,15 @@
+loop thread 8054 (the loop marker in the trace)
+client 9534: its next GPU job began after the compositor's draw (where its frame callbacks go out) p50 0.83 ms, p90 1.01, p99 1.48, p99.9 3.81, max 4.71 (3603 answered, the flips in that stretch at most 16.7 ms apart); 6 over 3 ms, 1 would leave its jobs more than 20 ms apart
+  +11.127 s: draw 47785.163, the client's next GPU job began 4.71 ms after it (the frame before: 2.79 ms), its jobs 18.5 ms apart; CPU 0 also ran tAiToneService-908 x4
+  +18.617 s: draw 47792.653, the client's next GPU job began 3.81 ms after it (the frame before: 0.7 ms), its jobs 19.9 ms apart; CPU 2 also ran webos-bluetooth-3660 x2, pq_thread-926 x2, preload-28933 x1, <...>-3660 x1
+  +22.721 s: draw 47796.757, the client's next GPU job began 4.59 ms after it (the frame before: 0.82 ms), its jobs 20.5 ms apart; CPU 2 also ran captureservice-5484 x3, pq_thread-926 x2, ACCT00-3253 x1
+  +40.337 s: draw 47814.373, the client's next GPU job began 3.45 ms after it (the frame before: 0.79 ms), its jobs 19.4 ms apart; CPU 2 also ran grep-9951 x5, <...>-9951 x2
+  +52.514 s: draw 47826.550, the client's next GPU job began 4.38 ms after it (the frame before: 1.12 ms), its jobs 19.9 ms apart; CPU 1 also ran kadpd-1986 x1, tAUDDTV-2741 x1, tCMState-2802 x1
+  +56.651 s: draw 47830.687, the client's next GPU job began 3.21 ms after it (the frame before: 0.99 ms), its jobs 18.9 ms apart; CPU 0 also ran SettingsService-4050 x3, tAiToneService-908 x1
+x1 log: 1 gap(s) over 20 ms (20.1 ms); the trace implies 1 (20.5 ms)
+  gap 20.1 ms before swap 1350 = +22.721 s: draw 47796.757, the client's next GPU job began 4.59 ms after it (the frame before: 0.82 ms), its jobs 20.5 ms apart; CPU 2 also ran captureservice-5484 x3, pq_thread-926 x2, ACCT00-3253 x1
+x1 raw swaps: 3598 frames in 60.02 s; 1 gap(s) over 20 ms, worst 20.1 ms
+x1 attribution: COMPLETE
+x1 gaps: 1 over 20 ms in the client's log; compositor-attributable 0 (late flips 0), client-only 1, unexplained 0
+  +22.721 s, jobs 20.5 ms apart (reaction 4.59 ms): client (callbacks on time, the loop never waited)
+kernel waits: no late frame | client 9534 reaction after the compositor's draw: p50 0.83 ms, p99.9 3.81, max 4.71; 6 over 3 ms, 1 frame gap(s) over 20 ms implied; answered 3603, flips at most 16.7 ms apart | x1 gaps compositor-attributable 0, client-only 1, unexplained 0 | x1 attribution COMPLETE

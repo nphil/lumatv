@@ -1,0 +1,37 @@
+10:41:46 install: start, sha gitdir: /data/home/lumaglass/.git/worktrees/lumatv-r18
+10:41:46 before: {"ok":true,"version":"0.4.0"} | 49ca0dae5a7f725843c7886154ee4b89  /media/developer/apps/usr/palm/applications/org.nphil.lumatv/payload/helper/lumatv-helper | 679a0f80f029430fcaca3c1f0c3e5f01  /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv
+10:41:47 power Active fg com.webos.app.home picture filmMaker
+10:41:57 ipk put: -rw-r--r--    1 root     root      81353562 Oct 29 10:41 /tmp/lumatv.ipk | c1122dded1181a180ed6f6474069d71d31b749f6d309449668493acb0bad0828  /tmp/lumatv.ipk
+10:41:58 install: "returnValue": true | "statusValue": 268, | "statusValue": 269, | "statusValue": 270,
+10:41:58 app dir helper sha matches ipk: True after 11 s
+10:42:01 installed compositor tree matches ipk: True after 14 s
+10:42:20 apply (34 s): {"ok":true,"applied":true,"mounts":1,"took":20}
+10:42:29 status: {"ok":true,"version":"0.4.0","applied":true,"live":true,"mounts":1,"persist":true,"early":true,"standby":"warm","fps":false,"ntfy":{"enabled":false,"url":"https://ntfy.sh/lumaglass-selftest-nphil"},"firmware":"10.2.1","model":"o22n2","homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0},"helper":{"healthy":true,"ok":true,"pid":28916,"port":18731,"running":true},"compositor":{"bundle":true,"enabled":false,"flag":"off","mounted":false,"live":false,"lgBinary":"same","firmware":"verified","escaped":false,"unsettled":false,"failures":0,"lastFallback":"heartbeat: two beats missed","smLog":"10:39:41 recover: librdx reports swept; remaining 0"},"updateBlock":{"flag":true,"hosts":{"snu.lge.com":true,"su.lge.com":true,"su-ssl.lge.com":true,"su-dev.lge.com":true},"live":true,"blocking":true,"state":"blocked"},"openApps
+10:42:29 homestub status: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+10:42:29 helper status: {"ok":true,"helper":{"healthy":true,"ok":true,"pid":28916,"port":18731,"running":true}}
+10:42:29 compositor status: {"ok":true,"compositor":{"bundle":true,"enabled":false,"flag":"off","mounted":false,"live":false,"lgBinary":"same","firmware":"verified","escaped":false,"unsettled":false,"failures":0,"lastFallback":"heartbeat: two beats missed","smLog":"10:39:41 recover: librdx reports swept; remaining 0"}}
+10:42:30 vplane status: {"ok":true,"vplane":{"installed":true,"role":true,"clips":6,"walls":2,"running":true,"pid":15504}}
+10:42:30 surfaces: {"ok":true,"surfaces":[{"id":"home","on":true,"state":"stub","fallback":"LG's Home: hold Home 650 ms, the guard, or `homestub off`"},{"id":"quicksettings","on":true,"fallback":"`systemui off` puts the stock entry back in configd"},{"id":"settings-theme","on":true,"fallback":"`webglass off` unmounts the overlays"},{"id":"store","on":true,"fallback":"`store off` unmounts the overlay; a reboot or revert clears it and LG's Content Store returns exactly"},{"id":"inputcommon","on":true,"fallback":"`inputcommon off` unmounts the overlay; a reboot or revert clears it and LG's input banners return"},{"id":"voice","on":true,"fallback":"`voice off` unmounts the overlay; a reboot or revert clears it and LG's Search app returns"},{"id":"keys","on":true,"fallback":"`keys off` unmounts the overlay and restarts the keyboard server; a reboot or revert clears it and LG's keys return"},{"id":"keyboard","on
+10:42:33 lean: {"ok":true,"profile":"lean","groups":{"uploaders":{"on":true,"inTarget":"7/7"},"ads":{"on":true,"inTarget":"6/6"},"push":{"on":true,"inTarget":"5/5"},"settings":{"on":true,"inTarget":"15/16"},"apps":{"on":true,"inTarget":"2/2"},"autoinstall":{"on":true,"inTarget":"8/8"},"voice":{"on":true,"inTarget":"16/16"},"connectivity":{"on":true,"inTarget":"3/4"},"share":{"on":true,"inTarget":"11/11"},"misc":
+10:42:33 helper log tail: 2026-10-29T13:33:33Z INFO  ble: listening on 192.168.1.242:6053 as lumatv-ble
+2026-10-29T13:39:15Z INFO  screen: Active (on)
+2026-10-29T13:39:15Z INFO  preload: 14 apps kept from preloading
+2026-10-29T13:39:17Z INFO  receiver: telnet 192.168.1.93:23
+2026-10-29T13:42:58Z WARN  http: refused a request (host_not_allowed): Origin -, Host 127.0.0.1, GET /v1/state
+10:42:34 foreground: com.webos.app.home power Active picture filmMaker
+10:42:34 compositor log since install: 2026-10-29T14:42:15.843323Z [46097.254509080] user.info surface-manager [] surface-manager LSM {} onCompleted, [LumaOverlay] loaded
+2026-10-29T14:42:16.317984Z [46097.729170600] user.warning surface-manager [] surface-manager LSM {} refresh, [Dock] launchPointsList parse failed: SyntaxError: JSON.parse: Parse error
+2026-10-29T14:42:16.319969Z [46097.731154080] user.warning surface-manager [] surface-manager LSM {} refresh, [Dock] launchPointsList parse failed: SyntaxError: JSON.parse: Parse error
+2026-10-29T14:42:16.550429Z [46097.961617800] user.info surface-manager [] surface-manager LSM {} onCompleted, [LumaHome] loaded, first beat written
+2026-10-29T14:42:17.229278Z [46098.640459000] user.warning surface-manager [] surface-manager LSM {} file:///var/lib/lumatv/qml/WebOSCompositor/views/StarfishKeyboardView.qml:29:5: Unable to assign [undefined] to QString
+2026-10-29T14:42:17.229334Z [46098.640512280] user.warning surface-manager [] surface-manager LSM {} file:///var/lib/lumatv/qml/WebOSCompositor/views/StarfishKeyboardView.qml:28:5: Unable to assign [undefined] to QString
+2026-10-29T14:42:17.229359Z [46098.640537320] user.warning surface-manager [] surface-manager LSM {} file:///var/lib/lumatv/qml/WebOSCompositor/views/StarfishKeyboardView.qml:27:5: Unable to assign [undefined] to QString
+2026-10-29T14:42:17.229381Z [46098.640558360] user.warning surface-manager [] surface-manager LSM {} file:///var/lib/lumatv/qml/WebOSCompositor/views/StarfishKeyboardView.qml:26:5: Unable to assign [undefined] to QString
+2026-10-29T14:42:17.229402Z [46098.640579700] user.warning surface-manager [] surface-manager LSM {} file:///var/lib/lumatv/qml/WebOSCompositor/views/StarfishKeyboardView.qml:230:9: Unable to assign [undefined] to bool
+2026-10-29T14:42:17.229423Z [46098.640601020] user.warning surface-manager [] surface-manager LSM {} file:///usr/lib/qml/RemoteUserList/RemoteUserListStyle.qml:73: TypeError: Cannot read property 'normal600' of undefined
+2026-10-29T14:42:17.229444Z [46098.640621520] user.warning surface-manager [] surface-manager LSM {} file:///usr/lib/qml/RemoteUserList/RemoteUserListStyle.qml:72: TypeError: Cannot read property 'normal600' of undefined
+2026-10-29T14:42:17.229464Z [46098.640642080] user.warning surface-manager [] surface-manager LSM {} file:///usr/lib/qml/RemoteUserList/RemoteUserListStyle.qml:71: TypeError: Cannot read property 'normal400' of undefined
+2026-10-29T14:42:17.229485Z [46098.640662860] user.warning surface-manager [] surface-manager LSM {} file:///usr/lib/qml/RemoteUserList/RemoteUserListStyle.qml:70: TypeError: Cannot read property 'normal400' of undefined
+2026-10-29T14:42:17.229526Z [46098.640703780] user.warning surface-manager [] surface-manager LSM {} file:///usr/lib/qml/WebOSCompositor/views/StarfishViewAdjustments.qml:50: TypeError: Cannot read property 'appId' of null
+2026-10-29T14:42:17.229547Z [46098.640724360] user.warning surface-manager [] surface-manager LSM {} file:///usr/lib/qml/WebOSCompositor/vi
+10:42:34 end (47 s)

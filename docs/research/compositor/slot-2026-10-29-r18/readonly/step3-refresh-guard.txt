@@ -1,0 +1,6 @@
+09:37:23
+{"jbLastTime":4142,"offrsLastTime":4339,"jbCount":11,"jbInterval":500,"subscribed":false,"pnwashKeyLock":true,"returnValue":true,"offrsInterval":4,"offrsCount":611}
+{"returnValue":true,"panelUsageTimeStore":0,"panelUsageTime":26037}
+{"api":1,"boot":1793280812999,"now":1793281043542,"ok":true,"seq":53,"topic":"panel","value":{"due":false,"error":null,"guard":{"deferrals":0,"enabled":false,"last":null},"intervalHours":4.0,"lastRunHours":4339.0,"lastStandbyMinutes":null,"offrsCount":611,"read":true,"readAt":1793280813132,"standby":{"countAtStart":611,"dueAtStart":false,"since":1793280813042},"usageHours":4339.5}}
+ LG says: run 611 at panel hour 4339, every 4 h, panel at 4339.5 h, not due
+standby 3 min; a wake would go ahead

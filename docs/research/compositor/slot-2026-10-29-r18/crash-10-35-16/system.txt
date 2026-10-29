@@ -1,0 +1,7 @@
+uptime: 45677.78 125421.18
+loadavg: 14.07 13.92 13.91 6/1135 21730
+MemTotal:        2030392 kB
+MemFree:          420940 kB
+MemAvailable:     854928 kB
+SwapFree:          28324 kB
+CmaFree:          233560 kB

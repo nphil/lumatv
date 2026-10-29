@@ -1,0 +1,52 @@
+start 11:31:21 --only x1 --x1-strict
+power state: active
+home stub before the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+avr: left to the agent (True)
+firmware: verified 10.2.1-5202
+safety timer: this session ends by itself after 18 min if it is still live ('cutover.sh disable' cancels the timer)
+mounted; restarting the unit
+t=5s unit=active exe=/usr/bin/surface-manager compositor=15343 mounted=yes wam=active
+   11:31:29 recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+   11:31:29 recover: WebAppMgr answering after 0s (active)
+t=10s unit=active exe=/usr/bin/surface-manager compositor=15343 mounted=yes wam=active
+   11:31:29 recover: WebAppMgr answering after 0s (active)
+   11:31:30 recover: Home running under LumaTV's compositor after 0s
+t=15s unit=active exe=/usr/bin/surface-manager compositor=15343 mounted=yes wam=active
+   11:31:30 recover: Home running under LumaTV's compositor after 0s
+   11:31:40 recover: librdx reports swept; remaining 0
+t=20s unit=active exe=/usr/bin/surface-manager compositor=15343 mounted=yes wam=active
+   11:31:30 recover: Home running under LumaTV's compositor after 0s
+   11:31:40 recover: librdx reports swept; remaining 0
+t=25s unit=active exe=/usr/bin/surface-manager compositor=15343 mounted=yes wam=active
+   11:31:30 recover: Home running under LumaTV's compositor after 0s
+   11:31:40 recover: librdx reports swept; remaining 0
+t=30s unit=active exe=/usr/bin/surface-manager compositor=15343 mounted=yes wam=active
+   11:31:30 recover: Home running under LumaTV's compositor after 0s
+   11:31:40 recover: librdx reports swept; remaining 0
+enabled (session): LumaTV's compositor stays live (recovery done after 0s more); 'cutover.sh disable' restores LG's
+
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 399549 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+GATE x1: PASS 59.95 fps over 60.00 s, no gap over 20 ms, pacer late unchanged, nothing over 20 ms in the compositor's log | RAW RESULT: [x1] RESULT frames=3597 in 60.00 s = 59.95 fps; gaps: <=17.5 ms 3561, 17.5-20 35, 20-33.5 0, >33.5 0; worst 19.6 ms; ended at monotonic 49138.699
+
+evidence: 2 subscription(s) from SAM, 7 client lines, 3 loop stalls, 2 watchdog lines
+
+safety timer cancelled
+umount: /usr/bin/surface-manager: target is busy.
+revert: active; mounted: no; exe: /usr/bin/surface-manager
+recover: surface-manager-daemon.service active after 0s; exe /usr/bin/surface-manager
+recover: compositor answering on the bus after 0s
+recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+recover: WebAppMgr answering after 0s (active)
+recover: Home on the panel after 0s (capture 60631 bytes)
+recover: librdx reports swept; remaining 0
+
+avr: left to the agent (False)
+{"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+
+home stub after the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 399549 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE x1: PASS 59.95 fps over 60.00 s, no gap over 20 ms, pacer late unchanged, nothing over 20 ms in the compositor's log | RAW RESULT: [x1] RESULT frames=3597 in 60.00 s = 59.95 fps; gaps: <=17.5 ms 3561, 17.5-20 35, 20-33.5 0, >33.5 0; worst 19.6 ms; ended at monotonic 49138.699
+GATE: PASS
+wrote ../lumatv-r18/docs/research/compositor/gate-2026-10-29.txt
+EXIT 0 11:33:32

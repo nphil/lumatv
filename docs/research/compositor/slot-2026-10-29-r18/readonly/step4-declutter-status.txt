@@ -1,0 +1,7 @@
+{"ok":true,"profile":"lean","groups":{"uploaders":{"on":true,"inTarget":"7/7"},"ads":{"on":true,"inTarget":"6/6"},"push":{"on":true,"inTarget":"5/5"},"settings":{"on":true,"inTarget":"15/16"},"apps":{"on":true,"inTarget":"2/2"},"autoinstall":{"on":true,"inTarget":"8/8"},"voice":{"on":true,"inTarget":"16/16"},"connectivity":{"on":true,"inTarget":"3/4"},"share":{"on":true,"inTarget":"11/11"},"misc":{"on":true,"inTarget":"3/3"},"ai":{"on":false,"inTarget":"0/3"},"livetv":{"on":false,"inTarget":"0/9"},"cast":{"on":false,"inTarget":"0/3"}},"persist":true,"skip":false,"early":{"hook":true,"pending":false,"thisBoot":false,"last":null},"memAvailableKb":604164}
+
+-rwxr-xr-x    1 root     root         35731 Dec 31  1969 /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/declutter.sh
+-rwxr-xr-x    1 root     root         27836 Oct 25 21:09 /var/lib/lumatv/dc-dev/tools/declutter.sh
+8bf1afa7f194d32a51914e34bbd65c2c  /var/lib/lumatv/dc-dev/tools/declutter.sh
+fedde7cff4d760d27000e5a1d7410daa  /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/declutter.sh
+ 

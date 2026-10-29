@@ -1,0 +1,7 @@
+loop thread 15292 (the loop marker in the trace)
+client 16795: its next GPU job began after a flip (where its frame callbacks go out) p50 0.35 ms, p90 0.45, p99 0.69, p99.9 1.56, max 2.21 (3595 answered, the flips in that stretch at most 16.75 ms apart); 0 over 3 ms, 0 would leave its jobs more than 20 ms apart
+x1 log: 1 gap(s) over 20 ms (20.4 ms); the trace implies 0
+x1 raw swaps: 3597 frames in 60.0 s; 1 gap(s) over 20 ms, worst 20.4 ms
+x1 attribution: INCONCLUSIVE; trace implies 0 gaps but raw log counted 1
+x1 gaps: 1 over 20 ms in the client's log; compositor-attributable 0 (late flips 0), client-only 0, unexplained 1
+kernel waits: no late frame | client 16795 reaction after a flip: p50 0.35 ms, p99.9 1.56, max 2.21; 0 over 3 ms, 0 frame gap(s) over 20 ms implied; answered 3595, flips at most 16.75 ms apart | x1 gaps compositor-attributable 0, client-only 0, unexplained 1 | x1 attribution INCONCLUSIVE

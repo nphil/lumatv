@@ -1,0 +1,9 @@
+loop thread 31085 (the loop marker in the trace)
+client 32563: its next GPU job began after a flip (where its frame callbacks go out) p50 0.33 ms, p90 0.46, p99 0.65, p99.9 2.81, max 3.14 (3596 answered, the flips in that stretch at most 16.7 ms apart); 2 over 3 ms, 0 would leave its jobs more than 20 ms apart
+  +40.687 s: flip 48238.832, the client's next GPU job began 3.07 ms after it (the frame before: 0.47 ms), its jobs 19.3 ms apart; CPU 2 also ran captureservice-5484 x8, python3-6928 x1
+  +55.233 s: flip 48253.379, the client's next GPU job began 3.14 ms after it (the frame before: 0.32 ms), its jobs 19.5 ms apart; CPU 1 ran nothing else the trace shows
+x1 log: 0 gap(s) over 20 ms; the trace implies 0
+x1 raw swaps: 3598 frames in 60.02 s; 0 gap(s) over 20 ms, worst 19.1 ms
+x1 attribution: COMPLETE
+x1 gaps: 0 over 20 ms in the client's log; compositor-attributable 0 (late flips 0), client-only 0, unexplained 0
+kernel waits: no late frame | client 32563 reaction after a flip: p50 0.33 ms, p99.9 2.81, max 3.14; 2 over 3 ms, 0 frame gap(s) over 20 ms implied; answered 3596, flips at most 16.7 ms apart | x1 gaps compositor-attributable 0, client-only 0, unexplained 0 | x1 attribution COMPLETE

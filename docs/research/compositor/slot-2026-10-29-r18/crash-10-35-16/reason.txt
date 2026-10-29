@@ -1,0 +1,6 @@
+reason: heartbeat: two beats missed
+kind: problem
+time: 20261029-103516
+compositor uptime: 36 s
+boot: e10720d2-4f47-4e95-88b9-bda65dbbb0c0
+failures: 1

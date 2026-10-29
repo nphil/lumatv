@@ -1,0 +1,4 @@
+sh: ./bin/lumatv-ui: not found
+ls: /lib/ld-linux-aarch64.so.1: No such file or directory
+/var/lib/lumatv/compositor/lib/lumatv-ui
+/var/lib/lumatv/compositor/lib/ld-linux-aarch64.so.1

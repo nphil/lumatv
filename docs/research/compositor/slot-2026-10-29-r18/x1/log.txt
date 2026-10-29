@@ -1,0 +1,16 @@
+Round 18 step 8 (blocking), the x1 frame rule in three configurations, 2026-10-29 11:09 to 11:34 EDT: `python3 /tmp/lt/gate_r18.py --only x1 [switch]` (tv_gate.py with its REST calls disabled, a fresh session each, traced by default); build 2a68516 (compositor bfc44b0e..., the x1client of the bundle). Per run: x1-TAG-stdout.txt, TAG/x1-result.txt (RAW STRICT and RAW RESULT first, then the attribution), x1-kwait.txt, x1-compositor.txt, x1.log. summary.txt has the table.
+tag | switch | gate | raw strict | fps | client gaps over 20 ms (worst) | attribution
+def1 | none (callbacks at the draw) | PASS | FAIL (1 client gap, 20.1 ms; the compositor logged 2 loop passes or flip intervals over 20 ms) | 59.95 | 1 (20.1) | COMPLETE, the gap is the client's wake-up
+def2 | none | PASS | PASS | 59.96 | 0 (19.9) | COMPLETE
+def3 | none | FAIL | FAIL (the compositor logged 1 loop pass or flip interval over 20 ms) | 59.94 | 0 (19.1) | INCONCLUSIVE: the trace implies 2 gaps, the raw log counted 0
+land1 | --x1-callbacks landing | PASS | PASS | 59.95 | 0 (19.1) | COMPLETE
+land2 | landing | PASS | PASS | 59.95 | 0 (18.9) | COMPLETE
+land3 | landing | FAIL | FAIL (1 client gap, 20.4 ms) | 59.95 | 1 (20.4) | INCONCLUSIVE: the trace implies 0 gaps, the raw log counted 1
+rt1 | --x1-rt 10 | FAIL | FAIL (pacer late 1 -> 2) | 59.94 | 0 (19.2) | COMPLETE, no gap
+rt2 | --x1-rt 10 | PASS | PASS | 59.94 | 0 (19.6) | COMPLETE
+rt3 | --x1-rt 10 | PASS | PASS | 59.94 | 0 (19.6) | COMPLETE
+strict1 | --x1-strict (the PLAN's rule, untraced) | PASS | PASS | 59.95 | 0 (19.6) | not traced
+PASS  6 of 9 gate runs pass (default 2 of 3, flip 2 of 3, SCHED_FIFO 10 2 of 3) with 8 of the 9 runs showing no client gap over 20 ms; the PLAN's strict rule passed once (round 17: 4 of 4 failed, 8 of 25 earlier runs passed).
+FAIL  3 of 9: two INCONCLUSIVE (def3, land3: the trace and the client's raw log disagree on whether a gap happened, which the gate never counts as a pass; the checklist says rerun) and one pacer `late` 1 -> 2 (rt1) with no gap. No run's gap paired with a late flip, a loop wait or a late callback (no `x1 gaps:` failure).
+INFO  the compositor's flips were on time in every run (59.94 to 59.96 fps); the only gap over 20 ms of the nine was the client's own (def1 20.1 ms, land3 20.4 ms); `x1 log: N gap(s); the trace implies N` held in def1. The SCHED_FIFO client (rt) did not remove the pacer's single late flip in rt1.
+INFO  not rerun: def3 and land3 (the budget); a rerun of each is the checklist's answer to INCONCLUSIVE.

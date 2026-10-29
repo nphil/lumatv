@@ -1,0 +1,170 @@
+{
+ "privacy": {
+  "taken": true,
+  "page": "privacy",
+  "open": true,
+  "zone": "page",
+  "answers": 186
+ },
+ "profiles": {
+  "taken": true,
+  "page": "profiles",
+  "open": true,
+  "zone": "page",
+  "answers": 237
+ },
+ "picture": {
+  "taken": true,
+  "page": "picture",
+  "open": true,
+  "zone": "page",
+  "answers": 300
+ },
+ "sound": {
+  "taken": true,
+  "page": "sound",
+  "open": true,
+  "zone": "page",
+  "answers": 371
+ },
+ "inputs": {
+  "taken": true,
+  "page": "inputs",
+  "open": true,
+  "zone": "page",
+  "answers": 424
+ },
+ "network": {
+  "taken": true,
+  "page": "network",
+  "open": true,
+  "zone": "page",
+  "answers": 477
+ },
+ "ambient": {
+  "taken": true,
+  "page": "ambient",
+  "open": true,
+  "zone": "page",
+  "answers": 528
+ },
+ "look": {
+  "taken": true,
+  "page": "look",
+  "open": true,
+  "zone": "page",
+  "answers": 585
+ },
+ "remote": {
+  "taken": true,
+  "page": "remote",
+  "open": true,
+  "zone": "page",
+  "answers": 644
+ },
+ "ai": {
+  "taken": true,
+  "page": "ai",
+  "open": true,
+  "zone": "page",
+  "answers": 699
+ },
+ "system": {
+  "taken": true,
+  "page": "system",
+  "open": true,
+  "zone": "page",
+  "answers": 766
+ },
+ "clock": {
+  "taken": true,
+  "page": "clock",
+  "open": true,
+  "zone": "page",
+  "answers": 821
+ },
+ "language": {
+  "taken": true,
+  "page": "language",
+  "open": true,
+  "zone": "page",
+  "answers": 877
+ },
+ "support": {
+  "taken": true,
+  "page": "support",
+  "open": true,
+  "zone": "page",
+  "answers": 935
+ },
+ "capture": {
+  "taken": true,
+  "page": "capture",
+  "open": true,
+  "zone": "page",
+  "answers": 996
+ },
+ "widgets": {
+  "taken": true,
+  "page": "widgets",
+  "open": true,
+  "zone": "page",
+  "answers": 1047
+ },
+ "homeassistant": {
+  "taken": true,
+  "page": "homeassistant",
+  "open": true,
+  "zone": "page",
+  "answers": 1098
+ },
+ "cameras": {
+  "taken": true,
+  "page": "cameras",
+  "open": true,
+  "zone": "page",
+  "answers": 1149
+ },
+ "duringsaver": {
+  "taken": true,
+  "page": "duringsaver",
+  "open": true,
+  "zone": "page",
+  "answers": 1200
+ },
+ "appkey": {
+  "taken": true,
+  "page": "appkey",
+  "open": true,
+  "zone": "page",
+  "answers": 1251
+ },
+ "receiver": {
+  "taken": true,
+  "page": "receiver",
+  "open": true,
+  "zone": "page",
+  "answers": 1302
+ },
+ "wifi": {
+  "taken": true,
+  "page": "wifi",
+  "open": true,
+  "zone": "page",
+  "answers": 1353
+ },
+ "ipsettings": {
+  "taken": true,
+  "page": "ipsettings",
+  "open": true,
+  "zone": "page",
+  "answers": 1404
+ },
+ "equalizer": {
+  "taken": true,
+  "page": "equalizer",
+  "open": true,
+  "zone": "page",
+  "answers": 1457
+ }
+}

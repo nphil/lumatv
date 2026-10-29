@@ -1,0 +1,4 @@
+2026-10-29T13:42:58Z WARN  http: refused a request (host_not_allowed): Origin -, Host 127.0.0.1, GET /v1/state
+{"api":1,"error":{"code":"host_not_allowed","message":"this API answers only to its own loopback address"},"ok":false}
+with the port: 200
+bare Host: 403

@@ -1,0 +1,9 @@
+Round 18, 2026-10-29 (the set's clock EDT = PDT + 3 h), TV owner Round18, forge/main 54faa35 installed first, then 28f6d8b, 6bff4a6 and 2a68516 (the last is what the gates ran on from 11:00); LumaTV's compositor live as sessions; the receiver muted through Home Assistant's MCP (the gate's REST calls disabled).
+start-state.json: the set before the first install (09:27/09:32); start-state-post-install-10-17.json and start-state-post-install-final.json (11:09, build 2a68516, LG's compositor live): the baseline the end state is compared with (an install rewrites theme.json, layout.json and Tokens.js; helper.json is unchanged).
+install/: log.txt (what was installed, read-back, findings) and the installer's own logs of each of the six installs (install-log.txt .. install-log-6.txt), build-*-status.txt.
+readonly/: steps 3 to 5 (refresh guard, early-boot scripts, declutter, scan-out proof (a)) with log.txt; scanout/: proof-a-verdicts.txt.
+rust-first-run/: the Rust shell's first run on the set (six defects found and fixed during the round) with log.txt, journals and the helper refusal; rust-core/ rust-settings/: raw ctl dumps; crash-10-35-16/: the compositor's heartbeat fallback bundle (the Rust engine's shader compile on the loop thread).
+img/: screenshots (ctl capture, 1280 wide JPEG): r18-11-* volume bar and toast, r18-12-* Home (first = Rust Home on 54faa35 with no data; fixed-* on 28f6d8b), r18-13-* panels, r18-14-settings-* 24 Settings pages, r18-15-* cameras, r18-v6-* the six fixes of 6bff4a6, r18-clip-* the clipped focus plates.
+apps/: step 7 (PlxNative's close x15) and its flip A/B, with log.txt.
+pointer/log.txt: the Magic Remote's evdev facts and PointerWheel's check. end-state.json: the set at 11:40, before its standby.
+x1/: step 8 (three configurations, three runs each, and the strict rule) with log.txt.

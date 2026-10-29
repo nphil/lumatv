@@ -1,0 +1,40 @@
+ERROR: ld.so: object '/usr/lib/libsystrim.so.3' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+engine: 1920x1080 at 60 Hz
+[luna] {"payload":{"subscribe":true},"subscribe":true,"tag":28737,"uri":"luna://com.webos.notification/getToastNotification"}
+ERROR: ld.so: object '/usr/lib/libsystrim.so.3' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+engine: 1920x1080 at 60 Hz
+[luna] {"payload":{"subscribe":true},"subscribe":true,"tag":28737,"uri":"luna://com.webos.notification/getToastNotification"}
+[log] toast delivered to the client
+[log] toast delivered to the client
+[log] [VolumeOsd] cue: the bar appears now
+[log] [VolumeOsd] cue: the bar appears now
+[log] [VolumeOsd] cue: the bar appears now
+ERROR: ld.so: object '/usr/lib/libsystrim.so.3' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+engine: 1920x1080 at 60 Hz
+[luna] {"payload":{"subscribe":true},"subscribe":true,"tag":28737,"uri":"luna://com.webos.notification/getToastNotification"}
+[luna] {"payload":{"subscribe":true},"subscribe":true,"tag":300,"uri":"luna://com.webos.service.homelaunchpoints/listLaunchPoints"}
+[luna] {"payload":{},"subscribe":false,"tag":301,"uri":"luna://com.webos.applicationManager/listLaunchPoints"}
+[log] toast delivered to the client
+ERROR: ld.so: object '/usr/lib/libsystrim.so.3' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+engine: 1920x1080 at 60 Hz
+[luna] {"payload":{"subscribe":true},"subscribe":true,"tag":28737,"uri":"luna://com.webos.notification/getToastNotification"}
+[luna] {"payload":{"subscribe":true},"subscribe":true,"tag":1308622849,"uri":"luna://com.webos.service.connectionmanager/getStatus"}
+[luna] {"payload":{"subscribe":true},"subscribe":true,"tag":1358954752,"uri":"luna://com.webos.notification/getToastNotification"}
+[log] toast delivered to the client
+[luna] {"payload":{"category":"picture","keys":["pictureMode","backlight","energySaving","eyeComfortMode"]},"subscribe":false,"tag":1392508928,"uri":"luna://com.webos.service.settings/getSystemSettings"}
+[luna] {"payload":{"subscribe":true},"subscribe":true,"tag":1224736769,"uri":"luna://com.webos.service.eim/getAllInputStatus"}
+[luna] {"payload":{},"subscribe":false,"tag":1342177281,"uri":"luna://com.webos.service.tvReservationAgent/timer/sleep/getRemainTime"}
+[helper] GET /v1/capture 
+[luna] {"payload":{"category":"picture","keys":["pictureMode","backlight","energySaving","eyeComfortMode"]},"subscribe":false,"tag":1392508929,"uri":"luna://com.webos.service.settings/getSystemSettingDesc"}
+[luna] {"payload":{"category":"general","keys":["remotePointer"]},"subscribe":false,"tag":1392508930,"uri":"luna://com.webos.service.settings/getSystemSettings"}
+[luna] {"payload":{"category":"general","keys":["remotePointer"]},"subscribe":false,"tag":1392508931,"uri":"luna://com.webos.service.settings/getSystemSettingDesc"}
+[luna] {"payload":{"category":"option","keys":["screenOff"]},"subscribe":false,"tag":1392508932,"uri":"luna://com.webos.service.settings/getSystemSettings"}
+[luna] {"payload":{"category":"option","keys":["screenOff"]},"subscribe":false,"tag":1392508933,"uri":"luna://com.webos.service.settings/getSystemSettingDesc"}
+[luna] {"payload":{"subscribe":true},"subscribe":true,"tag":1224736770,"uri":"luna://com.webos.service.eim/getAllInputStatus"}
+[luna] {"payload":{"category":"sound","keys":["soundOutput"]},"subscribe":false,"tag":1392508934,"uri":"luna://com.webos.service.settings/getSystemSettings"}
+[luna] {"payload":{"category":"sound","keys":["soundOutput"]},"subscribe":false,"tag":1392508935,"uri":"luna://com.webos.service.settings/getSystemSettingDesc"}
+[helper] GET /v1/ai/audit?limit=12 

@@ -1,0 +1,30 @@
+== bam
+DISALLOWED_PROFILE="
+    tunerless
+"
+GET_PROFILE=`luna-send -n 1 luna://com.webos.service.config/getConfigs '{"configNames":["profile.list"]}'`
+== rec-info-adapter
+ria_enabled="/tmp/ria_enabled"
+ria_disabled="/tmp/ria_disabled"
+VALUEsupportDvrReady=`luna-send -n 1 -f luna://com.webos.service.config/getConfigs '{"configNames":["tv.model.supportDvrReady"]}' | grep tv.model.supportDvrReady | awk '{ print $2 }'` || true
+if [ "$VALUEsupportDvrReady" = "true" ]
+== rec-listmgr
+rlm_enabled="/tmp/rlm_enabled"
+rlm_disabled="/tmp/rlm_disabled"
+VALUEsupportDvrReady=`luna-send -n 1 -f luna://com.webos.service.config/getConfigs '{"configNames":["tv.model.supportDvrReady"]}' | grep tv.model.supportDvrReady | awk '{ print $2 }'` || true
+if [ "$VALUEsupportDvrReady" = "true" ]
+== nn-proxy
+grep: /etc/systemd/system/scripts/nn-proxy.sh: No such file or directory
+== kdump
+kdver="1.0.14-162"
+init="init=/sbin/init.kdump"
+default="loglevel=6 1 maxcpus=1 reset_devices"
+proc_cmd="/proc/cmdline"
+==== status
+"persist":true "early":true 
+==== declutter
+{"ok":true,"profile":"lean","groups":{"uploaders":{"on":true,"inTarget":"7/7"},"ads":{"on":true,"inTarget":"6/6"},"push":{"on":true,"inTarget":"5/5"},"settings":{"on":true,"inTarget":"15/16"},"apps":{"on":true,"inTarget":"2/2"},"autoinstall":{"on":true,"inTarget":"8/8"},"voice":{"on":true,"inTarget":"16/16"},"connectivity":{"on":true,"inTarget":"3/4"},"share":{"on":true,"inTarget":"11/11"},"misc":{"on":true,"inTarget":"3/3"},"ai":{"on":false,"inTarget":"0/3"},"livetv":{"on":false,"inTarget":"0/9"},"cast":{"on":false,"inTarget":"0/3"}},"persist":true,"skip":false,"memAvailableKb":603044}
+
+==== power mode
+resume
+ 

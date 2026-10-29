@@ -1,0 +1,11 @@
+tag | gate | raw strict | fps | client gaps over 20 ms | worst gap ms | attribution coverage
+def1 | PASS | FAIL | 59.95 | 1 | 20.1 | COMPLETE
+def2 | PASS | PASS | 59.96 | 0 | 19.9 | COMPLETE
+def3 | FAIL | FAIL | 59.94 | 0 | 19.1 | INCONCLUSIVE
+land1 | PASS | PASS | 59.95 | 0 | 19.1 | COMPLETE
+land2 | PASS | PASS | 59.95 | 0 | 18.9 | COMPLETE
+land3 | FAIL | FAIL | 59.95 | 1 | 20.4 | INCONCLUSIVE
+rt1 | FAIL | FAIL | 59.94 | 0 | 19.2 | COMPLETE
+rt2 | PASS | PASS | 59.94 | 0 | 19.6 | COMPLETE
+rt3 | PASS | PASS | 59.94 | 0 | 19.6 | COMPLETE
+strict1 | PASS | PASS | 59.95 | 0 | 19.6 | missing

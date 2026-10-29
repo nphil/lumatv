@@ -1,0 +1,10 @@
+loop thread 15734 (the loop marker in the trace)
+client 17206: its next GPU job began after the compositor's draw (where its frame callbacks go out) p50 0.87 ms, p90 1.05, p99 1.54, p99.9 2.99, max 3.63 (3603 answered, the flips in that stretch at most 16.71 ms apart); 3 over 3 ms, 0 would leave its jobs more than 20 ms apart
+  +15.221 s: draw 47930.611, the client's next GPU job began 3.63 ms after it (the frame before: 1.17 ms), its jobs 19.2 ms apart; CPU 2 also ran node-11026 x3, kworker/u8:1-12176 x1
+  +43.463 s: draw 47958.853, the client's next GPU job began 3.43 ms after it (the frame before: 0.79 ms), its jobs 19.4 ms apart; CPU 2 ran nothing else the trace shows
+  +52.188 s: draw 47967.577, the client's next GPU job began 3.02 ms after it (the frame before: 0.92 ms), its jobs 18.9 ms apart; CPU 0 ran nothing else the trace shows
+x1 log: 0 gap(s) over 20 ms; the trace implies 0
+x1 raw swaps: 3598 frames in 60.0 s; 0 gap(s) over 20 ms, worst 19.9 ms
+x1 attribution: COMPLETE
+x1 gaps: 0 over 20 ms in the client's log; compositor-attributable 0 (late flips 0), client-only 0, unexplained 0
+kernel waits: no late frame | client 17206 reaction after the compositor's draw: p50 0.87 ms, p99.9 2.99, max 3.63; 3 over 3 ms, 0 frame gap(s) over 20 ms implied; answered 3603, flips at most 16.71 ms apart | x1 gaps compositor-attributable 0, client-only 0, unexplained 0 | x1 attribution COMPLETE

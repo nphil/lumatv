@@ -1,0 +1,58 @@
+######## /tmp/scanout-proof/out/afbc0
+client.log
+scanout.json
+server.log
+verdict.txt
+
+variant afbc0
+scanout-probe: buffer 1 256x256 AB24 AFBC 16x16 YTR sparse tiled (0x0800000000000151) stride 1024 266240 bytes exporter dma_buf_te: import ok (gem handle 1, closed)
+scanout-probe: buffer 2 256x256 AB24 AFBC 16x16 YTR sparse tiled (0x0800000000000151) stride 1024 266240 bytes exporter dma_buf_te: import ok (gem handle 1, closed)
+scanout-probe: buffer 3 256x256 AB24 AFBC 16x16 YTR sparse tiled (0x0800000000000151) stride 1024 266240 bytes exporter dma_buf_te: import ok (gem handle 1, closed)
+scanout-probe summary: 3 buffers, 3 imported by the display driver, 0 refused; layouts: AB24 AFBC 16x16 YTR sparse tiled (0x0800000000000151); alloc_device: none seen
+alloc_device: 
+tap: "state":"active"
+x2 check: check ok 6 bad 1
+[srv  42228.994] warn tick: 69.4 ms: plan and draw 0.3, present 68.7, callbacks 0.3, releases 0.0, luna 0.1
+[srv  42228.995] warn loop: 70.4 ms in one pass (tick)
+[srv  42229.041] warn tick: 45.9 ms: plan and draw 0.0, present 45.9, callbacks 0.0, releases 0.0, luna 0.0
+[srv  42229.041] warn loop: 45.9 ms in one pass (tick)
+[srv  42229.067] warn tick: 26.5 ms: plan and draw 0.0, present 26.5, callbacks 0.0, releases 0.0, luna 0.0
+######## /tmp/scanout-proof/out/big
+client.log
+scanout.json
+server.log
+verdict.txt
+
+variant big
+scanout-probe: buffer 1 1920x1080 AB24 AFBC 16x16 YTR sparse tiled (0x0800000000000151) stride 7680 8986624 bytes exporter dma_buf_te: import ok (gem handle 1, closed)
+scanout-probe: buffer 2 1920x1080 AB24 AFBC 16x16 YTR sparse tiled (0x0800000000000151) stride 7680 8986624 bytes exporter dma_buf_te: import ok (gem handle 1, closed)
+scanout-probe: buffer 3 1920x1080 AB24 AFBC 16x16 YTR sparse tiled (0x0800000000000151) stride 7680 8986624 bytes exporter dma_buf_te: import ok (gem handle 1, closed)
+scanout-probe summary: 3 buffers, 3 imported by the display driver, 0 refused; layouts: AB24 AFBC 16x16 YTR sparse tiled (0x0800000000000151); alloc_device: none seen
+alloc_device: 
+tap: "state":"active"
+x2 check: check ok 6 bad 1
+[srv  42231.636] warn tick: 62.1 ms: plan and draw 0.5, present 61.6, callbacks 0.0, releases 0.0, luna 0.0
+[srv  42231.636] warn loop: 62.7 ms in one pass (tick)
+[srv  42231.687] warn tick: 50.6 ms: plan and draw 0.0, present 50.6, callbacks 0.0, releases 0.0, luna 0.0
+[srv  42231.687] warn loop: 50.6 ms in one pass (tick)
+[srv  42231.719] warn tick: 32.2 ms: plan and draw 0.0, present 32.1, callbacks 0.0, releases 0.0, luna 0.0
+######## /tmp/scanout-proof/out/stock
+client.log
+scanout.json
+server.log
+verdict.txt
+
+variant stock
+scanout-probe: buffer 1 256x256 AB24 AFBC 16x16 YTR sparse tiled (0x0800000000000151) stride 1024 266240 bytes exporter dma_buf_te: import ok (gem handle 1, closed)
+scanout-probe: buffer 2 256x256 AB24 AFBC 16x16 YTR sparse tiled (0x0800000000000151) stride 1024 266240 bytes exporter dma_buf_te: import ok (gem handle 1, closed)
+scanout-probe: buffer 3 256x256 AB24 AFBC 16x16 YTR sparse tiled (0x0800000000000151) stride 1024 266240 bytes exporter dma_buf_te: import ok (gem handle 1, closed)
+scanout-probe summary: 3 buffers, 3 imported by the display driver, 0 refused; layouts: AB24 AFBC 16x16 YTR sparse tiled (0x0800000000000151); alloc_device: none seen
+alloc_device: 
+tap: "state":"active"
+x2 check: check ok 6 bad 1
+[srv  42226.431] warn tick: 65.9 ms: plan and draw 0.4, present 65.6, callbacks 0.0, releases 0.0, luna 0.0
+[srv  42226.432] warn loop: 66.8 ms in one pass (tick)
+[srv  42226.479] warn tick: 46.5 ms: plan and draw 0.0, present 46.5, callbacks 0.0, releases 0.0, luna 0.0
+[srv  42226.479] warn loop: 46.7 ms in one pass (tick)
+[srv  42226.514] warn tick: 35.2 ms: plan and draw 0.0, present 35.1, callbacks 0.0, releases 0.0, luna 0.0
+

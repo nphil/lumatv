@@ -1,0 +1,52 @@
+start 11:09:35 --only x1
+power state: active
+home stub before the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+avr: left to the agent (True)
+firmware: verified 10.2.1-5202
+safety timer: this session ends by itself after 18 min if it is still live ('cutover.sh disable' cancels the timer)
+mounted; restarting the unit
+t=5s unit=active exe=/usr/bin/surface-manager compositor=8054 mounted=yes wam=active
+   11:09:44 recover: WebAppMgr answering after 0s (active)
+   11:09:45 recover: Home running under LumaTV's compositor after 0s
+t=10s unit=active exe=/usr/bin/surface-manager compositor=8054 mounted=yes wam=active
+   11:09:44 recover: WebAppMgr answering after 0s (active)
+   11:09:45 recover: Home running under LumaTV's compositor after 0s
+t=15s unit=active exe=/usr/bin/surface-manager compositor=8054 mounted=yes wam=active
+   11:09:45 recover: Home running under LumaTV's compositor after 0s
+   11:09:55 recover: librdx reports swept; remaining 0
+t=20s unit=active exe=/usr/bin/surface-manager compositor=8054 mounted=yes wam=active
+   11:09:45 recover: Home running under LumaTV's compositor after 0s
+   11:09:55 recover: librdx reports swept; remaining 0
+t=25s unit=active exe=/usr/bin/surface-manager compositor=8054 mounted=yes wam=active
+   11:09:45 recover: Home running under LumaTV's compositor after 0s
+   11:09:55 recover: librdx reports swept; remaining 0
+t=30s unit=active exe=/usr/bin/surface-manager compositor=8054 mounted=yes wam=active
+   11:09:45 recover: Home running under LumaTV's compositor after 0s
+   11:09:55 recover: librdx reports swept; remaining 0
+enabled (session): LumaTV's compositor stays live (recovery done after 0s more); 'cutover.sh disable' restores LG's
+
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 396500 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+GATE x1: PASS 59.95 fps over 60.02 s, no compositor-attributable gap over 20 ms, pacer late unchanged, no loop pass or page-flip interval over 20 ms in the compositor's log; 1 client-only of 1 gap(s) over 20 ms (worst 20.1 ms) reported, not counted: the client woke late on callbacks that came on time; the compositor logged 2 client frame gap(s) (late commits) | RAW STRICT: FAIL 1 gap(s) over 20 ms in the client's swaps (worst 20.1 ms); the compositor logged 2 loop pass(es), client frame gap(s) or page-flip interval(s) over 20 ms during the run | RAW RESULT: [x1] RESULT frames=3598 in 60.02 s = 59.95 fps; gaps: <=17.5 ms 3573, 17.5-20 23, 20-33.5 1, >33.5 0; worst 20.1 ms; ended at monotonic 47834.256
+
+evidence: 2 subscription(s) from SAM, 7 client lines, 4 loop stalls, 2 watchdog lines
+
+safety timer cancelled
+umount: /usr/bin/surface-manager: target is busy.
+revert: active; mounted: no; exe: /usr/bin/surface-manager
+recover: surface-manager-daemon.service active after 0s; exe /usr/bin/surface-manager
+recover: compositor answering on the bus after 0s
+recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+recover: WebAppMgr answering after 0s (active)
+recover: Home on the panel after 0s (capture 61671 bytes)
+recover: librdx reports swept; remaining 0
+
+avr: left to the agent (False)
+{"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+
+home stub after the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 396500 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE x1: PASS 59.95 fps over 60.02 s, no compositor-attributable gap over 20 ms, pacer late unchanged, no loop pass or page-flip interval over 20 ms in the compositor's log; 1 client-only of 1 gap(s) over 20 ms (worst 20.1 ms) reported, not counted: the client woke late on callbacks that came on time; the compositor logged 2 client frame gap(s) (late commits) | RAW STRICT: FAIL 1 gap(s) over 20 ms in the client's swaps (worst 20.1 ms); the compositor logged 2 loop pass(es), client frame gap(s) or page-flip interval(s) over 20 ms during the run | RAW RESULT: [x1] RESULT frames=3598 in 60.02 s = 59.95 fps; gaps: <=17.5 ms 3573, 17.5-20 23, 20-33.5 1, >33.5 0; worst 20.1 ms; ended at monotonic 47834.256
+GATE: PASS
+wrote ../lumatv-r18/docs/research/compositor/gate-2026-10-29.txt
+EXIT 0 11:11:57

@@ -1,0 +1,15 @@
+pass  1 lifetime 12285 ms  Home push BEFORE the disconnect    CRASH
+pass  2 lifetime 10940 ms  disconnect BEFORE the Home push    clean
+pass  3 lifetime 11855 ms  Home push BEFORE the disconnect    CRASH
+pass  4 lifetime 11982 ms  Home push BEFORE the disconnect    CRASH
+pass  5 lifetime 11935 ms  Home push BEFORE the disconnect    CRASH
+pass  6 lifetime 11958 ms  Home push BEFORE the disconnect    CRASH
+pass  7 lifetime 11917 ms  Home push BEFORE the disconnect    CRASH
+pass  8 lifetime 11988 ms  Home push BEFORE the disconnect    CRASH
+pass  9 lifetime 11929 ms  Home push BEFORE the disconnect    CRASH
+pass 10 lifetime 10900 ms  disconnect BEFORE the Home push    clean
+pass 11 lifetime 11941 ms  Home push BEFORE the disconnect    CRASH
+pass 12 lifetime 11956 ms  Home push BEFORE the disconnect    CRASH
+pass 13 lifetime 10949 ms  disconnect BEFORE the Home push    clean
+pass 14 lifetime 11907 ms  Home push BEFORE the disconnect    CRASH
+pass 15 lifetime 11927 ms  Home push BEFORE the disconnect    CRASH

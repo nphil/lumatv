@@ -1,0 +1,104 @@
+shell: UI channel on 127.0.0.1:18750
+shell-rust: UI channel on 127.0.0.1:18751, answers osd, toast
+client connected: pid 8204 uid 505 cmd "/usr/bin/WebAppMgr --accelerated-plugin-rendering-blacklist=device;drmAgent;sound;service --autoplay-policy=no-user-gesture-required --browser-subprocess-path=/"
+luna: com.webos.service.eim subscribed to com.webos.surfacemanager/getFocusedWindowInfo
+luna: com.webos.service.multiviewcontroller subscribed to com.webos.surfacemanager/getForegroundWindowInfo
+luna: com.webos.service.multiviewcontroller subscribed to com.webos.surfacemanager/getFocusedWindowInfo
+luna: com.webos.service.multiviewcontroller subscribed to com.webos.surfacemanager/getForegroundVideoWindow
+luna: com.webos.service.screenmanager subscribed to com.webos.surfacemanager/getForegroundVideoWindow
+luna: com.webos.service.blegattsoundbar subscribed to com.webos.surfacemanager/getForegroundWindowInfo
+luna: com.webos.applicationManager subscribed to com.webos.surfacemanager/getForegroundAppInfo
+luna: com.webos.applicationManager subscribed to com.webos.coverUI/getStatus
+transitions: on
+window 1 created on surface 92 by pid 8204
+webOS shell surface on window 1 (surface 92) by pid 8204
+window 1 committed without a buffer (Card app "" state Default)
+window 1: appId = com.webos.app.home (Card)
+window 1: title = Home (Card)
+foreign: surface 92 exported as _Window_Id_1 (type 0)
+window 1 mapped (Card app "com.webos.app.home" title "Home" size Some((1920, 1080)))
+window 1: fullscreen (the front card)
+window 1: exposed 1920x1080
+focus -> surface 92
+luna: foreground ["com.webos.app.home"] pushed to 1 subscriber(s) (com.webos.applicationManager)
+shell: starting the client (SAM's Home has mapped)
+shell-rust: client started, pid 8621 (/var/lib/lumatv/compositor/lib/lumatv-ui)
+shell: client started, pid 8622 (/usr/bin/qml-runner /var/lib/lumatv/compositor/shell/Shell.qml)
+shell-rust: the client is on the engine; its layers are drawn from here
+shell-rust: client connected
+shell-rust: system layer live
+client connected: pid 8622 uid 0 cmd "/usr/bin/qml-runner {\"appId\":\"org.nphil.lumatv.shell\",\"event\":\"launch\",\"main\":\"/var/lib/lumatv/compositor/shell/Shell.qml\",\"params\":{\"dataDir\":\"/var/lib/lumatv\""
+shell: client connected
+webOS shell surface on window 2 (surface 106) by pid 8622
+window 2 created on surface 106 by pid 8622
+window 2 committed without a buffer (Card app "" state Default)
+webOS shell surface on window 3 (surface 107) by pid 8622
+window 3 created on surface 107 by pid 8622
+window 3 committed without a buffer (Card app "" state Default)
+webOS shell surface on window 4 (surface 109) by pid 8622
+window 4 created on surface 109 by pid 8622
+window 4 committed without a buffer (Card app "" state Default)
+window 2: _WEBOS_WINDOW_TYPE = _WEBOS_WINDOW_TYPE_LUMATV_HOME (ShellHome)
+window 2: appId = org.nphil.lumatv.shell (ShellHome)
+window 2: title = LumaTV shell: home (ShellHome)
+window 2: exposed 1920x1080 (a shell window shown)
+window 2: exposed nothing (covered)
+client disconnected: pid 8204 uid 505 after 2179 ms (ConnectionClosed); bound ["wl_compositor", "wl_subcompositor", "wl_shm", "wl_shell", "wl_seat", "wl_output", "wl_data_device_manager", "wl_webos_shell", "wl_webos_surface_group_compositor", "wl_webos_foreign", "wl_webos_input_manager", "wl_webos_xinput_extension", "text_model_factory", "zwp_linux_dmabuf_v1", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat"]; cmd "/usr/bin/WebAppMgr --accelerated-plugin-rendering-blacklist=device;drmAgent;sound;service --autoplay-policy=no-user-gesture-required --browser-subprocess-path=/"
+luna: foreground [] pushed to 1 subscriber(s) (com.webos.applicationManager)
+window 2 mapped (ShellHome app "org.nphil.lumatv.shell" title "LumaTV shell: home" size Some((1920, 1080)))
+window 2: exposed 1920x1080
+shell: Home window mapped
+focus -> surface 106
+client connected: pid 8690 uid 505 cmd "/usr/bin/WebAppMgr --accelerated-plugin-rendering-blacklist=device;drmAgent;sound;service --autoplay-policy=no-user-gesture-required --browser-subprocess-path=/"
+window 5 created on surface 189 by pid 8690
+webOS shell surface on window 5 (surface 189) by pid 8690
+window 5 committed without a buffer (Card app "" state Default)
+window 5: appId = com.webos.app.home (Card)
+window 5: title = Home (Card)
+shell: can show drawer
+foreign: surface 189 exported as _Window_Id_2 (type 0)
+window 3: _WEBOS_WINDOW_TYPE = _WEBOS_WINDOW_TYPE_LUMATV_SYSTEM (ShellSystem)
+window 3: appId = org.nphil.lumatv.shell (ShellSystem)
+window 3: title = LumaTV shell: system (ShellSystem)
+window 3: exposed 1920x1080 (a shell window shown)
+window 3 mapped (ShellSystem app "org.nphil.lumatv.shell" title "LumaTV shell: system" size Some((1920, 1080)))
+shell: system layer window mapped
+window 5 mapped (Card app "com.webos.app.home" title "Home" size Some((1920, 1080)))
+window 5: fullscreen (the front card)
+window 5: exposed 1920x1080
+luna: foreground ["com.webos.app.home"] pushed to 1 subscriber(s) (com.webos.applicationManager)
+shell: can show quick, picker, drawer, keyboard
+shell: system layer live; its last commit 9 ms ago, join draws it
+shell: can show quick, picker, drawer, switcher, keyboard
+shell-rust: toast delivered to the client
+shell-rust: system layer live
+shell: system layer live; its last commit 847 ms ago, join quiet
+shell: system layer live; its last commit 3 ms ago, join draws it
+shell-rust: system layer live
+shell: system layer live; its last commit 10 ms ago, join draws it
+shell-rust: answers home, osd, toast
+shell-rust: client gone (restart asked for); 1 luna subscription(s) cancelled
+shell-rust: client started, pid 10331 (/var/lib/lumatv/compositor/lib/lumatv-ui)
+shell-rust: client connected
+shell-rust: the client is on the engine; its layers are drawn from here
+shell-rust: Home is the Rust shell's: the QML Home window is left out of the stack
+shell-rust: the system layer wants the keys
+shell-rust: system layer live
+shell-rust: the system layer lets go of the keys
+shell-rust: answers drawer, osd, picker, quick, toast
+shell-rust: client gone (restart asked for); 2 luna subscription(s) cancelled
+shell-rust: Home is the QML shell's again
+shell-rust: client started, pid 12303 (/var/lib/lumatv/compositor/lib/lumatv-ui)
+shell-rust: client connected
+shell-rust: the client is on the engine; its layers are drawn from here
+shell-rust: can show quick, picker, drawer
+shell-rust: system layer live
+input: gear tap: Quick Settings -> LumaTV's quick panel
+shell-rust: the system layer wants the keys
+focus -> surface 106
+shell-rust: the system layer lets go of the keys
+input: Input tap: the input picker -> LumaTV's input picker
+shell-rust: the system layer wants the keys
+shell-rust: the system layer lets go of the keys
+shell-rust: the system layer wants the keys
+shell-rust: the system layer lets go of the keys

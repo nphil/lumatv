@@ -1,0 +1,23 @@
+10:59:54 install: start, sha gitdir: /data/home/lumaglass/.git/worktrees/lumatv-r18
+10:59:54 before: {"ok":true,"version":"0.4.0"} | 49ca0dae5a7f725843c7886154ee4b89  /media/developer/apps/usr/palm/applications/org.nphil.lumatv/payload/helper/lumatv-helper | 679a0f80f029430fcaca3c1f0c3e5f01  /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv
+10:59:54 power Active fg com.webos.app.home picture filmMaker
+11:00:03 ipk put: -rw-r--r--    1 root     root      81353562 Oct 29 11:00 /tmp/lumatv.ipk | c1122dded1181a180ed6f6474069d71d31b749f6d309449668493acb0bad0828  /tmp/lumatv.ipk
+11:00:04 install: "returnValue": true | "statusValue": 268, | "statusValue": 269, | "statusValue": 270,
+11:00:04 app dir helper sha matches ipk: True after 10 s
+11:00:06 installed compositor tree matches ipk: True after 12 s
+11:00:19 apply (25 s): {"ok":true,"applied":true,"mounts":1,"took":13}
+11:00:28 status: {"ok":true,"version":"0.4.0","applied":true,"live":true,"mounts":1,"persist":true,"early":true,"standby":"warm","fps":false,"ntfy":{"enabled":false,"url":"https://ntfy.sh/lumaglass-selftest-nphil"},"firmware":"10.2.1","model":"o22n2","homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0},"helper":{"healthy":true,"ok":true,"pid":28916,"port":18731,"running":true},"compositor":{"bundle":true,"enabled":false,"flag":"off","mounted":false,"live":false,"lgBinary":"same","firmware":"verified","escaped":false,"unsettled":false,"failures":0,"lastFallback":"","smLog":"10:58:53 recover: librdx reports swept; remaining 0"},"updateBlock":{"flag":true,"hosts":{"snu.lge.com":true,"su.lge.com":true,"su-ssl.lge.com":true,"su-dev.lge.com":true},"live":true,"blocking":true,"state":"blocked"},"openApps":{"enabled":false,"entries
+11:00:28 homestub status: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+11:00:28 helper status: {"ok":true,"helper":{"healthy":true,"ok":true,"pid":28916,"port":18731,"running":true}}
+11:00:28 compositor status: {"ok":true,"compositor":{"bundle":true,"enabled":false,"flag":"off","mounted":false,"live":false,"lgBinary":"same","firmware":"verified","escaped":false,"unsettled":false,"failures":0,"lastFallback":"","smLog":"10:58:53 recover: librdx reports swept; remaining 0"}}
+11:00:28 vplane status: {"ok":true,"vplane":{"installed":true,"role":true,"clips":6,"walls":2,"running":true,"pid":15504}}
+11:00:28 surfaces: {"ok":true,"surfaces":[{"id":"home","on":true,"state":"stub","fallback":"LG's Home: hold Home 650 ms, the guard, or `homestub off`"},{"id":"quicksettings","on":true,"fallback":"`systemui off` puts the stock entry back in configd"},{"id":"settings-theme","on":true,"fallback":"`webglass off` unmounts the overlays"},{"id":"store","on":true,"fallback":"`store off` unmounts the overlay; a reboot or revert clears it and LG's Content Store returns exactly"},{"id":"inputcommon","on":true,"fallback":"`inputcommon off` unmounts the overlay; a reboot or revert clears it and LG's input banners return"},{"id":"voice","on":true,"fallback":"`voice off` unmounts the overlay; a reboot or revert clears it and LG's Search app returns"},{"id":"keys","on":true,"fallback":"`keys off` unmounts the overlay and restarts the keyboard server; a reboot or revert clears it and LG's keys return"},{"id":"keyboard","on
+11:00:32 lean: {"ok":true,"profile":"lean","groups":{"uploaders":{"on":true,"inTarget":"7/7"},"ads":{"on":true,"inTarget":"6/6"},"push":{"on":true,"inTarget":"5/5"},"settings":{"on":true,"inTarget":"15/16"},"apps":{"on":true,"inTarget":"2/2"},"autoinstall":{"on":true,"inTarget":"8/8"},"voice":{"on":true,"inTarget":"16/16"},"connectivity":{"on":true,"inTarget":"3/4"},"share":{"on":true,"inTarget":"11/11"},"misc":
+11:00:32 helper log tail: 2026-10-29T13:33:33Z INFO  ble: listening on 192.168.1.242:6053 as lumatv-ble
+2026-10-29T13:39:15Z INFO  screen: Active (on)
+2026-10-29T13:39:15Z INFO  preload: 14 apps kept from preloading
+2026-10-29T13:39:17Z INFO  receiver: telnet 192.168.1.93:23
+2026-10-29T13:42:58Z WARN  http: refused a request (host_not_allowed): Origin -, Host 127.0.0.1, GET /v1/state
+11:00:32 foreground: com.webos.app.home power Active picture filmMaker
+11:00:32 compositor log since install: 
+11:00:32 end (38 s)

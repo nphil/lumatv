@@ -1,0 +1,98 @@
+=========== bam.sh (first 12 command lines)
+17:DISALLOWED_PROFILE="
+18:    tunerless
+19:"
+21:GET_PROFILE=`luna-send -n 1 luna://com.webos.service.config/getConfigs '{"configNames":["profile.list"]}'`
+22:GET_PROFILE_RETURN=`echo ${GET_PROFILE} | sed -n 's/.*"returnValue": *\([a-zA-Z]\+\).*/\1/p'`
+23:PROFILE_LIST=`echo ${GET_PROFILE} | sed -n 's/.*"profile.list": *\[\(.*\)\].*/\1/p'`
+25:if echo "$GET_PROFILE_RETURN" | grep -iq "true"; then
+26:    for PROFILE in ${DISALLOWED_PROFILE}; do
+27:        if echo "${PROFILE_LIST}" | grep -iq "\"${PROFILE}\""; then
+28:            echo "INFO : This service can't be started in ${PROFILE} profile"
+29:            exit 0
+30:        fi
+31:    done
+32:else
+=========== rec-info-adapter.sh (first 12 command lines)
+13:ria_enabled="/tmp/ria_enabled"
+14:ria_disabled="/tmp/ria_disabled"
+15:VALUEsupportDvrReady=`luna-send -n 1 -f luna://com.webos.service.config/getConfigs '{"configNames":["tv.model.supportDvrReady"]}' | grep tv.model.supportDvrReady | awk '{ print $2 }'` || true
+16:if [ "$VALUEsupportDvrReady" = "true" ]
+17:then
+18:        echo "tv.model.supportDvrReady : true" > $ria_enabled
+19:        /usr/sbin/rec-info-adapter
+20:elif [ "$VALUEsupportDvrReady" = "" ]  # missingConfigs case -> default excute
+21:then
+22:        echo "tv.model.supportDvrReady is missingConfigd" > $ria_enabled
+23:        /usr/sbin/rec-info-adapter
+24:else
+25:        echo "tv.model.supportDvrReady : false" > $ria_disabled
+26:fi
+=========== rec-listmgr.sh (first 12 command lines)
+13:rlm_enabled="/tmp/rlm_enabled"
+14:rlm_disabled="/tmp/rlm_disabled"
+15:VALUEsupportDvrReady=`luna-send -n 1 -f luna://com.webos.service.config/getConfigs '{"configNames":["tv.model.supportDvrReady"]}' | grep tv.model.supportDvrReady | awk '{ print $2 }'` || true
+16:if [ "$VALUEsupportDvrReady" = "true" ]
+17:then
+18:        echo "tv.model.supportDvrReady : true" > $rlm_enabled
+19:        /usr/sbin/rec-listmgr
+20:elif [ "$VALUEsupportDvrReady" = "" ]  # missingConfigs case -> default excute
+21:then
+22:        echo "tv.model.supportDvrReady is missingConfigd" > $rlm_enabled
+23:        /usr/sbin/rec-listmgr
+24:else
+25:        echo "tv.model.supportDvrReady : false" > $rlm_disabled
+26:fi
+=========== kdump.sh (first 12 command lines)
+14:kdver="1.0.14-162"
+15:init="init=/sbin/init.kdump"
+16:default="loglevel=6 1 maxcpus=1 reset_devices"
+17:proc_cmd="/proc/cmdline"
+18:proc_gfx="/proc/lg/gfx/mem_stat"
+19:proc_kdump="/proc/kdump_mem"
+21:if grep -q -s "crashkernel" $proc_cmd
+22:then
+23:    cmdline=`cat $proc_cmd`
+25:    root=$(echo $cmdline | sed -e 's/\(root=[^ ,]*\).*$/\1/')
+26:    rootfs=$(echo $cmdline | sed -e 's/^.*\(rootfstype=[^ ,]*\).*$/\1/')
+27:    root=$root' '$rootfs
+29:    if grep -q -s "rootwait" $proc_cmd; then
+30:        root=$root' rootwait'
+=========== units
+--- bam
+After=ls-hubd.service mount-readwrite.service
+Type=simple
+EnvironmentFile=-/var/systemd/system/env/bam.env
+ExecStart=/etc/systemd/system/scripts/bam.sh
+--- rec-info-adapter
+After=ls-hubd.service mount-readwrite.service
+Type=simple
+EnvironmentFile=-/var/systemd/system/env/rec-info-adapter.env
+ExecStart=/etc/systemd/system/scripts/rec-info-adapter.sh
+--- rec-listmgr
+After=ls-hubd.service mount-readwrite.service
+Type=simple
+EnvironmentFile=-/var/systemd/system/env/rec-listmgr.env
+ExecStart=/etc/systemd/system/scripts/rec-listmgr.sh
+--- nn-proxy
+After=ls-hubd.service mount-readwrite.service
+Type=simple
+EnvironmentFile=-/var/systemd/system/env/nn-proxy.env
+ExecStart=/usr/bin/nn-proxy.sh
+--- kdump
+Type=simple
+EnvironmentFile=-/var/systemd/system/env/kdump.env
+ExecStart=/etc/systemd/system/scripts/kdump.sh
+
+kdump.env
+surface-manager.env
+ 15:if ( grep -qs "chip=O24" /proc/cmdline || \
+16:     grep -qs "chip=M23" /proc/cmdline || grep -qs "chip=O22" /proc/cmdline || \
+17:     grep -qs "chip=O20" /proc/cmdline || grep -qs "chip=E60" /proc/cmdline ); then
+18:    /usr/bin/nn-proxy
+19:fi
+
+PATH=/var/lib/lumatv/earlybin:/usr/sbin:/usr/bin:/sbin:/bin
+ 1.282s mount-readwrite.service
+   93ms mount-readwrite-pre.service
+ 

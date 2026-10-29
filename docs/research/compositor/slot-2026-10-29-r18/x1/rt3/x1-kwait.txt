@@ -1,0 +1,7 @@
+loop thread 7271 (the loop marker in the trace)
+client 8785: its next GPU job began after the compositor's draw (where its frame callbacks go out) p50 0.7 ms, p90 0.8, p99 0.9, p99.9 1.25, max 1.55 (3602 answered, the flips in that stretch at most 16.81 ms apart); 0 over 3 ms, 0 would leave its jobs more than 20 ms apart
+x1 log: 0 gap(s) over 20 ms; the trace implies 0
+x1 raw swaps: 3597 frames in 60.01 s; 0 gap(s) over 20 ms, worst 19.6 ms
+x1 attribution: COMPLETE
+x1 gaps: 0 over 20 ms in the client's log; compositor-attributable 0 (late flips 0), client-only 0, unexplained 0
+kernel waits: no late frame | client 8785 reaction after the compositor's draw: p50 0.7 ms, p99.9 1.25, max 1.55; 0 over 3 ms, 0 frame gap(s) over 20 ms implied; answered 3602, flips at most 16.81 ms apart | x1 gaps compositor-attributable 0, client-only 0, unexplained 0 | x1 attribution COMPLETE
