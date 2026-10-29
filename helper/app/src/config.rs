@@ -66,6 +66,12 @@ impl Paths {
     pub fn ha_link_file(&self) -> PathBuf {
         self.data_dir.join("ha").join("link.json")
     }
+
+    /// `scrypted/link.json`: the bridge's address, certificate pin, the TV's own token and its device name (`scrypted::store`; written by
+    /// `scrypted-link`, and the only thing that switches the cameras on).
+    pub fn scrypted_link_file(&self) -> PathBuf {
+        self.data_dir.join("scrypted").join("link.json")
+    }
 }
 
 /// A config problem, in words.
@@ -103,8 +109,8 @@ pub struct Config {
     pub voice: VoiceConfig,
     /// Pictures decoded for the shell (`images.rs`): which folders it may ask for, and the decoder that does the work.
     pub images: ImagesConfig,
-    /// Cameras and their event pop-ups through Home Assistant's LumaShow integration (`cameras.rs`). Off by default: with `enabled`
-    /// false nothing listens, nothing is announced and no picture is ever fetched.
+    /// Cameras and their event pop-ups through Scrypted's LumaShow bridge (`scrypted/`). Off until the TV is linked (`scrypted-link`):
+    /// with no link nothing connects and no picture is ever fetched; these are only tuning.
     pub cameras: CamerasConfig,
     /// Screenshots and screen recordings of the picture LumaTV's compositor composes (`capture.rs`, `compositor/.../screencap`). Off by
     /// default: with `enabled` false the routes refuse and the compositor does nothing; both read this one switch.
@@ -233,57 +239,41 @@ impl Default for CaptureRecordConfig {
     }
 }
 
-/// The camera bridge and the pop-ups. The switch is `enabled`; everything else is tuning.
+/// The cameras' tuning. There is no switch: the link file (`scrypted-link`) is what turns them on.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields, rename_all = "camelCase")]
 pub struct CamerasConfig {
-    /// The switch. On: once the TV holds its ESPHome pairing key (`ble-link`), the bridge listens for Home Assistant's LumaShow
-    /// integration on `port` and is announced as `_lumashow._tcp`.
-    pub enabled: bool,
-    /// The bridge's port (the protocol's is 6054).
-    pub port: u16,
-    /// Which kinds of event make a pop-up: `person`, `vehicle`, `animal`, `package`, `doorbell`, `motion`.
-    pub popup_kinds: Vec<String>,
-    /// How long a pop-up stays without a key press, in seconds; a doorbell's is half as long again.
-    pub popup_seconds: u32,
-    /// How long after a pop-up the same camera and kind stay quiet, in seconds (a doorbell is never held back).
-    pub cooldown_seconds: u32,
-    /// How long a camera's last picture is served again before a new one is fetched, in milliseconds: a grid of tiles asking at once
-    /// costs one fetch a camera.
+    /// How long a camera's newest still is served before it counts as no picture, in milliseconds (the shell keeps its own last picture,
+    /// dimmed, past this).
     pub frame_hold_ms: u32,
     /// The most a camera's picture may be, in bytes.
     pub max_picture_bytes: u32,
-    /// The live path (`live/`): the full view plays the camera's stream on the video plane through the GFN feeder. Off: the full view
-    /// and the grid draw pictures only. Needs `enabled`.
+    /// The live path (`live/`): the full view plays the camera's stream on the video plane through the GFN feeder. Off: the full view and
+    /// the grid draw pictures only.
     pub live: bool,
-    /// Ask Home Assistant for the relay (its own go2rtc's restream, sent down the paired channel; sub-second) before HLS (seconds behind).
-    /// Off: HLS only.
-    pub relay: bool,
     /// The feeder program (`lumatv-gfn-feeder`); empty: `bin/lumatv-gfn-feeder` in the data dir, where `lumatv` stages it.
     pub feeder: String,
     /// The window type the feeder owns for a camera (`card`, `overlay`, `screensaver`): the TV check decides which shows over an app.
     pub feeder_window: String,
     /// The NDL library the feeder loads (`-L`); empty for its default.
     pub feeder_library: String,
+    /// How long the feeder process is kept after the last stream, so that the next open skips its start (0: it ends with the stream).
+    pub feeder_idle_seconds: u32,
+    /// `POST /v1/cameras/event` makes a pop-up as a detector would, for the TV check and the tests. Off: the route refuses.
+    pub test_events: bool,
 }
 
 impl Default for CamerasConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
-            port: 6054,
-            popup_kinds: ["person", "vehicle", "animal", "doorbell"]
-                .map(str::to_owned)
-                .to_vec(),
-            popup_seconds: 12,
-            cooldown_seconds: 30,
-            frame_hold_ms: 300,
+            frame_hold_ms: 10_000,
             max_picture_bytes: 4 * 1024 * 1024,
-            live: false,
-            relay: true,
+            live: true,
             feeder: String::new(),
             feeder_window: "card".to_owned(),
             feeder_library: String::new(),
+            feeder_idle_seconds: 120,
+            test_events: false,
         }
     }
 }

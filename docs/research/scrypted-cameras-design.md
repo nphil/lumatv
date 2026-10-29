@@ -331,14 +331,15 @@ cameras:        {"state": "unlinked|connecting|ready|offline|refused|untrusted",
                               "live": true, "recordings": true, "events": true, "clips": true, "since": 1792500000000,
                               "native": {"codec": "h265", "width": 3840, "height": 2160, "fps": 15}, "prebuffered": true}]}
 cameras.popup:  {"id": 41, "event": "e4021", "camera": "273", "name": "Front Door", "kind": "person", "label": "person", "at": 1792609200123,
-                 "untilMs": 1792609212200, "seq": 4021}
+                 "untilMs": 1792609212200, "seq": 4021, "thumbnail": true, "shownAt": 1792609200400, "overApps": true, "test": false}
 cameras.live:   {"camera": "273", "mode": "live|playback|clip", "state": "idle|asking|starting|playing|failed|stopped", "reason": "words",
                  "codec": "h265", "width": 3840, "height": 2160, "fps": 15, "startedAt": 1792605903000, "positionMs": 1792605910250, "rate": 1,
-                 "fed": 900, "dropped": 0, "lost": 0, "delayMs": 4, "window": "card", "since": 1792609200500}
+                 "fed": 900, "dropped": 0, "lost": 0, "delayMs": 4, "window": "card", "paused": false, "since": 1792609200500}
 cameras.events: {"events": [ ...the last 30 pushed events, newest first, as the bridge sent them... ]}
 ```
 
-`positionMs` is the wall-clock moment of the picture on the plane in a playback (4 updates a second); `startedAt` is the bridge's `started_at`. Nothing in a topic, route answer or log carries the token,
+`positionMs` is the wall-clock moment of the picture on the plane in a playback (4 updates a second) and `startedAt` is the bridge's `started_at`; both are `null` in live. `paused` is true while a recording is held (the last picture stays,
+nothing is dialled). The pop-up record says `thumbnail` (a picture of the moment is there), `shownAt` (when it was published), `overApps` (the owner's `popups.over_apps`, which the shell enforces) and `test` (a test event). Nothing in a topic, route answer or log carries the token,
 a stream address or the bridge's address after the link is made.
 
 **Routes** (loopback API, JSON, times in epoch milliseconds):
@@ -346,7 +347,7 @@ a stream address or the bridge's address after the link is made.
 | Route | Does |
 |---|---|
 | `GET /v1/cameras` | the `cameras` topic's value |
-| `GET /v1/cameras/{id}/frame?w=&h=` | the newest still as a BMP (hardware or libjpeg decode), `X-Luma-Camera-Age-Ms`, `X-Luma-Decoder`; the helper opens the bridge's stills stream for the camera while asked, closes it 3 s after the last ask |
+| `GET /v1/cameras/{id}/frame?w=&h=` | the newest still as a BMP (hardware or libjpeg decode), `X-Luma-Camera-Age-Ms`, `X-Luma-Decoder`; the helper opens the bridge's stills stream for the camera while asked, closes it 3 s after the last ask; `404 no_picture` (none yet, or older than `cameras.frameHoldMs`), `503 not_connected`, `429 busy` |
 | `GET /v1/cameras/{id}/recordings?from=&to=` | the bridge's ranges: `ranges`, `unknown`, `complete`, `step_ms` |
 | `GET /v1/cameras/{id}/events?from=&to=&count=` | ticks of the span, oldest first: `at`, `kind`, `label`, `clip` |
 | `GET /v1/cameras/{id}/clips?from=&to=&count=` | clips, newest first: `id`, `at`, `duration`, `kind`, `label`, `description`, `has_thumbnail`, `has_video` |
@@ -354,13 +355,15 @@ a stream address or the bridge's address after the link is made.
 | `GET /v1/cameras/events/{event}/thumbnail?w=&h=` | the picture of a pushed event |
 | `POST /v1/cameras/live {camera, quality?}` | starts live; the state is the `cameras.live` topic; one session, a new camera ends the old one |
 | `POST /v1/cameras/playback {camera, at, rate?}` and `{camera, clip}` | starts a recording or a clip |
+| `POST /v1/cameras/live/pause {paused}` | holds a recording (the picture stays, the dial ends) or plays it on from where it stopped |
 | `POST /v1/cameras/live/stop` | stops live or playback (the pipeline unloads, the feeder ends after 120 s idle) |
 | `POST /v1/cameras/popup/clear` | the pop-up is dismissed (every reader sees it go) |
-| `POST /v1/cameras/event {camera, kind}` | a test event through the policy (kept from today; off unless a switch is on) |
-| `GET` and `PUT /v1/settings/scrypted-cameras`, `GET /v1/plugins/scrypted-cameras/choices/{cameras or kinds}` | the Cameras page (3.5), through the routes the Home Assistant page uses |
+| `POST /v1/cameras/event {camera, kind}` | a test event through the policy (off unless `cameras.testEvents` is on) |
+| `GET` and `POST /v1/settings/scrypted-cameras`, `GET /v1/plugins/scrypted-cameras/choices/{cameras or kinds}`, `POST /v1/plugins/scrypted-cameras/actions/forget` | the Cameras page (3.5) and its Forget button, through the routes the Home Assistant page uses |
 
 `GET /v1/cameras/{id}/frame` takes its `w` and `h` from the tile the shell draws, so no picture is scaled in the shell. A refusal is the bridge's `error.code` with its words
-(`no_recording`, `camera_not_found`, `busy`, `timeout`, `not_supported`).
+(`no_recording`, `camera_not_found`, `busy`, `timeout`, `not_supported`, `offline`), HTTP 409 on the start routes, and leaves live as it was. The bridge keeps one playback session for each camera and ends the old one as it takes
+the call for another, so the end of a recording's stream while the next is asked for is not an end of recording; a refused seek then says why in `cameras.live` (`failed`). The end of a recording is `state: stopped`, reason "End of recording".
 
 Answers are the bridge's own v1 JSON with times unchanged (`docs/scrypted-bridge-api.md` 5.3 to 5.5); the shell reads these three:
 
@@ -431,6 +434,9 @@ would be a pop-up a minute).
 popped within `popups.cooldown` (a doorbell ignores it), the shell is free (Home's `homeBusy`: a PIN, an alert, a panel, the AI prompt: it waits and shows the card if still within `popups.seconds`),
 and, over a playing app, `popups.over_apps` is on. An `update` changes the words of a card already up. The event is also kept in `cameras.events` whatever the policy says.
 
+An event older than 30 s (what a reconnect replays) is listed and never shown; an event of a camera the TV does not show is ignored; `popups.over_apps` (default on) is published as `overApps` in the pop-up record, and the
+shell lets the card show over a playing app only when it is on.
+
 ### 3.6 The link and its secrets
 
 `lumatv-helper scrypted-link` and `scrypted-unlink` are the only writers, as `ha-link` is (`ha_store.rs`): the secret never appears in an argument, a log, a topic or a route. The file is
@@ -439,7 +445,9 @@ and, over a playing app, `popups.over_apps` is on. An `update` changes the words
 1. `scrypted-link --brand $B --address 192.168.1.69:10444 --pin <fingerprint> --new` makes 32 random bytes on the TV, keeps them as the token (`lsb_` and base64url, the bridge's own shape), and prints
    only the **verifier** (the token's SHA-256, 64 hexadecimal digits) and the device name. The token never leaves the TV.
 2. Nitin adds a device in the bridge's settings with that verifier. Only a hash and a fingerprint, neither a secret, cross between the two screens.
-3. `scrypted-link --check` connects, prints `connected: N cameras` (or the refusal in words) and nothing else.
+3. `scrypted-link --check` connects, prints `connected: N cameras` (or the refusal in words) and nothing else. Every command prints one JSON object (`code`, `message`, and the `verifier` after `--new`); the device name
+   defaults to `LumaTV` (`--device`). While a link file exists the Cameras page shows the device name and the verifier (the facts `device` and `verifier` of `plugin.scrypted-cameras`, read-only rows `link.device` and `link.verifier`), so
+   a verifier that was missed on the screen is read again without making a new token.
 
 **Transport.** HTTPS to the bridge with the pin as the only trust (a SHA-256 of the one certificate; no chain, name or date), in the helper's own process: keep-alive, a push channel and a stills
 stream need a connection that stays, which `fetch::lan`'s one `openssl s_client` child a request does not give. The helper has no in-process TLS today (`fetcher.rs`: `openssl` or `curl`
@@ -468,6 +476,10 @@ Assistant path is untouched.
 
 No fallback: a Scrypted that is down has no cameras in Home Assistant either (the same cameras come from it), and a second source is a second set of faults; the Reolink cameras' own Home
 Assistant entities stay in Home Assistant for what Nitin does there.
+
+Config (`cameras` in `helper.json`): `frame_hold_ms` (a still older than this is no picture, 10000), `max_picture_bytes`, `live` (default true: the link is the switch; false keeps stills only), `feeder`, `feeder_window`,
+`feeder_library`, `feeder_idle_seconds` (120), `test_events` (false). The keys `enabled`, `port`, `relay`, `popup_kinds`, `popup_seconds` and `cooldown_seconds` are gone, and a `helper.json` that still has them is refused: they are
+removed from the TV's file before this helper is installed. `build.sh` needs zig for the target (ring's C); `.cargo/config.toml` turns UBSan off for that C.
 
 ### 4.2 Nitin's steps
 
@@ -533,7 +545,7 @@ Three slices, parallel from the contracts in 3.3 (A to B) and 3.4 (B to C). Each
 | Slice | What | Size | Needs |
 |---|---|---|---|
 | **A: bridge v1.1** (TypeScript, `lumashow-scrypted`) | modules `live`, `stills` (ffmpeg per camera, shared, ref-counted), `stream` (events, with the tracked-object rule and the 200-event ring), `event_thumbnails`, `devices` (`TokenStore` with many verifiers, the settings form); `cameras?scope=all` with `streams` and `prebuffered`; `mapping.ts` (`package`, `people`, `dog_cat`); `accept` limits and H.265 in `src/playback` and its SDP; selftest lines; `docs/scrypted-bridge-api.md` v1.1 | **M**: about 1,300 lines and 1,200 of tests | the contract 3.3; the unverified items of 1.7 are read by its self-test |
-| **B: TV helper** (Rust, `helper/app/src/scrypted/`) | `link` (store and CLI), `client` (rustls with the pin, keep-alive, SSE and multipart readers), the bridge's request and reader code (reused), `events` and `policy`, `stills`, `live` and `playback` (`rtsp-client` into the existing `Player` and `Feeder`), the routes and topics of 3.4, the options page and its providers, removal of 4.1, a fake bridge for tests | **L**: about 4,000 lines and 1,500 of tests | the contract 3.3 (fake) and the repository dependency on `rtsp-client`; `rustls` added to the helper |
+| **B: TV helper** (Rust, `helper/app/src/scrypted/`) | `link` (store and CLI), `client` (rustls with the pin, keep-alive, SSE and multipart readers), the bridge's request and reader code (an SDK-free copy of the Show's; slice D shares it later), `events` and `policy`, `stills`, `live` and `playback` (`rtsp-client` into the existing `Player` and `Feeder`), the routes and topics of 3.4, the options page and its providers, removal of 4.1, a fake bridge for tests | **L**: about 4,000 lines and 1,500 of tests | the contract 3.3 (fake) and the repository dependency on `rtsp-client`; `rustls` added to the helper |
 | **C: TV shell** (the Rust shell; no QML) | the screens of `cameras-ui-spec.md` on the topics and routes of 3.4: pop-up content for the overlay card, grid, full view over the hole, strip and bubble, events and clips sheet, states of 3.7, the Settings page from the schema of 3.5; mocks in `docs/mocks/cameras-scrypted/` (done: every view, dark and light, 100 % and 200 % text) | **M to L** | the contract 3.4; Lucent TV (`skill://design-language`) |
 | D: the Show (later, LumaShow) | the shared crate, `camera.event`, `live`; the mosaic for the wall | **S to M** | A deployed |
 

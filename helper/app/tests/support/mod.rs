@@ -2,6 +2,8 @@
 //! starts the whole service in a temporary data dir. Nothing here touches the network beyond the loopback.
 #![allow(dead_code)]
 
+pub mod bridge;
+
 use fetch::{Fetch, FetchError, FetchLimits};
 use lumatv_helper::ai::types::{
     ActionError, AppInfo, ForegroundApp, InputInfo, KeyEvent, KeySession, KeySource, MediaKey,
@@ -714,12 +716,12 @@ impl Rig {
         );
     }
 
-    /// Starts with the camera bridge acting through the given key, address and address policy.
+    /// Starts with the cameras acting through the given deps (the loopback, a feeder and dial of the test's, quick timing).
     pub fn start_cameras(
         &mut self,
         config: Config,
         fetcher: Arc<dyn Fetch>,
-        cameras: lumatv_helper::cameras::Deps,
+        cameras: lumatv_helper::scrypted::Deps,
     ) {
         self.start_full(config, fetcher, None, None, Some(cameras));
     }
@@ -730,7 +732,7 @@ impl Rig {
         fetcher: Arc<dyn Fetch>,
         ai: Option<lumatv_helper::ai::Deps>,
         voice_policy: Option<ha_link::AddressPolicy>,
-        cameras: Option<lumatv_helper::cameras::Deps>,
+        cameras: Option<lumatv_helper::scrypted::Deps>,
     ) {
         let service = Service::start(StartOptions {
             paths: self.paths.clone(),

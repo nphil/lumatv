@@ -47,6 +47,7 @@ fn health_discovery_and_state_answer_over_tcp() {
             + lumatv_helper::placement::ROUTES.len()
             + lumatv_helper::profiles::ROUTES.len()
             + lumatv_helper::privacy::ROUTES.len()
+            + lumatv_helper::scrypted::routes::ROUTES.len()
     );
 
     let state = get(rig.addr, "/v1/state").json();
@@ -303,7 +304,7 @@ fn a_state_then_events_sequence_loses_nothing() {
 fn settings_over_http() {
     let rig = quiet_rig();
     let list = get(rig.addr, "/v1/settings").json();
-    assert_eq!(list["owners"].as_array().unwrap().len(), 5);
+    assert_eq!(list["owners"].as_array().unwrap().len(), 6);
     let change = r#"{"changes":[{"key":"units","value":{"type":"choice","value":"celsius"}}],"ifVersion":0}"#;
     let applied = post(rig.addr, "/v1/settings/base.weather", change);
     assert_eq!(

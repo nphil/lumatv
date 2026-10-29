@@ -315,6 +315,11 @@ impl Client {
         self.stream.try_clone()
     }
 
+    /// Closes the connection (the feeder, started with `--once`, ends when it is gone).
+    pub fn close(&self) {
+        let _ = self.stream.shutdown(std::net::Shutdown::Both);
+    }
+
     pub fn read_frame(&mut self) -> io::Result<(u8, Vec<u8>)> {
         read_frame(&mut self.stream)
     }

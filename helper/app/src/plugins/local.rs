@@ -22,7 +22,7 @@ use serde_json::{Value as Json, json};
 use std::sync::{Arc, Weak};
 
 /// The ids of the plugins the helper carries itself. A plugin on the socket may not take one of them.
-pub const FIRST_PARTY_IDS: &[&str] = &["weather", "news", "clock", "ambient"];
+pub const FIRST_PARTY_IDS: &[&str] = &["weather", "news", "clock", "ambient", "scrypted-cameras"];
 
 /// What a first-party plugin is, in the words of a manifest.
 pub struct Spec {

@@ -20,6 +20,9 @@
 //! lumatv-helper ble-link --brand ... [--port <n>] [--name <node>] [--scan-seconds <5-30>] [--rest-seconds <window-600>] [--standby] [--rotate-key]
 //!                                                            the Bluetooth proxy for Home Assistant: prints the key it asks for
 //! lumatv-helper ble-unlink --brand ...
+//! lumatv-helper scrypted-link --brand ... --address <bridge IP[:port]> --pin <its fingerprint> --new [--device <name>]
+//! lumatv-helper scrypted-link --brand ... --check
+//! lumatv-helper scrypted-unlink --brand ...
 //! ```
 //!
 //! `voice-link` is how voice search is pointed at Home Assistant: the address is an argument and the token comes on standard input,
@@ -28,7 +31,9 @@
 //! the Hue bridge (see `hue_store`): the keys never appear in an argument or in any output. `ha-link` does the same for the Home
 //! Assistant the plugins' lease dials (see `ha_store`, `plugins::ha`), and `plugin-consent`, `plugin-enable`, `plugin-disable` and
 //! `plugin-status` are how the owner switches a plugin on and off (see `plugins::install`). `z2m-link` does the same for the MQTT
-//! broker Zigbee2MQTT uses (see `ambient_z2m_store`): the password comes on standard input and is never printed.
+//! broker Zigbee2MQTT uses (see `ambient_z2m_store`): the password comes on standard input and is never printed. `scrypted-link` links the
+//! TV to the LumaShow bridge in Scrypted (see `scrypted::link`): the TV makes its own secret and prints only its hash, and `--check`
+//! says `connected: N cameras`; no secret is ever an argument.
 //!
 //! `--data-dir <dir>` replaces `--brand` for tests and development. The data dir from `brand.json` is checked by the tool's own
 //! rule (a directory directly under `/var/lib`).
@@ -41,6 +46,7 @@ use crate::hue_rest::{self, Area, Bridge, HueError, Tls};
 use crate::hue_store::{self, HueLink};
 use crate::log::{self, Level, Logger};
 use crate::plugins::install;
+use crate::scrypted;
 use crate::service::{Service, StartOptions};
 use crate::sys::{self, Forked};
 use serde_json::{Value, json};
@@ -75,6 +81,7 @@ struct Args {
     id: Option<String>,
     approve: Option<String>,
     from: Option<PathBuf>,
+    scrypted: scrypted::link::Args,
 }
 
 fn parse_args(args: &[String]) -> Result<Args, String> {
@@ -120,6 +127,25 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
                 )
             }
             "--from" => out.from = Some(it.next().ok_or("--from needs a directory")?.into()),
+            "--address" => {
+                out.scrypted.address = Some(
+                    it.next()
+                        .ok_or("--address needs the bridge's address")?
+                        .clone(),
+                )
+            }
+            "--pin" => {
+                out.scrypted.pin = Some(
+                    it.next()
+                        .ok_or("--pin needs the bridge's certificate fingerprint")?
+                        .clone(),
+                )
+            }
+            "--device" => {
+                out.scrypted.device = Some(it.next().ok_or("--device needs a name")?.clone())
+            }
+            "--new" => out.scrypted.new = true,
+            "--check" => out.scrypted.check = true,
             "--stderr" => out.stderr = true,
             "-h" | "--help" | "help" if out.command.is_empty() => out.command = "help".to_owned(),
             flag if flag.starts_with('-') => return Err(format!("unknown option {flag}")),
@@ -154,7 +180,7 @@ fn fail(code: i32, message: &str) -> i32 {
 fn usage() -> Value {
     json!({
         "ok": true,
-        "usage": "lumatv-helper <run|start|stop|status|check-config|voice-link|voice-unlink|ha-link|ha-unlink|plugin-consent|plugin-enable|plugin-disable|plugin-status|hue-link|hue-area|hue-unlink|z2m-link|z2m-unlink|ble-link|ble-unlink|version> (--brand <brand.json> | --data-dir <dir>) [--stderr] [--url <Home Assistant address>] [--id <plugin> [--approve <code>] [--from <package dir>]] [--host <Hue bridge, Bifrost or MQTT broker> [--port <n>] [--stream-port <n>] [--fps <n>] [--pair] [--area <id>] [--user <name>] [--base-topic <topic>] [--light <name>=<place>]...] [ble-link: [--port <n>] [--name <node>] [--friendly-name <text>] [--scan-seconds <5-30>] [--rest-seconds <window-600>] [--standby|--no-standby] [--always|--no-always] [--rotate-key]]",
+        "usage": "lumatv-helper <run|start|stop|status|check-config|voice-link|voice-unlink|ha-link|ha-unlink|plugin-consent|plugin-enable|plugin-disable|plugin-status|hue-link|hue-area|hue-unlink|z2m-link|z2m-unlink|ble-link|ble-unlink|scrypted-link|scrypted-unlink|version> (--brand <brand.json> | --data-dir <dir>) [--stderr] [--url <Home Assistant address>] [--id <plugin> [--approve <code>] [--from <package dir>]] [--host <Hue bridge, Bifrost or MQTT broker> [--port <n>] [--stream-port <n>] [--fps <n>] [--pair] [--area <id>] [--user <name>] [--base-topic <topic>] [--light <name>=<place>]...] [ble-link: [--port <n>] [--name <node>] [--friendly-name <text>] [--scan-seconds <5-30>] [--rest-seconds <window-600>] [--standby|--no-standby] [--always|--no-always] [--rotate-key]] [scrypted-link: --address <bridge IP[:port]> --pin <fingerprint> --new [--device <name>] | --check]",
     })
 }
 
@@ -262,6 +288,14 @@ pub fn main(args: Vec<String>) -> i32 {
             ble_cli::link(&paths, &args.ble, args.port)
         }),
         "ble-unlink" => with_config(&args, |paths, config| ble_cli::unlink(&paths, &config)),
+        "scrypted-link" => with_config(&args, |paths, _| {
+            finish(scrypted::link::link(
+                &paths,
+                &args.scrypted,
+                ha_link::AddressPolicy::HOME,
+            ))
+        }),
+        "scrypted-unlink" => with_config(&args, |paths, _| finish(scrypted::link::unlink(&paths))),
         other => fail(2, &format!("unknown command {other}")),
     }
 }
@@ -1031,6 +1065,46 @@ mod tests {
         assert!(parse_args(&args(&["plugin-enable", "--approve"])).is_err());
         // The token is never an argument: the owner's command has no flag for it.
         assert!(parse_args(&args(&["ha-link", "--token", "x"])).is_err());
+    }
+
+    #[test]
+    fn scrypted_link_takes_an_address_a_pin_and_flags_and_never_a_secret() {
+        let a = parse_args(&args(&[
+            "scrypted-link",
+            "--brand",
+            "b.json",
+            "--address",
+            "192.168.1.69:10444",
+            "--pin",
+            "AA:BB",
+            "--new",
+            "--device",
+            "LumaTV",
+        ]))
+        .unwrap();
+        assert_eq!(a.command, "scrypted-link");
+        assert_eq!(
+            (
+                a.scrypted.address.as_deref(),
+                a.scrypted.pin.as_deref(),
+                a.scrypted.device.as_deref(),
+                a.scrypted.new,
+                a.scrypted.check
+            ),
+            (
+                Some("192.168.1.69:10444"),
+                Some("AA:BB"),
+                Some("LumaTV"),
+                true,
+                false
+            )
+        );
+        let a = parse_args(&args(&["scrypted-link", "--brand", "b.json", "--check"])).unwrap();
+        assert!(a.scrypted.check && !a.scrypted.new && a.scrypted.address.is_none());
+        // the token is made on the TV and never given: there is no flag for it
+        assert!(parse_args(&args(&["scrypted-link", "--token", "x"])).is_err());
+        assert!(parse_args(&args(&["scrypted-link", "--address"])).is_err());
+        assert!(usage()["usage"].as_str().unwrap().contains("scrypted-link"));
     }
 
     #[test]

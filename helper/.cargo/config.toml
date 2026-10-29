@@ -1,3 +1,8 @@
 # The set runs the static musl binary as is; rust-lld links it without a C toolchain.
 [target.aarch64-unknown-linux-musl]
 linker = "rust-lld"
+
+[env]
+# `zig cc` builds C without optimisation (a test build) with UBSan, and UBSan's runtime puts a 256 KiB signal stack in the thread-local storage of every
+# thread, which a thread's own stack pays for: a thread asked for 256 KiB has none left. `ring`'s C needs none of it.
+CFLAGS = "-fno-sanitize=undefined"

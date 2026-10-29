@@ -18,7 +18,7 @@ plugin-api = { path = "../../LumaShow/wt/lumatv/crates/plugin-api" }
 service-api = { path = "../../LumaShow/wt/lumatv/crates/service-api" }
 lumashow-sdk = { path = "../../LumaShow/wt/lumatv/crates/lumashow-sdk" }
 ha-link = { path = "../../LumaShow/wt/lumatv/crates/ha-link" }
-ha-bridge = { path = "../../LumaShow/wt/lumatv/crates/ha-bridge" }
+rtsp-client = { path = "../../LumaShow/wt/lumatv/crates/rtsp-client" }
 esphome-api = { path = "../../LumaShow/wt/lumatv/crates/esphome-api" }
 mdns = { path = "../../LumaShow/wt/lumatv/crates/mdns" }
 # The Home Assistant plugin itself, as a library: the host tests run the real plugin against the broker.
@@ -30,6 +30,8 @@ sha2 = "0.10"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tempfile = "3"
+# TLS (the Scrypted bridge, `app/src/scrypted/tls.rs`: the one certificate the owner pinned is the only trust): the `ring` provider is what the GFN
+# engine already builds for this target; no certificate store, no aws-lc (cmake), no logging.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 
 lumatv-ambient = { path = "../ambient" }

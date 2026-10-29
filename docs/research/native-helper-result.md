@@ -101,8 +101,8 @@ All keys optional; an unknown key or a bad value stops `start` with the reason (
 | `frameRate.returnOnHome` | `true` | after a 25 or 50 fps video left the panel at 100 Hz, put it back to 120 Hz once Home is in front with no video window (`framerate.rs`, `framerate-result.md` "Design"); `false` leaves the rate to LG's kernel |
 | `nice` | 10 | scheduling priority given up |
 | `allowedOrigins` | `[]` | browser origins allowed to call the API (a web app would need `"file://"`) |
-| `cameras.enabled`, `port`, `popupKinds`, `popupSeconds`, `cooldownSeconds`, `frameHoldMs`, `maxPictureBytes` | `false`, 6054, person vehicle animal doorbell, 12, 30, 300, 4 MiB | cameras and their event pop-ups through Home Assistant's LumaShow integration (`cameras.rs`, `docs/research/ha-cameras-result.md`); off: nothing listens, nothing is announced, nothing is fetched |
-| `cameras.live`, `relay`, `feeder`, `feederWindow`, `feederLibrary` | `false`, `true`, `<data>/bin/lumatv-gfn-feeder`, `card`, the feeder's default | the live path (`live/`): the full view's camera on the video plane through the GFN feeder, relayed by Home Assistant from its own go2rtc (`relay`; sub-second) or fetched as its LL-HLS; off: pictures only |
+| `cameras.frameHoldMs`, `maxPictureBytes`, `testEvents` | 10000, 4 MiB, `false` | cameras through Scrypted's LumaShow bridge (`scrypted/`, `docs/research/scrypted-helper-result.md`): how long a still counts as a picture, the most a picture may be, whether `POST /v1/cameras/event` works; there is no switch, the link file (`scrypted-link`) turns the cameras on |
+| `cameras.live`, `feeder`, `feederWindow`, `feederLibrary`, `feederIdleSeconds` | `true`, `<data>/bin/lumatv-gfn-feeder`, `card`, the feeder's default, 120 | the live path (`live/`): the full view's RTSP stream from Scrypted on the video plane through the GFN feeder, which is kept this many seconds after the last stream; off: pictures only |
 
 ## The API (v1)
 
@@ -120,7 +120,7 @@ helper is down: retry in a couple of seconds). Every answer is `{"ok":true,"api"
 | `POST /v1/receiver/volume` | `{"level": 0 to 98}`: send the volume display's level to the receiver as an absolute `MV` command (at most one in 100 ms, newest level only; read back after 400 ms and sent again, up to 3 times, if a late CEC step moved it) |
 | `POST /v1/refresh` | fetch weather and news now, even with the screen off |
 | `GET /v1/settings`, `GET /v1/settings/{owner}`, `POST /v1/settings/{owner}` | the settings layer |
-| `GET /v1/cameras`, `GET /v1/cameras/{id}/frame?w=&h=`, `POST /v1/cameras/popup/clear`, `POST /v1/cameras/event`, `POST /v1/cameras/live {camera}`, `POST /v1/cameras/live/stop` | the camera bridge's state and the shared cameras; a camera's current picture (a BMP from the hardware decoder, else the JPEG); the shell dismissed the pop-up; an event as the integration would send it (the TV check); the full view's stream on the video plane starts and stops. Topics `cameras`, `cameras.popup`, `cameras.live`, event `cameras.event` |
+| `GET /v1/cameras`, `/v1/cameras/{id}/frame`, `/recordings`, `/events`, `/clips`, `/thumbnail`, `/clip-thumbnail`, `/v1/cameras/events/{event}/thumbnail`, `POST /v1/cameras/live`, `/playback`, `/live/stop`, `/live/pause`, `/popup/clear`, `/event` | cameras through Scrypted (`scrypted/routes.rs` lists them): the link's state and the shown cameras, a camera's newest still (a BMP, else the JPEG), the timeline and the events and clips of a span as the bridge's own JSON, pictures of a moment, a clip or a pushed event, the full view's stream, the pop-up. Topics `cameras`, `cameras.popup`, `cameras.live`, `cameras.events` |
 
 Client loop: one `GET /v1/state` (it carries `seq` and `boot`; topics appear as components publish, so tolerate missing
 ones), then `GET /v1/events?after=<seq>&boot=<boot>&timeout=25` over and over with the `seq` of the last answer. `reset: true`

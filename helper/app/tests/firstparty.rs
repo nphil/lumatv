@@ -67,6 +67,7 @@ fn weather_news_and_the_clock_are_plugins_of_the_helper_and_follow_the_feeds() {
                 ("ambient".to_owned(), "connected".to_owned()),
                 ("clock".to_owned(), "connected".to_owned()),
                 ("news".to_owned(), "connected".to_owned()),
+                ("scrypted-cameras".to_owned(), "connected".to_owned()),
                 ("weather".to_owned(), "connected".to_owned()),
             ]
         }),

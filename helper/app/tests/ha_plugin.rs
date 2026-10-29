@@ -865,6 +865,12 @@ fn the_fixture_of_the_tvs_screens_is_what_the_plugin_and_the_helper_make() {
     home.until(&format!("plugin.{ID}.facts"), "the summary", |v| {
         v["facts"]["summary"].is_string()
     });
+    // the helper's own plugins connect a moment after the start; the document is of all of them
+    home.until("plugins", "every first-party plugin connected", |v| {
+        v["firstParty"]
+            .as_array()
+            .is_some_and(|a| !a.is_empty() && a.iter().all(|p| p["state"] == "connected"))
+    });
 
     let page = |provider: &str| {
         wait_for_ready(|| {
@@ -893,6 +899,10 @@ fn the_fixture_of_the_tvs_screens_is_what_the_plugin_and_the_helper_make() {
         "topics": topics,
     });
     normalize(&mut doc, &home.ha.url());
+    // the helper's own plugins connect in no fixed order
+    if let Some(list) = doc["topics"]["plugins"]["firstParty"].as_array_mut() {
+        list.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
+    }
     let text = serde_json::to_string_pretty(&doc).unwrap() + "\n";
     let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/qmlhost/fixtures/ha-plugin.json");

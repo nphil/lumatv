@@ -136,8 +136,8 @@ pub struct Api {
     pub voice: Arc<crate::voice::Voice>,
     /// Pictures for the shell, decoded off the CPU where the TV can (`/v1/image`, `/v1/images`).
     pub images: Arc<crate::images::Images>,
-    /// Cameras through Home Assistant's LumaShow integration: their pictures and the event pop-ups (`/v1/cameras/...`).
-    pub cameras: crate::cameras::Cameras,
+    /// Cameras through Scrypted's LumaShow bridge: stills, live video, the timeline, events and the pop-ups (`/v1/cameras/...`).
+    pub cameras: crate::scrypted::Scrypted,
     /// Screenshots and screen recordings: the way in to the compositor's capture, behind `capture.enabled` (`/v1/capture/...`).
     pub capture: crate::capture::Capture,
     /// Local profiles: each person's Home and who may change what (`/v1/profiles/...`, the `profiles` topic).
@@ -347,6 +347,7 @@ impl Api {
             .chain(crate::placement::ROUTES.iter())
             .chain(crate::profiles::ROUTES.iter())
             .chain(crate::privacy::ROUTES.iter())
+            .chain(crate::scrypted::routes::ROUTES.iter())
             .map(|(method, path, what)| json!({"method": method, "path": path, "what": what}))
             .collect();
         let now = now_ms();
@@ -563,21 +564,7 @@ impl Handler for Api {
             ["v1", "privacy", rest @ ..] => crate::privacy::handle(&self.privacy, request, rest, self.profiles.can_admin()),
             ["v1", "image", root, file] if get => self.images.serve(request, root, file),
             ["v1", "images"] if get => self.ok(self.images.status()),
-            ["v1", "cameras"] if get => self.ok(json!({"cameras": self.cameras.status()})),
-            ["v1", "cameras", id, "frame"] if get => self.cameras.frame(request, id),
-            ["v1", "cameras", "popup", "clear"] if post => {
-                self.cameras.clear_popup();
-                self.ok(json!({"cleared": true}))
-            }
-            ["v1", "cameras", "event"] if post => match body_object(request) {
-                Ok(body) => self.cameras.test_event(&Value::Object(body)),
-                Err(r) => r,
-            },
-            ["v1", "cameras", "live"] if post => match body_object(request) {
-                Ok(body) => self.cameras.live_start(&Value::Object(body)),
-                Err(r) => r,
-            },
-            ["v1", "cameras", "live", "stop"] if post => self.cameras.live_stop(),
+            ["v1", "cameras", rest @ ..] => self.cameras.handle(request, rest),
             _ if is_known_path(&segments) => {
                 error_response(405, "method_not_allowed", "that method is not served here")
                     .with_header("Allow", allowed_methods(&segments))
@@ -606,14 +593,8 @@ fn is_known_path(segments: &[&str]) -> bool {
                     | "device"
                     | "ambient"
                     | "images"
-                    | "cameras"
             ]
             | ["v1", "image", _, _]
-            | ["v1", "cameras", _, "frame"]
-            | ["v1", "cameras", "popup", "clear"]
-            | ["v1", "cameras", "event"]
-            | ["v1", "cameras", "live"]
-            | ["v1", "cameras", "live", "stop"]
             | ["v1", "state" | "settings", _]
             | ["v1", "receiver", "nudge" | "volume"]
             | ["v1", "ambient", "test" | "context" | "refresh"]
@@ -658,20 +639,23 @@ mod tests {
         };
         let ai =
             crate::ai::Ai::start(&ctx, crate::ai::testing::inert_deps(), Arc::new(|| {})).unwrap();
+        let plugins = crate::plugins::Plugins::new(&ctx);
+        let images = Arc::new(crate::images::Images::new(&ctx.config, &ctx.paths));
         Rig {
             api: Api {
                 hub,
                 settings,
                 ai,
-                plugins: crate::plugins::Plugins::new(&ctx),
                 ambient: crate::ambient::Ambient::new(&ctx),
                 voice: crate::voice::Voice::new(&ctx),
-                images: Arc::new(crate::images::Images::new(&ctx.config, &ctx.paths)),
-                cameras: crate::cameras::Cameras::new(
+                cameras: crate::scrypted::Scrypted::new(
                     &ctx,
-                    crate::cameras::testing::inert_deps(),
-                    Arc::new(crate::images::Images::new(&ctx.config, &ctx.paths)),
+                    crate::scrypted::testing::deps(),
+                    images.clone(),
+                    plugins.shared(),
                 ),
+                images,
+                plugins,
                 capture: crate::capture::Capture::new(&ctx.config.capture),
                 profiles: crate::profiles::Profiles::open(&ctx),
                 privacy: crate::privacy::new(&ctx),
@@ -760,6 +744,8 @@ mod tests {
                 + crate::capture::ROUTES.len()
                 + crate::placement::ROUTES.len()
                 + crate::profiles::ROUTES.len()
+                + crate::privacy::ROUTES.len()
+                + crate::scrypted::routes::ROUTES.len()
         );
         assert_eq!(b["helper"]["version"], crate::VERSION);
         assert_eq!(b["boot"], 777);
@@ -1156,7 +1142,8 @@ mod tests {
                 "base.news",
                 "base.receiver",
                 "base.voice",
-                "base.weather"
+                "base.weather",
+                "scrypted-cameras"
             ]
         );
 

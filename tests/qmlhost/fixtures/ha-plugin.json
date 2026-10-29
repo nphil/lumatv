@@ -478,17 +478,8 @@
         {
           "class": "S",
           "firstParty": true,
-          "id": "weather",
-          "name": "Weather",
-          "registered": true,
-          "state": "connected",
-          "version": "1"
-        },
-        {
-          "class": "S",
-          "firstParty": true,
-          "id": "news",
-          "name": "News",
+          "id": "ambient",
+          "name": "Ambient light",
           "registered": true,
           "state": "connected",
           "version": "1"
@@ -505,8 +496,26 @@
         {
           "class": "S",
           "firstParty": true,
-          "id": "ambient",
-          "name": "Ambient light",
+          "id": "news",
+          "name": "News",
+          "registered": true,
+          "state": "connected",
+          "version": "1"
+        },
+        {
+          "class": "S",
+          "firstParty": true,
+          "id": "scrypted-cameras",
+          "name": "Cameras",
+          "registered": true,
+          "state": "connected",
+          "version": "1"
+        },
+        {
+          "class": "S",
+          "firstParty": true,
+          "id": "weather",
+          "name": "Weather",
           "registered": true,
           "state": "connected",
           "version": "1"

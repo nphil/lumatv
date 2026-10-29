@@ -44,9 +44,9 @@ pub struct StartOptions {
     /// Which addresses voice search and the plugins' Home Assistant lease may dial Home Assistant at. `None` is the home network
     /// and nothing else; a test that runs a fake Home Assistant on the loopback says so.
     pub voice_policy: Option<ha_link::AddressPolicy>,
-    /// What the camera bridge acts through. `None` builds the real ones (the Bluetooth proxy's key, the LAN address, multicast DNS);
-    /// a test gives its own key and the loopback.
-    pub cameras: Option<crate::cameras::Deps>,
+    /// What the cameras act through. `None` builds the real ones (the home network only, RTSP over TCP, the staged feeder); a test names
+    /// the loopback, its own feeder and dial, and quick timing.
+    pub cameras: Option<crate::scrypted::Deps>,
 }
 
 /// A running helper.
@@ -225,14 +225,15 @@ impl Service {
             &ctx,
             voice_policy.unwrap_or(ha_link::AddressPolicy::HOME),
         );
-        // Cameras through the LumaShow integration: nothing listens until the switch is on and the TV is paired.
+        // Cameras through Scrypted's LumaShow bridge: nothing connects until the TV is linked (`scrypted-link`), and nothing while it sleeps.
         let images = Arc::new(crate::images::Images::new(&config, &paths));
-        let cameras = crate::cameras::Cameras::new(
+        let cameras = crate::scrypted::Scrypted::new(
             &ctx,
-            camera_deps.unwrap_or_else(|| crate::cameras::Deps::real(&ctx)),
+            camera_deps.unwrap_or_else(crate::scrypted::Deps::real),
             images.clone(),
+            plugins.shared(),
         );
-        threads.push(("cameras", cameras.spawn(&ctx)?));
+        threads.push(("scrypted", cameras.spawn(&ctx)?));
 
         let privacy=crate::privacy::new(&ctx);
         threads.push(("privacy",crate::privacy::spawn(&ctx,privacy.clone())?));

@@ -384,19 +384,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ha-bridge"
-version = "0.1.0"
-dependencies = [
- "esphome-api",
- "ha-link",
- "libc",
- "parking_lot",
- "serde",
- "serde_json",
- "sha2",
-]
-
-[[package]]
 name = "ha-link"
 version = "0.1.0"
 dependencies = [
@@ -506,7 +493,6 @@ version = "0.1.0"
 dependencies = [
  "esphome-api",
  "fetch",
- "ha-bridge",
  "ha-link",
  "libc",
  "lumashow-sdk",
@@ -519,6 +505,8 @@ dependencies = [
  "parking_lot",
  "plugin-api",
  "plugin-home-assistant",
+ "rtsp-client",
+ "rustls",
  "serde",
  "serde_json",
  "service-api",
@@ -811,6 +799,14 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "rtsp-client"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "parking_lot",
 ]
 
 [[package]]

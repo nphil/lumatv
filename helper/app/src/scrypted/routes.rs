@@ -1,0 +1,654 @@
+//! The loopback API under `/v1/cameras` (design 3.4): what the shell asks of the cameras. Answers are JSON in the usual envelope
+//! (`ok`, `api`, `now`); a picture is a BMP (or the JPEG as it is where no decoder is); times are epoch milliseconds, the bridge's own.
+//!
+//! | Request | Answer |
+//! |---|---|
+//! | `GET /v1/cameras` | the `cameras` topic's value |
+//! | `GET /v1/cameras/{id}/frame?w=&h=` | the camera's newest still, never older than 10 s (else `404 no_picture`, or `503 not_connected`); `X-Luma-Camera-Age-Ms` |
+//! | `GET /v1/cameras/{id}/recordings?from=&to=`, `/events?from=&to=&count=`, `/clips?from=&to=&count=` | the bridge's own JSON for the span |
+//! | `GET /v1/cameras/{id}/thumbnail?at=&w=&h=`, `/clip-thumbnail?clip=&w=&h=` | a picture of a recorded moment or a clip |
+//! | `GET /v1/cameras/events/{event}/thumbnail?w=&h=` | the picture of a pushed event |
+//! | `POST /v1/cameras/live {camera, quality?}` | starts live; the state is the `cameras.live` topic; a new camera ends the old session |
+//! | `POST /v1/cameras/playback {camera, at, rate?}` or `{camera, clip}` | starts a recording or a clip |
+//! | `POST /v1/cameras/live/stop` | stops live or playback (the pipeline unloads off this path) |
+//! | `POST /v1/cameras/live/pause {paused}` | holds the picture of a recording (Play dials it again where it stopped) |
+//! | `POST /v1/cameras/popup/clear` | the pop-up is dismissed (every reader sees it go) |
+//! | `POST /v1/cameras/event {camera, kind}` | a test event through the policy (only with `cameras.testEvents`) |
+//!
+//! A refusal of a call to the bridge carries its word (`no_recording`, `camera_not_found`, `busy`, `offline`, `timeout`, `not_supported`) and
+//! words for the person; a start that is refused leaves the session that is playing as it was.
+
+use super::bridge::{self, Trouble};
+use super::events::{Event, plain_id};
+use super::policy::{Decision, Held as Why, Phase};
+use super::{Held, Inner, Scrypted};
+use crate::API_VERSION;
+use crate::http::{Request, Response, error_response};
+use crate::images::wanted_size;
+use crate::live::{Mode, Plan};
+use crate::timeutil::now_ms;
+use serde_json::{Map, Value, json};
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
+use std::time::Duration;
+
+pub const ROUTES: &[(&str, &str, &str)] = &[
+    (
+        "GET",
+        "/v1/cameras",
+        "the cameras topic: the link's state, the cameras the TV shows",
+    ),
+    (
+        "GET",
+        "/v1/cameras/{id}/frame",
+        "the camera's newest still as a BMP, never older than 10 s: ?w=&h=",
+    ),
+    (
+        "GET",
+        "/v1/cameras/{id}/recordings",
+        "where something was recorded, the bridge's ranges: ?from=&to=",
+    ),
+    (
+        "GET",
+        "/v1/cameras/{id}/events",
+        "the span's events, oldest first: ?from=&to=&count=",
+    ),
+    (
+        "GET",
+        "/v1/cameras/{id}/clips",
+        "the camera's clips, newest first: ?from=&to=&count=",
+    ),
+    (
+        "GET",
+        "/v1/cameras/{id}/thumbnail",
+        "a picture of a recorded moment: ?at=&w=&h=",
+    ),
+    (
+        "GET",
+        "/v1/cameras/{id}/clip-thumbnail",
+        "a clip's own picture: ?clip=&w=&h=",
+    ),
+    (
+        "GET",
+        "/v1/cameras/events/{event}/thumbnail",
+        "the picture of a pushed event: ?w=&h=",
+    ),
+    (
+        "POST",
+        "/v1/cameras/live",
+        "plays a camera on the video plane: {\"camera\", \"quality\"?}",
+    ),
+    (
+        "POST",
+        "/v1/cameras/playback",
+        "plays a recording or a clip: {\"camera\", \"at\", \"rate\"?} or {\"camera\", \"clip\"}",
+    ),
+    (
+        "POST",
+        "/v1/cameras/live/stop",
+        "stops the stream (live, playback or clip)",
+    ),
+    (
+        "POST",
+        "/v1/cameras/live/pause",
+        "holds or resumes a recording: {\"paused\": bool}",
+    ),
+    ("POST", "/v1/cameras/popup/clear", "dismisses the pop-up"),
+    (
+        "POST",
+        "/v1/cameras/event",
+        "a test event through the pop-up policy: {\"camera\", \"kind\"} (needs cameras.testEvents)",
+    ),
+];
+
+/// The longest a still's ask waits for the first picture of a stream.
+const FIRST_STILL: Duration = Duration::from_millis(700);
+
+fn ok(mut body: Map<String, Value>) -> Response {
+    body.insert("ok".into(), Value::Bool(true));
+    body.insert("api".into(), json!(API_VERSION));
+    body.insert("now".into(), json!(now_ms()));
+    Response::json(200, &Value::Object(body))
+}
+
+fn object(value: Value) -> Map<String, Value> {
+    match value {
+        Value::Object(map) => map,
+        other => {
+            let mut map = Map::new();
+            map.insert("value".into(), other);
+            map
+        }
+    }
+}
+
+/// A refusal of the bridge, as the TV's own answer.
+fn trouble(t: &Trouble) -> Response {
+    error_response(t.status(), &t.code(), &t.words())
+}
+
+/// A call that starts a stream and was refused: always `409`, with the bridge's word.
+fn refused(code: &str, words: &str) -> Response {
+    error_response(409, code, words)
+}
+
+fn int(request: &Request, name: &str) -> Result<Option<i64>, Response> {
+    match request.param(name) {
+        None | Some("") => Ok(None),
+        Some(text) => text
+            .parse::<i64>()
+            .map(Some)
+            .map_err(|_| error_response(400, "bad_request", &format!("{name} is a whole number"))),
+    }
+}
+
+fn size(request: &Request, default: (u32, u32)) -> Result<(u32, u32), Response> {
+    let (w, h) = wanted_size(request)?;
+    Ok((
+        if w == 0 { default.0 } else { w },
+        if h == 0 { default.1 } else { h },
+    ))
+}
+
+fn body_object(request: &Request) -> Result<Map<String, Value>, Response> {
+    if request.body.iter().all(u8::is_ascii_whitespace) {
+        return Ok(Map::new());
+    }
+    match serde_json::from_slice::<Value>(&request.body) {
+        Ok(Value::Object(map)) => Ok(map),
+        Ok(_) => Err(error_response(
+            400,
+            "bad_request",
+            "the body must be a JSON object",
+        )),
+        Err(e) => Err(error_response(
+            400,
+            "bad_request",
+            &format!("the body is not JSON: {e}"),
+        )),
+    }
+}
+
+impl Scrypted {
+    /// Handles `/v1/cameras/...`; `rest` is the path after `cameras`.
+    pub fn handle(&self, request: &Request, rest: &[&str]) -> Response {
+        let inner = &self.inner;
+        let (get, post) = (request.method == "GET", request.method == "POST");
+        match rest {
+            [] if get => ok(object(json!({"cameras": inner.view()}))),
+            ["live"] if post => inner.live_route(request),
+            ["live", "stop"] if post => inner.stop_route(),
+            ["live", "pause"] if post => inner.pause_route(request),
+            ["playback"] if post => inner.playback_route(request),
+            ["popup", "clear"] if post => {
+                inner.clear_popup_if(None);
+                ok(object(json!({"cleared": true})))
+            }
+            ["event"] if post => inner.test_event_route(request),
+            ["events", event, "thumbnail"] if get => inner.event_thumbnail_route(request, event),
+            [id, "frame"] if get => inner.frame_route(request, id),
+            [id, "recordings"] if get => inner.span_route(request, id, "recordings"),
+            [id, "events"] if get => inner.span_route(request, id, "events"),
+            [id, "clips"] if get => inner.span_route(request, id, "clips"),
+            [id, "thumbnail"] if get => inner.thumbnail_route(request, id, false),
+            [id, "clip-thumbnail"] if get => inner.thumbnail_route(request, id, true),
+            _ => match allowed(rest) {
+                Some(allow) => {
+                    error_response(405, "method_not_allowed", "that method is not served here")
+                        .with_header("Allow", allow)
+                }
+                None => error_response(404, "not_found", "no such endpoint"),
+            },
+        }
+    }
+}
+
+/// The method a path is for, when it is one of ours.
+fn allowed(rest: &[&str]) -> Option<&'static str> {
+    match rest {
+        []
+        | ["events", _, "thumbnail"]
+        | [
+            _,
+            "frame" | "recordings" | "events" | "clips" | "thumbnail" | "clip-thumbnail",
+        ] => Some("GET"),
+        ["live"] | ["live", "stop" | "pause"] | ["playback"] | ["popup", "clear"] | ["event"] => {
+            Some("POST")
+        }
+        _ => None,
+    }
+}
+
+impl Inner {
+    /// The link is not good: a picture or a span cannot be had, and the state says why.
+    fn not_connected(&self) -> Response {
+        match self.bridge() {
+            Ok(_) => error_response(503, "not_connected", "Scrypted is not connected"),
+            Err((status, reason)) => {
+                let words = if reason.is_empty() {
+                    format!("Scrypted is {}", status.word())
+                } else {
+                    reason
+                };
+                error_response(503, "not_connected", &words)
+            }
+        }
+    }
+
+    fn frame_route(&self, request: &Request, id: &str) -> Response {
+        let (w, h) = match wanted_size(request) {
+            Ok(size) => size,
+            Err(r) => return r,
+        };
+        if !plain_id(id) {
+            return error_response(400, "bad_request", "a camera is the id Scrypted gave it");
+        }
+        if self.camera(id).is_none() {
+            return error_response(
+                404,
+                "no_such_camera",
+                "Scrypted shares no such camera with this TV",
+            );
+        }
+        if self.bridge().is_err() {
+            return self.not_connected();
+        }
+        let picture = match self
+            .stills
+            .ask(id, if w == 0 { 480 } else { w }, FIRST_STILL)
+        {
+            Ok(Some(picture)) => picture,
+            Ok(None) => {
+                return error_response(404, "no_picture", "no picture of this camera just now");
+            }
+            Err(_) => {
+                return error_response(
+                    503,
+                    "busy",
+                    "Scrypted is serving as many cameras as it can",
+                );
+            }
+        };
+        let age = picture.age().as_millis() as u64;
+        self.images
+            .serve_jpeg((*picture.jpeg).clone(), w, h)
+            .with_header("Cache-Control", "no-store")
+            .with_header("X-Luma-Camera-Age-Ms", age.to_string())
+    }
+
+    /// `recordings`, `events` and `clips`: the bridge's JSON for the span, unchanged.
+    fn span_route(&self, request: &Request, id: &str, what: &str) -> Response {
+        if self.camera(id).is_none() {
+            return error_response(
+                404,
+                "no_such_camera",
+                "Scrypted shares no such camera with this TV",
+            );
+        }
+        let Ok(bridge) = self.bridge() else {
+            return self.not_connected();
+        };
+        let (from, to, count) = match (
+            int(request, "from"),
+            int(request, "to"),
+            int(request, "count"),
+        ) {
+            (Ok(from), Ok(to), Ok(count)) => (from, to, count),
+            (Err(r), ..) | (_, Err(r), _) | (.., Err(r)) => return r,
+        };
+        let now = now_ms() as i64 + self.skew_ms();
+        let to = to.unwrap_or(now);
+        let default_span = if what == "clips" {
+            24 * 3_600_000
+        } else {
+            3_600_000
+        };
+        let from = from.unwrap_or(to - default_span);
+        if from >= to {
+            return error_response(400, "bad_request", "from is before to");
+        }
+        let count = u16::try_from(count.unwrap_or(0).clamp(0, 1000)).unwrap_or(0);
+        let request = match what {
+            "recordings" => bridge::recordings(id, from, to),
+            "events" => bridge::events(id, from, to, if count == 0 { 200 } else { count }),
+            _ => bridge::clips(id, from, to, if count == 0 { 50 } else { count }),
+        };
+        match bridge.relay(&request) {
+            Ok(doc) => ok(object(doc)),
+            Err(t) => trouble(&t),
+        }
+    }
+
+    /// A picture of a recorded moment or of a clip, decoded like a still.
+    fn thumbnail_route(&self, request: &Request, id: &str, clip: bool) -> Response {
+        if self.camera(id).is_none() {
+            return error_response(
+                404,
+                "no_such_camera",
+                "Scrypted shares no such camera with this TV",
+            );
+        }
+        let Ok(bridge) = self.bridge() else {
+            return self.not_connected();
+        };
+        let (w, h) = match size(request, (256, 144)) {
+            Ok(size) => size,
+            Err(r) => return r,
+        };
+        let asked = if clip {
+            match request
+                .param("clip")
+                .filter(|c| !c.is_empty() && c.len() <= 400)
+            {
+                Some(clip) => bridge::clip_thumbnail(id, clip, w, h),
+                None => return error_response(400, "bad_request", "clip is the clip's id"),
+            }
+        } else {
+            match int(request, "at") {
+                Ok(Some(at)) => bridge::thumbnail(id, at, w, h),
+                Ok(None) => {
+                    return error_response(
+                        400,
+                        "bad_request",
+                        "at is the moment, in epoch milliseconds",
+                    );
+                }
+                Err(r) => return r,
+            }
+        };
+        match bridge.picture(&asked) {
+            Ok(jpeg) => self
+                .images
+                .serve_jpeg(jpeg, w, h)
+                .with_header("Cache-Control", "no-store"),
+            Err(t) => trouble(&t),
+        }
+    }
+
+    /// The picture of a pushed event (the pop-up asks for it the moment the card shows): the bridge keeps it for 30 minutes, the TV the last few.
+    fn event_thumbnail_route(&self, request: &Request, event: &str) -> Response {
+        if !plain_id(event) {
+            return error_response(400, "bad_request", "an event is the id the bridge gave it");
+        }
+        let Ok(bridge) = self.bridge() else {
+            return self.not_connected();
+        };
+        let (w, h) = match size(request, (520, 292)) {
+            Ok(size) => size,
+            Err(r) => return r,
+        };
+        let key = format!("{event}:{w}x{h}");
+        let cached = self
+            .thumbs
+            .lock()
+            .iter()
+            .find(|(k, _)| *k == key)
+            .map(|(_, v)| v.clone());
+        let jpeg = match cached {
+            Some(jpeg) => (*jpeg).clone(),
+            None => match bridge.picture(&bridge::event_thumbnail(event, w, h)) {
+                Ok(jpeg) => {
+                    let mut thumbs = self.thumbs.lock();
+                    thumbs.push_back((key, Arc::new(jpeg.clone())));
+                    while thumbs.len() > 16 {
+                        thumbs.pop_front();
+                    }
+                    jpeg
+                }
+                Err(t) => return trouble(&t),
+            },
+        };
+        self.images.serve_jpeg(jpeg, w, h)
+    }
+
+    // ---- the streams -----------------------------------------------------------------------------------------------------------------
+
+    fn camera_for(&self, body: &Map<String, Value>) -> Result<String, Response> {
+        let id = body.get("camera").and_then(Value::as_str).unwrap_or("");
+        if !plain_id(id) {
+            return Err(error_response(
+                400,
+                "bad_request",
+                "camera is the id Scrypted gave it",
+            ));
+        }
+        if self.camera(id).is_none() {
+            return Err(error_response(
+                404,
+                "no_such_camera",
+                "Scrypted shares no such camera with this TV",
+            ));
+        }
+        Ok(id.to_owned())
+    }
+
+    /// What every start has in common: the live path is on, the link is good, and the call to the bridge is made before anything is changed, so
+    /// that a refusal leaves the session that plays as it was. The last of two quick calls is the one that plays.
+    fn start_stream(
+        self: &Arc<Self>,
+        camera: &str,
+        mode: Mode,
+        ask: impl FnOnce(&bridge::Bridge) -> Result<bridge::Dial, Trouble>,
+    ) -> Response {
+        if !self.live.available() {
+            return refused(
+                "live_off",
+                "Live video is switched off on this TV (cameras.live)",
+            );
+        }
+        let Ok(bridge) = self.bridge() else {
+            return refused("not_ready", "Scrypted is not connected");
+        };
+        let ticket = self.ticket.fetch_add(1, Ordering::SeqCst) + 1;
+        self.live.asking(camera, mode);
+        let dial = match ask(&bridge) {
+            Ok(dial) => dial,
+            Err(t) => {
+                self.live.asked_in_vain(camera, &t.words());
+                return refused(&t.code(), &t.words());
+            }
+        };
+        let end_session = |dial: &bridge::Dial| -> Option<Box<dyn FnOnce() + Send>> {
+            (mode != Mode::Live && !dial.session.is_empty()).then(|| {
+                let (bridge, session) = (bridge.clone(), dial.session.clone());
+                Box::new(move || {
+                    let _ = bridge.stop_playback(&session);
+                }) as Box<dyn FnOnce() + Send>
+            })
+        };
+        if self.ticket.load(Ordering::SeqCst) != ticket {
+            // another call came after this one: its stream is the one that plays, and this one's playback is given back
+            if let Some(end) = end_session(&dial) {
+                end();
+            }
+            return refused("superseded", "Another stream was asked for meanwhile");
+        }
+        let plan = Plan {
+            camera: camera.to_owned(),
+            mode,
+            url: dial.rtsp.clone(),
+            codec: dial.codec.clone(),
+            width: dial.width,
+            height: dial.height,
+            fps: dial.fps,
+            started_at: dial.started_at,
+            rate: dial.rate,
+            on_end: end_session(&dial),
+        };
+        self.set_held(None);
+        match self.live.start(plan) {
+            Ok(()) => ok(object(json!({"live": self.live.view().json()}))),
+            Err(why) => refused("not_now", &why),
+        }
+    }
+
+    fn live_route(self: &Arc<Self>, request: &Request) -> Response {
+        let body = match body_object(request) {
+            Ok(body) => body,
+            Err(r) => return r,
+        };
+        let camera = match self.camera_for(&body) {
+            Ok(camera) => camera,
+            Err(r) => return r,
+        };
+        let quality = body
+            .get("quality")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .unwrap_or_else(|| self.options().live);
+        if !["native", "balanced", "light"].contains(&quality.as_str()) {
+            return error_response(400, "bad_request", "quality is native, balanced or light");
+        }
+        self.start_stream(&camera, Mode::Live, |bridge| bridge.live(&camera, &quality))
+    }
+
+    fn playback_route(self: &Arc<Self>, request: &Request) -> Response {
+        let body = match body_object(request) {
+            Ok(body) => body,
+            Err(r) => return r,
+        };
+        let camera = match self.camera_for(&body) {
+            Ok(camera) => camera,
+            Err(r) => return r,
+        };
+        let rate = body
+            .get("rate")
+            .map_or(Some(1), |r| r.as_u64().and_then(|r| u8::try_from(r).ok()));
+        let Some(rate) = rate.filter(|r| matches!(r, 1 | 2 | 4)) else {
+            return error_response(400, "bad_request", "rate is 1, 2 or 4");
+        };
+        if let Some(clip) = body.get("clip").and_then(Value::as_str) {
+            if clip.is_empty() || clip.len() > 400 {
+                return error_response(400, "bad_request", "clip is the clip's id");
+            }
+            return self.start_stream(&camera, Mode::Clip, |bridge| {
+                bridge.clip_playback(&camera, clip)
+            });
+        }
+        let Some(at) = body.get("at").and_then(Value::as_i64) else {
+            return error_response(
+                400,
+                "bad_request",
+                "at is the moment, in epoch milliseconds, or give a clip",
+            );
+        };
+        self.start_stream(&camera, Mode::Playback, |bridge| {
+            bridge.playback(&camera, at, rate)
+        })
+    }
+
+    fn stop_route(&self) -> Response {
+        self.ticket.fetch_add(1, Ordering::SeqCst);
+        self.set_held(None);
+        self.live.stop("the viewer closed");
+        ok(object(json!({"live": self.live.view().json()})))
+    }
+
+    fn pause_route(self: &Arc<Self>, request: &Request) -> Response {
+        let body = match body_object(request) {
+            Ok(body) => body,
+            Err(r) => return r,
+        };
+        let Some(paused) = body.get("paused").and_then(Value::as_bool) else {
+            return error_response(400, "bad_request", "paused is true or false");
+        };
+        if paused {
+            let view = self.live.view();
+            let Some((camera, mode)) = self.live.current() else {
+                return refused("not_playback", "Nothing is playing");
+            };
+            if mode == Mode::Live {
+                return refused("not_playback", "Live video cannot be paused");
+            }
+            if let Err(why) = self.live.pause() {
+                return refused("not_playback", &why);
+            }
+            self.set_held(Some(Held {
+                camera,
+                mode,
+                at: view.position_ms.unwrap_or(0),
+                rate: view.rate,
+            }));
+            return ok(object(json!({"live": self.live.view().json()})));
+        }
+        // Play: the recording is dialled again where it stopped
+        let Some(held) = self.held() else {
+            return refused("not_paused", "Nothing is paused");
+        };
+        let camera = held.camera.clone();
+        let response = self.start_stream(&camera, held.mode, |bridge| {
+            bridge.playback(&held.camera, held.at, held.rate)
+        });
+        if response.status == 200 {
+            // the mode is the one it was (a clip stays a clip in the view)
+            self.set_held(None);
+        }
+        response
+    }
+
+    fn test_event_route(self: &Arc<Self>, request: &Request) -> Response {
+        if !self.config.test_events {
+            return error_response(
+                403,
+                "test_events_off",
+                "test events are off (cameras.testEvents)",
+            );
+        }
+        let body = match body_object(request) {
+            Ok(body) => body,
+            Err(r) => return r,
+        };
+        let camera = match self.camera_for(&body) {
+            Ok(camera) => camera,
+            Err(r) => return r,
+        };
+        let kind = body.get("kind").and_then(Value::as_str).unwrap_or("");
+        if !super::policy::KINDS.contains(&kind) {
+            return error_response(
+                400,
+                "bad_request",
+                "kind is person, vehicle, animal, package, doorbell or motion",
+            );
+        }
+        let name = self.camera(&camera).map(|c| c.name).unwrap_or_default();
+        let seq = self.popup_seq();
+        let event = Event {
+            id: format!("t{seq}"),
+            seq: None,
+            camera,
+            name,
+            kind: kind.to_owned(),
+            label: body
+                .get("label")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .chars()
+                .take(64)
+                .collect(),
+            classes: vec![kind.to_owned()],
+            score: Some(1.0),
+            at: now_ms() as i64 + self.skew_ms(),
+            phase: Phase::New,
+            thumbnail: false,
+            recording: false,
+        };
+        match self.on_event(event, true) {
+            Some(Decision::Pop { lasts_ms }) => {
+                ok(object(json!({"popup": true, "lastsMs": lasts_ms})))
+            }
+            Some(Decision::Update) => ok(object(json!({"popup": false, "held": "update"}))),
+            Some(Decision::Held(why)) => ok(object(json!({"popup": false, "held": match why {
+                Why::Off => "off",
+                Why::Kind => "kind",
+                Why::End => "end",
+                Why::Cooldown => "cooldown",
+                Why::Old => "old",
+            }}))),
+            None => error_response(
+                404,
+                "no_such_camera",
+                "Scrypted shares no such camera with this TV",
+            ),
+        }
+    }
+}

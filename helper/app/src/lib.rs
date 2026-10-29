@@ -18,6 +18,7 @@
 //! | [`hue`], [`hue_rest`], [`hue_store`] | ambient light's Hue Entertainment output: the stream thread, the bridge's HTTPS, the saved link |
 //! | [`ambient_z2m`], [`ambient_z2m_frame`], [`ambient_z2m_mqtt`], [`ambient_z2m_store`] | ambient light's Zigbee2MQTT output: Hue entertainment frames over MQTT, no bridge |
 //! | [`ha_store`] | the saved address and token of a Home Assistant link, one private file (voice search's and the plugin lease's) |
+//! | [`scrypted`], [`live`] | cameras through Scrypted's LumaShow bridge: the link (`scrypted-link`), pinned HTTPS, stills, push events and pop-ups, the Cameras page, the timeline routes; the full view's RTSP stream on the video plane through the GFN feeder |
 //! | [`voice`] | voice search: the mic key's words as text for the search box, through Home Assistant's Assist pipeline |
 //! | [`profiles`] | local profiles (Nitin, Isabel): each person's Home kept apart from the household's settings, the switch, the PINs, the `profiles` topic; the working copy `theme/` stays what the Home layer reads |
 //! | [`preload`] | keeps the apps the owner switched off from preloading, at each switch-on (webOS forgets the policy) |
@@ -46,7 +47,6 @@ pub mod ble_duty;
 pub mod ble_proxy;
 pub mod ble_scan;
 pub mod ble_store;
-pub mod cameras;
 pub mod capture;
 pub mod cli;
 pub mod config;
@@ -77,6 +77,7 @@ pub mod receiver_telnet;
 pub mod receiver_volume;
 pub mod refreshguard;
 pub mod screen;
+pub mod scrypted;
 pub mod service;
 pub mod settings;
 pub mod sys;
