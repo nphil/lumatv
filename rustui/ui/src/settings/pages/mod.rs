@@ -8,6 +8,7 @@ pub mod ambient;
 pub mod bluetooth;
 pub mod capture;
 pub mod home;
+pub mod inputs;
 pub mod language;
 pub mod owner;
 pub mod picture;
@@ -28,6 +29,7 @@ pub fn all() -> Vec<Page> {
         profiles::page(),
         picture::page(),
         sound::page(),
+        inputs::page(),
         ambient::page(),
         home::page(),
         remote::page(),
@@ -58,6 +60,7 @@ pub fn all() -> Vec<Page> {
         sound::hdmi_audio(),
         sound::usb(),
         receiver::page(),
+        inputs::channels(),
         bluetooth::audio(),
         bluetooth::hid(),
         bluetooth::audio_device(),
