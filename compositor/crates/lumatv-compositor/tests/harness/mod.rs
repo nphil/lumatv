@@ -7,7 +7,7 @@
 use std::os::fd::{AsFd, FromRawFd, OwnedFd};
 use std::os::unix::net::UnixStream;
 use std::sync::Arc;
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -108,7 +108,17 @@ impl Server {
                 let _ = tx.send(f(s));
             }))
             .unwrap();
-        rx.recv_timeout(Duration::from_secs(5)).expect("server thread answered")
+        // How long a job takes is the work's (a hundred ticks and read-backs of the software output) times the machine's load, so there is no fixed
+        // bound that holds on a busy machine: wait while the server thread is alive, and let a job that panics (its sender dropped) fail here. The
+        // cap only ends a deadlock.
+        let deadline = Instant::now() + Duration::from_secs(300);
+        loop {
+            match rx.recv_timeout(Duration::from_millis(200)) {
+                Ok(r) => return r,
+                Err(RecvTimeoutError::Disconnected) => panic!("the server thread ended before it answered"),
+                Err(RecvTimeoutError::Timeout) => assert!(Instant::now() < deadline, "the server thread did not answer in 300 s"),
+            }
+        }
     }
 
     pub fn summary(&self) -> String {
