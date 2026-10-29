@@ -13,6 +13,7 @@ pub mod drawer_surface;
 pub mod env;
 pub mod hold;
 pub mod hub;
+pub mod layer;
 pub mod life;
 pub mod menu;
 pub mod notelog;

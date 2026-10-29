@@ -177,6 +177,8 @@ struct PickRow {
     _tick: Option<ImageLayer>,
 }
 
+// one card is up at a time: boxing the slider would only add an indirection to what is made and dropped with it
+#[allow(clippy::large_enum_variant)]
 enum PopupFace {
     Slider { slider: Slider, value: Line, shown: f64 },
     Pick { rows: Vec<PickRow> },
@@ -262,6 +264,8 @@ impl QuickSurface {
         )
     }
 
+    // the arguments are the places `Spot` names, passed through
+    #[allow(clippy::too_many_arguments)]
     fn make_plate(kit: &mut Kit, engine: &mut Engine, parent: &Group, id: Id, frame: Frame, local: Frame, region: Region, scope: Scope, z: i32, lift: Lift, radius: Radius) -> std::io::Result<Plate> {
         let r = kit.tokens.radius(radius);
         Plate::new(kit, engine, parent, Spot { id, screen: frame, local, region, scope, z }, lift, r)
@@ -513,13 +517,12 @@ impl QuickSurface {
 
     fn build(kit: &mut Kit, engine: &mut Engine, root_group: &Group, z: i32, view: &View, rows: Vec<RowLayout>, sig: String) -> std::io::Result<Built> {
         let scene = kit.ui.scene.clone();
-        let z = z;
         let sheet = lay::sheet();
         let pad = kit.space(6);
         let inner = sheet.w - 2.0 * pad;
         let ink = kit.ui.look.ink();
         let ink2 = kit.ui.look.ink2();
-        scene.adopting_view(&root_group, || -> std::io::Result<Built> {
+        scene.adopting_view(root_group, || -> std::io::Result<Built> {
             let pane = Pane::new(kit, sheet, z + 1, PaneKind::Sheet, view.over_video);
             // a click on nothing is Back: the whole screen is a focusable under everything else, absent from the keys
             let backdrop = Target::Backdrop.id();
@@ -553,9 +556,9 @@ impl QuickSurface {
             let sheet_bottom = sheet.y + sheet.h - pad;
             let (mut strip, mut list, mut edit, mut pad_parts, mut foot) = (Vec::new(), None, None, None, None);
             if let Some(p) = &view.pad {
-                pad_parts = Some(Self::build_pad(kit, engine, &root_group, p, Frame::new(sheet.x + pad, cursor, inner, sheet_bottom - cursor), z)?);
+                pad_parts = Some(Self::build_pad(kit, engine, root_group, p, Frame::new(sheet.x + pad, cursor, inner, sheet_bottom - cursor), z)?);
             } else if let Some(e) = view.edit.as_ref().filter(|_| view.editing) {
-                edit = Some(Self::build_edit(kit, engine, &root_group, e, Frame::new(sheet.x + pad, cursor, inner, sheet_bottom - cursor), z)?);
+                edit = Some(Self::build_edit(kit, engine, root_group, e, Frame::new(sheet.x + pad, cursor, inner, sheet_bottom - cursor), z)?);
             } else {
                 // the foot: "All settings" and what the keys do
                 let btn_h = Button::height(kit);
@@ -578,12 +581,12 @@ impl QuickSurface {
                 }
                 foot = Some(Foot { button, _hints: hint_rows });
                 if let Some(people) = &view.strip {
-                    let (cells, h) = Self::build_strip(kit, engine, &root_group, people, Frame::new(sheet.x + pad, cursor, inner, 0.0), z)?;
+                    let (cells, h) = Self::build_strip(kit, engine, root_group, people, Frame::new(sheet.x + pad, cursor, inner, 0.0), z)?;
                     strip = cells;
                     cursor += h + kit.space(2);
                 }
                 let window = Frame::new(sheet.x + pad, cursor, inner, (foot_y - kit.space(4) - cursor).max(1.0));
-                list = Some(Self::build_list(kit, engine, &root_group, &view.rows, rows, window, z)?);
+                list = Some(Self::build_list(kit, engine, root_group, &view.rows, rows, window, z)?);
             }
             Ok(Built { sig, pane, head, backdrop, strip, list, edit, pad: pad_parts, foot, over_video: view.over_video })
         })

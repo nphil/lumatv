@@ -272,6 +272,7 @@ impl DrawerSurface {
         format!("{}|{}|{:?}|{:?}|{:?}", kit.generation(), kit.text_scale, lay, range, v.entries.len())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn build(kit: &mut Kit, engine: &mut Engine, root: &Group, z: i32, v: &View, lay: Layout, range: (usize, usize), offset: f32, sig: String) -> std::io::Result<Built> {
         let before = kit.room().layers;
         let scene = kit.ui.scene.clone();

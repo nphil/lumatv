@@ -15,6 +15,7 @@ use crate::kit::{Engine, Kit};
 use crate::settings::host::SettingsHost;
 use crate::settings::row::ShellRequest;
 use crate::system::alert::ALERT_TAG;
+use crate::panels::layer::{Panels, Which};
 use crate::system::layer::Layer;
 use crate::system::toast::{FEED_TAG, Toasts};
 use crate::system::toast_surface::ToastSurface;
@@ -47,6 +48,9 @@ pub struct Kinds {
     pub home: bool,
     pub cameras: bool,
     pub settings: bool,
+    pub quick: bool,
+    pub picker: bool,
+    pub drawer: bool,
 }
 
 impl Kinds {
@@ -66,6 +70,9 @@ impl Kinds {
                 "home" => k.home = true,
                 "cameras" => k.cameras = true,
                 "settings" => k.settings = true,
+                "quick" => k.quick = true,
+                "picker" => k.picker = true,
+                "drawer" => k.drawer = true,
                 _ => {}
             }
         }
@@ -85,6 +92,9 @@ impl Kinds {
             (self.home, "home"),
             (self.cameras, "cameras"),
             (self.settings, "settings"),
+            (self.quick, "quick"),
+            (self.picker, "picker"),
+            (self.drawer, "drawer"),
         ]
         .into_iter()
         .filter_map(|(on, name)| on.then_some(name))
@@ -112,6 +122,8 @@ pub struct Shell {
     cameras_intents: Vec<crate::cameras::app::Intent>,
     /// Settings, the modal kind over everything but the system layer.
     settings: SettingsHost,
+    /// The panels: the quick panel, the input picker and the notification drawer.
+    panels: Panels,
     /// The last report sent, so an unchanged one is not sent again.
     reported: Option<Value>,
     live: bool,
@@ -137,6 +149,7 @@ impl Shell {
             cameras: Cameras::new(system_z + crate::kit::z::CAMERAS, CamerasConfig::from_theme(&kit, theme)),
             cameras_intents: Vec::new(),
             settings: SettingsHost::new(system_z, theme, layout),
+            panels: Panels::new(system_z + crate::kit::z::PANELS, theme),
             kit,
             engine,
             kinds,
@@ -178,6 +191,9 @@ impl Shell {
             for e in self.home.start(crate::host::now_ms()) {
                 self.carry(e, crate::host::now_ms(), &mut acts);
             }
+        }
+        for e in self.panels.start(&self.kinds) {
+            self.carry(e, crate::host::now_ms(), &mut acts);
         }
         acts.push(Act::Channel(Outbound { method: "POST", path: "/v1/ui".into(), body: Some(self.report()), tag: None }));
         acts
@@ -267,6 +283,10 @@ impl Shell {
         for e in self.sys.update(&self.kinds, input, now) {
             self.carry(e, now, acts);
         }
+        for e in self.panels.update(&self.kinds, input, now) {
+            self.carry(e, now, acts);
+        }
+        self.panel_events(now, acts);
         if self.kinds.home {
             // a system-layer kind that has the keys (a panel up over Home) takes them before Home sees them
             let taken = matches!(input, Input::Key { .. } | Input::Pointer { .. }) && self.system_wants();
@@ -282,6 +302,14 @@ impl Shell {
                                 self.carry(e, now, acts);
                             }
                             self.redraw = true;
+                        }
+                        // the bell opens the drawer when it is in the list
+                        crate::home::model::Request::Notifications if self.kinds.drawer => {
+                            let mut out = Vec::new();
+                            self.panels.show(Which::Drawer, false, &self.kinds, now, &mut out);
+                            for e in out {
+                                self.carry(e, now, acts);
+                            }
                         }
                         crate::home::model::Request::Settings => acts.push(Act::Log("home asks for settings".into())),
                         crate::home::model::Request::Notifications => acts.push(Act::Log("home asks for notifications".into())),
@@ -306,7 +334,18 @@ impl Shell {
     /// Whether a kind of the system layer has the keys now (an alert, the input popup, a PIN prompt; the panels when they land); the
     /// volume display and the toasts never do.
     pub fn system_wants(&self) -> bool {
-        self.sys.wants(&self.kinds) || (self.kinds.cameras && self.cameras.wants())
+        self.sys.wants(&self.kinds) || self.panels.wants(&self.kinds) || (self.kinds.cameras && self.cameras.wants())
+    }
+
+    /// What the panels tell the rest of the shell goes to every model as a topic; "All settings" opens Settings at its page.
+    fn panel_events(&mut self, now: u64, acts: &mut Vec<Act>) {
+        for (topic, data) in self.panels.take_events() {
+            if topic == "settings.open" {
+                let page = data.get("page").and_then(Value::as_str).filter(|p| !p.is_empty()).map(str::to_string);
+                acts.extend(self.open_settings(page.as_deref(), now));
+            }
+            self.feed(&Input::Topic { topic, data }, now, acts);
+        }
     }
 
     /// Opens Settings, at `page` when one is named: a tile of the quick panel, a card of Home, the compositor's `show`.
@@ -331,6 +370,10 @@ impl Shell {
                 // A session starts from the state: every topic as if pushed, in the order the compositor keeps them (the audio
                 // state read at the start opens nothing: the model knows a first report from a change).
                 for (topic, data) in topics {
+                    // a `show` kept in the state is a press that was answered long ago
+                    if topic == "show" {
+                        continue;
+                    }
                     self.feed(&Input::Topic { topic: topic.clone(), data: data.clone() }, now, &mut acts);
                 }
                 // The report goes again: a compositor that restarted has forgotten it.
@@ -398,14 +441,23 @@ impl Shell {
                         self.cameras.surface.on_key(&mut self.kit, &mut self.engine);
                     }
                     self.settings.key_taken(&mut self.engine);
+                    self.panels.on_key(&self.kit, &mut self.engine);
                 }
                 // a question of the system layer (an alert, a PIN prompt) has the keys before Settings does
-                if self.settings.is_open() && self.sys.wants(&self.kinds) {
+                let sys_asks = self.settings.is_open() && self.sys.wants(&self.kinds);
+                if sys_asks {
                     for e in self.sys.update(&self.kinds, &Input::Key { name: name.clone(), down: *down, repeat: *repeat }, now) {
                         self.carry(e, now, &mut acts);
                     }
                 } else {
                     self.feed(&Input::Key { name: name.clone(), down: *down, repeat: *repeat }, now, &mut acts);
+                }
+                // a panel has the keys unless a question of the system layer or Settings is over it
+                if !self.sys.wants(&self.kinds) && !self.settings.is_open() {
+                    for e in self.panels.key(&self.kinds, name, *down, *repeat, now) {
+                        self.carry(e, now, &mut acts);
+                    }
+                    self.panel_events(now, &mut acts);
                 }
             }
             KeyEvent::Pointer { x, y, buttons, visible } => {
@@ -428,6 +480,11 @@ impl Shell {
                     self.cameras_intents.extend(self.cameras.take_intents());
                 }
                 self.feed(&Input::Pointer { x: *x, y: *y, buttons: *buttons, visible: *visible }, now, &mut acts);
+                let sample = Sample { x: *x, y: *y, buttons: *buttons, visible: *visible };
+                for e in self.panels.pointer(&self.kinds, &self.kit, &mut self.engine, now_ns, sample, now) {
+                    self.carry(e, now, &mut acts);
+                }
+                self.panel_events(now, &mut acts);
             }
             KeyEvent::Closed => {}
         }
@@ -445,6 +502,10 @@ impl Shell {
         if self.sys.tick(&self.kit, &self.kinds, now) {
             self.redraw = true;
         }
+        for e in self.panels.tick(&self.kinds, &self.kit, now) {
+            self.carry(e, now, &mut acts);
+        }
+        self.panel_events(now, &mut acts);
         if self.kinds.home && self.home_surface.tick(now) {
             self.redraw = true;
         }
@@ -461,6 +522,9 @@ impl Shell {
     /// Draws what changed and reports when the report changed.
     fn after(&mut self, now: u64, acts: &mut Vec<Act>) {
         if self.sys.take_redraw() {
+            self.redraw = true;
+        }
+        if self.panels.take_redraw() {
             self.redraw = true;
         }
         if self.kinds.settings {
@@ -487,6 +551,11 @@ impl Shell {
                 }
             }
             match self.sys.apply(&self.kinds, &mut self.kit, &mut self.engine, now) {
+                Ok(on) => live |= on,
+                Err(e) => acts.push(Act::Log(e)),
+            }
+            let now_ns = self.kit.ui.scene.now_ns();
+            match self.panels.apply(&self.kinds, &mut self.kit, &mut self.engine, now, now_ns) {
                 Ok(on) => live |= on,
                 Err(e) => acts.push(Act::Log(e)),
             }
@@ -535,8 +604,9 @@ impl Shell {
         if self.kinds.settings {
             can.push("settings");
         }
+        can.extend(self.panels.can(&self.kinds));
         // Home in front wants the keys too: the compositor sends every key of the remote to the layer that wants them
-        let wants = self.sys.wants(&self.kinds) || (self.kinds.home && self.home.active) || (self.kinds.cameras && self.cameras.wants()) || (self.kinds.settings && self.settings.wants());
+        let wants = self.sys.wants(&self.kinds) || self.panels.wants(&self.kinds) || (self.kinds.home && self.home.active) || (self.kinds.cameras && self.cameras.wants()) || (self.kinds.settings && self.settings.wants());
         json!({"can": can, "wants": wants, "takes": self.sys.takes(&self.kinds), "live": self.live, "state": self.state()})
     }
 
@@ -554,6 +624,7 @@ impl Shell {
         for (k, val) in self.sys.state(&self.kinds).as_object().into_iter().flatten() {
             s[k] = val.clone();
         }
+        s["panels"] = self.panels.state(&self.kinds);
         if self.kinds.home {
             s["home"] = self.home.state();
         }
@@ -583,7 +654,7 @@ impl Shell {
         }
         let cameras = if self.kinds.cameras { self.cameras.due_at() } else { None };
         let settings = if self.kinds.settings { self.settings.due_at() } else { None };
-        [due, self.sys.due_at(&self.kinds), cameras, settings].into_iter().flatten().min()
+        [due, self.sys.due_at(&self.kinds), self.panels.due_at(&self.kinds), cameras, settings].into_iter().flatten().min()
     }
 
     pub fn is_live(&self) -> bool {
@@ -597,6 +668,9 @@ impl Shell {
             "toasts": self.toast_surface.rects().iter().map(|r| json!({"x": r.x, "y": r.y, "w": r.w, "h": r.h})).collect::<Vec<_>>(),
         });
         for (k, v) in self.sys.geometry(&self.kinds).as_object().into_iter().flatten() {
+            g[k] = v.clone();
+        }
+        for (k, v) in self.panels.geometry(&self.kinds, &self.engine).as_object().into_iter().flatten() {
             g[k] = v.clone();
         }
         if self.kinds.home {
@@ -623,6 +697,7 @@ impl Shell {
         if self.kinds.cameras {
             self.cameras.surface.feed_lint(&mut self.kit, &mut lint);
         }
+        self.panels.feed_lint(&self.kinds, &mut self.kit, &mut lint);
         json!(lint.findings().iter().map(|f| json!({"kind": f.kind.name(), "subject": f.subject, "detail": f.detail})).collect::<Vec<_>>())
     }
 
@@ -636,6 +711,7 @@ impl Shell {
         self.volume_surface.restyle();
         self.toast_surface.restyle();
         self.sys.restyle(&mut self.engine);
+        self.panels.restyle(&mut self.engine);
         self.home_surface.restyle();
         self.cameras.restyle(&mut self.engine, self.kit.text_scale);
         self.settings.restyle();
