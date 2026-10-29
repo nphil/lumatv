@@ -1,0 +1,11 @@
+loop thread 5520 (the loop marker in the trace)
+client 7077: its next GPU job began after the compositor's draw (where its frame callbacks go out) p50 0.81 ms, p90 1.0, p99 1.58, p99.9 2.55, max 4.5 (3602 answered, the flips in that stretch at most 16.74 ms apart); 2 over 3 ms, 2 would leave its jobs more than 20 ms apart
+  +28.946 s: draw 60099.077, the client's next GPU job began 4.5 ms after it (the frame before: 0.82 ms), its jobs 20.5 ms apart; CPU 2 also ran SettingsService-4050 x2, pkginstalld-5887 x2, WebAppMgr-6133 x1, <...>-5887 x1
+  +40.823 s: draw 60110.954, the client's next GPU job began 4.28 ms after it (the frame before: 0.69 ms), its jobs 20.4 ms apart; CPU 0 also ran pq_thread-21500 x2, servicemanager-2990 x1
+x1 log: 1 gap(s) over 20 ms (20.4 ms); the trace implies 2 (20.5 ms, 20.4 ms)
+x1 raw swaps: 3597 frames in 60.0 s; 1 gap(s) over 20 ms, worst 20.4 ms
+x1 attribution: INCONCLUSIVE; trace implies 2 gaps but raw log counted 1
+x1 gaps: 1 over 20 ms in the client's log; compositor-attributable 0 (late flips 0), client-only 1, unexplained 0
+  +28.946 s, jobs 20.5 ms apart (reaction 4.5 ms): client (callbacks on time, the loop never waited)
+  +40.823 s, jobs 20.4 ms apart (reaction 4.28 ms): client (callbacks on time, the loop never waited)
+kernel waits: no late frame | client 7077 reaction after the compositor's draw: p50 0.81 ms, p99.9 2.55, max 4.5; 2 over 3 ms, 2 frame gap(s) over 20 ms implied; answered 3602, flips at most 16.74 ms apart | x1 gaps compositor-attributable 0, client-only 1, unexplained 0 | x1 attribution INCONCLUSIVE

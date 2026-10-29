@@ -9,8 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- LumaTV's compositor retains LG's compositor as the automatic fallback. Persistent go-live
-  remains paused pending the app-close, frame-timing and Rust-shell device gates.
+- LumaTV's compositor is live on the set (persistent), with LG's compositor as the automatic
+  fallback (hold Home about 1 s). The full device gate passed every blocking check: PlxNative's
+  close 15 of 15, x1, the shell, standby and the fallback tests; the frame lines show only
+  isolated 33 ms intervals and a few slow first frames.
 - Compositor (not live yet): LumaTV's compositor draws LumaTV's own screens. Home, Settings,
   the quick panel, input picker, volume display, toasts, alerts, input popup, PIN prompt and
   screensaver run as a standalone Qt client (qml-runner) in two compositor windows, fed over a

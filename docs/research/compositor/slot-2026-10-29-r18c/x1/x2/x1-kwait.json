@@ -1,0 +1,144 @@
+{
+ "tid": 5520,
+ "how": "the loop marker in the trace",
+ "frames": [],
+ "summary": {
+  "late": 0,
+  "kernel": 0,
+  "sched": 0,
+  "unexplained": 0,
+  "by_class": {}
+ },
+ "client": {
+  "client": 7077,
+  "trigger": "draw",
+  "frames": 3602,
+  "p50": 0.81,
+  "p90": 1.0,
+  "p99": 1.58,
+  "p999": 2.55,
+  "max": 4.5,
+  "over2": 19,
+  "over3": 2,
+  "flips": 3594,
+  "flip_max_ms": 16.74,
+  "slow": [
+   {
+    "at": 28.946,
+    "t": 60099.077,
+    "trigger": "draw",
+    "ms": 4.5,
+    "prev_ms": 0.82,
+    "gap_ms": 20.5,
+    "prev_t": 60099.059959,
+    "job_t": 60099.081254,
+    "late_ms": 0.12,
+    "cpu": 2,
+    "held_by": [
+     "SettingsService-4050 x2",
+     "pkginstalld-5887 x2",
+     "WebAppMgr-6133 x1",
+     "<...>-5887 x1"
+    ]
+   },
+   {
+    "at": 40.823,
+    "t": 60110.954,
+    "trigger": "draw",
+    "ms": 4.28,
+    "prev_ms": 0.69,
+    "gap_ms": 20.4,
+    "prev_t": 60110.937359,
+    "job_t": 60110.958417,
+    "late_ms": 0.09,
+    "cpu": 0,
+    "held_by": [
+     "pq_thread-21500 x2",
+     "servicemanager-2990 x1"
+    ]
+   }
+  ],
+  "implied": [
+   {
+    "at": 28.946,
+    "t": 60099.077,
+    "trigger": "draw",
+    "ms": 4.5,
+    "prev_ms": 0.82,
+    "gap_ms": 20.5,
+    "prev_t": 60099.059959,
+    "job_t": 60099.081254,
+    "late_ms": 0.12,
+    "cpu": 2,
+    "held_by": [
+     "SettingsService-4050 x2",
+     "pkginstalld-5887 x2",
+     "WebAppMgr-6133 x1",
+     "<...>-5887 x1"
+    ]
+   },
+   {
+    "at": 40.823,
+    "t": 60110.954,
+    "trigger": "draw",
+    "ms": 4.28,
+    "prev_ms": 0.69,
+    "gap_ms": 20.4,
+    "prev_t": 60110.937359,
+    "job_t": 60110.958417,
+    "late_ms": 0.09,
+    "cpu": 0,
+    "held_by": [
+     "pq_thread-21500 x2",
+     "servicemanager-2990 x1"
+    ]
+   }
+  ],
+  "span": [
+   60070.399714,
+   60130.354794
+  ]
+ },
+ "attribution": {
+  "counted": 1,
+  "late_flips": 0,
+  "compositor": 0,
+  "client_only": 1,
+  "unexplained": 0,
+  "gaps": [
+   {
+    "at": 28.946,
+    "gap_ms": 20.5,
+    "ms": 4.5,
+    "who": "client",
+    "why": []
+   },
+   {
+    "at": 40.823,
+    "gap_ms": 20.4,
+    "ms": 4.28,
+    "who": "client",
+    "why": []
+   }
+  ]
+ },
+ "coverage": {
+  "complete": false,
+  "reasons": [
+   "trace implies 2 gaps but raw log counted 1"
+  ],
+  "raw": {
+   "frames": 3597,
+   "seconds": 60.0,
+   "gaps": 1,
+   "worst_ms": 20.4
+  }
+ },
+ "x1": [
+  {
+   "ms": 20.4,
+   "swap": 1722,
+   "at": 60099.08
+  }
+ ]
+}

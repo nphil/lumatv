@@ -1,0 +1,51 @@
+{
+ "tid": 29292,
+ "how": "the loop marker in the trace",
+ "frames": [],
+ "summary": {
+  "late": 0,
+  "kernel": 0,
+  "sched": 0,
+  "unexplained": 0,
+  "by_class": {}
+ },
+ "client": {
+  "client": 30755,
+  "trigger": "draw",
+  "frames": 3602,
+  "p50": 0.81,
+  "p90": 0.98,
+  "p99": 1.28,
+  "p999": 2.24,
+  "max": 2.94,
+  "over2": 6,
+  "over3": 0,
+  "flips": 3595,
+  "flip_max_ms": 16.7,
+  "slow": [],
+  "implied": [],
+  "span": [
+   60519.065049,
+   60579.025844
+  ]
+ },
+ "attribution": {
+  "counted": 0,
+  "late_flips": 0,
+  "compositor": 0,
+  "client_only": 0,
+  "unexplained": 0,
+  "gaps": []
+ },
+ "coverage": {
+  "complete": true,
+  "reasons": [],
+  "raw": {
+   "frames": 3597,
+   "seconds": 60.01,
+   "gaps": 0,
+   "worst_ms": 19.4
+  }
+ },
+ "x1": []
+}

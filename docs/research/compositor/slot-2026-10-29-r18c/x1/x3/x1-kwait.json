@@ -1,0 +1,136 @@
+{
+ "tid": 13380,
+ "how": "the loop marker in the trace",
+ "frames": [],
+ "summary": {
+  "late": 0,
+  "kernel": 0,
+  "sched": 0,
+  "unexplained": 0,
+  "by_class": {}
+ },
+ "client": {
+  "client": 14822,
+  "trigger": "draw",
+  "frames": 3602,
+  "p50": 0.77,
+  "p90": 0.98,
+  "p99": 1.38,
+  "p999": 2.77,
+  "max": 5.21,
+  "over2": 10,
+  "over3": 2,
+  "flips": 3594,
+  "flip_max_ms": 16.7,
+  "slow": [
+   {
+    "at": 16.682,
+    "t": 60229.177,
+    "trigger": "draw",
+    "ms": 4.35,
+    "prev_ms": 0.8,
+    "gap_ms": 20.3,
+    "prev_t": 60229.160566,
+    "job_t": 60229.181688,
+    "late_ms": 0.09,
+    "cpu": 2,
+    "held_by": []
+   },
+   {
+    "at": 28.543,
+    "t": 60241.038,
+    "trigger": "draw",
+    "ms": 5.21,
+    "prev_ms": 0.81,
+    "gap_ms": 21.1,
+    "prev_t": 60241.021277,
+    "job_t": 60241.043233,
+    "late_ms": 0.06,
+    "cpu": 0,
+    "held_by": [
+     "PmLogDaemon-1945 x3",
+     "lumatv-log-13391 x2",
+     "<...>-4196 x1"
+    ]
+   }
+  ],
+  "implied": [
+   {
+    "at": 16.682,
+    "t": 60229.177,
+    "trigger": "draw",
+    "ms": 4.35,
+    "prev_ms": 0.8,
+    "gap_ms": 20.3,
+    "prev_t": 60229.160566,
+    "job_t": 60229.181688,
+    "late_ms": 0.09,
+    "cpu": 2,
+    "held_by": []
+   },
+   {
+    "at": 28.543,
+    "t": 60241.038,
+    "trigger": "draw",
+    "ms": 5.21,
+    "prev_ms": 0.81,
+    "gap_ms": 21.1,
+    "prev_t": 60241.021277,
+    "job_t": 60241.043233,
+    "late_ms": 0.06,
+    "cpu": 0,
+    "held_by": [
+     "PmLogDaemon-1945 x3",
+     "lumatv-log-13391 x2",
+     "<...>-4196 x1"
+    ]
+   }
+  ],
+  "span": [
+   60212.661516,
+   60272.616259
+  ]
+ },
+ "attribution": {
+  "counted": 1,
+  "late_flips": 0,
+  "compositor": 0,
+  "client_only": 1,
+  "unexplained": 0,
+  "gaps": [
+   {
+    "at": 16.682,
+    "gap_ms": 20.3,
+    "ms": 4.35,
+    "who": "client",
+    "why": []
+   },
+   {
+    "at": 28.543,
+    "gap_ms": 21.1,
+    "ms": 5.21,
+    "who": "client",
+    "why": []
+   }
+  ]
+ },
+ "coverage": {
+  "complete": false,
+  "reasons": [
+   "trace implies 2 gaps but raw log counted 1"
+  ],
+  "raw": {
+   "frames": 3597,
+   "seconds": 60.0,
+   "gaps": 1,
+   "worst_ms": 21.2
+  }
+ },
+ "x1": [
+  {
+   "ms": 21.2,
+   "swap": 1704,
+   "at": 60241.042
+  }
+ ]
+}

@@ -1,0 +1,9 @@
+14:47:00 cutover.sh enable (no install: the set already had f2e4b5d; verified.list already held 10.2.1-5202, fingerprint e34f8de94ef657a4)
+PASS enabled (persistent): LumaTV's compositor stays live (recovery done after 0s more); 'cutover.sh disable' restores LG's
+PASS cutover.sh status: mounted yes, flag persistent, firmware verified, safety timer none
+PASS gate.sh live: mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 397594 bytes fg com.webos.app.home watchdog 1 power-seen 1
+PASS sm.log 14:49:27 settled: two minutes healthy; failures 0
+14:50:08 lumatv restart (compositor restart): {"ok":true}
+PASS gate.sh live after the restart: mounted yes registered 12 fallbacks 0 wam active home-window 1 panel 396207 bytes fg com.webos.app.home
+PASS compositor status: flag persistent, mounted true, live true, lgBinary mounted, escaped false, failures 0; sm.log 14:50:08 start, 14:52:09 settled: two minutes healthy
+INFO the reboot of the runbook's step 3 and the key walk with Nitin were not done.

@@ -1,0 +1,194 @@
+{
+ "tid": 29504,
+ "how": "the loop marker in the trace",
+ "frames": [],
+ "summary": {
+  "late": 0,
+  "kernel": 0,
+  "sched": 0,
+  "unexplained": 0,
+  "by_class": {}
+ },
+ "client": {
+  "client": 30978,
+  "trigger": "draw",
+  "frames": 3602,
+  "p50": 0.87,
+  "p90": 1.05,
+  "p99": 1.8,
+  "p999": 3.71,
+  "max": 4.33,
+  "over2": 30,
+  "over3": 7,
+  "flips": 3595,
+  "flip_max_ms": 16.71,
+  "slow": [
+   {
+    "at": 4.824,
+    "t": 57156.154,
+    "trigger": "draw",
+    "ms": 4.33,
+    "prev_ms": 0.89,
+    "gap_ms": 20.3,
+    "prev_t": 57156.13745,
+    "job_t": 57156.158639,
+    "late_ms": 0.18,
+    "cpu": 2,
+    "held_by": [
+     "captureservice-5484 x4",
+     "<...>-5484 x1"
+    ]
+   },
+   {
+    "at": 8.844,
+    "t": 57160.175,
+    "trigger": "draw",
+    "ms": 3.12,
+    "prev_ms": 0.77,
+    "gap_ms": 19.1,
+    "prev_t": 57160.157807,
+    "job_t": 57160.177713,
+    "late_ms": 0.1,
+    "cpu": 2,
+    "held_by": [
+     "grep-31075 x4",
+     "<...>-31075 x2"
+    ]
+   },
+   {
+    "at": 22.674,
+    "t": 57174.004,
+    "trigger": "draw",
+    "ms": 3.71,
+    "prev_ms": 0.94,
+    "gap_ms": 19.5,
+    "prev_t": 57173.986925,
+    "job_t": 57174.007323,
+    "late_ms": 0.0,
+    "cpu": 2,
+    "held_by": [
+     "python3-6928 x2",
+     "chromecast-prov-4954 x1",
+     "<...>-6928 x1"
+    ]
+   },
+   {
+    "at": 30.781,
+    "t": 57182.111,
+    "trigger": "draw",
+    "ms": 3.97,
+    "prev_ms": 0.82,
+    "gap_ms": 19.8,
+    "prev_t": 57182.0943,
+    "job_t": 57182.114956,
+    "late_ms": 0.01,
+    "cpu": 2,
+    "held_by": [
+     "ls-hubd-1865 x6"
+    ]
+   },
+   {
+    "at": 46.845,
+    "t": 57198.175,
+    "trigger": "draw",
+    "ms": 3.85,
+    "prev_ms": 1.0,
+    "gap_ms": 19.6,
+    "prev_t": 57198.158784,
+    "job_t": 57198.179339,
+    "late_ms": 0.03,
+    "cpu": 2,
+    "held_by": [
+     "pool-4880 x2",
+     "eplmanager-4715 x1",
+     "tSrTraining-19586 x1"
+    ]
+   },
+   {
+    "at": 51.133,
+    "t": 57202.463,
+    "trigger": "draw",
+    "ms": 3.7,
+    "prev_ms": 1.16,
+    "gap_ms": 19.1,
+    "prev_t": 57202.446117,
+    "job_t": 57202.466377,
+    "late_ms": -0.12,
+    "cpu": 1,
+    "held_by": []
+   },
+   {
+    "at": 54.469,
+    "t": 57205.799,
+    "trigger": "draw",
+    "ms": 3.71,
+    "prev_ms": 0.97,
+    "gap_ms": 19.4,
+    "prev_t": 57205.782283,
+    "job_t": 57205.802695,
+    "late_ms": 0.02,
+    "cpu": 1,
+    "held_by": [
+     "ls-hubd-1865 x3",
+     "memchute-1923 x1",
+     "rcu_preempt-10 x1"
+    ]
+   }
+  ],
+  "implied": [
+   {
+    "at": 4.824,
+    "t": 57156.154,
+    "trigger": "draw",
+    "ms": 4.33,
+    "prev_ms": 0.89,
+    "gap_ms": 20.3,
+    "prev_t": 57156.13745,
+    "job_t": 57156.158639,
+    "late_ms": 0.18,
+    "cpu": 2,
+    "held_by": [
+     "captureservice-5484 x4",
+     "<...>-5484 x1"
+    ]
+   }
+  ],
+  "span": [
+   57151.76009,
+   57211.720878
+  ]
+ },
+ "attribution": {
+  "counted": 1,
+  "late_flips": 0,
+  "compositor": 0,
+  "client_only": 1,
+  "unexplained": 0,
+  "gaps": [
+   {
+    "at": 4.824,
+    "gap_ms": 20.3,
+    "ms": 4.33,
+    "who": "client",
+    "why": []
+   }
+  ]
+ },
+ "coverage": {
+  "complete": true,
+  "reasons": [],
+  "raw": {
+   "frames": 3597,
+   "seconds": 60.0,
+   "gaps": 1,
+   "worst_ms": 20.4
+  }
+ },
+ "x1": [
+  {
+   "ms": 20.4,
+   "swap": 266,
+   "at": 57156.157
+  }
+ ]
+}

@@ -1,0 +1,1 @@
+rounds: PreparePowerOff 1 PreparePowerOn 1; fallbacks 0; state active; uptime before 59700.04 now 59770.47; mounted yes; panel 394999 bytes

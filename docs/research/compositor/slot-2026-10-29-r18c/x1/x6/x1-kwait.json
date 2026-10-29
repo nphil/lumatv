@@ -1,0 +1,69 @@
+{
+ "tid": 5243,
+ "how": "the loop marker in the trace",
+ "frames": [],
+ "summary": {
+  "late": 0,
+  "kernel": 0,
+  "sched": 0,
+  "unexplained": 0,
+  "by_class": {}
+ },
+ "client": {
+  "client": 6736,
+  "trigger": "draw",
+  "frames": 3602,
+  "p50": 0.81,
+  "p90": 1.0,
+  "p99": 1.53,
+  "p999": 2.56,
+  "max": 3.55,
+  "over2": 12,
+  "over3": 1,
+  "flips": 3594,
+  "flip_max_ms": 16.72,
+  "slow": [
+   {
+    "at": 15.877,
+    "t": 60677.531,
+    "trigger": "draw",
+    "ms": 3.55,
+    "prev_ms": 0.79,
+    "gap_ms": 19.4,
+    "prev_t": 60677.514529,
+    "job_t": 60677.534768,
+    "late_ms": 0.01,
+    "cpu": 2,
+    "held_by": [
+     "node-11026 x2",
+     "<...>-11026 x1",
+     "kworker/u8:3-18400 x1"
+    ]
+   }
+  ],
+  "implied": [],
+  "span": [
+   60661.799726,
+   60721.754327
+  ]
+ },
+ "attribution": {
+  "counted": 0,
+  "late_flips": 0,
+  "compositor": 0,
+  "client_only": 0,
+  "unexplained": 0,
+  "gaps": []
+ },
+ "coverage": {
+  "complete": true,
+  "reasons": [],
+  "raw": {
+   "frames": 3597,
+   "seconds": 60.0,
+   "gaps": 0,
+   "worst_ms": 19.4
+  }
+ },
+ "x1": []
+}

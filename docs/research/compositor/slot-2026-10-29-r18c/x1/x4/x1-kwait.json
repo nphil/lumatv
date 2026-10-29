@@ -1,0 +1,124 @@
+{
+ "tid": 21331,
+ "how": "the loop marker in the trace",
+ "frames": [],
+ "summary": {
+  "late": 0,
+  "kernel": 0,
+  "sched": 0,
+  "unexplained": 0,
+  "by_class": {}
+ },
+ "client": {
+  "client": 22848,
+  "trigger": "draw",
+  "frames": 3602,
+  "p50": 0.8,
+  "p90": 0.98,
+  "p99": 1.43,
+  "p999": 2.88,
+  "max": 4.72,
+  "over2": 10,
+  "over3": 3,
+  "flips": 3595,
+  "flip_max_ms": 16.7,
+  "slow": [
+   {
+    "at": 6.482,
+    "t": 60383.984,
+    "trigger": "draw",
+    "ms": 4.72,
+    "prev_ms": 0.81,
+    "gap_ms": 20.6,
+    "prev_t": 60383.966857,
+    "job_t": 60383.988251,
+    "late_ms": -0.01,
+    "cpu": 2,
+    "held_by": [
+     "captureservice-5484 x3",
+     "python3-6928 x1"
+    ]
+   },
+   {
+    "at": 27.651,
+    "t": 60405.152,
+    "trigger": "draw",
+    "ms": 3.97,
+    "prev_ms": 0.92,
+    "gap_ms": 19.7,
+    "prev_t": 60405.135769,
+    "job_t": 60405.156413,
+    "late_ms": -0.0,
+    "cpu": 2,
+    "held_by": []
+   },
+   {
+    "at": 50.053,
+    "t": 60427.554,
+    "trigger": "draw",
+    "ms": 3.43,
+    "prev_ms": 0.98,
+    "gap_ms": 19.2,
+    "prev_t": 60427.537685,
+    "job_t": 60427.55784,
+    "late_ms": 0.04,
+    "cpu": 1,
+    "held_by": [
+     "ls-hubd-1865 x3",
+     "tCMState-2802 x1"
+    ]
+   }
+  ],
+  "implied": [
+   {
+    "at": 6.482,
+    "t": 60383.984,
+    "trigger": "draw",
+    "ms": 4.72,
+    "prev_ms": 0.81,
+    "gap_ms": 20.6,
+    "prev_t": 60383.966857,
+    "job_t": 60383.988251,
+    "late_ms": -0.01,
+    "cpu": 2,
+    "held_by": [
+     "captureservice-5484 x3",
+     "python3-6928 x1"
+    ]
+   }
+  ],
+  "span": [
+   60377.687461,
+   60437.648358
+  ]
+ },
+ "attribution": {
+  "counted": 0,
+  "late_flips": 0,
+  "compositor": 0,
+  "client_only": 0,
+  "unexplained": 0,
+  "gaps": [
+   {
+    "at": 6.482,
+    "gap_ms": 20.6,
+    "ms": 4.72,
+    "who": "client",
+    "why": []
+   }
+  ]
+ },
+ "coverage": {
+  "complete": false,
+  "reasons": [
+   "trace implies 1 gaps but raw log counted 0"
+  ],
+  "raw": {
+   "frames": 3597,
+   "seconds": 60.0,
+   "gaps": 0,
+   "worst_ms": 19.4
+  }
+ },
+ "x1": []
+}

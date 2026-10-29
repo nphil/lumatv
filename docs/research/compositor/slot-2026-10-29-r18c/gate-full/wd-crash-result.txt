@@ -1,0 +1,1 @@
+unmounted after 0.5 s; reason: compositor killed by signal 9; failures 0 -> 1; escaped no; compositor left: none; panel 386257 bytes; wam active; sam unchanged; crash bundle 20261029-143215-001 (pending yes; 200 log lines, 2657 ring lines, kind problem)

@@ -1,0 +1,47 @@
+window 40 created on surface 269 by pid 30070
+webOS shell surface on window 40 (surface 269) by pid 30070
+window 40 committed without a buffer (Card app '' state Default)
+window 40: appId = com.geforcenow.play (Card)
+window 40: title = GeForce NOW (Card)
+foreign: surface 269 exported as _Window_Id_6 (type 0)
+window 40 mapped (Card app 'com.geforcenow.play' title 'GeForce NOW' size Some((1280, 720)))
+window 8: minimized (covered by a newer card)
+window 40: fullscreen (the front card)
+window 8: exposed nothing (covered)
+window 40: exposed 1280x720
+focus -> surface 269
+luna: foreground ['com.geforcenow.play'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+transitions: frame 31 ms after the last in a launch (tick before 0.9 ms, this 1.0 ms, last render 0.4 ms, held ticks 1, buffers prepared 114, imported in a frame 0)
+window 8: fullscreen (the front card)
+window 8: exposed 1920x1080
+focus -> surface 106
+luna: foreground ['com.webos.app.home'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+shell: can show switcher, keyboard
+shell: can show quick, picker, drawer, switcher, keyboard
+client connected: pid 24982 uid 6546 cmd '/mnt/otncabi/usr/palm/applications/com.webos.app.browser/chrome {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'com.webos.app.browser\\',\\'parameters\\':{\\'enableGame'
+client connected: pid 24982 uid 6546 cmd '/mnt/otncabi/usr/palm/applications/com.webos.app.browser/chrome {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'com.webos.app.browser\\',\\'parameters\\':{\\'enableGame'
+client disconnected: pid 24982 uid 6546 after 0 ms (ConnectionClosed); bound ['wl_output']; cmd '/mnt/otncabi/usr/palm/applications/com.webos.app.browser/chrome {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'com.webos.app.browser\\',\\'parameters\\':{\\'enableGame'
+window 41 created on surface 283 by pid 24982
+webOS shell surface on window 41 (surface 283) by pid 24982
+window 41: appId = com.webos.app.1 (Card)
+window 41: appId = com.webos.app.browser (Card)
+luna: com.webos.app.browser subscribed to com.webos.surfacemanager/getFocusedWindowInfo
+window 41 mapped (Card app 'com.webos.app.browser' title '' size Some((1920, 1080)))
+window 8: minimized (covered by a newer card)
+window 41: fullscreen (the front card)
+window 8: exposed nothing (covered)
+window 41: exposed 1920x1080
+focus -> surface 283
+luna: foreground ['com.webos.app.browser'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+transitions: frame 32 ms after the last in a launch (tick before 1.0 ms, this 1.0 ms, last render 0.4 ms, held ticks 1, buffers prepared 118, imported in a frame 0)
+window 41: title = Web Browser (Card)
+foreign: surface 283 exported as _Window_Id_7 (type 0)
+window 8: raised to the front (set_state fullscreen)
+window 41: minimized (covered by a newer card)
+window 8: exposed 1920x1080
+window 41: exposed nothing (covered)
+luna: foreground ['com.webos.app.home'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+focus -> surface 106
+transitions: frame 28 ms after the last in a leave (tick before 2.3 ms, this 1.1 ms, last render 0.5 ms, held ticks 1, buffers prepared 119, imported in a frame 0)
+shell: can show switcher, keyboard
+shell: can show quick, picker, drawer, switcher, keyboard

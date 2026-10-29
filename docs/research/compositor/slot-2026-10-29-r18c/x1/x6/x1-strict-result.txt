@@ -1,0 +1,1 @@
+PASS 59.95 fps over 60.00 s, no gap over 20 ms, pacer late unchanged, nothing over 20 ms in the compositor's log

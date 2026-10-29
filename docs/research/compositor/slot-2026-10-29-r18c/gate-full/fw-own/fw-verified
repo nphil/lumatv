@@ -1,0 +1,12 @@
+10.2.1-5202
+release Rockhopper release 10.2.1-5202 (ponytail-paparoa)
+/etc/starfish-release 50 1302044400
+/usr/bin/surface-manager 17904 1302044400
+/usr/lib/libmali.so.0.46.0 52903836 1302044400
+/usr/lib/libWebOSCoreCompositor.so.0.0.1 648824 1302044400
+/usr/lib/libwayland-webos-server.so.1.0.0 13808 1302044400
+/usr/lib/libwayland-server.so.0 27 1302044400
+/usr/lib/libluna-service2.so.3 26 1302044400
+/usr/lib/libwayland-webos-client.so.1.0.0 13808 1302044400
+/usr/lib/libgm-wayland.so.1.0.0 46480 1302044400
+/usr/lib/liblsm-connector.so.1.0.0 21908 1302044400

@@ -1,0 +1,376 @@
+start 13:45:42 --skip volume --apps-repeat 15
+power state: active
+home stub before the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+avr: left to the agent (True)
+GATE firmware: PASS Rockhopper release 10.2.1-5202 (ponytail-paparoa); fingerprint e34f8de94ef657a4; 10 files hashed in 2 s, unreadable: none; this set's entry: verified 10.2.1-5202; a flipped digit: 5; another release: 5; an empty list: 5; the set's own list: verified 10.2.1-5202; the supervisor: no off: not enabled (exit 3)
+
+GATE homeheld: PASS while held: exit 0 (0 = held); after the release: exit 1 (1 = not held); injector exit 0
+
+firmware: verified 10.2.1-5202
+safety timer: this session ends by itself after 104 min if it is still live ('cutover.sh disable' cancels the timer)
+mounted; restarting the unit
+t=5s unit=active exe=/usr/bin/surface-manager compositor=29504 mounted=yes wam=active
+   13:46:01 recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+   13:46:01 recover: WebAppMgr answering after 0s (active)
+t=10s unit=active exe=/usr/bin/surface-manager compositor=29504 mounted=yes wam=active
+   13:46:01 recover: WebAppMgr answering after 0s (active)
+   13:46:03 recover: Home running under LumaTV's compositor after 0s
+t=15s unit=active exe=/usr/bin/surface-manager compositor=29504 mounted=yes wam=active
+   13:46:03 recover: Home running under LumaTV's compositor after 0s
+   13:46:13 recover: librdx reports swept; remaining 0
+t=20s unit=active exe=/usr/bin/surface-manager compositor=29504 mounted=yes wam=active
+   13:46:03 recover: Home running under LumaTV's compositor after 0s
+   13:46:13 recover: librdx reports swept; remaining 0
+t=25s unit=active exe=/usr/bin/surface-manager compositor=29504 mounted=yes wam=active
+   13:46:03 recover: Home running under LumaTV's compositor after 0s
+   13:46:13 recover: librdx reports swept; remaining 0
+t=30s unit=active exe=/usr/bin/surface-manager compositor=29504 mounted=yes wam=active
+   13:46:03 recover: Home running under LumaTV's compositor after 0s
+   13:46:13 recover: librdx reports swept; remaining 0
+enabled (session): LumaTV's compositor stays live (recovery done after 0s more); 'cutover.sh disable' restores LG's
+
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 395744 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+GATE x1: PASS 59.95 fps over 60.00 s, no compositor-attributable gap over 20 ms, pacer late unchanged, no loop pass or page-flip interval over 20 ms in the compositor's log; 1 client-only of 1 gap(s) over 20 ms (worst 20.4 ms) reported, not counted: the client woke late on callbacks that came on time; the compositor logged 1 client frame gap(s) (late commits) | RAW STRICT: FAIL 1 gap(s) over 20 ms in the client's swaps (worst 20.4 ms); the compositor logged 1 loop pass(es), client frame gap(s) or page-flip interval(s) over 20 ms during the run | RAW RESULT: [x1] RESULT frames=3597 in 60.00 s = 59.95 fps; gaps: <=17.5 ms 3552, 17.5-20 43, 20-33.5 1, >33.5 0; worst 20.4 ms; ended at monotonic 57211.720
+
+avr: left to the agent (True)
+GATE netflix: PASS netflix windows 1 video "video":[{"context":"_0neMqtFUUuLUVm","displayOutput":{"height":1080,"width":1920,"x":0,"y":0},"fullScreen":true,"windowId":"_Window_Id_3"}] placements 11 protocol errors 0 pictureMode playing dolbyHdrCinema after filmMaker fg playing netflix now com.webos.app.home panel 19837 bytes stale-instance-closed 0 audio-port-held-before none
+
+GATE hdmi: PASS hdmi2 windows 1 mapped 1 bufferless commits 0 fg while open com.webos.app.hdmi2 now com.webos.app.home panel 6863 bytes audio-port-held-after-close none
+
+GATE apps: PASS ok: [pass 1 of 15] youtube.leanback.v4 pid 8420 foreground-in-ms 1500 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 1 of 15] com.beb.plxnative pid 9100 foreground-in-ms 1500 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 2 of 15] youtube.leanback.v4 pid 9731 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 2 of 15] com.beb.plxnative pid 10238 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 3 of 15] youtube.leanback.v4 pid 10799 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 3 of 15] com.beb.plxnative pid 11302 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 4 of 15] youtube.leanback.v4 pid 11878 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 4 of 15] com.beb.plxnative pid 12381 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 5 of 15] youtube.leanback.v4 pid 12936 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 5 of 15] com.beb.plxnative pid 13413 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 6 of 15] youtube.leanback.v4 pid 13967 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 6 of 15] com.beb.plxnative pid 14469 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 7 of 15] youtube.leanback.v4 pid 15044 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 7 of 15] com.beb.plxnative pid 15539 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 8 of 15] youtube.leanback.v4 pid 16132 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 8 of 15] com.beb.plxnative pid 16624 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 9 of 15] youtube.leanback.v4 pid 17190 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 9 of 15] com.beb.plxnative pid 17790 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 10 of 15] youtube.leanback.v4 pid 18358 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 10 of 15] com.beb.plxnative pid 18854 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 11 of 15] youtube.leanback.v4 pid 19402 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 11 of 15] com.beb.plxnative pid 19925 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 12 of 15] youtube.leanback.v4 pid 20478 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 12 of 15] com.beb.plxnative pid 21090 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 13 of 15] youtube.leanback.v4 pid 21647 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 13 of 15] com.beb.plxnative pid 22135 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 14 of 15] youtube.leanback.v4 pid 22704 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 14 of 15] com.beb.plxnative pid 23204 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 15 of 15] youtube.leanback.v4 pid 23776 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 15 of 15] com.beb.plxnative pid 24275 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; com.geforcenow.play browser-in-front yes front-6s-after-home com.webos.app.home;
+
+avr: left to the agent (True)
+GATE keys: PASS gear-shell ok; input-shell ok; netflix-button ok; digit-tap ok; digit-hold ok; exit ok; (key table: gear=139 input=241 netflix=1037 amazon=1038; unnamed keys seen: [])
+
+avr: left to the agent (True)
+GATE ime: PASS before: maliit-server.service inactive, MaliitServer not running; after the keyboard came up: unit active, MaliitServer pid 26611; input methods bound 1; asked for one 1 time(s); OK pressed 0 time(s); keyboard up yes (panel y 642 h 438, capture 136129 bytes); context yes; typed 3; closed by Back | an input method bound, the field's context made, the keyboard's window at the bottom, a key typed on it reached the field, the keyboard closed
+
+GATE shell: PASS connected ok; home-loaded ok; idle-home(10/s,3%) ok; dpad ok; quick-home ok; picker-home ok; osd ok; toast ok; quick-app ok; idle-covered(0%) ok; saver ok; (shell pid 29943, starts 1, exits 0, luna calls 411, refused 0; foreground com.webos.app.home, windows mapped: org.nphil.lumatv.shell org.nphil.lumatv.shell com.webos.app.home)
+
+avr: left to the agent (True)
+evidence: 2 subscription(s) from SAM, 89 client lines, 3 loop stalls, 5 watchdog lines
+
+already mounted; 'cutover.sh status' says what runs
+
+GATE live-frames: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 394844 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+GATE wake: reset
+
+ 3 ms or more; kernel 0.0 ms)
+    toast-open +5.078 s: 200.2 ms (overrun 183.5): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+PASS  settings-scroll windows                3/3  (== 3)
+PASS  settings-scroll first_frame_ms       40.92  (<= 50)
+PASS  settings-scroll p90_render_ms         0.33  (< 3)  20 frames
+PASS  settings-scroll p90_window_ms         0.30  (< 4)  worst single window
+PASS  settings-scroll dropped                  0  (<= 0)
+FAIL  settings-scroll burst_over20             4  (<= 0)
+PASS  settings-scroll rss_growth_mb         0.00  (<= 1.01)  482 -> 482 pages over 1 cycles
+PASS  settings-scroll log_errors               0  (== 0)
+PASS  settings-scroll compositor_pid       29254  (== 29254)
+settings-scroll: kernel waits: 47 late frame(s): 0 kernel-caused, 0 waiting for a CPU, 47 unexplained
+    settings-scroll-open +0.091 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    settings-scroll-open +0.258 s: 116.8 ms (overrun 100.1): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    settings-scroll-open +0.892 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    settings-scroll-open +1.042 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    settings-scroll-open +1.142 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    settings-scroll-open +1.192 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    settings-scroll-open +2.393 s: 100.1 ms (overrun 83.4): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    settings-scroll-open +2.493 s: 150.1 ms (overrun 133.5): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    settings-scroll-open +3.728 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    settings-scroll-open +3.944 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    settings-scroll-open +4.161 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    settings-scroll-open +5.596 s: 133.5 ms (overrun 116.8): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    ... 35 more late frames
+PASS  apps-grid       launch_path           none  ()  com.webos.app.discovery: the dock's tile 1, number key (evdev 2)
+PASS  apps-grid       windows                3/3  (== 3)
+PASS  apps-grid       first_frame_ms       39.13  (<= 50)
+PASS  apps-grid       p90_render_ms         0.07  (< 3)  14 frames
+PASS  apps-grid       p90_window_ms         0.07  (< 4)  worst single window
+PASS  apps-grid       dropped                  0  (<= 0)
+FAIL  apps-grid       burst_over20             1  (<= 0)
+PASS  apps-grid       rss_growth_mb         0.00  (<= 1.01)  482 -> 482 pages over 1 cycles
+PASS  apps-grid       switches_restored number-keys, quick-access  (as found)
+PASS  apps-grid       log_errors               0  (== 0)
+PASS  apps-grid       compositor_pid       29254  (== 29254)
+apps-grid: kernel waits: 6 late frame(s): 0 kernel-caused, 0 waiting for a CPU, 6 unexplained
+    apps-grid-open +0.272 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    apps-grid-open +4.659 s: 33.3 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    apps-grid-open +5.176 s: 133.5 ms (overrun 116.8): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    apps-grid-open +4.662 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    apps-grid-open +0.623 s: 150.1 ms (overrun 133.5): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    apps-grid-open +4.66 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+PASS  home-widgets    windows                3/3  (== 3)
+PASS  home-widgets    first_frame_ms       27.03  (<= 50)
+PASS  home-widgets    p90_render_ms         0.06  (< 3)  14 frames
+PASS  home-widgets    p90_window_ms         0.06  (< 4)  worst single window
+PASS  home-widgets    dropped                  0  (<= 0)
+PASS  home-widgets    burst_over20             0  (<= 0)
+PASS  home-widgets    rss_growth_mb         0.00  (<= 1.01)  482 -> 482 pages over 1 cycles
+PASS  home-widgets    log_errors               0  (== 0)
+PASS  home-widgets    compositor_pid       29254  (== 29254)
+home-widgets: kernel waits: 8 late frame(s): 0 kernel-caused, 0 waiting for a CPU, 8 unexplained
+    home-widgets-open +1.779 s: 66.7 ms (overrun 50.1): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    home-widgets-open +4.598 s: 50.1 ms (overrun 33.4): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    home-widgets-open +1.777 s: 66.7 ms (overrun 50.1): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    home-widgets-open +2.645 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    home-widgets-open +4.596 s: 50.0 ms (overrun 33.4): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    home-widgets-open +4.713 s: 100.1 ms (overrun 83.4): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    home-widgets-open +1.776 s: 66.7 ms (overrun 50.1): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    home-widgets-open +4.595 s: 66.7 ms (overrun 50.1): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+PASS  switcher        windows                3/3  (== 3)
+FAIL  switcher        first_frame_ms       73.26  (<= 50)  the compositor asked the shell 51.27 ms after the key at worst
+PASS  switcher        p90_render_ms         0.05  (< 3)  5 frames
+PASS  switcher        p90_window_ms         0.05  (< 4)  worst single window
+PASS  switcher        dropped                  0  (<= 0)
+PASS  switcher        burst_over20             0  (<= 0)
+PASS  switcher        rss_growth_mb         0.00  (<= 1.01)  401 -> 401 pages over 1 cycles
+PASS  switcher        switches_restored app-switcher  (as found)
+PASS  switcher        log_errors               0  (== 0)
+PASS  switcher        compositor_pid       29254  (== 29254)
+switcher: kernel waits: 1 late frame(s): 0 kernel-caused, 0 waiting for a CPU, 1 unexplained
+    switcher-open +3.51 s: 216.9 ms (overrun 200.2): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+PASS  transitions-netflix launch_path           none  ()  netflix: the dock's tile 2, number key (evdev 3)
+PASS  transitions-netflix windows                6/6  (== 6)
+PASS  transitions-netflix p90_render_ms         0.37  (< 3)  8 frames
+PASS  transitions-netflix p90_window_ms         0.37  (< 4)  worst single window
+PASS  transitions-netflix dropped                  0  (<= 0)
+FAIL  transitions-netflix burst_over20             1  (<= 0)
+PASS  transitions-netflix transitions_ran          3  (>= 3)  3 launches, 3 leaves, 0 changes of the front left alone; transitions are on
+FAIL  transitions-netflix transitions_late_gaps          2  (== 0)  worst gap so far 33 ms
+PASS  transitions-netflix rss_growth_mb         0.00  (<= 1.01)  401 -> 401 pages over 1 cycles
+PASS  transitions-netflix switches_restored number-keys, quick-access, transitions  (as found)
+PASS  transitions-netflix log_errors               0  (== 0)
+PASS  transitions-netflix compositor_pid       29254  (== 29254)
+transitions-netflix: kernel waits: 9 late frame(s): 0 kernel-caused, 0 waiting for a CPU, 9 unexplained
+    transitions-netflix-open +1.827 s: 50.0 ms (overrun 33.4): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    transitions-netflix-open +0.323 s: 50.1 ms (overrun 33.4): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    transitions-netflix-open +0.824 s: 133.5 ms (overrun 116.8): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    transitions-netflix-open +1.608 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    transitions-netflix-close +0.273 s: 100.1 ms (overrun 83.4): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    transitions-netflix-open +0.382 s: 83.4 ms (overrun 66.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    transitions-netflix-open +0.933 s: 133.5 ms (overrun 116.8): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    transitions-netflix-open +1.7 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    transitions-netflix-close +0.085 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+PASS  transitions-settings windows                6/6  (== 6)
+PASS  transitions-settings p90_render_ms         0.05  (< 3)  1 frames
+PASS  transitions-settings p90_window_ms         0.05  (< 4)  worst single window
+PASS  transitions-settings dropped                  0  (<= 0)
+PASS  transitions-settings burst_over20             0  (<= 0)
+FAIL  transitions-settings transitions_ran          2  (>= 3)  2 launches, 2 leaves, 0 changes of the front left alone; transitions are on
+FAIL  transitions-settings transitions_late_gaps          1  (== 0)  worst gap so far 33 ms
+PASS  transitions-settings rss_growth_mb         0.00  (<= 1.01)  400 -> 400 pages over 1 cycles
+PASS  transitions-settings switches_restored transitions  (as found)
+PASS  transitions-settings log_errors               0  (== 0)
+PASS  transitions-settings compositor_pid       29254  (== 29254)
+transitions-settings: kernel waits: 2 late frame(s): 0 kernel-caused, 0 waiting for a CPU, 2 unexplained
+    transitions-settings-close +0.107 s: 83.4 ms (overrun 66.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    transitions-settings-close +0.074 s: 150.1 ms (overrun 133.5): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+PASS  keyboard-luma   windows                3/3  (== 3)
+PASS  keyboard-luma   first_frame_ms       15.91  (<= 50)
+PASS  keyboard-luma   p90_render_ms         0.10  (< 3)  25 frames
+PASS  keyboard-luma   p90_window_ms         0.08  (< 4)  worst single window
+PASS  keyboard-luma   dropped                  0  (<= 0)
+PASS  keyboard-luma   burst_over20             0  (<= 0)
+PASS  keyboard-luma   rss_growth_mb         0.00  (<= 1.01)  400 -> 400 pages over 1 cycles
+PASS  keyboard-luma   switches_restored   keyboard  (as found)
+PASS  keyboard-luma   log_errors               0  (== 0)
+PASS  keyboard-luma   compositor_pid       29254  (== 29254)
+PASS  keyboard-lg     windows                3/3  (== 3)
+PASS  keyboard-lg     first_frame_ms       13.54  (<= 50)
+PASS  keyboard-lg     p90_render_ms         0.51  (< 3)  20 frames
+PASS  keyboard-lg     p90_window_ms         0.57  (< 4)  worst single window
+PASS  keyboard-lg     dropped                  0  (<= 0)
+PASS  keyboard-lg     burst_over20             0  (<= 0)
+PASS  keyboard-lg     rss_growth_mb         0.00  (<= 1.01)  400 -> 400 pages over 1 cycles
+PASS  keyboard-lg     switches_restored   keyboard  (as found)
+PASS  keyboard-lg     log_errors               0  (== 0)
+PASS  keyboard-lg     compositor_pid       29254  (== 29254)
+VERDICT FAIL
+ssh retry Key-exchange timed out waiting for key negotiation
+Exception (client): Key-exchange timed out waiting for key negotiation
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/dist-packages/paramiko/transport.py", line 2099, in run
+    self._channel_handler_table[ptype](chan, m)
+  File "/usr/local/lib/python3.11/dist-packages/paramiko/channel.py", line 1185, in _handle_close
+    self.transport._send_user_message(m)
+  File "/usr/local/lib/python3.11/dist-packages/paramiko/transport.py", line 1831, in _send_user_message
+    raise SSHException(
+paramiko.ssh_exception.SSHException: Key-exchange timed out waiting for key negotiation
+
+capture start: no compositor thread to take kernel stacks of
+capture start: no compositor thread to take kernel stacks of
+
+GATE wake (frames): measured tick p50 0.02 p99 0.04 max 0.77 ms (n 102913); flip p50 0.02 p99 0.05 max 0.34 ms (n 35102); input p50 0.02 p99 0.04 max 0.18 ms (n 5270); tick waited on a busy loop p50 0.07 p99 0.90 max 1.68 ms (n 570)
+
+GATE mem: measured rss 69428 KiB, locked 615396 KiB, swapped 0 KiB, malloc mmapped blocks 0; lock: locked what is touched (MCL_CURRENT|MCL_FUTURE|MCL_ONFAULT) in 4.9 ms; VmRSS 17 MiB, MemAvailable 925 MiB, RLIMIT_MEMLOCK 64 KiB, CAP_IPC_LOCK yes; the process's limit on locked memory: 65536 65536 bytes ; set: MemAvailable 342 MiB, CmaFree 81 MiB, swap in use 599 MiB
+
+lpc-probe irq: 10 s, home; CPUs online 0-3; default affinity f
+(* named in IRQ_NAMES)  IRQ  rate/s  per-CPU counts over the run  affinity  name
+ 10    5576.8   25486  13039  10644   6599  0-3       GICv2 30 Level arch_timer
+ IPI0   594.9    1006   2526   1678    739  ?         Rescheduling interrupts
+*175    128.9    1289      0      0      0  0-3       GICv2 175 Edge DE2VSYNC
+*104    128.3    1283      0      0      0  0-3       GICv2 104 Edge osd_irq
+*178     74.0     740      0      0      0  0-3       GICv2 178 Level c4250000.gpu
+*128     70.0     700      0      0      0  0-3       GICv2 128 Level ohci_hcd:usb8
+*176     55.5     555      0      0      0  0-3       GICv2 176 Level c4250000.gpu
+*124     36.5     365      0      0      0  0-3       GICv2 124 Level eth0
+ 135      1.0      10      0      0      0  0-3       GICv2 135 Edge hdmicec
+ 113      1.0      10      0      0      0  0-3       GICv2 113 Edge TE_MCU[1]
+ 112      1.0      10      0      0      0  0-3       GICv2 112 Edge TE_MCU[0]
+*120      0.8       8      0      0      0  0-3       GICv2 120 Edge gfx_irq
+ IPI1     0.5       2      0      2      1  ?         Function call interrupts
+ 127      0.5       5      0      0      0  0-3       GICv2 127 Level mmc0
+ 183      0.4       4      0      0      0  0-3       GICv2 183 Level aud1
+ 201      0.3       3      0      0      0  0-3       GICv2 201 Edge ipc_vdec
+*177      0.0       0      0      0      0  0-3       GICv2 177 Level c4250000.gpu
+*174      0.0       0      0      0      0  0-3       GICv2 174 Edge DE2IPC
+*132      0.0       0      0      0      0  0-3       GICv2 132 Level xhci-hcd:usb5
+*131      0.0       0      0      0      0  0-3       GICv2 131 Level xhci-hcd:usb3
+*130      0.0       0      0      0      0  0-3       GICv2 130 Level xhci-hcd:usb1
+*129      0.0       0      0      0      0  0-3       GICv2 129 Level ehci_hcd:usb7
+softirq TIMER      2355   2661   2553    914
+softirq NET_RX      430     22     17      9
+softirq TASKLET    1291      0      0      0
+softirq SCHED      1276   1578   1571    510
+loop thread (pid 29504) ran on: CPU0 8 %, CPU2 92 %, over 100 samples
+
+lpc-probe wakeups: 10 s, home
+pid 28916: 27.5 runs/s, 0.4 % CPU: receiver-telnet[28924] 14.8, receiver[28919] 4.7, ble[28938] 3.5, mdns[28954] 1.6, profiles[28936] 1.1, openapps[28935] 0.5,
+pid 29504: 220.6 runs/s, 2.7 % CPU: ld-linux-aarch6[29504] 123.1 (2.5 % CPU), mali-cmar-backe[29533] 94.1, luna-writer[29569] 2.1, lumatv-shell-ht[29570] 1.3,
+pid 29943: 146.3 runs/s, 4.0 % CPU: qml-runner[29943] 91.6 (3.7 % CPU, 50 % preempted), mali-cmar-backe[29977] 41.8, mali-mem-purge[29972] 10.5, QNetworkAccessM[29992] 1.9,
+system: 6844 interrupts/s, 11964 context switches/s
+
+callbacks: 45246 of 59409 sent ahead of their flip, 11582 with their commit; clients commit
+
+GATE standby: requested ({
+    "returnValue": true,
+    "state": "Active Standby"
+})
+
+power state: active standby
+power state after wake: active
+GATE standby: PASS rounds: PreparePowerOff 1 PreparePowerOn 1; fallbacks 0; state active; uptime before 59700.04 now 59770.47; mounted yes; panel 394999 bytes
+
+GATE homekey: PASS unmounted after 10s; [14:30:19] fallback: hold Home 650 ms (supervisor); escaped yes; failures 0 -> 0; panel 386092 bytes; injector exit 0; sam unchanged
+
+firmware: verified 10.2.1-5202
+safety timer: this session ends by itself after 6 min if it is still live ('cutover.sh disable' cancels the timer)
+mounted; restarting the unit
+t=5s unit=active exe=/usr/bin/surface-manager compositor=24117 mounted=yes wam=active
+   14:30:48 recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+   14:30:48 recover: WebAppMgr answering after 0s (active)
+t=10s unit=active exe=/usr/bin/surface-manager compositor=24117 mounted=yes wam=active
+   14:30:48 recover: WebAppMgr answering after 0s (active)
+   14:30:49 recover: Home running under LumaTV's compositor after 0s
+t=15s unit=active exe=/usr/bin/surface-manager compositor=24117 mounted=yes wam=active
+   14:30:49 recover: Home running under LumaTV's compositor after 0s
+   14:30:59 recover: librdx reports swept; remaining 0
+t=20s unit=active exe=/usr/bin/surface-manager compositor=24117 mounted=yes wam=active
+   14:30:49 recover: Home running under LumaTV's compositor after 0s
+   14:30:59 recover: librdx reports swept; remaining 0
+t=25s unit=active exe=/usr/bin/surface-manager compositor=24117 mounted=yes wam=active
+   14:30:49 recover: Home running under LumaTV's compositor after 0s
+   14:30:59 recover: librdx reports swept; remaining 0
+t=30s unit=active exe=/usr/bin/surface-manager compositor=24117 mounted=yes wam=active
+   14:30:49 recover: Home running under LumaTV's compositor after 0s
+   14:30:59 recover: librdx reports swept; remaining 0
+enabled (session): LumaTV's compositor stays live (recovery done after 0s more); 'cutover.sh disable' restores LG's
+
+GATE live-after-homekey: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 395738 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+GATE wd-hang: PASS unmounted after 3.0 s; reason: heartbeat: two beats missed; failures 0 -> 1; escaped no; compositor left: none; panel 386139 bytes; wam active; sam unchanged; crash bundle 20261029-143118-001 (pending yes; 200 log lines, 2668 ring lines, kind problem)
+
+firmware: verified 10.2.1-5202
+safety timer: this session ends by itself after 6 min if it is still live ('cutover.sh disable' cancels the timer)
+mounted; restarting the unit
+t=5s unit=active exe=/usr/bin/surface-manager compositor=27083 mounted=yes wam=active
+   14:31:47 recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+   14:31:47 recover: WebAppMgr answering after 0s (active)
+t=10s unit=active exe=/usr/bin/surface-manager compositor=27083 mounted=yes wam=active
+   14:31:47 recover: WebAppMgr answering after 0s (active)
+   14:31:48 recover: Home running under LumaTV's compositor after 0s
+t=15s unit=active exe=/usr/bin/surface-manager compositor=27083 mounted=yes wam=active
+   14:31:48 recover: Home running under LumaTV's compositor after 0s
+   14:31:58 recover: librdx reports swept; remaining 0
+t=20s unit=active exe=/usr/bin/surface-manager compositor=27083 mounted=yes wam=active
+   14:31:48 recover: Home running under LumaTV's compositor after 0s
+   14:31:58 recover: librdx reports swept; remaining 0
+t=25s unit=active exe=/usr/bin/surface-manager compositor=27083 mounted=yes wam=active
+   14:31:48 recover: Home running under LumaTV's compositor after 0s
+   14:31:58 recover: librdx reports swept; remaining 0
+t=30s unit=active exe=/usr/bin/surface-manager compositor=27083 mounted=yes wam=active
+   14:31:48 recover: Home running under LumaTV's compositor after 0s
+   14:31:58 recover: librdx reports swept; remaining 0
+enabled (session): LumaTV's compositor stays live (recovery done after 0s more); 'cutover.sh disable' restores LG's
+
+GATE live-after-wd-hang: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 396122 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+GATE wd-crash: PASS unmounted after 0.5 s; reason: compositor killed by signal 9; failures 0 -> 1; escaped no; compositor left: none; panel 386257 bytes; wam active; sam unchanged; crash bundle 20261029-143215-001 (pending yes; 200 log lines, 2657 ring lines, kind problem)
+
+firmware: verified 10.2.1-5202
+safety timer: this session ends by itself after 6 min if it is still live ('cutover.sh disable' cancels the timer)
+mounted; restarting the unit
+t=5s unit=active exe=/usr/bin/surface-manager compositor=30043 mounted=yes wam=active
+   14:32:42 recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+   14:32:42 recover: WebAppMgr answering after 0s (active)
+t=10s unit=active exe=/usr/bin/surface-manager compositor=30043 mounted=yes wam=active
+   14:32:42 recover: WebAppMgr answering after 0s (active)
+   14:32:44 recover: Home running under LumaTV's compositor after 0s
+t=15s unit=active exe=/usr/bin/surface-manager compositor=30043 mounted=yes wam=active
+   14:32:44 recover: Home running under LumaTV's compositor after 0s
+   14:32:54 recover: librdx reports swept; remaining 0
+t=20s unit=active exe=/usr/bin/surface-manager compositor=30043 mounted=yes wam=active
+   14:32:44 recover: Home running under LumaTV's compositor after 0s
+   14:32:54 recover: librdx reports swept; remaining 0
+t=25s unit=active exe=/usr/bin/surface-manager compositor=30043 mounted=yes wam=active
+   14:32:44 recover: Home running under LumaTV's compositor after 0s
+   14:32:54 recover: librdx reports swept; remaining 0
+t=30s unit=active exe=/usr/bin/surface-manager compositor=30043 mounted=yes wam=active
+   14:32:44 recover: Home running under LumaTV's compositor after 0s
+   14:32:54 recover: librdx reports swept; remaining 0
+enabled (session): LumaTV's compositor stays live (recovery done after 0s more); 'cutover.sh disable' restores LG's
+
+GATE live-after-wd-crash: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 396271 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+GATE escape: PASS unmounted after 0s; [14:33:11] fallback: hold Home 650 ms; escaped yes; exe /usr/bin/surface-manager; recovery 16s; panel 386094 bytes; wam active; sam unchanged
+
+safety timer cancelled
+revert: active; mounted: no; exe: /usr/bin/surface-manager
+recover: surface-manager-daemon.service active after 0s; exe /usr/bin/surface-manager
+recover: compositor answering on the bus after 0s
+recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+recover: WebAppMgr answering after 0s (active)
+recover: Home on the panel after 0s (capture 61991 bytes)
+recover: librdx reports swept; remaining 0
+
+avr: left to the agent (False)
+{"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+
+home stub after the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+GATE firmware: PASS Rockhopper release 10.2.1-5202 (ponytail-paparoa); fingerprint e34f8de94ef657a4; 10 files hashed in 2 s, unreadable: none; this set's entry: verified 10.2.1-5202; a flipped digit: 5; another release: 5; an empty list: 5; the set's own list: verified 10.2.1-5202; the supervisor: no off: not enabled (exit 3)
+GATE homeheld: PASS while held: exit 0 (0 = held); after the release: exit 1 (1 = not held); injector exit 0
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 395744 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE x1: PASS 59.95 fps over 60.00 s, no compositor-attributable gap over 20 ms, pacer late unchanged, no loop pass or page-flip interval over 20 ms in the compositor's log; 1 client-only of 1 gap(s) over 20 ms (worst 20.4 ms) reported, not counted: the client woke late on callbacks that came on time; the compositor logged 1 client frame gap(s) (late commits) | RAW STRICT: FAIL 1 gap(s) over 20 ms in the client's swaps (worst 20.4 ms); the compositor logged 1 loop pass(es), client frame gap(s) or page-flip interval(s) over 20 ms during the run | RAW RESULT: [x1] RESULT frames=3597 in 60.00 s = 59.95 fps; gaps: <=17.5 ms 3552, 17.5-20 43, 20-33.5 1, >33.5 0; worst 20.4 ms; ended at monotonic 57211.720
+GATE netflix: PASS netflix windows 1 video "video":[{"context":"_0neMqtFUUuLUVm","displayOutput":{"height":1080,"width":1920,"x":0,"y":0},"fullScreen":true,"windowId":"_Window_Id_3"}] placements 11 protocol errors 0 pictureMode playing dolbyHdrCinema after filmMaker fg playing netflix now com.webos.app.home panel 19837 bytes stale-instance-closed 0 audio-port-held-before none
+GATE hdmi: PASS hdmi2 windows 1 mapped 1 bufferless commits 0 fg while open com.webos.app.hdmi2 now com.webos.app.home panel 6863 bytes audio-port-held-after-close none
+GATE apps: PASS ok: [pass 1 of 15] youtube.leanback.v4 pid 8420 foreground-in-ms 1500 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 1 of 15] com.beb.plxnative pid 9100 foreground-in-ms 1500 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 2 of 15] youtube.leanback.v4 pid 9731 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 2 of 15] com.beb.plxnative pid 10238 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 3 of 15] youtube.leanback.v4 pid 10799 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 3 of 15] com.beb.plxnative pid 11302 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 4 of 15] youtube.leanback.v4 pid 11878 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 4 of 15] com.beb.plxnative pid 12381 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 5 of 15] youtube.leanback.v4 pid 12936 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 5 of 15] com.beb.plxnative pid 13413 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 6 of 15] youtube.leanback.v4 pid 13967 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 6 of 15] com.beb.plxnative pid 14469 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 7 of 15] youtube.leanback.v4 pid 15044 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 7 of 15] com.beb.plxnative pid 15539 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 8 of 15] youtube.leanback.v4 pid 16132 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 8 of 15] com.beb.plxnative pid 16624 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 9 of 15] youtube.leanback.v4 pid 17190 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 9 of 15] com.beb.plxnative pid 17790 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 10 of 15] youtube.leanback.v4 pid 18358 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 10 of 15] com.beb.plxnative pid 18854 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 11 of 15] youtube.leanback.v4 pid 19402 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 11 of 15] com.beb.plxnative pid 19925 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 12 of 15] youtube.leanback.v4 pid 20478 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 12 of 15] com.beb.plxnative pid 21090 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 13 of 15] youtube.leanback.v4 pid 21647 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 13 of 15] com.beb.plxnative pid 22135 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 14 of 15] youtube.leanback.v4 pid 22704 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 14 of 15] com.beb.plxnative pid 23204 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 15 of 15] youtube.leanback.v4 pid 23776 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 15 of 15] com.beb.plxnative pid 24275 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; com.geforcenow.play browser-in-front yes front-6s-after-home com.webos.app.home;
+GATE keys: PASS gear-shell ok; input-shell ok; netflix-button ok; digit-tap ok; digit-hold ok; exit ok; (key table: gear=139 input=241 netflix=1037 amazon=1038; unnamed keys seen: [])
+GATE ime: PASS before: maliit-server.service inactive, MaliitServer not running; after the keyboard came up: unit active, MaliitServer pid 26611; input methods bound 1; asked for one 1 time(s); OK pressed 0 time(s); keyboard up yes (panel y 642 h 438, capture 136129 bytes); context yes; typed 3; closed by Back | an input method bound, the field's context made, the keyboard's window at the bottom, a key typed on it reached the field, the keyboard closed
+GATE shell: PASS connected ok; home-loaded ok; idle-home(10/s,3%) ok; dpad ok; quick-home ok; picker-home ok; osd ok; toast ok; quick-app ok; idle-covered(0%) ok; saver ok; (shell pid 29943, starts 1, exits 0, luna calls 411, refused 0; foreground com.webos.app.home, windows mapped: org.nphil.lumatv.shell org.nphil.lumatv.shell com.webos.app.home)
+GATE live-frames: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 394844 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE frames: FAIL home-dpad ok [first_frame 33.25 p90_render 0.1]; quick NOT burst_over20=3 [first_frame 35.0 burst_end 169.02 p90_render None]; picker NOT first_frame_ms=118.88,burst_end_ms=None,burst_over20=2 [first_frame 118.88 burst_end None p90_render None]; toast NOT first_frame_ms=75.44,burst_end_ms=None [first_frame 75.44 burst_end None p90_render None]; settings-scroll NOT burst_over20=4 [first_frame 40.92 p90_render 0.33]; apps-grid NOT burst_over20=1 [first_frame 39.13 p90_render 0.07]; home-widgets ok [first_frame 27.03 p90_render 0.06]; switcher NOT first_frame_ms=73.26 [first_frame 73.26 p90_render 0.05]; transitions-netflix NOT burst_over20=1,transitions_late_gaps=2 [p90_render 0.37]; transitions-settings NOT transitions_ran=2,transitions_late_gaps=1 [p90_render 0.05]; keyboard-luma ok [first_frame 15.91 p90_render 0.1]; keyboard-lg ok [first_frame 13.54 p90_render 0.51] (surfaces home-dpad,quick,picker,toast,settings-scroll,apps-grid,home-widgets,switcher,transitions-netflix,transitions-settings,keyboard-luma,keyboard-lg, 3 cycles; /tmp/lumatv-tv-out/frames.json)
+GATE wake (frames): measured tick p50 0.02 p99 0.04 max 0.77 ms (n 102913); flip p50 0.02 p99 0.05 max 0.34 ms (n 35102); input p50 0.02 p99 0.04 max 0.18 ms (n 5270); tick waited on a busy loop p50 0.07 p99 0.90 max 1.68 ms (n 570)
+GATE mem: measured rss 69428 KiB, locked 615396 KiB, swapped 0 KiB, malloc mmapped blocks 0; lock: locked what is touched (MCL_CURRENT|MCL_FUTURE|MCL_ONFAULT) in 4.9 ms; VmRSS 17 MiB, MemAvailable 925 MiB, RLIMIT_MEMLOCK 64 KiB, CAP_IPC_LOCK yes; the process's limit on locked memory: 65536 65536 bytes ; set: MemAvailable 342 MiB, CmaFree 81 MiB, swap in use 599 MiB
+GATE standby: requested ({
+GATE standby: PASS rounds: PreparePowerOff 1 PreparePowerOn 1; fallbacks 0; state active; uptime before 59700.04 now 59770.47; mounted yes; panel 394999 bytes
+GATE homekey: PASS unmounted after 10s; [14:30:19] fallback: hold Home 650 ms (supervisor); escaped yes; failures 0 -> 0; panel 386092 bytes; injector exit 0; sam unchanged
+GATE live-after-homekey: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 395738 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE wd-hang: PASS unmounted after 3.0 s; reason: heartbeat: two beats missed; failures 0 -> 1; escaped no; compositor left: none; panel 386139 bytes; wam active; sam unchanged; crash bundle 20261029-143118-001 (pending yes; 200 log lines, 2668 ring lines, kind problem)
+GATE live-after-wd-hang: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 396122 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE wd-crash: PASS unmounted after 0.5 s; reason: compositor killed by signal 9; failures 0 -> 1; escaped no; compositor left: none; panel 386257 bytes; wam active; sam unchanged; crash bundle 20261029-143215-001 (pending yes; 200 log lines, 2657 ring lines, kind problem)
+GATE live-after-wd-crash: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 396271 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE escape: PASS unmounted after 0s; [14:33:11] fallback: hold Home 650 ms; escaped yes; exe /usr/bin/surface-manager; recovery 16s; panel 386094 bytes; wam active; sam unchanged
+GATE: FAIL
+wrote ../lumatv-r18c-wt/docs/research/compositor/gate-2026-10-29.txt
+EXIT 1 14:34:03

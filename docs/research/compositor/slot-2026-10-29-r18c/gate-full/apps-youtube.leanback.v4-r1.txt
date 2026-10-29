@@ -1,0 +1,23 @@
+client connected: pid 8420 uid 5272 cmd '/media/cryptofs/apps/usr/palm/applications/youtube.leanback.v4/cobalt {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'youtube.leanback.v4\\',\\'parameters\\':{},\\'inte'
+luna: youtube.leanback.v4 subscribed to com.webos.surfacemanager/getLastInputType
+window 10 created on surface 224 by pid 8420
+webOS shell surface on window 10 (surface 224) by pid 8420
+window 10: appId = youtube.leanback.v4 (Card)
+window 10: title = YouTube (Card)
+window 10 mapped (Card app 'youtube.leanback.v4' title 'YouTube' size Some((1920, 1080)))
+window 8: minimized (covered by a newer card)
+window 10: fullscreen (the front card)
+window 8: exposed nothing (covered)
+window 10: exposed 1920x1080
+focus -> surface 224
+luna: foreground ['youtube.leanback.v4'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+transitions: frame 31 ms after the last in a launch (tick before 0.8 ms, this 1.0 ms, last render 0.4 ms, held ticks 1, buffers prepared 24, imported in a frame 0)
+window 8: fullscreen (the front card)
+window 8: exposed 1920x1080
+focus -> surface 106
+client disconnected: pid 8420 uid 5272 after 11970 ms (ConnectionClosed); bound ['wl_compositor', 'wl_shell', 'wl_seat', 'wl_webos_shell', 'wl_webos_foreign', 'wl_webos_input_manager', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat']; cmd '/media/cryptofs/apps/usr/palm/applications/youtube.leanback.v4/cobalt {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'youtube.leanback.v4\\',\\'parameters\\':{},\\'inte'
+luna: youtube.leanback.v4 cancelled com.webos.surfacemanager/getLastInputType
+luna: foreground ['com.webos.app.home'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+transitions: frame 21 ms after the last in a leave (tick before 1.9 ms, this 1.1 ms, last render 0.5 ms, held ticks 1, buffers prepared 26, imported in a frame 0)
+shell: can show switcher, keyboard
+shell: can show quick, picker, drawer, switcher, keyboard

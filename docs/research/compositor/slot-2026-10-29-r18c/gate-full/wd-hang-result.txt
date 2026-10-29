@@ -1,0 +1,1 @@
+unmounted after 3.0 s; reason: heartbeat: two beats missed; failures 0 -> 1; escaped no; compositor left: none; panel 386139 bytes; wam active; sam unchanged; crash bundle 20261029-143118-001 (pending yes; 200 log lines, 2668 ring lines, kind problem)

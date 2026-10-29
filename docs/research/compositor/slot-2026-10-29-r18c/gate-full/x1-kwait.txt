@@ -1,0 +1,16 @@
+loop thread 29504 (the loop marker in the trace)
+client 30978: its next GPU job began after the compositor's draw (where its frame callbacks go out) p50 0.87 ms, p90 1.05, p99 1.8, p99.9 3.71, max 4.33 (3602 answered, the flips in that stretch at most 16.71 ms apart); 7 over 3 ms, 1 would leave its jobs more than 20 ms apart
+  +4.824 s: draw 57156.154, the client's next GPU job began 4.33 ms after it (the frame before: 0.89 ms), its jobs 20.3 ms apart; CPU 2 also ran captureservice-5484 x4, <...>-5484 x1
+  +8.844 s: draw 57160.175, the client's next GPU job began 3.12 ms after it (the frame before: 0.77 ms), its jobs 19.1 ms apart; CPU 2 also ran grep-31075 x4, <...>-31075 x2
+  +22.674 s: draw 57174.004, the client's next GPU job began 3.71 ms after it (the frame before: 0.94 ms), its jobs 19.5 ms apart; CPU 2 also ran python3-6928 x2, chromecast-prov-4954 x1, <...>-6928 x1
+  +30.781 s: draw 57182.111, the client's next GPU job began 3.97 ms after it (the frame before: 0.82 ms), its jobs 19.8 ms apart; CPU 2 also ran ls-hubd-1865 x6
+  +46.845 s: draw 57198.175, the client's next GPU job began 3.85 ms after it (the frame before: 1.0 ms), its jobs 19.6 ms apart; CPU 2 also ran pool-4880 x2, eplmanager-4715 x1, tSrTraining-19586 x1
+  +51.133 s: draw 57202.463, the client's next GPU job began 3.7 ms after it (the frame before: 1.16 ms), its jobs 19.1 ms apart; CPU 1 ran nothing else the trace shows
+  +54.469 s: draw 57205.799, the client's next GPU job began 3.71 ms after it (the frame before: 0.97 ms), its jobs 19.4 ms apart; CPU 1 also ran ls-hubd-1865 x3, memchute-1923 x1, rcu_preempt-10 x1
+x1 log: 1 gap(s) over 20 ms (20.4 ms); the trace implies 1 (20.3 ms)
+  gap 20.4 ms before swap 266 = +4.824 s: draw 57156.154, the client's next GPU job began 4.33 ms after it (the frame before: 0.89 ms), its jobs 20.3 ms apart; CPU 2 also ran captureservice-5484 x4, <...>-5484 x1
+x1 raw swaps: 3597 frames in 60.0 s; 1 gap(s) over 20 ms, worst 20.4 ms
+x1 attribution: COMPLETE
+x1 gaps: 1 over 20 ms in the client's log; compositor-attributable 0 (late flips 0), client-only 1, unexplained 0
+  +4.824 s, jobs 20.3 ms apart (reaction 4.33 ms): client (callbacks on time, the loop never waited)
+kernel waits: no late frame | client 30978 reaction after the compositor's draw: p50 0.87 ms, p99.9 3.71, max 4.33; 7 over 3 ms, 1 frame gap(s) over 20 ms implied; answered 3602, flips at most 16.71 ms apart | x1 gaps compositor-attributable 0, client-only 1, unexplained 0 | x1 attribution COMPLETE

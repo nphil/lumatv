@@ -1,0 +1,11 @@
+loop thread 21331 (the loop marker in the trace)
+client 22848: its next GPU job began after the compositor's draw (where its frame callbacks go out) p50 0.8 ms, p90 0.98, p99 1.43, p99.9 2.88, max 4.72 (3602 answered, the flips in that stretch at most 16.7 ms apart); 3 over 3 ms, 1 would leave its jobs more than 20 ms apart
+  +6.482 s: draw 60383.984, the client's next GPU job began 4.72 ms after it (the frame before: 0.81 ms), its jobs 20.6 ms apart; CPU 2 also ran captureservice-5484 x3, python3-6928 x1
+  +27.651 s: draw 60405.152, the client's next GPU job began 3.97 ms after it (the frame before: 0.92 ms), its jobs 19.7 ms apart; CPU 2 ran nothing else the trace shows
+  +50.053 s: draw 60427.554, the client's next GPU job began 3.43 ms after it (the frame before: 0.98 ms), its jobs 19.2 ms apart; CPU 1 also ran ls-hubd-1865 x3, tCMState-2802 x1
+x1 log: 0 gap(s) over 20 ms; the trace implies 1 (20.6 ms)
+x1 raw swaps: 3597 frames in 60.0 s; 0 gap(s) over 20 ms, worst 19.4 ms
+x1 attribution: INCONCLUSIVE; trace implies 1 gaps but raw log counted 0
+x1 gaps: 0 over 20 ms in the client's log; compositor-attributable 0 (late flips 0), client-only 0, unexplained 0
+  +6.482 s, jobs 20.6 ms apart (reaction 4.72 ms): client (callbacks on time, the loop never waited)
+kernel waits: no late frame | client 22848 reaction after the compositor's draw: p50 0.8 ms, p99.9 2.88, max 4.72; 3 over 3 ms, 1 frame gap(s) over 20 ms implied; answered 3602, flips at most 16.7 ms apart | x1 gaps compositor-attributable 0, client-only 0, unexplained 0 | x1 attribution INCONCLUSIVE
