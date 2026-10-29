@@ -8,6 +8,9 @@
 #   declutter.sh list                     groups and what each costs
 #   declutter.sh boot                     boot hook entry: re-applies what is on, detached
 #   declutter.sh early                    early boot step: masks the units and binds the stubs of the groups that are on, before LG starts them
+#   declutter.sh updateblock early|off|status
+#                                         early: lay the Homebrew Channel's LG update block (the four update servers to loopback in
+#                                         /etc/hosts) from the early boot step, before the network; off: take that layer off
 #   declutter.sh persist on|off           run `boot` from Homebrew Channel's init.d
 #   declutter.sh measure [seconds]        memory, resident sizes and CPU over an interval
 #   declutter.sh verify                   power state, foreground app, sound output, key services
@@ -677,9 +680,9 @@ verb_status() {
     out="$out${out:+,}\"$g\":{\"on\":$on,\"inTarget\":\"$(state_json "$g")\"}"
   done
   prof=$(cat "$PROFILE_FILE" 2>/dev/null)
-  printf '{"ok":true,"profile":"%s","groups":{%s},"persist":%s,"skip":%s,"early":%s,"memAvailableKb":%s}\n' \
+  printf '{"ok":true,"profile":"%s","groups":{%s},"persist":%s,"skip":%s,"early":%s,"updateBlock":%s,"memAvailableKb":%s}\n' \
     "${prof:-off}" "$out" "$([ -L "$INIT_LINK" ] && echo true || echo false)" \
-    "$([ -f "$SKIP" ] && echo true || echo false)" "$(early_json)" \
+    "$([ -f "$SKIP" ] && echo true || echo false)" "$(early_json)" "$(ub_json)" \
     "$(sed -n 's/^MemAvailable: *\([0-9]*\).*/\1/p' /proc/meminfo)"
 }
 
@@ -952,6 +955,176 @@ early_settle() {
   log_line "early: the set did not settle; the next boot skips the early pass once"
 }
 
+# ---------------------------------------------------------------- LG's system-update block, early
+
+# The Homebrew Channel blocks LG's update servers with a flag file and, from its startup.sh (a service that came up at 27 s on
+# the cold boot of 2026-10-29), a bind-mounted /etc/hosts that maps four names to loopback. The network came up at 22.7 s on that
+# boot, the update service asked LG's server then and posted its "update now?" alert at 31.8 s: the check ran before the
+# block existed. This step lays the same mapping from the early pass, 13 to 14 s in, 9 s before the network, on the same
+# terms as the channel: only while its flag exists (the switch in Settings > Support > Update), only while LumaTV's persist is on
+# and no skip file is there. The table is the table in force plus the four names, in a file of its own in tmpfs (/tmp/hosts is the
+# channel's: its `cp /etc/hosts /tmp/hosts` would meet the same file); the channel's later bind copies it, so the names are
+# there twice and the mapping never lapses. The firmware's updater, its alert and the staged image are not touched: nothing is
+# stubbed or killed, the check just cannot reach LG. A watch re-lays the mapping if another tool's table replaced it.
+UB_FLAG=$ROOT/var/luna/preferences/webosbrew_block_updates
+UB_HOSTS=$ROOT/etc/hosts
+UB_NAMES="snu.lge.com su-dev.lge.com su.lge.com su-ssl.lge.com"
+UB_TABLE=$ROOT/tmp/$BRAND_SHORT_ID-update-hosts
+UB_RECORD=$DCS/updateblock.json
+UB_STEP="${DECLUTTER_UB_STEP:-5}"
+UB_ROUNDS=24
+UB_NOTE_ROUND=8
+
+ub_flag() { [ -e "$UB_FLAG" ]; }
+
+# How many of the four names a hosts file maps to loopback: the rule of `lumatv updateblock status` and the helper's
+# updateblock topic (a commented line does not count).
+ub_mapped() {
+  ub_n=0
+  for ub_h in $UB_NAMES; do
+    if awk -v h="$ub_h" '{ sub(/#.*/, "") } ($1 == "127.0.0.1" || $1 == "::1") { for (i = 2; i <= NF; i++) if (tolower($i) == h) f = 1 } END { exit f ? 0 : 1 }' "$1" 2>/dev/null; then
+      ub_n=$((ub_n + 1))
+    fi
+  done
+  echo "$ub_n"
+}
+
+ub_persist_on() {
+  grep -q '"persist"[[:space:]]*:[[:space:]]*true' "$ROOT$BRAND_DATA_DIR/config.json" 2>/dev/null
+}
+
+# The table in force with the mapping after it, written to the file this step binds.
+ub_build() {
+  ub_tmp=$UB_TABLE.new
+  {
+    cat "$UB_HOSTS"
+    printf '\n# %s: LG system-update servers to loopback, laid by the early boot step while the Homebrew Channel flag is set\n' "$BRAND_DISPLAY_NAME"
+    printf '127.0.0.1\t%s\n::1\t%s\n' "$UB_NAMES" "$UB_NAMES"
+  } > "$ub_tmp" && chmod 644 "$ub_tmp" && mv "$ub_tmp" "$UB_TABLE"
+}
+
+# Whether this step's table is the one /etc/hosts shows now (the top of the mounts there).
+ub_ours() {
+  [ -f "$UB_TABLE" ] && is_bound "$UB_HOSTS" \
+    && [ "$(ls -i "$UB_TABLE" 2>/dev/null | awk '{print $1}')" = "$(ls -i "$UB_HOSTS" 2>/dev/null | awk '{print $1}')" ]
+}
+
+# Lays the mapping. Prints nothing, returns 0 when /etc/hosts maps the four names afterwards.
+ub_lay() {
+  [ -s "$UB_HOSTS" ] || { ub_err="the hosts table is empty or unreadable"; return 1; }
+  mkdir -p "$ROOT/tmp" 2>/dev/null
+  mut ub_build || { ub_err="the table could not be written"; return 1; }
+  mut mount --bind "$UB_TABLE" "$UB_HOSTS" || { ub_err="the bind mount failed"; return 1; }
+  [ "$DRY" = 1 ] && return 0
+  [ "$(ub_mapped "$UB_HOSTS")" = 4 ] || { ub_err="the names are not mapped after the bind"; return 1; }
+  return 0
+}
+
+# $1 ran (true|false), $2 why not or "", $3 state: bound, already, or what stopped it.
+ub_write() {
+  [ "$DRY" = 1 ] && return 0
+  mkdir -p "$DCS" 2>/dev/null
+  printf '{"ran":%s,"why":"%s","state":"%s","bootId":"%s","startSec":%s,"uptimeSec":%s}\n' \
+    "$1" "$(json_escape "$2")" "$3" "$(boot_id)" "${UB_T0:-null}" "$(boot_clock)" > "$UB_RECORD.tmp" 2>/dev/null && mv "$UB_RECORD.tmp" "$UB_RECORD"
+}
+
+# The update block as `status` shows it: the flag, the names /etc/hosts maps now, whether this step's table is the one
+# showing, whether the step will run at the next boot, and the record of its last pass (thisBoot: it is this boot's).
+ub_json() {
+  uj_last=null uj_this=false
+  if [ -s "$UB_RECORD" ]; then
+    uj_last=$(cat "$UB_RECORD")
+    [ "$(printf '%s' "$uj_last" | sed -n 's/.*"bootId":"\([^"]*\)".*/\1/p')" = "$(boot_id)" ] && uj_this=true
+  fi
+  uj_hook=false
+  ub_persist_on && [ ! -f "$SKIP" ] && early_hook_ready && uj_hook=true
+  printf '{"flag":%s,"mapped":%s,"ours":%s,"hook":%s,"thisBoot":%s,"last":%s}' \
+    "$(ub_flag && echo true || echo false)" "$(ub_mapped "$UB_HOSTS")" "$(ub_ours && echo true || echo false)" "$uj_hook" "$uj_this" "$uj_last"
+}
+
+# Started by autostart.sh's worker. One JSON line, always exit 0; the record is for `status`.
+verb_updateblock_early() {
+  UB_T0=$(boot_clock)
+  ub_why="" ub_err="" ub_state=""
+  if ! ub_persist_on; then ub_why="persist is off"
+  elif [ -f "$SKIP" ]; then ub_why="the skip file is present"
+  elif ! ub_flag; then ub_why="the Homebrew Channel's update block is off"
+  fi
+  if [ -z "$ub_why" ]; then
+    if [ "$(ub_mapped "$UB_HOSTS")" = 4 ]; then
+      ub_state=already
+    elif ub_lay; then
+      ub_state=bound
+    else
+      ub_why=$ub_err ub_state=failed
+    fi
+  fi
+  if [ -n "$ub_why" ]; then
+    ub_write false "$ub_why" "${ub_state:-skipped}"
+    [ "$DRY" = 1 ] || log_line "updateblock: not laid at uptime $(boot_clock) s ($ub_why)"
+    printf '{"ok":true,"laid":false,"why":"%s"}\n' "$(json_escape "$ub_why")"
+    exit 0
+  fi
+  ub_write true "" "$ub_state"
+  [ "$DRY" = 1 ] || log_line "updateblock: $ub_state, the four update names map to loopback at uptime $(boot_clock) s (started at $UB_T0 s)"
+  if [ "$DRY" != 1 ]; then
+    setsid "$SELF" --updateblock-watch </dev/null >/dev/null 2>&1 &
+  fi
+  printf '{"ok":true,"laid":true,"state":"%s","startSec":%s,"uptimeSec":%s}\n' "$ub_state" "$UB_T0" "$(boot_clock)"
+  exit 0
+}
+
+# For two minutes after the pass: if another tool's table has replaced this one (its file does not carry the names), lays the
+# mapping on top of what is there now; stops when the channel's switch has been turned off or the state directory is gone. Once,
+# at about 40 s, a read of the update service's status goes in the log: the image size it knows (the alert came at 31.8 s on the
+# cold boot), so a boot's record shows whether the service had heard of an update; the status is only read.
+ub_watch() {
+  uw_r=0
+  while [ "$uw_r" -lt "$UB_ROUNDS" ]; do
+    sleep "$UB_STEP"
+    [ -d "$DCS" ] || return 0
+    ub_flag || { log_line "updateblock: the channel's switch is off, the watch ends"; return 0; }
+    if [ "$(ub_mapped "$UB_HOSTS")" != 4 ]; then
+      ub_err=""
+      if ub_lay; then
+        log_line "updateblock: another table replaced the mapping; laid again at uptime $(boot_clock) s"
+      else
+        log_line "updateblock: the mapping is gone and could not be laid again ($ub_err)"
+      fi
+    fi
+    uw_r=$((uw_r + 1))
+    if [ "$uw_r" -eq "$UB_NOTE_ROUND" ]; then
+      uw_out=$(timeout 10 luna-send -n 1 luna://com.webos.service.update/getStatus '{}' 2>/dev/null | tr -d '\n ')
+      uw_size=$(printf '%s' "$uw_out" | sed -n 's/.*"nsuImageSize":\([0-9]*\).*/\1/p')
+      log_line "updateblock: at uptime $(boot_clock) s the update service knows an image of ${uw_size:-unknown} bytes"
+    fi
+  done
+  return 0
+}
+
+# Takes this step's layer off: unmounts the table when it is the one showing, deletes its file and record. When another table
+# is on top (the channel's, laid at 27 s) that one stays, and this layer goes at the next boot.
+verb_updateblock_off() {
+  ub_gone=false
+  if ub_ours; then
+    mut umount "$UB_HOSTS" 2>/dev/null
+    ub_ours || ub_gone=true
+    [ "$DRY" = 1 ] && ub_gone=true
+  fi
+  # An unlinked file stays alive under a mount of it.
+  mut rm -f "$UB_TABLE" "$UB_RECORD"
+  printf '{"ok":true,"removed":%s}\n' "$ub_gone"
+}
+
+verb_updateblock() {
+  case "${1:-status}" in
+    early) verb_updateblock_early ;;
+    off) verb_updateblock_off ;;
+    status) printf '{"ok":true,"updateBlock":%s}\n' "$(ub_json)" ;;
+    *) emit_error "usage: updateblock early|off|status"; return 1 ;;
+  esac
+}
+
 verb_boot() {
   [ -s "$ACTIVE" ] || exit 0
   [ -f "$SKIP" ] && { log_line "boot: skip file present, nothing done"; exit 0; }
@@ -998,8 +1171,10 @@ case "$VERB" in
   early)    verb_early ;;
   --boot-worker) boot_worker ;;
   --early-settle) early_settle ;;
+  updateblock) verb_updateblock "${1:-status}" ;;
+  --updateblock-watch) ub_watch ;;
   persist)  verb_persist "$@" ;;
   measure)  verb_measure "$@" ;;
   verify)   verb_verify ;;
-  *)        emit_error "usage: declutter.sh on|off|status|list|boot|early|persist|measure|verify"; exit 1 ;;
+  *)        emit_error "usage: declutter.sh on|off|status|list|boot|early|updateblock|persist|measure|verify"; exit 1 ;;
 esac

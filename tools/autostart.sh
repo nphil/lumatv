@@ -84,6 +84,12 @@ if [ "$1" = "--worker" ]; then
   echo $$ > "$WORKER_MARK" 2>/dev/null
   # Tells apply it is on the boot path: never force the panel on.
   LUMA_BOOT=1; export LUMA_BOOT
+  # LG's system-update block (the Homebrew Channel's flag and its four /etc/hosts names) goes first of all, in parallel with the
+  # rest: the channel's own startup.sh binds it at +27 s, the network is up at +22.7 s and the update check runs then, which raised
+  # LG's "update now?" alert on the cold boot of 2026-10-29. Only while the channel's flag is set; it does nothing otherwise.
+  if [ -x "$APPDIR/tools/declutter.sh" ]; then
+    ( ub=$(timeout 20 "$APPDIR/tools/declutter.sh" updateblock early </dev/null 2>&1); log "update block early: $(echo "$ub" | tr -d '\n' | cut -c1-300)" ) &
+  fi
   # LG's ad, recognition and upload pieces start from +11.8 s (the push client), +16.9 s (pbs) and +18.7 s (the content miner), and
   # the network comes up at about +17.5 s: declutter's early step goes first and in parallel with everything below, so that nothing
   # waits for the Home stub or the compositor. Bounded; it only reports that no group is on when none is.

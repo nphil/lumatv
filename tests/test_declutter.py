@@ -261,15 +261,21 @@ class Autoinstall(unittest.TestCase):
 
 
 
+# A bind over a hosts table swaps the file for the bound one (a hard link, so that its inode shows, as `ls -i` shows a mount's
+# file on the set) and keeps the table it covered; the umount puts that one back.
 MOUNT = r'''#!/bin/sh
 echo "mount $*" >> "$FAKE_CALLS"
-[ "$1" = --bind ] && printf 'stub %s tmpfs rw 0 0\n' "$3" >> "$DECLUTTER_MOUNTS"
+if [ "$1" = --bind ]; then
+  printf 'stub %s tmpfs rw 0 0\n' "$3" >> "$DECLUTTER_MOUNTS"
+  case "$3" in */etc/hosts) [ -e "$3.orig" ] || cp "$3" "$3.orig"; ln -f "$2" "$3" ;; esac
+fi
 exit 0
 '''
 UMOUNT = r'''#!/bin/sh
 echo "umount $*" >> "$FAKE_CALLS"
 grep -vF " $1 " "$DECLUTTER_MOUNTS" > "$DECLUTTER_MOUNTS.new"
 mv "$DECLUTTER_MOUNTS.new" "$DECLUTTER_MOUNTS"
+case "$1" in */etc/hosts) [ -e "$1.orig" ] && mv -f "$1.orig" "$1" ;; esac
 exit 0
 '''
 SYSTEMCTL_EARLY = r'''#!/bin/sh
@@ -530,6 +536,185 @@ class Early(unittest.TestCase):
         self.assertEqual((early["thisBoot"], early["last"]["ran"]), (False, True), "the old record stays, and says it is not this boot's")
         self.dc("early")
         self.assertTrue(self.status()["early"]["thisBoot"])
+
+
+HOSTS = "127.0.0.1\tlocalhost.localdomain\tlocalhost\n::1\tlocalhost ip6-localhost ip6-loopback\n\n# LG Ad & Telemetry Blackhole (lg-webos-mqtt)\n0.0.0.0\tad.lgsmartad.com\n"
+CHANNEL = ("\n# This file is dynamically regenerated on boot by webosbrew startup script\n"
+           "127.0.0.1 snu.lge.com su-dev.lge.com su.lge.com su-ssl.lge.com\n::1 snu.lge.com su-dev.lge.com su.lge.com su-ssl.lge.com\n")
+UPDATE_NAMES = ("snu.lge.com", "su-dev.lge.com", "su.lge.com", "su-ssl.lge.com")
+
+
+class UpdateBlock(unittest.TestCase):
+    """`declutter.sh updateblock early`: the Homebrew Channel's update block, laid by the early boot step.
+
+    On the cold boot of 2026-10-29 the network came up at 22.7 s, the update service asked LG's server then and posted
+    its alert at 31.8 s, and the channel's own startup.sh bound the hosts at 27 s. The same made-up set and stand-in mount as
+    `Early`; the stand-in swaps the hosts file for the bound one and the umount puts the covered one back.
+    """
+
+    setUp = Early.setUp
+    dc = Early.dc
+    status = Early.status
+    d = Early.d
+    reboot = Early.reboot
+    mounted = Early.mounted
+    calls = Early.calls
+    masked = Early.masked
+
+    def prepare(self, flag=True, persist=True, hosts=HOSTS):
+        write(self.fake.path("etc/hosts"), hosts)
+        if flag:
+            write(self.fake.path("var/luna/preferences/webosbrew_block_updates"), "")
+        if persist:
+            write(self.fake.path("var/lib/lumatv/config.json"), '{"persist": true}\n')
+
+    def hosts(self):
+        with open(self.fake.path("etc/hosts")) as f:
+            return f.read()
+
+    def mapped(self):
+        return [n for n in UPDATE_NAMES if any(l.split()[:1] in (["127.0.0.1"], ["::1"]) and n in l.split() for l in self.hosts().split("\n"))]
+
+    def block(self):
+        return read_json(self.fake.path("var/lib/lumatv/declutter/updateblock.json"))
+
+    def test_the_four_names_are_mapped_from_the_early_step_and_the_rest_of_the_table_is_kept(self):
+        self.prepare()
+        self.assertEqual(self.mapped(), [])
+        rc, out, err = self.dc("updateblock", "early")
+        self.assertEqual(rc, 0, err)
+        res = json.loads(out)
+        self.assertEqual((res["ok"], res["laid"], res["state"]), (True, True, "bound"))
+        self.assertEqual(sorted(self.mapped()), sorted(UPDATE_NAMES))
+        self.assertTrue(self.hosts().startswith(HOSTS), "the table in force stays as it was, the names come after it")
+        self.assertEqual(self.mounted(), [self.fake.path("etc/hosts")])
+        self.assertTrue(os.path.exists(self.fake.path("tmp/lumatv-update-hosts")), "a file of its own: /tmp/hosts is the channel's")
+        rec = self.block()
+        self.assertEqual((rec["ran"], rec["state"], rec["why"]), (True, "bound", ""))
+        self.assertLessEqual(rec["startSec"], rec["uptimeSec"])
+        self.assertTrue(any(c.startswith("setsid") and c.endswith("--updateblock-watch") for c in self.calls()), "the watch was not started")
+        with open(self.d("log")) as f:
+            self.assertRegex(f.read(), r"updateblock: bound, the four update names map to loopback at uptime [\d.]+ s")
+        ub = self.status()["updateBlock"]
+        self.assertEqual((ub["flag"], ub["mapped"], ub["ours"], ub["thisBoot"]), (True, 4, True, True))
+
+    def test_it_runs_without_any_declutter_group_and_before_the_group_step(self):
+        self.prepare()
+        self.assertFalse(os.path.exists(self.d("active")))
+        self.assertTrue(json.loads(self.dc("updateblock", "early")[1])["laid"])
+        with open(os.path.join(REPO, "tools", "autostart.sh"), encoding="utf-8") as f:
+            text = f.read()
+        call = 'timeout 20 "$APPDIR/tools/declutter.sh" updateblock early'
+        order = [text.index(s) for s in ("--worker", call, 'timeout 20 "$APPDIR/tools/declutter.sh" early', '"$CLI" homestub-boot')]
+        self.assertEqual(order, sorted(order), "the update block comes before everything else the worker does")
+        line = [l for l in text.split("\n") if call in l][0]
+        self.assertTrue(line.rstrip().endswith(") &") and "</dev/null" in line, "it must not hold the worker back")
+
+    def test_it_is_left_alone_and_says_why_when_the_boot_is_not_to_have_it(self):
+        cases = [("persist is off", dict(persist=False), None),
+                 ("the Homebrew Channel's update block is off", dict(flag=False), None),
+                 ("the skip file is present", dict(), lambda: write(self.d("skip"), ""))]
+        for why, kw, extra in cases:
+            with self.subTest(why):
+                self.setUp()
+                self.prepare(**kw)
+                if extra:
+                    extra()
+                rc, out, err = self.dc("updateblock", "early")
+                self.assertEqual(rc, 0, err)
+                self.assertEqual(json.loads(out), {"ok": True, "laid": False, "why": why})
+                self.assertEqual((self.mapped(), self.mounted()), ([], []))
+                self.assertEqual(self.block()["why"], why)
+                self.assertFalse(any(c.startswith("setsid") for c in self.calls()))
+
+    def test_a_table_that_already_maps_the_names_is_not_bound_over(self):
+        self.prepare(hosts=HOSTS + CHANNEL)
+        res = json.loads(self.dc("updateblock", "early")[1])
+        self.assertEqual((res["laid"], res["state"]), (True, "already"))
+        self.assertEqual((self.hosts(), self.mounted()), (HOSTS + CHANNEL, []))
+
+    def test_a_second_pass_binds_nothing_twice_and_an_empty_table_is_never_bound(self):
+        self.prepare()
+        self.dc("updateblock", "early")
+        before = self.calls()
+        self.assertEqual(json.loads(self.dc("updateblock", "early")[1])["state"], "already")
+        self.assertEqual([c for c in self.calls()[len(before):] if c.startswith("mount")], [])
+        self.setUp()
+        self.prepare(hosts="")
+        res = json.loads(self.dc("updateblock", "early")[1])
+        self.assertEqual((res["laid"], res["why"]), (False, "the hosts table is empty or unreadable"))
+        self.assertEqual(self.mounted(), [])
+
+    def test_after_a_reboot_the_old_record_is_not_this_boots(self):
+        self.prepare()
+        self.dc("updateblock", "early")
+        self.reboot()
+        ub = self.status()["updateBlock"]
+        self.assertEqual((ub["thisBoot"], ub["last"]["state"]), (False, "bound"))
+
+    def test_the_watch_lays_the_names_again_when_another_table_replaced_them_and_ends_when_the_switch_goes(self):
+        self.prepare()
+        self.dc("updateblock", "early")
+        os.remove(self.fake.path("etc/hosts"))                         # another tool's table, without the names
+        write(self.fake.path("etc/hosts"), HOSTS + "0.0.0.0\tsmartclip.com\n")
+        self.assertEqual(self.mapped(), [])
+        rc, out, err = self.dc("--updateblock-watch", DECLUTTER_UB_STEP="0.02")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(sorted(self.mapped()), sorted(UPDATE_NAMES))
+        self.assertIn("smartclip.com", self.hosts(), "the other table's lines stay")
+        with open(self.d("log")) as f:
+            log = f.read()
+        self.assertRegex(log, r"updateblock: another table replaced the mapping; laid again at uptime [\d.]+ s")
+        self.assertRegex(log, r"updateblock: at uptime [\d.]+ s the update service knows an image of \w+ bytes")
+        os.remove(self.fake.path("var/luna/preferences/webosbrew_block_updates"))
+        os.remove(self.fake.path("etc/hosts"))
+        write(self.fake.path("etc/hosts"), HOSTS)
+        self.dc("--updateblock-watch", DECLUTTER_UB_STEP="0.02")
+        self.assertEqual(self.mapped(), [], "the switch is off: nothing is laid")
+        with open(self.d("log")) as f:
+            self.assertIn("the channel's switch is off, the watch ends", f.read())
+
+    def test_off_takes_the_layer_off_when_it_is_the_one_showing(self):
+        self.prepare()
+        self.dc("updateblock", "early")
+        res = json.loads(self.dc("updateblock", "off")[1])
+        self.assertEqual((res["ok"], res["removed"]), (True, True))
+        self.assertEqual((self.hosts(), self.mounted()), (HOSTS, []))
+        self.assertFalse(os.path.exists(self.fake.path("tmp/lumatv-update-hosts")))
+        self.assertFalse(os.path.exists(self.d("updateblock.json")))
+
+    def test_off_leaves_a_table_that_lies_over_it(self):
+        self.prepare()
+        self.dc("updateblock", "early")
+        os.remove(self.fake.path("etc/hosts"))                         # the channel's bind at 27 s, over this one
+        write(self.fake.path("etc/hosts"), HOSTS + CHANNEL)
+        res = json.loads(self.dc("updateblock", "off")[1])
+        self.assertEqual(res["removed"], False)
+        self.assertEqual(self.hosts(), HOSTS + CHANNEL)
+        self.assertEqual([c for c in self.calls() if c.startswith("umount")], [])
+        self.assertFalse(os.path.exists(self.fake.path("tmp/lumatv-update-hosts")))
+
+    def test_a_dry_run_changes_nothing(self):
+        self.prepare()
+        rc, out, err = self.fake.run("updateblock", "early", dry=True, env={"DECLUTTER_MOUNTS": self.mounts, "FAKE_CALLS": self.log})
+        self.assertEqual(rc, 0, err)
+        self.assertEqual((self.hosts(), self.mounted()), (HOSTS, []))
+        self.assertFalse(os.path.exists(self.d("updateblock.json")))
+        self.assertIn("mount --bind", err)
+
+    def test_iot_client_is_stubbed_by_the_push_group_before_ls_hubd_can_launch_it(self):
+        path = "/usr/palm/services/com.webos.service.iotclient/iot-client"
+        self.assertIn(path, self.stubs["push"])
+        write(self.d("active"), "push\n")
+        link = self.fake.path("var/lib/webosbrew/init.d/52-declutter")
+        os.makedirs(os.path.dirname(link), exist_ok=True)
+        os.symlink(TOOL, link)
+        res = json.loads(self.dc("early")[1])
+        self.assertTrue(res["early"])
+        self.assertIn(self.fake.path(path.lstrip("/")), self.mounted())
+        self.assertIn(path, read_json(self.d("early.json"))["stubbed"])
+        self.assertIn("iot-client.service", self.masked())
+
 
 
 if __name__ == "__main__":
