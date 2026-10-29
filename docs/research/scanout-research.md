@@ -1,13 +1,26 @@
 # Client-buffer scan-out on the LG C4
 
-The best first route is to keep the working Mali driver buffer protocol, retain the dma-buf descriptor it already receives, and promote a compatible, sole full-screen buffer to the primary plane. The first target should be LumaTV's own shell, whose allocation and format can be changed without changing every LG app. This could remove the measured 4.1 ms compositor GPU pass per eligible frame. It is not yet a demonstrated end-to-end path with the current driver-served buffers.
+A compatible, sole, full-screen client buffer can go to the primary plane without the compositor's copy of it, 4.1 ms of GPU a frame on the set. That is built behind a switch that is off by default (`--scanout direct`, `ctl scanout`; § Built). What the display does with such a buffer is not yet shown on the set; § TV check list says how it will be. Whenever a buffer is refused, or anything else needs the screen, the frame is composed by the GL path as before.
 
-Two constraints matter more than the missing EGL export extension:
+Three facts decide the design:
 
-- A descriptor alone is insufficient. The display driver needs contiguous device-addressed memory and a layout its OSD decoder really understands. LG app buffers normally use a different AFBC layout from LG's own output buffers.
-- **The advertised overlay is not a proven second graphics layer.** LG's O22 source maps fb0 and fb1 to the same OSD hardware and enforces mutually exclusive ownership. A shell-over-app plan must initially fall back to GPU composition, not assume that DRM plane 34 can blend over plane 32.
+- A descriptor alone is insufficient. The display driver needs contiguous device-addressed memory and a layout its OSD decoder really understands. LG app buffers normally use a different AFBC layout (`…151`) from the OSD's own (`…62`).
+- **There is one graphics layer.** The installed driver ignores OSD1 while OSD0 is on, in its own log (§ Layers). A window over a directly scanned one is composed, and a side panel on OSD1 is not an option.
+- LG's normal app path is itself GPU-composed in the measured cases. There is no evidence that its 32-bit compositor generally scans app buffers out directly. Its decoded video and HDMI bypass the GPU through separate display-engine windows; those windows are not generic RGBA graphics planes.
 
-LG's normal app path is itself GPU-composed in the measured cases. There is no evidence that its 32-bit compositor generally scans app buffers out directly. Its decoded video and HDMI bypass the GPU through separate display-engine windows; those windows are not generic RGBA graphics planes.
+## Hardware layers
+
+| Layer | Handles | What it is | With OSD0 on | For LumaTV |
+|---|---|---|---|---|
+| Video windows w0, w1 | `/proc/lg/de/win0..3/status`; the O22 source has `NUM_WIN_MAX 2`, so win2 and win3 are proc slots; no DRM plane | Display-engine windows fed by AVD, ADC, HDMI, VDEC or JPEG, PIP and PBP capable. Opaque pictures with no alpha, scaled by the engine, below every OSD. All four read zero when idle | Yes, below it | Video, HDMI, the video wallpaper. Never a layer over the UI |
+| OSD0 | `fb0` `osd0_fb`; DRM primary plane 32; `viewctrl` OSD 0 (on) | The UI layer: 1920×1080 (virtual 1920×2160, two pages), scaled ×2 to 3840×2160 by the engine. AB24/XB24 linear or AFBC `…62`; per-pixel alpha and a constant alpha (`glalpha`, 0xff). About 157,000 flips since boot | n/a | The scan-out target |
+| OSD1 | `fb1` `osd1_fb`; DRM overlay plane 34; `viewctrl` OSD 1 (off) | At most 512×2160 in the 3840×2160 panel space, a 256×1080 strip at UI scale (768×2160 buffer, 512×2160 shown); AFBC only; no constant alpha. The E-Streamer image in source. 24 flips at 23:25 UTC, 28 at 00:15 | **No.** The driver ignores its enable while OSD0 is on | Nothing |
+| OSD2 | `fb2` `osd2_fb`; no DRM plane | 128×4, sysfs `state` 2 (the others 0), absent from `osdinfo`; the source has no hardware behind it | n/a | Nothing |
+| OSD3, cursor | `fb3` `crsr_fb`; DRM cursor plane 36; `viewctrl` OSD 3 | 256×256 ARGB (the DRM plane caps it at 128×128), positioned in 1920×1080 and scaled ×2. Its own enable; 0 flips | Yes | A sprite up to 128×128: the pointer, a mute mark |
+| 2D blitter | `/dev/lg/gfx0` (a `gfx1` node has no proc entry); `/proc/lg/gfx` | Memory-to-memory ARGB blend, scale, colour key and raster ops over physically addressed surfaces. 79 MB pool, 50 MB allocated. Open in pqcontroller, eplmanager and captureservice | Not a layer | Not for per-frame composition (§ Layers) |
+| Mali G52 | `/dev/mali0` | Composes every frame today: one 1080p pass of 4.1 ms | Not a layer | The fallback |
+
+Bottom to top the engine stacks the video windows, one OSD (OSD0 or OSD1, never both) and the cursor [INFERENCE for the cursor: its place was not read]. `pathctrl` (`bosd`, `sosd`) sets whether OSD and video share one path or have two; it is a mode of the whole screen, not a layer. Any write to `viewctrl`, `glalpha` or `pathctrl` is a display change and belongs in a test round (E3, E10, E11).
 
 ## Evidence key
 
@@ -24,6 +37,8 @@ LG's normal app path is itself GPU-composed in the measured cases. There is no e
 | E7 | `compositor/crates/lumatv-compositor/src/{buffer.rs,scene.rs,kms/mod.rs,kms/frames.rs,kms/assign.rs,render/egl.rs,render/gl.rs,server/mali.rs,server/dmabuf.rs,shell.rs}` and `compositor/shell/Shell.qml`. |
 | E8 | `SRC` root `/data/home/lgtv/research/lgsrc/k/soc_GO/linux-and-kdriver_paluma-5/`; paths and decisive functions below. The source is local research material, not copied into this repository. |
 | E9 | Read-only TV observations on 2026-10-28 (first snapshot at 22:26:56 UTC), and offline ELF inspection, summarized below. No display change, app launch, install, restart, key press or buffer-import experiment was performed for this research. |
+| E10 | [Read-only TV reads, 2026-10-28 23:21 to 2026-10-29 00:37 UTC](arch/scanout-live-01.txt): `osdinfo` of fb0, fb1 and fb3, `viewctrl`, `pathctrl`, `glalpha`, the DRM and fb holders, the kernel log's `fb(1)` lines, the DE windows, `/proc/lg/gfx`, the fb names and sizes. No write, no app launch, no display change. |
+| E11 | `SRC` lines used by § Layers: `core/fbdev/fbdev_proc.c:471–483` (`viewctrl` calls `FBDEV_SetOSDEnable`), `core/fbdev/fbdev_drm.c:509–545` (`osd_drm_enable` forces OSD1 off when OSD0 turns on), `core/drm/drm.c:495–542` (the plane update), `chip/o22/fbdev/fbdev_drv_o22.c:236–274` (fb1's image by panel class), `include/gfx_kapi.h`, `core/gfx/gfx_drv.c:1340–1385` (a blend under the device lock, with retries), `chip/o22/gfx/gfx_drv_o22.c:170–225` (O22's configuration), `core/afbc_sw/afbc_sw_drv.h`. |
 
 ## 1. How LG gets an app to the screen
 
@@ -70,7 +85,7 @@ The running set's recorded properties are authoritative for the exposed API. [E3
 | Object | Exposed formats and layout | Actual constraint |
 |---|---|---|
 | Primary 32 | AR24/XR24/AB24/XB24 linear; AB24/XB24 AFBC `0x0800000000000062` | One CRTC, 38; connector 31. Appropriate target for a sole compatible app or shell buffer. |
-| Overlay 34 | The same four formats and two modifier entries | Maps to virtual fb1/graphic1. O22 source aliases its hardware to fb0; simultaneous blending is not established. |
+| Overlay 34 | The same four formats and two modifier entries | Maps to virtual fb1/OSD1. The installed driver ignores its enable while the primary is on (§ Layers): no simultaneous blending. |
 | Cursor 36 | AR24; cursor caps 128×128 | A cursor path, with driver-side scaling/copy behavior. Not a full-screen shell plane. |
 
 The graphics planes expose `IN_FENCE_FD`; the CRTC exposes `OUT_FENCE_PTR`. Atomic operation and PRIME import/export are supported (`PRIME=3`), asynchronous flips are not. There is no configurable `zpos`, plane-wide `alpha`, rotation or pixel-blend-mode property in the recorded property set. The debug state’s `normalized-zpos=0` is not proof of independent layers or blending order.
@@ -79,10 +94,10 @@ The important correction to older repository comments is in O22 source:
 
 - `kdriver/core/drm/drm.c:901–905` maps primary to graphic0 and overlay to graphic1; `core/fbdev/fbdev_drm.c:164–166` maps these to fb0 and fb1.
 - `chip/o22/fbdev/fbdev_hw_o22_cmn.c:196–225`, `FBDEV_O22_CMN_GetHWXListEx`, maps fb0 to physical OSD 0 (or 0+1 for 4K splitting), and fb1 to the same hardware. The source explicitly describes fb1 as a virtual special-purpose/E-Streamer interface.
-- The same file at `3383–3386` ignores a fb1 request while fb0 is enabled, and at `3583–3590` changes `hw_osd0_owner` between the two. `fbdev_hw_o22.h:541` names the shared ownership explicitly.
+- The same file at `3383–3386` ignores a fb1 request while fb0 is enabled, and at `3583–3590` changes `hw_osd0_owner` between the two. `fbdev_hw_o22.h:541` names the shared ownership explicitly. The installed build logs the same rule (its line 3401, § Layers).
 - `core/fbdev/fbdev_drm.c:528–534` disables fb1 when graphic0 is enabled. This is not merely a missing alpha property that userspace can fix.
 
-Consequently the generic primary-under-overlay assumption in `kms/{mod,assign,frames}.rs` must not be used as C4 hardware evidence. The source is newer than the installed image, so a narrowly gated hardware proof could overturn this conclusion for the installed driver. Until then, the safe design treats plane 34 as an alternative output, not an extra RGBA layer.
+Consequently the generic primary-under-overlay assumption in `kms/{mod,assign,frames}.rs` is not C4 hardware evidence. The installed driver's own log agrees with the source (§ Layers), so the design treats plane 34 as an alternative output, not an extra RGBA layer, and the `split` path stays a diagnostic of the `ui` feature.
 
 ### Layout and allocation are separate gates
 
@@ -123,29 +138,27 @@ LG's compositor advertises standard linux-dmabuf, but that does not establish th
 
 ## 3. Routes for LumaTV, benefit and smallest proof
 
-### A. Keep driver compatibility; observe its incoming dma-buf — first choice
+### A. Keep driver compatibility; observe its incoming dma-buf — built
 
-[INFERENCE] Add a libwayland protocol logger on LumaTV's own server display. For `mali_buffer_sharing.create_buffer`, duplicate the received descriptor inside the callback and retain dimensions, stride, fourcc and modifier in metadata associated with that client's new buffer ID. The driver must continue to create, own and import the resource. A buffer-destruction listener and plane-retirement tracking own the metadata's lifetime; replacing the driver's resource implementation or user data is not required.
+A libwayland protocol logger on LumaTV's own server display (`scanout::tap`) duplicates the descriptor of every `mali_buffer_sharing.create_buffer` and keeps its dimensions, stride, fourcc and modifier with the client's new buffer id (`scanout::meta`); a destruction listener and the plane's hold tracking own its lifetime. The driver still creates, owns and imports the resource, and the GL fallback treats it as `External` and imports through `EGL_WAYLAND_BUFFER_WL`, so the import path that works with native LG clients is unchanged and the incompatible own-global cutover is not repeated. The tap goes on only when the switch or the off-screen proof asks for it. [E4, E5]
 
-The GL fallback must continue to treat the resource as `External` and import through `EGL_WAYLAND_BUFFER_WL`. `kms::direct_fb` can consult the separate metadata when considering a buffer for scan-out. This preserves the import path that works with native LG clients instead of repeating the incompatible own-global cutover. The protocol includes the descriptor already; EGL export is not intrinsically required. Metadata is captured once per allocation, not reconstructed or allocated every frame.
-
-**Unblocks:** descriptor access without changing client protocol behavior. It does not fix scattered memory, incompatible AFBC, orientation or fences. First use an off-screen 256×256 LG-driver client on a private socket, record metadata only, then attempt PRIME import without a modeset. Compare the driver's `alloc_device` event with the own-global event as part of the compatibility question; its exact current value has not been captured here.
+**Unblocks:** descriptor access without changing client protocol behavior. It does not fix scattered memory, incompatible AFBC, orientation or fences: the eligibility rules (§ Built) refuse those, and the off-screen proof (§ TV check list a) says which of them the set's buffers have, with the driver's `alloc_device` event beside them.
 
 **Benefit:** up to the whole measured 4.1 ms compositor pass when a buffer passes all scan-out gates. No saving when the buffer remains ineligible. Cost: a narrow server-side metadata/lifetime addition plus an import-only probe, not a renderer rewrite. [INFERENCE]
 
-### B. Make the controlled shell produce a compatible buffer
+### B. Make the controlled shell produce a compatible buffer — plumbing built, layout unproven
 
-Use A with shell-only contiguous allocations and an explicitly verified layout, initially linear AB24/XB24. Candidates are the exporter's contiguous request or the existing DRM-dumb/CMA policy, applied only to LumaTV's client. `WAYLAND_AFBC=0` is a candidate client hint, not a demonstrated result: a private-socket run must confirm a zero modifier and correct pixels before it is relied on. If the driver cannot select the layout, a shell-specific GBM/client integration that supplies explicit buffers is the larger, deterministic option.
+Use A with shell-only contiguous allocations and an explicitly verified layout, initially linear AB24/XB24. Candidates are the exporter's contiguous request or the existing DRM-dumb/CMA policy, applied only to LumaTV's client. `WAYLAND_AFBC=0` is a candidate client hint, not a demonstrated result: `--scanout-shell-env WAYLAND_AFBC=0` (or `ctl scanout shell-env`) puts it in the shell client's environment, and the proof's `afbc0` variant asks the same of the 256×256 client. Whether the library returns a zero modifier, and whether lg1k imports the buffer, is what § TV check list (a) answers before the hint is relied on. If the driver cannot select the layout, a shell-specific GBM/client integration that supplies explicit buffers is the larger, deterministic option.
 
 The existing 32-bit Qt shell need not be rewritten merely to retain the protocol's descriptor. Altering how it allocates or exports its render targets is additional client integration work. A 32-bit allocator shim would need the real b46 request ABI; replacing every application's allocator is neither necessary nor proposed.
 
 **Benefit:** remove the 4.1 ms compositor copy when Home, its in-window Settings or its panels are one eligible window. `Shell.qml` already puts those Home panels in `homeWin`; the separate `sysWin` carries app overlays, volume, alerts and other system content. A visible second window still requires composition under the current hardware constraint. A video-wallpaper hole, transition, cursor or dimming effect can also make Home ineligible. Linear rendering may increase the client's own bandwidth/GPU cost, so net saving must be measured rather than assumed to be exactly 4.1 ms. Cost: controlled allocation/layout integration and about 25 MB for three linear 1080p client buffers, with CMA pressure and allocation stalls as the principal risks. [INFERENCE]
 
-**Smallest proof:** first a 256×256 off-screen linear/contiguous client whose duplicate descriptor imports into `lg1k`; then a full-screen color/edge pattern in an approved display slot, followed by an ordinary Home slide. No all-app cutover is needed to answer the allocation/layout question.
+**Smallest proof:** § TV check list: (a) the off-screen client's descriptor imported into `lg1k`, (b) the full-screen pattern in an approved display slot, (d) an ordinary Home slide. No all-app cutover is needed to answer the allocation/layout question.
 
 ### C. Standard linux-dmabuf or `wl_drm` PRIME
 
-LumaTV already implements linux-dmabuf v3 and retains its descriptors in `DmabufBuffer`. A controlled client sending a compatible buffer can already reach the KMS direct path. The next implementation change is to offer/choose the scan-out intersection where appropriate: the current `server/dmabuf.rs` list contains linear and client AFBC `…151`, not the OSD's `…62`. GPU-import formats and direct-display formats must remain distinct.
+LumaTV already implements linux-dmabuf v3 and retains its descriptors in `DmabufBuffer`. A controlled client sending a compatible buffer can already reach the KMS direct path, through the same `scanout::decide` as the driver's buffers. The next implementation change is to offer/choose the scan-out intersection where appropriate: the current `server/dmabuf.rs` list contains linear and client AFBC `…151`, not the OSD's `…62`. GPU-import formats and direct-display formats must remain distinct.
 
 **Unblocks:** explicit metadata and an ordinary ownership model. For unmodified LG clients, the missing piece is a demonstrated client backend/selection setting, not another registry global. A new client buffer integration or a proven blob selection option costs client-specific work and an app-compatibility run. Legacy `wl_drm` buffer names also do not avoid this; only its PRIME request supplies a descriptor.
 
@@ -167,66 +180,194 @@ The repository already retains the descriptor with `--buffers own`; the WAM tria
 
 ### F. Shell hardware overlay, cursor and display-engine alternatives
 
-A full-screen shell over a directly scanned app would be attractive, but source says primary/overlay share the hardware. `TEST_ONLY` success cannot alone prove simultaneous visibility: the driver can accept an atomic state and silently ignore one fb1 enable. Correct alpha, independent content and repeated updates on both layers must be seen together before enabling this path.
+A full-screen shell over a directly scanned app would be attractive, but primary and overlay are one OSD. The installed driver accepts the fb1 enable and silently ignores it while fb0 is on (§ Layers), which is also why `TEST_ONLY` success could never prove simultaneous visibility.
 
-**Unblock:** evidence that this installed O22 driver has an independent graphics mix path despite the published aliasing, or a different real display-engine graphics route. Exposing such a route would be display-driver work, including mixer routing, format handling, fences, power transitions and recovery—not an extra KMS property. Changing the alias alone cannot create a layer. This is a separate, human-approved infrastructure/display experiment, not part of the first userspace proof.
+**Unblock:** nothing in user space. A second graphics layer would be display-driver work (mixer routing, format handling, fences, power transitions and recovery), not an extra KMS property, and a separate human-approved display experiment; changing the alias alone cannot create a layer. § TV check list (c) is the one write that could contradict the log.
 
 The 128×128 AR24 cursor path could cover a genuinely cursor-sized sprite, not the full shell or volume layout. Feeding the video/JPEG windows requires LG's media/resource APIs and the supported media formats; an arbitrary RGBA app would need conversion or encoding, adding work and latency instead of automatically removing it. Those windows remain useful for existing video/HDMI and the video wallpaper. No protected-video extraction or allocator bypass is proposed.
 
-**Practical fallback:** direct primary while a sole app/shell is eligible; compose when a system layer, pointer, effect or video hole needs it; return to direct when it leaves. This retains the saving for ordinary full-screen frames without betting the UI on plane 34. [INFERENCE]
+**Built behaviour:** direct primary while a sole app or shell window is eligible; composed in the frame a system layer, pointer, effect or video hole needs the screen; direct again the frame it leaves. This keeps the saving for ordinary full-screen frames without betting the UI on plane 34.
 
-## Required correctness and performance boundaries
+## Boundaries the build keeps
 
-- `scene::Plan::sole_fullscreen` already rejects multiple items, non-opaque content, dimming, transitions, gain maps, video holes, cursor and switcher backdrop. Preserve these exclusions initially. A transparent video-punch-through graphics path would need a separate proof, not relaxed opacity checks.
-- `kms::direct_fb` currently only accepts `BufferKindRef::Dmabuf`, and does not call `primary_takes` before `ADDFB2`. Add a real layout/plane eligibility decision for retained driver metadata; permissive `ADDFB2` is not that decision. Refusals must leave the existing GL path usable.
-- `kms/frames.rs`'s split renders the optional built-in Rust UI, not an arbitrary second Wayland `ShellSystem` item. Promoting the QML system window would need its own scene/assignment change even on hardware with a real second layer.
-- An acquire fence must cover the client's rendering; the compositor's GL fence cannot substitute when GL did not sample that buffer. X2 found explicit-sync protocol tables in the client driver, but E2 did not advertise that global. Verify implicit dma-buf synchronization or implement and test the negotiated explicit route. Hold the scan-out buffer until a later flip has replaced it; only then release it for client reuse. Otherwise the display can read a buffer as the client overwrites it, causing tearing.
-- Keep GL composition for rejected layouts, imports, effects and capture. The current capture path deliberately sets `compose_only`; direct output is not in the last composed page. An unknown/protected allocation is ineligible, not a request to CPU-map it. On failed promotion, preserve the last valid frame and clean up descriptors/GEM/framebuffers at the correct retirement point.
+- `Plan::sole_candidate` takes one picture that covers the output exactly and names what refuses it: more than one picture, the app switcher's backdrop, a transition, the pointer, a video hole or a window expecting one, a dim, the box dim's map, a window that is not the screen, a buffer transform or scale. Opacity is the surface's declaration or the buffer's format. A translucent frame, or one with a video hole, is not relaxed: it needs its own proof (§ Not built).
+- A real eligibility decision (`scanout::decide`) stands in for `ADDFB2`'s permissiveness, and every refusal leaves the GL path to draw the same frame.
+- `kms/frames.rs`'s split renders the optional built-in Rust UI, not an arbitrary second Wayland `ShellSystem` item; it is unchanged and belongs to the `ui` feature.
+- An acquire fence covers the client's rendering: the GL side samples one texel of the buffer, and the commit carries that job's fence as `IN_FENCE_FD`, so the job waits on the dma-buf's implicit fences as composition does. X2 found explicit-sync protocol tables in the client driver, but the global is not advertised, so nothing is negotiated. A buffer the display reads, or will once a frame already drawn is committed, is not released to its client until a later flip has replaced it, and its framebuffer is destroyed only after.
+- A screenshot or recording composes every frame (`compose_only`), since the capture reads the last composed page. A protected allocation is ineligible, and none is ever mapped by the CPU.
 
 Removing 4.1 ms saves approximately 246 ms of GPU work per second at 60 eligible frames/s, or 492 ms/s at 120—24.6 or 49.2 percentage points of one GPU's time at the measured clock. That is not a wattage measurement. In round 15's approximately 8.2 ms pair of shell/compositor jobs, removing one is about a 50% reduction in that pair, leaving room inside 8.33 ms; app drawing, client-side layout changes and display deadlines remain. [E6; arithmetic]
 
-## Next proof: exact commands and limits
+## Layers
 
-### Read-only first; safe without taking the screen
+What the installed set does with the other hardware layers. Reads are E10; the source is the newer O22 tree (E8, E11), so a claim from source alone is marked.
 
-These commands read the already-known nodes through the existing helper. No broad `/proc/lg` walk, secret/environment dump, output capture, register write or DRM commit is involved. A snapshot with inactive planes is not a failed active scan-out test; an active snapshot must wait for normal owner use, not wake the TV for this research.
+### OSD1 beside OSD0: not on this firmware
 
-```sh
-python3 /tmp/lt/tv.py 'date -u; cat /sys/kernel/debug/dri/0/clients; cat /sys/kernel/debug/dri/0/state; cat /sys/kernel/debug/dri/0/framebuffer' 15
-python3 /tmp/lt/tv.py 'cat /proc/lg/fbdev/fb0/fbmem; cat /proc/lg/fbdev/fb1/fbmem; cat /proc/lg/fbdev/viewctrl; cat /proc/lg/fbdev/pathctrl' 15
-python3 /tmp/lt/tv.py 'cat /proc/lg/de/win0/status; cat /proc/lg/de/win1/status; cat /proc/lg/de/win2/status; cat /proc/lg/de/win3/status' 15
-python3 /tmp/lt/tv.py 'cat /sys/kernel/debug/dma_buf/bufinfo' 15
+The installed fbdev answered its one request for OSD1 while OSD0 was on in the kernel log (uptime 34175 s, E10):
+
+```
+FBDEV_O22_CMN_WriteOSDHeader 3282: fb(1) is not osd0 owner, ignore
+osd_drm_enable 537: id=1 (fb1), view=0 -> 1
+FBDEV_O22_CMN_SetOSDEnable 3401: ++ fb(1) on ignore. fb(0) is already enabled
 ```
 
-Compare app-buffer sizes/exporters and display attachments with the OSD layout; do not infer contiguity from exporter name. E9 records the result of these reads in this session. Another passive snapshot can answer whether LG ever attaches a client-sized `…151` buffer to the display during ordinary use, but cannot by itself prove its pixel correctness.
+- **Both at once?** No. The enable is accepted and ignored while fb0 is on, and `viewctrl` read `OSD 1 : 0` at every read from 22:26 to 00:37 UTC. In source the reverse holds as well: enabling OSD0 forces OSD1 off, "called by driver due to UI ON" (`fbdev_drm.c:526–535`), and `echo 1 1 > viewctrl` calls the same `FBDEV_SetOSDEnable` as the DRM path (`fbdev_proc.c:471–483`), so the proc knob is not a way around it. [INFERENCE for the proc path: source newer than the image; § TV check list c is the write that tests it.]
+- **Order and blend?** None between OSD1 and OSD0: they exclude each other.
+- **Which DRM object?** Overlay plane 34. `lg1k_plane_atomic_update` flips the framebuffer and then enables the OSD (`core/drm/drm.c:495–542`, SRC), so every commit that gives plane 34 a framebuffer counts a fb1 flip, shown or ignored.
+- **Who made the 23 flips?** The log cannot say: the enable runs in a kernel worker, not in the process that committed. LumaTV's compositor only ever sets plane 34's `FB_ID` and `CRTC_ID` to 0 (without the `ui` feature it never gives the plane a picture), so LG's surface-manager is the likelier source: the buffer fb1 flipped, 768×2160 at 0x89234000, is its secondary output, and its address did not change between 22:26 and 23:21 [INFERENCE]. The counter read 1 at 22:26, 23 at 23:21, 24 at 23:25 (one enable in the log, at a start of the DRM master) and 28 at 00:15. None was ever shown.
+- **Whose coordinates?** The 3840×2160 panel's. A `max_yres` of 2160 cannot exist in the 1080-high UI space; the source sizes fb1 at 13.3% of the panel's width for the 8K, 4K and FHD classes (1024×4320, 512×2160, 256×1080; `fbdev_drv_o22.c:236–274`), and OSD0 is the layer scaled ×2. 512 panel pixels are 256 UI pixels.
 
-### Smallest off-screen experiment; separate approval and instrumentation required
+### A side panel on OSD1: the design, and why it is not built
 
-This is the next implementation/proof, not an experiment run by this research. First add the narrow metadata logger and import-only diagnostic described in A; the current binary does not provide those results. Stage that build only under an approved plan. The existing flags below isolate it from LG's socket, input and display; the server command creates a private directory/socket and allocates GPU memory, so it is **not** part of the read-only permission.
+The design asked for: Home or an app stays on OSD0 and goes direct, while the quick panel, the input picker or the volume bar slides on OSD1 as a window of its own, so that no frame of the slide is composed.
 
-Server, in one terminal:
+It cannot work on this set, and each of three reasons is enough:
+
+1. The driver ignores OSD1 while OSD0 is on (above).
+2. The strip is narrower than any panel. At most 256 UI pixels fit in OSD1; the quick panel's sheet is 648 wide (`QuickPanel.qml`), the notification drawer's 640 (`Drawer.qml`), the input picker is a 1792-wide sheet along the bottom and the volume bar a centred pill at least 440 wide (`VolumeOsd.qml`). The quick panel and the picker also dim the whole picture with a scrim, which a strip cannot do.
+3. The panels are not windows of their own. Over Home they are layers of Home's window, and over an app they share the system window with everything else (`Shell.qml`). One over the other would be a new window class in the shell and a plane assignment in the compositor (the `split` path of `kms/frames.rs` takes the built-in Rust UI, not a Wayland window).
+
+What the same goal costs instead, in the order to try:
+
+1. Panels over Home need nothing: Home is one window while they slide, so with the switch on the slide frames are direct (§ TV check list d). This is the case round 15's 120 Hz numbers describe (quick `burst_over20` 14, picker 10).
+2. The system window over an app is two pictures, so the frames it shows are composed. The compositor draws it only while it shows something (`live`), so the app is direct the rest of the time, and a composed frame draws only the tiles that changed.
+3. The cursor plane is the one layer with its own enable beside OSD0: a sprite up to 128×128. It fits a mute mark or a small level mark, not a panel, and the pointer shares it.
+4. A video wallpaper moves the biggest still part of Home to a video window below the OSD (round 15; § Video windows).
+
+If § TV check list (c) shows OSD1 on beside OSD0 after all, the design is: the panel as a shell window of its own, at most 256×1080 UI pixels with no full-screen scrim, an AFBC `…62` buffer (OSD1 takes no other) that the scene assigns to plane 34 in place of the system window's item, the primary staying direct, and one atomic commit carrying both planes with an `IN_FENCE_FD` each. The stacking order and the blend would be the next measurements. That is a design for a result the log rules out; none of it is built.
+
+### The 2D blitter
+
+`/dev/lg/gfx0` is LG's memory-to-memory engine (E11). Its ioctls allocate a surface (in its own pool, or a preallocated buffer given by physical address), blend up to three source ports into a destination (premultiply, constant alpha, colour key, mask, raster ops, colour-space conversion, a hardware scaler: `b_hw_scaler` is true on O22) and wait for a sync. It does ARGB8888; an AFBC ARGB8888 enum (`0xafbc`) exists, but the hardware census lists no AFBC support and nothing shows that the blend block reads it.
+
+As a function it is what a panel over Home needs: an alpha blend or fill of a 648×1080 sheet into a 1080p ARGB target. As a way to replace the Mali pass it fails on five counts:
+
+- Memory. Surfaces are physical: its own pool (79 MB, 50 MB allocated and 28 MB free at the read) or a buffer given by physical address. A client's dma-buf has no physical address in user space, so Home's and an app's buffers cannot be sources without a driver-side step. [INFERENCE: root could read page frames from `/proc/self/pagemap`; not proposed.]
+- Sharing. A blend runs under one device-wide lock (`gfx_dev_mtx`) with a 500 ms sync timeout and two retries (`gfx_drv.c:1340–1385`; `/proc/lg/gfx/synctm` read the same). The device is open in pqcontroller (panel care), eplmanager and captureservice, two fds each, so a stuck blend on a frame path would stall them. O22 sets all four stuck-workarounds to 0 (`gfx_drv_o22.c:205–225`), so the engine's soft reset (`gfx_drv.c:1380`) is not part of a normal blend.
+- Synchrony. The blend returns after its sync and exports no fence for the display's `IN_FENCE_FD`, so the compositor's thread would wait for each frame.
+- Cost is unmeasured and cannot be measured read-only. A full-screen 1080p blend moves about 25 MB (two reads and a write of 8.3 MB), 1.5 GB/s at 60 frames a second and twice that at 120, against the Mali pass of 4.1 ms. [arithmetic]
+- `afbc_sw` (`/proc/lg/afbc_sw`) is not an alternative: it is the kernel's CPU fill, same-layout copy and top-bottom to side-by-side transform of AFBC memory, with no layout conversion and no blend (`afbc_sw_drv.h`).
+
+Verdict: not for per-frame composition. One-off work, composing a still into a buffer, stays possible, and any timing needs the owner's approval since the block is shared with panel care and capture.
+
+### Video windows
+
+A video window carries what its source delivers: decoded video, HDMI or a JPEG still, as opaque pixels with no alpha, below every OSD. That makes it a background and nothing else: a wallpaper, still or looping (the round-15 video wallpaper), under an OSD0 that has holes where it shows. It cannot carry a panel or any RGBA content over the UI, and a source outside LG's media paths needs its services, conversion or encoding, which adds cost instead of removing it. For this build the use is the wallpaper: a Home whose wallpaper is a window has holes, and holes are refused as `video`, so Home with a still wallpaper can go direct and Home with a video wallpaper is composed (§ Not built).
+
+## Built
+
+All of it is in `compositor/crates/lumatv-compositor/` (`src/scanout/`, and `src/kms/mod.rs`, `src/scene.rs`, `src/server/state.rs`, `src/control.rs`, `src/config.rs`, `src/main.rs` where it meets the rest) with the tooling named below.
+
+**Switch.** Off unless asked. `--scanout off|direct` at start (direct needs `--renderer kms`) and `ctl scanout off|direct` while running; the screen is redrawn through the new path in the next frame. `--scanout-acquire sample|none` and `--scanout-trust 0xMOD` are for experiments: `none` trusts the commit to come after the client's last pixel (a frame may be shown half drawn), `trust` tries a modifier the plane does not list. `ctl scanout shell-env NAME=VALUE...|none` (or `--scanout-shell-env`) sets the shell client's extra environment for its next start (`ctl shell restart`). `lumatv-sm` passes no `--scanout`: a production start is off until the check list says otherwise.
+
+**Report.** `ctl status` carries `scanout` and `ctl scanout` prints it: `mode`, `frames` (direct, composed), `refused` (frames per reason key), `transitions`, `last` (the state, the buffer or the reason), `lastBufferRefusal`, `held` (shown, pending, waiting), `framebuffers` (made, waiting, imports, importFailures), `descriptors` (retained, created, destroyed, `allocDevices`), `tap`, `probe`, `shellEnv`. The journal (`ctl journal`) gets a line for each change: `scanout: direct (1920x1080 XB24 linear as fb N)`, `scanout: composed (reason)`, `scanout: refused: reason` once per distinct reason about a buffer, `scanout: fb N for buffer ID (...)` for each import, `scanout: refused: fb N at commit: ...`, `scanout: <mode> (switch)`.
+
+**Decision.** `Scanout::choose` runs once a frame and the first rule that fails is the counted reason:
+
+| Rule | Keys | Meaning |
+|---|---|---|
+| Switch, capture | `off`, `capture` | the switch is off; a screenshot or recording is armed |
+| Plan | `empty`, `layers`, `switcher`, `transition`, `cursor`, `video`, `dimmed`, `gain`, `geometry`, `transformed` | not one picture covering the output with nothing over or under it, as `Plan::sole_candidate` says |
+| Mode | `no-mode` | the session's first commit, which carries the mode, has not gone out: that frame is composed |
+| Source | `shm`, `no-descriptor` | not a dma-buf; a driver buffer the tap did not see |
+| Shape | `protected`, `upside-down`, `planes`, `offset` | one plane, offset 0, rows top-down |
+| Layout | `format`, `modifier` | AR24, XR24, AB24 or XB24 with a (format, modifier) that the plane's `IN_FORMATS` lists: linear, or AFBC `…62` for AB24 and XB24. The client's `…151` is refused here: the driver would accept it and decode it as `…62` |
+| Size | `size`, `stride`, `too-small` | the mode's size, pitch `width × 4`, a dma-buf of at least `stride × height` bytes |
+| Opacity | `translucent` | the surface declared the picture opaque, or the format has no alpha (XR24, XB24) |
+| Display | `import`, `addfb`, `test-commit` | PRIME import into lg1k (a buffer of scattered pages fails with `EINVAL`: that is the contiguity test), `ADDFB2`, and the driver's own test-only atomic commit of the plane with the framebuffer |
+| Acquire | `acquire` | the GL side could not make the barrier |
+
+A refusal about the buffer is remembered for it, so the import is not tried every frame; a refusal about the screen is not. A commit the driver refuses after all remembers the buffer as `test-commit`, and the next frame is composed. `ui-layer` counts a frame the plane could have taken that the UI's own layer (the `ui` feature) composed anyway.
+
+**Descriptors.** `scanout::tap` installs libwayland's protocol logger on the C display and reads `mali_buffer_sharing.create_buffer` (duplicating the fd), `wl_buffer.destroy` and the `alloc_device` event; `scanout::meta` keeps each by (client, buffer id) until the buffer or the client goes. The driver still creates and owns the resource. The tap exists where the compositor runs on libwayland's C server (the set's build); `tap` in the report says `off`, `active` or why it is unavailable. It goes on at start with `--scanout direct` or `--scanout-probe`, or at `ctl scanout direct`; a buffer made before that has no descriptor and is composed (`no-descriptor`) until its client makes new ones.
+
+**Off-screen proof.** `--scanout-probe` records every driver-served buffer's descriptor and PRIME-imports it into lg1k from a descriptor opened without master, then closes the handle: no framebuffer, no mode set, no commit. `compositor/tools/tv-scanout-proof.sh` (`/tmp/lumatv/scanout-proof.sh` in the bundle, run by `tv-first-light.sh scanout-proof`) runs it with LG's 32-bit libmali client `x2cli` at 256×256 on a private socket under `/tmp/scanout-proof`: variants `stock`, `afbc0` and `big` (§ TV check list a).
+
+**Tooling.** `x2cli --pattern --opaque` (the check list's picture, and an alpha-free window); `tv-kms-window.sh` cases `b` (LG's client in its own layout, `--scanout-trust`) and `c` (route A: the driver-served pattern, direct and then composed), run by `tv-first-light.sh kms [CASE...]`; `gate.sh scanout [direct|off|read]` and `tv_gate.py --scanout direct`.
+
+**Tests.** Unit tests in `scanout` (each rule with its reason, the experiment flag, descriptors, the tap's signature and arguments, the probe's records); `tests/scanout.rs` under real clients and `State::tick` with a fake plane (a taken buffer is direct and a refused one composed in the same frame, every rule on a real buffer, a system layer composing the frame it appears in and direct again when it leaves, the shell's Home as a linear buffer, what else the plan has, no release and no framebuffer destruction while the display reads a buffer, a display refusal at import and at commit, the barrier, the mode not set, `ctl scanout`); `tests/tap.rs` against the host's real libwayland-server; `tests/scanout_gl.rs` on Mesa (the barrier leaves the renderer as it found it); the gate's and the cutover's Python tests.
+
+## Not built
+
+- Translucent and video-hole frames. The OSD blends alpha over video natively, so a Home with a video wallpaper could go direct as AB24 with its holes; the build refuses them (`translucent`, `video`) until the opaque case is shown right on the panel.
+- Explicit sync. The acquire is a GL sample on implicit fences (§ Risks).
+- A second graphics layer, the OSD1 panel, composition on the blitter (§ Layers).
+- A persistent switch. `lumatv-sm` starts the compositor without `--scanout`.
+
+## TV check list
+
+Order: (a) needs no display time; (b) needs a maintenance window, (c)'s write a free set and (d) a gate session, each only with the owner's go. (a) and (b) decide whether (d) is worth a session. Commands run from the repository root with the set at its usual address; `python3 docs/research/arch/tv.py 'CMD'` runs `CMD` on it.
+
+### a. Off-screen proof: no display change
 
 ```sh
-python3 /tmp/lt/tv.py 'mkdir -p /tmp/scanout-proof; D=/tmp/lumatv; L=$D/lib; XDG_RUNTIME_DIR=/tmp/scanout-proof $L/ld-linux-aarch64.so.1 --library-path $L $D/bin/lumatv-compositor --runtime-dir /tmp/scanout-proof --socket wayland-scanout-proof --renderer gl --driver $L/libmali-bifrost-g52-g24p0-wayland-gbm.so --buffers driver --shell off --seconds 12 --log-protocol' 20
+sh compositor/tools/tv-first-light.sh deploy        # builds the bundle and copies it to /tmp/lumatv, the test copy: not while a round uses it
+sh compositor/tools/tv-first-light.sh scanout-proof stock afbc0 big
+python3 docs/research/arch/tv.py 'cat /tmp/scanout-proof/out/*/verdict.txt'
+python3 docs/research/arch/tv.py 'sh /tmp/lumatv/scanout-proof.sh clean'
 ```
 
-After that socket exists, client in another terminal:
+It touches a private directory and socket under `/tmp/scanout-proof`, a GL context on `/dev/mali0` for a few seconds a variant, and a PRIME import into `/dev/dri/card0` opened without master; `big` holds three 9 MB buffers of CMA. LG's compositor, the screen and the input are not touched. A variant's verdict lists each buffer (layout, size, stride, exporter, lg1k's answer), the `alloc_device` path the driver gave the client, the six-frame pixel check (`check ok 6 bad 0`) and CmaFree before, during and after.
+
+| Result | Means | Next |
+|---|---|---|
+| `stock`: AB24 `…151`, import ok | lg1k takes the memory; the plane's list refuses the layout | (b), case b: does the OSD decode `…151` at all |
+| any variant: import refused, `Invalid argument` | scattered pages | route B needs a contiguous allocation (the exporter's contiguous request) before anything else |
+| `afbc0`: linear, import ok | `WAYLAND_AFBC=0` gives the plane's layout; route B is open | (b), case c; then (d) |
+| `afbc0`: still `…151` | the library does not honor the hint | route A has no eligible buffer until the layout can be chosen another way |
+| `big`: CmaFree falls by more than the buffers | CMA pressure decides whether linear buffers are affordable | measure again with Home and an app up |
+
+### b. Full-screen pattern in a test round: the display changes
 
 ```sh
-python3 /tmp/lt/tv.py 'XDG_RUNTIME_DIR=/tmp/scanout-proof WAYLAND_DISPLAY=wayland-scanout-proof /tmp/lumatv/bin/x2cli /usr/lib/libmali.so.0 --frames 6 --size 256x256' 15
+sh compositor/tools/tv-first-light.sh kms b c       # about 30 s a case: LG's compositor stops (the panel is black), LumaTV's takes the screen, LG's starts again
 ```
 
-The diagnostic must record one metadata entry per allocation, preserve the six-frame GPU-import pixel check from X2, and try/close only a PRIME import handle—no `SETCRTC`, atomic commit, master acquisition or pixel read of an unrelated app. A scattered-buffer import refusal is useful: it selects B's controlled-contiguous allocation experiment rather than disproving descriptor access. Then compare `WAYLAND_AFBC=0` on this same harmless client and the contiguous allocation candidate, reporting the actual returned modifier and import result rather than the requested settings.
+Needs a free set, the owner's go and the bundle of (a) deployed, so that the compositor and `x2cli` are this build's (an older `x2cli` ignores `--pattern` and draws a colour clear). Results land in `/tmp/lumatv-tv-out/out/kms/`: `panel-b.png`, `panel-c.png`, `panel-c2.png` (LG's capture service, 960×540), `b-server.log`, `c-server.log`, `c-client.log`, `c-scanout-direct.json`, `c-scanout-off.json`, `c-scanout-end.json`, `c-status.json`. An interrupted run is ended by `python3 compositor/tools/tv_kms.py restore`.
 
-### Smallest display proof; only after the two buffer gates pass
+The picture (`x2cli --pattern`, 1920×1080): eight bars along the middle third (white, yellow, cyan, green, magenta, red, blue, black), a white 4 px frame, a marker in each corner (top left red, top right green, bottom left blue, bottom right white), an orange bar that moves 16 px a frame along the middle, and the frame number in twelve bits as a row at the top and the same row at the bottom.
 
-An owner-approved display slot is required. First show one unprotected full-screen test pattern on the primary, with corners, colored bands, alpha/opaque edges and orientation markers; compare the panel with GPU composition of the same buffer. Check two alternating buffers, acquire/release timing, late frames and a transition back to composition. Do not start with Netflix or use a successful `ADDFB2`/`TEST_ONLY` as the pixel verdict.
+- **Case c, route A** (`--buffers driver --scanout direct`; the client with `WAYLAND_AFBC=0` and no alpha). `c-scanout-direct.json` says `"mode":"direct"`, direct frames in `frames`, `"last":{"state":"direct"…}` with the layout the plane took, and `held.shown` true. `panel-c.png` shows the picture as described, with colours and orientation right (red at the top left). `panel-c2.png`, taken after `ctl scanout off` with the same buffers composed, shows the same picture. In both, the number rows at the top and the bottom agree: a mismatch is a frame shown torn or half drawn, which is the acquire's test. `c-status.json` has no `import`, `addfb`, `test-commit` or `acquire` count.
+- If `c-scanout-direct.json` says composed, `refused` names why: `no-descriptor` (the tap missed the buffers), `modifier` (the client still made `…151`; (a) says so), `translucent` (libmali refused the alpha-free window: `c-client.log` says `no config`), `import` (scattered pages).
+- **Case b, LG's client in its own layout** through the own-protocol path (`--buffers own --scanout-trust 0x0800000000000151`). `panel-b.png` answers whether the OSD decodes `…151`: a right picture means the layout could be trusted for the formats that worked (a rule change, never a relabel as `…62`); a scrambled or striped one means the driver decodes it as `…62`, as the source says (the expected result); black means the plane refused it, and `b-server.log` says at which step.
 
-Only after that succeeds should the existing 120 Hz surface gate be used:
+### c. OSD1 beside OSD0: the one write that could contradict the log
+
+Read-only first, any time:
 
 ```sh
-cd /data/home/lumaglass
-python3 compositor/tools/tv_gate.py --only frames --refresh 120
+python3 docs/research/arch/tv.py 'cat /proc/lg/fbdev/viewctrl; dmesg | grep "fb(1)" | tail -4; grep -E "^FB|fb_flip_cnt" /proc/lg/fbdev/osdinfo'
 ```
 
-That gate is not read-only: it changes the refresh divider, installs/runs the gate machinery and drives UI. It must use the established approval/recovery path and must not be run merely because it appears in this document. The shell overlay case needs its own two-visible-pattern hardware proof; until independent blending is established, the gate must exercise and expect composition fallback whenever a second graphics layer is required.
+It reads `OSD 1 : 0`, the `fb(1) on ignore. fb(0) is already enabled` line after a start of the DRM master, and the flip counter of FB(1) (28 at 00:15 UTC); read again around the next start of LG's surface-manager, it settles who flips it.
+
+The write is a display change, for a test round, with any picture on the panel (OSD0 is on whenever Home or an app shows):
+
+```sh
+python3 docs/research/arch/tv.py 'echo 1 1 > /proc/lg/fbdev/viewctrl; sleep 1; cat /proc/lg/fbdev/viewctrl; dmesg | tail -4; echo 1 0 > /proc/lg/fbdev/viewctrl'
+```
+
+Expected, from the log and the source: `OSD 1 : 0`, a new `fb(1) on ignore. fb(0) is already enabled`, nothing on the panel. That closes the side-panel design (§ Layers). If `OSD 1 : 1` instead, OSD1 is on beside OSD0: look at the panel and capture it (the strip shows LG's retained 768×2160 buffer, content unknown), restore with the last command, and take § Layers' conditional design as the next round's work, starting with `echo 1 80 > /proc/lg/fbdev/glalpha` and the stacking order. `pathctrl` is not touched in either case.
+
+### d. Home slide at 120 Hz with the switch on, against round 16
+
+```sh
+python3 compositor/tools/tv_gate.py --only frames --refresh 120 --scanout direct
+```
+
+A gate session: it restarts the shell and changes the refresh divider, then puts it back (`docs/research/ui120-result.md`). In order: `gate.sh scanout direct` (the shell asked for `WAYLAND_AFBC=0`, the switch on, the shell started again so that its buffers pass the tap), `gate.sh refresh 120`, the surface frame gate (`frames-120-scanout.json`, trace tag `c4shell-120-scanout`), `gate.sh scanout read` (`scanout-direct.json` and `scanout-read.json` in the gate's output directory), `gate.sh refresh 60`.
+
+The baseline is round 16's `frames-120.json`, the same gate without `--scanout`. Compare per surface `burst_over20` and `dropped` (round 15: quick 14, picker 10, toast 3, home-dpad 2), `late` over all frames and the idle pipeline's p99, and the Mali busy time per refresh in the `GATE refresh` lines. The compositor's 4.1 ms pass should be gone in direct frames, and the shell's own render may cost more into a linear buffer: the sum is the measurement.
+
+Read `scanout-read.json`: `frames.direct` against `composed`, and `refused` for what composed the rest: `layers` (the system window was live over Home: the volume display shows over everything), `modifier` (the shell still made `…151`), `no-descriptor` (a buffer made before the tap), `video`, `cursor`, `dimmed`, `translucent`. Pass: the slide frames are direct, `late` and `burst_over20` are below round 16's, and there is no `import`, `test-commit` or `acquire` count. Tearing and black frames are looked for on the panel through LG's capture service, as in (b); the compositor's own `screencap` composes every frame it takes.
+
+## Risks
+
+- Implicit sync is assumed. The acquire sample waits for the dma-buf's fences only if the Mali import attaches them; (b)'s number rows are the test, and `--scanout-acquire none` is only for a measurement.
+- Contiguity and CMA. A scattered buffer is refused at import (`import`); three linear 1080p client buffers cost about 25 MB against a CmaFree of 3.5 MB at the earlier read, so allocation stalls are the principal risk of route B.
+- Orientation. A bottom-up buffer is refused (`upside-down`); Qt's windows are expected upright, and the counter will say.
+- Layout. `…151` stays refused by the plane's list; `--scanout-trust` is an experiment, and an accepted `ADDFB2` is never a pixel verdict.
+- Transparency. Qt's windows are alpha buffers. The scene counts Home's picture opaque by definition (it fills its window) and an app's only if the app says so. A video wallpaper puts holes in Home, which is composed (`video`).
+- Protection. A descriptor carries no protection flag. Protected video lives in display-engine windows, whose holes are refused, and the proof records every buffer's exporter (`dma_buf_te` expected) so that another allocator is seen before anything is shown. No buffer is mapped by the CPU.
+- The OSD controls and the blitter are untouched: every `viewctrl`, `glalpha`, `pathctrl` and blitter write is for an approved round.

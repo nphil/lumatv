@@ -264,8 +264,10 @@ boot). Three workarounds exist and none is worth building:
   full-screen wallpaper, and a wallpaper update would stop redrawing the
   glass. Glass samples the baked blur texture, not the plane below, so
   the split keeps the look. Unknown: whether osd1 scales (its 768x2160
-  configuration suggests it runs at native 4K, unscaled), its stacking
-  order, and whether LG paces two windows independently (X6).
+  configuration suggests it runs at native 4K, unscaled) and whether LG
+  paces two windows independently (X6). Its stacking is answered on the
+  installed driver: osd1 is ignored while osd0 is on, so there is no
+  split (`scanout-research.md`, Layers).
 - **E3, Home's motion wallpaper as a looping video on a hardware video
   window:** decode and scaling cost no GPU or CPU, and the OSD above it is
   transparent. LG's own Flutter Home already plays video on Home
@@ -331,7 +333,7 @@ restart; X3, X5 and X6 restart the compositor.
 | X3 | What do the real apps use of the protocol? | LG's libwayland ignores `WAYLAND_DEBUG`, so: an `LD_PRELOAD` tap on `wl_closure` dispatch or a socket-level trace of `/tmp/xdg/wayland-0`, compositor restart through the tool, a scripted session (Netflix, YouTube, Prime, Disney+, PlxNative, LG Settings, keyboard, Live TV), tap removed, restart. Needs a maintenance window. | nothing on its own | the exact request and event subset C must implement |
 | X4 | Which luna methods are live? | **Done 2026-10-24** for launches, Quick Settings, Settings, browser, YouTube (one unfiltered `ls-monitor`, `arch/x4/`); standby/wake, Netflix, PlxNative, input picker and PIN prompt follow in the scripted slot. | - | **Result**: about ten pushed subscriptions plus a handful of calls; details in the evidence log. |
 | X5 | Can app buffers be scanned out directly? | In the C prototype: `ADDFB2` with the client dma-buf and modifier, test-only atomic commit (`DRM_MODE_ATOMIC_TEST_ONLY`) before any real one. | direct scan-out (C keeps the other gains) | the app-frame gain |
-| X6 | Does osd1 scale, and where does it stack? | D1: a test QML on the secondary window through `WEBOS_COMPOSITOR_EXTRA_WINDOWS` at 1920x1080, compositor restart through the tool, capture, revert. Maintenance window. | E2 if osd1 is 4K-native only | E2, and osd1 overlays for C |
+| X6 | Does osd1 scale, and where does it stack? | D1: a test QML on the secondary window through `WEBOS_COMPOSITOR_EXTRA_WINDOWS` at 1920x1080, compositor restart through the tool, capture, revert. Maintenance window. | E2 if osd1 is 4K-native only | E2, and osd1 overlays for C. **Stacking answered 2026-10-28** by the installed driver's own log: osd1's enable is ignored while osd0 is on, so there is nothing to stack (`scanout-research.md`, Layers); the scaling question is moot. |
 
 Running X1 and X1b needs only the TV free. X3, X5, X6 restart the
 compositor, which restarts every app; the mod already does this on every

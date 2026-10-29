@@ -1,0 +1,451 @@
+# Read-only reads of the C4 for docs/research/scanout-research.md (evidence key E10). Taken over SSH with no write, no app launch and no display change.
+# 2026-10-28 23:21-23:25 UTC (uptime about 34100-34300 s); later blocks 2026-10-29 00:15 UTC (uptime 37329 s) and 00:37 UTC (uptime 38657 s). Kernel 5.4.268-329.ptl4tv.2, chip O22A3.
+# Pointer values and the fbinfo/fbcon lines of /proc/lg/fbdev/osdinfo are left out.
+
+######## dmesg-fb.txt (dmesg)
+chip=O22A3
+== dmesg
+[34173.078822] fbdev        NOT (31036:31036) osd_drm_enable            537: id=0 (fb0), view=1 -> 0
+[34173.078830] fbdev        NOT (31036:31036) FBDEV_O22_CMN_SetOSDEnable 3370: fb(0) hw_state=on, req=off, action=continue
+[34173.078834] fbdev        NOT (31036:31036) FBDEV_O22_CMN_SetOSDEnable 3556: fb(0) osd_ctrl_main, osd_ctrl_sync configured
+[34173.078840] fbdev        NOT (31036:31036) FBDEV_O22_CMN_NotifyPQEDriver  534: + notify PQE FW to setup : inited=1, 4kosd=0, vmirror=0, est=0, shpwa=0
+[34173.078846] be           NOT (31036:31036) BE_TOP_HW_O22_InformFBDEVStatus 1682: FBDEV status bFbdevInitDone: 1, bOsdVReverseOn : 0, bEStreamerOn : 0, bOsdSharpnessWAOn : 0
+[34173.078859] fbdev        NOT (31036:31036) FBDEV_O22_CMN_SetOSDEnable 3864: fb(0) off. notify PQE to ready estreamer <off>
+[34173.083896] fbdev        NOT (31036:31036) FBDEV_O22_CMN_WaitPQEDriverEstreamerSync  618: + wait for PQE FW to sync estreamer. req=0, ack=0, time=5ms
+[34173.805269] fbdev        NOT (00456:00456) FBDEV_O22_CMN_SetupFBC   2217: fb(0) setup afbc_path=1
+[34173.805284] fbdev        NOT (00456:00456) osd_drm_enable            537: id=0 (fb0), view=0 -> 1
+[34173.805294] fbdev        NOT (00456:00456) FBDEV_O22_CMN_SetOSDEnable 3370: fb(0) hw_state=off, req=on, action=continue
+[34173.805299] fbdev        NOT (00456:00456) FBDEV_O22_CMN_NotifyPQEDriver  534: + notify PQE FW to setup : inited=1, 4kosd=0, vmirror=0, est=0, shpwa=0
+[34173.805311] be           NOT (00456:00456) BE_TOP_HW_O22_InformFBDEVStatus 1682: FBDEV status bFbdevInitDone: 1, bOsdVReverseOn : 0, bEStreamerOn : 0, bOsdSharpnessWAOn : 0
+[34173.805324] fbdev        NOT (00456:00456) FBDEV_O22_CMN_SetOSDEnable 3505: fb(0) on. notify PQE to ready estreamer <off>
+[34173.810361] fbdev        NOT (00456:00456) FBDEV_O22_CMN_WaitPQEDriverEstreamerSync  618: + wait for PQE FW to sync estreamer. req=0, ack=0, time=5ms
+[34173.810369] fbdev        NOT (00456:00456) FBDEV_O22_CMN_SetOSDEnable 3556: fb(0) osd_ctrl_main, osd_ctrl_sync configured
+[34173.810373] fbdev        NOT (00456:00456) FBDEV_O22_CMN_SetOSDEnable 3737: fb(0) afbc configured
+[34175.742291] fbdev        NOT (00456:00456) FBDEV_O22_CMN_WriteOSDHeader 3282: fb(1) is not osd0 owner, ignore
+[34175.742299] fbdev        NOT (00456:00456) osd_drm_enable            537: id=1 (fb1), view=0 -> 1
+[34175.742304] fbdev        NOT (00456:00456) FBDEV_O22_CMN_SetOSDEnable 3370: fb(1) hw_state=off, req=on, action=continue
+[34175.742307] fbdev        NOT (00456:00456) FBDEV_O22_CMN_SetOSDEnable 3401: ++ fb(1) on ignore. fb(0) is already enabled
+== dmesg-size
+2756
+== modules
+drm
+drm_kms_helper
+fb
+lg1k
+lg1kdrm
+== params
+drm_fbdev_overalloc
+fbdev_emulation
+fbdev_cursor_ignore_fbmem_update
+fbdev_cursor_x_comp
+fbdev_cursor_y_comp
+fbdev_flip_ack_timeout
+fbdev_flip_check
+fbdev_force_flush_on_freeze_exit
+fbdev_isr_mon
+fbdev_o22_afbc_estreamer
+fbdev_o22_afbc_line_wait_cnt
+fbdev_o22_afbc_version
+fbdev_o22_boot_freeze_timeout
+fbdev_o22_boot_logo_clear_timeout
+fbdev_o22_enable_logo_clear
+fbdev_o22_pqefw_osd0_out_ctrl
+fbdev_o22_resume_freeze_timeout
+fbdev_o22_resume_logo_clear_timeout
+fbdev_o22_use_shutdown_path_on_suspend
+fbdev_pseudo_vsync_tick
+fbdev_runtime_pm_lazy_suspend_test
+fbdev_runtime_pm_lazy_suspend_test_time
+fbdev_use_boot_debug
+fbdev_use_capture
+fbdev_use_fbmem_hook
+fbdev_use_hw_debug
+fbdev_vsync_auto_tune
+fbdev_vsync_cnt_on_flip
+fbdev_vsync_timeout
+no_fbdev
+
+
+######## fbdev-live.txt (fbdev)
+Wed Oct 28 23:21:37 UTC 2026
+== osdinfo
+FB(0)
+ cfg.b_active         = 1
+ cfg.b_cursor         = 0
+ cfg.b_use_afbc       = 1
+ cfg..b_use_bltn_fbmem= 0
+ cfg.max_xres         = 1920
+ cfg.max_yres         = 1080
+ cfg.max_buf_num      = 2
+ linux_fb_mode        = 0
+ users                = 6
+ fb_base_phys         = 0x8c128000
+ fb_size              = 4096
+ osd_hdr_base_phys    = 0x8c12a000
+ osd_hdr_size         = 0x20
+ osd_plte_base_phys   = 0x8c129000
+ osd_plte_size        = 1024
+ status.b_use_vsync     = 1
+ status.b_sd_hdr_write  = 1
+ status.b_osd_hdr_flush = 1
+ status.fb_pan_disp_cnt = 0
+ status.fb_flip_cnt     = 154586
+ status.total_fb_flip_cnt= 156917
+
+ pixel.fb_dev_id      = 0
+ pixel.fbc_fmtid      = 0
+ pixel.osd_bm_paddr   = 0x872a8000
+ pixel.stride         = 7680
+ pixel.bits_per_pixel = 32 (pxlfmt 0xe, pxldepth 0x6)
+ pixel.input_win.x    = 0
+ pixel.input_win.y    = 0
+ pixel.input_win.w    = 1920
+ pixel.input_win.h    = 1080
+ pixel.output_win.x   = 0
+ pixel.output_win.y   = 0
+ pixel.output_win.w   = 1920
+ pixel.output_win.h   = 1080
+ pixel.test_output_win.x = 0
+ pixel.test_output_win.y = 0
+ pixel.test_output_win.w = 0
+ pixel.test_output_win.h = 0
+ pixel.user_win_ctrl_en= 0
+ pixel.color_key_en   = 0
+ pixel.pixel_order_en = 0
+ pixel.global_alpha_en= 1
+ pixel.color_key      = 0x0
+ pixel.global_alpha   = 0xff
+
+
+
+FB(1)
+ cfg.b_active         = 1
+ cfg.b_cursor         = 0
+ cfg.b_use_afbc       = 1
+ cfg..b_use_bltn_fbmem= 0
+ cfg.max_xres         = 512
+ cfg.max_yres         = 2160
+ cfg.max_buf_num      = 2
+ linux_fb_mode        = 0
+ users                = 6
+ fb_base_phys         = 0x8c12b000
+ fb_size              = 4096
+ osd_hdr_base_phys    = 0x8c12d000
+ osd_hdr_size         = 0x20
+ osd_plte_base_phys   = 0x8c12c000
+ osd_plte_size        = 1024
+ status.b_use_vsync     = 1
+ status.b_sd_hdr_write  = 1
+ status.b_osd_hdr_flush = 1
+ status.fb_pan_disp_cnt = 0
+ status.fb_flip_cnt     = 23
+ status.total_fb_flip_cnt= 23
+
+ pixel.fb_dev_id      = 1
+ pixel.fbc_fmtid      = 1
+ pixel.osd_bm_paddr   = 0x89234000
+ pixel.stride         = 3072
+ pixel.bits_per_pixel = 32 (pxlfmt 0xe, pxldepth 0x6)
+ pixel.input_win.x    = 0
+ pixel.input_win.y    = 0
+ pixel.input_win.w    = 768
+ pixel.input_win.h    = 2160
+ pixel.output_win.x   = 0
+ pixel.output_win.y   = 0
+ pixel.output_win.w   = 512
+ pixel.output_win.h   = 2160
+ pixel.test_output_win.x = 0
+ pixel.test_output_win.y = 0
+ pixel.test_output_win.w = 0
+ pixel.test_output_win.h = 0
+ pixel.user_win_ctrl_en= 0
+ pixel.color_key_en   = 0
+ pixel.pixel_order_en = 0
+ pixel.global_alpha_en= 0
+ pixel.color_key      = 0x0
+ pixel.global_alpha   = 0xff
+
+
+
+FB(3)
+ cfg.b_active         = 1
+ cfg.b_cursor         = 1
+ cfg.b_use_afbc       = 0
+ cfg..b_use_bltn_fbmem= 0
+ cfg.max_xres         = 256
+ cfg.max_yres         = 256
+ cfg.max_buf_num      = 2
+ linux_fb_mode        = 0
+ users                = 6
+ fb_base_phys         = 0x8c131000
+ fb_size              = 4096
+ osd_hdr_base_phys    = 0x8c133000
+ osd_hdr_size         = 0x20
+ osd_plte_base_phys   = 0x8c132000
+ osd_plte_size        = 1024
+ status.b_use_vsync     = 1
+ status.b_sd_hdr_write  = 1
+ status.b_osd_hdr_flush = 1
+ status.fb_pan_disp_cnt = 0
+ status.fb_flip_cnt     = 0
+ status.total_fb_flip_cnt= 0
+
+ pixel.fb_dev_id      = 0
+ pixel.fbc_fmtid      = 3
+ pixel.osd_bm_paddr   = 0x8c131000
+ pixel.stride         = 1024
+ pixel.bits_per_pixel = 32 (pxlfmt 0xe, pxldepth 0x6)
+ pixel.input_win.x    = 0
+ pixel.input_win.y    = 0
+ pixel.input_win.w    = 256
+ pixel.input_win.h    = 256
+ pixel.output_win.x   = 0
+ pixel.output_win.y   = 0
+ pixel.output_win.w   = 256
+ pixel.output_win.h   = 256
+ pixel.test_output_win.x = 0
+ pixel.test_output_win.y = 0
+ pixel.test_output_win.w = 0
+ pixel.test_output_win.h = 0
+ pixel.user_win_ctrl_en= 0
+ pixel.color_key_en   = 0
+ pixel.pixel_order_en = 0
+ pixel.global_alpha_en= 0
+ pixel.color_key      = 0x0
+ pixel.global_alpha   = 0xff
+ pixel.csr_size       = 0x0
+ pixel.csr_hotspot    = 0x0
+
+
+
+== viewctrl
+OSD VIEW CTRL status
+OSD 0 : 1
+OSD 1 : 0
+OSD 2 : 0
+OSD 3 : 0
+
+[usage] echo osd_id on_off_val > /proc/lg/fbdev/viewctrl
+        osd_id     : 0 ~ 3
+        on_off_val : 0 (off), 1(on)
+== pathctrl
+OSD path ctrl
+[usage] echo path_val > /proc/lg/fbdev/pathctrl
+        path_val : bosd, sosd
+== glalpha
+OSD framebuffer glpha_alpha ctrl
+[usage] echo osd_id alpha > /proc/lg/fbdev/glalpha
+        alpha : hexdecimal value (0x0~0xff)
+                if alpha is 0x00, global lapha is disabled
+== syncctrl
+OSD SYNC CTRL status
+OSD 0 : 1
+OSD 1 : 1
+OSD 2 : 1
+OSD 3 : 1
+
+[usage] echo osd_id on_off_val > /proc/lg/fbdev/syncctrl
+        osd_id     : 0 ~ 3
+        on_off_val : 0 (off), 1(on)
+== user_flip_opt
+0x00000000
+== chip
+== status
+<osd_drm info>
+osd_drm.freezed: 0
+osd_drm.cursor.src_rgn.w: 1920
+osd_drm.cursor.src_rgn.h: 1080
+osd_drm.cursor.dst_rgn.w: 3840
+osd_drm.cursor.dst_rgn.h: 2160
+osd_drm.sw_cursor.addr[0]: 0x87228000
+osd_drm.sw_cursor.addr[1]: 0x87268000
+osd_drm.sw_cursor.width: 256
+osd_drm.sw_cursor.height: 256
+ cat: read error: Is a directory
+
+######## holders-live.txt (holders)
+Wed Oct 28 23:25:05 UTC 2026
+34298.15 98199.34
+== clients
+             command   pid dev master a   uid      magic
+     ld-linux-aarch6 20936   0   y    y     0          0
+== pid456
+kworker/u8:1-events_unbound
+kworker/3:3-events
+== lsof-fb
+      1 captureservice 5412 /dev/fb0
+      1 captureservice 5412 /dev/fb1
+      1 captureservice 5412 /dev/fb3
+      2 captureservice 5412 /dev/lg/gfx0
+      1 eplmanager 4549 /dev/fb0
+      1 eplmanager 4549 /dev/fb1
+      1 eplmanager 4549 /dev/fb3
+      2 eplmanager 4549 /dev/lg/gfx0
+      1 gal_renderd 1994 /dev/fb0
+      1 gal_renderd 1994 /dev/fb1
+      1 gal_renderd 1994 /dev/fb2
+      1 gal_renderd 1994 /dev/fb3
+      1 ld-linux-aarch6 20936 /dev/dri/card0
+      1 nn-proxy 3450 /dev/fb0
+      1 nn-proxy 3450 /dev/fb1
+      1 nn-proxy 3450 /dev/fb2
+      1 nn-proxy 3450 /dev/fb3
+      1 pqcontroller 2660 /dev/fb0
+      1 pqcontroller 2660 /dev/fb1
+      1 pqcontroller 2660 /dev/fb3
+      2 pqcontroller 2660 /dev/lg/gfx0
+== fb1flips
+24
+156436
+
+
+######## de-gfx-live.txt (de and gfx)
+== de/win0/status
+localmute=777
+lowdelaymode=0
+h/v active : 0 / 0
+scanType   : 0
+vFreq      : 0
+svp        : 0
+hdr_type   : 0
+colordomain: 0
+hdmi444mode: 0
+phyMode    : 0
+== de/win1/status
+localmute=777
+h/v active : 0 / 0
+scanType   : 0
+vFreq      : 0
+svp        : 0
+hdr_type   : 0
+colordomain: 0
+hdmi444mode: 0
+phyMode    : 0
+== de/win2/status
+localmute=777
+h/v active : 0 / 0
+scanType   : 0
+vFreq      : 0
+svp        : 0
+hdr_type   : 0
+colordomain: 0
+hdmi444mode: 0
+phyMode    : 0
+== de/win3/status
+localmute=777
+h/v active : 0 / 0
+scanType   : 0
+vFreq      : 0
+svp        : 0
+hdr_type   : 0
+colordomain: 0
+hdmi444mode: 0
+phyMode    : 0
+== de/pip
+unimplemented read proc(6)
+== de/disp
+-------------------------------------------------------
+- version : 2022/01/03/17:22
+-------------------------------------------------------
+- config
+in_size    : 4k
+out_size   : 2k
+hdr_type   : hdr10
+-------------------------------------------------------
+- param
+wid        : 0
+connect    : 0
+sub        : 0
+hdr        : 0
+i_w        : 0
+i_h        : 0
+o_w        : 0
+o_h        : 0
+-------------------------------------------------------
+- usage
+echo [main,pip,pbp] [on,off] > /proc/lg/de/disp
+-------------------------------------------------------
+- edit
+echo insize=[2k,4k,8k] > /proc/lg/de/disp
+echo outsize=[2k,4k,8k] > /proc/lg/de/disp
+echo hdrtype=[sdr,hdr10,hlg] > /proc/lg/de/disp
+-------------------------------------------------------
+- related command
+LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$PWD
+./test_vdec -f [HEVC,H264] -d 1 -v 1 -t [FILE] -b -r 999 &
+eg) ./test_vdec -f HEVC -d 1 -v 1 -t ./hevc/4k_hvc1_h10_Lego_20s.hevc -b -r 999 &
+pkill -9 test_vdec
+-------------------------------------------------------
+== de/fr_rate
+set fr rate
+- usage:
+echo [freerun:0,1] [fr_rate:50,60] > /proc/lg/de/fr_rate
+== gfx/status
+chip.usLine: 0x0
+chip.bStatus: 0x0
+chip.usRemainSpace: 0x100
+chip.bFull: 0x0
+chip.usRemainParam: 0x0
+chip.bBatchStatus: 0x0
+chip.clk.gating: off
+== gfx/surface
+ 80(0128) 0,  0,   2,00002a0b, 1,001e,  256x256 , 0,1024, 0, 0x87ac0000,0x00898000,  262144, -9999:-9999(----)
+ 81(0129) 0,  0,   3,00002a2c, 1,001e,  256x256 , 0,1024, 0, 0x87b00000,0x008d8000,  262144, -9999:-9999(----)
+ 82(0130) 0,  0,   4,00002a3e, 1,001e,  384x216 , 0,1536, 0, 0x87b40000,0x00918000,  331776, -9999:-9999(----)
+<!> total 3 surfaces created
+== gfx/mem_stat
+-- mem base   :   2162 MB (0x87228000 - physical)
+-- mem length :     79 MB ( 82837504)
+-- mem rgn    :      1
+-- mem len[0] :     79 MB ( 82837504)
+-- alloc size :     50 MB ( 53223424)
+-- free  size :     28 MB ( 29614080)
+-- alloc cnt  :      3
+== gfx/pidref
+02660(pqcontroller) 2
+04549(eplmanager) 2
+05412(captureservice) 2
+== gfx/synctm
+sync wait timeout = 500 ms
+fail retry count  = 2
+== gfx/cmd_delay
+-- cmd delay : 0x0 (0)
+== gfx/pm_status
+pm_runtime.status: active
+pm_runtime.usage_count: 7
+dev_open_count: 6
+02660(pqcontroller) 2
+04549(eplmanager) 2
+05412(captureservice) 2
+
+
+######## 2026-10-29 00:15 UTC, uptime 37329 s
+fb1 status.fb_flip_cnt = 28 (24 at 23:25 UTC, 23 at 23:21 UTC; 1 at the first snapshot of 2026-10-28 22:26 UTC)
+dmesg ring no longer held the fb(1) lines (rolled over); pid 456 of the log lines no longer existed
+
+
+######## 2026-10-29 00:37 UTC, uptime 38657 s (sysfs and device nodes; names and sizes only)
+== /sys/class/graphics/fb*: name virtual_size bits_per_pixel state
+fb0 osd0_fb 1920,2160 32 0
+fb1 osd1_fb 512,4320 32 0
+fb2 osd2_fb 128,4 32 2
+fb3 crsr_fb 256,512 32 0
+== /sys/class/graphics/fb*/stride
+fb0 7680
+fb1 2048
+fb2 512
+fb3 1024
+== /proc/lg/fbdev/viewctrl
+OSD 0 : 1
+OSD 1 : 0
+OSD 2 : 0
+OSD 3 : 0
+== ls /proc/lg
+afbc_sw afe base be cec de demod demod_khal dolby emmc fbdev gfx gpio hdmi20 iic irb lgbus mpro ovi pe pm pqepm pwm se sys ucom vbi
+== ls /proc/lg/gfx (there is no /proc/lg/gfx1)
+author clkctl cmd_delay draw_test mem_stat pidref pm_status pm_test reg_dump reset status surface synctm user_command
+== ls -l /dev/lg/gfx0 /dev/lg/gfx1
+crwxrwxrwx 1 root root 1111, 0 Dec 31  1969 /dev/lg/gfx0
+crwxrwxrwx 1 root root  151, 1 Dec 31  2022 /dev/lg/gfx1
+== ls /proc/lg/afbc_sw (names only, not read)
+ctx info op_fill
