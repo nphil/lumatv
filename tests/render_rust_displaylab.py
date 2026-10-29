@@ -28,7 +28,7 @@ OPEN_AT = 900
 KEY_GAP = 500
 SETTLE = 1300
 
-SESSION = {'ok': True, 'displaylab': {'available': True, 'session': {'id': 1, 'held': True, 'usable': {'sharpness': True, 'dimming': True, 'window': True}, 'why': {}}}}
+SESSION = {'ok': True, 'displaylab': {'available': True, 'session': {'id': 1, 'held': True, 'usable': {'sharpness': True, 'window': True}, 'why': {}}}}
 
 
 def routes():
@@ -42,6 +42,27 @@ def routes():
     }
 
 
+def firmware_owned():
+    """A TV whose firmware puts the Strong look back as soon as it is written: the helper reads it back and says, to the set that wrote it and to
+    every ping after, that it does not hold."""
+    shown = {'option': 'normal'}
+
+    def status(_body=None):
+        doc = json.loads(json.dumps(SESSION))
+        if shown['option'] == 'strong':
+            doc['displaylab']['session'].update({'held': False, 'heldBy': {'sharpness': False}, 'drifted': ['osd_sr_gain']})
+        return doc
+
+    def set_(body):
+        shown['option'] = body.get('option')
+        return status()
+
+    out = routes()
+    out['POST /v1/displaylab/set'] = set_
+    out['POST /v1/displaylab/ping'] = status
+    return out
+
+
 def refused():
     """A TV that is not an LG set: the helper says no."""
     gone = {'_status': 503, 'ok': False, 'error': {'code': 'unavailable', 'message': 'not an LG set: /proc/lg/fbdev/chip/osd_sr_gain is missing'}}
@@ -51,8 +72,8 @@ def refused():
 # the keys that go from a step to the next one: Skip is the last answer, and the focus starts on the first
 SKIP_COMPARE = ['down', 'down', 'ok']
 SKIP_QUESTION = ['down', 'down', 'down', 'ok']
-# the steps of the plan, in order, each with the way past it
-PAST = [SKIP_COMPARE, SKIP_COMPARE, SKIP_COMPARE, SKIP_QUESTION, SKIP_QUESTION, SKIP_QUESTION]
+# the steps of the plan, in order, each with the way past it: five comparisons of the sharpener, then the window
+PAST = [SKIP_COMPARE] * 5 + [SKIP_QUESTION]
 
 
 def to_step(n):
@@ -76,12 +97,13 @@ SCENES = [
     Scene('refused', [], refused),
     Scene('sharpness-strong', to_step(0)),
     Scene('sharpness-strong-b', to_step(0) + ['right']),
-    Scene('sharpness-soft', to_step(1)),
-    Scene('sharpness-off', to_step(2)),
-    Scene('sharpness-off-b', to_step(2) + ['right']),
-    Scene('dimming-dimmed', to_step(3)),
-    Scene('dimming-dimmed-b', to_step(3) + ['right']),
-    Scene('dimming-grey', to_step(4)),
+    Scene('sharpness-medium', to_step(1)),
+    Scene('sharpness-medium-b', to_step(1) + ['right']),
+    Scene('sharpness-medium-strong', to_step(2)),
+    Scene('sharpness-soft', to_step(3)),
+    Scene('sharpness-off-b', to_step(4) + ['right']),
+    # the firmware takes the Strong look back at once: two identical pictures are not offered for a pick
+    Scene('sharpness-not-applied', to_step(0) + ['right'], firmware_owned),
     Scene('window-a', to_step(5)),
     Scene('window-a-b', to_step(5) + ['right']),
     Scene('window-nothing-behind', to_step(5), app='com.webos.app.home'),
@@ -94,8 +116,8 @@ BY_NAME = {s.name: s for s in SCENES}
 EXTRA = {
     'intro': [('dark', 2.0), ('light', 1.0)],
     'sharpness-strong': [('dark', 2.0), ('light', 1.0)],
-    'sharpness-off-b': [('dark', 2.0)],
-    'dimming-dimmed': [('dark', 2.0), ('light', 1.0)],
+    'sharpness-medium-b': [('dark', 2.0)],
+    'sharpness-not-applied': [('dark', 2.0), ('light', 1.0)],
     'window-a': [('dark', 2.0), ('light', 1.0)],
     'window-a-b': [('dark', 2.0)],
     'results': [('dark', 2.0), ('light', 1.0)],

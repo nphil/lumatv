@@ -11,9 +11,9 @@
 //!
 //! | Request | Answer |
 //! |---|---|
-//! | `GET /v1/displaylab` | `{displaylab}`: whether the set can be reached (`available`, `reason`), the controls and their options, the session if one is open (`shown`, `held`, `leftMs`, which controls are `usable`), how the last one ended (`last`) and what is still to put back (`pending`) |
+//! | `GET /v1/displaylab` | `{displaylab}`: whether the set can be reached (`available`, `reason`), the controls and their options, the session if one is open (`shown`, `held`, `heldBy` per control, `leftMs`, which controls are `usable`), how the last one ended (`last`) and what is still to put back (`pending`) |
 //! | `POST /v1/displaylab/begin` | reads every target, opens the session and starts the dead-man's lease; the same answer as the status. An open session is found, not replaced |
-//! | `POST /v1/displaylab/set` | `{control, option}`: shows the option (`sharpness`: `normal`, `strong`, `soft`, `off`; `dimming`: `normal`, `dimmed`, `grey`; `window`: `off`, `on_a`, `on_b`), renews the lease; 400 `not_allowed` for anything else |
+//! | `POST /v1/displaylab/set` | `{control, option}`: shows the option (`sharpness`: `normal`, `medium`, `strong`, `soft`, `off`; `window`: `off`, `on_a`, `on_b`; `dimming`: `normal`, `dimmed`, `grey`, which the lab no longer offers: OSD0's VSP is the firmware's, which puts `0x02000001` back at once, and grey showed nothing on LumaTV's plane), renews the lease; 400 `not_allowed` for anything else |
 //! | `POST /v1/displaylab/ping` | renews the lease; the answer says whether what was written still holds (`held`, `drifted`) |
 //! | `POST /v1/displaylab/end` | puts everything back and closes the session; always answers, `last` says how it went |
 //! | `POST /v1/displaylab/results`, `GET /v1/displaylab/results` | a run's answers, saved for the next round (`<data dir>/displaylab/results.json`), and the last run read |

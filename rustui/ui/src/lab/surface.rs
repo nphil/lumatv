@@ -893,7 +893,7 @@ mod tests {
     }
 
     fn session() -> Value {
-        json!({"ok": true, "displaylab": {"session": {"held": true, "usable": {"sharpness": true, "dimming": true, "window": true}, "why": {}}}})
+        json!({"ok": true, "displaylab": {"session": {"held": true, "usable": {"sharpness": true, "window": true}, "why": {}}}})
     }
 
     impl Up {
@@ -1043,7 +1043,7 @@ mod tests {
         u.go_to_step(0);
         let layers = u.kit.room().layers;
         u.click(Target::Answer(2));
-        assert_eq!(u.m.step().unwrap().id, "sharpness-soft");
+        assert_eq!(u.m.step().unwrap().id, "sharpness-medium");
         u.apply();
         assert!(u.kit.room().layers.abs_diff(layers) <= 2, "the step's layers replaced the step's layers: {} then {}", layers, u.kit.room().layers);
         assert!(u.engine.focus.frame(id_of(Target::Answer(0))).is_some());
@@ -1098,6 +1098,29 @@ mod tests {
             let f = u.lint();
             assert!(f.is_empty(), "{scale}: {f:#?}");
             assert!(u.geometry()["panel"]["h"].as_f64().unwrap() <= 972.5);
+        }
+    }
+
+    #[test]
+    fn a_look_that_could_not_be_applied_shows_its_note_and_one_answer_and_reads_clean_in_both_materials_at_100_and_200_percent() {
+        for mode in [Mode::Dark, Mode::Light] {
+            for scale in [1.0, 2.0] {
+                let mut u = Up::new(mode, scale);
+                u.go_to_step(0);
+                // B is asked for and the request is left unanswered by the rig, which would say it holds
+                u.m.update(&Input::Key { name: "right".into(), down: true, repeat: false }, u.t);
+                // the helper wrote B, read it back, and the firmware had taken it back by its answer
+                let gone = json!({"ok": true, "displaylab": {"session": {"held": false, "heldBy": {"sharpness": false}, "drifted": ["osd_sr_gain"], "usable": {"sharpness": true, "window": true}, "why": {}}}});
+                u.m.update(&Input::Fetched { tag: TAG_SET, status: 200, data: gone }, u.t);
+                u.apply();
+                let g = u.geometry();
+                assert_eq!(g["answers"].as_array().unwrap().iter().map(|a| a["label"].as_str().unwrap()).collect::<Vec<_>>(), ["Next"], "{mode:?} {scale}");
+                assert_eq!(g["focus"], "Answer(0)");
+                let f = u.lint();
+                assert!(f.is_empty(), "{mode:?} {scale}: {f:#?}");
+                let p = &g["panel"];
+                assert!(p["y"].as_f64().unwrap() >= 54.0 && p["y"].as_f64().unwrap() + p["h"].as_f64().unwrap() <= 1026.5, "{mode:?} {scale}: {p}");
+            }
         }
     }
 

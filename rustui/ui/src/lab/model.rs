@@ -74,6 +74,8 @@ pub enum Reply {
     No,
     Same,
     Skip,
+    /// The look the person asked for never showed: the one way on, in place of every answer about a look that was not on the screen.
+    Failed,
 }
 
 impl Reply {
@@ -84,6 +86,7 @@ impl Reply {
             Reply::No => "No",
             Reply::Same => "Can't tell",
             Reply::Skip => "Skip",
+            Reply::Failed => "Next",
         }
     }
 }
@@ -204,6 +207,9 @@ pub struct Lab {
     /// both is not much of an answer, and the results say so.
     switches: Vec<u32>,
     saw_b: Vec<bool>,
+    /// Whether B was ever on the screen in the step, as the helper said: it wrote B and what it wrote read back as written. A step whose B never
+    /// was is not compared: its answers are replaced by the one that goes on.
+    applied_b: Vec<bool>,
     /// The last key or pointer the lab felt.
     last_active: u64,
     kept: Kept,
@@ -267,6 +273,7 @@ impl Lab {
             times: vec![None; STEPS.len()],
             switches: vec![0; STEPS.len()],
             saw_b: vec![false; STEPS.len()],
+            applied_b: vec![false; STEPS.len()],
             last_active: 0,
             kept: Kept::default(),
         }
@@ -471,7 +478,7 @@ impl Lab {
                 let a = self.answers[i]?;
                 Some(json!({
                     "id": s.id, "group": s.group, "control": s.control, "a": s.a.id, "b": s.b.id,
-                    "answer": a.word(), "verdict": s.verdict(a), "held": self.held_at[i], "ms": self.times[i], "switches": self.switches[i], "sawBoth": self.saw_b[i],
+                    "answer": a.word(), "verdict": s.verdict(a), "held": self.held_at[i], "ms": self.times[i], "switches": self.switches[i], "sawBoth": self.saw_b[i], "bApplied": self.applied_b[i],
                 }))
             })
             .collect();
@@ -628,13 +635,20 @@ impl Lab {
             TAG_SET => {
                 let sent = self.in_flight.take();
                 if ok {
+                    let mut asked_b = false;
                     if let Some((Cmd::Set(control, option), _)) = sent {
                         self.confirmed.insert(control, option);
+                        asked_b = self.step().is_some_and(|s| s.control == control && s.b.id == option);
                     }
-                    self.held = data.pointer("/displaylab/session/held").and_then(Value::as_bool).unwrap_or(true);
+                    self.held = self.holds(data);
                     if self.held {
+                        self.applied_b[self.at] |= asked_b;
                         self.note = self.step().and_then(|s| self.note_for(s));
+                    } else {
+                        // the write went in and read back, and the firmware took it back before the answer: the screen shows what it showed before
+                        self.note = Some(self.not_held_note());
                     }
+                    self.focus = self.focus.min(self.replies().len() - 1);
                     self.next_ping = Some(now + PING_MS);
                 } else {
                     // a refused or failed write ends the helper's session, with everything put back: the step is told, the next one starts again
@@ -643,6 +657,7 @@ impl Lab {
                     self.confirmed.clear();
                     self.queue.clear();
                     self.note = Some(reason);
+                    self.focus = self.focus.min(self.replies().len() - 1);
                     self.next_ping = None;
                     out.push(Effect::Log(format!("displaylab: set refused ({status})")));
                 }
@@ -651,10 +666,10 @@ impl Lab {
             TAG_PING => {
                 self.in_flight = None;
                 if ok {
-                    let held = data.pointer("/displaylab/session/held").and_then(Value::as_bool).unwrap_or(true);
+                    let held = self.holds(data);
                     if held != self.held {
                         self.held = held;
-                        self.note = if held { self.step().and_then(|s| self.note_for(s)) } else { Some("The TV put it back by itself.".to_owned()) };
+                        self.note = if held { self.step().and_then(|s| self.note_for(s)) } else { Some(self.not_held_note()) };
                         out.push(Effect::Redraw);
                     }
                 } else {
@@ -695,7 +710,7 @@ impl Lab {
             (Stage::Step, "left" | "right" | "wheel") => self.toggle(None, now, &mut out),
             (Stage::Step, "up") => self.focus = self.focus.saturating_sub(1),
             (Stage::Step, "down") => self.focus = (self.focus + 1).min(self.replies().len() - 1),
-            (Stage::Step, "ok") => return self.activate(Target::Answer(self.focus), now),
+            (Stage::Step, "ok") => return self.activate(Target::Answer(self.focus.min(self.replies().len() - 1)), now),
             (Stage::Results, "up") => self.focus = 0,
             (Stage::Results, "down") => self.focus = 1,
             (Stage::Results, "left" | "right") => self.focus = 1 - self.focus.min(1),
@@ -706,8 +721,32 @@ impl Lab {
         out
     }
 
+    /// The person asked for B and it never showed: there is nothing to compare, and nothing to say about a look that was not on the screen.
+    fn unapplied(&self) -> bool {
+        self.stage == Stage::Step && self.saw_b[self.at] && !self.applied_b[self.at]
+    }
+
     fn replies(&self) -> &'static [Reply] {
-        replies(STEPS[self.at].ask)
+        if self.unapplied() { &[Reply::Failed] } else { replies(STEPS[self.at].ask) }
+    }
+
+    /// Whether what the helper wrote for the step's control still holds, from an answer of its: the control's own entry when it gives one (a
+    /// register the firmware took back for another control does not fail this one), else the session's.
+    fn holds(&self, data: &Value) -> bool {
+        self.step()
+            .and_then(|s| data.pointer(&format!("/displaylab/session/heldBy/{}", s.control)).and_then(Value::as_bool))
+            .or_else(|| data.pointer("/displaylab/session/held").and_then(Value::as_bool))
+            .unwrap_or(true)
+    }
+
+    /// What the screen says when the look on it is not the one asked for.
+    fn not_held_note(&self) -> String {
+        let name = self.step().map_or("this look", |s| if self.shown == 0 { s.a.name } else { s.b.name });
+        if self.shown == 1 && !self.applied_b[self.at] {
+            format!("Couldn't apply {name}. The TV puts it back.")
+        } else {
+            format!("The TV put {name} back by itself.")
+        }
     }
 
     /// Switches what the screen shows to the other option, or to `to`.
@@ -757,6 +796,7 @@ impl Lab {
                     Reply::No => Answer::No,
                     Reply::Same => Answer::Same,
                     Reply::Skip => Answer::Skipped,
+                    Reply::Failed => Answer::Failed,
                 };
                 return self.answer(a, now);
             }
@@ -823,7 +863,7 @@ impl Lab {
                         Ask::Question(q) => q,
                     },
                     replies: self.replies().to_vec(),
-                    focus: self.focus,
+                    focus: self.focus.min(self.replies().len() - 1),
                     note: self.note.clone(),
                 })
             }
@@ -880,7 +920,7 @@ mod tests {
     }
 
     fn session(held: bool) -> Value {
-        json!({"ok": true, "displaylab": {"available": true, "session": {"id": 1, "held": held, "usable": {"sharpness": true, "dimming": true, "window": true}, "why": {}}}})
+        json!({"ok": true, "displaylab": {"available": true, "session": {"id": 1, "held": held, "usable": {"sharpness": true, "window": true}, "why": {}}}})
     }
 
     /// A lab, opened and begun, over Home.
@@ -932,7 +972,7 @@ mod tests {
         let r = requests(&fx);
         assert_eq!((r.len(), set_of(&r[0])), (1, ("sharpness".into(), "normal".into())));
         let Some(View { body: Body::Step(s), .. }) = lab.view() else { panic!("a step") };
-        assert_eq!((s.id, s.group, s.counter.as_str(), s.shown, s.focus), ("sharpness-strong", "Sharpness", "1 of 3", 0, 0));
+        assert_eq!((s.id, s.group, s.counter.as_str(), s.shown, s.focus), ("sharpness-strong", "Sharpness", "1 of 5", 0, 0));
         assert_eq!((s.options[0].letter, s.options[0].name, s.options[1].letter, s.options[1].name), ("A", "Normal", "B", "Strong"));
         assert_eq!(s.question, "Which looks better?");
         assert_eq!(s.replies, vec![Reply::Pick, Reply::Same, Reply::Skip]);
@@ -993,7 +1033,7 @@ mod tests {
         // OK on the first answer: B, which is on the screen, is better
         let fx = lab.update(&key("ok"), now);
         assert_eq!(lab.answers()[0], Some(Answer::Better(1)));
-        assert_eq!(lab.step().unwrap().id, "sharpness-soft");
+        assert_eq!(lab.step().unwrap().id, "sharpness-medium");
         assert_eq!(lab.shown(), 0, "the next step starts on A");
         let r = requests(&fx);
         assert_eq!(set_of(&r[0]), ("sharpness".into(), "normal".into()), "the same control: A again, nothing to put back");
@@ -1092,7 +1132,7 @@ mod tests {
         lab.update(&key("down"), now);
         lab.update(&key("ok"), now);
         assert_eq!(lab.answers()[1], Some(Answer::Skipped));
-        assert_eq!(lab.step().unwrap().id, "sharpness-off");
+        assert_eq!(lab.step().unwrap().id, "sharpness-medium-strong");
         // a click on an answer is that answer
         lab.click(Target::Answer(1), now);
         assert_eq!(lab.answers()[2], Some(Answer::Same));
@@ -1103,8 +1143,8 @@ mod tests {
         let (mut lab, mut now) = begun();
         let fx = lab.update(&key("ok"), now);
         settle(&mut lab, &fx, now);
-        // through the three sharpness steps, leaving the third with B on the screen
-        for _ in 0..2 {
+        // through the five sharpness steps, leaving the last with B on the screen
+        for _ in 0..4 {
             lab.update(&key("down"), now);
             let fx = lab.update(&key("ok"), now);
             settle(&mut lab, &fx, now);
@@ -1119,17 +1159,20 @@ mod tests {
         r.extend(requests(&settle(&mut lab, &fx, now)));
         assert_eq!(
             r.iter().map(set_of).collect::<Vec<_>>(),
-            [("sharpness".to_owned(), "normal".to_owned()), ("dimming".to_owned(), "normal".to_owned())],
-            "sharpness is put back, then the dimming's A"
+            [("sharpness".to_owned(), "normal".to_owned()), ("window".to_owned(), "off".to_owned())],
+            "sharpness is put back, then the window's A"
         );
         let Some(View { body: Body::Step(s), .. }) = lab.view() else { panic!() };
-        assert_eq!((s.id, s.question, s.counter.as_str()), ("dimming-dimmed", "Is the dimmed look OK for the screensaver?", "1 of 2"));
+        assert_eq!((s.id, s.question, s.counter.as_str()), ("window-a", "Does the window show the picture cleanly?", "1 of 2"));
         assert_eq!(s.replies, vec![Reply::Yes, Reply::No, Reply::Same, Reply::Skip]);
-        lab.update(&key("ok"), now);
-        assert_eq!(lab.answers()[3], Some(Answer::Yes));
+        // No on the first setting asks for the second; Yes on that one ends the run
         lab.update(&key("down"), now);
         lab.update(&key("ok"), now);
-        assert_eq!(lab.answers()[4], Some(Answer::No));
+        assert_eq!(lab.answers()[5], Some(Answer::No));
+        assert_eq!(lab.step().map(|s| s.id), Some("window-b"));
+        lab.update(&key("ok"), now);
+        assert_eq!(lab.answers()[6], Some(Answer::Yes));
+        assert_eq!(lab.stage(), Stage::Results);
     }
 
     #[test]
@@ -1309,7 +1352,7 @@ mod tests {
     }
 
     #[test]
-    fn a_write_the_tv_would_not_keep_is_said_and_the_step_can_still_be_answered() {
+    fn a_write_the_tv_refused_is_said_and_no_comparison_is_offered_only_the_way_on() {
         let (mut lab, now) = begun();
         let fx = lab.update(&key("ok"), now);
         settle(&mut lab, &fx, now);
@@ -1318,9 +1361,91 @@ mod tests {
         lab.update(&fetched(TAG_SET, 502, bad), now + 120);
         let Some(View { body: Body::Step(s), .. }) = lab.view() else { panic!() };
         assert_eq!(s.note.as_deref(), Some("osd0_vsp reads 0x0 after 0x1000001 was written"));
+        // B never showed: there is nothing to pick between, and the one answer is that
+        assert_eq!((s.replies, s.focus), (vec![Reply::Failed], 0));
         lab.update(&key("down"), now + 200);
         lab.update(&key("ok"), now + 200);
-        assert_eq!(lab.answers()[0], Some(Answer::Same), "the answer is the person's, the note is the lab's");
+        assert_eq!(lab.answers()[0], Some(Answer::Failed), "the lab's own finding, not the person's opinion");
+        assert_eq!(lab.step().unwrap().id, "sharpness-medium", "and it goes on");
+    }
+
+    /// A helper's answer for the sharpness control: the session as a whole and that control either hold or not.
+    fn session_sharpness(holds: bool) -> Value {
+        json!({"ok": true, "displaylab": {"available": true, "session": {"id": 1, "held": holds, "heldBy": {"sharpness": holds}, "drifted": if holds { json!([]) } else { json!(["osd_sr_gain"]) },
+            "usable": {"sharpness": true, "window": true}, "why": {}}}})
+    }
+
+    fn step_view(lab: &Lab) -> StepView {
+        let Some(View { body: Body::Step(s), .. }) = lab.view() else { panic!("a step") };
+        s
+    }
+
+    #[test]
+    fn a_look_the_firmware_takes_back_at_once_is_said_on_the_screen_and_no_comparison_is_offered() {
+        let (mut lab, now) = begun();
+        let fx = lab.update(&key("ok"), now);
+        settle(&mut lab, &fx, now);
+        // B is asked for; the helper wrote it and read it back, and by its answer the firmware had put the old value back: two identical pictures
+        lab.update(&key("right"), now + 100);
+        lab.update(&fetched(TAG_SET, 200, session_sharpness(false)), now + 120);
+        let s = step_view(&lab);
+        assert_eq!(s.note.as_deref(), Some("Couldn't apply Strong. The TV puts it back."));
+        assert_eq!((s.replies.clone(), s.focus), (vec![Reply::Failed], 0), "nothing to pick between: only the way on");
+        // down and OK stay on the one answer, which is not an opinion
+        lab.update(&key("down"), now + 200);
+        let fx = lab.update(&key("ok"), now + 210);
+        assert_eq!(lab.answers()[0], Some(Answer::Failed));
+        let doc: Value = fx.iter().find_map(|e| if let Effect::Write { text, .. } = e { serde_json::from_str(text).ok() } else { None }).expect("kept");
+        assert_eq!(
+            (doc["steps"][0]["answer"].clone(), doc["steps"][0]["verdict"].clone(), doc["steps"][0]["bApplied"].clone(), doc["steps"][0]["held"].clone()),
+            (json!("failed"), json!("Couldn't apply"), json!(false), json!(false))
+        );
+        assert_eq!(lab.step().unwrap().id, "sharpness-medium", "and it goes on");
+    }
+
+    #[test]
+    fn a_look_that_could_not_be_applied_can_be_tried_again_and_is_compared_when_it_shows() {
+        let (mut lab, now) = begun();
+        let fx = lab.update(&key("ok"), now);
+        settle(&mut lab, &fx, now);
+        lab.update(&key("right"), now + 100);
+        lab.update(&fetched(TAG_SET, 200, session_sharpness(false)), now + 120);
+        assert_eq!(step_view(&lab).replies, vec![Reply::Failed]);
+        // back to A, which holds, and to B again, which now does
+        let fx = lab.update(&key("left"), now + 200);
+        settle(&mut lab, &fx, now + 200);
+        let fx = lab.update(&key("right"), now + 300);
+        assert_eq!(set_of(&requests(&fx)[0]).1, "strong");
+        lab.update(&fetched(TAG_SET, 200, session_sharpness(true)), now + 320);
+        let s = step_view(&lab);
+        assert_eq!((s.replies, s.note), (vec![Reply::Pick, Reply::Same, Reply::Skip], None));
+    }
+
+    #[test]
+    fn a_register_taken_back_for_another_control_does_not_fail_the_look_on_the_screen() {
+        let (mut lab, now) = begun();
+        let fx = lab.update(&key("ok"), now);
+        settle(&mut lab, &fx, now);
+        lab.update(&key("right"), now + 100);
+        // the session as a whole does not hold (the window's registers did not), the sharpness does
+        let doc = json!({"ok": true, "displaylab": {"session": {"held": false, "heldBy": {"sharpness": true, "window": false}, "drifted": ["hole_sel"], "usable": {"sharpness": true, "window": true}, "why": {}}}});
+        lab.update(&fetched(TAG_SET, 200, doc), now + 120);
+        let s = step_view(&lab);
+        assert_eq!((s.replies, s.note), (vec![Reply::Pick, Reply::Same, Reply::Skip], None));
+    }
+
+    #[test]
+    fn a_look_that_showed_and_is_taken_back_later_keeps_its_answers_and_says_so() {
+        let (mut lab, now) = begun();
+        let fx = lab.update(&key("ok"), now);
+        settle(&mut lab, &fx, now);
+        lab.update(&key("right"), now + 100);
+        lab.update(&fetched(TAG_SET, 200, session_sharpness(true)), now + 120);
+        lab.update(&Input::Tick, now + 120 + PING_MS);
+        lab.update(&fetched(TAG_PING, 200, session_sharpness(false)), now + 130 + PING_MS);
+        let s = step_view(&lab);
+        assert_eq!(s.note.as_deref(), Some("The TV put Strong back by itself."));
+        assert_eq!(s.replies, vec![Reply::Pick, Reply::Same, Reply::Skip], "it was seen: the person's answer stands");
     }
 
     #[test]
@@ -1331,7 +1456,7 @@ mod tests {
         lab.update(&Input::Tick, now + PING_MS);
         lab.update(&fetched(TAG_PING, 200, session(false)), now + PING_MS + 5);
         let note = |l: &Lab| l.view().and_then(|v| if let Body::Step(s) = v.body { s.note } else { None });
-        assert_eq!(note(&lab).as_deref(), Some("The TV put it back by itself."));
+        assert_eq!(note(&lab).as_deref(), Some("The TV put Normal back by itself."));
         // the answer records that it did not hold
         lab.update(&key("down"), now + PING_MS + 10);
         lab.update(&key("ok"), now + PING_MS + 10);
@@ -1346,13 +1471,13 @@ mod tests {
         let mut lab = Lab::new();
         lab.update(&Input::Topic { topic: "foreground".into(), data: json!({"app": "com.webos.app.hdmi1"}) }, 0);
         lab.open(1000);
-        let doc = json!({"ok": true, "displaylab": {"session": {"held": true, "usable": {"sharpness": true, "dimming": false, "window": true}, "why": {"dimming": "osd0_vsp reads 0x1000001, which is not the set's own state"}}}});
+        let doc = json!({"ok": true, "displaylab": {"session": {"held": true, "usable": {"sharpness": true, "window": false}, "why": {"window": "hole_sel reads 0x3, which is not the set's own state"}}}});
         lab.update(&fetched(TAG_BEGIN, 200, doc), 1010);
-        lab.at = step_index("dimming-dimmed").unwrap();
+        lab.at = step_index("window-a").unwrap();
         lab.stage = Stage::Step;
-        assert_eq!(lab.note_for(&STEPS[lab.at]).as_deref(), Some("The TV cannot do this one: osd0_vsp reads 0x1000001, which is not the set's own state"));
-        // the window with an app in front has a picture behind it: no note
-        assert_eq!(lab.note_for(&STEPS[step_index("window-a").unwrap()]), None);
+        assert_eq!(lab.note_for(&STEPS[lab.at]).as_deref(), Some("The TV cannot do this one: hole_sel reads 0x3, which is not the set's own state"));
+        // a control that can be used has nothing to say
+        assert_eq!(lab.note_for(&STEPS[0]), None);
     }
 
     #[test]

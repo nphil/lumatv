@@ -87,7 +87,7 @@ pub const STEPS: [StepDef; 7] = [
         id: "sharpness-strong",
         group: "Sharpness",
         nth: 1,
-        of: 3,
+        of: 5,
         control: "sharpness",
         a: NORMAL,
         b: Opt { id: "strong", name: "Strong" },
@@ -98,10 +98,38 @@ pub const STEPS: [StepDef; 7] = [
         skip_after: None,
     },
     StepDef {
-        id: "sharpness-soft",
+        id: "sharpness-medium",
         group: "Sharpness",
         nth: 2,
-        of: 3,
+        of: 5,
+        control: "sharpness",
+        a: NORMAL,
+        b: Opt { id: "medium", name: "Medium" },
+        card: Card::Text,
+        look: "Small letters",
+        hint: "Crisper edges. Jagged up close?",
+        ask: Ask::Compare,
+        skip_after: None,
+    },
+    StepDef {
+        id: "sharpness-medium-strong",
+        group: "Sharpness",
+        nth: 3,
+        of: 5,
+        control: "sharpness",
+        a: Opt { id: "medium", name: "Medium" },
+        b: Opt { id: "strong", name: "Strong" },
+        card: Card::Text,
+        look: "Small letters",
+        hint: "Crisp, without jagged edges?",
+        ask: Ask::Compare,
+        skip_after: None,
+    },
+    StepDef {
+        id: "sharpness-soft",
+        group: "Sharpness",
+        nth: 4,
+        of: 5,
         control: "sharpness",
         a: NORMAL,
         b: Opt { id: "soft", name: "Soft" },
@@ -114,8 +142,8 @@ pub const STEPS: [StepDef; 7] = [
     StepDef {
         id: "sharpness-off",
         group: "Sharpness",
-        nth: 3,
-        of: 3,
+        nth: 5,
+        of: 5,
         control: "sharpness",
         a: NORMAL,
         b: Opt { id: "off", name: "Sharpener off" },
@@ -123,34 +151,6 @@ pub const STEPS: [StepDef; 7] = [
         look: "Letters and colours",
         hint: "Plainer letters, colours may shift.",
         ask: Ask::Compare,
-        skip_after: None,
-    },
-    StepDef {
-        id: "dimming-dimmed",
-        group: "Dimming",
-        nth: 1,
-        of: 2,
-        control: "dimming",
-        a: NORMAL,
-        b: Opt { id: "dimmed", name: "Dimmed" },
-        card: Card::Saver,
-        look: "Clock and picture",
-        hint: "Darker, and a little flatter.",
-        ask: Ask::Question("Is the dimmed look OK for the screensaver?"),
-        skip_after: None,
-    },
-    StepDef {
-        id: "dimming-grey",
-        group: "Dimming",
-        nth: 2,
-        of: 2,
-        control: "dimming",
-        a: NORMAL,
-        b: Opt { id: "grey", name: "Grey" },
-        card: Card::Hues,
-        look: "Colours",
-        hint: "All colour turns grey.",
-        ask: Ask::Question("Is the grey look OK for burn-in protection?"),
         skip_after: None,
     },
     StepDef {
@@ -197,6 +197,8 @@ pub enum Answer {
     /// Could not tell the two apart.
     Same,
     Skipped,
+    /// The look could not be put on the screen (the helper refused it, or the firmware took it back at once): nothing was compared.
+    Failed,
 }
 
 impl Answer {
@@ -209,6 +211,7 @@ impl Answer {
             Answer::No => "no",
             Answer::Same => "same",
             Answer::Skipped => "skipped",
+            Answer::Failed => "failed",
         }
     }
 
@@ -220,6 +223,7 @@ impl Answer {
             "no" => Answer::No,
             "same" => Answer::Same,
             "skipped" => Answer::Skipped,
+            "failed" => Answer::Failed,
             _ => return None,
         })
     }
@@ -235,6 +239,7 @@ impl StepDef {
     pub fn verdict(&self, a: Answer) -> String {
         match (self.ask, a) {
             (_, Answer::Skipped) => "Skipped".to_owned(),
+            (_, Answer::Failed) => "Couldn't apply".to_owned(),
             (_, Answer::Same) => "Can't tell".to_owned(),
             (Ask::Compare, Answer::Better(i)) => format!("{} looks better", if i == 0 { self.a.name } else { self.b.name }),
             (Ask::Question(_), Answer::Yes) => "OK".to_owned(),
@@ -257,7 +262,7 @@ mod tests {
     #[test]
     fn the_steps_are_the_assignments_in_its_order_and_each_is_whole() {
         let ids: Vec<&str> = STEPS.iter().map(|s| s.id).collect();
-        assert_eq!(ids, ["sharpness-strong", "sharpness-soft", "sharpness-off", "dimming-dimmed", "dimming-grey", "window-a", "window-b"]);
+        assert_eq!(ids, ["sharpness-strong", "sharpness-medium", "sharpness-medium-strong", "sharpness-soft", "sharpness-off", "window-a", "window-b"]);
         let mut unique = ids.clone();
         unique.sort();
         unique.dedup();
@@ -274,9 +279,11 @@ mod tests {
             assert!(s.nth >= 1 && s.nth <= s.of, "{}", s.id);
             assert_eq!(STEPS.iter().filter(|o| o.group == s.group).count(), usize::from(s.of), "{}", s.id);
         }
-        // the sharpness steps are comparisons, the others ask whether a look is acceptable
-        assert!(STEPS[..3].iter().all(|s| s.ask == Ask::Compare));
-        assert!(STEPS[3..].iter().all(|s| matches!(s.ask, Ask::Question(_))));
+        // the sharpness steps are comparisons, the window asks whether a look is acceptable
+        assert!(STEPS[..5].iter().all(|s| s.ask == Ask::Compare && s.group == "Sharpness"));
+        assert!(STEPS[5..].iter().all(|s| matches!(s.ask, Ask::Question(_)) && s.group == "Window"));
+        // OSD0's dimming is the firmware's (it puts its own value back at once, and grey showed nothing on LumaTV's plane): no step offers it
+        assert!(STEPS.iter().all(|s| s.control != "dimming"));
         // the second window setting is left out when the first one worked, and nothing else is
         assert_eq!(STEPS.iter().filter_map(|s| s.skip_after).collect::<Vec<_>>(), ["window-a"]);
         assert!(step_index("window-a").unwrap() < step_index("window-b").unwrap());
@@ -287,8 +294,9 @@ mod tests {
     fn the_words_say_what_the_assignment_asks() {
         let by = |id: &str| &STEPS[step_index(id).unwrap()];
         assert_eq!((by("sharpness-strong").b.id, by("sharpness-soft").b.id, by("sharpness-off").b.id), ("strong", "soft", "off"));
-        assert_eq!(by("dimming-dimmed").ask, Ask::Question("Is the dimmed look OK for the screensaver?"));
-        assert_eq!(by("dimming-grey").b.id, "grey");
+        // Normal, Medium and Strong can all be set against each other: each against Normal, and the two of them together
+        assert_eq!((by("sharpness-medium").a.id, by("sharpness-medium").b.id), ("normal", "medium"));
+        assert_eq!((by("sharpness-medium-strong").a.id, by("sharpness-medium-strong").b.id), ("medium", "strong"));
         assert_eq!(by("window-a").ask, Ask::Question("Does the window show the picture cleanly?"));
         assert!(by("sharpness-strong").hint.contains("Sharper edges") && by("sharpness-strong").hint.contains("halos"));
     }
@@ -306,7 +314,7 @@ mod tests {
 
     #[test]
     fn an_answer_has_a_word_in_the_results_and_a_verdict_on_the_results_screen() {
-        for a in [Answer::Better(0), Answer::Better(1), Answer::Yes, Answer::No, Answer::Same, Answer::Skipped] {
+        for a in [Answer::Better(0), Answer::Better(1), Answer::Yes, Answer::No, Answer::Same, Answer::Skipped, Answer::Failed] {
             assert_eq!(Answer::from_word(a.word()), Some(a));
         }
         assert_eq!(Answer::from_word("maybe"), None);
@@ -316,11 +324,13 @@ mod tests {
         assert_eq!(strong.verdict(Answer::Same), "Can't tell");
         assert_eq!(strong.verdict(Answer::Skipped), "Skipped");
         assert_eq!(strong.verdict(Answer::Yes), "Skipped", "a compare step does not ask yes or no");
-        let dimmed = &STEPS[3];
-        assert_eq!((dimmed.verdict(Answer::Yes).as_str(), dimmed.verdict(Answer::No).as_str()), ("OK", "Not OK"));
-        assert_eq!(dimmed.verdict(Answer::Better(1)), "Skipped");
+        assert_eq!(strong.verdict(Answer::Failed), "Couldn't apply", "a look that never showed is not an answer about it");
+        let window = &STEPS[5];
+        assert_eq!((window.verdict(Answer::Yes).as_str(), window.verdict(Answer::No).as_str()), ("OK", "Not OK"));
+        assert_eq!(window.verdict(Answer::Better(1)), "Skipped");
         assert_eq!(strong.row(), "Sharpness \u{b7} Strong");
-        assert_eq!(strong.counter(), "1 of 3");
+        assert_eq!(strong.counter(), "1 of 5");
+        assert_eq!(STEPS[2].verdict(Answer::Better(0)), "Medium looks better");
     }
 
     /// The options the shell names are options of the helper's list (`helper/app/src/displaylab/allow.rs`), and the first of each control is
@@ -334,14 +344,15 @@ mod tests {
             let end = rest.find("];").unwrap();
             rest[..end].split("id: \"").skip(1).map(|p| p.split('"').next().unwrap().to_owned()).collect()
         };
-        for (control, list) in [("sharpness", "SHARPNESS"), ("dimming", "DIMMING"), ("window", "WINDOW")] {
+        for (control, list) in [("sharpness", "SHARPNESS"), ("window", "WINDOW")] {
             let options = block(list);
             assert!(!options.is_empty(), "{control}");
             for s in STEPS.iter().filter(|s| s.control == control) {
                 assert!(options.iter().any(|o| o == s.a.id) && options.iter().any(|o| o == s.b.id), "{}: {options:?}", s.id);
-                assert_eq!(s.a.id, options[0], "{}: A is the set's own state", s.id);
+                // A is the set's own state, except where two looks that are not it are set against each other
+                assert!(s.a.id == options[0] || s.id == "sharpness-medium-strong", "{}: A is the set's own state", s.id);
             }
         }
-        assert!(STEPS.iter().all(|s| ["sharpness", "dimming", "window"].contains(&s.control)));
+        assert!(STEPS.iter().all(|s| ["sharpness", "window"].contains(&s.control)));
     }
 }

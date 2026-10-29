@@ -40,9 +40,9 @@ class DisplayLab(unittest.TestCase):
         helper, got = self.play(rd.Scene('flow', ['ok', 'right', 'ok']))
         self.assertEqual(sets(helper), [('sharpness', 'normal'), ('sharpness', 'strong'), ('sharpness', 'normal')])
         lab = self.lab(got)
-        self.assertEqual((lab['step'], lab['shown'], lab['answers']), ('sharpness-soft', 0, {'sharpness-strong': 'b'}))
+        self.assertEqual((lab['step'], lab['shown'], lab['answers']), ('sharpness-medium', 0, {'sharpness-strong': 'b'}))
         self.assertEqual(len(posts(helper, 'begin')), 1)
-        self.assertTrue(all(p.get('control') in ('sharpness', 'dimming', 'window') for p in posts(helper, 'set')), 'only names of looks')
+        self.assertTrue(all(p.get('control') in ('sharpness', 'window') for p in posts(helper, 'set')), 'only names of looks')
 
     def test_the_wheel_press_is_ok_and_left_and_right_switch_between_the_two_looks(self):
         helper, got = self.play(rd.Scene('switch', ['ok', 'right', 'left', 'right']))
@@ -58,11 +58,23 @@ class DisplayLab(unittest.TestCase):
         self.assertEqual(len(sent), 1)
         run = sent[0]
         self.assertTrue(run['complete'])
-        self.assertEqual([s['id'] for s in run['steps']], ['sharpness-strong', 'sharpness-soft', 'sharpness-off', 'dimming-dimmed', 'dimming-grey', 'window-a'])
+        self.assertEqual([s['id'] for s in run['steps']], ['sharpness-strong', 'sharpness-medium', 'sharpness-medium-strong', 'sharpness-soft', 'sharpness-off', 'window-a'])
         first = run['steps'][0]
         self.assertEqual((first['answer'], first['verdict'], first['sawBoth'], first['switches']), ('b', 'Strong looks better', True, 1))
         self.assertEqual([s['answer'] for s in run['steps'][1:]], ['skipped'] * 4 + ['yes'])
         self.assertIn('startedMs', run)
+
+    def test_a_look_the_firmware_puts_back_at_once_is_said_on_the_screen_and_is_recorded_as_not_applied_not_as_an_opinion(self):
+        helper, got = self.play(rd.BY_NAME['sharpness-not-applied'])
+        lab = self.lab(got)
+        self.assertEqual((lab['step'], lab['shown']), ('sharpness-strong', 1))
+        self.assertIn("Couldn't apply Strong", lab['note'])
+        labels = [a['label'] for a in got['geometry']['displaylab']['answers']]
+        self.assertEqual(labels, ['Next'], 'no pick between two identical pictures')
+        # OK on Next goes on, and the answer is the lab's finding
+        helper, got = self.play(rd.Scene('not-applied-next', ['ok', 'right', 'ok'], rd.firmware_owned))
+        lab = self.lab(got)
+        self.assertEqual((lab['step'], lab['answers']), ('sharpness-medium', {'sharpness-strong': 'failed'}))
 
     def test_back_leaves_and_the_helper_is_asked_to_put_everything_back(self):
         helper, got = self.play(rd.Scene('leave', ['ok', 'right', 'back']))
@@ -87,7 +99,7 @@ class DisplayLab(unittest.TestCase):
         self.assertIsNone(self.lab(got)['note'])
 
     def test_every_step_reads_clean_in_both_looks_at_both_text_sizes(self):
-        names = ['intro', 'sharpness-strong', 'sharpness-off-b', 'dimming-dimmed-b', 'window-a-b', 'results']
+        names = ['intro', 'sharpness-strong', 'sharpness-medium-b', 'sharpness-not-applied', 'window-a-b', 'results']
         jobs = [(rd.BY_NAME[n], mode, scale) for n in names for mode, scale in (('dark', 1.0), ('light', 2.0))]
         with concurrent.futures.ThreadPoolExecutor(2) as pool:
             for (scene, mode, scale), (rc, text, findings, png) in zip(jobs, pool.map(lambda j: rd.render(*j), jobs)):

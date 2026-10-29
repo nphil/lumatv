@@ -12,32 +12,37 @@ Done (2026-10-29, host only): the lab's screens (`rustui/ui/src/lab/`), the help
 (`compositor/.../shell_rust.rs`, `server/seat.rs`), the wheel press as key 1199 (`3ff3b31`), the Settings row (Picture, Expert tab),
 host renders (`docs/mocks/host-rust/displaylab/`) and the tests below.
 
+After Round 19's run on the TV (2026-10-29 18:09-18:14, `slot-2026-10-29-r19/displaylab/`): the dimming steps are gone (VSP is the firmware's, §
+1), **Medium** (gain `0x40`) is in, with a Medium / Strong step, and a look that does not show says "Couldn't apply" and offers no pick (§ 1). The
+run itself: Strong 92 switches and Normal better, Soft preferred in one step, the window answered Yes with the registers holding.
+
 Next, in order:
 
-1. Main installs (Face ID) and turns the kind on: `ctl shell rust +displaylab`.
-2. The TV check (§ 5), Round19 at the set.
-3. From what the TV shows: set `Card::Window`'s zone (`lab/plan.rs`) to where the hole really is, and decide whether the second window
-   setting (`on_b`) is worth keeping.
-4. Optional, not built: an out-of-process guard that restores when the helper itself is killed (§ 4, last row).
+1. Main installs (Face ID); the kind is already on (`ctl shell rust +displaylab`).
+2. The TV check (§ 5), Round19 at the set: Medium and Medium / Strong are new; the window's frame against the real hole.
+3. From what the TV shows: decide the gain to keep; set `Card::Window`'s zone (`lab/plan.rs`) to where the hole really is, and whether the
+   second window setting (`on_b`) is worth keeping.
+4. Follow-ups, not built: taking `dimming` and the VSP target off the helper's list (the unit tests use them as their register example), and
+   an out-of-process guard that restores when the helper itself is killed (§ 4, last row).
 
 ## 1. What Nitin sees
 
 Opened from Settings > Picture > Expert > **Display lab**, or `ctl shell show displaylab`. Not on Home.
 
-| Step | Looks compared (A is the set's own state) | Where to look (the tag on the frame) | Said on the sheet | Asked |
+| Step | Looks compared (A is the set's own state, bar step 3) | Where to look (the tag on the frame) | Said on the sheet | Asked |
 |---|---|---|---|---|
-| 1 Sharpness 1 of 3 | Normal / Strong (OSD sharpener gain `0x80`) | Small letters: 12 to 24 px text, white and dark | Sharper edges, or bright halos. | Which looks better? |
-| 2 Sharpness 2 of 3 | Normal / Soft (gain `0x00`) | Thin lines: 1-px lines and a checkerboard | Lines turn fainter and blurrier. | Which looks better? |
-| 3 Sharpness 3 of 3 | Normal / Sharpener off | Letters and colours: bars, ramps, text in colour | Plainer letters, colours may shift. | Which looks better? |
-| 4 Dimming 1 of 2 | Normal / Dimmed (OSD0's video signal processor) | Clock and picture: a screensaver | Darker, and a little flatter. | Is the dimmed look OK for the screensaver? |
-| 5 Dimming 2 of 2 | Normal / Grey | Colours | All colour turns grey. | Is the grey look OK for burn-in protection? |
+| 1 Sharpness 1 of 5 | Normal / Strong (OSD sharpener gain `0x80`) | Small letters: 12 to 24 px text, white and dark | Sharper edges, or bright halos. | Which looks better? |
+| 2 Sharpness 2 of 5 | Normal / Medium (gain `0x40`, between the set's `0x10` and Strong) | Small letters | Crisper edges. Jagged up close? | Which looks better? |
+| 3 Sharpness 3 of 5 | Medium / Strong, against each other | Small letters | Crisp, without jagged edges? | Which looks better? |
+| 4 Sharpness 4 of 5 | Normal / Soft (gain `0x00`) | Thin lines: 1-px lines and a checkerboard | Lines turn fainter and blurrier. | Which looks better? |
+| 5 Sharpness 5 of 5 | Normal / Sharpener off | Letters and colours: bars, ramps, text in colour | Plainer letters, colours may shift. | Which looks better? |
 | 6 Window 1 of 2 | Window off / Window on (mixer hole, select 1) | The window: a grey rectangle in the middle | The picture behind shows through. | Does the window show the picture cleanly? |
 | 7 Window 2 of 2 | Window off / Window on (select 3) | the same | the same | the same; left out when step 6 was answered Yes |
 
 On every step: a frame round the zone with a tag (an eye, then two or three words) and, where there is room, a large arrow from the
 sheet to it. The sheet beside it: the group and counter, the one line on the difference, the option on the screen as a big letter and its
 name, the two switches (**A** and **B**, for the pointer), the question, the answers one under the other (**This one is better**, **Can't
-tell**, **Skip**; or **Yes**, **No**, **Can't tell**, **Skip**), and the keys as glyphs.
+tell**, **Skip**; or **Yes**, **No**, **Can't tell**, **Skip**; or just **Next** when the look could not be put on the screen, see below), and the keys as glyphs.
 
 | Press | Does |
 |---|---|
@@ -53,12 +58,23 @@ After the last step: the results (one row a step, "Strong looks better", "OK", "
 person switched and whether B was on the screen at all** (an answer given without looking at both looks says so). Done leaves; Again
 starts a new run.
 
-Not in the lab, by decision: the page-size probe (the driver refused it with EINVAL, that route is closed) and the orbit (measured, not
-judged by eye).
+**A look that could not be applied is said so.** When B is asked for and the helper's answer says the register does not hold what was
+written (the firmware put it back), or the write is refused, the sheet says "Couldn't apply Strong. The TV puts it back." (in the helper's own
+words when it refused), the answers about a picture that was never on the screen go, and the one that is left is **Next**, which records
+`failed` ("Couldn't apply") and goes on. Two identical pictures are never offered for a pick. Switching to A and back to B tries again, and
+the answers return when B shows. A look that showed and was taken back later keeps its answers and says so ("The TV put Strong back by
+itself."). The helper says whether things hold per control (`heldBy`), so a register of the window taken back does not fail a sharpness
+look. Each step records `bApplied` besides `held`.
+
+Not in the lab, by decision: the page-size probe (the driver refused it with EINVAL, that route is closed), the orbit (measured, not judged by
+eye) and **OSD0's dimming and grey (VSP, `0xCC480360`)**. Round 19 read it on the TV (`slot-2026-10-29-r19/displaylab/`): the firmware owns
+it and puts `0x02000001` back at once when `0x01000001` is written (the session read `drifted ["osd0_vsp"]`, `held false`, 89 sets, and
+the watch never saw `0x01000001`), and grey `0x02000003` stayed in the register but showed nothing on LumaTV's plane. The helper still
+lists the `dimming` control (its tests are built on it as the register example); no step offers it. Taking it off the list is a follow-up.
 
 ## 2. How it is built
 
-- **The screens** (`rustui/ui/src/lab/`, no QML): `plan.rs` the seven steps, `card.rs` the test cards (painted once into a full-screen
+- **The screens** (`rustui/ui/src/lab/`, no QML): `plan.rs` the steps (five of sharpness, two of the window), `card.rs` the test cards (painted once into a full-screen
   image, theme-independent), `model.rs` the state (one request to the helper at a time, a ping every second while open, the exits),
   `surface.rs` the sheet and the frame, `host.rs` the part the shell feeds. Layer band `kit::z::LAB` (400): over Settings, which stays
   behind it for the way back, under the layout editor and the system layer.
@@ -121,7 +137,7 @@ Install needs Nitin's Face ID. `tools/displaylab-tv.sh` (copied to the set, read
 3. Open it (Settings > Picture > Expert > Display lab, and `ctl shell show displaylab`). Press OK with the wheel exactly once: **one**
    step happens (the wheel press arrives as 1199 and may also arrive as another key on a device that also sends KEY_ENTER; if a step is
    skipped on one press, that is it). Turn the wheel: A and B switch. Move the remote without pressing: nothing happens (1198 is ignored).
-4. Step through all seven with a video playing behind (the window step). Watch for: whether the frame on the card is where the hole
+4. Step through all seven with a video playing behind (the window step); on Medium and Medium / Strong say whether Medium is crisp without the jagged edges close up. Watch for: whether the frame on the card is where the hole
    opens, whether the hole shows the picture cleanly, and what each sharpness and dimming look is (Nitin's answers).
 5. Every way out, with a look that changes a register on the screen (step 4, 5 or 6 at B), then `displaylab-tv.sh check LABEL`: Back; the
    Home key; another app in front; kill the UI client (`kill -9 lumatv-ui`, with `watch` running: back within about six seconds);

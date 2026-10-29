@@ -186,6 +186,14 @@ const SHARPNESS: &[Opt] = &[
             (Target::Sharpener, Val::Original),
         ],
     },
+    // between the set's own 0x10 and strong: Strong was crisp but jagged up close (the TV check of 2026-10-29)
+    Opt {
+        id: "medium",
+        writes: &[
+            (Target::Gain, Val::Fixed(0x40)),
+            (Target::Sharpener, Val::Fixed(1)),
+        ],
+    },
     Opt {
         id: "strong",
         writes: &[
@@ -399,7 +407,10 @@ mod tests {
     #[test]
     fn the_options_of_the_shell_are_the_ones_listed() {
         let ids = |c: Control| c.options().iter().map(|o| o.id).collect::<Vec<_>>();
-        assert_eq!(ids(Control::Sharpness), ["normal", "strong", "soft", "off"]);
+        assert_eq!(
+            ids(Control::Sharpness),
+            ["normal", "medium", "strong", "soft", "off"]
+        );
         assert_eq!(ids(Control::Dimming), ["normal", "dimmed", "grey"]);
         assert_eq!(ids(Control::Window), ["off", "on_a", "on_b"]);
         assert_eq!(Control::from_id("sharpness"), Some(Control::Sharpness));
@@ -426,6 +437,11 @@ mod tests {
                 _ => 0,
             })
         };
+        assert_eq!(
+            plan(Control::Sharpness, "medium", originals),
+            Some(vec![(Target::Gain, 0x40), (Target::Sharpener, 1)]),
+            "between the set's 0x10 and strong's 0x80, on the list's own 0x40"
+        );
         assert_eq!(
             plan(Control::Sharpness, "strong", originals),
             Some(vec![(Target::Gain, 0x80), (Target::Sharpener, 1)])

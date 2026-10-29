@@ -35,7 +35,7 @@ fn luna_calls(acts: &[Act], method: &str) -> Vec<Value> {
 }
 
 fn lab_session() -> Value {
-    json!({"ok": true, "displaylab": {"available": true, "session": {"id": 1, "held": true, "usable": {"sharpness": true, "dimming": true, "window": true}, "why": {}}}})
+    json!({"ok": true, "displaylab": {"available": true, "session": {"id": 1, "held": true, "usable": {"sharpness": true, "window": true}, "why": {}}}})
 }
 
 /// What the lab asked of the helper, as (path, body).
@@ -91,7 +91,10 @@ fn the_display_lab_has_every_key_and_the_wheel_and_asks_the_helper_for_each_look
     // OK starts the first step: A is the set's own state; Home under it launches nothing
     let mut all = key(&mut shell, "ok", 2_100);
     let calls = lab_calls(&all);
-    assert_eq!(calls.iter().map(|c| (c.0.as_str(), c.1["control"].as_str().unwrap(), c.1["option"].as_str().unwrap())).collect::<Vec<_>>(), [("/v1/displaylab/set", "sharpness", "normal")]);
+    assert_eq!(
+        calls.iter().map(|c| (c.0.as_str(), c.1["control"].as_str().unwrap(), c.1["option"].as_str().unwrap())).collect::<Vec<_>>(),
+        [("/v1/displaylab/set", "sharpness", "normal")]
+    );
     assert_eq!(lab_state(&shell)["step"], "sharpness-strong");
     shell.helper(&Event::Answer { tag: tag_of(&all, "/v1/displaylab/set"), status: 200, body: lab_session() }, 2_150);
     // Right and the wheel's turn each switch the look
@@ -157,7 +160,7 @@ fn the_pointer_is_the_labs_while_it_is_open_a_click_on_an_answer_answers_it_and_
         all.extend(shell.key(&KeyEvent::Pointer { x, y, buttons, visible: true }, now + 100 + i as u64 * 50));
         shell.tick(now + 100 + i as u64 * 50);
     }
-    assert_eq!(lab_state(&shell)["step"], "sharpness-soft", "the second answer, Can't tell, moved on");
+    assert_eq!(lab_state(&shell)["step"], "sharpness-medium", "the second answer, Can't tell, moved on");
     assert_eq!(lab_state(&shell)["answers"]["sharpness-strong"], "same");
     assert!(luna_calls(&all, "/launch").is_empty(), "Home under the lab heard nothing: {all:?}");
 }
@@ -178,7 +181,8 @@ fn without_the_kind_the_lab_is_neither_offered_nor_opened_and_the_keys_stay_with
 fn the_lint_reads_the_lab_alone_and_finds_nothing_at_100_and_200_percent() {
     for scale in [1.0, 2.0] {
         let (h, kit) = testkit::kit(scale);
-        let mut shell = Shell::new(kit, Kinds::parse("home,settings,displaylab"), 2000, &testkit::module_dir().join("icons/audio"), &json!({}), &json!({})).expect("a shell");
+        let mut shell = Shell::new(kit, Kinds::parse("home,settings,displaylab"), 2000, &testkit::module_dir().join("icons/audio"), &json!({}), &json!({}))
+            .expect("a shell");
         shell.start();
         shell.helper(&Event::Up(true), 1_020);
         let acts = shell.channel(&Event::Topic { topic: "show".into(), data: json!({"kind": "displaylab"}) }, 2_000);

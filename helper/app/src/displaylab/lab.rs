@@ -691,6 +691,7 @@ impl Lab {
                 }
                 json!({
                     "id": s.id,
+                    "heldBy": self.holds_by_control(s),
                     "leftMs": s.deadline_ms.saturating_sub(now),
                     "shown": s.shown.iter().map(|(c, o)| (c.id().to_owned(), json!(o))).collect::<serde_json::Map<_, _>>(),
                     "sets": s.sets,
@@ -721,6 +722,24 @@ impl Lab {
             .map(|(t, _)| t.name())
             .collect();
         (drifted.is_empty(), drifted)
+    }
+
+    /// Whether what the lab wrote for each control it has written still reads as written: the screen asks about the control it is showing,
+    /// so a register the firmware took back for one control does not make the look of another seem to fail.
+    fn holds_by_control(&self, s: &Session) -> Value {
+        Control::ALL
+            .iter()
+            .filter(|c| c.targets().iter().any(|t| s.written.contains_key(t)))
+            .map(|c| {
+                let held = c
+                    .targets()
+                    .iter()
+                    .filter_map(|t| s.written.get(t).map(|w| (t, w)))
+                    .all(|(t, w)| self.regs.read(*t).is_ok_and(|v| v == *w));
+                (c.id().to_owned(), json!(held))
+            })
+            .collect::<serde_json::Map<_, _>>()
+            .into()
     }
 
     /// The status without touching the lease: what a page that only looks asks.
@@ -1322,6 +1341,35 @@ pub mod tests {
         // the end still puts the original back
         r.lab.end().unwrap();
         assert!(at_rest(&r));
+    }
+
+    #[test]
+    fn the_status_says_per_control_whether_what_it_wrote_holds_so_one_taken_back_does_not_fail_another()
+     {
+        let r = Rig::new();
+        r.lab.begin().unwrap();
+        r.lab.set("sharpness", "strong").unwrap();
+        let v = r.lab.set("window", "on_a").unwrap();
+        assert_eq!(
+            v["session"]["heldBy"],
+            json!({"sharpness": true, "window": true})
+        );
+        // the firmware takes the gain back: sharpness no longer holds, the window still does, and the session as a whole does not
+        r.regs.force(Target::Gain, 0x10);
+        let v = r.lab.ping().unwrap();
+        assert_eq!(
+            v["session"]["heldBy"],
+            json!({"sharpness": false, "window": true})
+        );
+        assert_eq!(v["session"]["held"], false);
+        assert_eq!(v["session"]["drifted"], json!(["osd_sr_gain"]));
+        // a control the lab never wrote is not named
+        let r = Rig::new();
+        r.lab.begin().unwrap();
+        assert_eq!(
+            r.lab.set("window", "on_a").unwrap()["session"]["heldBy"],
+            json!({"window": true})
+        );
     }
 
     #[test]

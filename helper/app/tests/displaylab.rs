@@ -87,7 +87,7 @@ fn the_lab_answers_the_tvs_own_shell_only_and_a_machine_that_is_not_the_tv_says_
     );
     assert_eq!(
         doc["displaylab"]["controls"]["sharpness"],
-        json!(["normal", "strong", "soft", "off"])
+        json!(["normal", "medium", "strong", "soft", "off"])
     );
     let r = http(addr, "POST", "/v1/displaylab/begin", SHELL, Some(""));
     assert_eq!((r.status, code(&r)), (503, "unavailable".to_owned()));
