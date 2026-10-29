@@ -25,6 +25,7 @@ OUT = os.path.join(ROOT, 'docs', 'mocks', 'host-rust', 'home')
 NOW = int(time.time() * 1000)
 HOME = {"app": "com.webos.app.home", "home": True, "covered": False}
 LP_TAG = 300
+TOAST_TAG = 0x5100_0100  # panels/notelog.rs FEED_TAG: LG's toast feed
 
 
 def launch_points():
@@ -86,7 +87,7 @@ CAMERAS_LAYOUT = {"grid": {"rows": 16}, "widgets": [
 
 @unittest.skipUnless(os.path.exists(BIN) and os.path.exists(MESA), "needs rustui/target/debug/lumatv-ui and Mesa")
 class RustHome(unittest.TestCase):
-    def host(self, wait, steps=(), layout=None, feeds=None, mode=None, scale=None, data=None, theme=None):
+    def host(self, wait, steps=(), layout=None, feeds=None, mode=None, scale=None, data=None, theme=None, kinds='home'):
         """Runs the harness with Home in front, the launch points answered and the feeds published at 100 ms; `steps` are extra
         arguments (`k`, `snap`, `ev`). Returns (the output, the evals by label, the data directory)."""
         data = data or tempfile.mkdtemp(prefix='rusthome-')
@@ -99,7 +100,7 @@ class RustHome(unittest.TestCase):
             with open(os.path.join(data, 'theme', 'theme.json'), 'w') as f:
                 json.dump(theme, f)
         feeds = {"weather": weather(), "news": news(), "plugin.homeassistant.cards": HOME_CARDS, "profiles": profiles(), "cameras": CAMERAS, **(feeds or {})}
-        cmd = [BIN, '--host', '--kinds', 'home', '--data-dir', data, '--shm', os.path.join(data, 'shm'), '--wait', str(wait),
+        cmd = [BIN, '--host', '--kinds', kinds, '--data-dir', data, '--shm', os.path.join(data, 'shm'), '--wait', str(wait),
                '--push', '50:foreground:' + json.dumps(HOME), '--luna', '80:%d:%s' % (LP_TAG, json.dumps({"launchPoints": launch_points()}))]
         for topic, doc in feeds.items():
             cmd += ['--helper', '100:%s:%s' % (topic, json.dumps(doc))]
@@ -160,6 +161,22 @@ class RustHome(unittest.TestCase):
         self.assertIsNotNone(evals[2]["launching"], "Home launched the app")
         self.assertEqual(evals[2]["layer"], "", "and closed what it had")
         self.assertEqual(evals[3]["focusLayer"], "widgets", "back from the dock goes to the cards")
+
+    # ---- the bell and the notification drawer
+    def test_the_bell_opens_the_drawer_kind_and_back_closes_it(self):
+        out, evals, _ = self.host(4200, [self.k(600, "right", "ok"), ['--eval', '2200:state'], self.k(2300, "back"), ['--eval', '3800:state']], kinds='home,drawer')
+        self.assertIn(evals[0]["panels"]["drawer"], ("opening", "open"), "OK on the bell opens the drawer")
+        self.assertIn(evals[1]["panels"]["drawer"], ("leaving", "parked"), "Back closes it")
+        self.assertNotIn("home asks for notifications", out)
+        self.assertEqual(evals[1]["home"]["focusLayer"], "statusbar", "Home is where it was left")
+
+    @staticmethod
+    def toast(ms, text):
+        return ['--luna', '%d:%d:%s' % (ms, TOAST_TAG, json.dumps({"message": text}))]
+
+    def test_the_bell_is_logged_only_when_the_drawer_kind_is_not_the_shells(self):
+        out, _, _ = self.host(1600, [self.k(600, "right", "ok")])
+        self.assertIn("home asks for notifications", out)
 
     # ---- the layout editor
     def test_the_editor_picks_up_a_card_moves_it_by_the_cell_turns_a_move_down_and_saves_the_owners_layout(self):
@@ -244,6 +261,8 @@ class RustHome(unittest.TestCase):
             self.host(3000, [self.k(600, "down"), self.hold(900, "ok", 900), self.snap(2800, "38-home-edit" + suffix)], layout=FREE, mode=mode)
             self.host(4000, [self.k(600, "down"), self.hold(900, "ok", 900), self.k(2000, "ok", "right", "down"), self.snap(3800, "38-home-edit-move" + suffix)], layout=FREE, mode=mode)
             self.host(4000, [self.k(600, "down"), self.hold(900, "ok", 900), self.k(2000, "up", "left", "left", "ok"), self.snap(3800, "38-home-edit-add" + suffix)], layout=FREE, mode=mode)
+            self.host(3600, [self.toast(300, "Update ready\nA new version is ready to install"), self.toast(400, "Backup done"), self.toast(500, "Remote battery low"), self.k(1300, "right", "ok"),
+                             self.snap(3400, "41-home-drawer" + suffix)], mode=mode, kinds='home,drawer')
             self.host(2200, [self.k(600, "1"), self.snap(2000, "12-all-apps" + suffix)], mode=mode)
             self.host(3200, [self.k(600, "1", "up", "ok", "right", "ok", "right", "ok"), self.snap(3000, "09-search-keyboard" + suffix)], mode=mode)
             self.host(2200, [self.k(600, "ok"), self.snap(2000, "40-profiles-picker" + suffix)], mode=mode)
