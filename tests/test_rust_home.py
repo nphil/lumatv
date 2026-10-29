@@ -99,7 +99,7 @@ class RustHome(unittest.TestCase):
         if theme is not None:
             with open(os.path.join(data, 'theme', 'theme.json'), 'w') as f:
                 json.dump(theme, f)
-        feeds = {"weather": weather(), "news": news(), "plugin.homeassistant.cards": HOME_CARDS, "profiles": profiles(), "cameras": CAMERAS, **(feeds or {})}
+        feeds = {"weather": weather(), "news": news(), "plugins": {"plugins": [{"id": "home-assistant", "name": "Home Assistant", "state": "connected"}], "firstParty": []}, "plugin.home-assistant.cards": HOME_CARDS, "profiles": profiles(), "cameras": CAMERAS, **(feeds or {})}
         cmd = [BIN, '--host', '--kinds', kinds, '--data-dir', data, '--shm', os.path.join(data, 'shm'), '--wait', str(wait),
                '--push', '50:foreground:' + json.dumps(HOME), '--luna', '80:%d:%s' % (LP_TAG, json.dumps({"launchPoints": launch_points()}))]
         for topic, doc in feeds.items():

@@ -133,8 +133,9 @@ impl Dock {
         list.into_iter().map(|(_, p)| p.clone()).collect()
     }
 
+    /// The largest icon the launch point has: a field the TV leaves as "" is not one (`Dock.iconFor`).
     fn icon_of(p: &Value) -> String {
-        ["extraLargeIcon", "largeIcon", "icon", "mediumLargeIcon"].iter().find_map(|k| p.get(k).and_then(Value::as_str)).unwrap_or("").to_owned()
+        crate::host::apps::icon_of(p)
     }
 
     /// LG's launch points (the `listLaunchPoints` answer's list) as the person's dock, with the theme's names, icons and plates.
@@ -349,6 +350,23 @@ mod tests {
         assert!(!d.scrollable());
         assert_eq!(d.grid_top(), 136);
         assert_eq!(d.slot(1), (88 + 136, 136));
+    }
+
+    /// The TV's own answer (`listLaunchPoints`, 33 points): most developer apps give an `extraLargeIcon` of "", which is not an icon.
+    #[test]
+    fn every_launch_point_that_has_any_icon_gets_the_largest_one_it_has() {
+        let all: Value = serde_json::from_str(include_str!("../../../../docs/research/cardapp/tv-20261025-1939/launchpoints.json")).expect("the TV's list");
+        let list = all["launchPoints"].as_array().expect("a list").clone();
+        let mut d = Dock::default();
+        d.configure(&json!({"tile": 120, "gap": 16, "padY": 40, "fade": 110}), 1792, 392);
+        d.set_points(&list, &json!({}));
+        let icon = |id: &str| d.points.iter().find(|p| p.id == id).map(|p| p.icon.clone()).expect(id);
+        assert_eq!(icon("com.beb.plxnative"), "/media/developer/apps/usr/palm/applications/com.beb.plxnative/largeIcon.png");
+        assert_eq!(icon("com.webos.app.discovery"), "/mnt/otncabi/usr/palm/applications/com.webos.app.discovery/asset/hd1080/lgstore_130x130.png");
+        assert_eq!(icon("netflix"), "/media/cryptofs/apps/usr/palm/applications/netflix/125627457772030877_21790820472215287large_app_icon_192x192.png");
+        assert_eq!(icon("org.webosbrew.bridge-64to32"), "/media/developer/apps/usr/palm/applications/org.webosbrew.bridge-64to32/icon.png", "only `icon` is set");
+        let blank: Vec<&str> = d.points.iter().filter(|p| p.icon.is_empty()).map(|p| p.id.as_str()).collect();
+        assert!(blank.is_empty(), "drawn with no picture: {blank:?}");
     }
 
     #[test]

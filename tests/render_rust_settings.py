@@ -235,6 +235,16 @@ SCENES += [
     Scene('cameras-unlinked', 'cameras', routes={}, topics={'cameras': {'state': 'unlinked', 'cameras': []}}, keys=['right']),
 ]
 
+# ---- Profiles: the people with their bundled avatars (the pictures are larger than the tile they sit in)
+def profiles_topic():
+    avatar = os.path.join(ROOT, 'payload', 'avatars', 'critters-01.png')
+    return {'ready': True, 'active': 'nitin', 'owner': 'nitin', 'canAdmin': True, 'pickerOnWake': False, 'startWith': 'last', 'max': 6, 'switchedAt': 1, 'profiles': [
+        {'id': 'nitin', 'name': 'Nitin', 'initial': 'N', 'color': '#A79BF5', 'avatar': {'kind': 'initial'}, 'avatarFile': None, 'owner': True, 'active': True, 'locked': False},
+        {'id': 'isabel', 'name': 'Isabel', 'initial': 'I', 'color': '#EB6F92', 'avatar': {'kind': 'gallery', 'id': 'critters-01'}, 'avatarFile': avatar, 'owner': False, 'active': False, 'locked': True}]}
+
+
+SCENES += [Scene('profiles', 'profiles', topics={'profiles': profiles_topic()}, keys=['right'])]
+
 BY_NAME = {s.name: s for s in SCENES}
 
 
