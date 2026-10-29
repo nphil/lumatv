@@ -1,0 +1,141 @@
+{
+  "v": 1,
+  "avatars": [
+    {
+      "id": "people-01",
+      "set": "people",
+      "file": "people-01.png"
+    },
+    {
+      "id": "people-02",
+      "set": "people",
+      "file": "people-02.png"
+    },
+    {
+      "id": "people-03",
+      "set": "people",
+      "file": "people-03.png"
+    },
+    {
+      "id": "people-04",
+      "set": "people",
+      "file": "people-04.png"
+    },
+    {
+      "id": "people-05",
+      "set": "people",
+      "file": "people-05.png"
+    },
+    {
+      "id": "people-06",
+      "set": "people",
+      "file": "people-06.png"
+    },
+    {
+      "id": "people-07",
+      "set": "people",
+      "file": "people-07.png"
+    },
+    {
+      "id": "people-08",
+      "set": "people",
+      "file": "people-08.png"
+    },
+    {
+      "id": "people-09",
+      "set": "people",
+      "file": "people-09.png"
+    },
+    {
+      "id": "people-10",
+      "set": "people",
+      "file": "people-10.png"
+    },
+    {
+      "id": "people-11",
+      "set": "people",
+      "file": "people-11.png"
+    },
+    {
+      "id": "people-12",
+      "set": "people",
+      "file": "people-12.png"
+    },
+    {
+      "id": "critters-01",
+      "set": "critters",
+      "file": "critters-01.png"
+    },
+    {
+      "id": "critters-02",
+      "set": "critters",
+      "file": "critters-02.png"
+    },
+    {
+      "id": "critters-03",
+      "set": "critters",
+      "file": "critters-03.png"
+    },
+    {
+      "id": "critters-04",
+      "set": "critters",
+      "file": "critters-04.png"
+    },
+    {
+      "id": "critters-05",
+      "set": "critters",
+      "file": "critters-05.png"
+    },
+    {
+      "id": "critters-06",
+      "set": "critters",
+      "file": "critters-06.png"
+    },
+    {
+      "id": "critters-07",
+      "set": "critters",
+      "file": "critters-07.png"
+    },
+    {
+      "id": "critters-08",
+      "set": "critters",
+      "file": "critters-08.png"
+    },
+    {
+      "id": "critters-09",
+      "set": "critters",
+      "file": "critters-09.png"
+    },
+    {
+      "id": "critters-10",
+      "set": "critters",
+      "file": "critters-10.png"
+    },
+    {
+      "id": "critters-11",
+      "set": "critters",
+      "file": "critters-11.png"
+    },
+    {
+      "id": "critters-12",
+      "set": "critters",
+      "file": "critters-12.png"
+    }
+  ],
+  "sets": [
+    {
+      "id": "people",
+      "name": "People",
+      "style": "lorelei",
+      "licence": "CC0 1.0",
+      "source": "DiceBear Lorelei, a remix of Lorelei by Lisa Wischofsky (https://www.dicebear.com/styles/lorelei/)"
+    },
+    {
+      "id": "critters",
+      "name": "Critters",
+      "style": "critters",
+      "licence": "CC0 1.0",
+      "source": "DiceBear Critters, by DiceBear (https://www.dicebear.com/styles/critters/)"
+    }
+  ]
+}

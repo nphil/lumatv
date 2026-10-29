@@ -203,6 +203,9 @@ impl Service {
         threads.push(("preload", preload::spawn(&ctx)?));
         threads.push(("updateblock", crate::updateblock::spawn(&ctx)?));
         threads.push(("openapps", crate::openapps::spawn(&ctx)?));
+        // Local profiles: the first open makes Nitin and Isabel from the working copy in theme/; the thread carries edits back to their profile.
+        let profiles = crate::profiles::Profiles::open(&ctx);
+        threads.push(("profiles", profiles.spawn(&ctx)?));
         threads.push((
             "refreshguard",
             refreshguard::spawn(ctx.stop.clone(), guard.clone(), panel_rx)?,
@@ -241,6 +244,7 @@ impl Service {
             images,
             cameras,
             capture: crate::capture::Capture::new(&config.capture),
+            profiles,
             started_at: ctx.hub.boot(),
             data_dir: paths.data_dir.display().to_string(),
             fetch_backend,

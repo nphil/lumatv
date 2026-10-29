@@ -126,6 +126,7 @@ BG_4K_SRC="$APPDIR/payload/wallpaper/bg_4k.png"
 # rebuild.
 LUMA_SRC="$APPDIR/payload/compositor/$QML_MODULE"
 FONTS_SRC="$APPDIR/payload/fonts"
+AVATARS_SRC="$APPDIR/payload/avatars"
 THEME_SRC="$APPDIR/payload/theme"
 KEYFILTER_SRC="$APPDIR/payload/keyfilter/$SHORT_ID.js"
 KEYFILTER_TOOL="$APPDIR/tools/keyfilter.py"
@@ -136,6 +137,7 @@ FRAME_IPK="$APPDIR/payload/frame/$FRAME_APP.ipk"
 FRAME_DIR="/media/developer/apps/usr/palm/applications/$FRAME_APP"
 LUMA_STAGE="$STATE/luma"
 FONTS_DIR="$STATE/fonts"
+AVATARS_DIR="$STATE/avatars"
 THEME_DIR="$STATE/theme"
 KEYFILTER_DIR="$STATE/keyfilter"
 KEYFILTER_HANDLER=handleLumaHome
@@ -935,6 +937,11 @@ stage_theme() {
   rm -f "$FONTS_DIR"/Inter*.ttf 2>/dev/null
   cp -f "$FONTS_SRC"/*.ttf "$FONTS_DIR/" 2>/dev/null
   cp -f "$WALL_SRC" "$THEME_DIR/wall_1080.png" 2>/dev/null
+  # The bundled avatars of the profiles (gallery.json and the PNGs it lists), where the helper and every screen read them from: nothing is
+  # fetched to show or pick one. profiles/ itself is the helper's and is made at its first start from theme/ (helper/app/src/profiles.rs).
+  if [ -d "$AVATARS_SRC" ]; then
+    mkdir -p "$AVATARS_DIR" 2>/dev/null && cp -f "$AVATARS_SRC"/* "$AVATARS_DIR/" 2>/dev/null
+  fi
   for f in theme.json layout.json; do
     [ -f "$THEME_DIR/$f" ] || printf '{}\n' > "$THEME_DIR/$f"
     python3 "$THEME_TOOL" "$THEME_DIR/$f" minimize "$THEME_SRC/$f" < /dev/null >/dev/null 2>>"$LOGFILE" \

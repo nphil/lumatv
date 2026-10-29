@@ -605,6 +605,12 @@ owner's `layout.json` holds only what differs from the shipped file; Reset to de
   its API is loopback only, and the one LAN listener the plan has is AI access (a listener for layouts would be a new network entrance,
   Nitin's to open).
 
+Profiles (`docs/research/profiles-design.md`): Nitin and Isabel each have their own Home layout, dock and quick panel, look and text size, and
+their own name and picture in the status bar; the LG account is not a profile. The helper owns them (`helper/app/src/profiles.rs`, `/v1/profiles`,
+the `profiles` topic): `theme/theme.json`, `layout.json` and `tint.json` stay the working copy that Home reads, holding the household's keys plus
+the active profile's, and a switch swaps the profile's part in them. Which key is whose is `payload/compositor/lumatv/profile-scope.json`. The
+screens (picker, quick-panel strip, Settings > Profiles, PIN pad, first run) are the Rust shell's.
+
 ## AI access (MCP)
 
 The native helper serves an MCP server so AI assistants (Cody, Home

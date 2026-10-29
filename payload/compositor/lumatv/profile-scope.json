@@ -1,0 +1,10 @@
+{
+  "profile": [
+    "wallpaper", "material", "materialThreshold", "dark", "light", "accent", "tint", "saturation", "depth",
+    "type", "clock", "weather.units", "weather.days", "news", "wallpaperMotion",
+    "tiles.icons", "tiles.plates", "apps", "quickPanel.tiles",
+    "remote.quickAccess", "remote.appKeys", "motion.reduced", "search",
+    "layout", "overlays.classes"
+  ],
+  "shared": ["wallpaperMotion.source", "wallpaperMotion.glass"]
+}

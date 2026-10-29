@@ -98,6 +98,10 @@ layout editor on Home (hold OK on a card) and by `lumatv layout get|check|put|se
 and `rows` on the grid's cells (`grid.rows` is a count or a list of pixel heights), and `hidden: true` to leave it off Home without
 losing its place. `lumatv layout reset` is the way back to the shipped layout.
 
+Nitin and Isabel have a profile each (`docs/research/profiles-design.md`): the helper keeps each person's look, cards, dock and quick panel in
+`profiles/<id>/` and puts the active person's part into these files when the profile is switched (`/v1/profiles/switch`). Which keys are a person's
+and which the household's is `payload/compositor/lumatv/profile-scope.json`.
+
 ### 3. Home app assets (`/usr/palm/applications/com.webos.app.home/data/flutter_assets/assets`)
 
 A bind mount of a merged copy of the stock assets with a decluttered

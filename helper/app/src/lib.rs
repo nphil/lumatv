@@ -19,6 +19,7 @@
 //! | [`ambient_z2m`], [`ambient_z2m_frame`], [`ambient_z2m_mqtt`], [`ambient_z2m_store`] | ambient light's Zigbee2MQTT output: Hue entertainment frames over MQTT, no bridge |
 //! | [`ha_store`] | the saved address and token of a Home Assistant link, one private file (voice search's and the plugin lease's) |
 //! | [`voice`] | voice search: the mic key's words as text for the search box, through Home Assistant's Assist pipeline |
+//! | [`profiles`] | local profiles (Nitin, Isabel): each person's Home kept apart from the household's settings, the switch, the PINs, the `profiles` topic; the working copy `theme/` stays what the Home layer reads |
 //! | [`preload`] | keeps the apps the owner switched off from preloading, at each switch-on (webOS forgets the policy) |
 //! | [`framerate`] | the panel's rate after 25 or 50 fps video: back to 120 Hz once Home is in front with no video window |
 //! | [`ble`], [`ble_proxy`], [`ble_scan`], [`ble_duty`], [`ble_store`] | the Bluetooth proxy: the TV as a Home Assistant Bluetooth proxy (ESPHome native API) for presence and BLE sensors, through LG's `bluetooth2` scan with the radio's duty limits |
@@ -69,6 +70,7 @@ pub mod log;
 pub mod placement;
 pub mod plugins;
 pub mod preload;
+pub mod profiles;
 pub mod receiver;
 pub mod receiver_telnet;
 pub mod receiver_volume;

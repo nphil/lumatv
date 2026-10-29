@@ -16,6 +16,7 @@
 //! | `POST /v1/refresh` | fetch weather and news now |
 //! | `GET /v1/settings`, `GET /v1/settings/{owner}`, `POST /v1/settings/{owner}` | the settings layer |
 //! | `GET /v1/voice`, `POST /v1/voice/{listen,stop,cancel,refresh}` | voice search (`voice.rs`) |
+//! | `GET /v1/profiles`, `POST /v1/profiles/switch`, `POST|DELETE /v1/profiles/{id}`, `/v1/profiles/{id}/pin`, `/{id}/avatar`, `/options`, `/gallery` | local profiles (`profiles.rs`) |
 //!
 //! A client's loop: `GET /v1/state` once (it carries `seq` and `boot`), then `GET /v1/events?after=<seq>&boot=<boot>` over and
 //! over, each time with the `seq` of the last answer. An answer with `"reset": true` means the client fell behind or the helper
@@ -139,6 +140,8 @@ pub struct Api {
     pub cameras: crate::cameras::Cameras,
     /// Screenshots and screen recordings: the way in to the compositor's capture, behind `capture.enabled` (`/v1/capture/...`).
     pub capture: crate::capture::Capture,
+    /// Local profiles: each person's Home and who may change what (`/v1/profiles/...`, the `profiles` topic).
+    pub profiles: Arc<crate::profiles::Profiles>,
     pub receiver_tx: Sender<receiver::Cmd>,
     pub feeds_tx: Sender<homefeeds::Cmd>,
 }
@@ -341,6 +344,7 @@ impl Api {
             .chain(crate::openapps::ROUTES.iter())
             .chain(crate::capture::ROUTES.iter())
             .chain(crate::placement::ROUTES.iter())
+            .chain(crate::profiles::ROUTES.iter())
             .map(|(method, path, what)| json!({"method": method, "path": path, "what": what}))
             .collect();
         let now = now_ms();
@@ -546,6 +550,7 @@ impl Handler for Api {
             ["v1", "openapps"] => crate::openapps::handle(&self.hub, request),
             ["v1", "capture", rest @ ..] => self.capture.handle(request, rest),
             ["v1", "placement", rest @ ..] => crate::placement::handle(request, rest),
+            ["v1", "profiles", rest @ ..] => self.profiles.handle(request, rest),
             ["v1", "image", root, file] if get => self.images.serve(request, root, file),
             ["v1", "images"] if get => self.ok(self.images.status()),
             ["v1", "cameras"] if get => self.ok(json!({"cameras": self.cameras.status()})),
@@ -658,6 +663,7 @@ mod tests {
                     Arc::new(crate::images::Images::new(&ctx.config, &ctx.paths)),
                 ),
                 capture: crate::capture::Capture::new(&ctx.config.capture),
+                profiles: crate::profiles::Profiles::open(&ctx),
                 started_at: 1000,
                 data_dir: "/var/lib/test".into(),
                 fetch_backend: json!({"backend": "test"}),
@@ -742,6 +748,7 @@ mod tests {
                 + crate::openapps::ROUTES.len()
                 + crate::capture::ROUTES.len()
                 + crate::placement::ROUTES.len()
+                + crate::profiles::ROUTES.len()
         );
         assert_eq!(b["helper"]["version"], crate::VERSION);
         assert_eq!(b["boot"], 777);
