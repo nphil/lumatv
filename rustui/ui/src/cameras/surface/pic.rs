@@ -85,6 +85,13 @@ impl PictureStore {
         self.map.len()
     }
 
+    /// The keys kept, in order (for a test or a debug document).
+    pub fn keys(&self) -> Vec<&str> {
+        let mut keys: Vec<&str> = self.map.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        keys
+    }
+
     pub fn is_empty(&self) -> bool {
         self.map.is_empty()
     }

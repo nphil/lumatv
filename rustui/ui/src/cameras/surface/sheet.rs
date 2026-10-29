@@ -30,6 +30,8 @@ use ui::text::Weight;
 const CARD_W: f32 = PIC_W as f32;
 const CARD_GAP: f32 = 24.0;
 const PITCH: f32 = CARD_W + CARD_GAP;
+/// How much of the grid under the sheet shows through its veil.
+const VEIL_ALPHA: f32 = 0.6;
 
 struct CardUi {
     index: usize,
@@ -101,6 +103,11 @@ impl SheetUi {
         let frame = Frame::new(96.0, (1026.0 - height).round(), 1728.0, height);
         let paint = glass(cx.kit, PaneKind::Sheet, height, over_video).tint;
         let mut parts = Parts::new();
+        if !over_video {
+            // the grid is dimmed behind the sheet; over a video there is nothing to dim
+            let veil = plate::shape(&cx.kit.ui, Frame::new(0.0, 0.0, 1920.0, 1080.0), z - 2, plate::solid(faded(cx.kit.tokens.extra(cx.kit.mode).scrim_hide, VEIL_ALPHA), 0.0));
+            parts.shape(veil, (0.0, 0.0));
+        }
         parts.pane(Pane::new(cx.kit, frame, z, PaneKind::Sheet, over_video));
         // the title
         let title_style = role_style(cx.kit, TypeRole::Body, Some(Weight::SemiBold), ink.ink, Align::Left);
@@ -111,7 +118,9 @@ impl SheetUi {
         parts.text(Text::new(cx.kit, title_f, z + 1, title_style, &title)?);
         let words = vec![WordRec { name: "sheet title".into(), text: title, frame: title_f, style: title_style }];
         let scene = cx.kit.ui.scene.clone();
-        let viewport_rect = Rect { x: frame.x + pad.1 - 12.0, y: frame.y + pad.0 + head_h - 4.0, w: frame.w - 2.0 * pad.1 + 24.0, h: card_h + 8.0 + 16.0 + 24.0 };
+        // the four cards and room for the lift and the lit edge: the fifth waits beside the chevron
+        let shown_w = SHOWN as f32 * CARD_W + (SHOWN as f32 - 1.0) * CARD_GAP;
+        let viewport_rect = Rect { x: frame.x + pad.1 - 12.0, y: frame.y + pad.0 + head_h - 4.0, w: shown_w + 4.0 + 24.0, h: card_h + 8.0 + 16.0 + 24.0 };
         let viewport = scene.group(None, GroupPose { clip: Some(viewport_rect), ..GroupPose::IDENTITY }).map_err(other)?;
         let content = scene.group(Some(viewport.id()), GroupPose::IDENTITY).map_err(other)?;
         let cards_x = frame.x + pad.1 + 4.0;
@@ -427,6 +436,11 @@ impl SheetUi {
     pub fn card_rects(&self) -> Vec<Frame> {
         let offset = self.first as f32 * PITCH;
         self.cards.iter().map(|c| Frame::new(c.frame.x - offset, c.frame.y, c.frame.w, c.frame.h)).collect()
+    }
+
+    /// How many cards show their picture (a card without one is a glyph on a quiet tile).
+    pub fn painted(&self) -> usize {
+        self.cards.iter().filter(|c| c.pic.is_painted()).count()
     }
 
     pub fn layers(&self) -> usize {

@@ -15,6 +15,7 @@ use crate::cameras::app::Target;
 use crate::cameras::strip::{self as model, Item};
 use crate::cameras::view::{BubbleView, StripView};
 use crate::kit::button::{Button, Place, Spec, Tone, faded};
+use crate::kit::Kit;
 use crate::kit::focus::Id;
 use crate::kit::pane::{Pane, PaneKind, glass};
 use crate::kit::text::{Text, role_style, width_of, widest};
@@ -144,7 +145,7 @@ impl Canvas {
 struct BubbleUi {
     group: Group,
     sig: (bool, u64),
-    pane: Pane,
+    _pane: Pane,
     pic: PicLayer,
     time: Text,
     kind: Option<Text>,
@@ -235,7 +236,7 @@ impl StripUi {
         // the bar
         let well = plate::shape(&cx.kit.ui, Frame::new(0.0, 0.0, bar_w, WELL_H), z + 1, plate::solid(cx.kit.ui.look.colour(PaletteRole::TrackOff), WELL_R));
         parts.shape(well, (bar_x, bar_y + WELL_Y));
-        let mut canvas_layer = cx.kit.ui.scene.image(bar_w as u32, BAR_H as u32, z + 2, crate::system::parts::HIDDEN)?;
+        let canvas_layer = cx.kit.ui.scene.image(bar_w as u32, BAR_H as u32, z + 2, crate::system::parts::HIDDEN)?;
         canvas_layer.set(Props::at(bar_x, bar_y));
         canvas_layer.damage(None);
         let stem = plate::shape(&cx.kit.ui, Frame::new(0.0, 0.0, 6.0, 76.0), z + 4, plate::solid(ink.ink, 3.0));
@@ -537,7 +538,7 @@ impl StripUi {
             Ok((pane, time, kind))
         })?;
         let pic = PicLayer::new(b.pic.as_deref().unwrap_or("bubble:"), Frame::new(12.0, 12.0, 256.0, 144.0), cx.kit.tokens.radius(Radius::Control), Fill::Cover, z + 2);
-        Ok(BubbleUi { group, sig, pane, pic, time, kind, frame, time_text: b.time.clone(), kind_text: b.kind_word.clone(), _keep: Vec::new() })
+        Ok(BubbleUi { group, sig, _pane: pane, pic, time, kind, frame, time_text: b.time.clone(), kind_text: b.kind_word.clone(), _keep: Vec::new() })
     }
 
     pub fn hover(&mut self, cx: &mut Cx, id: Id, on: bool) {
@@ -564,9 +565,16 @@ impl StripUi {
         self.buttons.iter().find(|(b, _)| b.id == id).map(|(_, item)| Target::Strip(*item))
     }
 
-    /// The panel's rectangle (the toast sits above it).
+    /// The panel's rectangle.
     pub fn frame(&self) -> Frame {
         self.frame
+    }
+
+    /// The top of the panel and the bubble that rises from it (with its kind line, so a toast does not jump as the knob moves): what a
+    /// toast sits above.
+    pub fn clear_top(&self, kit: &Kit) -> f32 {
+        let (tl, kl) = (kit.line(TypeRole::Label), kit.line(TypeRole::Caption));
+        self.frame.y - 12.0 - (12.0 + 144.0 + 8.0 + tl + kl + 12.0)
     }
 
     pub fn layers(&self) -> usize {

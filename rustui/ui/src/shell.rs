@@ -4,6 +4,8 @@
 //! `system_z`), and the report the compositor reads (`POST /v1/ui`: `can`, `wants`, `live`, `state`). No I/O here: the host
 //! (`main.rs`) carries out the [`Act`]s and feeds the events back, so the whole of it runs under a test with nothing but a clock.
 
+use crate::cameras::app::Config as CamerasConfig;
+use crate::cameras::host::Cameras;
 use crate::home::{Home, HomeSurface};
 use crate::host::http::{Event, Outbound};
 use crate::host::keys::KeyEvent;
@@ -41,6 +43,7 @@ pub struct Kinds {
     pub popup: bool,
     pub layout: bool,
     pub home: bool,
+    pub cameras: bool,
 }
 
 impl Kinds {
@@ -58,6 +61,7 @@ impl Kinds {
                 "popup" => k.popup = true,
                 "layout" => k.layout = true,
                 "home" => k.home = true,
+                "cameras" => k.cameras = true,
                 _ => {}
             }
         }
@@ -75,6 +79,7 @@ impl Kinds {
             (self.popup, "popup"),
             (self.layout, "layout"),
             (self.home, "home"),
+            (self.cameras, "cameras"),
         ]
         .into_iter()
         .filter_map(|(on, name)| on.then_some(name))
@@ -96,6 +101,10 @@ pub struct Shell {
     sys: Layer,
     home: Home,
     home_surface: HomeSurface,
+    /// The Cameras app (the grid, the full view, the strip, the sheet, the options page): a kind of its own over the panels.
+    cameras: Cameras,
+    /// What the Cameras app asked of the shell and nobody has taken yet (the grid's `Settings` button).
+    cameras_intents: Vec<crate::cameras::app::Intent>,
     /// The last report sent, so an unchanged one is not sent again.
     reported: Option<Value>,
     live: bool,
@@ -118,6 +127,8 @@ impl Shell {
             sys: Layer::new(system_z + crate::kit::z::SYSTEM, theme, layout),
             home: Home::new(theme.clone(), crate::home::grid::shipped(), layout.clone()),
             home_surface: HomeSurface::new(system_z),
+            cameras: Cameras::new(system_z + crate::kit::z::CAMERAS, CamerasConfig::from_theme(&kit, theme)),
+            cameras_intents: Vec::new(),
             kit,
             engine,
             kinds,
@@ -261,12 +272,19 @@ impl Shell {
                 }
             }
         }
+        // the Cameras viewer takes the keys unless an alert, a PIN prompt or the keyboard is up over it
+        if self.kinds.cameras && (!matches!(input, Input::Key { .. }) || !self.sys.busy()) {
+            for e in self.cameras.update(input, now) {
+                self.carry(e, now, acts);
+            }
+            self.cameras_intents.extend(self.cameras.take_intents());
+        }
     }
 
     /// Whether a kind of the system layer has the keys now (an alert, the input popup, a PIN prompt; the panels when they land); the
     /// volume display and the toasts never do.
     pub fn system_wants(&self) -> bool {
-        self.sys.wants(&self.kinds)
+        self.sys.wants(&self.kinds) || (self.kinds.cameras && self.cameras.wants())
     }
 
     /// An event of the UI channel.
@@ -334,6 +352,9 @@ impl Shell {
             KeyEvent::Key { name, down, repeat, .. } => {
                 if *down {
                     self.sys.on_key(&self.kit, &mut self.engine);
+                    if self.kinds.cameras && self.cameras.wants() {
+                        self.cameras.surface.on_key(&mut self.kit, &mut self.engine);
+                    }
                 }
                 self.feed(&Input::Key { name: name.clone(), down: *down, repeat: *repeat }, now, &mut acts);
             }
@@ -343,6 +364,13 @@ impl Shell {
                     for e in self.sys.press(target) {
                         self.carry(e, now, &mut acts);
                     }
+                }
+                if self.kinds.cameras {
+                    let sample = Sample { x: *x, y: *y, buttons: *buttons, visible: *visible };
+                    for e in self.cameras.pointer(&mut self.kit, &mut self.engine, now_ns, now, sample) {
+                        self.carry(e, now, &mut acts);
+                    }
+                    self.cameras_intents.extend(self.cameras.take_intents());
                 }
                 self.feed(&Input::Pointer { x: *x, y: *y, buttons: *buttons, visible: *visible }, now, &mut acts);
             }
@@ -363,6 +391,9 @@ impl Shell {
             self.redraw = true;
         }
         if self.kinds.home && self.home_surface.tick(now) {
+            self.redraw = true;
+        }
+        if self.kinds.cameras && self.cameras.surface.tick(now) {
             self.redraw = true;
         }
         self.after(now, &mut acts);
@@ -401,6 +432,12 @@ impl Shell {
                     Err(e) => acts.push(Act::Log(format!("home: {e}"))),
                 }
             }
+            if self.kinds.cameras {
+                match self.cameras.apply(&mut self.kit, &mut self.engine, now) {
+                    Ok(on) => live |= on,
+                    Err(e) => acts.push(Act::Log(format!("cameras: {e}"))),
+                }
+            }
             self.live = live;
         }
         if self.started {
@@ -420,8 +457,11 @@ impl Shell {
         if self.kinds.layout {
             can.push("layout");
         }
+        if self.kinds.cameras {
+            can.push("cameras");
+        }
         // Home in front wants the keys too: the compositor sends every key of the remote to the layer that wants them
-        let wants = self.sys.wants(&self.kinds) || (self.kinds.home && self.home.active);
+        let wants = self.sys.wants(&self.kinds) || (self.kinds.home && self.home.active) || (self.kinds.cameras && self.cameras.wants());
         json!({"can": can, "wants": wants, "takes": self.sys.takes(&self.kinds), "live": self.live, "state": self.state()})
     }
 
@@ -442,6 +482,9 @@ impl Shell {
         if self.kinds.home {
             s["home"] = self.home.state();
         }
+        if self.kinds.cameras {
+            s["cameras"] = self.cameras.state();
+        }
         s["live"] = json!(self.live);
         s
     }
@@ -458,7 +501,8 @@ impl Shell {
         if self.kinds.home {
             due = [due, self.home.due_at(), self.home_surface.due_at()].into_iter().flatten().min();
         }
-        [due, self.sys.due_at(&self.kinds)].into_iter().flatten().min()
+        let cameras = if self.kinds.cameras { self.cameras.due_at() } else { None };
+        [due, self.sys.due_at(&self.kinds), cameras].into_iter().flatten().min()
     }
 
     pub fn is_live(&self) -> bool {
@@ -477,6 +521,9 @@ impl Shell {
         if self.kinds.home {
             g["home"] = self.home_surface.geometry(&self.home);
         }
+        if self.kinds.cameras {
+            g["cameras"] = self.cameras.geometry();
+        }
         g
     }
 
@@ -486,6 +533,9 @@ impl Shell {
         self.sys.feed_lint(&self.kinds, &mut self.kit, &mut lint);
         if self.kinds.home {
             lint = self.home_surface.lint(&mut self.kit, &self.home);
+        }
+        if self.kinds.cameras {
+            self.cameras.surface.feed_lint(&mut self.kit, &mut lint);
         }
         json!(lint.findings().iter().map(|f| json!({"kind": f.kind.name(), "subject": f.subject, "detail": f.detail})).collect::<Vec<_>>())
     }
@@ -501,11 +551,22 @@ impl Shell {
         self.toast_surface.restyle();
         self.sys.restyle(&mut self.engine);
         self.home_surface.restyle();
+        self.cameras.restyle(&mut self.engine, self.kit.text_scale);
         self.redraw = true;
     }
 
     /// The Home model, for the harness's `--eval` and the tests.
     pub fn home(&self) -> &Home {
         &self.home
+    }
+
+    /// What the Cameras app asked of the shell since the last call: Settings, Home & look, Cameras.
+    pub fn take_cameras_intents(&mut self) -> Vec<crate::cameras::app::Intent> {
+        std::mem::take(&mut self.cameras_intents)
+    }
+
+    /// The Cameras app, for the screens that open it (the pop-up's OK, the quick panel's tile).
+    pub fn cameras(&mut self) -> &mut Cameras {
+        &mut self.cameras
     }
 }

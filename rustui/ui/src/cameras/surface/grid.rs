@@ -12,7 +12,7 @@ use super::pic::{Fill, PicLayer};
 use super::pill;
 use super::{Cx, REGION_HEADER, REGION_TILES, SCOPE_BASE, depth, ids};
 use crate::cameras::app::Target;
-use crate::cameras::grid::{self as model, Focus as GFocus, NAME_H};
+use crate::cameras::grid::{self as model, Focus as GFocus, GAP, NAME_H};
 use crate::cameras::view::{Empty, GridView, HintView};
 use crate::kit::button::{Button, Place, Spec, Tone, faded};
 use crate::kit::flow::Lifted;
@@ -20,13 +20,16 @@ use crate::kit::focus::Id;
 use crate::kit::icon;
 use crate::kit::text::{Text, role_style, width_of};
 use crate::kit::wrap;
-use compositor_protocol::{GroupPose, Props, Rgba};
+use compositor_protocol::{GroupPose, Props, Rect, Rgba};
 use lumatv_tokens::{Radius, TypeRole};
 use ui::components::{Align, Style, plate};
 use ui::geometry::Frame;
 use ui::group::Group;
 use ui::scene::ShapeLayer;
 use ui::text::Weight;
+
+/// How far past the shown rows the clip reaches: the lift (1.03) and the halo of the focused tile, less than the gap between rows.
+const CLIP_MARGIN: i32 = 20;
 
 /// A word as drawn, for the lint.
 pub struct WordRec {
@@ -73,12 +76,15 @@ struct TileUi {
 pub struct GridUi {
     ink: Ink,
     sig: String,
+    /// Clips the scrolled rows to the shown block (the rows beside it are built, but never seen).
+    _viewport: Group,
     content: Group,
+    /// The shown block of rows, with room for the lift and the halo (what a hit may land on).
+    block: Frame,
     tiles: Vec<TileUi>,
     window: std::ops::Range<usize>,
     top: usize,
     pitch: f32,
-    layout: model::Layout,
     header: Parts,
     buttons: Vec<(Button, Target)>,
     header_words: Vec<WordRec>,
@@ -89,7 +95,8 @@ pub struct GridUi {
     foot_left: Option<(Parts, WordRec)>,
     foot_left_sig: Option<String>,
     empty: Option<(Parts, Frame, Vec<WordRec>)>,
-    scrim: ShapeLayer,
+    /// Hides the page; held so the layer stays.
+    _scrim: ShapeLayer,
     hint_rect: Option<Frame>,
 }
 
@@ -114,16 +121,27 @@ impl GridUi {
         let scrim_fill = cx.kit.tokens.extra(cx.kit.mode).scrim_hide;
         let scrim = plate::shape(&cx.kit.ui, Frame::new(0.0, 0.0, 1920.0, 1080.0), z + depth::BLACK, plate::solid(scrim_fill, 0.0));
         let scene = cx.kit.ui.scene.clone();
-        let content = scene.group(None, GroupPose::IDENTITY).map_err(other)?;
+        let l = &view.layout;
+        let block = Frame::new(
+            (l.x0 - CLIP_MARGIN) as f32,
+            (l.y0 - CLIP_MARGIN) as f32,
+            (l.cols as i32 * l.tile_w + (l.cols as i32 - 1) * GAP + 2 * CLIP_MARGIN) as f32,
+            (l.rows_shown as i32 * l.pitch() - GAP + 2 * CLIP_MARGIN) as f32,
+        );
+        let viewport = scene
+            .group(None, GroupPose { clip: Some(Rect { x: block.x, y: block.y, w: block.w, h: block.h }), ..GroupPose::IDENTITY })
+            .map_err(other)?;
+        let content = scene.group(Some(viewport.id()), GroupPose::IDENTITY).map_err(other)?;
         let mut me = Self {
             ink,
             sig: signature(cx, view),
+            _viewport: viewport,
             content,
+            block,
             tiles: Vec::new(),
             window: 0..0,
             top: view.top,
             pitch: view.layout.pitch() as f32,
-            layout: view.layout,
             header: Parts::new(),
             buttons: Vec::new(),
             header_words: Vec::new(),
@@ -134,7 +152,7 @@ impl GridUi {
             foot_left: None,
             foot_left_sig: None,
             empty: None,
-            scrim,
+            _scrim: scrim,
             hint_rect: None,
         };
         me.build_header(cx, view)?;
@@ -172,6 +190,7 @@ impl GridUi {
         engine.flow.drop_scroller(REGION_TILES);
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn button(cx: &mut Cx, id: Id, label: &str, icon: &'static str, tone: Tone, at: (f32, f32), right: bool, z: i32) -> std::io::Result<Button> {
         let w = Button::width_for(cx.kit, label, true);
         let h = Button::height(cx.kit);
@@ -213,6 +232,7 @@ impl GridUi {
             self.buttons.push((events, Target::HeaderEvents));
             self.buttons.push((settings, Target::HeaderSettings));
         }
+        self.header.set_opacity(1.0);
         Ok(())
     }
 
@@ -345,6 +365,12 @@ impl GridUi {
         Ok(())
     }
 
+    /// Where a hit on a tile may land once the scroll is at `offset`: its box in the shown block, nothing where the clip hides it (a hidden row
+    /// would otherwise answer under the header's buttons).
+    fn hit_rect(&self, frame: Frame, offset: f32) -> Frame {
+        Frame::new(frame.x, frame.y - offset, frame.w, frame.h).intersect(&self.block).unwrap_or(Frame::new(self.block.x, self.block.y, 0.0, 0.0))
+    }
+
     fn build_tile(&mut self, cx: &mut Cx, view: &GridView, i: usize) -> std::io::Result<TileUi> {
         let tv = &view.tiles[i];
         let l = &view.layout;
@@ -388,7 +414,7 @@ impl GridUi {
         let id = ids::tile(i);
         let frame = Frame::new(x as f32, y as f32, w, total_h);
         let offset = self.top as f32 * self.pitch;
-        cx.engine.focus.register(id, Frame::new(frame.x, frame.y - offset, w, total_h), REGION_TILES, SCOPE_BASE);
+        cx.engine.focus.register(id, self.hit_rect(frame, offset), REGION_TILES, SCOPE_BASE);
         cx.engine.flow.lift(id, Lifted { group: lift, rest, scale: cx.kit.tokens.focus.card_scale, rise: 0.0, lit: Some(lit) });
         let mut pic = PicLayer::new(&tv.pic, Frame::new(0.0, 0.0, w, h), radius, Fill::Cover, z);
         pic.sync(cx.kit, Some(&body), cx.store)?;
@@ -429,7 +455,7 @@ impl GridUi {
             cx.engine.flow.scroll_to(REGION_TILES, offset).map_err(other)?;
             self.sync_tiles(cx, view)?;
             for t in &self.tiles {
-                cx.engine.focus.place(t.id, Frame::new(t.frame.x, t.frame.y - offset, t.frame.w, t.frame.h));
+                cx.engine.focus.place(t.id, self.hit_rect(t.frame, offset));
             }
         } else {
             self.sync_tiles(cx, view)?;
@@ -683,7 +709,10 @@ mod tests {
         g.sync(&mut cx(&mut kit, &mut engine, &store), &view).unwrap();
         assert_eq!(g.tile_count(), 12);
         let rects = g.tile_rects();
-        assert_eq!(rects.iter().find(|r| r.y < 0.0).is_some() || rects.iter().all(|r| r.y >= -300.0), true);
+        // the row above the shown ones is built but never answers a hit: its box lies under the header's buttons
+        let above = rects[3];
+        assert!(above.y < 0.0 + 150.0 && above.bottom() <= 300.0, "{above:?}");
+        assert_ne!(engine.focus.hit(above.x + above.w / 2.0, above.y + above.h / 2.0), Some(ids::tile(3)));
         assert_eq!(engine.focus.current(), Some(ids::tile(8)));
     }
 

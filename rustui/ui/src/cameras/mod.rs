@@ -6,6 +6,7 @@
 pub mod app;
 pub mod data;
 pub mod grid;
+pub mod host;
 pub mod options;
 pub mod pics;
 pub mod sheet;

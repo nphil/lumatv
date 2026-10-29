@@ -360,7 +360,7 @@ impl FullUi {
 
     pub fn feed_lint(&self, kit: &mut crate::kit::Kit, lint: &mut crate::kit::lint::Lint) {
         for p in [&self.name, &self.info, &self.line, &self.hints].into_iter().flatten() {
-            let panel = lint.panel(&p.drawn.words.first().map_or("pill", |w| w.name.split(' ').next().unwrap_or("pill")).to_string(), p.drawn.frame, p.drawn.paint, true);
+            let panel = lint.panel(p.drawn.words.first().map_or("pill", |w| w.name.split(' ').next().unwrap_or("pill")), p.drawn.frame, p.drawn.paint, true);
             for w in &p.drawn.words {
                 lint.word(kit, &w.name, &w.text, w.frame, w.style, Some(panel));
             }

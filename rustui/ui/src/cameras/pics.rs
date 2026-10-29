@@ -68,6 +68,12 @@ pub struct Planner {
     counter: u64,
 }
 
+impl Default for Planner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Planner {
     pub fn new() -> Self {
         Self { slots: Vec::new(), counter: TAG_FIRST }

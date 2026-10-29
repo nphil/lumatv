@@ -470,7 +470,7 @@ pub struct Bar {
 }
 
 fn clip_spans(list: &[Span], w: Span) -> Vec<Span> {
-    list.iter().filter_map(|s| (s.to > w.from && s.from < w.to).then(|| Span { from: s.from.max(w.from), to: s.to.min(w.to) })).collect()
+    list.iter().filter(|s| s.to > w.from && s.from < w.to).map(|s| Span { from: s.from.max(w.from), to: s.to.min(w.to) }).collect()
 }
 
 /// The confirmed gaps in the window: inside what neither the recorded ranges nor the `unknown` ones name, between the first footage

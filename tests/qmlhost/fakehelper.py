@@ -194,6 +194,15 @@ class State:
         self.crash = None       # the newest crash bundle as helper/app/src/crash.rs says it ({pending, kind, at, reason, ...}); set at POST /__crash
         self.capture = None     # the `capture` object of helper/app/src/capture.rs's GET /v1/capture (None: switched off); set at POST /__capture
         self.topics["cameras.popup"] = None
+        # the cameras' routes (helper/app/src/scrypted/routes.rs): a test sets what they answer
+        self.pictures = {}      # camera -> JPEG bytes the stills and the thumbnails answer (else the 32x18 stand-in)
+        self.event_pictures = {}    # event id -> JPEG bytes of `/events/{event}/thumbnail` (else 404 event_not_found)
+        self.camera_routes = {}     # (camera, "recordings" | "events" | "clips") -> the JSON the route answers
+        self.no_picture = set()     # cameras whose stills are refused with 404 no_picture
+        self.refusals = {}          # path of a POST -> (status, code, message): the helper refuses it as the cameras routes do
+        self.thumb_cycle = []       # JPEGs the thumbnails of the timeline answer in turn (else the camera's still)
+        self.camera_asks = []       # [path, query] of every timeline and thumbnail ask, read back at /__camera_asks
+        self.cameras_settings = {"version": 1, "schemaRevision": 1, "effective": {}}   # GET and POST /v1/settings/scrypted-cameras
 
     def publish(self, topic, data):
         if topic == "__audit":              # not a topic: the recent-activity list of /v1/ai/audit
@@ -228,6 +237,37 @@ def handler(st):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+
+        def jpeg(self, data):
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+
+        def camera_get(self, u, q):
+            """The timeline and the thumbnails of a camera: `/v1/cameras/{id}/{recordings,events,clips,thumbnail,clip-thumbnail}` and
+            `/v1/cameras/events/{event}/thumbnail`."""
+            parts = u.path.split("/")[3:]
+            st.camera_asks.append([u.path, {k: v[0] for k, v in q.items()}])
+            if parts[0] == "events" and len(parts) == 3 and parts[2] == "thumbnail":
+                pic = st.event_pictures.get(parts[1])
+                if pic is None:
+                    return self.send(404, {"ok": False, "api": 1, "error": {"code": "event_not_found", "message": "no such event"}})
+                return self.jpeg(pic)
+            camera, kind = parts[0], parts[1] if len(parts) > 1 else ""
+            if kind in ("thumbnail", "clip-thumbnail"):
+                # a test can set `thumb_cycle` (JPEGs) so the pictures of one camera differ from ask to ask
+                if st.thumb_cycle:
+                    return self.jpeg(st.thumb_cycle[(len(st.camera_asks) - 1) % len(st.thumb_cycle)])
+                return self.jpeg(st.pictures.get(camera, JPEG))
+            if kind in ("recordings", "events", "clips"):
+                doc = st.camera_routes.get((camera, kind))
+                if doc is None:
+                    doc = {"recordings": {"camera": camera, "ranges": [], "unknown": []}, "events": {"camera": camera, "events": []}, "clips": {"camera": camera, "clips": []}}[kind]
+                return self.send(200, dict({"ok": True, "api": 1, "now": NOW()}, **doc))
+            self.send(404, {"ok": False, "api": 1, "error": {"code": "not_found", "message": "no such route"}})
 
         def ai_reply(self, code, **extra):
             self.send(code, dict({"ok": True, "api": 1, "now": NOW(), "ai": st.topics["ai"]}, **extra))
@@ -377,12 +417,15 @@ def handler(st):
                 # a camera's picture, as the helper's GET /v1/cameras/{id}/frame?w=&h= (the file itself: no decoder on the host)
                 camera = u.path[len("/v1/cameras/"):-len("/frame")]
                 st.frames.append([camera, int(q.get("w", ["0"])[0]), int(q.get("h", ["0"])[0])])
-                self.send_response(200)
-                self.send_header("Content-Type", "image/jpeg")
-                self.send_header("Content-Length", str(len(JPEG)))
-                self.send_header("Cache-Control", "no-store")
-                self.end_headers()
-                return self.wfile.write(JPEG)
+                if camera in st.no_picture:
+                    return self.send(404, {"ok": False, "api": 1, "error": {"code": "no_picture", "message": "no picture yet"}})
+                return self.jpeg(st.pictures.get(camera, JPEG))
+            if u.path.startswith("/v1/cameras/") and u.path.count("/") >= 4:
+                return self.camera_get(u, q)
+            if u.path == "/v1/settings/scrypted-cameras":
+                return self.send(200, dict({"ok": True, "api": 1, "now": NOW(), "owner": "scrypted-cameras"}, **st.cameras_settings))
+            if u.path == "/__camera_asks":
+                return self.send(200, {"asks": st.camera_asks})
             if u.path == "/v1/crash":
                 return self.send(200, {"ok": True, "api": 1, "now": NOW(), "crash": st.crash})
             if u.path == "/v1/capture":
@@ -450,6 +493,16 @@ def handler(st):
                 for c in changes:
                     st.voice_values[c["key"]] = c["value"]
                 self.send(200, {"ok": True, "api": 1, "changed": True, "version": 2, "settings": voice_view(st)})
+            elif u.path == "/v1/settings/scrypted-cameras":
+                st.posts.append([u.path, body])
+                cur = st.cameras_settings
+                if body.get("ifVersion") not in (None, cur["version"]):
+                    return self.send(409, {"ok": False, "api": 1, "error": {"code": "conflict", "message": "the settings changed since they were read", "version": cur["version"]}})
+                for c in body.get("changes", []):
+                    cur["effective"][c["key"]] = c["value"]
+                cur["version"] += 1
+                self.send(200, {"ok": True, "api": 1, "changed": [c["key"] for c in body.get("changes", [])], "version": cur["version"],
+                                "settings": dict({"owner": "scrypted-cameras"}, **cur)})
             elif u.path == "/v1/settings/" + HA:
                 st.posts.append([u.path, body])
                 view = ha_view(st)
@@ -515,6 +568,9 @@ def handler(st):
                 self.voice_route(u.path, body)
             else:
                 st.posts.append([u.path, body])
+                refuse = st.refusals.get(u.path)
+                if refuse:
+                    return self.send(refuse[0], {"ok": False, "api": 1, "error": {"code": refuse[1], "message": refuse[2]}})
                 self.send(200, {"ok": True, "api": 1})
     return H
 

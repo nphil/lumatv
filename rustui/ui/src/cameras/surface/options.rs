@@ -31,12 +31,15 @@ const WIDTH: f32 = 960.0;
 const TRACK_W: f32 = 76.0;
 const TRACK_H: f32 = 44.0;
 const KNOB: f32 = 36.0;
+/// How much of the page under the options shows through the veil.
+const VEIL_ALPHA: f32 = 0.86;
 
 struct RowUi {
     id: Id,
     kind: &'static str,
     frame: Frame,
-    body: Group,
+    /// The row's picture group (held so its layers stay).
+    _body: Group,
     track: ShapeLayer,
     knob: ShapeLayer,
     tick: Option<ImageLayer>,
@@ -76,6 +79,10 @@ impl OptionsUi {
         let frame = Frame::new(((1920.0 - WIDTH) / 2.0).round(), ((1080.0 - height) / 2.0).round(), WIDTH, height);
         let paint = glass(cx.kit, PaneKind::Sheet, height, false).tint;
         let mut parts = Parts::new();
+        // the grid is dimmed to a hint of where the page came from: its names would otherwise read through the glass
+        let veil_fill = faded(cx.kit.tokens.extra(cx.kit.mode).scrim_hide, VEIL_ALPHA);
+        let veil = plate::shape(&cx.kit.ui, Frame::new(0.0, 0.0, 1920.0, 1080.0), z - 2, plate::solid(veil_fill, 0.0));
+        parts.shape(veil, (0.0, 0.0));
         parts.pane(Pane::new(cx.kit, frame, z, PaneKind::Sheet, false));
         cx.engine.focus.open_modal(SCOPE_OPTIONS);
         let mut words = Vec::new();
@@ -160,7 +167,7 @@ impl OptionsUi {
         cx.engine.focus.register(id, frame, REGION_OPTIONS, SCOPE_OPTIONS);
         cx.engine.flow.lift(id, Lifted { group: lift, rest, scale: cx.kit.tokens.focus.row_scale, rise: 0.0, lit: Some(lit) });
         let track_at = (w - 16.0 - TRACK_W, ((h - TRACK_H) / 2.0).round());
-        let mut r = RowUi { id, kind: row.kind, frame, body, track, knob, tick, on: !on, track_at, _keep: keep };
+        let mut r = RowUi { id, kind: row.kind, frame, _body: body, track, knob, tick, on: !on, track_at, _keep: keep };
         Self::paint_switch(&self.ink, cx, &mut r, on);
         Ok(r)
     }
@@ -312,7 +319,7 @@ mod tests {
         o.step(true);
         o.toggle(2);
         u.sync(&mut cx(&mut kit, &mut engine, &store), &o.view()).unwrap();
-        assert_eq!(u.row_on()[2], true);
+        assert!(u.row_on()[2]);
         assert_eq!(engine.focus.current(), Some(ids::option(2)));
     }
 

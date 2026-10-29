@@ -42,6 +42,20 @@ pub struct Config {
     pub hold_ms: u64,
 }
 
+impl Config {
+    /// The configuration the theme and the kit give: the text size, the 12 or 24 hour clock (`clock.twelveHour`, on unless the owner turned
+    /// it off), live video over a playing app (`cameras.liveOverApps`, off until the feeder's window over an app is measured) and how long
+    /// OK is held for its second meaning (`motion.holdMs`).
+    pub fn from_theme(kit: &crate::kit::Kit, theme: &Value) -> Self {
+        Self {
+            text_scale: kit.text_scale,
+            clock: Clock { twelve_hour: theme.pointer("/clock/twelveHour").and_then(Value::as_bool).unwrap_or(true), zone: super::words::Zone::system() },
+            live_over_apps: theme.pointer("/cameras/liveOverApps").and_then(Value::as_bool).unwrap_or(false),
+            hold_ms: u64::from(kit.tokens.motion.hold_ms),
+        }
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self { text_scale: 1.0, clock: Clock::default(), live_over_apps: false, hold_ms: 700 }
@@ -490,11 +504,9 @@ impl App {
                 }
             }
             "homekey" => self.close_inner(fx),
-            "show" => {
-                if data.get("kind").and_then(Value::as_str) == Some("cameras") {
-                    let opened = self.open_grid(now);
-                    fx.extend(opened);
-                }
+            "show" if data.get("kind").and_then(Value::as_str) == Some("cameras") => {
+                let opened = self.open_grid(now);
+                fx.extend(opened);
             }
             _ => {}
         }
@@ -747,11 +759,7 @@ impl App {
                     self.reveal_or(now, fx, |app, fx| app.ok(now, fx));
                 }
             }
-            ("back", _) => {
-                if down && !repeat {
-                    self.back(now, fx);
-                }
-            }
+            ("back", _) if down && !repeat => self.back(now, fx),
             _ => {}
         }
     }

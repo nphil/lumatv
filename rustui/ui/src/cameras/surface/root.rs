@@ -20,12 +20,8 @@ use crate::kit::{Engine, Kit};
 use serde_json::{Value, json};
 use ui::geometry::Frame;
 
-enum Leaving {
-    Strip(StripUi),
-    Sheet(SheetUi),
-    Options(OptionsUi),
-    Toast(ToastUi),
-}
+/// What is fading out: held until its time is up (a layer goes with its owner).
+type Leaving = Box<dyn std::any::Any>;
 
 pub struct CamerasSurface {
     z: i32,
@@ -87,11 +83,6 @@ impl CamerasSurface {
     /// Whether anything of the app is on the screen (including what is fading out).
     pub fn is_live(&self) -> bool {
         self.is_up() || !self.leaving.is_empty()
-    }
-
-    fn cx<'a>(&'a self, kit: &'a mut Kit, engine: &'a mut Engine, now_ms: u64) -> Cx<'a> {
-        let now_ns = kit.ui.scene.now_ns();
-        Cx { kit, engine, store: &self.store, z: self.z, now_ms, now_ns }
     }
 
     /// Takes everything off the screen at once (the app closed, the look changed, the screen went dark).
@@ -200,28 +191,28 @@ impl CamerasSurface {
             if let Some(mut o) = self.options.take() {
                 let mut cx = Cx { kit, engine, store: &self.store, z: self.z, now_ms, now_ns: 0 };
                 o.retire(&mut cx, ms);
-                self.leaving.push((Leaving::Options(o), until));
+                self.leaving.push((Box::new(o), until));
             }
         }
         if self.sheet.is_some() && view.sheet.is_none() || self.sheet.as_ref().zip(view.sheet.as_ref()).is_some_and(|(u, v)| !u.fits(&Cx { kit, engine, store: &self.store, z: self.z, now_ms, now_ns: 0 }, v, over_video)) {
             if let Some(mut s) = self.sheet.take() {
                 let mut cx = Cx { kit, engine, store: &self.store, z: self.z, now_ms, now_ns: 0 };
                 s.retire(&mut cx, ms);
-                self.leaving.push((Leaving::Sheet(s), until));
+                self.leaving.push((Box::new(s), until));
             }
         }
         if self.strip.is_some() && view.strip.is_none() || self.strip.as_ref().is_some_and(|u| !u.fits(&Cx { kit, engine, store: &self.store, z: self.z, now_ms, now_ns: 0 })) {
             if let Some(mut s) = self.strip.take() {
                 let mut cx = Cx { kit, engine, store: &self.store, z: self.z, now_ms, now_ns: 0 };
                 s.retire(&mut cx, ms);
-                self.leaving.push((Leaving::Strip(s), until));
+                self.leaving.push((Box::new(s), until));
             }
         }
         if self.toast.is_some() && view.toast.is_none() {
             if let Some(mut t) = self.toast.take() {
                 let mut cx = Cx { kit, engine, store: &self.store, z: self.z, now_ms, now_ns: 0 };
                 t.retire(&mut cx, ms);
-                self.leaving.push((Leaving::Toast(t), until));
+                self.leaving.push((Box::new(t), until));
             }
         }
     }
@@ -260,7 +251,7 @@ impl CamerasSurface {
             }
         }
         if let Some(text) = &view.toast {
-            let above = self.strip.as_ref().map(|s| s.frame().y);
+            let above = self.strip.as_ref().map(|s| s.clear_top(kit));
             if self.toast.as_ref().is_none_or(|t| &t.text != text || t.above != above) {
                 if let Some(mut old) = self.toast.take() {
                     let mut cx = Cx { kit, engine, store: &self.store, z: self.z, now_ms, now_ns };
@@ -403,17 +394,19 @@ impl CamerasSurface {
             "strip": self.strip.as_ref().map(|s| rect(s.frame())),
             "sheet": self.sheet.as_ref().map(|s| rect(s.frame())),
             "cards": self.sheet.as_ref().map(|s| s.card_rects().into_iter().map(rect).collect::<Vec<_>>()),
+            "cardPictures": self.sheet.as_ref().map(|s| s.painted()),
             "options": self.options.as_ref().map(|o| rect(o.frame())),
             "toast": self.toast.as_ref().map(|t| rect(t.frame())),
             "layers": self.layers(),
-            "pictures": {"kept": self.store.len(), "bytes": self.store.bytes()},
+            "pictures": {"kept": self.store.len(), "bytes": self.store.bytes(), "keys": self.store.keys()},
             "builds": self.builds,
         })
     }
 
     /// Describes what is on the screen to a lint.
     pub fn feed_lint(&self, kit: &mut Kit, lint: &mut Lint) {
-        if let Some(g) = &self.grid {
+        if let Some(g) = self.grid.as_ref().filter(|_| self.options.is_none() && self.sheet.is_none()) {
+            // under a sheet's or the options page's veil the grid is a hint of where it came from, not something to read
             let scrim = lint.panel("scrim", Frame::new(0.0, 0.0, 1920.0, 1080.0), g.scrim_paint(kit), false);
             g.feed_lint(kit, lint, scrim);
         }
@@ -439,8 +432,4 @@ impl CamerasSurface {
         self.close_all(engine);
     }
 
-    /// Where the strip's top is (for a refusal's words to clear it).
-    pub fn strip_top(&self) -> Option<f32> {
-        self.strip.as_ref().map(|s| s.frame().y)
-    }
 }
