@@ -14,6 +14,7 @@ pub mod picture;
 pub mod privacy;
 pub mod profiles;
 pub mod receiver;
+pub mod remote;
 pub mod saver;
 pub mod sound;
 pub mod support;
@@ -29,12 +30,14 @@ pub fn all() -> Vec<Page> {
         sound::page(),
         ambient::page(),
         home::page(),
+        remote::page(),
         system::page(),
         privacy::held(),
         profiles::person(),
         profiles::avatars(),
         home::popups(),
         saver::page(),
+        remote::app_key(),
         system::clock(),
         system::timer_on(),
         system::timer_off(),

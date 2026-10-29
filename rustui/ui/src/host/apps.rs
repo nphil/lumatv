@@ -99,6 +99,22 @@ impl Apps {
         &self.list
     }
 
+    /// The launch points as the app manager gave them.
+    pub fn points(&self) -> &[Value] {
+        &self.points
+    }
+
+    /// Every app the TV can launch as (id, title), hidden system apps included (LG Channels is one: the list has neither it nor its
+    /// like); the inputs are launch points of another type (`AppKeys.installed`).
+    pub fn launchable(&self) -> Vec<(String, String)> {
+        let s = |p: &Value, k: &str| p.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+        self.points
+            .iter()
+            .filter(|p| p.get("lptype").and_then(Value::as_str).unwrap_or("default") == "default" && !s(p, "id").is_empty())
+            .map(|p| (s(p, "id"), Some(s(p, "title")).filter(|t| !t.is_empty()).unwrap_or_else(|| s(p, "id"))))
+            .collect()
+    }
+
     pub fn by_id(&self, id: &str) -> Option<&App> {
         self.list.iter().find(|a| a.id == id)
     }

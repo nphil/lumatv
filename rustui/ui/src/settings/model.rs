@@ -1029,6 +1029,14 @@ impl Model {
                     self.read_page(&id, now, true, out);
                 }
                 Op::RefreshIn(ms) => self.arm(Timer::Refresh, now + ms),
+                Op::Focus(id) => {
+                    let (current, rows) = (self.current.clone(), self.rows());
+                    let mut st = self.state(&current);
+                    if let Some(i) = rows.iter().position(|r| r.id == id && r.tab == st.tab && r.focusable()) {
+                        enter(&mut st, &rows, i);
+                        self.set_state(&current, st);
+                    }
+                }
                 Op::Sleep(i) => {
                     out.extend(self.power.set(i, now));
                     self.bump();

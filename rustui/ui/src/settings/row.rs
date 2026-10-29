@@ -176,6 +176,8 @@ pub enum Op {
     Later { key: String, ms: u64, then: Vec<Op> },
     /// Sets the sleep timer to the choice `i` of LG's list.
     Sleep(usize),
+    /// The focus goes to the row of this id (the answer in force, in a chooser), when the page has it and it takes the focus.
+    Focus(String),
     /// Reads what the page reads when it opens, now.
     Refresh,
     /// The same, after this many milliseconds (the page gives the service a moment to apply a change).
@@ -218,6 +220,7 @@ impl std::fmt::Debug for Op {
             Op::Entry { prompt, .. } => write!(f, "Entry({prompt})"),
             Op::Launch { app, params } => write!(f, "Launch({app} {params})"),
             Op::Shell(r) => write!(f, "Shell({r:?})"),
+            Op::Focus(id) => write!(f, "Focus({id})"),
             Op::Refresh => write!(f, "Refresh"),
             Op::RefreshIn(ms) => write!(f, "RefreshIn({ms})"),
             Op::Leave => write!(f, "Leave"),

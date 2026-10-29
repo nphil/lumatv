@@ -107,6 +107,11 @@ impl Dock {
         (self.scroll_row as i32 * self.pitch()) as f32
     }
 
+    /// The ids of the dock's tiles in order for LG's list and the theme: what a number key stands for, without a dock to lay out.
+    pub fn tile_ids(list: &[Value], theme: &Value) -> Vec<String> {
+        Self::arranged(list, theme).iter().map(|p| p.get("id").and_then(Value::as_str).unwrap_or("").to_owned()).collect()
+    }
+
     /// The person's arrangement of LG's list.
     fn arranged(list: &[Value], theme: &Value) -> Vec<Value> {
         let apps = theme.get("apps");

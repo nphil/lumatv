@@ -63,6 +63,16 @@ AMBIENT = owner_doc([('enabled', 'bool', True), ('brightness', 'integer', 70), (
 AMBIENT_ROUTES = {'GET /v1/settings/base.ambient': AMBIENT, 'GET /v1/ambient': {'ok': True, 'state': 'running', 'strip': True, 'sections': 58}}
 
 
+APPS = {'listLaunchPoints': {'returnValue': True, 'launchPoints': [
+    {'id': 'netflix', 'title': 'Netflix', 'launchPointId': 'netflix_default'}, {'id': 'youtube.leanback.v4', 'title': 'YouTube'},
+    {'id': 'amazon', 'title': 'Prime Video'}, {'id': 'com.webos.app.lgchannels', 'title': 'LG Channels', 'systemApp': True, 'hidden': True},
+    {'id': 'plex', 'title': 'Plex'}, {'id': 'com.webos.app.livetv', 'title': 'Live TV', 'systemApp': True}]}}
+
+
+def with_apps():
+    return lgsettings.LgService(answers=dict(ONLINE, **APPS))
+
+
 class Scene:
     def __init__(self, name, page, keys=(), routes=None, topics=None, theme=None, lg=None, tab=None, layout=None):
         self.name, self.page, self.keys = name, page, list(keys)
@@ -83,6 +93,11 @@ SCENES = [
 SCENES += [
     Scene('ambient', 'ambient', routes=AMBIENT_ROUTES, keys=['right', 'down', 'down']),
     Scene('ambient-layout', 'ambient', routes=AMBIENT_ROUTES, keys=['right', 'up', 'right', 'down']),
+]
+SCENES += [
+    Scene('remote', 'remote', lg=with_apps, keys=['right', 'down']),
+    Scene('remote-keys', 'remote', lg=with_apps, keys=['right', 'up', 'right', 'down', 'down', 'down', 'down', 'down', 'down', 'down', 'down', 'down', 'down', 'down']),
+    Scene('appkey', 'remote', lg=with_apps, keys=['right', 'up', 'right'] + ['down'] * 10 + ['ok', 'down', 'down']),
 ]
 BY_NAME = {s.name: s for s in SCENES}
 
