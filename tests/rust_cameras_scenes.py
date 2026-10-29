@@ -300,6 +300,18 @@ def scene_full_failed(r):
     return 3500
 
 
+VWIN_REFUSED = {'mode': 'apps', 'slots': 2, 'free': 0, 'apps': 1, 'wall': False, 'claims': [
+    {'id': 'cameras-full', 'kind': 'camera-full', 'state': 'denied', 'reason': 'no-window', 'text': 'No video window is free', 'slot': '', 'placed': False}]}
+
+
+def scene_full_refused(r):
+    """The compositor gave the live picture no video window: the plane carries it still and a glyph beside the name says so."""
+    r.backdrop = 'game'
+    full(r)
+    r.channel(2600, 'vwin', VWIN_REFUSED)
+    return 3800
+
+
 def scene_strip(r):
     r.backdrop = 'game'
     full(r)
@@ -404,11 +416,11 @@ def scene_toast(r):
 
 
 # The scenes kept in docs/mocks/host-rust/cameras/ (dark and light, 100 % and 200 % text each); the others render the same way on demand.
-COMMITTED = 'grid,grid-unlinked,full,full-failed,strip-scrub,events,options'
+COMMITTED = 'grid,grid-unlinked,full-failed,full-refused,strip-scrub,events,options'
 
 SCENES = {
     'grid': scene_grid, 'grid-more': scene_grid_more, 'grid-offline': scene_grid_offline, 'grid-unlinked': scene_grid_unlinked, 'grid-refused': scene_grid_refused,
-    'full': scene_full, 'full-start': scene_full_start, 'full-failed': scene_full_failed,
+    'full': scene_full, 'full-start': scene_full_start, 'full-failed': scene_full_failed, 'full-refused': scene_full_refused,
     'strip': scene_strip, 'strip-scrub': scene_strip_scrub, 'strip-play': scene_strip_play, 'strip-gap': scene_strip_gap,
     'events': scene_events, 'clips': scene_clips, 'events-all': scene_events_all, 'options': scene_options, 'toast': scene_toast,
 }

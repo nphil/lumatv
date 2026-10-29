@@ -62,6 +62,37 @@ impl Default for Config {
     }
 }
 
+/// The id of the full view's claim on a spare video window (the compositor's `vwin`).
+pub const CLAIM_ID: &str = "cameras-full";
+
+/// What the compositor made of the full view's claim, as the picture needs to know it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Window {
+    /// No claim is in force or the switch is off: the stream plays on the video plane as it always did.
+    #[default]
+    Unclaimed,
+    /// A window is granted and not drawing yet: the layer is no hole until it is (a hole over nothing would be black).
+    Waiting,
+    /// The window carries the picture: the layer is a hole over it.
+    Carried,
+    /// Refused or taken back (no window, too big, both scalers, an app's video, standby): the plane path goes on and a glyph says so.
+    Refused,
+}
+
+impl Window {
+    /// The grant of the claim as the picture reads it. A switch that is off refuses nothing the person should hear of.
+    pub fn of(grant: &crate::host::vwin::Grant) -> Window {
+        use crate::host::vwin::Grant;
+        match grant {
+            Grant::None | Grant::Asked => Window::Unclaimed,
+            Grant::Granted { placed: true, .. } => Window::Carried,
+            Grant::Granted { placed: false, .. } => Window::Waiting,
+            Grant::Denied { reason, .. } if reason == "off" => Window::Unclaimed,
+            Grant::Denied { .. } | Grant::Preempted { .. } => Window::Refused,
+        }
+    }
+}
+
 /// The live video the full view wants a window for (see [`App::live_claim`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LiveClaim {
@@ -78,7 +109,7 @@ impl LiveClaim {
     /// The claim as the compositor's `POST /v1/vwin` takes it (`vwin.rs` `Request::from_json`).
     pub fn request(&self) -> Value {
         let (x, y, w, h) = self.rect;
-        json!({"id": "cameras-full", "kind": "camera-full", "rect": {"x": x, "y": y, "w": w, "h": h}, "need": {"codec": self.codec, "w": self.width, "h": self.height, "fps": self.fps}})
+        json!({"id": CLAIM_ID, "kind": "camera-full", "rect": {"x": x, "y": y, "w": w, "h": h}, "need": {"codec": self.codec, "w": self.width, "h": self.height, "fps": self.fps}})
     }
 }
 
@@ -169,6 +200,8 @@ pub struct App {
     popup_seen: Option<String>,
     settings: Settings,
     app_front: bool,
+    /// What the compositor made of the full view's claim on a video window (the shell sets it from the `vwin` topic).
+    window: Window,
     screen: Screen,
     strip: Option<Strip>,
     sheet: Option<Sheet>,
@@ -203,6 +236,7 @@ impl App {
             popup_seen: None,
             settings: Settings::default(),
             app_front: false,
+            window: Window::Unclaimed,
             screen: Screen::Closed,
             strip: None,
             sheet: None,
@@ -279,7 +313,16 @@ impl App {
             Expect::Live => self.live.mode == LiveMode::Live,
             Expect::Recording => self.live.is_recording(),
         };
-        self.live.camera == c.id && self.live.state == LiveState::Playing && mode_ok && self.asked.as_deref() == Some(&c.id)
+        self.live.camera == c.id && self.live.state == LiveState::Playing && mode_ok && self.asked.as_deref() == Some(&c.id) && self.window != Window::Waiting
+    }
+
+    /// What the compositor made of the claim: the picture follows (a window not drawing yet is no hole; a refusal is a glyph). Returns whether it
+    /// changed.
+    pub fn set_window(&mut self, window: Window) -> bool {
+        let changed = self.window != window;
+        self.window = window;
+        self.dirty |= changed && self.viewer_up();
+        changed
     }
 
     /// What the full view's live video asks of the display while it is wanted: the stream the helper was asked for and the rectangle it is
@@ -1500,6 +1543,7 @@ impl App {
             veil,
             chrome: f.chrome,
             button_focused: note_up,
+            window_cue: self.window == Window::Refused && self.live_claim().is_some(),
             hints: if overlays || note_up { Vec::new() } else { self.hints() },
         })
     }
@@ -1601,6 +1645,7 @@ impl App {
             "expect": format!("{:?}", self.expect),
             "hole": self.hole(),
             "liveClaim": self.live_claim().map(|c| c.request()),
+            "window": format!("{:?}", self.window),
             "strip": self.strip.is_some(),
             "sheet": self.sheet.is_some(),
             "options": self.options.is_some(),

@@ -17,12 +17,14 @@ Done and pushed to `forge/main` (see the commits below):
   `options`, `toast`, `pill`, `pic` (picture store, compositor-scaled layers), `root` (`CamerasSurface`), `common`.
 - `cameras/host.rs` (`Cameras`: decodes the stills, joins model and surface) and the wiring in `shell.rs` (`Kinds.cameras`, feed, key,
   pointer, tick, report, state, geometry, lint, `cameras_asks`, `cameras()`).
-- The grid's `Settings` button: the app closes and `Shell::cameras_asks` opens Settings at `CAMERAS_SETTINGS_PAGE` (`"look"` until
-  Settings has a Cameras page: change that one const); while Settings is open the app takes no key and no pointer sample.
-- Video windows: `App::live_claim()` is the `camera-full` claim of `compositor/.../vwin.rs` (`LiveClaim::request()` is its
-  `Request::from_json` shape, also at `state.cameras.liveClaim` in the report). Nothing sends it yet: HwPlanes' step 6
-  (`rustui/ui/src/host/vwin.rs`) reads it, makes the claim over `Effect::Channel` and releases it when it is `None`. The picture layer is
-  a hole either way.
+- The grid's `Settings` button: the app closes and `Shell::cameras_asks` opens Settings at `CAMERAS_SETTINGS_PAGE` (`"cameras"`, the
+  page RustSettings added); while Settings is open the app takes no key and no pointer sample.
+- Video windows: `App::live_claim()` is the `camera-full` claim (`LiveClaim::request()`, id `CLAIM_ID`), posted by the shell's `Vwin`
+  (HwPlanes2). The full view reads the grant back: `Shell::after` sets `App::set_window(Window::of(vwin.grant(CLAIM_ID)))`. Granted and
+  not drawing yet: no hole (a hole over nothing is black); granted and placed: the hole as before; refused or taken back (anything but a
+  switch that is `off`): the plane path goes on and a glyph-only cue (`triangle-alert` in a round pill beside the name pill) says so; no
+  claim in force: as it always was. Tests: `app_tests.rs` (`a_refused_video_window_...`), `test_rust_cameras.py`
+  (`test_a_refused_video_window_...`), scene `full-refused`.
 - Kit additions: `z::CAMERAS`, `Flow::scroll_snap` / `drop_scroller`, `Button::icon_after` and glyph-name icons, the "dot" glyph, the
   muted rule in `Button::feed_lint` for ink that is not the reading ink.
 - Compositor: `"cameras"` in `KINDS` (`compositor/crates/lumatv-compositor/src/shell_rust.rs`).
@@ -36,7 +38,7 @@ Next, in this order:
    only change there is the `KINDS` entry): lib `wake::tests::a_time_shared_probe_measures_a_sleeping_thread_and_stops`, and the
    integration tests `boxdim`, `livetv` (`a_launch_and_a_leave_of_live_tv...`) and `switcher` (`a_second_press_from_an_app...`). Rerun them
    on a quiet machine, then `cargo test --features ui`; the `shell_rust` filter passes.
-2. HwPlanes' side of the live claim (see above); the full view needs nothing else when a window is granted or denied.
+2. TV: a granted window and a refused one (`ctl vwin`): the picture is a hole either way; the glyph shows only on a refusal.
 3. Peers: the popup (RustSystem) calls `shell.cameras().open_full(id, now)`; Settings (RustSettings) renders the per-camera page with
    `cameras::options` and may give the cameras a page of their own (`CAMERAS_SETTINGS_PAGE`); the quick panel's Cameras tile
    (RustPanels) calls `shell.cameras().open_grid(now)`.

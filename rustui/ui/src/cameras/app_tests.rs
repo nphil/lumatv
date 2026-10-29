@@ -326,6 +326,37 @@ fn the_live_view_names_the_window_it_wants_for_whoever_owns_the_video_windows() 
     assert_eq!(r.app.debug()["liveClaim"], Value::Null);
 }
 
+#[test]
+fn a_refused_video_window_keeps_the_plane_path_and_says_so_with_a_glyph_and_a_window_not_drawing_yet_is_no_hole() {
+    use crate::host::vwin::Grant;
+    let denied = |reason: &str| Grant::Denied { reason: reason.into(), text: "x".into() };
+    let mut r = Rig::new(three());
+    r.app.open_full("273", T0);
+    r.at(100);
+    r.helper("cameras.live", live_topic("273", "live", "playing"));
+    assert!(r.app.hole() && !r.full().window_cue, "no claim in force: the plane carries it, nothing to say");
+    // granted and not drawing: the layer is no hole over nothing; once it draws, it is
+    assert!(r.app.set_window(Window::of(&Grant::Granted { slot: "sub".into(), placed: false })));
+    assert!(!r.app.hole() && !r.full().window_cue);
+    assert!(r.app.set_window(Window::of(&Grant::Granted { slot: "sub".into(), placed: true })));
+    assert!(r.app.hole() && !r.full().window_cue);
+    // refused or taken back: the plane path goes on (a hole while it plays) and a glyph says it is not the window
+    for refusal in [denied("no-window"), denied("both-scalers"), Grant::Preempted { reason: "higher".into(), text: "x".into() }] {
+        r.app.set_window(Window::of(&refusal));
+        assert!(r.app.hole() && r.full().window_cue, "{refusal:?}");
+    }
+    assert_eq!(r.app.debug()["window"], "Refused");
+    // a switch that is off refuses nothing worth a glyph; asked and not answered yet is the plane's
+    assert!(r.app.set_window(Window::of(&denied("off"))));
+    assert!(r.app.hole() && !r.full().window_cue);
+    assert!(!r.app.set_window(Window::of(&Grant::Asked)), "no change, no redraw");
+    // without a stream asked for there is no claim and nothing to say
+    r.app.set_window(Window::Refused);
+    r.at(200);
+    r.topic("foreground", json!({"app": "netflix", "home": false}));
+    assert!(!r.full().window_cue, "over an app live is not asked for");
+}
+
 // ---------------------------------------------------------------------------- the grid
 
 #[test]

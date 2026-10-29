@@ -144,6 +144,8 @@ pub struct FullView {
     pub hints: Vec<HintView>,
     /// Where the focus is: the note's button, when there is a note.
     pub button_focused: bool,
+    /// The compositor refused the live picture a video window or took it back: a glyph beside the name says the picture is on the plane.
+    pub window_cue: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]

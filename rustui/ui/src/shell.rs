@@ -581,6 +581,10 @@ impl Shell {
         if self.panels.take_redraw() {
             self.redraw = true;
         }
+        // what the compositor made of the live picture's claim on a video window: the full view follows it
+        if self.kinds.cameras && self.cameras.app.set_window(crate::cameras::app::Window::of(self.vwin.grant(crate::cameras::app::CLAIM_ID))) {
+            self.redraw = true;
+        }
         // the bell's badge counts what the drawer's log holds unread: a toast arrives, or the drawer opens and marks it seen
         if self.kinds.home && self.kinds.drawer && self.home.set_unread(self.panels.unread()) {
             self.redraw = true;

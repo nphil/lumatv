@@ -204,20 +204,40 @@ class RustCameras(unittest.TestCase):
         self.assertEqual((s[1]['screen']['mode'], s[1]['screen']['camera']), ('full', '273'), 'the click opens the camera under it')
         self.assertEqual(live_posts(res), [['/v1/cameras/live', {'camera': '273'}]])
 
-    def test_the_grids_settings_button_closes_the_app_and_opens_settings_at_home_and_look(self):
+    def test_the_grids_settings_button_closes_the_app_and_opens_settings_at_the_cameras_page(self):
         r = sc.Run(kinds='cameras,settings')
         start(r)
         r.press(1500, 'up').press(1700, 'right').eval(1900, 'state')       # the header's Settings button
         r.press(2000, 'ok').eval(2500, 'state')
-        r.press(2600, 'back').press(2900, 'back').eval(3400, 'state')       # the page to the rail, the rail to out
-        res = self.play(r, 3500)
+        for ms in (2600, 2800, 3000, 3200):                                 # out of the page, up to the rail, out
+            r.press(ms, 'back')
+        r.eval(3800, 'state')
+        res = self.play(r, 3900)
         docs = [e for e in res['evals'] if isinstance(e, dict) and isinstance(e.get('cameras'), dict) and 'screen' in e['cameras']]
         self.assertEqual(docs[0]['cameras']['screen']['focus'], 'Settings')
         self.assertFalse(docs[0]['settings']['open'])
         self.assertEqual(docs[1]['cameras']['screen']['mode'], '', 'the app makes way')
-        self.assertEqual((docs[1]['settings']['open'], docs[1]['settings']['page']), (True, 'look'), 'Settings, Home & look')
-        self.assertFalse(docs[2]['settings']['open'], 'Back twice closes Settings')
+        self.assertEqual((docs[1]['settings']['open'], docs[1]['settings']['page']), (True, 'cameras'), 'Settings, the Cameras page')
+        self.assertFalse(docs[2]['settings']['open'], 'Back leaves Settings')
         self.assertEqual(docs[2]['cameras']['screen']['mode'], '')
+
+    def test_a_refused_video_window_leaves_the_plane_path_and_a_glyph_beside_the_name(self):
+        r = sc.Run()
+        r.backdrop = 'game'
+        start(r)
+        r.press(1500, 'ok')
+        r.helper(2000, 'cameras.live', sc.live_topic('274'))
+        r.eval(2300, 'state').eval(2300, 'geometry')
+        r.channel(2400, 'vwin', sc.VWIN_REFUSED)
+        r.eval(2900, 'state').eval(2900, 'geometry')
+        res = self.play(r, 3000)
+        s, g = states(res), geometry(res)
+        self.assertEqual((s[0]['window'], s[0]['hole']), ('Unclaimed', True), 'nothing refused yet: the stream plays')
+        self.assertNotIn('cue', g[0]['pills'])
+        self.assertEqual((s[1]['window'], s[1]['hole']), ('Refused', True), 'refused: the plane path goes on, nothing is faked')
+        cue, name = g[1]['pills']['cue'], g[1]['pills']['name']
+        self.assertGreaterEqual(cue['x'], name['x'] + name['w'], 'the glyph sits beside the name')
+        self.assertEqual(live_posts(res), [['/v1/cameras/live', {'camera': '274'}]], 'the stream was not stopped')
 
     def test_a_refusal_is_a_toast_and_the_picture_goes_on(self):
         r = sc.Run()
@@ -240,7 +260,7 @@ class RustCameras(unittest.TestCase):
         self.assertLess(last, res['helper'].frames[0][3] + 1800, 'no ask after the close')
 
     def test_every_screen_reads_clean_at_both_text_sizes_in_both_looks(self):
-        work = [(name, scale, mode) for name in ('grid', 'grid-more', 'grid-unlinked', 'full-start', 'full-failed', 'strip', 'strip-scrub', 'events', 'clips', 'events-all', 'options')
+        work = [(name, scale, mode) for name in ('grid', 'grid-more', 'grid-unlinked', 'full-start', 'full-failed', 'full-refused', 'strip', 'strip-scrub', 'events', 'clips', 'events-all', 'options')
                 for scale in (1.0, 2.0) for mode in ('dark', 'light')]
 
         def one(args):

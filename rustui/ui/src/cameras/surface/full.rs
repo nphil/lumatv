@@ -66,6 +66,8 @@ pub struct FullUi {
     name: Option<Piece2>,
     info: Option<Piece2>,
     line: Option<Piece2>,
+    /// A glyph beside the name: the compositor gave the live picture no video window, so it is on the plane (or in stills).
+    cue: Option<Piece2>,
     hints: Option<Piece2>,
     note: Option<NoteUi>,
     chrome_on: bool,
@@ -95,6 +97,7 @@ impl FullUi {
             name: None,
             info: None,
             line: None,
+            cue: None,
             hints: None,
             note: None,
             chrome_on: view.chrome,
@@ -151,13 +154,14 @@ impl FullUi {
         self.sync_name(cx, view)?;
         self.sync_info(cx, view)?;
         self.sync_line(cx, view)?;
+        self.sync_cue(cx, view)?;
         self.sync_hints(cx, view)?;
         self.sync_note(cx, view)?;
         // the fade
         if view.chrome != self.chrome_on {
             self.chrome_on = view.chrome;
             let ms = if view.chrome { FADE_IN_MS } else { FADE_OUT_MS };
-            for p in [&mut self.name, &mut self.info, &mut self.line, &mut self.hints].into_iter().flatten() {
+            for p in [&mut self.name, &mut self.info, &mut self.line, &mut self.cue, &mut self.hints].into_iter().flatten() {
                 p.parts.fade(cx.kit, view.chrome, ms);
             }
         }
@@ -227,6 +231,19 @@ impl FullUi {
             let pieces = [Piece::Text { text: &text, role: TypeRole::Label, weight: None, ink: ink.ink2 }];
             let z = cx.at(depth::CHROME);
             pill::build(cx.kit, "line pill", &pieces, Anchor::BottomLeft { x: 96.0, bottom: 1026.0 }, z, &ink)
+        })
+    }
+
+    /// The cue: one glyph in a pill of its own right of the name pill (no words: the glyph is the whole of it).
+    fn sync_cue(&mut self, cx: &mut Cx, view: &FullView) -> std::io::Result<()> {
+        let x = self.name.as_ref().map_or(0.0, |n| n.drawn.frame.right() + 12.0);
+        let sig = view.window_cue.then(|| format!("cue|{x}"));
+        let ink = self.ink;
+        let on = view.chrome;
+        Self::piece(cx, &mut self.cue, sig, on, move |cx| {
+            let pieces = [Piece::Icon { name: "triangle-alert", base: 32.0, ink: ink.ink }];
+            let z = cx.at(depth::CHROME);
+            pill::build(cx.kit, "cue pill", &pieces, Anchor::TopLeft { x, y: 54.0 }, z, &ink)
         })
     }
 
@@ -335,7 +352,7 @@ impl FullUi {
 
     /// The layers the full view holds, for the budget.
     pub fn layers(&self) -> usize {
-        let pieces: usize = [&self.name, &self.info, &self.line, &self.hints].into_iter().flatten().map(|p| p.parts.layers()).sum();
+        let pieces: usize = [&self.name, &self.info, &self.line, &self.cue, &self.hints].into_iter().flatten().map(|p| p.parts.layers()).sum();
         2 + usize::from(self.still.as_ref().is_some_and(|p| p.layer().is_some())) + pieces + self.note.as_ref().map_or(0, |n| n.parts.layers() + n.button.layers())
     }
 
@@ -347,7 +364,7 @@ impl FullUi {
     /// The pills and the note as drawn, for the harness and the lint.
     pub fn rects(&self) -> Vec<(&'static str, Frame)> {
         let mut v = Vec::new();
-        for (name, p) in [("name", &self.name), ("info", &self.info), ("line", &self.line), ("hints", &self.hints)] {
+        for (name, p) in [("name", &self.name), ("info", &self.info), ("line", &self.line), ("cue", &self.cue), ("hints", &self.hints)] {
             if let Some(p) = p {
                 v.push((name, p.drawn.frame));
             }
@@ -359,7 +376,7 @@ impl FullUi {
     }
 
     pub fn feed_lint(&self, kit: &mut crate::kit::Kit, lint: &mut crate::kit::lint::Lint) {
-        for p in [&self.name, &self.info, &self.line, &self.hints].into_iter().flatten() {
+        for p in [&self.name, &self.info, &self.line, &self.cue, &self.hints].into_iter().flatten() {
             let panel = lint.panel(p.drawn.words.first().map_or("pill", |w| w.name.split(' ').next().unwrap_or("pill")), p.drawn.frame, p.drawn.paint, true);
             for w in &p.drawn.words {
                 lint.word(kit, &w.name, &w.text, w.frame, w.style, Some(panel));
