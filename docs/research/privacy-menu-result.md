@@ -1,5 +1,27 @@
 # Native privacy controls
 
+## Resume here (2026-10-29 03:35)
+
+**Done, on forge/main** (worktree `/tmp/privacy-wt`, detached at forge/main):
+
+- `helper/privacy` (6e8b0aa, 79b43fd): `/v1/privacy` status, the toolkit-neutral menu, owner-only prepare/apply with a single-use confirmation, LG consents, ads-tier hosts, built-in Amazoff (per-TV Prime-only CA, per-route player filter). Adapter `helper/app/src/privacy.rs`.
+- Early boot step (b62e7b5): `tools/declutter.sh early` (masks, stubs, stop/kill, `early.json`, settle watch, `status.early`), called from `tools/autostart.sh --worker` right after `homestub-boot`; `helper/privacy/src/boot.rs` puts `boot{blocked,reason,verified,lastPass,items}` on the ads, settings, uploaders and push rows. Tests: `tests/test_declutter.py` (`Early`), `helper/privacy/tests/controller.rs` (`each_item_says_whether_it_is_blocked_from_boot_and_why`).
+
+**Current task (Main, 02:51 and 03:19):** LG's ACR, ad and telemetry pieces effectively removed, at the source on the TV, not after about 14 s. No router or DNS block list (dropped by Nitin); a domain list is only a verification aid inside the TV's own hosts mechanism. Two parts: (1) the earliest possible hook; (2) stubs as close to removed as possible. No TV access, no spawning, never write `/usr` or the rootfs, everything behind the existing `persist` gate.
+
+**Findings so far** (all from the repo's captured evidence; nothing new read from the TV):
+
+- Nothing of the mod can run before `mount-readwrite.service` (+10.8 to 13.1 s): `/var` shows only the firmware overlay until then, LG's env files planted for `ls-hubd`, `configd`, `memchute`, `tvpowerd`, `bootd` and `sam` were inert, p58's root was not read (`docs/HANDOFF.md`, "Boot: the proven mechanism" and "Tried and dead"). `/usr`, `/etc`, `/lib`, `/mnt` are read-only lowerdir-only overlays; `/run` is volatile and nothing early can fill it. The earliest hook found is `kdump.service` at +12.1 to 14.3 s (the PATH shim in `tools/lumatv`, `install_early_hook`).
+- The hibernation image is captured at about +15 s of a `mode=making` boot, so anything the mod does at +12 to 14 s may or may not be inside it; HANDOFF records that the image "cannot carry the mod" (the resumed compositor was stock). Read `docs/HANDOFF.md` lines 318 to 400 and 551 to 590 before changing anything here.
+
+**Next, in order:**
+
+1. `tools/autostart.sh`: start `declutter.sh early` as the first action of `--worker`, detached and concurrent with `homestub-boot` (today it follows it), so the stubs wait for nothing.
+2. Removal-equivalent stubs in `tools/declutter.sh` and `payload/declutter/items.txt`: also mask the `.timer`, `.socket` and `.path` of a masked unit when they exist; hide the data directories of stubbed services under an empty tmpfs (reversible, no deletion) only where the repo's evidence names them; keep the stub (a bound do-nothing script) for programs, since `exit 0` is the behaviour proven on the set.
+3. Host tests for both in `tests/test_declutter.py`, the matching `boot.rs` fields, TV checks in this file.
+
+**Decisions taken** (so nobody has to ask): item (3), the router list, is dropped; nothing is deleted from `/var`, data is hidden under tmpfs so `off` restores it; the early step stays behind `persist` and the skip file; no write to `/usr`, `/etc`, the rootfs, `/mnt` or any block device.
+
 Privacy is implemented in `helper/privacy` and exposed by the helper, not a new QML page. `GET /v1/privacy` and `GET /v1/privacy/menu` return the same toolkit-neutral menu model for the Rust shell. The existing Support › Privacy page and its App Permissions and Delete My Personal Information pages remain unchanged. No HTML mock was present or added.
 
 ## Switches and confirmation
