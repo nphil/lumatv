@@ -13,6 +13,10 @@ to another spot every `moveEverySec` through a black fade. Reduced motion keeps 
 drift. Contrast is traded on purpose: 3.4:1 on true black at the first minute, about 1.4:1 after the dim; Lucent's night rule is "dim clock and
 urgent state only". `style: art` is not carried over: the Rust saver shows the clock (a matte is a large bright fill).
 
+With `oledcare.panelDim` on (the default) and the panel reachable, the dim over time is the panel's: the compositor tells the Rust client `paneldim {carry: true}`, the
+block is drawn at its first brightness, `saverState.level` carries the curve and the compositor lowers LG's OLED pixel brightness to that fraction of the user's value
+(`panel-dim-result.md`). When the panel cannot be dimmed the client draws the dim as above.
+
 ## Complication contract
 
 `{id, source, glyph, text ≤ 28, value ≤ 12, priority 0..9, expiresAt (ms), tone: plain|info|warning|danger}`. A glyph is one of the module's
