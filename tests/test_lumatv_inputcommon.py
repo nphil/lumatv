@@ -204,7 +204,7 @@ class Wiring(unittest.TestCase):
 
     def test_the_verb_is_dispatched_and_documented(self):
         t = text()
-        self.assertRegex(t, r"\n  status\|apply\|[^\n]*\|webglass\|inputcommon\|[^\n]*\)\n")        # the verbs that migrate first
+        self.assertRegex(t, r"\n  status\|apply\|[^\n]*\|webglass\|[^\n]*inputcommon\|[^\n]*\)\n")        # the verbs that migrate first (the store verb now sits between)
         self.assertIn('inputcommon) verb_inputcommon "${2:-status}"; exit $? ;;', t)
         self.assertRegex(t, r"\n#   inputcommon on\|off\|status ->")
 
