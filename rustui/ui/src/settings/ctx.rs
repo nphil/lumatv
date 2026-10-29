@@ -482,6 +482,12 @@ pub fn ask(icon: &str, title: &str, body: &str, yes: &str, no: &str, danger: boo
     vec![Op::Ask(super::row::Ask::yes_no(icon, title, body, yes, no, danger, then))]
 }
 
+/// A toast that says what a switch just did (`PluginHub.toast`: LG's toast service, drawn by LumaTV). A switch never asks first; it flips
+/// and this says so.
+pub fn toast(text: &str) -> Op {
+    Op::Act { uri: "luna://com.webos.notification/createToast".into(), payload: json!({"sourceId": "com.webos.app.home", "message": text, "noaction": true, "persistent": false}) }
+}
+
 #[cfg(test)]
 pub(crate) mod fixtures {
     use super::*;

@@ -176,9 +176,9 @@ pub fn tiles(env: &Env) -> Vec<Row> {
     ai.detail = if ai_topic.is_none() {
         String::new()
     } else {
-        format!("{}{}", if listener { "LAN only" } else { "" }, if paired > 0 { format!("{}{} paired", if listener { " \u{b7} " } else { "" }, paired) } else { String::new() })
+        format!("{}{}", if listener { "Home network only" } else { "" }, if paired > 0 { format!("{}{} paired", if listener { " \u{b7} " } else { "" }, paired) } else { String::new() })
     };
-    ai.value = if listener { "On" } else { "Off" }.into();
+    ai.value = if listener { "Allowed" } else { "Blocked" }.into();
     ai.tone = if listener { "positive" } else { "" };
 
     let mut out = vec![picture, receiver, sleep, wifi];
@@ -208,7 +208,7 @@ pub fn plugin_rows(env: &Env) -> Vec<Row> {
 /// What "Add a tile" offers beyond the built-in ones (`QuickMore.rows`), each the settings page's row for the same TV setting.
 pub fn extras(env: &Env) -> Vec<Row> {
     let mut screenoff = Row::base("screenoff", Kind::Action, "monitor", "Screen off, sound on", Act::ScreenOff);
-    screenoff.button = "Turn off".into();
+    screenoff.button = "Screen off".into();
     screenoff.enabled = env.sio.usable("option.screenOff");
 
     let mut energy = Row::base("energy", Kind::Stepper, "leaf", "Energy saving", Act::Energy);

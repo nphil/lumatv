@@ -99,7 +99,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
     min.detail = if !c.lg.has("picture.energySavingAutoMin") { "TV not answering".into() } else if auto { String::new() } else { "Energy saving is not Auto".into() };
     rows.push(min);
     // Just Scan is per input like the aspect ratio: LG reads and writes it with the app's id, and the TV answers nothing to a read without one
-    rows.push(per_app(c, c.toggle(Spec::new("aspectRatio.justScan").tab(0).icon("monitor").label("Just Scan").app(app.clone()).help("Shows the picture whole, without cropping its edges. Turn it off if a line shows at an edge.")), "aspectRatio.justScan"));
+    rows.push(per_app(c, c.toggle(Spec::new("aspectRatio.justScan").tab(0).icon("monitor").label("Show the whole picture (Just Scan)").app(app.clone()).help("Shows the picture whole, without cropping its edges. Turn it off if a line shows at an edge.")), "aspectRatio.justScan"));
 
     // ---- Brightness
     rows.push(c.slider(Spec::new("picture.contrast").tab(1).icon("contrast").label("Contrast").range(0.0, 100.0, 1.0)));

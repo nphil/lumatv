@@ -22,7 +22,7 @@ SRC = os.path.join(ROOT, "compositor", "crates", "lumatv-compositor", "src")
 HELPER = os.path.join(ROOT, "helper", "app", "src")
 
 # The switches of the care, in the order of the group, with what the Settings row is called.
-SWITCHES = [("enabled", "LumaTV screens"), ("appDim", "Dim still apps"), ("appShift", "Shift apps"), ("boxDim", "Dim bright still areas"),
+SWITCHES = [("enabled", "Protect LumaTV screens"), ("appDim", "Dim still apps"), ("appShift", "Shift still apps"), ("boxDim", "Dim bright still areas"),
             ("panelDim", "Dim with the panel"), ("refreshGuard", "Protect panel refresh")]
 # The switch that is on in what ships: it fails safe (the GPU dim and the saver's own dim take over when the panel cannot be dimmed).
 ON_BY_DEFAULT = {"panelDim"}

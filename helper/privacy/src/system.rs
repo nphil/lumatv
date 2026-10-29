@@ -94,7 +94,12 @@ impl Platform for System {
         .map(drop)
     }
     fn stop_old_amazoff(&self) -> Result<Vec<String>, String> {
-        crate::legacy::stop(Path::new("/proc"), std::process::id(), crate::legacy::NAME, Duration::from_secs(3))
+        crate::legacy::stop(
+            Path::new("/proc"),
+            std::process::id(),
+            crate::legacy::NAME,
+            Duration::from_secs(3),
+        )
     }
     fn cert_hash(&self, pem: &Path) -> Result<String, String> {
         let hash = run(

@@ -205,10 +205,10 @@ CAM_SCHEMA = {'revision': 1, 'sections': [
     {'id': 'link', 'title': 'Scrypted', 'fields': [{'key': 'link.status', 'label': 'Connection', 'kind': {'type': 'read-only', 'value': {'capability': 'plugin.scrypted-cameras.link'}}}]},
     {'id': 'show', 'title': 'Cameras', 'fields': [{'key': 'show', 'label': 'Show cameras', 'help': 'Empty shows every camera Scrypted shares.', 'kind': {'type': 'ordered-set', 'max_items': 128, 'options': {'provider': 'cameras'}}}]},
     {'id': 'popups', 'title': 'Pop-ups', 'fields': [
-        {'key': 'popups.on', 'label': 'Event pop-ups', 'kind': {'type': 'bool'}},
+        {'key': 'popups.on', 'label': 'Show event pop-ups', 'kind': {'type': 'bool'}},
         {'key': 'popups.seconds', 'label': 'Stay for', 'kind': {'type': 'integer', 'min': 5, 'max': 60, 'step': 1, 'unit': 's'}},
         {'key': 'popups.cooldown', 'label': 'Same event again after', 'kind': {'type': 'integer', 'min': 0, 'max': 600, 'step': 5, 'unit': 's'}},
-        {'key': 'popups.over_apps', 'label': 'Over playing apps', 'kind': {'type': 'bool'}}]},
+        {'key': 'popups.over_apps', 'label': 'Show pop-ups over playing apps', 'kind': {'type': 'bool'}}]},
     {'id': 'notify', 'title': 'Notify for', 'fields': [
         {'key': 'notify.front', 'label': 'Front door', 'kind': {'type': 'ordered-set', 'max_items': 8, 'options': {'provider': 'kinds'}}},
         {'key': 'notify.garage', 'label': 'Garage', 'kind': {'type': 'ordered-set', 'max_items': 8, 'options': {'provider': 'kinds'}}},
@@ -244,6 +244,57 @@ def profiles_topic():
 
 
 SCENES += [Scene('profiles', 'profiles', topics={'profiles': profiles_topic()}, keys=['right'])]
+
+# ---- Privacy: the helper's menu (`GET /v1/privacy/menu`), and its two-step change
+HELD = [('option.livePlus', 'Live Plus content recognition', 'off'), ('option.watchedListCollection', 'viewing history collection', 'off'),
+        ('option.thirdPartyCookie', 'third-party cookies', 'off'), ('option.dbgLogUpload', 'debug log upload', False), ('option.usageCare', 'usage statistics', False),
+        ('general.customizedAd', 'personalised ads', 'off'), ('general.adCookie', 'ad cookie', 'on'), ('option.livePromotion', 'live promotion', 'off'),
+        ('option.promotionStreamer', 'promotion streamer', 'off'), ('option.webOSPromotionVideo', 'promotion video', 'off'),
+        ('general.homePromotion', 'home promotion', 'off'), ('general.screenSaverAd', 'screen saver ads', 'off'), ('general.sportsAlarm', 'sports alarm', 'off'),
+        ('other.contentRecommendation', 'content recommendation', 'off'), ('general.aiNudge', 'AI nudge', 'off'), ('general.aiSettingsNudge', 'settings nudge', 'off')]
+
+
+def privacy_menu(amazoff_on=False):
+    def item(id, title, detail, on, **kw):
+        return dict({'id': id, 'title': title, 'detail': detail, 'kind': 'switch', 'on': on, 'available': True, 'admin': True}, **kw)
+
+    def consent(key, title, on, settable=True, agreements=()):
+        return {'id': 'consent.' + key, 'title': title, 'kind': 'switch', 'on': on, 'available': True, 'settable': settable, 'admin': True,
+                'agreements': [{'title': t} for t in agreements]}
+    held = [{'key': k, 'target': 'off' if isinstance(v, str) else False, 'detail': d, 'value': v, 'available': True} for k, d, v in HELD]
+    return {'ok': True, 'privacy': {'id': 'privacy', 'canAdmin': True, 'items': [
+        item('ads', 'Block content recognition (ACR) and ads', 'Stops content recognition, ad overlays and banners.', True),
+        item('settings', "Keep LG's viewing and ad settings off", 'Switches LG\'s 16 settings off.', True, settings=held),
+        item('uploaders', 'Block telemetry uploads', 'Stops LG\'s uploads.', True),
+        item('push', 'Block LG push promotions', 'Stops push notices.', False),
+        item('hosts', 'Block ad & tracker hosts', 'Blocks advertising names.', True, effective=True, count=212),
+        item('amazoff', 'Block Prime Video ads', 'Takes the ads out of Prime Video.', amazoff_on, protection='active' if amazoff_on else 'off'),
+        consent('acrAllowed', 'Allow content recognition (ACR)', True, agreements=('Viewing Information Agreement',)),
+        consent('customAdAllowed', 'Allow personalised ads', False, agreements=('Advertising Agreement',)),
+        consent('cookiesAllowed', 'Allow advertising cookies', False),
+        consent('voiceAllowed', 'Allow voice recordings', False, settable=False),
+        consent('networkAllowed', "Accept LG's network service terms", True, settable=False),
+        {'id': 'permissions', 'title': 'App Permissions', 'kind': 'link'}]}}
+
+
+def privacy_prepare(b):
+    return {'ok': True, 'confirmation': 'tok-' + b['id'], 'expiresInSeconds': 60, 'plan': {'key': b['id'], 'on': b['enabled']}}
+
+
+def privacy_apply(b):
+    return {'ok': True, 'changed': b['id'], 'on': b['enabled']}
+
+
+PRIVACY_ROUTES = {'GET /v1/privacy/menu': lambda b: privacy_menu(), 'POST /v1/privacy/prepare': privacy_prepare, 'POST /v1/privacy/apply': privacy_apply}
+SCENES += [
+    Scene('privacy-blocking', 'privacy', routes=PRIVACY_ROUTES, keys=['right']),
+    Scene('privacy-flip', 'privacy', routes=PRIVACY_ROUTES, keys=['right', 'ok']),
+    Scene('privacy-prime', 'privacy', routes=PRIVACY_ROUTES, keys=['right'] + ['down'] * 6 + ['ok']),
+    Scene('privacy-prime-yes', 'privacy', routes=PRIVACY_ROUTES, keys=['right'] + ['down'] * 6 + ['ok', 'right', 'ok']),
+    Scene('privacy-held', 'privacy', routes=PRIVACY_ROUTES, keys=['right', 'down', 'down', 'ok']),
+    Scene('privacy-collect', 'privacy', routes=PRIVACY_ROUTES, keys=['right', 'up', 'right', 'down']),
+    Scene('privacy-ads', 'privacy', routes=PRIVACY_ROUTES, keys=['right', 'up', 'right', 'right', 'down']),
+]
 
 BY_NAME = {s.name: s for s in SCENES}
 

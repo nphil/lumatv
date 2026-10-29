@@ -15,7 +15,10 @@ pub const NAMED: &[(&str, &str)] = &[
     ("acrGdprAllowed", "Allow content recognition (EU consent)"),
     ("acrAdAllowed", "Allow ads based on what I watch"),
     ("customAdAllowed", "Allow personalised ads"),
-    ("customadsAllowed", "Allow personalised ads (second consent)"),
+    (
+        "customadsAllowed",
+        "Allow personalised ads (second consent)",
+    ),
     ("cookiesAllowed", "Allow advertising cookies"),
     (
         "thirdPartySharingAllowed",
@@ -183,9 +186,15 @@ mod tests {
         let none = Groups::new();
         for (key, _) in NAMED {
             let l = label(key, &none);
-            assert!(l.starts_with("Allow ") || l.starts_with("Accept "), "{key}: {l}");
+            assert!(
+                l.starts_with("Allow ") || l.starts_with("Accept "),
+                "{key}: {l}"
+            );
         }
-        assert_eq!(label("someNewConsentAllowed", &none), "Allow some new consent");
+        assert_eq!(
+            label("someNewConsentAllowed", &none),
+            "Allow some new consent"
+        );
         let g = BTreeMap::from([("odd".to_owned(), vec!["S_TAK".to_owned()])]);
         assert_eq!(label("odd", &g), "Allow Who.Where.What? suggestions");
     }

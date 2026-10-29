@@ -35,7 +35,7 @@ Item {
     readonly property var chosen: nAssist > 0 ? assistants[Math.min(permIndex, nAssist - 1)] : null
     property var audit: []
     property string armed: ""
-    readonly property string summary: !up ? "Not running" : listenerOn ? "On" : "Off"
+    readonly property string summary: !up ? "Not running" : listenerOn ? "Allowed" : "Blocked"
 
     // ---- focus: a list of the controls on screen, and the one the cursor is on
     property string fk: "listener"        // kind of the focused control
@@ -201,7 +201,7 @@ Item {
             onPointerFocus: page.pointAt("listener", 0)
             onHelpAsked: { page.pointAt("listener", 0); page.openHelp() }
             trailing: LuSegmented {
-                options: ["Off", "LAN only"]; current: page.listenerOn ? 1 : 0
+                options: ["Blocked", "Home network only"]; current: page.listenerOn ? 1 : 0
                 focusedIndex: page.active && page.fk === "listener" ? page.seg : -1
                 onPicked: { page.pointAt("listener", 0); page.seg = index; page.act() }
             }

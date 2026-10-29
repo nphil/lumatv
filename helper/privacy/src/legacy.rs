@@ -14,7 +14,9 @@ pub const PRIME_CONFIG: &str =
 pub const NAME: &str = "amazoff";
 
 fn mentions(bytes: &[u8], name: &str) -> bool {
-    String::from_utf8_lossy(bytes).to_ascii_lowercase().contains(name)
+    String::from_utf8_lossy(bytes)
+        .to_ascii_lowercase()
+        .contains(name)
 }
 
 /// The programs of the old app under `proc` (a `/proc`): those whose command line, program or working folder names it.
@@ -24,7 +26,11 @@ pub fn running(proc: &Path, own: u32, name: &str) -> Vec<(u32, String)> {
         return found;
     };
     for entry in entries.flatten() {
-        let Some(pid) = entry.file_name().to_str().and_then(|n| n.parse::<u32>().ok()) else {
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|n| n.parse::<u32>().ok())
+        else {
             continue;
         };
         if pid <= 1 || pid == own {
@@ -37,11 +43,21 @@ pub fn running(proc: &Path, own: u32, name: &str) -> Vec<(u32, String)> {
                 .map(|p| p.to_string_lossy().into_owned())
                 .unwrap_or_default()
         };
-        if mentions(&cmdline, name) || mentions(link("exe").as_bytes(), name) || mentions(link("cwd").as_bytes(), name) {
+        if mentions(&cmdline, name)
+            || mentions(link("exe").as_bytes(), name)
+            || mentions(link("cwd").as_bytes(), name)
+        {
             let argv0 = cmdline.split(|b| *b == 0).next().unwrap_or_default();
             let program = String::from_utf8_lossy(argv0);
             let program = program.rsplit('/').next().unwrap_or_default();
-            found.push((pid, if program.is_empty() { format!("pid {pid}") } else { program.to_owned() }));
+            found.push((
+                pid,
+                if program.is_empty() {
+                    format!("pid {pid}")
+                } else {
+                    program.to_owned()
+                },
+            ));
         }
     }
     found
@@ -51,7 +67,10 @@ fn gone(proc: &Path, pid: u32) -> bool {
     match std::fs::read_to_string(proc.join(pid.to_string()).join("stat")) {
         Err(_) => true,
         // a zombie holds no port; its parent has not collected it yet
-        Ok(stat) => stat.rsplit(')').next().is_some_and(|rest| rest.trim_start().starts_with('Z')),
+        Ok(stat) => stat
+            .rsplit(')')
+            .next()
+            .is_some_and(|rest| rest.trim_start().starts_with('Z')),
     }
 }
 
@@ -66,7 +85,10 @@ pub fn stop(proc: &Path, own: u32, name: &str, grace: Duration) -> Result<Vec<St
     let mut stopped: Vec<String> = Vec::new();
     for _ in 0..4 {
         let list = running(proc, own, name);
-        let live: Vec<_> = list.into_iter().filter(|(pid, _)| !gone(proc, *pid)).collect();
+        let live: Vec<_> = list
+            .into_iter()
+            .filter(|(pid, _)| !gone(proc, *pid))
+            .collect();
         if live.is_empty() {
             return Ok(stopped);
         }
@@ -88,7 +110,10 @@ pub fn stop(proc: &Path, own: u32, name: &str, grace: Duration) -> Result<Vec<St
             std::thread::sleep(Duration::from_millis(20));
         }
     }
-    if running(proc, own, name).iter().any(|(pid, _)| !gone(proc, *pid)) {
+    if running(proc, own, name)
+        .iter()
+        .any(|(pid, _)| !gone(proc, *pid))
+    {
         return Err("the old AmazOff app would not stop".into());
     }
     Ok(stopped)
@@ -109,16 +134,18 @@ pub fn retire_autostart(paths: &Paths) -> Result<Vec<String>, String> {
             continue;
         }
         let small = entry.metadata().is_ok_and(|m| m.len() <= 65536);
-        let hit = mentions(name.as_bytes(), NAME) || (small && std::fs::read(&path).is_ok_and(|b| mentions(&b, NAME)));
+        let hit = mentions(name.as_bytes(), NAME)
+            || (small && std::fs::read(&path).is_ok_and(|b| mentions(&b, NAME)));
         if !hit {
             continue;
         }
         let keep = paths.state("retired");
         std::fs::create_dir_all(&keep).map_err(|e| e.to_string())?;
-        std::fs::rename(&path, keep.join(&name)).or_else(|_| {
-            std::fs::copy(&path, keep.join(&name)).and_then(|_| std::fs::remove_file(&path))
-        })
-        .map_err(|e| e.to_string())?;
+        std::fs::rename(&path, keep.join(&name))
+            .or_else(|_| {
+                std::fs::copy(&path, keep.join(&name)).and_then(|_| std::fs::remove_file(&path))
+            })
+            .map_err(|e| e.to_string())?;
         moved.push(name);
     }
     Ok(moved)
@@ -133,7 +160,10 @@ pub fn clear_tls_override(paths: &Paths) -> Result<bool, String> {
     }
     let mut config = read_json(&file)?;
     let on = |v: &Value| *v == "1" || *v == true || *v == 1;
-    let Some(map) = config.as_object_mut().filter(|m| m.get("disable-ssl-cert").is_some_and(on)) else {
+    let Some(map) = config
+        .as_object_mut()
+        .filter(|m| m.get("disable-ssl-cert").is_some_and(on))
+    else {
         return Ok(false);
     };
     map.remove("disable-ssl-cert");
@@ -156,13 +186,37 @@ mod tests {
         let mut nginx = spawn(&format!("/opt/{tag}/nginx"));
         let mut other = spawn("some-other-sleep");
         // the children are reaped by this test, so a killed one shows as a zombie until then: `gone` counts that
-        let stopped = stop(Path::new("/proc"), std::process::id(), &tag, Duration::from_secs(2)).unwrap();
-        assert!(stopped.contains(&format!("{tag}-monitor")) && stopped.contains(&"nginx".to_string()), "{stopped:?}");
-        assert!(monitor.wait().unwrap().code().is_none(), "ended by a signal");
+        let stopped = stop(
+            Path::new("/proc"),
+            std::process::id(),
+            &tag,
+            Duration::from_secs(2),
+        )
+        .unwrap();
+        assert!(
+            stopped.contains(&format!("{tag}-monitor")) && stopped.contains(&"nginx".to_string()),
+            "{stopped:?}"
+        );
+        assert!(
+            monitor.wait().unwrap().code().is_none(),
+            "ended by a signal"
+        );
         assert!(nginx.wait().unwrap().code().is_none());
-        assert!(other.try_wait().unwrap().is_none(), "an unrelated program keeps running");
+        assert!(
+            other.try_wait().unwrap().is_none(),
+            "an unrelated program keeps running"
+        );
         other.kill().unwrap();
         other.wait().unwrap();
-        assert!(stop(Path::new("/proc"), std::process::id(), &tag, Duration::from_secs(1)).unwrap().is_empty());
+        assert!(
+            stop(
+                Path::new("/proc"),
+                std::process::id(),
+                &tag,
+                Duration::from_secs(1)
+            )
+            .unwrap()
+            .is_empty()
+        );
     }
 }

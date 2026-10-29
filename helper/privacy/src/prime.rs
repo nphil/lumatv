@@ -249,9 +249,8 @@ impl Front {
         if !addr.ip().is_loopback() {
             return Err("Prime assets may only listen on loopback".into());
         }
-        let listener = TcpListener::bind(addr).map_err(|e| {
-            format!("Another program is using the port Prime Video ads need: {e}")
-        })?;
+        let listener = TcpListener::bind(addr)
+            .map_err(|e| format!("Another program is using the port Prime Video ads need: {e}"))?;
         listener.set_nonblocking(true).map_err(|e| e.to_string())?;
         let stop = Arc::new(AtomicBool::new(false));
         let routes = Arc::new(Mutex::new(BTreeMap::new()));

@@ -248,7 +248,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
             Spec::new("sound.avSyncBypassInput")
                 .tab(0)
                 .icon("timer")
-                .label("Delay bypass")
+                .label("Skip the sound delay")
                 .help("Skips the delay above, for a source that keeps picture and sound in step itself.")
                 .lg_shown(),
         ),
@@ -267,7 +267,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
     let mut too = Row::toggle("tvtoo")
         .tab(0)
         .icon("tv")
-        .label("TV speakers too")
+        .label("Also play on TV speakers")
         .help("Also plays through the TV's own speakers while sound goes to the receiver.")
         .on(out == "tv_speaker_external_arc")
         .admin();

@@ -7,7 +7,7 @@
 //! the TV and its channels); the LG services country is a switch (`option.autoSmartServiceCountry`) that asks the TV's sdx service to find
 //! the country by itself; the zip code is `option.zipcode`. Changing the menu language reloads LG's menus, so it asks first.
 
-use crate::settings::ctx::{Ctx, ask};
+use crate::settings::ctx::{Ctx, ask, toast};
 use crate::settings::page::{Page, Read};
 use crate::settings::row::{Arg, ChoiceSpec, Op, Pick, Row, settings};
 use serde_json::{Value, json};
@@ -185,7 +185,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
     bc.chevron = false;
     bc.visible = c.lg.has("option.country");
     out.push(bc);
-    let mut svc = Row::toggle("svcCountry").tab(2).icon("globe-2").label("LG Services Country").help("On: the TV finds the country of its LG services itself. Changing it restarts those services.").on(c.lg.is("option.autoSmartServiceCountry", "on"));
+    let mut svc = Row::toggle("svcCountry").tab(2).icon("globe-2").label("Set LG services country automatically").help("On: the TV finds the country of its LG services itself. Changing it restarts those services.").on(c.lg.is("option.autoSmartServiceCountry", "on"));
     svc.detail = c.unavailable("option.autoSmartServiceCountry", "");
     svc.enabled = c.lg.usable("option.autoSmartServiceCountry");
     svc.visible = c.lg.shown("option.autoSmartServiceCountry");
@@ -195,7 +195,8 @@ fn rows(c: &Ctx) -> Vec<Row> {
             if v {
                 then.push(Op::Call { name: "country".into(), uri: "luna://com.webos.service.sdx/setCountrySettingByAuto".into(), payload: json!({"uniqueIndex": "2013"}), subscribe: false });
             }
-            ask("globe", if v { "Find the country automatically?" } else { "Stop finding the country automatically?" }, "LG's services restart.", if v { "Turn on" } else { "Turn off" }, "Cancel", false, then)
+            then.push(toast(if v { "LG services country is set automatically" } else { "LG services country is no longer set automatically" }));
+            then
         }
         _ => Vec::new(),
     }));
@@ -297,14 +298,14 @@ mod tests {
     }
 
     #[test]
-    fn the_location_shows_the_country_asks_before_the_services_country_and_takes_five_digits() {
+    fn the_location_shows_the_country_flips_the_services_country_in_place_and_takes_five_digits() {
         let w = world();
         let r = rows(&w.ctx());
         assert_eq!(by_id(&r, "country").value, "United States");
         let svc = by_id(&r, "svcCountry");
         let ops = (svc.act.as_ref().unwrap())(Arg::Toggle(true));
-        let [Op::Ask(a)] = &ops[..] else { panic!() };
-        assert!(matches!(&a.answers[1].then[..], [Op::Lg { value, .. }, Op::Call { uri, .. }] if value == "on" && uri.ends_with("setCountrySettingByAuto")));
+        assert!(matches!(&ops[..], [Op::Lg { value, .. }, Op::Call { uri, .. }, Op::Act { .. }] if value == "on" && uri.ends_with("setCountrySettingByAuto")), "{ops:?}");
+        assert_eq!(svc.label, "Set LG services country automatically");
         let zip = by_id(&r, "zip");
         assert_eq!(zip.value, "30311");
         let ops = (zip.act.as_ref().unwrap())(Arg::Press);

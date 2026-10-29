@@ -310,8 +310,8 @@ Item {
               options: Power.sleepLabels, index: function() { return Power.sleepIndex }, act: function(i) { Power.setSleep(i) } },
             { id: "wifi", kind: "value", icon: "wifi", label: "Wi-Fi", detail: function() { return Net.summary }, value: "", act: function() { panel.openSettingsPage("network") } },
             { id: "ai", kind: "value", icon: "bot", label: "AI access", chip: true,
-              detail: function() { var a = Helper.ai; return !a ? "" : (a.listener && a.listener.enabled ? "LAN only" : "") + (a.assistants && a.assistants.length ? (a.listener && a.listener.enabled ? " \u00b7 " : "") + a.assistants.length + " paired" : "") },
-              value: function() { var a = Helper.ai; return a && a.listener && a.listener.enabled ? "On" : "Off" },
+              detail: function() { var a = Helper.ai; return !a ? "" : (a.listener && a.listener.enabled ? "Home network only" : "") + (a.assistants && a.assistants.length ? (a.listener && a.listener.enabled ? " \u00b7 " : "") + a.assistants.length + " paired" : "") },
+              value: function() { var a = Helper.ai; return a && a.listener && a.listener.enabled ? "Allowed" : "Blocked" },
               tone: function() { var a = Helper.ai; return a && a.listener && a.listener.enabled ? "positive" : "" },
               act: function() { panel.openSettingsPage("ai") } }
         ]

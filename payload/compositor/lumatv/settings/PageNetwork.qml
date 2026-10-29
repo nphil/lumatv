@@ -46,7 +46,7 @@ PageList {
           value: function() { return Sio.has("network.deviceName") ? String(Sio.get("network.deviceName")) : "" },
           act: function() { if (page.host) page.host.entry({ prompt: "TV name", text: String(Sio.get("network.deviceName") || "") }, function(t) { if (t.trim() !== "") Sio.write("network.deviceName", t.trim()) }) } },
         C.lgShown(Sio, "network.ipv6Enable", R.toggle(Sio, { ds: "network.ipv6Enable", tab: 2, on: "true", off: "false", icon: "globe", label: "IPv6" })),
-        C.lgShown(Sio, "network.bleAdvertisingOnOff", R.toggle(Sio, { ds: "network.bleAdvertisingOnOff", tab: 2, icon: "radio", label: "TV On With Mobile",
+        C.lgShown(Sio, "network.bleAdvertisingOnOff", R.toggle(Sio, { ds: "network.bleAdvertisingOnOff", tab: 2, icon: "radio", label: "Wake from a phone (Bluetooth)",
                                                                    help: "Lets a phone turn the TV on over Bluetooth. Uses a little power while off." }))
     ]
 }

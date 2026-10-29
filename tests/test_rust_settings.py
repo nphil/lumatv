@@ -56,7 +56,7 @@ class RustSettings(unittest.TestCase):
         self.assertEqual([b for p, b in posts(h, '/v1/ai/listener')], [{'enabled': False}])
 
     def test_ai_on_is_explained_and_the_helper_is_sent_nothing(self):
-        # Off is in force, the cursor moves to "LAN only" and OK is pressed: the TV answers itself
+        # Off is in force, the cursor moves to "Home network only" and OK is pressed: the TV answers itself
         h = self.play(scene('ai-unavailable'))
         self.assertEqual(posts(h, '/v1/ai'), [])
         self.assertEqual(gets(h, '/v1/ai/audit') != [], True, 'it still reads the activity')
@@ -72,6 +72,27 @@ class RustSettings(unittest.TestCase):
         self.assertEqual(len(posts(h, '/v1/ai/assistants/a1/pause')), 1)
         h = self.play(scene('ai-assistants', {}, ['right', 'up', 'right', 'down', 'down', 'ok']))
         self.assertEqual(posts(h, '/v1/ai'), [], 'resuming gives an assistant more')
+
+    # ------------------------------------------------------------------------------------------------------------------ Privacy
+
+    def test_a_privacy_switch_flips_in_place_and_sends_prepare_then_apply_with_no_question(self):
+        # the first row, "Block content recognition (ACR) and ads", is on; OK turns it off. ON in the row is `enabled: true` to the helper.
+        h = self.play(scene('privacy-flip'))
+        self.assertEqual([b for p, b in posts(h, '/v1/privacy/prepare')], [{'id': 'ads', 'enabled': False}])
+        self.assertEqual([b for p, b in posts(h, '/v1/privacy/apply')], [{'id': 'ads', 'enabled': False, 'confirmation': 'tok-ads'}])
+
+    def test_the_prime_video_ad_blocker_asks_one_plain_question_and_sends_the_helper_nothing_before_the_answer(self):
+        h = self.play(scene('privacy-prime'))
+        self.assertEqual(posts(h, '/v1/privacy/'), [], 'the question is open and nothing was asked of the helper')
+        h = self.play(scene('privacy-prime-yes'))
+        self.assertEqual([b for p, b in posts(h, '/v1/privacy/prepare')], [{'id': 'amazoff', 'enabled': True}], 'Block ads is the helper\'s on')
+        self.assertEqual([b['id'] for p, b in posts(h, '/v1/privacy/apply')], ['amazoff'])
+
+    def test_a_consent_switch_is_sent_as_the_helper_names_it(self):
+        # What LG may collect: the first row, "Allow content recognition (ACR)", is on; OK turns it off
+        s = scene('privacy-collect', keys=['right', 'up', 'right', 'down', 'ok'])
+        h = self.play(s)
+        self.assertEqual([b for p, b in posts(h, '/v1/privacy/prepare')], [{'id': 'consent.acrAllowed', 'enabled': False}])
 
     # -------------------------------------------------------------------------------------------------------- Home Assistant
 
@@ -104,7 +125,7 @@ class RustSettings(unittest.TestCase):
     # ----------------------------------------------------------------------------------------------------------- the pages read clean
 
     def test_every_new_page_reads_clean_in_both_looks_at_both_text_sizes(self):
-        names = ['ai', 'ai-assistants', 'ai-allowed', 'ai-unavailable', 'homeassistant', 'homeassistant-room', 'homeassistant-unlinked',
+        names = ['privacy-blocking', 'privacy-prime', 'privacy-held', 'privacy-collect', 'privacy-ads', 'ai', 'ai-assistants', 'ai-allowed', 'ai-unavailable', 'homeassistant', 'homeassistant-room', 'homeassistant-unlinked',
                  'cameras', 'cameras-notify', 'cameras-video', 'camera-kinds', 'cameras-unlinked']
         jobs = [(n, mode, scale) for n in names for mode, scale in (('dark', 1.0), ('light', 2.0))]
 

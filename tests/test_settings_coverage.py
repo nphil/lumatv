@@ -196,7 +196,7 @@ probe("picture_reset_go", "root.key('right');root.key('ok');return 1", wait=250)
 SOUND_TABS = ("var p=root.pageItem('sound');var out=[[],[],[],[]];for(var i=0;i<p.rows.length;i++){var r=p.rows[i];"
               "if(p.ev(r.visible)===false||r.label===undefined)continue;out[r.tab||0].push(String(p.ev(r.label)))}return out")
 SOUND_STATE = ("function S(l){var r=R(l);return {on:p.ev(r.enabled)!==false,detail:String(p.ev(r.detail)||'')}}"
-               "return {balance:S('Balance'),eq:S('Equalizer'),install:S('Installation Type'),acoustic:S('AI Acoustic Tuning Options'),speakersToo:S('TV speakers too'),"
+               "return {balance:S('Balance'),eq:S('Equalizer'),install:S('Installation Type'),acoustic:S('AI Acoustic Tuning Options'),speakersToo:S('Also play on TV speakers'),"
                "atmos:S('Dolby Atmos'),lgsync:S('LG Sound Sync'),share:S('TV Sound Mode Share'),reset:S('Reset')}")
 probe("sound_tabs", SOUND_TABS)
 probe("sound_state_receiver", FIND % "sound" + SOUND_STATE)
@@ -242,11 +242,10 @@ probe("lang_menu_after", FIND % "language" + "return {info:p.info,value:p.ev(R('
 probe("lang_keyboards", FIND % "language" + KEYBOARD + "return {en:K('English'),es:K('Espa\\u00f1ol'),fr:K('Fran\\u00e7ais')}")
 probe("lang_keyboard_fr", FIND % "language" + KEYBOARD + "R('Fran\\u00e7ais').act(true);return K('Fran\\u00e7ais')", wait=300)
 probe("lang_audio", FIND % "language" + "var row=R('Audio Language');var o=row.options();row.pick(o.map(function(x){return x.value}).indexOf('fr-FR'));return {value:p.ev(row.value),asked:root.confirmOpen,options:o.map(function(x){return x.value+':'+x.label})}", wait=300)
-probe("lang_location", FIND % "language" + "return {country:p.ev(R('Broadcast Country').value),svc:p.ev(R('LG Services Country').on),zip:p.ev(R('Zip Code').value)}")
-probe("lang_svc_ask", FIND % "language" + "R('LG Services Country').act(false);return {asked:root.confirmOpen,on:p.ev(R('LG Services Country').on)}", wait=250)
-probe("lang_svc_off", "root.key('right');root.key('ok');return 1", wait=300)
-probe("lang_svc_on", FIND % "language" + "R('LG Services Country').act(true);root.key('right');root.key('ok');return 1", wait=400)
-probe("lang_svc_after", FIND % "language" + "return {on:p.ev(R('LG Services Country').on)}")
+probe("lang_location", FIND % "language" + "return {country:p.ev(R('Broadcast Country').value),svc:p.ev(R('Set LG services country automatically').on),zip:p.ev(R('Zip Code').value)}")
+probe("lang_svc_off", FIND % "language" + "R('Set LG services country automatically').act(false);return {asked:root.confirmOpen}", wait=300)
+probe("lang_svc_on", FIND % "language" + "R('Set LG services country automatically').act(true);return {asked:root.confirmOpen}", wait=400)
+probe("lang_svc_after", FIND % "language" + "return {on:p.ev(R('Set LG services country automatically').on)}")
 probe("lang_zip_bad", FIND % "language" + "R('Zip Code').act();" + (TYPE % "'123'") + "return 1", wait=200)
 probe("lang_zip_bad_state", FIND % "language" + "return {detail:p.ev(R('Zip Code').detail),value:p.ev(R('Zip Code').value)}")
 probe("lang_zip", FIND % "language" + "R('Zip Code').act();" + (TYPE % "'90210'") + "return 1", wait=200)
@@ -260,16 +259,14 @@ SUPPORT_VALUES = ("var p=root.pageItem('support');var out={};for(var i=0;i<p.row
 probe("support_open", "root.openPage('support');return 1", wait=900)
 probe("support_tabs", SUPPORT_TABS)
 probe("support_info", SUPPORT_VALUES)
-probe("support_auto_state", FIND % "support" + "var r=R('Auto Update');return {on:p.ev(r.on),enabled:p.ev(r.enabled)!==false,detail:p.ev(r.detail)}")
-probe("support_auto_on", FIND % "support" + "R('Auto Update').act(true);return p.ev(R('Auto Update').on)", wait=250)
+probe("support_auto_state", FIND % "support" + "var r=R('Install updates automatically');return {on:p.ev(r.on),enabled:p.ev(r.enabled)!==false,detail:p.ev(r.detail)}")
+probe("support_auto_on", FIND % "support" + "R('Install updates automatically').act(true);return p.ev(R('Install updates automatically').on)", wait=250)
 probe("support_no_terms", SET + "s.set('', {eulaStatus: {generalTermsAllowed: false}});s.set('support', {automaticUpdate: 'off'});root.pageItem('support').refresh();return 1", wait=500)
-probe("support_auto_locked", FIND % "support" + "var r=R('Auto Update');return {on:p.ev(r.on),enabled:p.ev(r.enabled)!==false,detail:p.ev(r.detail)}")
+probe("support_auto_locked", FIND % "support" + "var r=R('Install updates automatically');return {on:p.ev(r.on),enabled:p.ev(r.enabled)!==false,detail:p.ev(r.detail)}")
 probe("support_terms_back", SET + "s.set('', {eulaStatus: {generalTermsAllowed: true, voiceAllowed: true}});root.pageItem('support').refresh();return 1", wait=500)
-probe("support_dns_ask", FIND % "support" + "R('Do Not Sell My Personal Information').act(true);return {asked:root.confirmOpen,on:p.ev(R('Do Not Sell My Personal Information').on)}", wait=250)
-probe("support_dns_no", "root.key('ok');return {open:root.confirmOpen}", wait=250)
-probe("support_dns_yes", FIND % "support" + "R('Do Not Sell My Personal Information').act(true);root.key('right');root.key('ok');return 1", wait=1200)
-probe("support_dns_after", FIND % "support" + "return {on:p.ev(R('Do Not Sell My Personal Information').on)}")
-probe("support_lmt", FIND % "support" + "R('Limit AD Tracking').act(true);return p.ev(R('Limit AD Tracking').on)", wait=250)
+probe("support_dns_on", FIND % "support" + "R('Ask LG not to sell my data').act(true);return {asked:root.confirmOpen}", wait=1200)
+probe("support_dns_after", FIND % "support" + "return {on:p.ev(R('Ask LG not to sell my data').on)}")
+probe("support_lmt", FIND % "support" + "R('Limit ad tracking').act(true);return p.ev(R('Limit ad tracking').on)", wait=250)
 probe("support_ad_id", FIND % "support" + "return {id:p.ev(R('AD ID').value)}")
 probe("support_ad_reset", FIND % "support" + "R('Reset AD ID').act();return {asked:root.confirmOpen}", wait=250)
 probe("support_ad_reset_yes", "root.key('right');root.key('ok');return 1", wait=1300)
@@ -432,34 +429,28 @@ probe("look_tv_rows", "var p=root.pageItem('look');var out=[];for(var i=0;i<p.ro
 probe("ready_on", FIND % "look" + "R('Always Ready').act(true);return {on:p.ev(R('Always Ready').on),sub:p.ev(R('Always Ready motion sensor').enabled)!==false}", wait=300)
 probe("ready_subs", FIND % "look" + "R('Always Ready energy saving').act(1);R('Always Ready notifications').act(false);R('Always Ready motion sensor').act(true);"
       "return {energy:R('Always Ready energy saving').options()}", wait=300)
-probe("ready_off_ask", FIND % "look" + "R('Always Ready').act(false);return {asked:root.confirmOpen,on:p.ev(R('Always Ready').on)}", wait=250)
-probe("ready_off_no", "root.key('ok');return {open:root.confirmOpen}", wait=250)
-probe("ready_off_yes", FIND % "look" + "R('Always Ready').act(false);root.key('right');root.key('ok');return 1", wait=400)
+probe("ready_off", FIND % "look" + "R('Always Ready').act(false);return {asked:root.confirmOpen}", wait=400)
 probe("ready_off_after", FIND % "look" + "return {on:p.ev(R('Always Ready').on)}")
-probe("ai_tips", FIND % "look" + "R('Smart Tips').act(false);R('Smart Tips in Settings').act(false);return {w:!!R('Who.Where.What?')}", wait=250)
+probe("ai_tips", FIND % "look" + "R('Show feature tips on Home').act(false);R('Show setting tips in LG\\'s Settings').act(false);return {w:!!R('Show Who.Where.What? suggestions')}", wait=250)
 probe("remote_slow_locked", FIND % "remote" + "var a=R('Activate time for long press');return {on:p.ev(a.enabled)!==false,detail:p.ev(a.detail),value:p.ev(a.value)}")
 probe("remote_slow_on", FIND % "remote" + "R('Extend Pressing Time on Remote').act(true);return 1", wait=300)
 probe("remote_slow_pick", FIND % "remote" + "var a=R('Activate time for long press'),b=R('Interval time for repeated actions');var oa=a.options(),ob=b.options();"
       "a.pick(oa.map(function(x){return x.value}).indexOf('1.5'));b.pick(ob.map(function(x){return x.value}).indexOf('0.5'));"
       "return {on:p.ev(a.enabled)!==false,a:oa.map(function(x){return x.value+':'+x.label}),b:ob.map(function(x){return x.value+':'+x.label}),va:p.ev(a.value),vb:p.ev(b.value)}", wait=300)
 probe("oled_care", FIND % "system" + "var row=R('Care Picture Settings');var o=row.options();row.pick(o.map(function(x){return x.value}).indexOf('comfortCare'));"
-      "R('Care Recommendations').act(false);return {options:o.map(function(x){return x.value+':'+x.label}),value:p.ev(row.value)}", wait=300)
+      "R('Suggest picture care settings').act(false);return {options:o.map(function(x){return x.value+':'+x.label}),value:p.ev(row.value)}", wait=300)
 probe("panel_care_rows", FIND % "system" + "var out=[];for(var i=0;i<p.rows.length;i++){var r=p.rows[i];if(r.tab!==2||p.ev(r.visible)===false)continue;"
       "out.push([r.kind,String(p.ev(r.label)||r.text||''),p.ev(r.help)||'',r.on?p.ev(r.on):null])}return out")
-probe("pixel_ask", FIND % "system" + "R('Pixel Cleaning').act(true);return {asked:root.confirmOpen,on:p.ev(R('Pixel Cleaning').on)}", wait=250)
-probe("pixel_no", "root.key('ok');return {open:root.confirmOpen}", wait=250)
-probe("pixel_yes", FIND % "system" + "R('Pixel Cleaning').act(true);root.key('right');root.key('ok');return 1", wait=400)
-probe("pixel_off", FIND % "system" + "R('Pixel Cleaning').act(false);return p.ev(R('Pixel Cleaning').on)===false", wait=250)
+probe("pixel_on", FIND % "system" + "R('Clean pixels when the TV is turned off').act(true);return {asked:root.confirmOpen,on:p.ev(R('Clean pixels when the TV is turned off').on)}", wait=400)
+probe("pixel_off", FIND % "system" + "R('Clean pixels when the TV is turned off').act(false);return p.ev(R('Clean pixels when the TV is turned off').on)===false", wait=250)
 probe("home_power_on", FIND % "look" + "var row=R('Power On Screen');var now=p.ev(row.index);row.act(1);var a=p.ev(row.index);row.act(0);return {now:now,a:a,b:p.ev(row.index),options:row.options}", wait=300)
-probe("home_switches", FIND % "look" + "R('Home Promotion').act(false);R('Content Recommendation').act(false);return {a:p.ev(R('Home Promotion').on),b:p.ev(R('Content Recommendation').on)}", wait=250)
+probe("home_switches", FIND % "look" + "R('Show promotions in LG\\'s Home').act(false);R('Show content recommendations in LG\\'s Home').act(false);return {a:p.ev(R('Show promotions in LG\\'s Home').on),b:p.ev(R('Show content recommendations in LG\\'s Home').on)}", wait=250)
 probe("saver_lg", FIND % "look" + "var row=R('Screen Saver Standby Time');var o=row.options();var now=p.ev(row.value);row.pick(o.map(function(x){return x.value}).indexOf('30'));"
-      "R('Screen Saver Promotion').act(false);return {now:now,options:o.map(function(x){return x.value+':'+x.label}),value:p.ev(row.value),ad:p.ev(R('Screen Saver Promotion').on)}", wait=300)
-probe("live_locked", FIND % "support" + "var a=R('Live Plus'),b=R('Live Promotion');return {on:p.ev(a.on),sub:p.ev(b.enabled)!==false,detail:p.ev(b.detail)}")
-probe("live_ask", FIND % "support" + "R('Live Plus').act(true);return {asked:root.confirmOpen,on:p.ev(R('Live Plus').on)}", wait=250)
-probe("live_no", "root.key('ok');return {open:root.confirmOpen}", wait=250)
-probe("live_yes", FIND % "support" + "R('Live Plus').act(true);root.key('right');root.key('ok');return 1", wait=400)
-probe("live_after", FIND % "support" + "var b=R('Live Promotion');b.act(true);return {on:p.ev(R('Live Plus').on),sub:p.ev(b.enabled)!==false,promo:p.ev(b.on)}", wait=300)
-probe("live_off", FIND % "support" + "R('Live Plus').act(false);return {asked:root.confirmOpen,on:p.ev(R('Live Plus').on)}", wait=300)
+      "R('Show ads on LG\\'s screen saver').act(false);return {now:now,options:o.map(function(x){return x.value+':'+x.label}),value:p.ev(row.value),ad:p.ev(R('Show ads on LG\\'s screen saver').on)}", wait=300)
+probe("live_locked", FIND % "support" + "var a=R('Allow content recognition (Live Plus)'),b=R('Allow custom ads while watching (Live Promotion)');return {on:p.ev(a.on),sub:p.ev(b.enabled)!==false,detail:p.ev(b.detail)}")
+probe("live_on", FIND % "support" + "R('Allow content recognition (Live Plus)').act(true);return {asked:root.confirmOpen,on:p.ev(R('Allow content recognition (Live Plus)').on)}", wait=400)
+probe("live_after", FIND % "support" + "var b=R('Allow custom ads while watching (Live Promotion)');b.act(true);return {on:p.ev(R('Allow content recognition (Live Plus)').on),sub:p.ev(b.enabled)!==false,promo:p.ev(b.on)}", wait=300)
+probe("live_off", FIND % "support" + "R('Allow content recognition (Live Plus)').act(false);return {asked:root.confirmOpen,on:p.ev(R('Allow content recognition (Live Plus)').on)}", wait=300)
 probe("emergency_row", FIND % "system" + "var r=R('Emergency Information');return {shown:!!r&&p.ev(r.visible)!==false,atsc3:p.atsc3}", wait=300)
 probe("emergency_none", FIND % "system" + "p.atsc3=false;var r=R('Emergency Information');var hidden=p.ev(r.visible)===false;p.atsc3=true;return {hidden:hidden}")
 probe("emergency_page", FIND % "emergency" + "R('Enable the function').act(true);var row=R('Audio Language');var o=row.options();row.pick(o.map(function(x){return x.value}).indexOf('spa'));"
@@ -488,11 +479,9 @@ PERM = ("var p=root.pageItem('permissions');function RT(t,l){for(var i=0;i<p.row
 probe("perm_open", "root.openPage('permissions');return 1", wait=700)
 probe("perm_rows", PERM + "var out=[[],[],[],[]];for(var i=0;i<p.rows.length;i++){var r=p.rows[i];if(p.ev(r.visible)===false)continue;"
       "out[r.tab].push([String(p.ev(r.label)||p.ev(r.text)),p.ev(r.on)===true])}return out")
-probe("perm_camera_ask", PERM + "var r=RT(0,'Netflix');r.act(true);return {asked:root.confirmOpen,on:p.ev(r.on)}", wait=250)
-probe("perm_camera_no", "root.key('ok');return {open:root.confirmOpen}", wait=250)
-probe("perm_camera_yes", PERM + "RT(0,'Netflix').act(true);root.key('right');root.key('ok');return 1", wait=400)
+probe("perm_camera_on", PERM + "var r=RT(0,'Netflix');r.act(true);return {asked:root.confirmOpen}", wait=400)
 probe("perm_camera_off", PERM + "RT(0,'Camera').act(false);return {camera:p.ev(RT(0,'Camera').on),netflix:p.ev(RT(0,'Netflix').on)}", wait=300)
-probe("perm_mic_on", PERM + "RT(1,'Camera').act(true);root.key('right');root.key('ok');return 1", wait=1300)
+probe("perm_mic_on", PERM + "RT(1,'Camera').act(true);return 1", wait=1300)
 probe("perm_mic_after", PERM + "return {on:p.ev(RT(1,'Camera').on)}")
 probe("perm_ble_off", PERM + "RT(2,'Hue Sync').act(false);return p.ev(RT(2,'Hue Sync').on)", wait=300)
 probe("perm_file_off", PERM + "RT(3,'Netflix').act(false);return 1", wait=1300)
@@ -790,7 +779,7 @@ class Coverage(unittest.TestCase):
     # ---- Picture
     def test_the_picture_tabs_list_what_LG_lists_and_leave_out_what_the_tv_hides(self):
         self.assertEqual(self.probe("picture_tabs")["res"], [
-            ["OLED pixel brightness", "AI Picture Pro", "Aspect ratio", "Energy saving", "Minimum Brightness", "Just Scan"],
+            ["OLED pixel brightness", "AI Picture Pro", "Aspect ratio", "Energy saving", "Minimum Brightness", "Show the whole picture (Just Scan)"],
             ["Contrast", "Brightness", "Eye comfort", "Auto Dynamic Contrast", "Peak Brightness", "Gamma", "Video Range", "Motion Eye Care"],
             ["Colour", "Tint", "Color Temperature", "Color Gamut", "Color Adjustment", "Fine Tune", "White Balance"],
             ["Sharpness", "Super Resolution", "Noise Reduction", "MPEG Noise Reduction", "Smooth Gradation", "Real Cinema"],
@@ -825,7 +814,7 @@ class Coverage(unittest.TestCase):
 
     def test_the_sound_tabs_list_what_LG_lists_for_the_sound_out_in_force(self):
         self.assertEqual(self.probe("sound_tabs")["res"], [
-            ["Sound out", "Receiver", "Receiver volume", "Sound mode", "Match screen and sound", "Delay bypass", "Digital sound output", "TV speakers too", "Bluetooth Speakers", "USB Device"], [],
+            ["Sound out", "Receiver", "Receiver volume", "Sound mode", "Match screen and sound", "Skip the sound delay", "Digital sound output", "Also play on TV speakers", "Bluetooth Speakers", "USB Device"], [],
             ["Dolby Atmos", "Balance", "Equalizer", "Automatic volume", "Installation Type", "AI Acoustic Tuning Options", "TV Power Sound Volume", "Apply to All Inputs", "Reset"],
             ["Select HDMI Input Audio Format", "LG Sound Sync", "TV Sound Mode Share", "DTV Audio Setting"]])         # the TV hides eARC Support
         self.assertEqual(self.probe("sound_tabs_tv")["res"][0][:2], ["Sound out", "Receiver volume"])                # no receiver, no row for it
@@ -884,7 +873,7 @@ class Coverage(unittest.TestCase):
 
     # ---- Language and location
     def test_the_language_page_has_the_tvs_lists_and_the_rows_LG_has(self):
-        self.assertEqual(self.probe("lang_tabs")["res"], [["Menu Language", "Audio Language"], ["English", "Espa\u00f1ol", "Fran\u00e7ais"], ["Broadcast Country", "LG Services Country", "Zip Code"]])
+        self.assertEqual(self.probe("lang_tabs")["res"], [["Menu Language", "Audio Language"], ["English", "Espa\u00f1ol", "Fran\u00e7ais"], ["Broadcast Country", "Set LG services country automatically", "Zip Code"]])
         d = self.probe("lang_menu_options")["res"]
         self.assertEqual((d["now"], d["value"]), ("en-US", "English - United States"))
         self.assertEqual(d["options"], ["en-US:English - United States", "en-GB:English - United Kingdom", "es-US:Espa\u00f1ol - Estados Unidos", "fr-FR:Fran\u00e7ais - France"])
@@ -912,12 +901,12 @@ class Coverage(unittest.TestCase):
         self.assertEqual(d["options"], ["en-US:English", "es-US:Spanish", "fr-FR:French"])
         self.assertEqual(self.written("lang_audio")[0]["localeInfo"]["locales"]["AUD"], "fr-FR")
 
-    def test_location_shows_the_country_and_asks_before_the_services_country_changes(self):
+    def test_location_shows_the_country_and_the_services_country_switch_flips_in_place(self):
         self.assertEqual(self.probe("lang_location")["res"], {"country": "United States", "svc": True, "zip": "94105"})
-        d = self.probe("lang_svc_ask")["res"]
-        self.assertEqual((d["asked"], d["on"]), (True, True))
+        self.assertEqual(self.probe("lang_svc_off")["res"], {"asked": False})                                                  # a switch opens no question
         self.assertEqual(self.written("lang_svc_off"), [{"autoSmartServiceCountry": "off"}])
         done = self.probe("lang_svc_on")
+        self.assertEqual(done["res"], {"asked": False})
         self.assertEqual(self.written("lang_svc_on"), [{"autoSmartServiceCountry": "on"}])
         self.assertEqual([(c["method"], c["payload"]) for c in done["calls"] if c["method"] == "/setCountrySettingByAuto"], [("/setCountrySettingByAuto", {"uniqueIndex": "2013"})])
         self.assertEqual(self.probe("lang_svc_after")["res"], {"on": True})
@@ -933,8 +922,8 @@ class Coverage(unittest.TestCase):
         self.assertEqual(self.probe("support_tabs")["res"], [
             ["Device Name", "Model", "Model Code", "Serial Number", "webOS TV Version", "Total Power On Time", "Available Internal Storage", "MAC Address (Wired)",
              "MAC Address (Wireless)", "ESN", "Widevine", "Dolby Vision"],                                   # VSN is hidden by the TV
-            ["Software Version", "Update status", "Auto Update", "Block LG system updates", "Open apps without updating", "Check for Updates"],
-            ["Do Not Sell My Personal Information", "Limit AD Tracking", "AD ID", "Reset AD ID", "Live Plus", "Live Promotion", "App Permissions", "Delete My Personal Information"],
+            ["Software Version", "Update status", "Install updates automatically", "Block LG system updates", "Open apps without updating", "Check for Updates"],
+            ["Ask LG not to sell my data", "Limit ad tracking", "AD ID", "Reset AD ID", "Allow content recognition (Live Plus)", "Allow custom ads while watching (Live Promotion)", "App Permissions", "Delete My Personal Information"],
             ["Screen Self-diagnosis", "Sound Self-diagnosis", "Memory Optimizer"],
             ["Reset All", "Reset All Except Network Settings"]])
 
@@ -1043,11 +1032,9 @@ class Coverage(unittest.TestCase):
         d = self.probe("openapps_unmute_row")["res"]
         self.assertEqual((d["enabled"], d["detail"]), (True, "Off; 2 apps wait for an update"))
 
-    def test_do_not_sell_asks_then_tells_the_ad_service_and_the_setting_follows(self):
-        d = self.probe("support_dns_ask")["res"]
-        self.assertEqual((d["asked"], d["on"]), (True, False))
-        self.assertEqual([c for c in self.probe("support_dns_no")["calls"] if c["method"] == "/updateDNS"], [])
-        done = self.probe("support_dns_yes")
+    def test_do_not_sell_tells_the_ad_service_at_once_and_the_setting_follows(self):
+        done = self.probe("support_dns_on")
+        self.assertEqual(done["res"], {"asked": False})
         self.assertEqual([c["payload"] for c in done["calls"] if c["method"] == "/updateDNS"], [{"status": "on"}])
         self.assertEqual(self.probe("support_dns_after")["res"], {"on": True})
         self.assertEqual(self.written("support_lmt"), [{"lmt": "on"}])
@@ -1157,24 +1144,22 @@ class Coverage(unittest.TestCase):
         self.assertEqual(self.written("picture_video_range"), [{"blackLevel": "high"}])
 
     # ---- the one-off rows
-    def test_always_ready_is_LGs_switch_with_its_three_options_and_asks_before_it_goes_off(self):
+    def test_always_ready_is_LGs_switch_with_its_three_options_and_goes_off_at_once(self):
         rows = self.probe("look_tv_rows")["res"]
         self.assertEqual([r[1:] for r in rows if r[0] == 3][-4:], [["Always Ready", "", ""], ["Always Ready energy saving", "dim", "Turn Always Ready on"],
                                                                     ["Always Ready notifications", "dim", "Turn Always Ready on"], ["Always Ready motion sensor", "dim", "Turn Always Ready on"]])
         self.assertEqual(self.probe("ready_on")["res"], {"on": True, "sub": True})
         self.assertEqual(self.written("ready_on"), [{"lifeOnScreenMode": "allEnabled"}])                                      # LG's own value for on
         self.assertEqual(self.written("ready_subs"), [{"lifeOnScreenEnergySaving": "off"}, {"lifeOnScreenNotification": "false"}, {"lifeOnScreenUsingMotionSensor": "true"}])
-        d = self.probe("ready_off_ask")["res"]
-        self.assertEqual((d["asked"], d["on"]), (True, True))
-        self.assertEqual([c for c in self.probe("ready_off_no")["calls"] if c["method"] == "/setSystemSettings"], [])
-        self.assertEqual(self.written("ready_off_yes"), [{"lifeOnScreenMode": "off"}])
+        self.assertEqual(self.probe("ready_off")["res"], {"asked": False})                                                    # a switch opens no question
+        self.assertEqual(self.written("ready_off"), [{"lifeOnScreenMode": "off"}])
         self.assertEqual(self.probe("ready_off_after")["res"], {"on": False})
 
     def test_ai_recommendations_are_the_switches_the_tv_shows_and_the_one_it_hides_is_left_out(self):
         rows = [r[1] for r in self.probe("look_tv_rows")["res"] if r[0] == 1]
-        self.assertIn("Smart Tips", rows)
-        self.assertIn("Smart Tips in Settings", rows)
-        self.assertNotIn("Who.Where.What?", rows)                                                                               # LG hides it on this set
+        self.assertIn("Show feature tips on Home", rows)
+        self.assertIn("Show setting tips in LG's Settings", rows)
+        self.assertNotIn("Show Who.Where.What? suggestions", rows)                                                                               # LG hides it on this set
         self.assertEqual(self.written("ai_tips"), [{"aiNudge": "off"}, {"aiSettingsNudge": "off"}])
 
     def test_extended_press_time_waits_for_its_switch_and_offers_the_tvs_own_times(self):
@@ -1189,13 +1174,13 @@ class Coverage(unittest.TestCase):
 
     def test_oled_care_ends_with_lumatvs_group_of_six_switches_five_start_off_and_the_panel_dim_on_and_the_panel_refresh_line(self):
         rows = self.probe("panel_care_rows")["res"]
-        self.assertEqual([r[:2] for r in rows[-8:]], [["head", "LumaTV panel care"], ["toggle", "LumaTV screens"], ["toggle", "Dim still apps"], ["toggle", "Shift apps"],
+        self.assertEqual([r[:2] for r in rows[-8:]], [["head", "LumaTV panel care"], ["toggle", "Protect LumaTV screens"], ["toggle", "Dim still apps"], ["toggle", "Shift still apps"],
                                                       ["toggle", "Dim bright still areas"], ["toggle", "Dim with the panel"], ["toggle", "Protect panel refresh"],
                                                       ["value", "Panel refresh"]])
         self.assertTrue(all(r[2] for r in rows[-7:-1]), "each has its help")
         self.assertEqual([r[3] for r in rows[-7:-1]], [False, False, False, False, True, False], "off in the shipped theme, but the panel dim")
         labels = [r[1] for r in rows[:-8]]
-        self.assertIn("Screen shift", labels, "LG's rows stay above the group")
+        self.assertIn("Shift the picture slightly", labels, "LG's rows stay above the group")
         self.assertNotIn("OLED care", labels)
 
     def test_oled_care_has_LGs_three_care_modes_pixel_cleaning_asks_to_turn_on_and_recommendations_switch(self):
@@ -1203,15 +1188,14 @@ class Coverage(unittest.TestCase):
         self.assertEqual(d["options"], ["off:Off", "comfortCare:Comfort Mode", "cinemaCare:Theater Mode", "kidsCare:Kids Care Mode"])
         self.assertEqual(d["value"], "Comfort Mode")
         self.assertEqual(self.written("oled_care"), [{"oledCareMode": "comfortCare"}, {"oledCareRecommendation": "off"}])
-        d = self.probe("pixel_ask")["res"]
-        self.assertEqual((d["asked"], d["on"]), (True, False))
-        self.assertEqual([c for c in self.probe("pixel_no")["calls"] if c["method"] == "/setSystemSettings"], [])
-        self.assertEqual(self.written("pixel_yes"), [{"scheduledPixelCleaning": "on"}])
-        self.assertEqual(self.written("pixel_off"), [{"scheduledPixelCleaning": "off"}])                                      # off needs no question
+        d = self.probe("pixel_on")["res"]
+        self.assertEqual((d["asked"], d["on"]), (False, True))                                                                # a switch opens no question
+        self.assertEqual(self.written("pixel_on"), [{"scheduledPixelCleaning": "on"}])
+        self.assertEqual(self.written("pixel_off"), [{"scheduledPixelCleaning": "off"}])
 
     def test_home_settings_are_LGs_power_on_screen_and_its_two_switches(self):
         rows = [r for r in self.probe("look_tv_rows")["res"] if r[0] == 1]
-        self.assertEqual([r[1] for r in rows][-5:], ["Power On Screen", "Home Promotion", "Content Recommendation", "Smart Tips", "Smart Tips in Settings"])
+        self.assertEqual([r[1] for r in rows][-5:], ["Power On Screen", "Show promotions in LG's Home", "Show content recommendations in LG's Home", "Show feature tips on Home", "Show setting tips in LG's Settings"])
         self.assertEqual([r[2:] for r in rows][-5:], [["", ""]] * 5)
         d = self.probe("home_power_on")["res"]
         self.assertEqual((d["now"], d["a"], d["b"], d["options"]), (0, 1, 0, ["Home", "Recent Input"]))               # the TV starts on Home
@@ -1224,23 +1208,22 @@ class Coverage(unittest.TestCase):
 
     def test_the_screen_savers_standby_time_is_LGs_four_choices_and_its_promotion_a_switch(self):
         rows = [r[1] for r in self.probe("look_tv_rows")["res"] if r[0] == 2]
-        self.assertEqual(rows[-2:], ["Screen Saver Standby Time", "Screen Saver Promotion"])
+        self.assertEqual(rows[-2:], ["Screen Saver Standby Time", "Show ads on LG's screen saver"])
         d = self.probe("saver_lg")["res"]
         self.assertEqual((d["now"], d["value"], d["ad"]), ("10 minutes", "30 minutes", False))
         self.assertEqual(d["options"], ["3:3 minutes", "10:10 minutes", "20:20 minutes", "30:30 minutes"])
         self.assertEqual(self.written("saver_lg"), [{"screenSaverTimer": "30", "checkChangedScreenSaverTimerByUser": "user"}, {"screenSaverAd": "off"}])
         self.assertEqual([c for c in self.probe("saver_lg")["calls"] if c["error"]], [])
 
-    def test_live_plus_asks_to_turn_on_and_live_promotion_waits_for_it(self):
-        self.assertEqual(self.probe("live_locked")["res"], {"on": False, "sub": False, "detail": "Turn Live Plus on"})
-        d = self.probe("live_ask")["res"]
-        self.assertEqual((d["asked"], d["on"]), (True, False))
-        self.assertEqual([c for c in self.probe("live_no")["calls"] if c["method"] == "/setSystemSettings"], [])
-        self.assertEqual(self.written("live_yes"), [{"livePlus": "on"}])
+    def test_live_plus_flips_in_place_and_live_promotion_waits_for_it(self):
+        self.assertEqual(self.probe("live_locked")["res"], {"on": False, "sub": False, "detail": "Allow content recognition first"})
+        d = self.probe("live_on")["res"]
+        self.assertEqual((d["asked"], d["on"]), (False, True))
+        self.assertEqual(self.written("live_on"), [{"livePlus": "on"}])
         self.assertEqual(self.probe("live_after")["res"], {"on": True, "sub": True, "promo": True})
         self.assertEqual(self.written("live_after"), [{"livePromotion": "on"}])
         d = self.probe("live_off")
-        self.assertEqual(d["res"], {"asked": False, "on": False})                                                            # off needs no question
+        self.assertEqual(d["res"], {"asked": False, "on": False})
         self.assertEqual([c["payload"]["settings"] for c in d["calls"] if c["method"] == "/setSystemSettings"], [{"livePlus": "off"}])
 
     def test_emergency_information_waits_for_an_atsc3_tuner_and_is_LGs_switch_and_language(self):
@@ -1284,15 +1267,13 @@ class Coverage(unittest.TestCase):
     CAMERA = [{"appId": "com.webos.app.camera", "_id": "a1", "appTitle": "Camera", "permissions": [{"permission": True, "_id": "a2", "resource": "camera"}, {"permission": False, "_id": "a3", "resource": "mic"}]},
               {"appId": "netflix", "_id": "a4", "appTitle": "Netflix", "permissions": [{"permission": False, "_id": "a5", "resource": "camera"}, {"permission": False, "_id": "a6", "resource": "mic"}]}]
 
-    def test_app_permissions_are_LGs_four_lists_and_an_app_is_allowed_only_after_the_question(self):
+    def test_app_permissions_are_LGs_four_lists_and_an_app_is_allowed_by_its_switch_at_once(self):
         rows = self.probe("perm_rows")["res"]
         self.assertEqual(rows, [[["Camera", True], ["Netflix", False]], [["Camera", False], ["Netflix", True], ["Hue Sync", False]], [["Hue Sync", True]], [["Netflix", True]]])
-        d = self.probe("perm_camera_ask")["res"]
-        self.assertEqual((d["asked"], d["on"]), (True, False))
-        self.assertEqual([c for c in self.probe("perm_camera_no")["calls"] if c["method"] == "/setSystemSettings"], [])           # Block leaves it blocked
+        self.assertEqual(self.probe("perm_camera_on")["res"], {"asked": False})
         cam = json.loads(json.dumps(self.CAMERA))
         cam[1]["permissions"][0]["permission"] = True
-        self.assertEqual(self.written("perm_camera_yes"), [{"cameraResourcePermission": cam}])                                # the whole table, one flag changed
+        self.assertEqual(self.written("perm_camera_on"), [{"cameraResourcePermission": cam}])                                # the whole table, one flag changed
         self.assertEqual(self.probe("perm_camera_off")["res"], {"camera": False, "netflix": True})
         cam[0]["permissions"][0]["permission"] = False
         self.assertEqual(self.written("perm_camera_off"), [{"cameraResourcePermission": cam}])
@@ -1303,7 +1284,7 @@ class Coverage(unittest.TestCase):
         self.assertEqual([c["payload"] for c in self.probe("perm_file_off")["calls"] if c["method"] == "/setPermission"],
                          [{"appId": "netflix", "privacyGroup": "usbFileAccess.privacy", "status": "deny"}])
         self.assertEqual(self.probe("perm_file_after")["res"], {"on": False})
-        for name in ("perm_camera_yes", "perm_camera_off", "perm_mic_on", "perm_ble_off", "perm_file_off"):
+        for name in ("perm_camera_on", "perm_camera_off", "perm_mic_on", "perm_ble_off", "perm_file_off"):
             self.assertEqual([c for c in self.probe(name)["calls"] if c["error"]], [])
 
     def test_the_nextgen_tv_rows_wait_for_the_atsc_3_tuner(self):

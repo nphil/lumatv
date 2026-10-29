@@ -91,15 +91,15 @@ PageList {
             options: ["Home", "Recent Input"],
             index: function() { return !Sio.has("general.homeAutoLaunch") ? undefined : String(Sio.get("general.homeAutoLaunch")) === "on" ? 0 : 1 },
             act: function(i) { Sio.writeMany("general", { homeAutoLaunch: i === 0 ? "on" : "off", selectedInputApp: "off", checkHomeAutoLaunchValue: "user" }) } }),
-        C.lgShown(Sio, "general.homePromotion", R.toggle(Sio, { ds: "general.homePromotion", tab: 1, icon: "star", label: "Home Promotion",
+        C.lgShown(Sio, "general.homePromotion", R.toggle(Sio, { ds: "general.homePromotion", tab: 1, icon: "star", label: "Show promotions in LG's Home",
                                                                help: "Shows or hides the sponsored ads in LG's own Home menu." })),
-        C.lgShown(Sio, "other.contentRecommendation", R.toggle(Sio, { ds: "other.contentRecommendation", tab: 1, icon: "list-video", label: "Content Recommendation",
+        C.lgShown(Sio, "other.contentRecommendation", R.toggle(Sio, { ds: "other.contentRecommendation", tab: 1, icon: "list-video", label: "Show content recommendations in LG's Home",
                                                                       help: "Shows or hides the content recommendations in LG's own Home menu. Not available in every country." })),
-        C.lgShown(Sio, "option.broadcastInfoNoti", R.toggle(Sio, { ds: "option.broadcastInfoNoti", tab: 1, icon: "sparkles", label: "Who.Where.What?",
+        C.lgShown(Sio, "option.broadcastInfoNoti", R.toggle(Sio, { ds: "option.broadcastInfoNoti", tab: 1, icon: "sparkles", label: "Show Who.Where.What? suggestions",
                                                                   help: "LG's suggestions about the people, places and things in what Live TV is showing." })),
-        C.lgShown(Sio, "general.aiNudge", R.toggle(Sio, { ds: "general.aiNudge", tab: 1, icon: "sparkles", label: "Smart Tips",
+        C.lgShown(Sio, "general.aiNudge", R.toggle(Sio, { ds: "general.aiNudge", tab: 1, icon: "sparkles", label: "Show feature tips on Home",
                                                          help: "LG's tips about features, shown now and then on Home." })),
-        C.lgShown(Sio, "general.aiSettingsNudge", R.toggle(Sio, { ds: "general.aiSettingsNudge", tab: 1, icon: "sparkles", label: "Smart Tips in Settings",
+        C.lgShown(Sio, "general.aiSettingsNudge", R.toggle(Sio, { ds: "general.aiSettingsNudge", tab: 1, icon: "sparkles", label: "Show setting tips in LG's Settings",
                                                                  help: "LG's tips about settings, shown inside LG's Settings screens." })),
 
         { kind: "seg", tab: 2, icon: "moon", label: "Screensaver", help: "Starts after a while with no key. It moves, so the panel never holds one picture.",
@@ -130,7 +130,7 @@ PageList {
         C.choice(Sio, { ds: "option.screenSaverTimer", tab: 2, icon: "timer", label: "Screen Saver Standby Time", page: page,
                         names: { "3": "3 minutes", "10": "10 minutes", "20": "20 minutes", "30": "30 minutes" }, help: "How long without a key before LG's screen saver starts.",
                         write: function(v) { Sio.writeMany("option", { screenSaverTimer: v, checkChangedScreenSaverTimerByUser: "user" }) } }),
-        C.lgShown(Sio, "general.screenSaverAd", R.toggle(Sio, { ds: "general.screenSaverAd", tab: 2, icon: "star", label: "Screen Saver Promotion",
+        C.lgShown(Sio, "general.screenSaverAd", R.toggle(Sio, { ds: "general.screenSaverAd", tab: 2, icon: "star", label: "Show ads on LG's screen saver",
                                                                 help: "Shows or hides the ads some apps, such as LG Channels, put on LG's screen saver." })),
 
         { kind: "seg", tab: 3, icon: "power", label: "Power-on logo",
@@ -145,7 +145,7 @@ PageList {
             on: function() { return page.alwaysReady },
             act: function(v) {
                 if (v) { Sio.write("general.lifeOnScreenMode", "allEnabled"); return }
-                C.ask(page, { icon: "moon-star", title: "Turn Always Ready off?", body: "In standby the TV goes dark.", yes: "Turn off", no: "Cancel" }, function() { Sio.write("general.lifeOnScreenMode", "off") })()
+                Sio.write("general.lifeOnScreenMode", "off")
             } }),
         whenReady(C.lgShown(Sio, "option.lifeOnScreenEnergySaving", C.seg(Sio, { ds: "option.lifeOnScreenEnergySaving", tab: 3, icon: "leaf", label: "Always Ready energy saving",
                                                                                 names: { auto: "Auto", off: "Off" }, help: "Lets Always Ready dim and rest when nobody is near." }))),

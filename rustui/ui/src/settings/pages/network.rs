@@ -99,7 +99,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
         then: Rc::new(|t| if t.trim().is_empty() { Vec::new() } else { vec![Op::Lg { ds: "network.deviceName".into(), value: json!(t.trim()), app: None }] }),
     }]));
     rows.push(c.toggle(Spec::new("network.ipv6Enable").tab(2).on_off("true", "false").icon("globe").label("IPv6").lg_shown()));
-    rows.push(c.toggle(Spec::new("network.bleAdvertisingOnOff").tab(2).icon("radio").label("TV On With Mobile").help("Lets a phone turn the TV on over Bluetooth. Uses a little power while off.").lg_shown()));
+    rows.push(c.toggle(Spec::new("network.bleAdvertisingOnOff").tab(2).icon("radio").label("Wake from a phone (Bluetooth)").help("Lets a phone turn the TV on over Bluetooth. Uses a little power while off.").lg_shown()));
     rows
 }
 

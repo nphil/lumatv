@@ -33,8 +33,8 @@ fn state<'a>(c: &'a Ctx) -> Option<&'a Value> {
 fn summary(c: &Ctx) -> String {
     match state(c) {
         None => "Not running".into(),
-        Some(s) if listener_on(s) => "On".into(),
-        Some(_) => "Off".into(),
+        Some(s) if listener_on(s) => "Allowed".into(),
+        Some(_) => "Blocked".into(),
     }
 }
 
@@ -140,7 +140,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
 fn access(c: &Ctx, s: &Value) -> Vec<Row> {
     let on = listener_on(s);
     let mut rows = vec![
-        Row::seg("listener", &["Off", "LAN only"])
+        Row::seg("listener", &["Blocked", "Home network only"])
             .tab(0)
             .icon("bot")
             .label("Allow AI assistants")
@@ -392,7 +392,7 @@ mod tests {
         let r = rows(&w.ctx());
         assert_eq!(row(&r, "who").index, Some(1));
         assert_eq!(row(&r, "level:state").index, Some(1), "Voice's levels, not Claude's");
-        assert_eq!(summary(&w.ctx()), "On");
+        assert_eq!(summary(&w.ctx()), "Allowed");
         w.topics.helper_up = false;
         let r = rows(&w.ctx());
         assert!(r.iter().all(|r| r.kind == Kind::Empty) && r.len() == 3);

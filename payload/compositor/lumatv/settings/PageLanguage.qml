@@ -126,15 +126,12 @@ PageList {
                    visible: function() { return Sio.has("option.country") },
                    value: function() { return page.countries[String(Sio.get("option.country"))] || String(Sio.get("option.country")) } })
         out.push(C.lgShown(Sio, "option.autoSmartServiceCountry", {
-            kind: "toggle", tab: 2, id: "svcCountry", icon: "globe-2", label: "LG Services Country", help: "On: the TV finds the country of its LG services itself. Changing it restarts those services.",
+            kind: "toggle", tab: 2, id: "svcCountry", icon: "globe-2", label: "Set LG services country automatically", help: "On: the TV finds the country of its LG services itself. Changing it restarts those services.",
             detail: R.unavailable(Sio, "option.autoSmartServiceCountry"), enabled: function() { return Sio.usable("option.autoSmartServiceCountry") },
             on: function() { return String(Sio.get("option.autoSmartServiceCountry")) === "on" },
             act: function(v) {
-                C.ask(page, { icon: "globe", title: v ? "Find the country automatically?" : "Stop finding the country automatically?", body: "LG's services restart.", yes: v ? "Turn on" : "Turn off", no: "Cancel" },
-                      function() {
-                          Sio.write("option.autoSmartServiceCountry", v ? "on" : "off")
-                          if (v) luna.call("country", "luna://com.webos.service.sdx", "setCountrySettingByAuto", { uniqueIndex: "2013" })
-                      })()
+                Sio.write("option.autoSmartServiceCountry", v ? "on" : "off")
+                if (v) luna.call("country", "luna://com.webos.service.sdx", "setCountrySettingByAuto", { uniqueIndex: "2013" })
             } }))
         out.push(C.lgShown(Sio, "option.zipcode", {
             kind: "value", tab: 2, id: "zip", icon: "hash", label: "Zip Code", chevron: true, help: "Five digits, typed on the keyboard. LG's services use it for the weather and the local news.",

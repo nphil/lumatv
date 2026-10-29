@@ -238,7 +238,7 @@ PageList {
         info("settings", "Software Version", function() { return page.webos }, { tab: 1 }),
         { kind: "value", tab: 1, id: "updatestate", icon: "download", label: "Update status", chevron: false,
           value: function() { return page.updateState === "" ? page.dash : R.name(page.updateNames, page.updateState, "No update running") } },
-        R.over(R.toggle(Sio, { ds: "support.automaticUpdate", tab: 1, icon: "refresh-cw", label: "Auto Update",
+        R.over(R.toggle(Sio, { ds: "support.automaticUpdate", tab: 1, icon: "refresh-cw", label: "Install updates automatically",
                                help: "The TV installs software updates by itself, with no notice. Turning it on needs LG's terms, which are accepted in LG's settings." }),
                { enabled: function() { return Sio.usable("support.automaticUpdate") && (String(Sio.get("support.automaticUpdate")) === "on" || page.termsOk) },
                  detail: function() { return !Sio.has("support.automaticUpdate") ? "TV not answering" : String(Sio.get("support.automaticUpdate")) !== "on" && !page.termsOk ? "Needs LG's terms" : "" } }),
@@ -252,30 +252,28 @@ PageList {
           detail: function() { return page.openWords }, act: function(v) { page.setOpen(v) } },
         page.checkUpdatesRow(),
 
-        R.over(R.toggle(Sio, { ds: "general.doNotSellMyPersonalInformation", tab: 2, icon: "shield", label: "Do Not Sell My Personal Information",
-                               help: "Tells LG to ask its partners to stop selling data about this TV's use. Live Plus and LG Channels keep working." }),
+        R.over(R.toggle(Sio, { ds: "general.doNotSellMyPersonalInformation", tab: 2, icon: "shield", label: "Ask LG not to sell my data",
+                               help: "LG's Do Not Sell My Personal Information. LG asks its partners to stop selling data about this TV's use. Live Plus and LG Channels keep working." }),
                { act: function(v) {
-                     C.ask(page, { icon: "shield", title: v ? "Stop the sale of this TV's data?" : "Allow the sale of this TV's data?", body: "LG's ad service is told now.", yes: v ? "Turn on" : "Turn off", no: "Cancel" },
-                           function() { luna.act("luna://com.webos.service.admanager", "updateDNS", { status: v ? "on" : "off" }); reread.restart() })()
+                     luna.act("luna://com.webos.service.admanager", "updateDNS", { status: v ? "on" : "off" }); reread.restart()
                  } }),
-        R.toggle(Sio, { ds: "general.lmt", tab: 2, icon: "eye-off", label: "Limit AD Tracking", help: "Stops the tracking of ad-related data from this TV." }),
+        R.toggle(Sio, { ds: "general.lmt", tab: 2, icon: "eye-off", label: "Limit ad tracking", help: "Stops the tracking of ad-related data from this TV." }),
         info("hash", "AD ID", function() { return page.adId }, { tab: 2 }),
         C.action({ id: "resetad", tab: 2, icon: "rotate-ccw", label: "Reset AD ID", button: "Reset", help: "Gives the TV a new advertising ID, and ads are tracked from the new one.",
                    act: C.ask(page, { icon: "rotate-ccw", title: "Reset the AD ID?", body: "The TV gets a new advertising ID.", yes: "Reset", no: "Cancel" },
                               function() { luna.act("luna://com.webos.service.admanager", "resetIFA", {}); page.adId = ""; reread.restart() }) }),
 
         // LG keeps these two under System › Additional Settings; they are consent, so they sit with the privacy rows. Live Promotion follows Live Plus.
-        C.lgShown(Sio, "option.livePlus", R.over(R.toggle(Sio, { ds: "option.livePlus", tab: 2, icon: "scan-eye", label: "Live Plus",
+        C.lgShown(Sio, "option.livePlus", R.over(R.toggle(Sio, { ds: "option.livePlus", tab: 2, icon: "scan-eye", label: "Allow content recognition (Live Plus)",
                                                                  help: "LG recognises what the TV shows and uses it for recommendations and ads." }),
                 { act: function(v) {
                       if (!v) { Sio.write("option.livePlus", "off"); return }
-                      C.ask(page, { icon: "scan-eye", title: "Turn Live Plus on?", body: "LG recognises what the TV shows and may use it for recommendations and ads.", yes: "Turn on", no: "Cancel" },
-                            function() { Sio.write("option.livePlus", "on") })()
+                      Sio.write("option.livePlus", "on")
                   } })),
-        C.lgShown(Sio, "option.livePromotion", R.over(R.toggle(Sio, { ds: "option.livePromotion", tab: 2, icon: "star", label: "Live Promotion",
-                                                                      help: "Turns custom ads and services on or off while watching. Needs Live Plus." }),
+        C.lgShown(Sio, "option.livePromotion", R.over(R.toggle(Sio, { ds: "option.livePromotion", tab: 2, icon: "star", label: "Allow custom ads while watching (Live Promotion)",
+                                                                      help: "LG's custom ads and services while watching. Needs content recognition." }),
                 { enabled: function() { return page.livePlusOn && Sio.usable("option.livePromotion") },
-                  detail: function() { return !Sio.has("option.livePromotion") ? "TV not answering" : page.livePlusOn ? "" : "Turn Live Plus on" } })),
+                  detail: function() { return !Sio.has("option.livePromotion") ? "TV not answering" : page.livePlusOn ? "" : "Allow content recognition first" } })),
         R.link({ tab: 2, id: "permissions", icon: "shield-check", label: "App Permissions", help: "Which apps may use the camera, the microphone, nearby devices and files.",
                  go: function() { page.host.openPage("permissions") } }),
         R.link({ tab: 2, id: "deletedata", icon: "eye-off", label: "Delete My Personal Information", help: "Deletes the viewing and voice information LG collected from this TV.",

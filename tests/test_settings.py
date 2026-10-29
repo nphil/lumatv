@@ -153,7 +153,7 @@ class Settings(HostCase):
         self.assertEqual(sent, [str(v) for v in list(range(81, 91)) + [92, 94, 96, 98, 100]])
 
     def test_a_row_the_service_does_not_answer_is_dimmed_and_does_not_take_focus(self):
-        # Sound: Receiver volume and Sound mode only show, so Down from Sound out lands on Receiver, Match screen and sound, Delay bypass and then
+        # Sound: Receiver volume and Sound mode only show, so Down from Sound out lands on Receiver, Match screen and sound, Skip the sound delay and then
         # Digital sound output (Pass through now): Left picks PCM
         rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("sound", "right", "down", "down", "down", "down", "left", "ok"),
                             "--eval", "%d:%s" % (READY + 3200, LUNA), "--wait", str(READY + 3800))
@@ -213,7 +213,7 @@ class Settings(HostCase):
 
     def test_system_oled_care_has_lumatvs_six_panel_care_switches_under_lgs_rows_each_writing_its_own_key(self):
         # System, tab OLED care (Right into the page, Up to the tab bar, two Rights, Down into the rows): LG's rows first, then the group. The sixth
-        # stop is LumaTV screens, then Dim still apps, Shift apps, Dim bright still areas, Dim with the panel (on in the shipped theme: OK turns it off),
+        # stop is Protect LumaTV screens, then Dim still apps, Shift still apps, Dim bright still areas, Dim with the panel (on in the shipped theme: OK turns it off),
         # Protect panel refresh: OK on each in turn.
         rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT,
                             *self.go("system", "right", "up", "right", "right", "down"),

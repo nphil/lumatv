@@ -106,8 +106,7 @@ PageList {
                  on: function() { return e.on },
                  act: function(v) {
                      if (!v) { page.setPermission(i, e.appId, false); return }
-                     C.ask(page, { icon: "shield-check", title: "Allow " + page.kinds[i].noun + " access?", body: page.appTitle(e.appId, e.title), yes: "Allow", no: "Block" },
-                           function() { page.setPermission(i, e.appId, true) })()
+                     page.setPermission(i, e.appId, true)
                  } }
     }
     function build() {

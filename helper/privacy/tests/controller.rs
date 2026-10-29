@@ -218,23 +218,65 @@ fn platform_failure_is_returned_not_reported_as_success() {
 }
 fn prime_files(paths: &Paths, config: &[u8]) {
     std::fs::create_dir_all(paths.system(lumatv_privacy::prime::CERT_DIR)).unwrap();
-    atomic(&paths.system(lumatv_privacy::prime::JAIL_HOSTS), b"127.0.0.1 localhost\n", false).unwrap();
-    atomic(&paths.system(lumatv_privacy::legacy::PRIME_CONFIG), config, false).unwrap();
+    atomic(
+        &paths.system(lumatv_privacy::prime::JAIL_HOSTS),
+        b"127.0.0.1 localhost\n",
+        false,
+    )
+    .unwrap();
+    atomic(
+        &paths.system(lumatv_privacy::legacy::PRIME_CONFIG),
+        config,
+        false,
+    )
+    .unwrap();
 }
 #[test]
 fn turning_prime_ads_on_closes_prime_and_retires_the_old_amazoff_itself() {
     let (_d, paths, p, _privacy) = rig();
     prime_files(&paths, br#"{"disable-ssl-cert":"1","keep":"this"}"#);
-    atomic(&paths.system("/var/lib/webosbrew/init.d/50-amazoff"), b"#!/bin/sh\nstart amazoff\n", false).unwrap();
-    atomic(&paths.system("/var/lib/webosbrew/init.d/10-other"), b"#!/bin/sh\necho hi\n", false).unwrap();
+    atomic(
+        &paths.system("/var/lib/webosbrew/init.d/50-amazoff"),
+        b"#!/bin/sh\nstart amazoff\n",
+        false,
+    )
+    .unwrap();
+    atomic(
+        &paths.system("/var/lib/webosbrew/init.d/10-other"),
+        b"#!/bin/sh\necho hi\n",
+        false,
+    )
+    .unwrap();
     *p.old.lock() = vec!["nginx".into(), "amazoff-monitor".into()];
     lumatv_privacy::prime::retire_old(&paths, p.as_ref()).unwrap();
-    assert_eq!(*p.calls.lock(), vec![json!({"close":"amazon"}), json!({"stop_old_amazoff":true})], "Prime is closed first, then the old app stopped");
-    let config: Value = serde_json::from_slice(&std::fs::read(paths.system(lumatv_privacy::legacy::PRIME_CONFIG)).unwrap()).unwrap();
-    assert_eq!(config, json!({"keep":"this"}), "only the certificate-check override is removed");
-    assert!(!paths.system("/var/lib/webosbrew/init.d/50-amazoff").exists(), "its start-up script no longer runs at boot");
-    assert!(paths.state("retired/50-amazoff").exists(), "and is kept, not deleted");
-    assert!(paths.system("/var/lib/webosbrew/init.d/10-other").exists(), "another start-up script is left alone");
+    assert_eq!(
+        *p.calls.lock(),
+        vec![json!({"close":"amazon"}), json!({"stop_old_amazoff":true})],
+        "Prime is closed first, then the old app stopped"
+    );
+    let config: Value = serde_json::from_slice(
+        &std::fs::read(paths.system(lumatv_privacy::legacy::PRIME_CONFIG)).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        config,
+        json!({"keep":"this"}),
+        "only the certificate-check override is removed"
+    );
+    assert!(
+        !paths
+            .system("/var/lib/webosbrew/init.d/50-amazoff")
+            .exists(),
+        "its start-up script no longer runs at boot"
+    );
+    assert!(
+        paths.state("retired/50-amazoff").exists(),
+        "and is kept, not deleted"
+    );
+    assert!(
+        paths.system("/var/lib/webosbrew/init.d/10-other").exists(),
+        "another start-up script is left alone"
+    );
 }
 #[test]
 fn applying_prime_ads_asks_nothing_of_the_owner_and_never_leaves_prime_open() {
@@ -246,23 +288,46 @@ fn applying_prime_ads_asks_nothing_of_the_owner_and_never_leaves_prime_open() {
     for jargon in ["CA", "goproxy", "rootfs", "DRM", "cloudfront"] {
         assert!(!notice.contains(jargon), "{notice}");
     }
-    assert!(!notice.contains("before enabling"), "no step is left to the owner: {notice}");
+    assert!(
+        !notice.contains("before enabling"),
+        "no step is left to the owner: {notice}"
+    );
     let token = plan["confirmation"].as_str().unwrap().to_owned();
     // the port is the only thing a test cannot give: whatever the outcome, the old app was dealt with first
     let _ = privacy.apply("amazoff", true, &token);
     let calls = p.calls.lock().clone();
-    assert_eq!(calls[..2], [json!({"close":"amazon"}), json!({"stop_old_amazoff":true})]);
-    let config: Value = serde_json::from_slice(&std::fs::read(paths.system(lumatv_privacy::legacy::PRIME_CONFIG)).unwrap()).unwrap();
+    assert_eq!(
+        calls[..2],
+        [json!({"close":"amazon"}), json!({"stop_old_amazoff":true})]
+    );
+    let config: Value = serde_json::from_slice(
+        &std::fs::read(paths.system(lumatv_privacy::legacy::PRIME_CONFIG)).unwrap(),
+    )
+    .unwrap();
     assert_eq!(config.get("disable-ssl-cert"), None);
 }
 #[test]
 fn prime_ads_say_plainly_when_the_tv_cannot_have_them() {
     let (_d, paths, _p, privacy) = rig();
-    let row = |privacy: &Privacy| privacy.status(true)["items"].as_array().unwrap().iter().find(|r| r["id"] == "amazoff").unwrap().clone();
+    let row = |privacy: &Privacy| {
+        privacy.status(true)["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["id"] == "amazoff")
+            .unwrap()
+            .clone()
+    };
     let r = row(&privacy);
-    assert_eq!((r["available"].clone(), r["reason"].as_str().unwrap()), (json!(false), "Prime Video is not installed on this TV"));
+    assert_eq!(
+        (r["available"].clone(), r["reason"].as_str().unwrap()),
+        (json!(false), "Prime Video is not installed on this TV")
+    );
     std::fs::create_dir_all(paths.system(lumatv_privacy::prime::CERT_DIR)).unwrap();
-    assert_eq!(row(&privacy)["reason"], "Prime Video has not run on this TV yet");
+    assert_eq!(
+        row(&privacy)["reason"],
+        "Prime Video has not run on this TV yet"
+    );
     assert!(privacy.apply("amazoff", true, "x").is_err());
 }
 #[test]
@@ -459,7 +524,10 @@ fn the_push_row_lists_the_iot_client_that_ls_hubd_launched_although_its_unit_is_
     set(json!([iot]));
     let push = boot_of(&privacy, "push");
     let it = item(&push);
-    assert_eq!((&it["blocked"], &it["startedBefore"]), (&json!(false), &json!(true)));
+    assert_eq!(
+        (&it["blocked"], &it["startedBefore"]),
+        (&json!(false), &json!(true))
+    );
     assert_eq!(push["blocked"], false);
     assert!(push["reason"].as_str().unwrap().contains(iot));
 }

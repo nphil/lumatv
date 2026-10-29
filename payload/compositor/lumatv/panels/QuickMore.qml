@@ -23,7 +23,7 @@ QtObject {
 
     function rows() {
         var list = [
-            { id: "screenoff", kind: "action", icon: "monitor", label: "Screen off, sound on", button: "Turn off",
+            { id: "screenoff", kind: "action", icon: "monitor", label: "Screen off, sound on", button: "Screen off",
               enabled: function() { return Sio.usable("option.screenOff") },
               act: function() { Sio.write("option.screenOff", "on"); if (panel) panel.closeRequested() } },
             { id: "energy", kind: "stepper", icon: "leaf", label: "Energy saving",

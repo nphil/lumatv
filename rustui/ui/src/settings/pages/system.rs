@@ -7,7 +7,7 @@
 use super::util::{atsc3, atsc3_read, panel_hours, panel_reads, panel_shown};
 use crate::host::power::SLEEP_LABELS;
 use crate::settings::calendar::{self, Field, MONTHS};
-use crate::settings::ctx::{Ctx, Spec, ask, lg_launch};
+use crate::settings::ctx::{Ctx, Spec, lg_launch, toast};
 use crate::settings::names;
 use crate::settings::page::{Page, Read};
 use crate::settings::row::{Arg, Op, PageArg, Pick, Row, ChoiceSpec, patch_of, settings};
@@ -122,23 +122,23 @@ fn rows(c: &Ctx) -> Vec<Row> {
     panel.chevron = false;
     panel.visible = panel_shown(c);
     rows.push(panel);
-    rows.push(c.toggle(Spec::new("picture.screenShift").tab(2).icon("scan-eye").label("Screen shift").help("Moves the picture a pixel now and then so the panel wears evenly.")));
+    rows.push(c.toggle(Spec::new("picture.screenShift").tab(2).icon("scan-eye").label("Shift the picture slightly").help("Moves the picture a pixel now and then so the panel wears evenly.")));
     rows.push(c.seg(Spec::new("picture.logoLuminanceAdjust").tab(2).icon("contrast").label("Dim logos and subtitles").help("Lowers the brightness of static logos and subtitles so they do not burn in.").options(&["Off", "Light", "Strong"]).values(&["off", "light", "strong"])));
     rows.push(c.choice(Spec::new("other.oledCareMode").tab(2).icon("shield-check").label("Care Picture Settings").names(names::OLED_CARE).help("A picture set for the eyes or for the room: comfort, theater or kids. It replaces the energy saving step.")));
-    let mut pixel = Row::toggle("pixelcleaning").tab(2).icon("sparkles").label("Pixel Cleaning").help("The panel runs a cleaning the next time the TV is turned off, and the TV stays off for about an hour.").on(c.lg.is("picture.scheduledPixelCleaning", "on"));
+    let mut pixel = Row::toggle("pixelcleaning").tab(2).icon("sparkles").label("Clean pixels when the TV is turned off").help("The panel runs a cleaning the next time the TV is turned off, and the TV stays off for about an hour.").on(c.lg.is("picture.scheduledPixelCleaning", "on"));
     pixel.detail = c.unavailable("picture.scheduledPixelCleaning", "");
     pixel.enabled = c.lg.usable("picture.scheduledPixelCleaning");
     pixel.visible = c.lg.shown("picture.scheduledPixelCleaning");
     rows.push(pixel.act(|a| match a {
         Arg::Toggle(false) => vec![Op::Lg { ds: "picture.scheduledPixelCleaning".into(), value: json!("off"), app: None }],
-        Arg::Toggle(true) => ask("sparkles", "Clean the pixels?", "It runs when the TV is turned off next, and takes about an hour.", "Turn on", "Cancel", false, vec![Op::Lg { ds: "picture.scheduledPixelCleaning".into(), value: json!("on"), app: None }]),
+        Arg::Toggle(true) => vec![Op::Lg { ds: "picture.scheduledPixelCleaning".into(), value: json!("on"), app: None }, toast("Pixel cleaning runs when the TV is turned off, and takes about an hour")],
         _ => Vec::new(),
     }));
-    rows.push(c.toggle(Spec::new("other.oledCareRecommendation").tab(2).icon("lightbulb").label("Care Recommendations").help("Suggests a picture setting for eye strain or the room, from how the TV is watched.").lg_shown()));
+    rows.push(c.toggle(Spec::new("other.oledCareRecommendation").tab(2).icon("lightbulb").label("Suggest picture care settings").help("Suggests a picture setting for eye strain or the room, from how the TV is watched.").lg_shown()));
     rows.push(Row::head("LumaTV panel care", 2));
-    rows.push(care(c, "enabled", "shield-check", "LumaTV screens", "Moves LumaTV's own screens a pixel now and then and dims Home when it sits idle."));
+    rows.push(care(c, "enabled", "shield-check", "Protect LumaTV screens", "Moves LumaTV's own screens a pixel now and then and dims Home when it sits idle."));
     rows.push(care(c, "appDim", "sun-medium", "Dim still apps", "Dims an app a little when its picture has not changed for a few minutes. Video and any key bring it back."));
-    rows.push(care(c, "appShift", "waves", "Shift apps", "Slowly moves an app's picture a few pixels while it sits still. A key or video puts it back."));
+    rows.push(care(c, "appShift", "waves", "Shift still apps", "Slowly moves an app's picture a few pixels while it sits still. A key or video puts it back."));
     rows.push(care(c, "boxDim", "sun-dim", "Dim bright still areas", "Dims only the bright parts of a picture that stays still, such as menu boxes. Video is never touched."));
     rows.push(care(c, "panelDim", "sun", "Dim with the panel", "The screensaver and an idle Home dim the panel's own light instead of drawing darker. Any key puts it back."));
     rows.push(care(c, "refreshGuard", "rotate-ccw", "Protect panel refresh", "Keeps LG's panel refresh from being cut short when the TV is turned on just after it turns off."));
@@ -423,11 +423,13 @@ mod tests {
     }
 
     #[test]
-    fn pixel_cleaning_asks_before_it_turns_on_and_off_writes_at_once() {
+    fn pixel_cleaning_flips_in_place_and_says_what_it_will_do() {
         let w = world();
         let r = rows(&w.ctx());
         let pixel = by_id(&r, "pixelcleaning");
-        assert!(matches!(&(pixel.act.as_ref().unwrap())(Arg::Toggle(true))[..], [Op::Ask(a)] if a.title == "Clean the pixels?"));
+        let on = (pixel.act.as_ref().unwrap())(Arg::Toggle(true));
+        assert!(matches!(&on[..], [Op::Lg { value, .. }, Op::Act { .. }] if value == "on"), "{on:?}");
+        assert_eq!(pixel.label, "Clean pixels when the TV is turned off");
         assert!(matches!(&(pixel.act.as_ref().unwrap())(Arg::Toggle(false))[..], [Op::Lg { value, .. }] if value == "off"));
     }
 

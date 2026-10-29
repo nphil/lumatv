@@ -27,11 +27,30 @@ plugin's own lists as rows with a check, read-only facts); Home Assistant and Ca
 A page hears `owner:<id>` (an owner's document was taken) and `topic:<name>` (a helper topic changed) through its `answered` function; that
 is how a plugin page asks its lists again when the room or the link changes.
 
-Rail: Privacy, Profiles, Picture, Sound, Inputs & devices, Network, Ambient light, Home & look, Remote & pointer, AI access, System. Under
+Rail: Privacy (tabs Blocking, LG may collect, Ads & data), Profiles, Picture, Sound, Inputs & devices, Network, Ambient light, Home & look, Remote & pointer, AI access, System. Under
 them: Time & Date, Power On/Off, Language & location, Safety, Audio Guidance, Audio options, Emergency, Closed Caption, Support, App
 Permissions, Delete My Personal Information, Screenshots & recording, Fine Tune, White Balance, HDMI Signalling, Equalizer, HDMI audio, USB
 sound, Receiver, Channels, Bluetooth speakers and devices, Wi-Fi, IP Settings, Layout of pop-ups, Home widgets, Home Assistant, Cameras (and
 one camera's kinds), During the screensaver, App key.
+
+## Wording rules (Lucent TV, Nitin 2026-10-29)
+
+The whole audit is in `settings-wording-audit.md`. A row must be understood at a glance, without help text:
+
+1. A switch's label names the thing that is ON when the switch is on. A protection starts with its verb ("Block telemetry uploads", "Keep LG's
+   viewing and ad settings off"), a consent says what is allowed ("Allow personalised ads"), a feature that LG shows says "Show ...". Never a
+   bare service name next to a switch ("Telemetry uploaders": does on mean it runs or is blocked?).
+2. No double negatives ("Disable ... off", "Do Not ... on"); no LG jargon without a plain word ("ACR" only in brackets after plain words).
+3. A status is words, not a switch: Blocked, Allowed, Kept off, Not running. A row that needs setup or restarts something is a status with a
+   chevron and one plain question.
+4. A choice with more than two states is a value chip with plain options.
+5. A group header says what the group does ("Blocking", "LG may collect", "Ads & data"), short.
+6. A switch flips in place and says what it did in a toast ("LG ads blocked"). It never opens a question: only a button for something that
+   cannot be undone, restarts something or lets LG's update in asks (danger style, the safe answer first, `ctx::ask`).
+7. The same concept uses the same words on the Privacy page, Support, the quick panel and AI access. Where a label's polarity changes, the
+   value mapping is kept: the Privacy page has a test that ON in a row sends `enabled: true` and shows the helper's own `on` for every item.
+8. A question or a toast is plain sentences about what happens, never a mechanism (no certificate authorities, no "rootfs"), and never asks the
+   owner to do a technical step first.
 
 ## AI access: what the backend allows (for a security follow-up)
 

@@ -107,7 +107,7 @@ pub fn schema_json(cameras: &[(String, String)], revision: u32) -> Value {
              "kind": {"type": "ordered-set", "options": {"provider": PROVIDER_CAMERAS}, "max_items": MAX_CAMERAS},
              "default": {"type": "ordered", "value": []}, "apply": "on-commit"}]}),
         json!({"id": "popups", "title": "Pop-ups", "fields": [
-            {"key": "popups.on", "label": "Event pop-ups", "kind": {"type": "bool"},
+            {"key": "popups.on", "label": "Show event pop-ups", "kind": {"type": "bool"},
              "default": {"type": "bool", "value": true}, "apply": "on-commit"},
             {"key": "popups.seconds", "label": "Stay for",
              "kind": {"type": "integer", "min": 5, "max": 60, "step": 1, "unit": "s"},
@@ -115,7 +115,7 @@ pub fn schema_json(cameras: &[(String, String)], revision: u32) -> Value {
             {"key": "popups.cooldown", "label": "Same event again after",
              "kind": {"type": "integer", "min": 0, "max": 600, "step": 5, "unit": "s"},
              "default": {"type": "integer", "value": 30}, "apply": "on-commit"},
-            {"key": "popups.over_apps", "label": "Over playing apps", "kind": {"type": "bool"},
+            {"key": "popups.over_apps", "label": "Show pop-ups over playing apps", "kind": {"type": "bool"},
              "default": {"type": "bool", "value": true}, "apply": "on-commit"}]}),
     ];
     if !notify.is_empty() {

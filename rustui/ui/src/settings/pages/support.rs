@@ -13,7 +13,7 @@
 //! or no and never sees the digits); the call is LG's `devicereset doReset {resetType}`.
 
 use super::util::{panel_hours, panel_reads, panel_shown};
-use crate::settings::ctx::{Ctx, Spec, ask, lg_launch};
+use crate::settings::ctx::{Ctx, Spec, ask, lg_launch, toast};
 use crate::settings::page::{Page, Read};
 use crate::settings::row::{Answer, Arg, Ask, Op, PageArg, Row};
 use serde_json::{Value, json};
@@ -219,7 +219,7 @@ fn open_words(c: &Ctx) -> String {
 }
 
 fn two_questions() -> Vec<Op> {
-    let second = Ask::yes_no("shield-alert", "Turn the update block off?", "The TV can then fetch and install LG's update, and it cannot be undone from here.", "Turn off", "Keep blocked", true, vec![Op::Call { name: "hbcset".into(), uri: HBC_SET.into(), payload: json!({"blockUpdates": false}), subscribe: false }, Op::RefreshIn(700)]);
+    let second = Ask::yes_no("shield-alert", "Really allow LG system updates?", "The TV can then fetch and install LG's update, and that cannot be undone from here.", "Allow updates", "Keep blocked", true, vec![Op::Call { name: "hbcset".into(), uri: HBC_SET.into(), payload: json!({"blockUpdates": false}), subscribe: false }, Op::RefreshIn(700), toast("LG system updates allowed")]);
     let mut first = Ask::yes_no("shield-alert", "Allow LG system updates?", "LG's update can remove root and LumaTV.", "Continue", "Keep blocked", true, vec![Op::Ask(second)]);
     first.focus = 0;
     vec![Op::Ask(first)]
@@ -274,17 +274,19 @@ fn rows(c: &Ctx) -> Vec<Row> {
     let mut status = Row::info("updatestate").tab(1).icon("download").label("Update status").value(&if state.is_empty() { DASH.to_string() } else { crate::settings::names::name_or(&UPDATE_NAMES, &state, "No update running") });
     status.chevron = false;
     rows.push(status);
-    let mut auto = c.toggle(Spec::new("support.automaticUpdate").tab(1).icon("refresh-cw").label("Auto Update").help("The TV installs software updates by itself, with no notice. Turning it on needs LG's terms, which are accepted in LG's settings."));
+    let mut auto = c.toggle(Spec::new("support.automaticUpdate").tab(1).icon("refresh-cw").label("Install updates automatically").help("The TV installs software updates by itself, with no notice. Turning it on needs LG's terms, which are accepted in LG's settings."));
     let on = c.lg.is("support.automaticUpdate", "on");
     auto.enabled = c.lg.usable("support.automaticUpdate") && (on || terms_ok(c));
     auto.detail = if !c.lg.has("support.automaticUpdate") { "TV not answering".into() } else if !on && !terms_ok(c) { "Needs LG's terms".into() } else { String::new() };
     rows.push(auto);
     let b = block(c);
-    let mut blocker = Row::toggle("blockupdates").tab(1).icon("shield-check").label("Block LG system updates").help("Keeps LG's update servers out of reach, so a surprise update cannot remove root or LumaTV. A change applies when the TV restarts.").on(b.on()).detail(&b.words());
+    // allowing LG's update can remove root and LumaTV, so this is a status with questions, not a switch; blocking asks nothing
+    let mut blocker = Row::link("blockupdates").tab(1).icon("shield-check").label("LG system updates").help("Blocking keeps LG's update servers out of reach, so a surprise update cannot remove root or LumaTV. A change applies when the TV restarts.").value(if b.on() { "Blocked" } else { "Allowed" }).detail(&b.words());
     blocker.enabled = b.flag.is_some();
-    rows.push(blocker.act(|a| match a {
-        Arg::Toggle(true) => vec![Op::Call { name: "hbcset".into(), uri: HBC_SET.into(), payload: json!({"blockUpdates": true}), subscribe: false }, Op::RefreshIn(700)],
-        Arg::Toggle(false) => two_questions(),
+    let blocked_now = b.on();
+    rows.push(blocker.act(move |a| match a {
+        Arg::Press if blocked_now => two_questions(),
+        Arg::Press => vec![Op::Call { name: "hbcset".into(), uri: HBC_SET.into(), payload: json!({"blockUpdates": true}), subscribe: false }, Op::RefreshIn(700), toast("LG system updates blocked")],
         _ => Vec::new(),
     }));
     let live = c.helper("openapps");
@@ -302,21 +304,9 @@ fn rows(c: &Ctx) -> Vec<Row> {
     }
     rows.push(check);
 
-    // ---- Privacy
-    let dns = c.toggle(Spec::new("general.doNotSellMyPersonalInformation").tab(2).icon("shield").label("Do Not Sell My Personal Information").help("Tells LG to ask its partners to stop selling data about this TV's use. Live Plus and LG Channels keep working."));
-    rows.push(dns.act(|a| match a {
-        Arg::Toggle(v) => ask(
-            "shield",
-            if v { "Stop the sale of this TV's data?" } else { "Allow the sale of this TV's data?" },
-            "LG's ad service is told now.",
-            if v { "Turn on" } else { "Turn off" },
-            "Cancel",
-            false,
-            vec![Op::Act { uri: "luna://com.webos.service.admanager/updateDNS".into(), payload: json!({"status": if v { "on" } else { "off" }}) }, Op::RefreshIn(700)],
-        ),
-        _ => Vec::new(),
-    }));
-    rows.push(c.toggle(Spec::new("general.lmt").tab(2).icon("eye-off").label("Limit AD Tracking").help("Stops the tracking of ad-related data from this TV.")));
+    // ---- Privacy (the rows of the Privacy page, with the same words)
+    rows.push(super::privacy::do_not_sell(c, 2));
+    rows.push(super::privacy::limit_tracking(c, 2));
     rows.push(info(2, "hash", "AD ID", &ad_id(c)));
     rows.push(Row::action("resetad", "Reset").tab(2).icon("rotate-ccw").label("Reset AD ID").help("Gives the TV a new advertising ID, and ads are tracked from the new one.").does(ask(
         "rotate-ccw",
@@ -325,19 +315,10 @@ fn rows(c: &Ctx) -> Vec<Row> {
         "Reset",
         "Cancel",
         false,
-        vec![Op::Act { uri: "luna://com.webos.service.admanager/resetIFA".into(), payload: json!({}) }, Op::Set("adid".into(), json!("")), Op::RefreshIn(700)],
+        vec![Op::Act { uri: "luna://com.webos.service.admanager/resetIFA".into(), payload: json!({}) }, Op::Set("adid".into(), json!("")), Op::RefreshIn(700), toast("Advertising ID reset")],
     )));
-    let live_plus = c.toggle(Spec::new("option.livePlus").tab(2).icon("scan-eye").label("Live Plus").help("LG recognises what the TV shows and uses it for recommendations and ads.").lg_shown());
-    rows.push(live_plus.act(|a| match a {
-        Arg::Toggle(false) => vec![Op::Lg { ds: "option.livePlus".into(), value: json!("off"), app: None }],
-        Arg::Toggle(true) => ask("scan-eye", "Turn Live Plus on?", "LG recognises what the TV shows and may use it for recommendations and ads.", "Turn on", "Cancel", false, vec![Op::Lg { ds: "option.livePlus".into(), value: json!("on"), app: None }]),
-        _ => Vec::new(),
-    }));
-    let plus = c.lg.is("option.livePlus", "on");
-    let mut promo = c.toggle(Spec::new("option.livePromotion").tab(2).icon("star").label("Live Promotion").help("Turns custom ads and services on or off while watching. Needs Live Plus.").lg_shown());
-    promo.enabled = plus && c.lg.usable("option.livePromotion");
-    promo.detail = if !c.lg.has("option.livePromotion") { "TV not answering".into() } else if plus { String::new() } else { "Turn Live Plus on".into() };
-    rows.push(promo);
+    rows.push(super::privacy::live_plus(c, 2));
+    rows.push(super::privacy::live_promotion(c, 2));
     rows.push(Row::link("permissions").tab(2).icon("shield-check").label("App Permissions").help("Which apps may use the camera, the microphone, nearby devices and files.").does(go("permissions")));
     rows.push(Row::link("deletedata").tab(2).icon("eye-off").label("Delete My Personal Information").help("Deletes the viewing and voice information LG collected from this TV.").does(go("deletedata")));
 
@@ -609,9 +590,8 @@ fn permission_rows(c: &Ctx) -> Vec<Row> {
             r.detail = String::new();
             let noun = k.noun;
             rows.push(r.act(move |a| match a {
-                Arg::Toggle(false) => off_ops.clone(),
-                // turning one on asks first (Allow, Block), as LG's does; turning one off does not
-                Arg::Toggle(true) => ask("shield-check", &format!("Allow {noun} access?"), &title, "Allow", "Block", false, on_ops.clone()),
+                Arg::Toggle(false) => [off_ops.clone(), vec![toast(&format!("{title}: {noun} access blocked"))]].concat(),
+                Arg::Toggle(true) => [on_ops.clone(), vec![toast(&format!("{title}: {noun} access allowed"))]].concat(),
                 _ => Vec::new(),
             }));
         }
@@ -685,7 +665,7 @@ mod tests {
     }
 
     #[test]
-    fn the_update_block_says_where_it_stands_asks_twice_to_come_off_and_check_for_updates_waits_for_it() {
+    fn the_update_block_is_a_status_that_asks_twice_to_come_off_and_check_for_updates_waits_for_it() {
         let mut w = world();
         let r = rows(&w.ctx());
         let blocker = by_id(&r, "blockupdates");
@@ -695,18 +675,17 @@ mod tests {
         w.topics.set_helper("updateblock", json!({"flag": true, "blocking": true, "state": "blocked"}));
         let r = rows(&w.ctx());
         let blocker = by_id(&r, "blockupdates");
-        assert!(blocker.on && blocker.enabled && blocker.detail == "Active; LG updates blocked");
+        assert!(blocker.kind == crate::settings::row::Kind::Value && blocker.chevron, "risky when it comes off, so a status with a question, not a switch");
+        assert!((blocker.value.as_str(), blocker.enabled, blocker.detail.as_str()) == ("Blocked", true, "Active; LG updates blocked"));
         assert!(!by_id(&r, "checkupdate").enabled && by_id(&r, "checkupdate").value == "Updates blocked");
         // coming off: Keep blocked first, then a second question; only the second yes writes
-        let ops = (blocker.act.as_ref().unwrap())(Arg::Toggle(false));
+        let ops = (blocker.act.as_ref().unwrap())(Arg::Press);
         let [Op::Ask(first)] = &ops[..] else { panic!() };
         assert_eq!(first.answers[0].label, "Keep blocked");
         assert!(first.answers[0].then.is_empty());
         let [Op::Ask(second)] = &first.answers[1].then[..] else { panic!("a second question") };
-        assert_eq!(second.title, "Turn the update block off?");
+        assert_eq!((second.title.as_str(), second.answers[1].label.as_str()), ("Really allow LG system updates?", "Allow updates"));
         assert!(matches!(&second.answers[1].then[0], Op::Call { name, payload, .. } if name == "hbcset" && payload["blockUpdates"] == false));
-        // going on writes at once
-        assert!(matches!(&(blocker.act.as_ref().unwrap())(Arg::Toggle(true))[0], Op::Call { payload, .. } if payload["blockUpdates"] == true));
         // an error from the channel is the words
         w.docs.set("hbcset", json!({"returnValue": false, "errorText": "denied"}));
         assert_eq!(by_id(&rows(&w.ctx()), "blockupdates").detail, "Homebrew Channel: denied");
@@ -717,7 +696,11 @@ mod tests {
         let r = rows(&w.ctx());
         assert!(by_id(&r, "checkupdate").enabled);
         assert!(matches!(&(by_id(&r, "checkupdate").act.as_ref().unwrap())(Arg::Press)[..], [Op::Launch { params, .. }] if params["target"] == "SoftwareUpdate"));
-        assert_eq!(by_id(&r, "blockupdates").detail, "Off; updates can reach this TV");
+        let blocker = by_id(&r, "blockupdates");
+        assert_eq!((blocker.value.as_str(), blocker.detail.as_str()), ("Allowed", "Off; updates can reach this TV"));
+        // blocking is safe: it writes at once, with a toast and no question
+        let ops = (blocker.act.as_ref().unwrap())(Arg::Press);
+        assert!(matches!(&ops[0], Op::Call { payload, .. } if payload["blockUpdates"] == true) && !ops.iter().any(|o| matches!(o, Op::Ask(_))), "{ops:?}");
     }
 
     #[test]
@@ -738,18 +721,19 @@ mod tests {
     }
 
     #[test]
-    fn auto_update_needs_lgs_terms_to_turn_on_and_the_ad_rows_ask_before_they_tell_lg() {
+    fn auto_update_needs_lgs_terms_to_turn_on_and_the_ad_rows_flip_in_place_but_a_new_ad_id_asks() {
         let mut w = world();
         w.lg.learn("", &json!({"settings": {"eulaStatus": {"generalTermsAllowed": false}}}));
         let r = rows(&w.ctx());
         assert!(!by_id(&r, "support.automaticUpdate").enabled && by_id(&r, "support.automaticUpdate").detail == "Needs LG's terms");
         let dns = by_id(&r, "general.doNotSellMyPersonalInformation");
-        assert!(matches!(&(dns.act.as_ref().unwrap())(Arg::Toggle(true))[..], [Op::Ask(a)] if a.title == "Stop the sale of this TV's data?"));
+        assert_eq!(dns.label, "Ask LG not to sell my data");
+        assert!(matches!(&(dns.act.as_ref().unwrap())(Arg::Toggle(true))[..], [Op::Act { .. }, Op::RefreshIn(_), Op::Act { .. }]), "no question, then a toast");
         assert!(matches!(&(by_id(&r, "resetad").act.as_ref().unwrap())(Arg::Press)[..], [Op::Ask(_)]));
         let promo = by_id(&r, "option.livePromotion");
-        assert!(!promo.enabled && promo.detail == "Turn Live Plus on", "it follows Live Plus");
-        assert!(matches!(&(by_id(&r, "option.livePlus").act.as_ref().unwrap())(Arg::Toggle(true))[..], [Op::Ask(_)]));
-        assert!(matches!(&(by_id(&r, "option.livePlus").act.as_ref().unwrap())(Arg::Toggle(false))[..], [Op::Lg { .. }]));
+        assert!(!promo.enabled && promo.detail == "Allow content recognition first", "it follows Live Plus");
+        assert!(matches!(&(by_id(&r, "option.livePlus").act.as_ref().unwrap())(Arg::Toggle(true))[..], [Op::Lg { .. }, Op::Act { .. }]));
+        assert!(matches!(&(by_id(&r, "option.livePlus").act.as_ref().unwrap())(Arg::Toggle(false))[..], [Op::Lg { .. }, Op::Act { .. }]));
     }
 
     #[test]
@@ -794,7 +778,7 @@ mod tests {
     }
 
     #[test]
-    fn permissions_are_a_tab_each_with_a_switch_per_app_and_turning_one_on_asks() {
+    fn permissions_are_a_tab_each_with_a_switch_per_app_that_flips_in_place() {
         let mut w = world();
         w.lg.learn("option", &json!({"settings": {"cameraResourcePermission": [{"appId": "cam.app", "appTitle": "Cam", "permissions": [{"resource": "camera", "permission": false}]}, {"appId": "other", "permissions": [{"resource": "mic", "permission": true}]}]}}));
         w.lg.learn_desc("option", &json!({"results": [{"key": "cameraResourcePermission", "ui": {"visible": true}}]}));
@@ -805,9 +789,8 @@ mod tests {
         assert!(by_id(&r, "app:1:mic.app").on && by_id(&r, "app:1:mic.app").label == "mic.app");
         assert!(r.iter().any(|x| x.tab == 2 && x.kind == crate::settings::row::Kind::Empty), "no app asked for the nearby devices");
         let ops = (by_id(&r, "app:0:cam.app").act.as_ref().unwrap())(Arg::Toggle(true));
-        let [Op::Ask(a)] = &ops[..] else { panic!() };
-        assert_eq!((a.title.as_str(), a.answers[0].label.as_str(), a.answers[1].label.as_str()), ("Allow camera access?", "Block", "Allow"));
-        let [Op::LgMany { category, settings, .. }] = &a.answers[1].then[..] else { panic!() };
+        let [Op::LgMany { category, settings, .. }, Op::Act { payload, .. }] = &ops[..] else { panic!("{ops:?}") };
+        assert_eq!(payload["message"], "Cam: camera access allowed");
         assert_eq!(category, "option");
         assert_eq!(settings["cameraResourcePermission"][0]["permissions"][0]["permission"], true);
         assert_eq!(settings["cameraResourcePermission"][1]["permissions"][0]["permission"], true, "the others are as they were");

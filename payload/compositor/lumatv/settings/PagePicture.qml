@@ -80,7 +80,7 @@ PageList {
                { enabled: function() { return String(Sio.get("picture.energySaving")) === "auto" && Sio.usable("picture.energySavingAutoMin") },
                  detail: function() { return !Sio.has("picture.energySavingAutoMin") ? "TV not answering" : String(Sio.get("picture.energySaving")) === "auto" ? "" : "Energy saving is not Auto" } }),
         // Just Scan is per input like the aspect ratio: LG reads and writes it with the app's id, and the TV answers nothing to a read without one
-        perApp(R.toggle(Sio, { ds: "aspectRatio.justScan", tab: 0, icon: "monitor", label: "Just Scan", appId: function() { return page.inputApp },
+        perApp(R.toggle(Sio, { ds: "aspectRatio.justScan", tab: 0, icon: "monitor", label: "Show the whole picture (Just Scan)", appId: function() { return page.inputApp },
                                help: "Shows the picture whole, without cropping its edges. Turn it off if a line shows at an edge." })),
 
         R.slider(Sio, { ds: "picture.contrast", tab: 1, min: 0, max: 100, step: 1, icon: "contrast", label: "Contrast" }),

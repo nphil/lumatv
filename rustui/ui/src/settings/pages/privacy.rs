@@ -1,25 +1,28 @@
 //! Privacy: its own section of Settings (Nitin, 2026-10-29), from the helper's toolkit-neutral menu (`GET /v1/privacy/menu`,
 //! `helper/privacy`: the four service groups, the hosts blocker, Prime Video's ad filter, LG's consent flags, the links) and LG's own
 //! privacy rows that the QML Settings kept under Support (Do Not Sell, Limit AD Tracking, the AD ID, Live Plus and Live Promotion).
-//! Every write is two requests with a person between them: `POST /v1/privacy/prepare` returns the exact change and a confirmation
-//! token for 60 seconds, the question shows it, and only an answer of the owner sends `POST /v1/privacy/apply`. Nothing here
-//! applies a change by itself and the helper refuses anyone but the owner; the rows are locked for another profile as well.
+//!
+//! Wording (`docs/research/settings-wording-audit.md`): a switch names what is ON when it is on. A blocker says "Block ...", a consent
+//! says "Allow ...". A switch flips in place and a toast says what was done; it never opens a question. A change the helper needs two
+//! requests for (`POST /v1/privacy/prepare`, then `/apply` with the single-use token it returns) is sent as both at once: the owner's
+//! press is the answer, the helper still refuses anyone but the owner, and the rows are locked for another profile. What restarts
+//! something (the Prime Video ad blocker) is a status row with a chevron and one question, not a switch.
 
-use crate::settings::ctx::{Ctx, Spec, ask};
+use crate::settings::ctx::{Ctx, Spec, ask, toast};
 use crate::settings::page::{Page, Read};
-use crate::settings::row::{Answer, Arg, Ask, Op, Row};
+use crate::settings::row::{Arg, Op, Row};
 use serde_json::{Value, json};
 
 /// The switches that block something (what the rail counts).
 const BLOCKERS: [&str; 6] = ["ads", "settings", "uploaders", "push", "hosts", "amazoff"];
 
 pub fn page() -> Page {
-    Page::new("privacy", "Privacy", "shield-check").rail().tabs(&["Blockers", "Consent", "Ads & data"]).reads(reads).rows(rows).summary(summary).answered(answered)
+    Page::new("privacy", "Privacy", "shield-check").rail().tabs(&["Blocking", "LG may collect", "Ads & data"]).reads(reads).rows(rows).summary(summary).answered(answered)
 }
 
-/// The 16 settings LG keeps and the blocker holds off, as the helper observed them.
+/// The settings LG keeps and the first blocker holds off, as the helper observed them.
 pub fn held() -> Page {
-    Page::new("privacy-held", "Held settings", "list-checks").parent("privacy").back("Privacy").hidden_from_search().rows(held_rows)
+    Page::new("privacy-held", "LG privacy settings kept off", "list-checks").parent("privacy").back("Privacy").hidden_from_search().rows(held_rows)
 }
 
 fn reads(_: &Ctx) -> Vec<Read> {
@@ -54,37 +57,22 @@ fn summary(c: &Ctx) -> String {
         return String::new();
     }
     let on = BLOCKERS.iter().filter(|id| item(c, id).and_then(|i| i.get("on")).and_then(Value::as_bool) == Some(true)).count();
-    format!("{on} of {} on", BLOCKERS.len())
+    format!("{on} of {} blocking", BLOCKERS.len())
 }
 
 /// The second line of a switch: only what is true now and worth saying.
 fn detail_words(it: &Value) -> String {
     let reason = text(it, "reason");
     if it.get("available").and_then(Value::as_bool) == Some(false) {
-        return if reason.is_empty() || reason.len() > 60 { "Not available now".into() } else { reason.to_string() };
+        // only the Prime Video row's reason is in plain words (the others name a tool of the helper)
+        return if text(it, "id") != "amazoff" || reason.is_empty() || reason.len() > 60 { "Not available on this TV".into() } else { reason.to_string() };
     }
     let on = it.get("on").and_then(Value::as_bool) == Some(true);
     match text(it, "id") {
         "hosts" if on => match (it.get("effective").and_then(Value::as_bool), it.get("count").and_then(Value::as_u64)) {
             (Some(true), Some(n)) => format!("{n} names blocked"),
-            _ => "On; waiting for the hosts table".into(),
+            _ => "Not active yet".into(),
         },
-        "amazoff" => {
-            let words = match text(it, "protection") {
-                "active" => "Filtering the current player",
-                "partial" => "Filtering some players",
-                "waiting" => "On; waiting for Prime Video to play",
-                "unmodified" => "On; this Prime player is not changed",
-                "unavailable" => "On; the filter is not running",
-                _ => "",
-            };
-            match (words.is_empty(), reason.is_empty()) {
-                (false, false) if reason.len() <= 60 => format!("{words}; {reason}"),
-                (false, _) => words.to_string(),
-                (true, false) if on && reason.len() <= 60 => reason.to_string(),
-                _ => String::new(),
-            }
-        }
         _ => String::new(),
     }
 }
@@ -101,12 +89,40 @@ fn icon_of(id: &str) -> &'static str {
     }
 }
 
-/// A switch of the menu: its change is prepared, shown and only then applied.
-fn switch(it: &Value, tab: usize, enabled: bool, detail: String, help: &str) -> Row {
+/// What the toast says once a change is made: the blocker or the consent, and which way it went.
+fn done_words(id: &str, title: &str, on: bool) -> String {
+    let (blocked, allowed) = match id {
+        "ads" => ("Content recognition and ads blocked", "Content recognition and ads allowed"),
+        "settings" => ("LG's viewing and ad settings kept off", "LG's viewing and ad settings no longer kept off"),
+        "uploaders" => ("Telemetry uploads blocked", "Telemetry uploads allowed"),
+        "push" => ("LG push promotions blocked", "LG push promotions allowed"),
+        "hosts" => ("Ad and tracker hosts blocked", "Ad and tracker hosts allowed"),
+        "amazoff" => ("Prime Video ads blocked", "Prime Video ads allowed"),
+        _ => {
+            let what = title.strip_prefix("Allow ").or_else(|| title.strip_prefix("Accept ")).unwrap_or(title);
+            let mut chars = what.chars();
+            let what = chars.next().map(|f| f.to_uppercase().collect::<String>() + chars.as_str()).unwrap_or_default();
+            return if on { format!("{what} allowed") } else { format!("{what} no longer allowed") };
+        }
+    };
+    (if on { blocked } else { allowed }).to_string()
+}
+
+fn pending_key(id: &str) -> String {
+    format!("pend:{id}")
+}
+
+/// A switch of the menu: it flips at once (the page's own `pend:` answer holds it until the helper's menu agrees) and the change is
+/// prepared and applied in one go.
+fn switch(c: &Ctx, it: &Value, tab: usize, enabled: bool, detail: String, help: &str) -> Row {
     let help = first_clause(help);
     let help = help.as_str();
     let id = text(it, "id").to_string();
-    let on = it.get("on").and_then(Value::as_bool) == Some(true);
+    let on = match c.local.text(&pending_key(&id)).as_str() {
+        "on" => true,
+        "off" => false,
+        _ => it.get("on").and_then(Value::as_bool) == Some(true),
+    };
     let ident = id.clone();
     Row::toggle(&format!("privacy:{id}"))
         .tab(tab)
@@ -118,9 +134,17 @@ fn switch(it: &Value, tab: usize, enabled: bool, detail: String, help: &str) -> 
         .enabled(enabled)
         .admin()
         .act(move |a| match a {
-            Arg::Toggle(v) => vec![Op::Send { name: Some("privacy.prepare".into()), method: "POST", path: "/v1/privacy/prepare".into(), body: Some(json!({"id": ident, "enabled": v})) }],
+            Arg::Toggle(v) => change(&ident, v),
             _ => Vec::new(),
         })
+}
+
+/// The first of the two requests; the answer to it sends the second (see [`answered`]).
+fn change(id: &str, on: bool) -> Vec<Op> {
+    vec![
+        Op::Set(pending_key(id), json!(if on { "on" } else { "off" })),
+        Op::Send { name: Some(format!("privacy.prepare:{id}")), method: "POST", path: "/v1/privacy/prepare".into(), body: Some(json!({"id": id, "enabled": on})) },
+    ]
 }
 
 /// The first clause of a sentence: what the row does, in a few words (the rest is the helper's detail).
@@ -139,17 +163,21 @@ fn rows(c: &Ctx) -> Vec<Row> {
     }
     for id in BLOCKERS {
         let Some(it) = item(c, id) else { continue };
+        if id == "amazoff" {
+            rows.push(prime_ads(c, it));
+            continue;
+        }
         let available = it.get("available").and_then(Value::as_bool) != Some(false);
-        rows.push(switch(it, 0, available, detail_words(it), text(it, "detail")));
+        rows.push(switch(c, it, 0, available, detail_words(it), text(it, "detail")));
         if id == "settings" {
             let list = it.get("settings").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
-            let held = list.iter().filter(|s| s.get("value") == s.get("target")).count();
+            let held = list.iter().filter(|s| s.get("available").and_then(Value::as_bool) != Some(false) && s.get("value") == s.get("target")).count();
             if !list.is_empty() {
-                rows.push(Row::link("privacy:held").tab(0).icon("list-checks").label("Held settings").value(&format!("{held} of {}", list.len())).does(vec![Op::Open { page: "privacy-held".into(), arg: Default::default() }]));
+                rows.push(Row::link("privacy:held").tab(0).icon("list-checks").label("LG privacy settings kept off").value(&format!("{held} of {} kept off", list.len())).does(vec![Op::Open { page: "privacy-held".into(), arg: Default::default() }]));
             }
         }
     }
-    // LG's consent flags
+    // what LG may collect
     let consents: Vec<&Value> = items(c).into_iter().filter(|i| text(i, "id").starts_with("consent.")).collect();
     if let Some(u) = item(c, "consents").filter(|i| i.get("available").and_then(Value::as_bool) == Some(false)) {
         rows.push(Row::note(&format!("LG's consent flags: {}", if text(u, "reason").is_empty() { "not available" } else { text(u, "reason") }), 1));
@@ -158,14 +186,13 @@ fn rows(c: &Ctx) -> Vec<Row> {
         let settable = it.get("settable").and_then(Value::as_bool) == Some(true);
         let titles: Vec<&str> = it.get("agreements").and_then(Value::as_array).map(|l| l.iter().filter_map(|a| a.get("title").and_then(Value::as_str)).collect()).unwrap_or_default();
         let help = if titles.is_empty() { String::new() } else { format!("Agreements: {}.", titles.join(", ")) };
-        rows.push(switch(it, 1, settable, if settable { String::new() } else { "Only in LG's menus".into() }, &help));
+        rows.push(switch(c, it, 1, settable, if settable { String::new() } else { "Only in LG's menus".into() }, &help));
     }
-    // LG's own consent options
-    rows.push(live_plus(c));
-    rows.push(live_promotion(c));
+    rows.push(live_plus(c, 1));
     // ads and data
-    rows.push(do_not_sell(c));
-    rows.push(c.toggle(Spec::new("general.lmt").tab(2).icon("eye-off").label("Limit AD Tracking").help("Stops the tracking of ad-related data from this TV.")));
+    rows.push(live_promotion(c, 2));
+    rows.push(do_not_sell(c, 2));
+    rows.push(limit_tracking(c, 2));
     let ad_id = if c.local.flag("adid_hidden") { String::new() } else { ad_id_of(c.docs.get("ifa")) };
     rows.push(Row::info("adid").tab(2).icon("hash").label("AD ID").value(if ad_id.is_empty() { "\u{2013}" } else { &ad_id }));
     rows.push(
@@ -173,6 +200,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
             Op::Act { uri: "luna://com.webos.service.admanager/resetIFA".into(), payload: json!({}) },
             Op::Set("adid_hidden".into(), json!(true)),
             Op::RefreshIn(700),
+            toast("Advertising ID reset"),
         ]))
         .tab(2)
         .icon("rotate-ccw")
@@ -184,177 +212,253 @@ fn rows(c: &Ctx) -> Vec<Row> {
     rows
 }
 
+/// Prime Video's ad blocker restarts Prime Video and switches the old AmazOff app off, so it is a status with one question, not a
+/// switch. The helper does the setup itself (`helper/privacy/src/prime.rs`).
+fn prime_ads(c: &Ctx, it: &Value) -> Row {
+    let available = it.get("available").and_then(Value::as_bool) != Some(false);
+    let on = it.get("on").and_then(Value::as_bool) == Some(true);
+    let busy = c.local.flag("busy:amazoff");
+    let value = if busy {
+        "Working\u{2026}"
+    } else if !available {
+        "Not available"
+    } else if !on {
+        "Allowed"
+    } else {
+        match text(it, "protection") {
+            "partial" => "Partly blocked",
+            "waiting" => "Ready",
+            "unmodified" => "Cannot block here",
+            "unavailable" => "Not running",
+            _ => "Blocked",
+        }
+    };
+    let detail = if !available {
+        detail_words(it)
+    } else if busy {
+        String::new()
+    } else {
+        match (on, text(it, "protection")) {
+            (true, "waiting") => "Starts when Prime Video plays".into(),
+            (true, "unmodified") => "This version of Prime Video's player is left as it is".into(),
+            (true, "unavailable") if !text(it, "reason").is_empty() && text(it, "reason").len() <= 60 => text(it, "reason").to_string(),
+            _ => String::new(),
+        }
+    };
+    let (title, body, yes) = if on {
+        ("Allow Prime Video ads again?", "Prime Video restarts and shows its ads again.", "Allow ads")
+    } else {
+        ("Block Prime Video ads?", "Prime Video restarts, and the old AmazOff app, if it is installed, is switched off.", "Block ads")
+    };
+    let ops = ask("clapperboard", title, body, yes, "Cancel", false, vec![Op::Set("busy:amazoff".into(), json!(true)), Op::Send { name: Some("privacy.prepare:amazoff".into()), method: "POST", path: "/v1/privacy/prepare".into(), body: Some(json!({"id": "amazoff", "enabled": !on})) }]);
+    let mut r = Row::link("privacy:amazoff").tab(0).icon(icon_of("amazoff")).label("Prime Video ads").value(value).detail(&detail).admin().enabled(available && !busy).does(ops);
+    r.help = "Takes the ads out of Prime Video.".into();
+    r
+}
+
 fn ad_id_of(doc: &Value) -> String {
     doc.get("idList").and_then(Value::as_array).and_then(|l| l.iter().find(|i| i.get("idType").and_then(Value::as_str) == Some("IFAID"))).and_then(|i| i.get("idValue")).and_then(Value::as_str).unwrap_or("").to_string()
 }
 
-fn do_not_sell(c: &Ctx) -> Row {
+/// "Ask LG not to sell my data": on is the request made (`admanager updateDNS`).
+pub fn do_not_sell(c: &Ctx, tab: usize) -> Row {
     let r = c.toggle(
         Spec::new("general.doNotSellMyPersonalInformation")
-            .tab(1 + 1)
+            .tab(tab)
             .icon("shield")
-            .label("Do Not Sell My Personal Information")
-            .help("Tells LG to ask its partners to stop selling data about this TV's use. Live Plus and LG Channels keep working."),
+            .label("Ask LG not to sell my data")
+            .help("LG's Do Not Sell My Personal Information. LG asks its partners to stop selling data about this TV's use. Live Plus and LG Channels keep working."),
     );
     r.act(|a| match a {
-        Arg::Toggle(v) => ask(
-            "shield",
-            if v { "Stop the sale of this TV's data?" } else { "Allow the sale of this TV's data?" },
-            "LG's ad service is told now.",
-            if v { "Turn on" } else { "Turn off" },
-            "Cancel",
-            false,
-            vec![Op::Act { uri: "luna://com.webos.service.admanager/updateDNS".into(), payload: json!({"status": if v { "on" } else { "off" }}) }, Op::RefreshIn(700)],
-        ),
+        Arg::Toggle(v) => vec![
+            Op::Act { uri: "luna://com.webos.service.admanager/updateDNS".into(), payload: json!({"status": if v { "on" } else { "off" }}) },
+            Op::RefreshIn(700),
+            toast(if v { "LG asked not to sell this TV's data" } else { "LG may sell this TV's data" }),
+        ],
         _ => Vec::new(),
     })
 }
 
-fn live_plus(c: &Ctx) -> Row {
-    let r = c.toggle(Spec::new("option.livePlus").tab(1).icon("scan-eye").label("Live Plus").help("LG recognises what the TV shows and uses it for recommendations and ads.").lg_shown());
+/// "Limit ad tracking": on is the limit in force.
+pub fn limit_tracking(c: &Ctx, tab: usize) -> Row {
+    c.toggle(Spec::new("general.lmt").tab(tab).icon("eye-off").label("Limit ad tracking").help("Stops the tracking of ad-related data from this TV."))
+}
+
+/// "Allow content recognition (Live Plus)": on is LG recognising what the TV shows.
+pub fn live_plus(c: &Ctx, tab: usize) -> Row {
+    let r = c.toggle(Spec::new("option.livePlus").tab(tab).icon("scan-eye").label("Allow content recognition (Live Plus)").help("LG recognises what the TV shows and uses it for recommendations and ads.").lg_shown());
     r.act(|a| match a {
-        Arg::Toggle(true) => ask(
-            "scan-eye",
-            "Turn Live Plus on?",
-            "LG recognises what the TV shows and may use it for recommendations and ads.",
-            "Turn on",
-            "Cancel",
-            false,
-            vec![Op::Lg { ds: "option.livePlus".into(), value: json!("on"), app: None }],
-        ),
-        Arg::Toggle(false) => vec![Op::Lg { ds: "option.livePlus".into(), value: json!("off"), app: None }],
+        Arg::Toggle(v) => vec![Op::Lg { ds: "option.livePlus".into(), value: json!(if v { "on" } else { "off" }), app: None }, toast(if v { "Content recognition allowed" } else { "Content recognition no longer allowed" })],
         _ => Vec::new(),
     })
 }
 
 /// Live Promotion follows Live Plus: it is dimmed until that is on.
-fn live_promotion(c: &Ctx) -> Row {
+pub fn live_promotion(c: &Ctx, tab: usize) -> Row {
     let plus = c.lg.on("option.livePlus");
-    let mut r = c.toggle(Spec::new("option.livePromotion").tab(1).icon("star").label("Live Promotion").help("Turns custom ads and services on or off while watching. Needs Live Plus.").lg_shown());
+    let mut r = c.toggle(Spec::new("option.livePromotion").tab(tab).icon("star").label("Allow custom ads while watching (Live Promotion)").help("LG's custom ads and services while watching. Needs content recognition.").lg_shown());
     r.enabled = plus && c.lg.usable("option.livePromotion");
-    r.detail = if !c.lg.has("option.livePromotion") { "TV not answering".into() } else if plus { String::new() } else { "Turn Live Plus on".into() };
-    r
+    r.detail = if !c.lg.has("option.livePromotion") { "TV not answering".into() } else if plus { String::new() } else { "Allow content recognition first".into() };
+    r.act(|a| match a {
+        Arg::Toggle(v) => vec![Op::Lg { ds: "option.livePromotion".into(), value: json!(if v { "on" } else { "off" }), app: None }, toast(if v { "Custom ads while watching allowed" } else { "Custom ads while watching no longer allowed" })],
+        _ => Vec::new(),
+    })
 }
+
+/// LG's 16 privacy settings by what LG would do with each, grouped by theme: (key, plain name).
+const HELD_THEMES: [(&str, &[(&str, &str)]); 3] = [
+    (
+        "Viewing data",
+        &[
+            ("option.livePlus", "Recognise what is on screen (Live Plus)"),
+            ("option.watchedListCollection", "Collect my viewing history"),
+            ("option.thirdPartyCookie", "Third-party cookies"),
+            ("option.dbgLogUpload", "Upload debug logs to LG"),
+            ("option.usageCare", "Send usage statistics to LG"),
+        ],
+    ),
+    (
+        "Ads",
+        &[
+            ("general.customizedAd", "Personalised ads"),
+            ("general.adCookie", "Advertising cookie"),
+            ("option.livePromotion", "Custom ads while watching (Live Promotion)"),
+            ("option.promotionStreamer", "Streaming-service promotions"),
+            ("option.webOSPromotionVideo", "Promotion videos"),
+            ("general.homePromotion", "Promotions on LG's Home"),
+            ("general.screenSaverAd", "Ads on LG's screen saver"),
+            ("general.sportsAlarm", "Sports alert promotions"),
+        ],
+    ),
+    (
+        "Tips and suggestions",
+        &[("other.contentRecommendation", "Content recommendations"), ("general.aiNudge", "Feature tips on Home"), ("general.aiSettingsNudge", "Setting tips in LG's Settings")],
+    ),
+];
 
 fn held_rows(c: &Ctx) -> Vec<Row> {
-    let Some(list) = item(c, "settings").and_then(|i| i.get("settings")).and_then(Value::as_array) else {
-        return vec![Row::empty("Not available", "The held settings are read from the helper.", "list-checks", 0)];
+    let Some(it) = item(c, "settings") else {
+        return vec![Row::empty("Not available", "The settings are read from the helper.", "list-checks", 0)];
     };
-    list.iter()
-        .map(|s| {
-            let key = text(s, "key");
+    let Some(list) = it.get("settings").and_then(Value::as_array) else {
+        return vec![Row::empty("Not available", "The settings are read from the helper.", "list-checks", 0)];
+    };
+    let holding = it.get("on").and_then(Value::as_bool) == Some(true);
+    let mut rows = vec![Row::note(
+        if holding { "LumaTV switches these back off if LG turns them on." } else { "These are off only while \u{201c}Keep LG's viewing and ad settings off\u{201d} is on." },
+        0,
+    )];
+    let state = |s: &Value| {
+        let held = s.get("value") == s.get("target");
+        if s.get("available").and_then(Value::as_bool) == Some(false) {
+            "Not on this TV"
+        } else if holding && held {
+            "Kept off"
+        } else if holding {
+            "On now"
+        } else if held {
+            "Off"
+        } else {
+            "On"
+        }
+    };
+    let mut seen: Vec<&str> = Vec::new();
+    for (head, members) in HELD_THEMES {
+        let here: Vec<(&Value, &str)> = members.iter().filter_map(|(key, name)| list.iter().find(|s| text(s, "key") == *key).map(|s| (s, *name))).collect();
+        if here.is_empty() {
+            continue;
+        }
+        rows.push(Row::head(head, 0));
+        for (s, name) in here {
+            seen.push(text(s, "key"));
+            rows.push(Row::info(&format!("held:{}", text(s, "key"))).icon("sliders-horizontal").label(name).value(state(s)));
+        }
+    }
+    // a setting the helper lists that this screen has no plain name for yet: its own words, last
+    let rest: Vec<&Value> = list.iter().filter(|s| !seen.contains(&text(s, "key"))).collect();
+    if !rest.is_empty() {
+        rows.push(Row::head("More", 0));
+        for s in rest {
             let detail = text(s, "detail");
-            let label: String = detail.chars().next().map(|f| f.to_uppercase().collect::<String>() + &detail[f.len_utf8()..]).unwrap_or_else(|| key.to_string());
-            let word = |v: Option<&Value>| match v {
-                Some(Value::Bool(true)) => "On".to_string(),
-                Some(Value::Bool(false)) => "Off".to_string(),
-                Some(Value::String(s)) if s == "on" => "On".into(),
-                Some(Value::String(s)) if s == "off" => "Off".into(),
-                Some(other) if !other.is_null() => crate::host::sio::js::string(other),
-                _ => "\u{2013}".to_string(),
-            };
-            let held = s.get("value") == s.get("target");
-            Row::info(&format!("held:{key}"))
-                .icon("sliders-horizontal")
-                .label(&label)
-                .value(&word(s.get("value")))
-                .detail(if s.get("available").and_then(Value::as_bool) == Some(false) { "Not on this TV" } else if held { "" } else { "LG has it on" })
-        })
-        .collect()
+            let name: String = detail.chars().next().map(|f| f.to_uppercase().collect::<String>() + &detail[f.len_utf8()..]).unwrap_or_else(|| text(s, "key").to_string());
+            rows.push(Row::info(&format!("held:{}", text(s, "key"))).icon("sliders-horizontal").label(&name).value(state(s)));
+        }
+    }
+    rows
 }
 
-/// What the helper's two answers do: a prepared change is shown as a question, an applied one is read back.
+/// What the helper's two answers do: a prepared change is applied at once, an applied one is read back and said in a toast.
 fn answered(c: &Ctx, name: &str, doc: &Value) -> Vec<Op> {
-    match name {
-        "privacy.prepare" => match doc.get("confirmation").and_then(Value::as_str) {
-            Some(token) => {
-                let plan = doc.get("plan").cloned().unwrap_or(Value::Null);
-                let (key, on) = (text(&plan, "key").to_string(), plan.get("on").and_then(Value::as_bool).unwrap_or(false));
-                let title = item(c, &key).map(|i| text(i, "title").to_string()).unwrap_or_else(|| key.clone());
-                let verb = if on { "Turn on" } else { "Turn off" };
-                vec![Op::Ask(Ask {
-                    icon: "shield-check".into(),
-                    title: format!("{verb} {title}?"),
-                    body: plan_words(c, &key, &plan),
-                    answers: vec![
-                        Answer { id: "no".into(), label: "Cancel".into(), danger: false, then: Vec::new() },
-                        Answer {
-                            id: "yes".into(),
-                            label: verb.into(),
-                            danger: false,
-                            then: vec![Op::Send {
-                                name: Some("privacy.apply".into()),
-                                method: "POST",
-                                path: "/v1/privacy/apply".into(),
-                                body: Some(json!({"id": key, "enabled": on, "confirmation": token})),
-                            }],
-                        },
-                    ],
-                    focus: 0,
-                })]
-            }
-            None => notice(doc),
-        },
-        "privacy.apply" => {
-            let mut ops = if doc.get("ok").and_then(Value::as_bool) == Some(true) { Vec::new() } else { notice(doc) };
-            ops.push(Op::Refresh);
-            ops
-        }
-        _ => Vec::new(),
+    let failed = |id: &str| {
+        let words = doc.pointer("/error/message").and_then(Value::as_str).unwrap_or("The helper did not make the change");
+        vec![Op::Set(pending_key(id), Value::Null), Op::Set(format!("busy:{id}"), Value::Null), toast(&format!("Not changed: {words}")), Op::Refresh]
+    };
+    if let Some(id) = name.strip_prefix("privacy.prepare:") {
+        let Some(token) = doc.get("confirmation").and_then(Value::as_str) else { return failed(id) };
+        let plan = doc.get("plan").cloned().unwrap_or(Value::Null);
+        let on = plan.get("on").and_then(Value::as_bool).unwrap_or(false);
+        return vec![
+            Op::Set(format!("also:{id}"), json!(also_words(c, id, &plan))),
+            Op::Send { name: Some(format!("privacy.apply:{id}")), method: "POST", path: "/v1/privacy/apply".into(), body: Some(json!({"id": id, "enabled": on, "confirmation": token})) },
+        ];
     }
+    if let Some(id) = name.strip_prefix("privacy.apply:") {
+        if doc.get("ok").and_then(Value::as_bool) != Some(true) {
+            return failed(id);
+        }
+        let on = doc.get("on").and_then(Value::as_bool).unwrap_or(false);
+        let title = item(c, id).map(|i| text(i, "title")).unwrap_or("");
+        let also = c.local.text(&format!("also:{id}"));
+        let said = if also.is_empty() { done_words(id, title, on) } else { format!("{}. {also}", done_words(id, title, on)) };
+        return vec![
+            toast(&said),
+            Op::Refresh,
+            Op::Set(format!("busy:{id}"), Value::Null),
+            Op::Later { key: pending_key(id), ms: 1500, then: vec![Op::Set(pending_key(id), Value::Null)] },
+        ];
+    }
+    Vec::new()
 }
 
-/// The helper's words for a change it did not make, as a question with one answer.
-fn notice(doc: &Value) -> Vec<Op> {
-    let words = doc.pointer("/error/message").and_then(Value::as_str).unwrap_or("The helper did not make the change.");
-    vec![Op::Ask(Ask {
-        icon: "shield-alert".into(),
-        title: "Not changed".into(),
-        body: words.to_string(),
-        answers: vec![Answer { id: "close".into(), label: "Close".into(), danger: false, then: Vec::new() }],
-        focus: 0,
-    })]
-}
-
-/// What the change is, in words: the item's own sentence and what the plan adds to it.
-fn plan_words(c: &Ctx, key: &str, plan: &Value) -> String {
-    let it = item(c, key);
-    let base = it.map(|i| text(i, "detail")).unwrap_or("");
-    match key {
-        "hosts" => {
-            let n = plan.get("hosts").and_then(Value::as_array).map_or(0, Vec::len);
-            format!("{n} advertising and tracker names are blocked in the hosts table. LG's Content Store, ThinQ and system-update blocks stay as they are.")
-        }
-        "amazoff" => plan.get("notice").and_then(Value::as_str).unwrap_or(base).to_string(),
-        k if k.starts_with("consent.") => {
-            let changed: Vec<String> = plan
-                .pointer("/changes/changed")
-                .and_then(Value::as_array)
-                .map(|l| l.iter().filter_map(Value::as_str).filter(|f| format!("consent.{f}") != key).map(|f| item(c, &format!("consent.{f}")).map(|i| text(i, "title").to_string()).unwrap_or_else(|| f.to_string())).collect())
-                .unwrap_or_default();
-            let notice = plan.get("notice").and_then(Value::as_str).unwrap_or("");
-            if changed.is_empty() { notice.to_string() } else { format!("{notice} It also changes: {}.", changed.join(", ")) }
-        }
-        _ => base.to_string(),
+/// A consent shares its agreements with others: the plan lists what else changes, and the toast says so.
+fn also_words(c: &Ctx, key: &str, plan: &Value) -> String {
+    if !key.starts_with("consent.") {
+        return String::new();
     }
+    let others: Vec<String> = plan
+        .pointer("/changes/changed")
+        .and_then(Value::as_array)
+        .map(|l| {
+            l.iter()
+                .filter_map(Value::as_str)
+                .filter(|f| format!("consent.{f}") != key)
+                .map(|f| {
+                    let title = item(c, &format!("consent.{f}")).map(|i| text(i, "title").to_string()).unwrap_or_else(|| f.to_string());
+                    title.strip_prefix("Allow ").unwrap_or(&title).to_string()
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    if others.is_empty() { String::new() } else { format!("Also changed: {}", others.join(", ")) }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::settings::ctx::fixtures::World;
-    use crate::settings::row::Kind;
+    use crate::settings::row::{Ask, Kind};
 
     fn menu_doc() -> Value {
         json!({"ok": true, "privacy": {"id": "privacy", "canAdmin": true, "items": [
-            {"id": "ads", "title": "Content recognition & advertising services", "detail": "Stops ACR, content mining, ad overlays and banners.", "kind": "switch", "on": true, "available": true},
-            {"id": "settings", "title": "Viewing information, ads & promotions", "detail": "Holds LG's 16 settings off.", "kind": "switch", "on": false, "available": true,
-             "settings": [{"key": "option.livePlus", "target": "off", "detail": "Live Plus content recognition", "value": "off", "available": true}, {"key": "general.adCookie", "target": "off", "detail": "ad cookie", "value": "on", "available": true}]},
-            {"id": "uploaders", "title": "Telemetry & diagnostic uploaders", "detail": "Stops LG's uploaders.", "kind": "switch", "on": false, "available": false, "reason": "declutter tool missing"},
-            {"id": "hosts", "title": "Block ad & tracker hosts", "detail": "Glasshouse's ads tier.", "kind": "switch", "on": true, "available": true, "effective": true, "count": 212},
-            {"id": "amazoff", "title": "Prime Video ads (Amazoff)", "detail": "Filters the current player.", "kind": "switch", "on": true, "available": true, "protection": "waiting"},
-            {"id": "consent.acrAllowed", "title": "Screen content recognition", "kind": "switch", "on": true, "available": true, "settable": true, "agreements": [{"title": "Analytics"}]},
-            {"id": "consent.networkAllowed", "title": "network", "kind": "switch", "on": true, "available": true, "settable": false},
+            {"id": "ads", "title": "Block content recognition (ACR) and ads", "detail": "Stops content recognition, ad overlays and banners.", "kind": "switch", "on": true, "available": true},
+            {"id": "settings", "title": "Keep LG's viewing and ad settings off", "detail": "Switches LG's 16 settings off.", "kind": "switch", "on": true, "available": true,
+             "settings": [{"key": "option.livePlus", "target": "off", "detail": "Live Plus content recognition", "value": "off", "available": true}, {"key": "general.adCookie", "target": "off", "detail": "ad cookie", "value": "on", "available": true}, {"key": "general.newThing", "target": "off", "detail": "new thing", "value": "off", "available": false}]},
+            {"id": "uploaders", "title": "Block telemetry uploads", "detail": "Stops LG's uploads.", "kind": "switch", "on": false, "available": false, "reason": "declutter tool missing"},
+            {"id": "hosts", "title": "Block ad & tracker hosts", "detail": "Blocks advertising names.", "kind": "switch", "on": true, "available": true, "effective": true, "count": 212},
+            {"id": "amazoff", "title": "Block Prime Video ads", "detail": "Takes the ads out of Prime Video.", "kind": "switch", "on": true, "available": true, "protection": "waiting"},
+            {"id": "consent.acrAllowed", "title": "Allow content recognition (ACR)", "kind": "switch", "on": true, "available": true, "settable": true, "agreements": [{"title": "Analytics"}]},
+            {"id": "consent.customAdAllowed", "title": "Allow personalised ads", "kind": "switch", "on": true, "available": true, "settable": true},
+            {"id": "consent.networkAllowed", "title": "Accept LG's network service terms", "kind": "switch", "on": true, "available": true, "settable": false},
             {"id": "permissions", "kind": "link"}]}})
     }
 
@@ -364,58 +468,140 @@ mod tests {
         w
     }
 
+    fn toasts(ops: &[Op]) -> Vec<String> {
+        ops.iter().filter_map(|o| match o { Op::Act { uri, payload } if uri.ends_with("/createToast") => payload["message"].as_str().map(str::to_string), _ => None }).collect()
+    }
+
+    fn ask_of(ops: &[Op]) -> &Ask {
+        let [Op::Ask(a)] = ops else { panic!("{ops:?}") };
+        a
+    }
+
     #[test]
-    fn the_blockers_come_from_the_menu_with_what_is_true_now_and_the_rail_counts_them() {
+    fn every_blocker_says_what_on_means_and_the_rail_counts_the_blocking() {
         let w = world();
         let c = w.ctx();
-        assert_eq!(summary(&c), "3 of 6 on", "ads, hosts and amazoff are on");
+        assert_eq!(summary(&c), "4 of 6 blocking", "ads, settings, hosts and amazoff are on");
         let r = rows(&c);
         let tab0: Vec<&Row> = r.iter().filter(|x| x.tab == 0).collect();
-        assert_eq!(tab0.iter().map(|x| x.label.as_str()).collect::<Vec<_>>(), vec!["Content recognition & advertising services", "Viewing information, ads & promotions", "Held settings", "Telemetry & diagnostic uploaders", "Block ad & tracker hosts", "Prime Video ads (Amazoff)"]);
+        assert_eq!(
+            tab0.iter().map(|x| x.label.as_str()).collect::<Vec<_>>(),
+            vec!["Block content recognition (ACR) and ads", "Keep LG's viewing and ad settings off", "LG privacy settings kept off", "Block telemetry uploads", "Block ad & tracker hosts", "Prime Video ads"]
+        );
         let ads = tab0[0];
         assert!(ads.on && ads.enabled && ads.admin && ads.kind == Kind::Toggle);
-        assert_eq!(ads.help, "Stops ACR, content mining, ad overlays and banners", "the first clause of the helper's sentence");
-        assert_eq!(tab0[2].value, "1 of 2", "one of the two settings is held");
+        assert_eq!(ads.help, "Stops content recognition, ad overlays and banners", "the first clause of the helper's sentence");
+        assert_eq!(tab0[2].value, "1 of 3 kept off", "one of the three settings is held");
         let up = tab0[3];
-        assert!(!up.enabled && up.detail == "declutter tool missing", "unavailable: dimmed with the helper's reason");
+        assert!(!up.enabled && up.detail == "Not available on this TV", "unavailable: dimmed, and the helper's jargon is not shown: {}", up.detail);
         assert_eq!(tab0[4].detail, "212 names blocked");
-        assert_eq!(tab0[5].detail, "On; waiting for Prime Video to play");
+        for x in &tab0 {
+            assert!(x.kind != Kind::Toggle || ["Block ", "Keep "].iter().any(|v| x.label.starts_with(v)), "a protection starts with its verb: {}", x.label);
+        }
+        for x in r.iter().filter(|x| x.tab == 1 && x.kind == Kind::Toggle) {
+            assert!(x.label.starts_with("Allow ") || x.label.starts_with("Accept "), "a consent says what is allowed: {}", x.label);
+        }
     }
 
     #[test]
-    fn a_switch_only_asks_the_helper_to_prepare_the_change() {
+    fn on_in_the_row_is_on_in_the_helper_for_every_privacy_switch_and_nothing_asks_first() {
         let w = world();
         let c = w.ctx();
         let r = rows(&c);
-        let ads = r.iter().find(|x| x.id == "privacy:ads").unwrap();
-        let ops = (ads.act.as_ref().unwrap())(Arg::Toggle(false));
-        let [Op::Send { name, method, path, body }] = &ops[..] else { panic!("{ops:?}") };
-        assert_eq!((name.as_deref(), *method, path.as_str()), (Some("privacy.prepare"), "POST", "/v1/privacy/prepare"));
-        assert_eq!(body.as_ref().unwrap(), &json!({"id": "ads", "enabled": false}));
+        for it in items(&c).into_iter().filter(|i| i.get("kind").and_then(Value::as_str) == Some("switch") && text(i, "id") != "amazoff") {
+            let id = text(it, "id");
+            let row = r.iter().find(|x| x.id == format!("privacy:{id}")).unwrap_or_else(|| panic!("{id}"));
+            assert_eq!(row.on, it["on"].as_bool().unwrap(), "{id}: the switch shows the helper's state, not its opposite");
+            for want in [true, false] {
+                let ops = (row.act.as_ref().unwrap())(Arg::Toggle(want));
+                assert!(!ops.iter().any(|o| matches!(o, Op::Ask(_))), "{id}: a switch opens no question");
+                assert!(matches!(&ops[0], Op::Set(k, v) if *k == format!("pend:{id}") && v == &json!(if want { "on" } else { "off" })), "{id}: it flips at once: {ops:?}");
+                let Op::Send { name, method, path, body } = &ops[1] else { panic!("{ops:?}") };
+                assert_eq!((name.as_deref().unwrap(), *method, path.as_str()), (format!("privacy.prepare:{id}").as_str(), "POST", "/v1/privacy/prepare"));
+                assert_eq!(body.as_ref().unwrap(), &json!({"id": id, "enabled": want}), "{id}: ON in the UI sends enabled=true, and the helper's on is blocking/allowing");
+            }
+        }
     }
 
     #[test]
-    fn the_prepared_change_is_shown_exactly_and_only_an_answer_of_the_owner_applies_it() {
+    fn a_pressed_switch_shows_the_new_state_at_once_and_the_prepared_change_is_applied_and_said_in_a_toast() {
+        let mut w = world();
+        w.docs.set("privacy", menu_doc());
+        let c = w.ctx();
+        let prepared = json!({"ok": true, "confirmation": "tok123", "expiresInSeconds": 60, "plan": {"key": "hosts", "on": false}});
+        let ops = answered(&c, "privacy.prepare:hosts", &prepared);
+        let Some(Op::Send { name, path, body, .. }) = ops.last() else { panic!("{ops:?}") };
+        assert_eq!((name.as_deref(), path.as_str()), (Some("privacy.apply:hosts"), "/v1/privacy/apply"));
+        assert_eq!(body.as_ref().unwrap(), &json!({"id": "hosts", "enabled": false, "confirmation": "tok123"}));
+        assert!(!ops.iter().any(|o| matches!(o, Op::Ask(_))), "no question: the owner's press was the answer");
+        // applied: a toast says what was done, in the direction it went
+        let said = |id: &str, on: bool| toasts(&answered(&c, &format!("privacy.apply:{id}"), &json!({"ok": true, "changed": id, "on": on})));
+        assert_eq!(said("ads", true), vec!["Content recognition and ads blocked"]);
+        assert_eq!(said("ads", false), vec!["Content recognition and ads allowed"]);
+        assert_eq!(said("uploaders", true), vec!["Telemetry uploads blocked"]);
+        assert_eq!(said("hosts", false), vec!["Ad and tracker hosts allowed"]);
+        assert_eq!(said("consent.acrAllowed", true), vec!["Content recognition (ACR) allowed"]);
+        assert_eq!(said("consent.customAdAllowed", false), vec!["Personalised ads no longer allowed"]);
+        // a refusal flips the switch back and says why
+        let ops = answered(&c, "privacy.prepare:consent.customAdAllowed", &json!({"ok": false, "error": {"code": "privacy_change_refused", "message": "this consent can only be changed in LG's own menus"}}));
+        assert!(ops.iter().any(|o| matches!(o, Op::Set(k, Value::Null) if k == "pend:consent.customAdAllowed")));
+        assert_eq!(toasts(&ops), vec!["Not changed: this consent can only be changed in LG's own menus"]);
+        let ops = answered(&c, "privacy.apply:ads", &json!({"ok": false, "error": {"message": "expired"}}));
+        assert_eq!(toasts(&ops), vec!["Not changed: expired"]);
+    }
+
+    #[test]
+    fn a_consent_that_shares_its_agreement_says_what_else_changed() {
         let w = world();
         let c = w.ctx();
-        let prepared = json!({"ok": true, "confirmation": "tok123", "expiresInSeconds": 60, "plan": {"key": "hosts", "on": false, "hosts": ["a.example", "b.example"]}});
-        let ops = answered(&c, "privacy.prepare", &prepared);
-        let [Op::Ask(ask)] = &ops[..] else { panic!("{ops:?}") };
-        assert_eq!(ask.title, "Turn off Block ad & tracker hosts?");
-        assert!(ask.body.starts_with("2 advertising and tracker names are blocked"), "{}", ask.body);
-        assert_eq!(ask.answers[0].id, "no", "the safe answer is first, and Back means it");
-        assert!(ask.answers[0].then.is_empty());
-        let [Op::Send { path, body, .. }] = &ask.answers[1].then[..] else { panic!() };
-        assert_eq!(path, "/v1/privacy/apply");
-        assert_eq!(body.as_ref().unwrap(), &json!({"id": "hosts", "enabled": false, "confirmation": "tok123"}));
-        // a refusal is shown, not applied
-        let ops = answered(&c, "privacy.prepare", &json!({"ok": false, "error": {"code": "privacy_change_refused", "message": "this consent can only be changed in LG's own menus"}}));
-        let [Op::Ask(ask)] = &ops[..] else { panic!() };
-        assert_eq!((ask.title.as_str(), ask.answers.len()), ("Not changed", 1));
-        assert!(ask.body.contains("LG's own menus"));
-        // an applied change is read back; a refused one is shown first
-        assert!(matches!(&answered(&c, "privacy.apply", &json!({"ok": true}))[..], [Op::Refresh]));
-        assert!(matches!(&answered(&c, "privacy.apply", &json!({"ok": false, "error": {"message": "expired"}}))[..], [Op::Ask(_), Op::Refresh]));
+        let plan = json!({"key": "consent.acrAllowed", "on": false, "changes": {"changed": ["acrAllowed", "customAdAllowed"]}});
+        let ops = answered(&c, "privacy.prepare:consent.acrAllowed", &json!({"ok": true, "confirmation": "t", "plan": plan}));
+        assert!(matches!(&ops[0], Op::Set(k, v) if k == "also:consent.acrAllowed" && v == &json!("Also changed: personalised ads")), "{ops:?}");
+    }
+
+    #[test]
+    fn the_pending_state_holds_the_flip_until_the_menu_agrees() {
+        let mut w = world();
+        w.local.set("pend:uploaders", json!("on"));
+        w.local.set("pend:ads", json!("off"));
+        let c = w.ctx();
+        let r = rows(&c);
+        assert!(r.iter().find(|x| x.id == "privacy:ads").is_some_and(|x| !x.on), "the helper says on, the owner just pressed off");
+        assert!(r.iter().find(|x| x.id == "privacy:uploaders").is_some_and(|x| x.on));
+    }
+
+    #[test]
+    fn prime_video_ads_are_a_status_with_a_chevron_and_one_plain_question() {
+        let mut w = world();
+        let find = |w: &World| rows(&w.ctx()).into_iter().find(|x| x.id == "privacy:amazoff").unwrap();
+        let on = find(&w);
+        assert_eq!((on.kind, on.label.as_str(), on.value.as_str(), on.detail.as_str()), (Kind::Value, "Prime Video ads", "Ready", "Starts when Prime Video plays"));
+        assert!(on.chevron && on.enabled);
+        let ops = (on.act.as_ref().unwrap())(Arg::Press);
+        let a = ask_of(&ops);
+        assert_eq!((a.title.as_str(), a.answers[0].label.as_str(), a.answers[1].label.as_str()), ("Allow Prime Video ads again?", "Cancel", "Allow ads"));
+        for jargon in ["CA", "goproxy", "rootfs", "DRM", "cloudfront", "certificate"] {
+            assert!(!a.body.contains(jargon) && !a.title.contains(jargon), "{}", a.body);
+        }
+        // off: the question is to block
+        let mut doc = menu_doc();
+        doc["privacy"]["items"][4]["on"] = json!(false);
+        w.docs.set("privacy", doc);
+        let off = find(&w);
+        assert_eq!((off.value.as_str(), off.detail.as_str()), ("Allowed", ""));
+        let ops = (off.act.as_ref().unwrap())(Arg::Press);
+        let a = ask_of(&ops);
+        assert_eq!((a.title.as_str(), a.answers[1].label.as_str()), ("Block Prime Video ads?", "Block ads"));
+        assert_eq!(a.body, "Prime Video restarts, and the old AmazOff app, if it is installed, is switched off.", "one sentence, and nothing left for the owner to do");
+        assert!(a.answers[0].then.is_empty(), "Cancel does nothing");
+        assert!(matches!(&a.answers[1].then[..], [Op::Set(k, _), Op::Send { body: Some(b), .. }] if k == "busy:amazoff" && b == &json!({"id": "amazoff", "enabled": true})), "ON in the question is the helper's on");
+        // a TV without Prime Video says so in words, with no chevron to nowhere
+        let mut doc = menu_doc();
+        doc["privacy"]["items"][4]["available"] = json!(false);
+        doc["privacy"]["items"][4]["reason"] = json!("Prime Video is not installed on this TV");
+        w.docs.set("privacy", doc);
+        let none = find(&w);
+        assert_eq!((none.value.as_str(), none.detail.as_str(), none.enabled), ("Not available", "Prime Video is not installed on this TV", false));
     }
 
     #[test]
@@ -430,29 +616,68 @@ mod tests {
     }
 
     #[test]
-    fn lgs_own_privacy_rows_ask_before_they_turn_on_and_live_promotion_follows_live_plus() {
+    fn lgs_own_privacy_rows_flip_in_place_say_what_on_means_and_toast() {
         let mut w = world();
         w.lg = crate::settings::ctx::fixtures::lg_with(&[("option", json!({"settings": {"livePlus": "off", "livePromotion": "on"}})), ("general", json!({"settings": {"doNotSellMyPersonalInformation": "off", "lmt": "off"}}))], &[]);
         let c = w.ctx();
         let r = rows(&c);
-        let plus = r.iter().find(|x| x.id == "option.livePlus").unwrap();
-        assert!(!plus.on);
-        assert!(matches!(&(plus.act.as_ref().unwrap())(Arg::Toggle(true))[..], [Op::Ask(_)]), "turning it on asks first");
-        assert!(matches!(&(plus.act.as_ref().unwrap())(Arg::Toggle(false))[..], [Op::Lg { .. }]), "off does not");
-        let promo = r.iter().find(|x| x.id == "option.livePromotion").unwrap();
-        assert!(!promo.enabled && promo.detail == "Turn Live Plus on");
-        let dns = r.iter().find(|x| x.id == "general.doNotSellMyPersonalInformation").unwrap();
-        assert!(matches!(&(dns.act.as_ref().unwrap())(Arg::Toggle(true))[..], [Op::Ask(_)]));
+        let by = |id: &str| r.iter().find(|x| x.id == id).unwrap_or_else(|| panic!("{id}"));
+        let plus = by("option.livePlus");
+        assert_eq!((plus.label.as_str(), plus.tab, plus.on), ("Allow content recognition (Live Plus)", 1, false));
+        let ops = (plus.act.as_ref().unwrap())(Arg::Toggle(true));
+        assert!(matches!(&ops[0], Op::Lg { ds, value, .. } if ds == "option.livePlus" && value == "on"), "ON in the row is LG's on");
+        assert_eq!(toasts(&ops), vec!["Content recognition allowed"]);
+        assert_eq!(toasts(&(plus.act.as_ref().unwrap())(Arg::Toggle(false))), vec!["Content recognition no longer allowed"]);
+        let promo = by("option.livePromotion");
+        assert_eq!((promo.label.as_str(), promo.tab, promo.enabled, promo.detail.as_str()), ("Allow custom ads while watching (Live Promotion)", 2, false, "Allow content recognition first"));
+        let dns = by("general.doNotSellMyPersonalInformation");
+        assert_eq!(dns.label, "Ask LG not to sell my data");
+        let ops = (dns.act.as_ref().unwrap())(Arg::Toggle(true));
+        assert!(matches!(&ops[0], Op::Act { payload, .. } if payload["status"] == "on"), "ON is the request made");
+        assert_eq!(toasts(&ops), vec!["LG asked not to sell this TV's data"]);
+        assert!(!(dns.act.as_ref().unwrap())(Arg::Toggle(false)).iter().any(|o| matches!(o, Op::Ask(_))));
+        assert_eq!(by("general.lmt").label, "Limit ad tracking");
     }
 
     #[test]
-    fn without_a_menu_the_blockers_say_so_and_the_held_page_lists_what_the_helper_observed() {
-        let mut w = World::new(crate::host::sio::Sio::new(0));
+    fn without_a_menu_the_blockers_say_so() {
+        let w = World::new(crate::host::sio::Sio::new(0));
         let r = rows(&w.ctx());
         assert!(r.iter().any(|x| x.kind == Kind::Empty && x.tab == 0));
         assert_eq!(summary(&w.ctx()), "");
-        w.docs.set("privacy", menu_doc());
+    }
+
+    #[test]
+    fn the_held_page_explains_itself_in_plain_words_by_theme_with_a_state_in_words() {
+        let mut w = world();
         let held = held_rows(&w.ctx());
-        assert_eq!(held.iter().map(|x| (x.label.as_str(), x.value.as_str(), x.detail.as_str())).collect::<Vec<_>>(), vec![("Live Plus content recognition", "Off", ""), ("Ad cookie", "On", "LG has it on")]);
+        assert_eq!(held[0].kind, Kind::Note);
+        assert_eq!(held[0].text, "LumaTV switches these back off if LG turns them on.");
+        let lines: Vec<(Kind, String, String)> = held.iter().skip(1).map(|x| (x.kind, if x.kind == Kind::Head { x.text.clone() } else { x.label.clone() }, x.value.clone())).collect();
+        assert_eq!(
+            lines,
+            vec![
+                (Kind::Head, "Viewing data".to_string(), String::new()),
+                (Kind::Value, "Recognise what is on screen (Live Plus)".to_string(), "Kept off".to_string()),
+                (Kind::Head, "Ads".to_string(), String::new()),
+                (Kind::Value, "Advertising cookie".to_string(), "On now".to_string()),
+                (Kind::Head, "More".to_string(), String::new()),
+                (Kind::Value, "New thing".to_string(), "Not on this TV".to_string()),
+            ]
+        );
+        // with the switch off nothing is held: the words are plain On and Off
+        let mut doc = menu_doc();
+        doc["privacy"]["items"][1]["on"] = json!(false);
+        w.docs.set("privacy", doc);
+        let held = held_rows(&w.ctx());
+        assert!(held[0].text.contains("only while"), "{}", held[0].text);
+        assert_eq!(held[2].value, "Off");
+        assert_eq!(held[4].value, "On");
+        // every setting the helper has at the time of writing has a plain name here
+        let names: Vec<&str> = HELD_THEMES.iter().flat_map(|(_, m)| m.iter().map(|(k, _)| *k)).collect();
+        for line in include_str!("../../../../../payload/declutter/items.txt").lines().filter(|l| l.starts_with("setting|settings|")) {
+            let key = line.split('|').nth(2).unwrap();
+            assert!(names.contains(&key), "{key} has no plain name");
+        }
     }
 }

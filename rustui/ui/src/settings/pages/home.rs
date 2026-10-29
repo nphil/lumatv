@@ -3,7 +3,7 @@
 //! tabs; the rows that are the TV's own settings (Home Settings and AI Recommendation on Home, LG's screen saver on Screensaver, Always
 //! Ready on Standby) go through LG's service on LG's keys. The layout of the pop-ups has its own page, the screensaver's sources too.
 
-use crate::settings::ctx::{Ctx, Spec, ask};
+use crate::settings::ctx::{Ctx, Spec, ask, toast};
 use crate::settings::names;
 use crate::settings::page::{Page, Read};
 use crate::settings::row::{Arg, Op, Row, ShellRequest, patch_of, settings};
@@ -92,11 +92,11 @@ fn rows(c: &Ctx) -> Vec<Row> {
         _ => Vec::new(),
     }));
     rows.push(power);
-    rows.push(c.toggle(Spec::new("general.homePromotion").tab(1).icon("star").label("Home Promotion").help("Shows or hides the sponsored ads in LG's own Home menu.").lg_shown()));
-    rows.push(c.toggle(Spec::new("other.contentRecommendation").tab(1).icon("list-video").label("Content Recommendation").help("Shows or hides the content recommendations in LG's own Home menu. Not available in every country.").lg_shown()));
-    rows.push(c.toggle(Spec::new("option.broadcastInfoNoti").tab(1).icon("sparkles").label("Who.Where.What?").help("LG's suggestions about the people, places and things in what Live TV is showing.").lg_shown()));
-    rows.push(c.toggle(Spec::new("general.aiNudge").tab(1).icon("sparkles").label("Smart Tips").help("LG's tips about features, shown now and then on Home.").lg_shown()));
-    rows.push(c.toggle(Spec::new("general.aiSettingsNudge").tab(1).icon("sparkles").label("Smart Tips in Settings").help("LG's tips about settings, shown inside LG's Settings screens.").lg_shown()));
+    rows.push(c.toggle(Spec::new("general.homePromotion").tab(1).icon("star").label("Show promotions in LG's Home").help("The sponsored ads in LG's own Home menu.").lg_shown()));
+    rows.push(c.toggle(Spec::new("other.contentRecommendation").tab(1).icon("list-video").label("Show content recommendations in LG's Home").help("The content recommendations in LG's own Home menu. Not available in every country.").lg_shown()));
+    rows.push(c.toggle(Spec::new("option.broadcastInfoNoti").tab(1).icon("sparkles").label("Show Who.Where.What? suggestions").help("LG's suggestions about the people, places and things in what Live TV is showing.").lg_shown()));
+    rows.push(c.toggle(Spec::new("general.aiNudge").tab(1).icon("sparkles").label("Show feature tips on Home").help("LG's tips about features, shown now and then on Home.").lg_shown()));
+    rows.push(c.toggle(Spec::new("general.aiSettingsNudge").tab(1).icon("sparkles").label("Show setting tips in LG's Settings").help("LG's tips about settings, shown inside LG's Settings screens.").lg_shown()));
 
     // ---- Screensaver
     let style = c.theme_str("screensaver.style").unwrap_or("clock").to_string();
@@ -143,7 +143,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
     rows.push(c.choice(Spec::new("option.screenSaverTimer").tab(2).icon("timer").label("Screen Saver Standby Time").help("How long without a key before LG's screen saver starts.").names(SAVER_TIMES).write(|v| {
         vec![Op::LgMany { category: "option".into(), settings: settings(&[("screenSaverTimer", json!(v)), ("checkChangedScreenSaverTimerByUser", json!("user"))]), app: None }]
     })));
-    rows.push(c.toggle(Spec::new("general.screenSaverAd").tab(2).icon("star").label("Screen Saver Promotion").help("Shows or hides the ads some apps, such as LG Channels, put on LG's screen saver.").lg_shown()));
+    rows.push(c.toggle(Spec::new("general.screenSaverAd").tab(2).icon("star").label("Show ads on LG's screen saver").help("The ads some apps, such as LG Channels, put on LG's screen saver.").lg_shown()));
 
     // ---- Standby
     let logo = |key: &str| c.theme_at(&format!("logo.{key}")).and_then(Value::as_u64).unwrap_or(1).clamp(1, 3) as usize - 1;
@@ -156,7 +156,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
     always.visible = c.lg.shown("general.lifeOnScreenMode");
     rows.push(always.act(|a| match a {
         Arg::Toggle(true) => vec![Op::Lg { ds: "general.lifeOnScreenMode".into(), value: json!("allEnabled"), app: None }],
-        Arg::Toggle(false) => ask("moon-star", "Turn Always Ready off?", "In standby the TV goes dark.", "Turn off", "Cancel", false, vec![Op::Lg { ds: "general.lifeOnScreenMode".into(), value: json!("off"), app: None }]),
+        Arg::Toggle(false) => vec![Op::Lg { ds: "general.lifeOnScreenMode".into(), value: json!("off"), app: None }, toast("Always Ready off: in standby the TV goes dark")],
         _ => Vec::new(),
     }));
     let when_ready = |mut r: Row, ds: &str| {
@@ -295,7 +295,7 @@ mod tests {
     }
 
     #[test]
-    fn the_standby_tab_has_the_logos_and_always_ready_whose_rows_wait_for_it_and_whose_off_asks() {
+    fn the_standby_tab_has_the_logos_and_always_ready_whose_rows_wait_for_it_and_whose_off_flips_in_place() {
         let w = world();
         let r = rows(&w.ctx());
         assert_eq!((by_id(&r, "logoon").index, by_id(&r, "logooff").index), (Some(1), Some(2)));
@@ -304,7 +304,9 @@ mod tests {
         assert!(!always.on && always.admin);
         let on = (always.act.as_ref().unwrap())(Arg::Toggle(true));
         assert!(matches!(&on[..], [Op::Lg { value, .. }] if value == "allEnabled"));
-        assert!(matches!(&(always.act.as_ref().unwrap())(Arg::Toggle(false))[..], [Op::Ask(_)]), "off asks first");
+        let off = (always.act.as_ref().unwrap())(Arg::Toggle(false));
+        assert!(matches!(&off[0], Op::Lg { value, .. } if value == "off") && !off.iter().any(|o| matches!(o, Op::Ask(_))), "a switch opens no question");
+        assert!(off.iter().any(|o| matches!(o, Op::Act { uri, .. } if uri.ends_with("/createToast"))), "it says what it did");
         let sensor = by_id(&r, "option.lifeOnScreenUsingMotionSensor");
         assert!(!sensor.enabled && sensor.detail == "Turn Always Ready on");
     }

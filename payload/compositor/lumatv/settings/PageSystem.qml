@@ -96,27 +96,26 @@ PageList {
         { kind: "value", tab: 2, icon: "clock", label: "Panel hours", help: "How long the panel has been on, as LG counts it. It does not reset.",
           value: function() { return Power.panelHours !== "" ? Power.panelHours : "Not read" }, info: true, chevron: false,
           visible: function() { return Power.panelShown } },
-        R.toggle(Sio, { ds: "picture.screenShift", tab: 2, icon: "scan-eye", label: "Screen shift", help: "Moves the picture a pixel now and then so the panel wears evenly." }),
+        R.toggle(Sio, { ds: "picture.screenShift", tab: 2, icon: "scan-eye", label: "Shift the picture slightly", help: "Moves the picture a pixel now and then so the panel wears evenly." }),
         R.seg(Sio, { ds: "picture.logoLuminanceAdjust", tab: 2, icon: "contrast", label: "Dim logos and subtitles", help: "Lowers the brightness of static logos and subtitles so they do not burn in.",
                      options: ["Off", "Light", "Strong"], values: ["off", "light", "strong"] }),
         C.lgShown(Sio, "other.oledCareMode", C.choice(Sio, { ds: "other.oledCareMode", tab: 2, icon: "shield-check", label: "Care Picture Settings", names: "oledCare", page: page,
                                                             help: "A picture set for the eyes or for the room: comfort, theater or kids. It replaces the energy saving step." })),
         C.lgShown(Sio, "picture.scheduledPixelCleaning", {
-            kind: "toggle", tab: 2, id: "pixelcleaning", icon: "sparkles", label: "Pixel Cleaning", help: "The panel runs a cleaning the next time the TV is turned off, and the TV stays off for about an hour.",
+            kind: "toggle", tab: 2, id: "pixelcleaning", icon: "sparkles", label: "Clean pixels when the TV is turned off", help: "The panel runs a cleaning the next time the TV is turned off, and the TV stays off for about an hour.",
             detail: R.unavailable(Sio, "picture.scheduledPixelCleaning"), enabled: function() { return Sio.usable("picture.scheduledPixelCleaning") },
             on: function() { return String(Sio.get("picture.scheduledPixelCleaning")) === "on" },
             act: function(v) {
                 if (!v) { Sio.write("picture.scheduledPixelCleaning", "off"); return }
-                C.ask(page, { icon: "sparkles", title: "Clean the pixels?", body: "It runs when the TV is turned off next, and takes about an hour.", yes: "Turn on", no: "Cancel" },
-                      function() { Sio.write("picture.scheduledPixelCleaning", "on") })()
+                Sio.write("picture.scheduledPixelCleaning", "on")
             } }),
-        C.lgShown(Sio, "other.oledCareRecommendation", R.toggle(Sio, { ds: "other.oledCareRecommendation", tab: 2, icon: "lightbulb", label: "Care Recommendations",
+        C.lgShown(Sio, "other.oledCareRecommendation", R.toggle(Sio, { ds: "other.oledCareRecommendation", tab: 2, icon: "lightbulb", label: "Suggest picture care settings",
                                                                       help: "Suggests a picture setting for eye strain or the room, from how the TV is watched." })),
 
         R.head("LumaTV panel care", 2),
-        page.careRow("enabled", "shield-check", "LumaTV screens", "Moves LumaTV's own screens a pixel now and then and dims Home when it sits idle."),
+        page.careRow("enabled", "shield-check", "Protect LumaTV screens", "Moves LumaTV's own screens a pixel now and then and dims Home when it sits idle."),
         page.careRow("appDim", "sun-medium", "Dim still apps", "Dims an app a little when its picture has not changed for a few minutes. Video and any key bring it back."),
-        page.careRow("appShift", "waves", "Shift apps", "Slowly moves an app's picture a few pixels while it sits still. A key or video puts it back."),
+        page.careRow("appShift", "waves", "Shift still apps", "Slowly moves an app's picture a few pixels while it sits still. A key or video puts it back."),
         page.careRow("boxDim", "sun-dim", "Dim bright still areas", "Dims only the bright parts of a picture that stays still, such as menu boxes. Video is never touched."),
         page.careRow("panelDim", "sun", "Dim with the panel", "The screensaver and an idle Home dim the panel's own light instead of drawing darker. Any key puts it back.", true),
         page.careRow("refreshGuard", "rotate-ccw", "Protect panel refresh", "Keeps LG's panel refresh from being cut short when the TV is turned on just after it turns off."),

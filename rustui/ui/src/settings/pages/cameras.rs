@@ -233,7 +233,7 @@ mod tests {
             {"id": "link", "title": "Scrypted", "fields": [{"key": "link.status", "label": "Connection", "kind": {"type": "read-only", "value": {"capability": "plugin.scrypted-cameras.link"}}}]},
             {"id": "show", "title": "Cameras", "fields": [{"key": "show", "label": "Show cameras", "help": "Empty shows every camera.", "kind": {"type": "ordered-set", "options": {"provider": "cameras"}, "max_items": 128}}]},
             {"id": "popups", "title": "Pop-ups", "fields": [
-                {"key": "popups.on", "label": "Event pop-ups", "kind": {"type": "bool"}},
+                {"key": "popups.on", "label": "Show event pop-ups", "kind": {"type": "bool"}},
                 {"key": "popups.seconds", "label": "Stay for", "kind": {"type": "integer", "min": 5, "max": 60, "step": 1, "unit": "s"}}]},
             {"id": "notify", "title": "Notify for", "fields": [
                 {"key": "notify.270", "label": "Front door", "kind": {"type": "ordered-set", "options": {"provider": "kinds"}, "max_items": 8}},
