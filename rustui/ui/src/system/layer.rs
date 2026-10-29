@@ -243,6 +243,12 @@ impl Layer {
         out
     }
 
+    /// A question of the system layer that is not Home's (an alert, the AI access prompt) is up: the extras of Home are not to be opened by any key
+    /// while it is (the QML's `!aiPrompt.up`), and nothing the extras draw may answer it.
+    pub fn questions_up(&self, kinds: &Kinds) -> bool {
+        (kinds.alert && self.alerts.wants()) || (kinds.ai && self.ai.wants())
+    }
+
     /// The voice key went down or up (the compositor sends it when the helper says voice search is ready).
     pub fn voice_key(&mut self, down: bool, now: u64) -> Vec<Effect> {
         self.now_ms = now;

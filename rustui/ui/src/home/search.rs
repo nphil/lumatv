@@ -134,6 +134,11 @@ impl Search {
         *self = Self { apps, voice, index: 14, caret_until: now + 500, ..Self::default() };
     }
 
+    /// The Settings pages the answers may be (what the shell lists when the sheet opens, and again once it is asked).
+    pub fn set_pages(&mut self, pages: Vec<Value>) {
+        self.pages = pages;
+    }
+
     /// A name is typed: `prompt` says whose.
     pub fn open_entry(&mut self, prompt: &str, text: &str, now: u64) {
         *self = Self { entry: true, prompt: prompt.to_owned(), text: text.to_owned(), index: 14, caret_until: now + 500, ..Self::default() };

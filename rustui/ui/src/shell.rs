@@ -393,6 +393,11 @@ impl Shell {
             }
         }
         self.extras_flow(now, acts);
+        // Search has just opened: its answers may be pages of Settings, which only this process's Settings kind knows
+        if self.kinds.home && self.kinds.settings && self.home.take_pages_wanted() {
+            self.home.set_search_pages(self.settings.search_pages());
+            self.redraw = true;
+        }
         // the Cameras viewer takes the keys unless an alert, a PIN prompt or the keyboard is up over it, or Settings, which its grid opens
         let over = matches!(input, Input::Key { .. }) && (self.sys.busy() || (self.kinds.settings && self.settings.is_open()));
         if self.kinds.cameras && !over && !layer_had {
@@ -593,7 +598,7 @@ impl Shell {
         if let KeyEvent::Key { name, down, repeat, .. } = event
             && name == "voice"
         {
-            if self.kinds.home && !*repeat {
+            if self.kinds.home && !*repeat && (!self.sys.questions_up(&self.kinds) || !*down) {
                 for e in self.sys.voice_key(*down, now) {
                     self.carry(e, now, &mut acts);
                 }
@@ -1475,6 +1480,59 @@ mod tests {
     fn the_mailbox_is_the_one_the_player_and_the_qml_use() {
         let brand: Value = serde_json::from_str(include_str!("../../../brand.json")).expect("brand.json");
         assert_eq!(crate::home::wallvideo::MAILBOX, format!("/tmp/{}-vplane", brand["shortId"].as_str().unwrap()));
+    }
+
+    #[test]
+    fn a_search_answer_that_is_a_page_of_settings_opens_that_page_in_the_settings_kind() {
+        let (_h, mut shell) = home_shell("home,settings");
+        key(&mut shell, "search", 2_000);
+        assert_eq!(shell.state()["home"]["layer"], "search");
+        shell.channel(&Event::Topic { topic: "keyboard.text".into(), data: json!({"text": "netw"}) }, 2_100);
+        let answers = shell.state()["home"]["search"]["answers"].clone();
+        let page = answers.as_array().unwrap().iter().position(|a| a["kind"] == "page" && a["id"] == "network").expect("Settings' Network page is an answer");
+        // the answer is a stop of the arrows: up from the keyboard reaches the answers, down walks them
+        for i in 0..6 {
+            if shell.state()["home"]["search"]["index"].as_u64().is_some_and(|i| i >= 43) {
+                break;
+            }
+            key(&mut shell, "up", 2_200 + i * 100);
+        }
+        for i in 0..4 {
+            let at = shell.state()["home"]["search"]["index"].as_u64().unwrap();
+            if at == 43 + page as u64 {
+                break;
+            }
+            key(&mut shell, if at > 43 + page as u64 { "left" } else { "right" }, 3_000 + i * 100);
+        }
+        assert_eq!(shell.state()["home"]["search"]["index"], 43 + page as u64, "{}", shell.state()["home"]["search"]);
+        key(&mut shell, "ok", 4_000);
+        assert_eq!(shell.state()["settings"]["open"], true);
+        assert_eq!(shell.state()["settings"]["page"], "network");
+        assert_eq!(shell.state()["home"]["layer"], "", "Home's sheet is closed behind it");
+    }
+
+    #[test]
+    fn while_the_ai_prompt_is_up_no_key_opens_anything_of_homes_extras_and_the_mic_key_is_swallowed() {
+        let (_h, kit) = testkit::kit(1.0);
+        let theme = lumatv_tokens::Tokens::shipped().json().clone();
+        let mut shell = Shell::new(kit, Kinds::parse("home,ai"), 2000, &testkit::module_dir().join("icons/audio"), &theme, &json!({})).expect("a shell");
+        shell.start();
+        shell.channel(&Event::Topic { topic: "foreground".into(), data: json!({"app": "com.webos.app.home", "home": true, "covered": false}) }, 1_000);
+        shell.helper(&Event::Up(true), 1_050);
+        shell.helper(&Event::Topic { topic: "voice".into(), data: json!({"ready": true}) }, 1_100);
+        let doc = json!({"id": "a1", "kind": "tv_standby", "assistant": {"id": "c", "name": "Cody"}, "title": "Turn the TV off", "detail": "The TV goes to standby.",
+                         "reason": "Nitin said good night", "shownAt": 1_000, "expiresAt": 31_000, "allow": "OK", "deny": "Back"});
+        shell.helper(&Event::Topic { topic: "ai.prompt".into(), data: doc }, 1_200);
+        assert_eq!(shell.state()["ai"]["up"], true);
+        let mut acts = Vec::new();
+        for (i, name) in ["screenremote", "search", "2", "ok"].into_iter().enumerate() {
+            acts.extend(key(&mut shell, name, 2_000 + i as u64 * 100));
+        }
+        acts.extend(shell.key(&KeyEvent::Key { name: "voice".into(), down: true, repeat: false, seat: 0 }, 2_500));
+        acts.extend(shell.key(&KeyEvent::Key { name: "voice".into(), down: false, repeat: false, seat: 0 }, 2_900));
+        assert!(shell.state()["extras"]["remote"].is_null() && shell.state()["extras"]["voice"] == "" && shell.state()["home"]["layer"] == "", "{}", shell.state()["extras"]);
+        assert!(luna_calls(&acts, "/launch").is_empty() && helper_calls(&acts, "/v1/voice/listen") == 0, "no app, no microphone: {acts:?}");
+        assert_eq!(shell.state()["ai"]["up"], true, "and nothing answered the prompt");
     }
 
     #[test]

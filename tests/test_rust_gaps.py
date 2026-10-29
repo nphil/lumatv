@@ -274,7 +274,7 @@ class RustGapsHome(unittest.TestCase):
             self.assertEqual(ask['card']['w'], 820.0 if scale == 1 else 1496.0, 'the cards grow with the text so no name is broken')
             self.assertEqual(len(ask['picks']), 5, 'four apps and More')
             self.assertEqual(ask['hints'][-2:], ['OK, confirm', 'Back, close'])
-            self.assertEqual(ask['hints'][:-2], ['Left and Right, move'] if scale == 1 else [], 'the D-pad glyph is the first to give way at a large text size')
+            self.assertEqual(ask['hints'][:-2], ['Left and Right, move'], 'the cards grow with the text, the card with them: the D-pad glyph stays')
             self.assertEqual(ev[1], [], '%s at %s: %s' % (mode, scale, ev[1]))
             self.assertTrue(ev[2]['wants'])
             self.assertEqual(ev[3]['extras']['ask']['focus'], 1, 'Right moved the choice')
@@ -317,7 +317,7 @@ class RustGapsHome(unittest.TestCase):
             png = os.path.join(tempfile.mkdtemp(prefix='rustgaps-'), snap[1] + '.png')
             extra += ['--snap', '%d:%s' % (snap[0], png)]
         helper = host.FakeHelper({'topics': {'voice': {'ready': True, 'state': 'idle', 'reason': ''}}, **routes})
-        rc, out, chan, lg, helper = host.run(wait=wait, extra=extra, lg=lgsettings.LgService(answers=rs.ONLINE), helper=helper, kinds='home', text_scale=scale, mode=mode, theme=theme)
+        rc, out, chan, lg, helper = host.run(wait=wait, extra=extra, lg=lgsettings.LgService(answers=rs.ONLINE), helper=helper, kinds='home', text_scale=scale, mode=mode, theme={**(theme or {}), 'material': mode})
         self.assertEqual(rc, 0, out[-2000:])
         if png and os.path.exists(png):
             jpeg(png, os.path.join(RENDERS, '%s-%s-%d.jpg' % (snap[1], mode, scale * 100)))
@@ -438,6 +438,34 @@ class RustGapsHome(unittest.TestCase):
         self.assertEqual((wall['state'], wall['reason'], wall['up']), ('off', 'no player', False), wall)
         self.assertFalse(os.path.exists('/tmp/lumatv-vplane/req.json'), 'no request is left where no player is')
         self.assertTrue(ev[1]['home']['wallpaper'], "Home draws its own picture")
+
+    # ---- the two ways into Settings
+    def test_a_search_answer_that_is_a_page_of_settings_opens_that_page_in_the_rust_settings_kind(self):
+        steps = [self.k(900, 'search'), ['--push', '1500:keyboard.text:{"text":"netw"}'], self.k(1800, 'up', 'up', 'left'), ['--eval', '2700:state'], self.k(2800, 'ok'), ['--eval', '3800:state']]
+        _, ev, _ = self.home(4200, steps, kinds='home,settings')
+        self.assertEqual(ev[0]['home']['layer'], 'search')
+        answers = ev[0]['home']['search']['answers']
+        self.assertIn(('page', 'network'), [(a['kind'], a['id']) for a in answers], answers)
+        self.assertEqual(ev[0]['home']['search']['index'], 43 + [a['id'] for a in answers].index('network'))
+        self.assertTrue(ev[1]['settings']['open'])
+        self.assertEqual(ev[1]['settings']['page'], 'network')
+        self.assertEqual(ev[1]['home']['layer'], '')
+
+    def test_the_gear_opens_the_wallpaper_popover_whose_changes_show_at_once_and_are_kept_when_it_closes(self):
+        for mode, scale in looks():
+            steps = [self.k(900, 'right', 'right', 'ok'), self.k(1500, 'down', 'down', 'right'), ['--eval', '3200:geometry'], ['--eval', '3200:lint'], ['--eval', '3200:state']]
+            out, ev, data = self.home(4000, steps, (3500, 'status-popover'), mode, scale)
+            popover = ev[0]['home']['popover']
+            self.assertIsNotNone(popover, ev[0]['home'])
+            self.assertEqual(popover['head'], 'Wallpaper')
+            self.assertEqual(ev[2]['home']['popover']['row'], 'amplitude')
+            self.assertEqual(ev[2]['home']['popover']['values'][2], '5 px', 'the value changed in front of the person')
+            self.assertEqual(ev[1], [], '%s at %s: %s' % (mode, scale, ev[1]))
+        steps = [self.k(900, 'right', 'right', 'ok'), self.k(1500, 'down', 'down', 'right'), self.k(2100, 'back'), ['--eval', '3000:state']]
+        _, ev, data = self.home(3600, steps)
+        self.assertEqual(ev[0]['home']['popover'], None)
+        with open(os.path.join(data, 'theme', 'theme.json')) as f:
+            self.assertEqual(json.load(f)['wallpaperMotion']['amplitude'], 5.0, 'written to the owner\'s theme at the close')
 
 
 if __name__ == '__main__':

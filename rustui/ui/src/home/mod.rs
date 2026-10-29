@@ -11,6 +11,7 @@ pub mod grid;
 pub mod layers;
 pub mod model;
 pub mod picker;
+pub mod popover;
 pub mod search;
 pub mod stills;
 pub mod surface;

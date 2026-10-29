@@ -1,8 +1,9 @@
 # Rust UI gaps: what is QML-only, what moved, what is left
 
-The Rust shell now has a kind for every user-visible QML screen except the extras Home draws around itself (launch screen, Quick Access, on-screen
-remote, voice bar, mini frame, wallpaper video). This round added the `ai` and `banner` kinds, fixed the three leftovers of the system layer, and wrote
-the models of five of the six extras. The extras are not drawn yet.
+The Rust shell has a kind for every user-visible QML screen. With `home` on, the QML Home is out of the stack and everything it drew around itself is
+drawn by the Rust shell too: the launch screen, Quick Access, the on-screen remote, the push-to-talk voice bar and its microphone mark, the mini frame
+and the moving wallpaper's controller. A Search answer that is a Settings page opens that page in the Rust settings kind, and the status bar's gear
+opens the wallpaper popover as the QML's did. What is left needs the TV: the key codes of the mic, on-screen remote and Search keys, and the checks below.
 
 ## Inventory
 
@@ -29,21 +30,20 @@ Paths are under `payload/compositor/lumatv/` unless noted. "Guard" is the QML-si
 | `LumaHome.qml`, `Dock.qml`, `Tile.qml`, `StatusBar.qml`, `StatusItem.qml`, `Widget.qml`, `widgets/*`, `panels/AppsGrid.qml`, `panels/Search.qml`, `LayoutGrid.js`, `Tint.js`, `Saved.js` | `home` | done earlier, except the rows below |
 | `AiPrompt.qml` | `ai` | **done**: guard `drawn` |
 | `panels/Banner.qml`, `BannerButton.qml` | `banner` | **done**: guard `rustBanner` in `LumaOverlay.qml` |
-| `panels/Splash.qml` | `home` (launch screen) | model written, no surface. The spinner and hold ring have no caller in the QML and are not to be ported |
-| `panels/QuickAccess.qml` | `home` | model written, no surface; the digit logic is not in the Rust Home |
-| `panels/ScreenRemote.qml` | `home` | model written, no surface |
-| `panels/VoiceBar.qml` | `home` | model written, no surface |
-| `MiniFrame.qml` | `home` | model written, no surface; a news item still opens the browser |
-| `WallVideo.qml`, `WallVideo.js` | `home` | not started: the Rust Home fades its wallpaper on the `wall` topic and never asks the player to play |
+| `panels/Splash.qml` | `home` (launch screen) | **done** (`extras_surface/splash.rs`). The spinner and hold ring have no caller in the QML and are not ported |
+| `panels/QuickAccess.qml`, `settings/QuickAccess.js` | `home` | **done** (`extras_surface/access.rs`; the digit logic is in `home/model.rs`) |
+| `panels/ScreenRemote.qml` | `home` | **done** (`extras_surface/remote.rs`) |
+| `panels/VoiceBar.qml` | `home` | **done** (`extras_surface/voice.rs`: the bar and the mark) |
+| `MiniFrame.qml` | `home` | **done** (`extras_surface/frame.rs`); a news story opens it instead of the browser |
+| `WallVideo.qml`, `WallVideo.js` | `home` | **done** (`home/wallvideo.rs`) |
+| Search's `pages` source (`Layers.settingsPages`, `LumaHome.searchPicked`) | `home` | **done**: the shell gives Search Settings' pages when it opens and a picked page opens in the settings kind |
+| `StatusBar.qml`'s settings popover | `home` | **done** (`home/popover.rs`, `PopoverSurface`). Its profile popover is the picker (`Layer::Picker`) |
 | `KitGallery.qml` | none | development only, skipped |
 | `Layers.qml`, `HomePanels.qml`, `PanelMotion.qml`, `Warmup.qml`, `Resident.qml`, `LumaKeyBridge.qml`, `LumaBus.js`, `Glass.qml` | none | QML window glue, warm-up and residency; they go with the QML shell |
 | `kit/*.qml`, `kit/*.js` | `host/*.rs`, `kit/*.rs` | services and widgets are replaced one for one |
 | `logo/*.qml` (13 files) | none | used only by LG's BootLogo and MasterBrand windows under LG's compositor; the LumaTV compositor draws no power-on or power-off logo. Out of scope |
 | `compositor/shell/Shell.qml` | compositor `shell_rust.rs` | stays: it is the fallback and LG's path |
 | `payload/systemui`, `cover`, `splash`, `notification`, `voice`, `inputcommon`, `StarfishFullscreenContainer.qml` | none | restyle patches for LG's own compositor, not LumaTV's path |
-
-Gaps found in the Rust Home besides the extras: a Search answer that is a Settings page is only logged (the search is not given the pages, and
-`Request` has no page), and the status bar's settings popover (live wallpaper sliders) opens Settings instead.
 
 ## Done
 
@@ -60,39 +60,41 @@ Gaps found in the Rust Home besides the extras: a Search answer that is a Settin
 - **The models of the extras** (`system/extras.rs`, 12 behaviour tests): launch screen timing and the compositor's launch-origin notes, Quick Access
   toast and question, the on-screen remote, push-to-talk voice, the mini frame. The remote's key list has no OK, Back or arrow and a test holds it to
   that (Principle 0).
+- **The extras drawn and wired** (`system/extras_surface/`, one file per screen, a `Layer` field gated on `kinds.home`). They hang in Home's stack
+  (below `system_z`): over Home and its layers, under every panel, and under the windows the compositor puts over Home (the mini frame's web half paints
+  into the room the frame leaves clear). Home hands them notes after every input (`take_notes`: launch with the tile's rectangle grown by the focus
+  lift, the digit's toast and question, the remote key, a story); what they ask of Home comes back as intents (`Assign` keeps the choice in
+  `remote.quickAccess` and opens the app, `More` opens Settings at `remote`). While a question, the remote, the frame or the voice bar is up the
+  extras have the keys and the pointer; the lint reads only them (like the entry sheet over Settings). Each is checked at 100 % and 200 % text in
+  both looks (`docs/mocks/host-rust/gaps/`): the question's cards and the remote's pad grow with the text so no word is broken or crammed, the
+  remote's sheet grows upward, the D-pad glyph is the first hint to give way. Hints are glyphs (D-pad, OK, Back, the voice key held), never
+  sentences; hover is a cue, a click selects. The ring that turns is a dozen dots stepped in place every 75 ms (a group pose has no rotation).
+  Nothing on the remote can say OK, Back or an arrow, and the question's and the bar's clicks only choose an app or end the microphone.
+- **Keys** (`shell.rs`, compositor `keys.rs`, `shell_rust.rs`): the mic key goes to the extras before Home sees it; the report's `takes` adds `voice`
+  while the helper can listen or a request is under way, and `screenremote` and `search` while Home is in front. The compositor learns the codes from
+  `compositor/keys.conf` lines `voice N`, `screenremote N`, `search N` and sends those names only while the client lists them.
+- **The moving wallpaper** (`home/wallvideo.rs`): the QML controller's state machine and timers (start within 6 s, poll 200/500 ms, renew 10 s, settle
+  250 ms, stop 250 ms after the clip is let go, ask again every 15 s when no player, manifest every 5 s while the switch is on), the clip pick by the
+  wallpaper, the look and the dark scrim (`wall.json`), and the mailbox files as effects confined to `/tmp/<shortId>-vplane/` (`Shell::file_of`; a test
+  holds the directory to brand.json's short id). Home's own picture and scrim go only when `want && playing && settled && hole` (`WallVideo::up`),
+  so a compositor hole without a playing clip no longer blanks Home, and they are back in the same update the clip stops being wanted. The
+  compositor's side of the contract was already pinned (`luna::video::placement` sends `setDisplayWindow` with `originalInput`, the hole is the whole
+  screen but Home's pixels, the `wall` topic); it is not changed. With the default `wallpaperMotion.source: gpu` nothing of the controller costs anything.
+  The clip's glass alpha (0.80) is the shipped `readingAlpha` (0.80), so the panes' tint over the plane is the clip's; the QML's `backdrop` glass mode
+  (blur of the still) is not ported: a hidden picture cannot be blurred.
+- **Search pages** and **the settings popover**: see the table. The popover's rows are the QML's with their ranges and steps; the GPU wallpaper of the
+  Rust shell carries the amount, the speed and the frame rate, the other sliders are written to the theme as the QML wrote them and decide the clip.
 
 ## Resume here
 
-Order matters; each step is testable alone.
+Needs the TV (no TV access when this was written), in this order:
 
-1. **Surfaces**: `system/extras_surface.rs`, after `ai_surface.rs` and `banner_surface.rs` (a `Root` per sheet, rebuilt when its signature changes).
-   Specs from the QML: launch screen is `scrim_hide` over everything, a 180 px icon (radius 38), the name as Title, a 28 px ring and "Opening"; toast
-   at the top right (`x = 1920 − 64 − w`, `y = 137`), a 64 px digit plate, "N · Name" and the line, 2.4 s; question 820 wide with four 140 px picks,
-   More and Not now; remote pane at `x 64`, `y 656`, 1792 × 360 with the keys at `remote_box(i)` from `x 104`, `y 752`; voice bar 760 × 110 at
-   `x 64`, 56 from the bottom, and a 72 px mic mark at the bottom right while the microphone is open; frame 1520 × 860 with a 64 px bar. No
-   instruction text: the remote and bar take glyph hints (D-pad, OK, Back, `Hint::hold(Key::Mic, …)`), not the QML's sentences. `rewind` has no Lucide
-   mask: mirror `fast-forward`. A group pose has no rotation, so the ring is a dozen dots stepped every `SPIN_MS`.
-2. **`Layer`**: one `extras` field with the usual touchpoints (`update`, `wants`, `busy`, `apply`, `tick`, `due_at`, `state`, `geometry`,
-   `feed_lint`, `restyle`, `on_key`, `pointer`), gated on `kinds.home`. No new compositor kind: the extras follow `home`, so `ctl shell rust -home`
-   gives all of them back to the QML together.
-3. **Home** (`home/model.rs`): a `notes` list with `take_notes()`. `launch()` gains the icon and pushes `Note::Launch` with the tile rectangle (dock
-   `slot(i)` plus `dock_rect()` minus `scroll_px()`, grown by `focus.tileScale` for the focused tile, radius `Radius::Tile`). `digit()` follows
-   `settings/QuickAccess.js` when `remote.quickAccess.on` (`target`, `suggestions`, `chosen`; the choice is written with `Effect::Theme` and
-   `{remote: {quickAccess}}`). The key name `screenremote` pushes `Note::Remote`. A news item's OK pushes `Note::Frame` (`to` = 1520 × 860, centred
-   under the status bar, `y = 150` in the shipped layout). `Intent::Assign` becomes `launch` plus a toast "Assigned. Opening."; `Intent::More` asks
-   Settings for page `remote` (`Request` must stop being `Copy` and gain `SettingsPage(String)`; the same fixes Search's Settings pages).
-4. **Shell** (`shell.rs`): the mic key goes to `extras.voice_key` before Home sees it; `report()["takes"]` adds `voice` while `takes_voice()`, and
-   `screenremote` and `search` while Home is in front; the notes and intents are handed over after each input; `extras.start()` joins the start
-   effects; the `transitions` topic already reaches the client.
-5. **Compositor keys**: the evdev codes of the mic, on-screen remote and Search keys are unknown (no TV access). Teach them by name: `keys.conf`
-   lines `voice N`, `screenremote N`, `search N` fill a second list in `KeyTable` (`shell_name(code)`; `knows()` and `named()` include it);
-   `shell_rust_takes_key` then uses `own_key_name(code).or(table.shell_name(code))` and sends those names only when the client lists them in
-   `takes`, so a mic key that is not ready stays LG's. The journal line "input: key N has no name in the key table" names unknown codes, but only
-   from 768 up.
-6. **Wallpaper video**: port `WallVideo.js` as a controller in the Rust Home: the mailbox `/tmp/<shortId>-vplane/req.json` and `status.json`, the
-   manifest `<data>/vplane/clips/wall.json`. It needs file effects outside the data directory.
-7. **Tests**: scenes and renders in `tests/test_rust_gaps.py` at 100 % and 200 %, dark and light, as for `ai` and `banner`; then the guard in
-   `LumaHome.qml` that hides the QML extras when `home` is a Rust kind (they vanish anyway while the QML Home is out of the stack).
+1. **Teach the keys.** Press the mic, on-screen remote and Search buttons with `ctl journal` open and read `input: key N has no name in the key table`
+   (it names codes from 768 up only; a lower code shows in `ctl keys` after a press with the journal's trace). Add `voice N`, `screenremote N` and
+   `search N` to `/var/lib/lumatv/compositor/keys.conf` and start a session. Until then the three keys stay LG's, as they were under the Rust Home.
+2. **TV checks** below, each twice, then the deletions in the table.
+3. If the set's Magic Remote has no on-screen-remote or Search button, the checks for them are the harness's (`ctl shell show` has no door for them: press
+   the Rust `screenremote` key by teaching any spare button).
 
 ## TV checks
 
@@ -103,7 +105,22 @@ Order matters; each step is testable alone.
    answers it; a click on the screen and the on-screen remote do not. Nothing opens over it.
 4. Toast column from a bottom corner stacks upward; a low anchor's cards fit in the room left; raising the text size in the layout editor keeps the
    stand-ins whole.
-5. Each kind twice before any QML below is deleted. A theme edit made by the QML Settings reaches the Rust client at its next start (`banners.own`).
+5. **Launch screen**: open an app from the dock with the transitions on: the tile is what the card grows from, a launch the app answers inside 400 ms shows
+   no screen, a slow one shows the icon, the name and the ring, and the card then grows out of the icon. With the transitions off it is there at once.
+6. **Quick Access** (theme `remote.quickAccess.on`): a digit with a tile says "N Name / Opening." at the top right for 2.4 s; one with nothing behind it
+   asks, hides the page, answers by the D-pad or a click; the choice is in `theme.json` and survives a restart; More opens Settings at Remote.
+7. **On-screen remote** (the key taught as `screenremote`): opens over a quiet Home only, D-pad walks it, OK presses (play, the digits, the colours move the
+   TV), Back or the key again closes it. No key of it moves the focus of a prompt: with an `ai.prompt` up it is not reachable at all.
+8. **Voice bar** (the key taught as `voice`, the helper's `voice` topic ready): hold the key, the bar and the mark show, release works it out, the words
+   land in Search. Back ends the microphone. With voice search off the key stays LG's.
+9. **Mini frame**: OK on a news story grows the frame out of its card, the web half paints into the room under its bar, the ring goes when it is up,
+   Back closes both.
+10. **Moving wallpaper** (`lumatv wallpaper video`, after the steps of `videoplane-saver-result.md`): `ctl shell state` shows `home.wall` going
+    `starting`, `playing`, `up: true`; Home's own picture goes only then; switching to `gpu` brings it back in the same frame and the player stops
+    250 ms later. A look moved from the popover's amount or speed row draws the GPU wallpaper (the pick names the key).
+11. **Search**: type `net`, the Network page is an answer, OK opens Settings there. **Gear**: OK on the gear opens the wallpaper popover, the cards and the
+    dock step back, Left and Right change the wallpaper at once, Back keeps the changes, "All settings" and "TV settings" open the two Settings.
+12. Each kind twice before any QML below is deleted. A theme edit made by the QML Settings reaches the Rust client at its next start (`banners.own`).
 
 ## Deletable QML
 
@@ -125,6 +142,10 @@ LG's compositor path no longer loads the module.
 | `layout` | the overlay part of `LayoutEdit.qml` |
 | `ai` | `AiPrompt.qml`, its `drawn` guard in `LumaHome.qml`, the `rustKinds` binding in `compositor/shell/Shell.qml` |
 | `banner` | `panels/Banner.qml`, `BannerButton.qml`, `showBanner` and `rustBanner` in `LumaOverlay.qml` |
-| `home` (after the extras) | `LumaHome.qml`, `Dock.qml`, `Tile.qml`, `StatusBar.qml`, `StatusItem.qml`, `Widget.qml`, `widgets/*`, `panels/AppsGrid.qml`, `Search.qml`, `Splash.qml`, `QuickAccess.qml`, `ScreenRemote.qml`, `VoiceBar.qml`, `MiniFrame.qml`, `WallVideo.*`, `LayoutEdit.qml`, `LayoutGrid.js`, `Tint.js`, `Saved.js`, `Glass.qml`, `HomePanels.qml`, `Layers.qml`, `PanelMotion.qml`, `Warmup.qml`, `Resident.qml`, `LumaKeyBridge.qml`, `LumaBus.js`, `kit/*` |
+| `home` | `LumaHome.qml`, `Dock.qml`, `Tile.qml`, `StatusBar.qml` (its settings popover included), `StatusItem.qml`, `Widget.qml`, `widgets/*`, `panels/AppsGrid.qml`, `Search.qml`, `LayoutEdit.qml`, `LayoutGrid.js`, `Tint.js`, `Saved.js`, `Glass.qml`, `HomePanels.qml`, `Layers.qml`, `PanelMotion.qml`, `Warmup.qml`, `Resident.qml`, `LumaKeyBridge.qml`, `LumaBus.js`, `kit/*` |
+| `home` extras (launch screen, Quick Access, on-screen remote, voice bar, mini frame) | `panels/Splash.qml`, `QuickAccess.qml`, `ScreenRemote.qml`, `VoiceBar.qml`, `MiniFrame.qml`, and in `LumaHome.qml` the parts that drive them (`numberKey`, `accessAsk`, `accessAssigned`, `accessMore`, `noteLaunchOrigin`, `noteSplashOrigin`, `openMini`). `settings/QuickAccess.js` stays: the QML Settings page reads it |
+| `home` wallpaper video | `WallVideo.qml`, `WallVideo.js`, the `videoWall*` properties and `gpuFade` in `LumaHome.qml`, `videoWallBackend` and `videoWallHole` in `compositor/shell/Shell.qml`. The QML Settings and `lumatv wallpaper` read `wall.json` and the theme and stay |
+| `home` keys | the mic, on-screen remote and Search key handling of `LumaHome.qml` (`remoteKeyPressed`, `Key_webOS_Voice`) once the three codes are taught and the checks pass |
 
-`KitGallery.qml` is development only and can go at any time. `logo/*` stays until the LG BootLogo and MasterBrand windows are replaced.
+The extras, the wallpaper video, Search's pages and the popover follow `home`: `ctl shell rust -home` gives all of them back to the QML together, so none
+of these files can go before `home`'s own two passes. `KitGallery.qml` is development only and can go at any time. `logo/*` stays until the LG BootLogo and MasterBrand windows are replaced.

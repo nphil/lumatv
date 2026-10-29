@@ -7,7 +7,7 @@
 //! 1.04), and the lit glass that comes up with it; a hover cue is one ring moved to what the pointer is over. The layers over Home
 //! (`layers.rs`) are made when they open and dropped when they close.
 
-use super::layers::{AppsSurface, EditorSurface, MenuSurface, PickerSurface, SearchSurface};
+use super::layers::{AppsSurface, EditorSurface, MenuSurface, PickerSurface, PopoverSurface, SearchSurface};
 use super::model::{self, Home, Layer, STATUS_ID, WIDGET_ID};
 use super::wallpaper::{self, WallpaperSurface};
 use super::widgets::{Content, PAD_SIDE, PAD_TOP, Pictures};
@@ -178,6 +178,7 @@ pub struct HomeSurface {
     editor: Option<EditorSurface>,
     picker: Option<PickerSurface>,
     menu: Option<MenuSurface>,
+    popover: Option<PopoverSurface>,
     veil: Option<ShapeLayer>,
     generation: u64,
     text_scale: f32,
@@ -211,6 +212,7 @@ impl HomeSurface {
             editor: None,
             picker: None,
             menu: None,
+            popover: None,
             veil: None,
             generation: 0,
             text_scale: 0.0,
@@ -343,6 +345,7 @@ impl HomeSurface {
             p.destroy(engine);
         }
         self.menu = None;
+        self.popover = None;
         self.hover = None;
         self.veil = None;
         self.last_focus = None;
@@ -809,11 +812,11 @@ impl HomeSurface {
         let on_cards = current.is_some_and(|id| home.widget_of(id).is_some());
         for c in &self.cards {
             let dim = on_cards && Some(c.focus_id) != current;
-            c.lift.pose(engine, if dim { 0.86 } else { 1.0 }, true);
+            c.lift.pose(engine, if dim { 0.86 } else { 1.0 }, home.layer != Layer::Popover);
         }
         if let Some(d) = &self.dock {
             let on_dock = current.is_some_and(|id| id.0 >= model::DOCK_ID && id.0 < model::DOCK_ID + model::DOCK_MAX);
-            d.lift.pose(engine, if on_cards && !on_dock { 0.92 } else { 1.0 }, true);
+            d.lift.pose(engine, if on_cards && !on_dock { 0.92 } else { 1.0 }, home.layer != Layer::Popover);
             d.lift.pane.restyle(glass_of(kit, PaneKind::Card, d.frame.h, on_dock, self.over_video));
         }
         // the hover cue: a ring on what the pointer is over
@@ -901,8 +904,19 @@ impl HomeSurface {
         if let Some(m) = &mut self.menu {
             m.update(kit, home)?;
         }
+        // the status bar's settings popover: made when it opens and when its rows scroll; the wallpaper behind is the preview, so the page steps back
+        let popover_up = home.layer == Layer::Popover && home.popover_lay.is_some();
+        if self.popover.as_ref().is_some_and(|p| !popover_up || !p.is_for(home)) {
+            self.popover = None;
+        }
+        if popover_up && self.popover.is_none() {
+            self.popover = Some(PopoverSurface::new(kit, home, Z_LAYERS + 100)?);
+        }
+        if let Some(p) = &mut self.popover {
+            p.update(kit, home)?;
+        }
         // while a layer that hides the page is up, the cards and the dock step back
-        let page_hidden = matches!(home.layer, Layer::Apps | Layer::Picker) || (home.layer == Layer::Search && home.search_over_apps());
+        let page_hidden = matches!(home.layer, Layer::Apps | Layer::Picker | Layer::Popover) || (home.layer == Layer::Search && home.search_over_apps());
         if page_hidden != self.page_hidden {
             self.page_hidden = page_hidden;
             for c in &self.cards {
@@ -913,7 +927,8 @@ impl HomeSurface {
             }
         }
         if let Some(s) = &self.status {
-            let hidden = page_hidden || home.layer == Layer::Edit || home.layer == Layer::Search;
+            // the popover hangs under the bar, which stays
+            let hidden = (page_hidden && home.layer != Layer::Popover) || home.layer == Layer::Edit || home.layer == Layer::Search;
             let at = Props { opacity: if hidden { 0.0 } else { 1.0 }, visible: !hidden, ..Props::at(s.frame.x, s.frame.y) };
             s.pane.set(at);
             for it in &s.items {
@@ -971,11 +986,12 @@ impl HomeSurface {
                 }
             }
         }
-        for c in &self.cards {
+        // the page is stepped back behind the popover: its words are not on the screen
+        for c in self.cards.iter().filter(|_| home.layer != Layer::Popover) {
             let p = lint.panel(&c.id, c.frame, paint, true);
             c.content.words().lint(kit, &mut lint, &c.id, (c.frame.x, c.frame.y), Some(p));
         }
-        if let Some(d) = &self.dock {
+        if let Some(d) = self.dock.as_ref().filter(|_| home.layer != Layer::Popover) {
             let p = lint.panel("dock", d.frame, paint, true);
             if d.pill_for.is_some() {
                 let f = d.pill_text.frame();
@@ -988,6 +1004,9 @@ impl HomeSurface {
         }
         if let Some(apps) = &self.apps {
             apps.lint(kit, &mut lint);
+        }
+        if let Some(p) = &self.popover {
+            p.lint(kit, &mut lint, paint, home);
         }
         lint
     }
@@ -1002,6 +1021,7 @@ impl HomeSurface {
             "focus": home.focus.current().map(|i| i.0),
             "glyphRuns": self.glyph_runs,
             "apps": self.apps.is_some(), "search": self.search.is_some(), "editor": self.editor.is_some(), "picker": self.picker.is_some(), "menu": self.menu.is_some(),
+            "popover": self.popover.as_ref().map(PopoverSurface::geometry),
         })
     }
 }
@@ -1131,6 +1151,56 @@ mod tests {
             let (findings, _) = lint_home(Mode::Dark, scale, halves.clone());
             let bad: Vec<String> = findings.iter().map(|f| format!("{f:?}")).collect();
             assert!(bad.is_empty(), "halves at {scale}: {}", bad.join("\n"));
+        }
+    }
+
+    fn open_gear(h: &mut Home) {
+        for i in 0..4 {
+            if h.focus.current() == Some(Id(model::STATUS_ID + 2)) {
+                break;
+            }
+            press(h, "right", 1500 + i * 100);
+        }
+        assert_eq!(h.focus.current(), Some(Id(model::STATUS_ID + 2)), "the gear has the focus");
+        press(h, "ok", 2000);
+        assert_eq!(h.layer, Layer::Popover);
+    }
+
+    #[test]
+    fn the_settings_popover_hangs_under_the_gear_with_the_page_stepped_back_and_reads_clean_at_both_sizes_in_both_looks() {
+        for mode in [Mode::Dark, Mode::Light] {
+            for scale in [1.0, 2.0] {
+                let (h, mut kit) = testkit::kit_in(mode, scale);
+                let mut engine = Engine::new(&kit).unwrap();
+                let theme = lumatv_tokens::Tokens::shipped().json().clone();
+                let mut home = Home::new(theme, super::super::grid::shipped(), json!({}));
+                fixtures(&mut home);
+                home.set_text_scale(scale);
+                open_gear(&mut home);
+                let mut surface = HomeSurface::new(1000);
+                surface.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
+                // every row has been in front once, so the scrolled panel is read at each of its places
+                for i in 0..16 {
+                    surface.apply(&mut kit, &mut engine, &mut home, 2300 + i * 10).expect("the popover is drawn");
+                    let lint = surface.lint(&mut kit, &home);
+                    let bad: Vec<String> = lint.findings().iter().map(|f| format!("{f:?}")).collect();
+                    assert!(bad.is_empty(), "{mode:?} at {scale}, row {}: {}", home.popover.as_ref().unwrap().index, bad.join("\n"));
+                    assert!(lint.words().iter().any(|w| w.name == "popover head"));
+                    press(&mut home, "down", 2400 + i * 100);
+                }
+                let g = surface.geometry(&home)["popover"].clone();
+                let pane = &g["pane"];
+                assert!(pane["y"].as_f64().unwrap() > 54.0 + 60.0 && pane["y"].as_f64().unwrap() + pane["h"].as_f64().unwrap() <= 1080.0 - 54.0 + 0.5, "under the bar, inside the safe area: {pane}");
+                assert!(pane["x"].as_f64().unwrap() + pane["w"].as_f64().unwrap() <= 1856.0, "{pane}");
+                if scale == 1.0 {
+                    assert_eq!(g["rows"].as_array().map(Vec::len), Some(14), "all the rows at 100 %");
+                    assert_eq!(g["hints"].as_array().map(Vec::len), Some(2), "the keys of the panel as glyphs");
+                }
+                assert_eq!(g["head"], "Wallpaper");
+                // the page is stepped back for the preview, the bar stays
+                assert!(surface.geometry(&home)["status"].is_array());
+                std::mem::forget(h);
+            }
         }
     }
 }

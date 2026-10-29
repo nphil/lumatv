@@ -66,7 +66,8 @@ Host tests: unit tests in `keys.rs`, `tests/keys.rs`, `tests/ime.rs` (a client p
 Unconfirmed: Netflix and Prime Video are LG's table's values, not yet seen from this remote; Disney+ and LG Channels have no code
 at all, so those two buttons reach the app until one is taught. Teaching a code needs no build: press the button during a
 session and read `ctl journal` (or `compositor.log`) for `input: key N has no name in the key table`; add `NAME N` to
-`/var/lib/lumatv/compositor/keys.conf` (names: `gear`, `input`, `netflix`, `amazon`, `disneyplus`, `lgchannels`) and start the
+`/var/lib/lumatv/compositor/keys.conf` (names: `gear`, `input`, `netflix`, `amazon`, `disneyplus`, `lgchannels`, and for the Rust shell's Home `voice`, `screenremote`, `search`: the
+microphone key, the on-screen remote's and Search's, sent to it by name while it lists them in its `takes`) and start the
 next session. `ctl keys` lists the table. Home is not in it: 773, 172 and 102 are all Home in `route()` (`input.rs`, from any device)
 and in the supervisor's reader (`lumatv-sm.c`, which still leaves the SSAP key devices out: the escape is a person's, at the TV),
 so none of them shows in the unnamed-key line.

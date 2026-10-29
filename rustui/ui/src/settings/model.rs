@@ -255,6 +255,21 @@ impl Model {
         &self.pages
     }
 
+    /// The pages Home's search lists (`[{id, title, icon, sub}]`, the pages that are not hidden from it), each with the first part of its own summary
+    /// in the second line ("Settings \u{b7} Connected").
+    pub fn search_pages(&self) -> Vec<Value> {
+        self.pages
+            .iter()
+            .filter(|p| p.search)
+            .map(|p| {
+                let summary = self.summary_of(p);
+                let first = summary.split(" \u{b7} ").next().unwrap_or("");
+                let sub = if first.is_empty() { "Settings".to_owned() } else { format!("Settings \u{b7} {first}") };
+                json!({"id": p.id, "title": p.title, "icon": p.icon, "sub": sub})
+            })
+            .collect()
+    }
+
     /// What the surface asks the shell for (closing, launching an app, the layout editor), once.
     pub fn take_requests(&mut self) -> Vec<ShellRequest> {
         std::mem::take(&mut self.requests)

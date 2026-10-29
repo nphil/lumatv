@@ -926,3 +926,140 @@ impl MenuSurface {
         Ok(())
     }
 }
+
+// ---- the status bar's settings popover
+/// The popover drawn (`StatusBar.qml`'s settings popover): a glass panel under the gear with "Wallpaper" at its head, the keys that work it as glyphs
+/// (Left and Right change the value, Back closes), and a row for each of the wallpaper's settings with its value at the right ("\u{2039} 4 px \u{203a}"
+/// on the row that has the focus). The model says where the panel and its rows are ([`super::popover::Layout`]) and which row is in front; the values
+/// change in place as they are changed, the panel is made again when its rows scroll or the look changes.
+pub struct PopoverSurface {
+    _pane: GlassLayer,
+    head: Text,
+    _hints: Vec<crate::kit::hint::HintRow>,
+    labels: Block,
+    values: Block,
+    highlight: ShapeLayer,
+    layout: super::popover::Layout,
+    key: String,
+    shown: Vec<(String, bool)>,
+}
+
+impl PopoverSurface {
+    pub fn new(kit: &mut Kit, home: &Home, z: i32) -> std::io::Result<Self> {
+        use super::popover::{self, Kind, PAD};
+        let layout = home.popover_lay.clone().ok_or_else(|| std::io::Error::other("no popover layout"))?;
+        let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
+        let pane = kit.ui.scene.glass(layout.pane.w as u32, layout.pane.h as u32, z, glass_of(kit, PaneKind::Card, layout.pane.h, false, false), Props::at(layout.pane.x, layout.pane.y));
+        let head_style = role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Left);
+        let head_h = kit.line(TypeRole::Label);
+        let head = Text::new(kit, Frame::new(layout.head.x, (layout.head.y + (layout.head.h - head_h) / 2.0).round(), layout.head.w, head_h), z + 2, head_style, "Wallpaper")?;
+        // the keys that work the panel, as glyphs at the right of the head, as many as there is room for
+        let title_w = width_of(kit, head_style, "Wallpaper");
+        let mut hints = vec![
+            crate::kit::hint::Hint { keys: vec![(crate::kit::hint::Key::Left, false), (crate::kit::hint::Key::Right, false)], action: Some(crate::kit::hint::Action::Edit), label: None },
+            crate::kit::hint::Hint::key(crate::kit::hint::Key::Back, crate::kit::hint::Action::Close),
+        ];
+        let gap = kit.space(5);
+        while !hints.is_empty() && crate::panels::ui::hints_width(kit, &hints, TypeRole::Label, gap) + title_w + gap > layout.head.w {
+            hints.remove(0);
+        }
+        let hints_w = crate::panels::ui::hints_width(kit, &hints, TypeRole::Label, gap);
+        let mut x = layout.head.right() - hints_w;
+        let mut rows = Vec::new();
+        for h in &hints {
+            let row = crate::kit::hint::HintRow::new(kit, h, TypeRole::Label, crate::kit::hint::RowAt { x, y: layout.head.y, h: layout.head.h, z: z + 2 }, ink2)?;
+            x += row.width() + gap;
+            rows.push(row);
+        }
+        let line = kit.line(TypeRole::Label);
+        let wm = home.theme.get("wallpaperMotion").cloned().unwrap_or(Value::Null);
+        let label_style = role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink2, Align::Left);
+        let value_style = role_style(kit, TypeRole::Label, None, ink, Align::Right);
+        let whole = layout.pane;
+        let mut label_lines = Vec::new();
+        let mut value_lines = Vec::new();
+        for (i, f) in &layout.rows {
+            let rel = Frame::new(f.x - whole.x + 14.0, f.y - whole.y + ((f.h - line) / 2.0).round(), f.w - 28.0, line);
+            label_lines.push((rel, label_style, popover::ROWS[*i].label.to_owned()));
+            let shown = if popover::ROWS[*i].kind == Kind::Action { "\u{203a}".to_owned() } else { popover::text(&popover::ROWS[*i], &wm) };
+            value_lines.push((rel, value_style, shown));
+        }
+        let labels = Block::new(&mut kit.ui, whole, z + 3, label_lines)?;
+        let values = Block::new(&mut kit.ui, whole, z + 3, value_lines)?;
+        let _ = PAD;
+        let row_h = layout.rows.first().map_or(40.0, |(_, f)| f.h);
+        let highlight = kit.ui.scene.shape((whole.w - 2.0 * PAD) as u32, row_h as u32, z + 1, plate::solid(faded(ink, kit.tokens.states.focus_wash[0]), kit.tokens.radius(Radius::Row)), HIDDEN);
+        Ok(Self { _pane: pane, head, _hints: rows, labels, values, highlight, layout, key: String::new(), shown: Vec::new() })
+    }
+
+    /// The row in front lights and shows its arrows, the values that changed are said again.
+    pub fn update(&mut self, kit: &mut Kit, home: &Home) -> std::io::Result<()> {
+        use super::popover::{self, Kind};
+        let Some(p) = &home.popover else { return Ok(()) };
+        let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
+        let wm = home.theme.get("wallpaperMotion").cloned().unwrap_or(Value::Null);
+        let mut label_changes = Vec::new();
+        let mut value_changes = Vec::new();
+        let mut at = None;
+        let mut texts = Vec::new();
+        for (k, (i, f)) in self.layout.rows.iter().enumerate() {
+            let def = &popover::ROWS[*i];
+            let on = *i == p.index;
+            if on {
+                at = Some(*f);
+            }
+            let base = if def.kind == Kind::Action { "\u{203a}".to_owned() } else { popover::text(def, &wm) };
+            let value = if on && matches!(def.kind, Kind::Slider { .. }) { format!("\u{2039} {base} \u{203a}") } else { base };
+            texts.push((value.clone(), on));
+            if self.shown.get(k) != texts.last() {
+                label_changes.push((k, def.label, if on { ink } else { ink2 }));
+                value_changes.push((k, value, if def.kind == Kind::Action { ink2 } else { ink }));
+            }
+        }
+        if !label_changes.is_empty() {
+            self.labels.set_many(&mut kit.ui, &label_changes);
+            let borrowed: Vec<(usize, &str, Rgba)> = value_changes.iter().map(|(k, s, c)| (*k, s.as_str(), *c)).collect();
+            self.values.set_many(&mut kit.ui, &borrowed);
+            self.shown = texts;
+        }
+        let key = format!("{}", p.index);
+        if key != self.key {
+            self.key = key;
+            if let Some(f) = at {
+                self.highlight.set(Props::at(f.x, f.y));
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether the rows in view are still the ones this was made for.
+    pub fn is_for(&self, home: &Home) -> bool {
+        home.popover_lay.as_ref() == Some(&self.layout)
+    }
+
+    pub fn geometry(&self) -> Value {
+        let f = |fr: Frame| serde_json::json!({"x": fr.x, "y": fr.y, "w": fr.w, "h": fr.h});
+        serde_json::json!({"pane": f(self.layout.pane), "rows": self.layout.rows.iter().map(|(i, r)| serde_json::json!({"row": super::popover::ROWS[*i].key, "frame": f(*r)})).collect::<Vec<_>>(),
+                           "head": self.head.text(), "hints": self._hints.iter().map(|h| h.name().to_string()).collect::<Vec<_>>()})
+    }
+
+    pub fn lint(&self, kit: &mut Kit, lint: &mut crate::kit::lint::Lint, paint: Rgba, home: &Home) {
+        use super::popover::{self, Kind};
+        let panel = lint.panel("popover", self.layout.pane, paint, true);
+        let ink = kit.ui.look.ink();
+        let head_style = role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Left);
+        lint.word(kit, "popover head", self.head.text(), self.head.frame(), head_style, Some(panel));
+        let wm = home.theme.get("wallpaperMotion").cloned().unwrap_or(Value::Null);
+        let line = kit.line(TypeRole::Label);
+        let label_style = role_style(kit, TypeRole::Label, Some(Weight::SemiBold), kit.ui.look.ink2(), Align::Left);
+        let value_style = role_style(kit, TypeRole::Label, None, ink, Align::Right);
+        for (i, f) in &self.layout.rows {
+            let def = &popover::ROWS[*i];
+            let row = panel;
+            let inner = Frame::new(f.x + 14.0, f.y + ((f.h - line) / 2.0).round(), f.w - 28.0, line);
+            lint.word(kit, &format!("popover label {}", def.key), def.label, inner, label_style, Some(row));
+            let value = if def.kind == Kind::Action { "\u{203a}".to_owned() } else { popover::text(def, &wm) };
+            lint.word(kit, &format!("popover value {}", def.key), &value, inner, value_style, Some(row));
+        }
+    }
+}

@@ -147,6 +147,11 @@ impl SettingsHost {
         self.redraw = true;
     }
 
+    /// The pages Home's search offers as answers.
+    pub fn search_pages(&self) -> Vec<Value> {
+        self.model.search_pages()
+    }
+
     pub fn state(&self) -> Value {
         json!({"settings": self.model.debug()})
     }

@@ -9,6 +9,7 @@ use super::dock::{APPS_TILE, Dock};
 use super::editor::{Editor, EditorOut};
 use super::grid::{self, Entry, Rect};
 use super::picker::{Picker, PickerOut};
+use super::popover::{self, Done, Popover};
 use super::search::{Search, SearchOut};
 use super::wallvideo::{Ctx, WallVideo};
 use crate::kit::focus::{Dir, Focus, Id, Moved, Region, Scope};
@@ -36,6 +37,8 @@ pub const LP_FALLBACK_TAG: u64 = 301;
 pub const LAUNCH_TAG: u64 = 302;
 /// The file reads.
 pub const THEME_TAG: u64 = 310;
+/// The write of what the status bar's settings popover changed (`wallpaperMotion`).
+pub const POPOVER_TAG: u64 = 314;
 pub const LAYOUT_TAG: u64 = 311;
 pub const TINT_TAG: u64 = 312;
 pub const SWITCH_TAG: u64 = 320;
@@ -56,6 +59,8 @@ pub enum Layer {
     Picker,
     /// The options of a tile (`docs/mocks/16-context-menu`): the rows of [`Home::menu_rows`].
     Menu,
+    /// The status bar's settings popover: the wallpaper's motion in live rows ([`super::popover`]).
+    Popover,
 }
 
 /// A row of the tile menu.
@@ -115,6 +120,11 @@ pub struct Home {
     pub menu: Vec<MenuRow>,
     pub menu_index: usize,
     pub menu_app: Option<Value>,
+    /// The status bar's settings popover while it is up, and what it changed that is to be written to the theme at the next update.
+    pub popover: Option<Popover>,
+    /// Where the popover and its rows are (made when it opens and when its focus moves; the surface draws this).
+    pub popover_lay: Option<popover::Layout>,
+    persist: Option<Value>,
     pub inner: Option<String>,
     pub inner_index: Option<usize>,
     pointer_down: bool,
@@ -147,6 +157,9 @@ pub struct Home {
     requests: Vec<Request>,
     /// What the extras Home draws around itself are told (an app opens, a digit did something, the remote key, a story opens).
     notes: Vec<Note>,
+    /// The Settings pages Search may answer with (given by the shell, which has Settings), and whether Search was opened and wants them again.
+    search_pages: Vec<Value>,
+    pages_wanted: bool,
 }
 
 fn merge_over(base: &Value, over: &Value) -> Value {
@@ -189,6 +202,9 @@ impl Home {
             menu: Vec::new(),
             menu_index: 0,
             menu_app: None,
+            popover: None,
+            popover_lay: None,
+            persist: None,
             active: false,
             wall_hole: false,
             wall_topic: false,
@@ -213,6 +229,8 @@ impl Home {
             text_scale: 1.0,
             requests: Vec::new(),
             notes: Vec::new(),
+            search_pages: Vec::new(),
+            pages_wanted: false,
             theme,
             shipped_layout,
         };
@@ -480,6 +498,10 @@ impl Home {
         out.extend(self.stills.update(input, visible, now));
         out.extend(self.wall.update(input, now));
         self.sync_wall(&mut out);
+        // what the popover changed is written when it has closed
+        if let Some(patch) = self.persist.take() {
+            out.push(Effect::Theme { tag: POPOVER_TAG, patch: json!({"wallpaperMotion": patch}) });
+        }
         out
     }
 
@@ -617,6 +639,10 @@ impl Home {
                     let text = text.to_owned();
                     let o = self.search.hook_text(&text);
                     self.search_out(o, out);
+                    // the answers the text has made are keys' stops now
+                    if self.layer == Layer::Search {
+                        self.search.register(&mut self.focus);
+                    }
                     self.redraw(out);
                 }
             }
@@ -849,6 +875,7 @@ impl Home {
             Layer::Edit => self.edit_key(name, dir, out),
             Layer::Picker => self.picker_key(name, dir, out),
             Layer::Menu => self.menu_key(name, dir, out),
+            Layer::Popover => self.popover_key(name, dir, out),
             Layer::None => self.home_key(name, dir, out),
         }
         self.redraw(out);
@@ -950,7 +977,7 @@ impl Home {
                 match kind.as_str() {
                     "profile" => self.open_picker(out),
                     "search" => self.open_search(out),
-                    "settings" => self.requests.push(Request::Settings),
+                    "settings" => self.open_popover(i, out),
                     "notifications" => self.requests.push(Request::Notifications),
                     _ => {}
                 }
@@ -1102,6 +1129,18 @@ impl Home {
         self.redraw(out);
     }
 
+    /// Whether Search was just opened and wants the Settings pages (the shell answers with [`Home::set_search_pages`]).
+    pub fn take_pages_wanted(&mut self) -> bool {
+        std::mem::take(&mut self.pages_wanted)
+    }
+
+    /// The Settings pages Search may answer with: kept, and given to the sheet when it is up.
+    pub fn set_search_pages(&mut self, pages: Vec<Value>) {
+        self.search.set_pages(pages.clone());
+        self.search_pages = pages;
+        self.dirty = true;
+    }
+
     /// What the extras are to be told since the last take.
     pub fn take_notes(&mut self) -> Vec<Note> {
         std::mem::take(&mut self.notes)
@@ -1217,6 +1256,15 @@ impl Home {
         if self.layer == Layer::None {
             return;
         }
+        if self.layer == Layer::Popover
+            && let Some(p) = self.popover.take()
+        {
+            self.keep_popover(p);
+            self.popover_lay = None;
+            for i in 0..popover::ROWS.len() as u32 {
+                self.focus.unregister(Id(popover::ROW_ID + i));
+            }
+        }
         self.focus.close_modal();
         self.layer = self.stack.pop().unwrap_or(Layer::None);
     }
@@ -1245,6 +1293,8 @@ impl Home {
     pub fn open_search(&mut self, out: &mut Vec<Effect>) {
         let apps: Vec<Value> = self.apps.all().iter().map(|a| json!({"id": a.id, "title": a.title, "iconUrl": a.icon})).collect();
         self.search.open(apps, self.voice_ready, self.now);
+        self.search.set_pages(self.search_pages.clone());
+        self.pages_wanted = true;
         self.open_layer(Layer::Search, SCOPE_SEARCH);
         self.search.register(&mut self.focus);
         self.redraw(out);
@@ -1359,6 +1409,8 @@ impl Home {
                         }
                     }
                     "web" => self.start_app("com.webos.app.browser", &json!({"target": format!("https://duckduckgo.com/?q={}", text.replace(' ', "+"))}), "Browser", out),
+                    // a page of Settings: Settings opens at it (the shell's kind of that name when it is one)
+                    "page" => self.requests.push(Request::SettingsPage(id)),
                     _ => out.push(Effect::Log(format!("search picked {kind} {id}"))),
                 }
             }
@@ -1388,6 +1440,110 @@ impl Home {
                 }
                 out.push(Effect::Request { tag: SWITCH_TAG, method: "POST".into(), path: "/v1/profiles/switch".into(), body: Some(body) });
                 out.push(Effect::Log(format!("profiles: switch to {id} asked")));
+            }
+        }
+    }
+
+    // ---- the status bar's settings popover
+    /// Opens the popover under status item `item`: the keys and the pointer are its until Back (or a click outside).
+    fn open_popover(&mut self, item: usize, out: &mut Vec<Effect>) {
+        self.popover = Some(Popover::new(item));
+        self.open_layer(Layer::Popover, popover::SCOPE);
+        self.register_popover();
+        self.redraw(out);
+    }
+
+    /// Where the panel and its rows are now (the surface draws what this says), and the rows in view registered as the pointer's targets.
+    pub fn popover_layout(&mut self) -> Option<popover::Layout> {
+        let item = self.popover.as_ref()?.item;
+        let (sx, sy) = self.safe();
+        let bar = ui::geometry::Frame::new(sx, sy, 1920.0 - 2.0 * sx, self.status_height());
+        let &(x, y, w, h) = self.status_frames().get(item)?;
+        let left = item < self.left_count();
+        let scale = self.text_scale;
+        self.popover.as_mut().map(|p| p.layout(bar, ui::geometry::Frame::new(x, y, w, h), left, scale))
+    }
+
+    fn register_popover(&mut self) {
+        self.popover_lay = self.popover_layout();
+        let Some(layout) = self.popover_lay.clone() else { return };
+        for i in 0..popover::ROWS.len() as u32 {
+            match layout.rows.iter().find(|(r, _)| *r as u32 == i) {
+                Some((_, f)) => self.focus.register(Id(popover::ROW_ID + i), *f, popover::REGION, popover::SCOPE),
+                None => self.focus.unregister(Id(popover::ROW_ID + i)),
+            }
+        }
+        if let Some(p) = &self.popover {
+            self.focus.focus(Id(popover::ROW_ID + p.index as u32));
+        }
+    }
+
+    /// A row did something: a value changed (the theme has it now, so Home behind shows it), or an action goes.
+    fn popover_done(&mut self, done: Done, out: &mut Vec<Effect>) {
+        match done {
+            Done::Nothing => {}
+            Done::Changed(key, value) => {
+                if !self.theme.get("wallpaperMotion").is_some_and(Value::is_object) {
+                    self.theme["wallpaperMotion"] = json!({});
+                }
+                self.theme["wallpaperMotion"][key] = value;
+            }
+            Done::Settings => {
+                self.close_layer();
+                self.requests.push(Request::Settings);
+            }
+            Done::TvSettings => {
+                self.close_layer();
+                self.start_app("com.palm.app.settings", &json!({}), "Settings", out);
+            }
+        }
+    }
+
+    fn popover_key(&mut self, name: &str, dir: Option<Dir>, out: &mut Vec<Effect>) {
+        let wm = self.theme.get("wallpaperMotion").cloned().unwrap_or(Value::Null);
+        let done = match (name, dir) {
+            ("back", _) => {
+                self.close_layer();
+                return;
+            }
+            (_, Some(Dir::Up | Dir::Down)) => {
+                let d = if dir == Some(Dir::Up) { -1 } else { 1 };
+                if let Some(p) = self.popover.as_mut() {
+                    p.moved(d);
+                }
+                Done::Nothing
+            }
+            (_, Some(Dir::Left)) => self.popover.as_mut().map_or(Done::Nothing, |p| p.adjust(-1, &wm)),
+            (_, Some(Dir::Right)) => self.popover.as_mut().map_or(Done::Nothing, |p| p.adjust(1, &wm)),
+            ("ok", _) => self.popover.as_mut().map_or(Done::Nothing, |p| p.press(&wm)),
+            _ => Done::Nothing,
+        };
+        self.popover_done(done, out);
+        if self.layer == Layer::Popover {
+            self.register_popover();
+        }
+    }
+
+    /// A click on a row of the popover: a slider takes a step up, a toggle turns, an action goes (OK on it).
+    fn popover_click(&mut self, id: Id, out: &mut Vec<Effect>) {
+        let Some(i) = id.0.checked_sub(popover::ROW_ID).filter(|i| (*i as usize) < popover::ROWS.len()).map(|i| i as usize) else { return };
+        let wm = self.theme.get("wallpaperMotion").cloned().unwrap_or(Value::Null);
+        let done = self.popover.as_mut().map_or(Done::Nothing, |p| {
+            p.index = i;
+            if matches!(p.def().kind, popover::Kind::Slider { .. }) { p.adjust(1, &wm) } else { p.press(&wm) }
+        });
+        self.popover_done(done, out);
+        if self.layer == Layer::Popover {
+            self.register_popover();
+        }
+    }
+
+    /// The popover has closed: what it changed goes to the theme at the next update.
+    fn keep_popover(&mut self, mut p: Popover) {
+        if let Some(patch) = p.take_dirty() {
+            match &mut self.persist {
+                Some(Value::Object(old)) => old.extend(patch.as_object().cloned().unwrap_or_default()),
+                other => *other = Some(patch),
             }
         }
     }
@@ -1511,6 +1667,15 @@ impl Home {
                 self.redraw(out);
                 return;
             }
+            // the popover: a click is the row it is on, and a click anywhere else puts it away
+            if self.layer == Layer::Popover {
+                match self.focus.click(x, y) {
+                    Some(id) => self.popover_click(id, out),
+                    None => self.close_layer(),
+                }
+                self.redraw(out);
+                return;
+            }
             if let Some(id) = self.focus.click(x, y) {
                 if self.layer == Layer::Apps {
                     let action = self.apps.clicked(id, &mut self.focus);
@@ -1596,7 +1761,7 @@ impl Home {
     pub fn state(&self) -> Value {
         json!({
             "home": self.active,
-            "layer": match self.layer { Layer::None => "", Layer::Apps => "apps", Layer::Search => "search", Layer::Edit => "edit", Layer::Picker => "picker", Layer::Menu => "menu" },
+            "layer": match self.layer { Layer::None => "", Layer::Apps => "apps", Layer::Search => "search", Layer::Edit => "edit", Layer::Picker => "picker", Layer::Menu => "menu", Layer::Popover => "popover" },
             "focus": self.focus.current().map(|i| i.0),
             "focusLayer": self.focus.current().map(|id| if Self::dock_index_of(id).is_some() { "dock" } else if self.widget_of(id).is_some() { if self.inner.is_some() { "widget" } else { "widgets" } } else { "statusbar" }),
             "widgetFocusId": self.focus.current().and_then(|id| self.widget_of(id)),
@@ -1604,6 +1769,8 @@ impl Home {
             "dockMoving": self.dock.moving,
             "editing": self.editor.is_some(),
             "editor": self.editor.as_ref().map(Editor::state),
+            "search": if self.layer == Layer::Search { self.search.state() } else { Value::Null },
+            "popover": self.popover.as_ref().map(|p| json!({"index": p.index, "first": p.first, "row": p.def().key, "values": popover::ROWS.iter().map(|d| popover::text(d, self.theme.get("wallpaperMotion").unwrap_or(&Value::Null))).collect::<Vec<_>>()})),
             "wallHole": self.wall_hole,
             "wall": self.wall.state(),
             "cards": self.cards().iter().map(|e| { let r = self.rect(e); json!([e.id, r.x, r.y, r.w, r.h]) }).collect::<Vec<_>>(),
@@ -1984,5 +2151,105 @@ mod tests {
         h.theme["wallpaperMotion"]["source"] = json!("gpu");
         let out = h.update(&Input::Tick, 2000);
         assert!(!h.wall_hole && out.contains(&Effect::Redraw));
+    }
+
+    #[test]
+    fn a_search_answer_that_is_a_settings_page_asks_the_shell_for_that_page() {
+        let mut h = home();
+        press(&mut h, "search", 2000);
+        assert!(h.take_pages_wanted(), "Search has opened and wants the pages the shell has");
+        h.set_search_pages(vec![json!({"id": "network", "title": "Network", "icon": "wifi", "sub": "Settings \u{b7} Connected"}), json!({"id": "sound", "title": "Sound", "icon": "volume-2", "sub": "Settings"})]);
+        h.update(&Input::Topic { topic: "keyboard.text".into(), data: json!({"text": "net"}) }, 2100);
+        let answers = h.search.answers();
+        assert_eq!(answers.iter().map(|a| (a.kind, a.id.as_str())).collect::<Vec<_>>(), vec![("app", "netflix"), ("page", "network"), ("web", "web")]);
+        assert_eq!(answers[1].sub, "Settings \u{b7} Connected");
+        // the arrows reach the answer: the keyboard's top row is under them
+        for _ in 0..5 {
+            if h.state()["search"]["index"].as_u64().is_some_and(|i| i >= 43) {
+                break;
+            }
+            press(&mut h, "up", 2200);
+        }
+        assert!(h.state()["search"]["index"].as_u64().unwrap() >= 43, "{}", h.state()["search"]);
+        while h.state()["search"]["index"].as_u64() != Some(44) {
+            press(&mut h, "down", 2300);
+            assert!(h.state()["search"]["index"].as_u64().unwrap() >= 43);
+        }
+        let out = press(&mut h, "ok", 2400);
+        assert_eq!(h.take_requests(), vec![Request::SettingsPage("network".into())]);
+        assert_eq!(h.layer, Layer::None, "the sheet is closed behind it");
+        assert!(!out.iter().any(|e| matches!(e, Effect::Luna { .. })), "nothing is launched");
+        // a page picked is not an app: the next Search starts from the pages the shell gave
+        press(&mut h, "search", 2600);
+        assert!(h.take_pages_wanted() && h.search.answers().is_empty());
+    }
+
+    fn gear(h: &mut Home) {
+        for i in 0..4 {
+            if h.focus.current() == Some(Id(STATUS_ID + 2)) {
+                break;
+            }
+            press(h, "right", 1500 + i * 100);
+        }
+        press(h, "ok", 2000);
+    }
+
+    #[test]
+    fn ok_on_the_gear_opens_the_wallpaper_popover_whose_values_change_at_once_and_are_written_to_the_theme_when_it_closes() {
+        let mut h = home();
+        gear(&mut h);
+        assert_eq!(h.layer, Layer::Popover);
+        assert!(h.take_requests().is_empty(), "the gear opens the popover first, Settings is a row of it");
+        press(&mut h, "down", 2100);
+        press(&mut h, "down", 2200);
+        assert_eq!(h.state()["popover"]["row"], "amplitude");
+        let out = press(&mut h, "right", 2300);
+        assert_eq!(h.theme["wallpaperMotion"]["amplitude"], 5.0, "Home behind has it at once");
+        assert!(out.contains(&Effect::Redraw));
+        assert_eq!(h.state()["popover"]["values"][2], "5 px");
+        press(&mut h, "right", 2400);
+        press(&mut h, "up", 2500);
+        press(&mut h, "ok", 2600);
+        assert_eq!(h.theme["wallpaperMotion"]["enabled"], false, "OK on the toggle turns it");
+        let out = press(&mut h, "back", 2700);
+        assert_eq!(h.layer, Layer::None);
+        assert_eq!(h.focus.current(), Some(Id(STATUS_ID + 2)), "the gear has the focus again");
+        let patch = out.iter().find_map(|e| match e {
+            Effect::Theme { tag: POPOVER_TAG, patch } => Some(patch.clone()),
+            _ => None,
+        });
+        assert_eq!(patch, Some(json!({"wallpaperMotion": {"amplitude": 6.0, "enabled": false}})), "what was changed, once, at the close");
+        assert!(!press(&mut h, "down", 2900).iter().any(|e| matches!(e, Effect::Theme { tag: POPOVER_TAG, .. })));
+    }
+
+    #[test]
+    fn the_rows_that_do_something_open_the_settings_kinds_page_or_lgs_settings_and_a_click_is_the_row_it_is_on_and_outside_it_closes() {
+        let mut h = home();
+        gear(&mut h);
+        press(&mut h, "ok", 2100);
+        assert_eq!((h.layer, h.take_requests()), (Layer::None, vec![Request::Settings]), "All settings");
+        gear(&mut h);
+        for i in 0..13 {
+            press(&mut h, "down", 2300 + i * 40);
+        }
+        let out = press(&mut h, "ok", 2900);
+        assert!(out.iter().any(|e| matches!(e, Effect::Luna { payload, .. } if payload["id"] == "com.palm.app.settings")), "TV settings: LG's");
+        assert!(notes_of(&mut h).is_empty(), "no launch screen for it");
+        // the pointer: a click on a slider's row is a step up, on the toggle it turns, away from the panel it closes
+        gear(&mut h);
+        let rows = h.popover_lay.clone().unwrap().rows;
+        let centre = |r: &ui::geometry::Frame| (r.x + r.w / 2.0, r.y + r.h / 2.0);
+        let click = |h: &mut Home, (x, y): (f32, f32), at: u64| {
+            h.update(&Input::Pointer { x, y, buttons: 0, visible: true }, at);
+            h.update(&Input::Pointer { x, y, buttons: 1, visible: true }, at + 20);
+            h.update(&Input::Pointer { x, y, buttons: 0, visible: true }, at + 40);
+        };
+        click(&mut h, centre(&rows[3].1), 3000);
+        assert_eq!(h.theme["wallpaperMotion"]["speed"], 1.1, "Speed took a step up");
+        click(&mut h, centre(&rows[1].1), 3100);
+        assert_eq!(h.theme["wallpaperMotion"]["enabled"], false);
+        assert_eq!(h.layer, Layer::Popover, "a row's click leaves it up");
+        click(&mut h, (200.0, 900.0), 3200);
+        assert_eq!(h.layer, Layer::None, "a click elsewhere puts it away");
     }
 }
