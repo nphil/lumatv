@@ -36,7 +36,7 @@ use ui::scene::{Scene, SceneOptions};
 const SHIPPED_LAYOUT: &str = include_str!("../../../payload/theme/layout.json");
 /// The helper's topics the shell follows besides its plugins' (`kit/Helper.qml` `subscribed`, and the sheets of the cameras).
 const HELPER_TOPICS: &str =
-    "screen,weather,news,receiver,ai,ai.prompt,plugins,ha.link,updateblock,openapps,panel,cameras,cameras.popup,cameras.live,cameras.events,profiles";
+    "screen,weather,news,receiver,ai,ai.prompt,plugins,ha.link,updateblock,openapps,panel,cameras,cameras.popup,cameras.live,cameras.events,profiles,voice";
 
 struct Options {
     host: bool,
@@ -453,6 +453,7 @@ fn run_host(o: Options) -> io::Result<()> {
                 "lint" => s.lint(),
                 "report" => s.report(),
                 "volume" => s.debug(),
+                "home" => s.home().state(),
                 "atlas" => json!({"settled": s.kit.ui.glyph_text_settled(), "crowded": s.kit.ui.text_atlas_crowded(), "pictures": s.kit.ui.text_pictures, "fallbacks": s.kit.ui.glyph_text_fallbacks}),
                 _ => s.state(),
             };

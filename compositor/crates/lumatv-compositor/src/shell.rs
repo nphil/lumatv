@@ -838,7 +838,7 @@ impl State {
     /// Whether LumaTV's Home would be drawn now: the shell's Home window is mapped and the foreground card is SAM's Home or there is
     /// none (the scene's rule, `scene.rs` `build_stack`).
     pub fn shell_home_drawn(&self) -> bool {
-        let home_mapped = self.scene.shell_window(WindowType::ShellHome).is_some_and(|w| w.map_serial > 0);
+        let home_mapped = self.scene.home_rust() || self.scene.shell_window(WindowType::ShellHome).is_some_and(|w| w.map_serial > 0);
         home_mapped && (self.scene.foreground(&self.surfaces).is_none_or(|w| w.app_id() == crate::scene::HOME_APP) || self.scene.transitions.holds_home())
     }
 

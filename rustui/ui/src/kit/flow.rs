@@ -155,6 +155,16 @@ impl Flow {
         }
     }
 
+    /// Takes the lift of `id` out, with its group (a tile renamed when the dock's order changed).
+    pub fn take_lift(&mut self, id: Id) -> Option<Lifted> {
+        let i = self.lifts.iter().position(|(l, _)| *l == id)?;
+        if let Some(slot) = self.slots.iter_mut().find(|s| s.owner == Some(id)) {
+            slot.owner = None;
+            self.lifts[i].1.unbind(false);
+        }
+        Some(self.lifts.remove(i).1)
+    }
+
     /// Takes the lift of `id` away (the focusable left the screen).
     pub fn drop_lift(&mut self, id: Id) {
         if let Some(i) = self.lifts.iter().position(|(l, _)| *l == id) {
@@ -167,6 +177,30 @@ impl Flow {
 
     fn lifted(&self, id: Id) -> Option<&Lifted> {
         self.lifts.iter().find(|(l, _)| *l == id).map(|(_, l)| l)
+    }
+
+    /// The group that holds `id`'s layers, for what the lift does not drive (its opacity, whether it shows).
+    pub fn group(&self, id: Id) -> Option<&Group> {
+        self.lifted(id).map(|l| &l.group)
+    }
+
+    /// Whether `id` has a lift.
+    pub fn has(&self, id: Id) -> bool {
+        self.lifted(id).is_some()
+    }
+
+    /// Moves `id`'s rest pose (a tile that took another slot, a row that moved): bound again when it is in flight, posed at once otherwise.
+    pub fn place(&mut self, id: Id, rest: GroupPose) -> Result<(), UiError> {
+        let reduced = self.spec.reduced;
+        let slot = self.slots.iter().position(|s| s.owner == Some(id));
+        if let Some(i) = self.lifts.iter().position(|(l, _)| *l == id) {
+            self.lifts[i].1.rest = rest;
+            match slot {
+                Some(si) => self.lifts[i].1.bind(&self.slots[si].track, reduced)?,
+                None => self.lifts[i].1.group.set_pose(rest),
+            }
+        }
+        Ok(())
     }
 
     /// The slot that drives `id`, taking a free one for it when it has none: a slot nobody owns, else one whose owner is back at rest,

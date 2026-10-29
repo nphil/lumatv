@@ -32,7 +32,7 @@ use crate::shell::{
 };
 
 /// The kinds the Rust shell may answer, in the order `ctl shell` lists them.
-pub const KINDS: &[&str] = &["osd", "toast"];
+pub const KINDS: &[&str] = &["home", "osd", "toast"];
 /// Where the system layer's layers begin in the engine's z: everything the Rust shell draws over the windows is at this or more.
 pub const SYSTEM_Z: i32 = 1000;
 const TOKEN_FILE: &str = "lumatv-ui.token";
@@ -489,6 +489,7 @@ impl State {
                     self.shell_rust.engine_connected = true;
                     self.journal("shell-rust: the client is on the engine; its layers are drawn from here".into());
                     new_socket = true;
+                    self.shell_rust_sync_home();
                 }
                 Ok(false) => {}
                 Err(e) => {
@@ -512,6 +513,7 @@ impl State {
         }
         self.shell_rust.connected = false;
         self.shell_rust.engine_connected = false;
+        self.shell_rust_sync_home();
         self.shell_rust.can.clear();
         self.shell_rust.takes.clear();
         self.shell_rust.took.clear();
@@ -529,6 +531,17 @@ impl State {
         }
         // its layers go with its socket: the engine is dropped and the next frame draws everything without them
         self.output.ui_detach();
+    }
+
+    /// Whether the Rust shell draws Home now: the `home` kind is its and the client is on the engine. The scene then leaves the QML
+    /// shell's Home window out of the stack and counts Home as drawn while no app's card is in front, which is what the `foreground`
+    /// topic tells both clients (the Rust one answers `wants` for the keys while Home is in front).
+    pub fn shell_rust_sync_home(&mut self) {
+        let on = self.shell_rust.answers("home") && self.shell_rust.engine_connected;
+        if self.scene.set_home_rust(on) {
+            self.journal(format!("shell-rust: Home is {}", if on { "the Rust shell's: the QML Home window is left out of the stack" } else { "the QML shell's again" }));
+            self.shell_sync_topics();
+        }
     }
 
     /// `ctl shell restart` (and a change of the kinds): ends the client and starts it again, whatever the count.
@@ -567,6 +580,7 @@ impl State {
         }
         self.shell_rust.kinds = kinds;
         self.shell_rust_restart();
+        self.shell_rust_sync_home();
         if self.shell_rust.kinds.is_empty() {
             self.shell_rust.next_start = None;
         }

@@ -53,7 +53,9 @@ layers at its rest pose with the pivot at its centre, the scale at full lift, th
 carries the lit glass); `flow.go(from, to, now_ns)` settles the outgoing to 0 and the incoming to 1 at the same time, each a
 critically damped spring from wherever it is and however fast it is going; `snap`, `tidy(now_ns)` (frees slots at rest), `scroller
 (scene, region, group, rest, horizontal, extent)` + `scroll_to(region, offset)` (a row scrolls on the same spring), `settling_at`,
-`lift_at(id, at_ns)`, `velocity_at(id, at_ns)`, `in_flight()`. `Spec::default()` is the 260 ms spring (Lucent
+`lift_at(id, at_ns)`, `velocity_at(id, at_ns)`, `in_flight()`; `group(id)` (the group that holds a focusable's layers, for what the
+lift does not drive: its opacity, whether it shows), `place(id, rest)` (a focusable that took another slot: bound again in flight),
+`take_lift(id)` (a tile renamed when the dock's order changed). `Spec::default()` is the 260 ms spring (Lucent
 `motion.spring.responseMs`); `Spec { reduced: true, .. }` is the crossfade. `kit::Engine { focus, flow }` joins the two:
 `engine.step(dir, now_ns)`, `engine.focus(id, now_ns)`, `engine.click(x, y, now_ns)`, `engine.clear(now_ns)`. Every screen uses the
 `Engine`; no screen animates its own focus.
@@ -80,7 +82,9 @@ until Home is a layer stack of the engine (a window's buffer is not a layer; the
 
 **Screen contract** (`kit/screen.rs`): a screen's model is pure, `impl Model { fn update(&mut self, &Input, now_ms) ->
 Vec<Effect>; fn view(&self) -> View; fn due_at(&self) -> Option<u64> }`. `Input::{Topic, Luna, Helper, Fetched, Key, Pointer,
-Tick}`; `Effect::{Luna, Cancel, Post, Fetch, Theme, Log, Redraw}`. The answer to a `Fetch` is `Input::Fetched` (a JSON body) or
+Tick}`; `Effect::{Luna, Cancel, Post, Fetch, Request, Theme, Read, Write, Log, Redraw}`. `Effect::Read { tag, path }` reads a JSON file
+of the data directory (`theme/layout.json`, `theme/tint.json`) and answers `Input::Fetched` with the tag (200 with the document, 404 for
+a file that is not there, 500 for one that is not JSON); `Effect::Write { path, text }` writes a file of the data directory atomically. The answer to a `Fetch` is `Input::Fetched` (a JSON body) or
 `Input::Bytes` (a body that is not JSON: a still, a thumbnail); `Effect::Theme { tag, patch }` merges a patch into the owner's
 `theme/theme.json` one level deep (`host/theme.rs`: a section's keys are merged, a map inside it is replaced whole, a file that
 cannot be read is never taken for an empty one) and answers `Input::Fetched` with the tag and the merged file. The surface draws
@@ -100,6 +104,30 @@ its view to a `Lint` (`panel(name, rect, paint, safe)`, `word(kit, name, text, f
 words outside their panel (1 px), crammed against it (8 px at the sides, 4 above and below), on top of other words, off the
 centre of a button, panels outside the safe area, and ink under 4.5 to 1 (3 to 1 from 48 px and for ink2) on the panel's paint
 over the worst of black, white and mid grey. Host tests run it at 100 % and 200 % text.
+
+## Home (`rustui/ui/src/home/`, the kind `home`)
+
+Home is stack 0 of the engine, under the compositor's windows, where the QML `LumaHome.qml` was. The model is pure (`home/model.rs`:
+the merged theme and layout, the feeds, the dock, the kit's `Focus` over the status bar, the cards and the dock, the layers that
+open over Home as modal scopes, OK on release with the hold, a digit for a dock tile, the pointer's cue and click, the files read every
+two seconds and written by the editor) and its parts are too: `grid.rs` (the Home grid, `LayoutGrid.js` ported: cells, the owner's
+file, moves and sizes refused where they overlap), `dock.rs` (the person's own order of LG's launch points, the rows, a tile picked
+up), `apps.rs` (the library's rail and grid), `search.rs` (the sheet, the answers, the keyboard; `hook_text` takes text typed by
+another keyboard), `editor.rs` (the layout editor: pick up, move by the cell, size, the bar, the add list, the question on Back, the
+pointer's drag with the snap to whole cells), `picker.rs` ("Who's watching?", the PIN pad, the switch veil: 90 ms in, held until the
+new person's Home is in, 130 ms out). The surface (`surface.rs`, `widgets.rs`, `layers.rs`, `wallpaper.rs`, `clock.rs`) draws them with
+the kit: the wallpaper as the GPU `Silk` wallpaper under the mode's scrim (the video wallpaper's hole from the `wall` topic fades it
+out), the cards and the dock as the Lucent card glass over the wallpaper's cached blur, each card's words as one `Block` and its
+pictures as one or two image layers painted on the CPU, every focusable lifted by the shared `Engine`'s flow (a card 1.03 with its
+rise, a tile 1.12, a status button 1.04, the dock's rows and the library's on the same spring, a keyboard's cursor gliding on it).
+
+The chrome follows the person's text size: the status bar and the chip grow with the label, and a card plans its contents as if its
+room were smaller by the same factor and scales the plan up, so nothing overlaps at 200 % (`surface.rs`'s lint test holds the shipped
+Home and the halves to the kit's lint at both sizes in both materials). The compositor's `home` kind (`shell_rust.rs`,
+`scene.set_home_rust`): while the Rust client answers it on the engine, the QML shell's Home window is left out of the stack, Home counts
+as drawn whenever no app's card is in front (the `foreground` topic says so to both clients), and the Rust client reports `wants` while
+Home is in front so every key of the remote comes over the key socket. `tests/test_rust_home.py` drives the harness on the QML tests'
+cases and renders the scenes into `docs/mocks/host-rust/home/`.
 
 ## Where a kind draws: z
 

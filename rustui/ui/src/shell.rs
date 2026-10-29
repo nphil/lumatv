@@ -4,6 +4,7 @@
 //! `system_z`), and the report the compositor reads (`POST /v1/ui`: `can`, `wants`, `live`, `state`). No I/O here: the host
 //! (`main.rs`) carries out the [`Act`]s and feeds the events back, so the whole of it runs under a test with nothing but a clock.
 
+use crate::home::{Home, HomeSurface};
 use crate::host::http::{Event, Outbound};
 use crate::host::keys::KeyEvent;
 use crate::kit::pointer::Sample;
@@ -39,6 +40,7 @@ pub struct Kinds {
     pub capture: bool,
     pub popup: bool,
     pub layout: bool,
+    pub home: bool,
 }
 
 impl Kinds {
@@ -55,6 +57,7 @@ impl Kinds {
                 "capture" => k.capture = true,
                 "popup" => k.popup = true,
                 "layout" => k.layout = true,
+                "home" => k.home = true,
                 _ => {}
             }
         }
@@ -71,6 +74,7 @@ impl Kinds {
             (self.capture, "capture"),
             (self.popup, "popup"),
             (self.layout, "layout"),
+            (self.home, "home"),
         ]
         .into_iter()
         .filter_map(|(on, name)| on.then_some(name))
@@ -90,6 +94,8 @@ pub struct Shell {
     toast_surface: ToastSurface,
     /// The system layer's kinds that sit over everything: the alerts, the cards, the pop-up, the capture mark, the saver.
     sys: Layer,
+    home: Home,
+    home_surface: HomeSurface,
     /// The last report sent, so an unchanged one is not sent again.
     reported: Option<Value>,
     live: bool,
@@ -110,6 +116,8 @@ impl Shell {
             toasts: Toasts::new(),
             toast_surface: ToastSurface::new(system_z + crate::kit::z::SYSTEM + 10, theme, layout),
             sys: Layer::new(system_z + crate::kit::z::SYSTEM, theme, layout),
+            home: Home::new(theme.clone(), crate::home::grid::shipped(), layout.clone()),
+            home_surface: HomeSurface::new(system_z),
             kit,
             engine,
             kinds,
@@ -131,6 +139,7 @@ impl Shell {
     /// there by [`Effect::Theme`]).
     pub fn dirs(&mut self, module: &Path, data: &Path) {
         self.kit.icons = crate::kit::icon::Icons::new(module);
+        self.home_surface.dirs(module, data);
         self.data_dir = Some(data.to_path_buf());
     }
 
@@ -145,6 +154,11 @@ impl Shell {
         }
         for e in self.sys.start(&self.kinds) {
             self.carry(e, crate::host::now_ms(), &mut acts);
+        }
+        if self.kinds.home {
+            for e in self.home.start(crate::host::now_ms()) {
+                self.carry(e, crate::host::now_ms(), &mut acts);
+            }
         }
         acts.push(Act::Channel(Outbound { method: "POST", path: "/v1/ui".into(), body: Some(self.report()), tag: None }));
         acts
@@ -174,6 +188,32 @@ impl Shell {
             }
             Effect::Channel { path, body } => acts.push(Act::Channel(Outbound { method: "POST", path, body: Some(body), tag: None })),
             Effect::Theme { tag, patch } => self.write_theme(tag, &patch, now, acts),
+            Effect::Read { tag, path } => {
+                let (status, data) = match self.data_dir.as_ref().map(|d| std::fs::read(d.join(&path))) {
+                    Some(Ok(bytes)) => match serde_json::from_slice::<Value>(&bytes) {
+                        Ok(v) => (200, v),
+                        Err(e) => (500, json!({"error": e.to_string()})),
+                    },
+                    Some(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => (404, Value::Null),
+                    Some(Err(e)) => (500, json!({"error": e.to_string()})),
+                    None => (500, json!({"error": "no data directory"})),
+                };
+                self.feed(&Input::Fetched { tag, status, data }, now, acts);
+            }
+            Effect::Write { path, text } => {
+                let written = self.data_dir.as_ref().ok_or_else(|| std::io::Error::other("no data directory")).and_then(|d| {
+                    let full = d.join(&path);
+                    if let Some(dir) = full.parent() {
+                        std::fs::create_dir_all(dir)?;
+                    }
+                    let tmp = full.with_extension("tmp");
+                    std::fs::write(&tmp, text)?;
+                    std::fs::rename(&tmp, &full)
+                });
+                if let Err(e) = written {
+                    acts.push(Act::Log(format!("write {path}: {e}")));
+                }
+            }
             Effect::Log(line) => acts.push(Act::Log(line)),
             Effect::Redraw => self.redraw = true,
         }
@@ -208,6 +248,25 @@ impl Shell {
         for e in self.sys.update(&self.kinds, input, now) {
             self.carry(e, now, acts);
         }
+        if self.kinds.home {
+            // a system-layer kind that has the keys (a panel up over Home) takes them before Home sees them
+            let taken = matches!(input, Input::Key { .. } | Input::Pointer { .. }) && self.system_wants();
+            if !taken {
+                for e in self.home.update(input, now) {
+                    self.carry(e, now, acts);
+                }
+                for r in self.home.take_requests() {
+                    // the Settings and the drawer are other kinds' surfaces: routed to them when they are in the list
+                    acts.push(Act::Log(format!("home asks for {}", match r { crate::home::model::Request::Settings => "settings", crate::home::model::Request::Notifications => "notifications" })));
+                }
+            }
+        }
+    }
+
+    /// Whether a kind of the system layer has the keys now (an alert, the input popup, a PIN prompt; the panels when they land); the
+    /// volume display and the toasts never do.
+    pub fn system_wants(&self) -> bool {
+        self.sys.wants(&self.kinds)
     }
 
     /// An event of the UI channel.
@@ -303,6 +362,9 @@ impl Shell {
         if self.sys.tick(&self.kit, &self.kinds, now) {
             self.redraw = true;
         }
+        if self.kinds.home && self.home_surface.tick(now) {
+            self.redraw = true;
+        }
         self.after(now, &mut acts);
         acts
     }
@@ -333,6 +395,12 @@ impl Shell {
                 Ok(on) => live |= on,
                 Err(e) => acts.push(Act::Log(e)),
             }
+            if self.kinds.home {
+                match self.home_surface.apply(&mut self.kit, &mut self.engine, &mut self.home, now) {
+                    Ok(on) => live |= on,
+                    Err(e) => acts.push(Act::Log(format!("home: {e}"))),
+                }
+            }
             self.live = live;
         }
         if self.started {
@@ -352,7 +420,9 @@ impl Shell {
         if self.kinds.layout {
             can.push("layout");
         }
-        json!({"can": can, "wants": self.sys.wants(&self.kinds), "takes": self.sys.takes(&self.kinds), "live": self.live, "state": self.state()})
+        // Home in front wants the keys too: the compositor sends every key of the remote to the layer that wants them
+        let wants = self.sys.wants(&self.kinds) || (self.kinds.home && self.home.active);
+        json!({"can": can, "wants": wants, "takes": self.sys.takes(&self.kinds), "live": self.live, "state": self.state()})
     }
 
     pub fn state(&self) -> Value {
@@ -369,6 +439,9 @@ impl Shell {
         for (k, val) in self.sys.state(&self.kinds).as_object().into_iter().flatten() {
             s[k] = val.clone();
         }
+        if self.kinds.home {
+            s["home"] = self.home.state();
+        }
         s["live"] = json!(self.live);
         s
     }
@@ -381,6 +454,9 @@ impl Shell {
         }
         if self.kinds.toast {
             due = [due, self.toasts.due_at()].into_iter().flatten().min();
+        }
+        if self.kinds.home {
+            due = [due, self.home.due_at(), self.home_surface.due_at()].into_iter().flatten().min();
         }
         [due, self.sys.due_at(&self.kinds)].into_iter().flatten().min()
     }
@@ -398,6 +474,9 @@ impl Shell {
         for (k, v) in self.sys.geometry(&self.kinds).as_object().into_iter().flatten() {
             g[k] = v.clone();
         }
+        if self.kinds.home {
+            g["home"] = self.home_surface.geometry(&self.home);
+        }
         g
     }
 
@@ -405,6 +484,9 @@ impl Shell {
     pub fn lint(&mut self) -> Value {
         let mut lint = crate::kit::lint::Lint::new();
         self.sys.feed_lint(&self.kinds, &mut self.kit, &mut lint);
+        if self.kinds.home {
+            lint = self.home_surface.lint(&mut self.kit, &self.home);
+        }
         json!(lint.findings().iter().map(|f| json!({"kind": f.kind.name(), "subject": f.subject, "detail": f.detail})).collect::<Vec<_>>())
     }
 
@@ -418,6 +500,12 @@ impl Shell {
         self.volume_surface.restyle();
         self.toast_surface.restyle();
         self.sys.restyle(&mut self.engine);
+        self.home_surface.restyle();
         self.redraw = true;
+    }
+
+    /// The Home model, for the harness's `--eval` and the tests.
+    pub fn home(&self) -> &Home {
+        &self.home
     }
 }

@@ -460,6 +460,9 @@ pub struct Scene {
     /// The shell's system layer has nothing to show ([`Scene::set_shell_system_live`]): its window is left out of the
     /// stack, mapped and warm as it stays.
     system_idle: bool,
+    /// The Rust shell draws Home (the `home` kind, on the engine's stack 0 under the windows): the QML shell's Home window is left
+    /// out of the stack, and Home counts as drawn whenever no app's card is in front ([`Scene::set_home_rust`]).
+    home_rust: bool,
     /// The windows in transition (`transition.rs`): drawn through poses while their tracks run.
     pub transitions: Transitions,
     /// The clock of the last plan, CLOCK_MONOTONIC ns: what `take_visual` answers at.
@@ -612,6 +615,17 @@ impl Scene {
 
     pub fn shell_system_live(&self) -> bool {
         !self.system_idle
+    }
+
+    /// The Rust shell's Home is on the engine (or no longer is). Returns whether that changed.
+    pub fn set_home_rust(&mut self, on: bool) -> bool {
+        let changed = self.home_rust != on;
+        self.home_rust = on;
+        changed
+    }
+
+    pub fn home_rust(&self) -> bool {
+        self.home_rust
     }
 
     pub fn windows(&self) -> impl Iterator<Item = &Window> {
@@ -782,6 +796,9 @@ impl Scene {
             if w.kind == WindowType::ShellSystem && self.system_idle {
                 continue;
             }
+            if w.kind == WindowType::ShellHome && self.home_rust {
+                continue;
+            }
             self.stack.push((w.kind.layer(), w.map_serial, w.id));
         }
         self.stack.sort_unstable();
@@ -793,7 +810,7 @@ impl Scene {
             }
         }
         let card_is_home = last_card.map(|i| self.windows.get(&self.stack[i].2).is_some_and(|w| w.app_id() == HOME_APP)).unwrap_or(true);
-        let has_shell_home = self.stack.iter().any(|(layer, _, _)| *layer == Layer::Home);
+        let has_shell_home = self.home_rust || self.stack.iter().any(|(layer, _, _)| *layer == Layer::Home);
         self.home_shown = has_shell_home && card_is_home;
         // What is at the front of the screen, for the transitions: Home, an app's card (the Home stub's own card when LumaTV's Home is not
         // there to take its place), or nothing they move (no card, the screensaver's).

@@ -67,6 +67,17 @@ pub enum Effect {
         tag: u64,
         patch: Value,
     },
+    /// Reads a JSON file of the data directory (`theme/layout.json`, `theme/tint.json`); the answer comes back as [`Input::Fetched`]
+    /// with the tag, status 200 with the document, 404 for a file that is not there, 500 for one that is not JSON.
+    Read {
+        tag: u64,
+        path: String,
+    },
+    /// Writes `text` to a file of the data directory, atomically (a temporary beside it, then a rename).
+    Write {
+        path: String,
+        text: String,
+    },
     /// A line in the host's log (the journal on the set, stdout on the host).
     Log(String),
     /// The model's view changed: the surface is to be drawn again.
