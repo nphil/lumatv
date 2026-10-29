@@ -51,6 +51,9 @@ pub struct Kinds {
     pub quick: bool,
     pub picker: bool,
     pub drawer: bool,
+    pub menu: bool,
+    pub confirm: bool,
+    pub switcher: bool,
 }
 
 impl Kinds {
@@ -73,6 +76,9 @@ impl Kinds {
                 "quick" => k.quick = true,
                 "picker" => k.picker = true,
                 "drawer" => k.drawer = true,
+                "menu" => k.menu = true,
+                "confirm" => k.confirm = true,
+                "switcher" => k.switcher = true,
                 _ => {}
             }
         }
@@ -95,6 +101,9 @@ impl Kinds {
             (self.quick, "quick"),
             (self.picker, "picker"),
             (self.drawer, "drawer"),
+            (self.menu, "menu"),
+            (self.confirm, "confirm"),
+            (self.switcher, "switcher"),
         ]
         .into_iter()
         .filter_map(|(on, name)| on.then_some(name))

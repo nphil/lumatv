@@ -27,6 +27,7 @@ pub mod quick_layout;
 pub mod quick_surface;
 pub mod stage;
 pub mod switcher;
+pub mod switcher_surface;
 pub mod ui;
 
 use crate::kit::screen::Effect;

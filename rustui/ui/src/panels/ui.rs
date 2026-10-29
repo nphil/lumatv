@@ -122,15 +122,23 @@ pub struct Scroll {
 impl Scroll {
     /// `window` is where the content shows (its clip), `content_h` how tall the content is from the window's top.
     pub fn new(kit: &Kit, parent: &Group, window: Frame, content_h: f32) -> std::io::Result<Self> {
+        Self::make(kit, parent, window, content_h, false)
+    }
+
+    /// A window onto content wider than itself (a row of cards): `content_w` is how wide the content is from the window's left edge.
+    pub fn row(kit: &Kit, parent: &Group, window: Frame, content_w: f32) -> std::io::Result<Self> {
+        Self::make(kit, parent, window, content_w, true)
+    }
+
+    fn make(kit: &Kit, parent: &Group, window: Frame, content: f32, across: bool) -> std::io::Result<Self> {
         let scene = kit.ui.scene.clone();
         let clip = scene.group(Some(parent.id()), GroupPose { clip: Some(Rect { x: window.x, y: window.y, w: window.w, h: window.h }), ..GroupPose::IDENTITY }).map_err(other)?;
         let inner = scene.group(Some(clip.id()), GroupPose::IDENTITY).map_err(other)?;
-        let extent = (content_h - window.h).max(0.0);
+        let extent = (content - if across { window.w } else { window.h }).max(0.0);
         let track = if extent > 0.0 {
             let t = scene.motion(0.0, MotionBounds::range(0.0, extent, Units::Pixels)).map_err(other)?;
-            inner
-                .bind(&t, PoseBinding { values: [0.0, extent], from: GroupPose::IDENTITY, to: GroupPose { y: -extent, ..GroupPose::IDENTITY }, properties: PoseProperties::TRANSLATION })
-                .map_err(other)?;
+            let to = if across { GroupPose { x: -extent, ..GroupPose::IDENTITY } } else { GroupPose { y: -extent, ..GroupPose::IDENTITY } };
+            inner.bind(&t, PoseBinding { values: [0.0, extent], from: GroupPose::IDENTITY, to, properties: PoseProperties::TRANSLATION }).map_err(other)?;
             Some(t)
         } else {
             None
