@@ -2,7 +2,10 @@
 //! clock. The loop that joins them to the engine's socket is `main.rs`.
 
 pub mod http;
+pub mod inputs;
 pub mod keys;
+pub mod net;
+pub mod power;
 pub mod theme;
 
 /// Wall-clock milliseconds, the clock the models run on (the helper stamps its readings with it).

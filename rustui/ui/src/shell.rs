@@ -127,6 +127,15 @@ impl Shell {
             }
             Effect::Post { path, body } => acts.push(Act::Helper(Outbound { method: "POST", path, body: Some(body), tag: None })),
             Effect::Fetch { tag, path } => acts.push(Act::Helper(Outbound { method: "GET", path, body: None, tag: Some(tag) })),
+            Effect::Request { tag, method, path, body } => {
+                let method = match method.as_str() {
+                    "GET" => "GET",
+                    "PUT" => "PUT",
+                    "DELETE" => "DELETE",
+                    _ => "POST",
+                };
+                acts.push(Act::Helper(Outbound { method, path, body, tag: Some(tag) }))
+            }
             Effect::Theme { tag, patch } => self.write_theme(tag, &patch, now, acts),
             Effect::Log(line) => acts.push(Act::Log(line)),
             Effect::Redraw => self.redraw = true,
