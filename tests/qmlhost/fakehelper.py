@@ -170,6 +170,8 @@ class State:
         if not a.no_news:
             self.topics["news"] = news("HEADLINE FROM THE HELPER")
         self.events = []        # (seq, topic, data)
+        self.filter_topics = False      # a poll's `topics=` narrows its events, as the helper's hub does (off: every event, as the QML tests have always had them)
+        self.polls = []         # the `topics=` of every /v1/events poll (None: the poll named none)
         self.topics["ai"] = ai_doc()
         self.topics["ai.prompt"] = None
         self.topics["updateblock"] = updateblock("blocked")
@@ -442,11 +444,15 @@ def handler(st):
             elif u.path == "/v1/events":
                 after = int(q.get("after", ["0"])[0])
                 wait = min(float(q.get("timeout", ["25"])[0]), 30)
+                names = q.get("topics", [None])[0]
+                names = names.split(",") if names else None
+                st.polls.append(names)
+                mine = lambda t: not st.filter_topics or names is None or t in names
                 end = time.time() + wait
                 with st.cv:
-                    while not [e for e in st.events if e[0] > after] and time.time() < end:
+                    while not [e for e in st.events if e[0] > after and mine(e[1])] and time.time() < end:
                         st.cv.wait(timeout=end - time.time())
-                    evs = [{"seq": s, "at": NOW(), "topic": t, "kind": "changed", "data": d} for s, t, d in st.events if s > after]
+                    evs = [{"seq": s, "at": NOW(), "topic": t, "kind": "changed", "data": d} for s, t, d in st.events if s > after and mine(t)]
                     seq = max([e["seq"] for e in evs], default=after)
                 self.send(200, {"ok": True, "api": 1, "now": NOW(), "boot": st.boot, "seq": seq, "reset": False, "events": evs})
             else:

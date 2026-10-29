@@ -590,7 +590,7 @@ mod tests {
             "raised": {"x": 700, "y": 600, "width": 160, "height": 160, "iconUrl": "/nowhere.png", "plate": "#3A3350", "inset": 12},
             "items": [
                 {"id": "open", "icon": "play", "label": "Open"},
-                {"id": "move", "icon": "move", "label": "Move", "disabled": true},
+                {"id": "move", "icon": "layout-grid", "label": "Move", "disabled": true},
                 {"id": "unpin", "icon": "eye-off", "label": "Hide from the dock", "detail": "Stays in Apps", "hint": "Hold OK"},
                 {"id": "uninstall", "icon": "trash-2", "label": "Uninstall", "danger": true}
             ],

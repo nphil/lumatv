@@ -364,7 +364,11 @@ impl SwitcherSurface {
                     Some((bg, big))
                 };
                 let veil = plate::shape(&kit.ui, p, z + 4, veil_look);
-                let icon = picture_layer(kit, &e.icon, ICON as u32, ICON as u32, z + 3, Props::at(cl.foot_icon.x, cl.foot_icon.y))?;
+                // the app's own icon, or the generic one when it has no file: the name never stands alone in a gap
+                let icon = match picture_layer(kit, &e.icon, ICON as u32, ICON as u32, z + 3, Props::at(cl.foot_icon.x, cl.foot_icon.y))? {
+                    Some(l) => Some(l),
+                    None => icon::layer(kit, "layout-grid", 32, ink2, z + 3, Props::at(cl.foot_icon.x + 8.0, cl.foot_icon.y + 8.0))?,
+                };
                 let lines: Vec<WordLine> = cl.name.iter().map(|t| WordLine::new(t, TypeRole::Body, ink).weight(Weight::SemiBold)).collect();
                 let name = Words::new(kit, cl.name_at.0, cl.name_at.1, cl.name_at.2, z + 3, &lines)?;
                 let state = if cl.state.is_empty() {

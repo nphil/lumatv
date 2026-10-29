@@ -247,6 +247,8 @@ fn carry(acts: Vec<Act>, channel: Option<&Feed>, helper: Option<&Feed>, log: &mu
                     log.line(&format!("[report] {}", out.body.as_ref().map_or(String::new(), Value::to_string)));
                 } else if out.path == "/v1/luna" {
                     log.line(&format!("[luna] {}", out.body.as_ref().map_or(String::new(), Value::to_string)));
+                } else if out.path == "/v1/switcher" {
+                    log.line(&format!("[switcher] {}", out.body.as_ref().map_or(String::new(), Value::to_string)));
                 }
                 if let Some(c) = channel {
                     c.request(out);
