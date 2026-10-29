@@ -105,7 +105,7 @@ pub fn spawn(ctx: &Ctx) -> std::io::Result<JoinHandle<()>> {
             let sources = Sources::lg();
             loop {
                 ctx.hub.set(TOPIC, read(&sources));
-                if !ctx.stop.sleep(POLL) {
+                if ctx.stop.sleep(POLL) {
                     return;
                 }
             }
