@@ -391,6 +391,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   apps' keyboard, the panels, the Cameras viewer, the layout editor, the alerts); before, D-pad and OK
   under an open Settings also moved Home's dock and launched its app. One order of owners
   (`Shell::system_wants`) decides it, and an OK release whose press Home never saw is no OK.
+- Compositor: the Home key is told to the Rust shell whenever its Home is drawn, so a second press opens the
+  app switcher (nothing is focused under the Rust Home, which the offer used to need). The switcher's card
+  for YouTube is its icon and name like the other video-plane apps, not a black rectangle, and the mute
+  mark keeps to the left corners while the quick panel, the picker or the drawer is up.
 - Compositor: an app's frame callbacks go out with the commit that carried them (`ctl callbacks
   clients commit|early|landing`, default `commit`), so LG SDL's present never waits at window
   teardown. PlxNative closes cleanly 15 of 15 on the set (12 of 15 crashed with the callbacks at

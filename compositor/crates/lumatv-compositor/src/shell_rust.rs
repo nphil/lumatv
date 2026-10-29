@@ -1364,6 +1364,26 @@ mod tests {
     }
 
     #[test]
+    fn the_home_key_reaches_the_rust_client_while_its_home_is_drawn_with_nothing_focused() {
+        let (mut state, _dir) = state_with("home,switcher");
+        state.shell_rust_handle(Msg::Connected);
+        state.shell_rust_handle(Msg::Ui { can: Some(vec!["switcher".into()]), wants: Some(false), live: Some(false), state: None });
+        let seat = crate::server::seat::SeatId(0);
+        let tap = |state: &mut State, at: Instant| {
+            state.key_event_at(seat, crate::input::code::KEY_HOME, true, false, at);
+            state.key_event_at(seat, crate::input::code::KEY_HOME, false, false, at + Duration::from_millis(60));
+        };
+        assert!(!state.shell_hears_home_key(false), "Home is not drawn: nothing to tell");
+        let now = Instant::now();
+        tap(&mut state, now);
+        assert!(state.shell_rust.topic("homekey").is_none(), "an app has the screen: the Home key is the compositor's");
+        state.scene.set_home_rust(true);
+        assert!(state.shell_hears_home_key(false), "Home is drawn by the Rust shell, which has no window to focus");
+        tap(&mut state, now + Duration::from_secs(5));
+        assert!(state.shell_rust.topic("homekey").is_some(), "the Rust client is told of the Home key, which may open the switcher");
+    }
+
+    #[test]
     fn keys_go_over_the_key_socket_while_the_rust_layer_wants_them_and_its_cards_take_ok_and_back() {
         let (mut state, _dir) = state_with("osd");
         state.shell_rust_handle(Msg::Connected);

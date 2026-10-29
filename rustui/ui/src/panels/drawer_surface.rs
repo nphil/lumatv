@@ -353,6 +353,11 @@ impl DrawerSurface {
         self.stage.is_up()
     }
 
+    /// The sheet's place while it is built: what the mute mark keeps clear of.
+    pub fn sheet(&self) -> Option<Frame> {
+        self.built.as_ref().map(|b| b.lay.sheet)
+    }
+
     /// Where the column goes for the focus: index 0 is the top, an item shows whole with `space(3)` of air beyond it.
     fn target(kit: &Kit, lay: &Layout, v: &View, offset: f32) -> f32 {
         let extent = (lay.content_h - lay.flick.h).max(0.0);

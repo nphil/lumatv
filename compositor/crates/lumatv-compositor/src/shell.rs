@@ -874,6 +874,12 @@ impl State {
         home_mapped && (self.scene.foreground(&self.surfaces).is_none_or(|w| w.app_id() == crate::scene::HOME_APP) || self.scene.transitions.holds_home())
     }
 
+    /// Whether a shell client hears the Home key: a shell window of the QML shell has the focus, or the Rust shell is connected and has Home drawn
+    /// (its Home is no window, so nothing is focused under it: `ctl status` focus is null).
+    pub fn shell_hears_home_key(&self, shell_focus: bool) -> bool {
+        shell_focus || (self.shell_rust.connected && self.shell_home_drawn())
+    }
+
     /// The moving wallpaper's window is closed the moment LumaTV's Home is not drawn (an app, an input, LG's Home or Settings took the front):
     /// the player takes its window away and unloads the decoder, so what comes to the front finds the pipeline free. This does not wait for
     /// the shell's word or the player's ttl; the shell asks again for the wallpaper when Home is back. Called after each drawn frame, which is

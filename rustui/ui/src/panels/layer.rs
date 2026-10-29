@@ -201,6 +201,17 @@ impl Panels {
         Which::ALL.into_iter().find(|w| w.on(kinds) && self.life(*w).presented())
     }
 
+    /// The sheet of the panel that is up, where the mute mark keeps clear of it (the quick panel's title is where the mark likes to drift).
+    pub fn avoid(&self, kinds: &Kinds) -> Vec<lumatv_placement::Rect> {
+        let sheet = match self.up(kinds) {
+            Some(Which::Quick) => self.quick_s.sheet(),
+            Some(Which::Picker) => self.picker_s.sheet(),
+            Some(Which::Drawer) => self.drawer_s.sheet(),
+            _ => None,
+        };
+        sheet.map(|f| lumatv_placement::Rect::new(f.x as i32, f.y as i32, f.w as i32, f.h as i32)).into_iter().collect()
+    }
+
     /// The subscriptions the panels ask for at the start.
     pub fn start(&mut self, kinds: &Kinds) -> Vec<Effect> {
         let mut out = Vec::new();

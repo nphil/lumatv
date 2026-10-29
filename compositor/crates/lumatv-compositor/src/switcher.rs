@@ -260,9 +260,10 @@ pub struct App {
     pub picture: Picture,
 }
 
-/// An app whose window is only a hole over the video plane, by its id (an input, Live TV): no window of it has a picture worth drawing.
+/// An app whose window is only a hole over the video plane, by its id (an input, Live TV, YouTube whose player draws on the plane): no window of
+/// it has a picture worth drawing, and its card was a black rectangle.
 fn input_app(id: &str) -> bool {
-    ["com.webos.app.hdmi", "com.webos.app.livetv", "com.webos.app.dp", "com.webos.app.usbc", "com.webos.app.externalinput"].iter().any(|p| id.starts_with(p))
+    ["com.webos.app.hdmi", "com.webos.app.livetv", "com.webos.app.dp", "com.webos.app.usbc", "com.webos.app.externalinput", "youtube.leanback"].iter().any(|p| id.starts_with(p))
 }
 
 /// LumaTV's own apps are not the owner's to switch between (Home, the helper, the card app), as LG's recents leave Home out.
@@ -920,7 +921,8 @@ mod tests {
 
     #[test]
     fn inputs_and_lumatvs_own_apps_are_told_by_their_ids() {
-        assert!(input_app("com.webos.app.hdmi2") && input_app("com.webos.app.livetv") && !input_app("netflix"));
+        assert!(input_app("com.webos.app.hdmi2") && input_app("com.webos.app.livetv") && !input_app("netflix") && !input_app("plex"));
+        assert!(input_app("youtube.leanback.v4"), "YouTube's card shows its icon and name: its picture is on the video plane");
         assert!(own_app("com.webos.app.home") && own_app("org.nphil.lumatv.helper") && !own_app("com.webos.app.discovery"));
     }
 }

@@ -505,7 +505,7 @@ impl State {
             } else {
                 let held = self.keys.home_down_since.take().map(|t| now.saturating_duration_since(t)).unwrap_or_default();
                 if !self.keys.home_escape_sent && r == Route::Home && held < HOLD_HOME {
-                    self.home_tap(now, from_network, shell_focus);
+                    self.home_tap(now, from_network, self.shell_hears_home_key(shell_focus));
                 }
             }
         }

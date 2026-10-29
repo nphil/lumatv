@@ -761,8 +761,12 @@ impl Shell {
             self.redraw = false;
             let mut live = false;
             if self.kinds.osd {
-                // a mute mark the owner placed drifts about its place, clear of the cards that are up
-                let avoid = self.sys.avoid(&self.kinds);
+                // a mute mark the owner placed drifts about its place, clear of the cards and the panel that are up
+                let mut avoid = self.sys.avoid(&self.kinds);
+                let panel = self.panels.avoid(&self.kinds);
+                // a panel up on the right (its title is where the mark likes to be) keeps the mark's own corners to the left, as the pop-up does
+                self.volume.avoid_top_right = !panel.is_empty();
+                avoid.extend(panel);
                 self.volume.set_placed(self.volume_surface.mark_places(&avoid));
                 let view = self.volume.view();
                 match self.volume_surface.apply(&mut self.kit, &view, now) {
@@ -1719,5 +1723,17 @@ mod tests {
             key(&mut shell, "right", at + 1_000);
             assert_ne!(home_position(&shell), before, "{name}: Home has the keys again");
         }
+    }
+
+    #[test]
+    fn the_mute_mark_keeps_to_the_left_while_the_quick_panel_is_up() {
+        let (_h, kit) = testkit::kit(1.0);
+        let mut shell = Shell::new(kit, Kinds::parse("osd,quick"), 2000, &testkit::module_dir().join("icons/audio"), &json!({}), &json!({})).expect("a shell");
+        shell.start();
+        shell.tick(1_000);
+        assert_eq!(shell.volume.view().spots, crate::system::volume::mark_spots(false, false), "no panel: every corner");
+        shell.channel(&Event::Topic { topic: "show".into(), data: json!({"kind": "quick", "n": 1}) }, 1_100);
+        shell.tick(1_200);
+        assert_eq!(shell.volume.view().spots, crate::system::volume::mark_spots(false, true), "the panel is up on the right: the mark's corners are the left ones");
     }
 }

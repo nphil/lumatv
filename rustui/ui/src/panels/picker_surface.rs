@@ -196,6 +196,11 @@ impl PickerSurface {
         self.stage.is_up()
     }
 
+    /// The sheet's place while it is built: what the mute mark keeps clear of.
+    pub fn sheet(&self) -> Option<Frame> {
+        self.built.as_ref().map(|b| b.lay.sheet)
+    }
+
     fn signature(kit: &Kit, v: &View, lay: &Layout) -> String {
         format!("{}|{}|{}|{}|{:?}", kit.generation(), kit.text_scale, v.sound, v.tiles.iter().map(tile_signature).collect::<Vec<_>>().join("/"), lay.sheet)
     }

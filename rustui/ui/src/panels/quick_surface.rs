@@ -226,6 +226,11 @@ impl QuickSurface {
         self.stage.is_up()
     }
 
+    /// The sheet's place while it is built: what the mute mark keeps clear of.
+    pub fn sheet(&self) -> Option<Frame> {
+        self.built.as_ref().map(|_| lay::sheet())
+    }
+
     // ---- building
 
     fn signature(kit: &mut Kit, v: &View, rows: &[RowLayout]) -> String {
