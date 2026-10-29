@@ -436,8 +436,10 @@ impl State {
         };
         self.scene.input(crate::output::monotonic_ns());
         // While the Magic Remote's cursor shows, OK is a click on what it points at (LG's behaviour); an arrow or
-        // Back hides the cursor and goes on as a key.
-        if matches!(code, code::KEY_ENTER | code::KEY_OK) && self.seat.cursor_visible && (self.seat.pointer_focus.is_some() || self.shell_rust.pointer_in) {
+        // Back hides the cursor and goes on as a key. A release goes the way its press went: a press taken as a key (by the Rust shell, or by an app's
+        // keyboard) has its release as a key even if the cursor showed in between, and one taken as a click has its release as one.
+        let key_press_open = !pressed && (self.shell_rust.took.iter().any(|(c, _)| *c == code) || self.seat.pressed.iter().any(|(_, c)| *c == code));
+        if matches!(code, code::KEY_ENTER | code::KEY_OK) && !key_press_open && self.seat.cursor_visible && (self.seat.pointer_focus.is_some() || self.shell_rust.pointer_in) {
             if seat::pointer_button(self, pressed) {
                 self.keys.delivered += 1;
                 return;

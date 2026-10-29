@@ -59,6 +59,8 @@ pub struct SeatState {
     /// When the cursor was last shown or moved, for the timeout.
     pub cursor_shown_at: Option<std::time::Instant>,
     pub motions: u64,
+    /// A press of the pointer's button was delivered to a client and its release is owed: a release with no press seen is nothing.
+    pub button_down: bool,
 }
 
 impl SeatState {
@@ -428,6 +430,11 @@ pub fn pointer_motion(state: &mut State, x: i32, y: i32) -> bool {
 
 /// OK while the cursor shows: `BTN_LEFT` to the surface under the pointer.
 pub fn pointer_button(state: &mut State, pressed: bool) -> bool {
+    // A release is delivered only for a press that was: the Magic Remote ends its pointer session (SLEEP) with nothing the person pressed,
+    // and a release with no press is nothing to anyone, not a click.
+    if !pressed && !state.seat.button_down && !state.shell_rust_button_down() {
+        return true;
+    }
     if state.shell_rust_pointer_button(pressed) {
         state.seat.last_input = "pointer";
         state.seat.cursor_shown_at = Some(std::time::Instant::now());
@@ -442,6 +449,7 @@ pub fn pointer_button(state: &mut State, pressed: bool) -> bool {
         p.button(serial, time, BTN_LEFT, if pressed { wl_pointer::ButtonState::Pressed } else { wl_pointer::ButtonState::Released });
         sent = true;
     }
+    state.seat.button_down = pressed && sent;
     state.seat.last_input = "pointer";
     state.seat.cursor_shown_at = Some(std::time::Instant::now());
     sent
@@ -452,6 +460,7 @@ pub fn pointer_button(state: &mut State, pressed: bool) -> bool {
 pub fn hide_cursor(state: &mut State) {
     set_cursor_visible(state, false);
     let (x, y) = state.seat.pointer_position;
+    state.seat.button_down = false;
     state.shell_rust_pointer_sample(x, y, false);
     if let Some(old) = state.seat.pointer_focus.take()
         && let Some(res) = state.seat.surfaces.get(&old).cloned()

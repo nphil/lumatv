@@ -996,9 +996,18 @@ impl State {
         owns
     }
 
-    /// The remote's OK (or a button) while the pointer is over the Rust client's layers: its click.
+    /// A press was sent to the Rust client and its release is owed.
+    pub fn shell_rust_button_down(&self) -> bool {
+        self.shell_rust.buttons != 0
+    }
+
+    /// The remote's OK (or a button) while the pointer is over the Rust client's layers: its click. A release goes to it only for a press that did
+    /// (the pointer left, or was hidden, in between: `buttons` is cleared with it), and a press only while the pointer is shown over it.
     pub fn shell_rust_pointer_button(&mut self, pressed: bool) -> bool {
-        if !self.shell_rust.pointer_in {
+        if !pressed && self.shell_rust.buttons == 0 {
+            return false;
+        }
+        if !self.shell_rust.pointer_in || (pressed && !self.seat.cursor_visible) {
             return false;
         }
         self.shell_rust.buttons = u32::from(pressed);
@@ -1597,6 +1606,7 @@ mod tests {
         // a keyboard sheet at the foot: a sample over it is the client's, one beside it is the app's, and the client is told once that it left
         state.scene.shell_pointer = Some(crate::Rect::new(0, 700, 1920, 380));
         assert!(state.shell_rust_pointer_sample(100, 900, true));
+        state.seat.cursor_visible = true;
         assert!(state.shell_rust_pointer_button(true));
         assert!(state.shell_rust_pointer_button(false));
         assert!(state.shell_rust_pointer_sample(110, 900, true));
@@ -1622,6 +1632,36 @@ mod tests {
         state.shell_rust_handle(Msg::Ui { can: None, wants: Some(true), live: None, state: None });
         assert!(state.shell_rust_pointer_sample(5, 5, true));
         assert!(!state.shell_rust_pointer_sample(5, 5, false), "a cursor that is hidden is nobody's");
+    }
+
+    #[test]
+    fn a_release_with_no_press_is_nothing_a_press_needs_the_cursor_shown_and_a_hidden_cursor_ends_a_press_without_a_click() {
+        let (mut state, _dir) = state_with("home");
+        state.shell_rust_handle(Msg::Connected);
+        state.shell_rust_handle(Msg::Ui { can: None, wants: Some(true), live: None, state: None });
+        let theirs = with_key_socket(&mut state);
+        state.seat.cursor_visible = true;
+        assert!(state.shell_rust_pointer_sample(300, 300, true));
+        // the remote's sleep: a release with no press seen: swallowed by the seat, nothing sent to anyone
+        assert!(crate::server::seat::pointer_button(&mut state, false), "swallowed");
+        assert!(!state.shell_rust_pointer_button(false), "the client is owed no release");
+        // a press with the cursor hidden is not a click
+        state.seat.cursor_visible = false;
+        assert!(!state.shell_rust_pointer_button(true));
+        state.seat.cursor_visible = true;
+        // a real click, then a press that the cursor's hiding ends: its release is nothing
+        assert!(state.shell_rust_pointer_button(true));
+        assert!(state.shell_rust_button_down());
+        assert!(state.shell_rust_pointer_button(false));
+        assert!(state.shell_rust_pointer_button(true));
+        assert!(!state.shell_rust_pointer_sample(300, 300, false));
+        assert!(!state.shell_rust_button_down());
+        assert!(crate::server::seat::pointer_button(&mut state, false), "the release after the hiding is swallowed too");
+        let sent: Vec<(u64, bool)> = lines(theirs)
+            .iter()
+            .map(|l| (l["pointer"]["buttons"].as_u64().unwrap(), l["pointer"]["visible"].as_bool().unwrap()))
+            .collect();
+        assert_eq!(sent, vec![(0, true), (1, true), (0, true), (1, true), (0, false)], "no release, no stray press");
     }
 
     #[test]

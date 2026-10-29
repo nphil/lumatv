@@ -9,7 +9,7 @@ use crate::cameras::host::Cameras;
 use crate::home::{Home, HomeSurface};
 use crate::host::http::{Event, Outbound};
 use crate::host::keys::KeyEvent;
-use crate::kit::pointer::Sample;
+use crate::kit::pointer::{Guard, Sample};
 use crate::kit::screen::{Effect, Input, Model};
 use crate::kit::{Engine, Kit};
 use crate::settings::host::SettingsHost;
@@ -161,6 +161,8 @@ pub struct Shell {
     panels: Panels,
     /// The press of OK or Back that is being routed was taken by a card (the pop-up's or the overlay queue's): the screens under do not see it.
     cards_took: bool,
+    /// Which buttons of the pointer the screens may hear ([`Guard`]).
+    pointer_guard: Guard,
     /// The last report sent, so an unchanged one is not sent again.
     reported: Option<Value>,
     live: bool,
@@ -200,6 +202,7 @@ impl Shell {
             engine,
             kinds,
             cards_took: false,
+            pointer_guard: Guard::default(),
             reported: None,
             live: false,
             redraw: false,
@@ -703,7 +706,9 @@ impl Shell {
             KeyEvent::Pointer { x, y, buttons, visible } => {
                 self.cards_took = false;
                 let now_ns = self.kit.ui.scene.now_ns();
-                let sample = Sample { x: *x, y: *y, buttons: *buttons, visible: *visible };
+                // no screen hears a button that was not seen going down, or a button on a hidden pointer
+                let sample = self.pointer_guard.filter(Sample { x: *x, y: *y, buttons: *buttons, visible: *visible });
+                let (buttons, visible) = (&sample.buttons, &sample.visible);
                 // the layout editor, the AI prompt and the display lab are the whole screen's: nothing under them hears the pointer
                 let lab_up = self.lab_wants();
                 let editor = self.sys.layout_open() || self.sys.ai_up() || lab_up;
@@ -727,7 +732,6 @@ impl Shell {
                     self.cameras_asks(now, &mut acts);
                 }
                 self.feed(&Input::Pointer { x: *x, y: *y, buttons: *buttons, visible: *visible }, now, &mut acts);
-                let sample = Sample { x: *x, y: *y, buttons: *buttons, visible: *visible };
                 if !editor {
                     for e in self.panels.pointer(&self.kinds, &self.kit, &mut self.engine, now_ns, sample, now) {
                         self.carry(e, now, &mut acts);
@@ -1386,6 +1390,29 @@ mod tests {
         // the app has the front: Home is behind it and the launch screen is gone
         shell.channel(&Event::Topic { topic: "foreground".into(), data: json!({"app": "netflix", "home": false, "covered": true}) }, 3_100);
         assert!(shell.state()["extras"]["splash"].is_null() && shell.geometry()["extras"]["splash"].is_null());
+    }
+
+    fn pointer(shell: &mut Shell, (x, y): (f32, f32), buttons: u32, visible: bool, at: u64) -> Vec<Act> {
+        shell.key(&KeyEvent::Pointer { x, y, buttons, visible }, at)
+    }
+
+    #[test]
+    fn nothing_opens_by_a_button_nobody_saw_go_down_or_a_pointer_that_went_to_sleep() {
+        let (_h, mut shell) = home_shell("home");
+        let r = shell.home.dock_rect().expect("the dock");
+        let (sx, sy) = shell.home.dock.slot(1);
+        let over = (r.x as f32 + sx as f32 + 60.0, r.y as f32 + sy as f32 + 60.0);
+        let mut acts = Vec::new();
+        // the remote wakes with the button reading down, then lies still and sleeps with the button up, shown and hidden samples mixed
+        for (buttons, visible, at) in [(1, true, 2_000), (1, true, 2_020), (0, true, 2_040), (0, false, 2_060), (1, false, 2_080), (0, false, 2_100), (0, true, 2_120)] {
+            acts.extend(pointer(&mut shell, over, buttons, visible, at));
+        }
+        assert!(luna_calls(&acts, "/launch").is_empty(), "{acts:?}");
+        // the real thing still works: seen up, down, up over the tile
+        for (buttons, at) in [(0, 2_200), (1, 2_220), (0, 2_260)] {
+            acts.extend(pointer(&mut shell, over, buttons, true, at));
+        }
+        assert_eq!(luna_calls(&acts, "/launch").len(), 1, "{acts:?}");
     }
 
     #[test]

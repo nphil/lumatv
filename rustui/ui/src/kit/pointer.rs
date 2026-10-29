@@ -36,6 +36,37 @@ pub struct Sample {
     pub visible: bool,
 }
 
+/// What the key socket's samples are allowed to say before any screen hears them: a button counts as pressed only when the pointer was seen shown with
+/// that button up first. A button already down as the pointer appears (the remote waking, a press the shell never saw) is not a press, nor is its release
+/// a click; a hidden pointer has no buttons at all. The screens' click rules stand on this: nothing opens by a button nobody saw go down.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Guard {
+    armed: bool,
+    down: bool,
+}
+
+impl Guard {
+    pub fn filter(&mut self, s: Sample) -> Sample {
+        if !s.visible {
+            *self = Self::default();
+            return Sample { buttons: 0, ..s };
+        }
+        let down = s.buttons & 1 != 0;
+        if !down {
+            self.armed = true;
+            self.down = false;
+            return s;
+        }
+        // a button down: a press seen only when the pointer was up before it, or it has been down since such a press
+        if self.down || self.armed {
+            self.down = true;
+            self.armed = false;
+            return s;
+        }
+        Sample { buttons: s.buttons & !1, ..s }
+    }
+}
+
 impl Pointer {
     /// [`Pointer::sample`] for a [`Sample`].
     pub fn feed(&mut self, engine: &mut Engine, now_ns: u64, s: Sample) -> Vec<Gesture> {
@@ -102,6 +133,25 @@ mod tests {
     use crate::kit::focus::{Region, Scope};
     use crate::kit::testkit;
     use ui::geometry::Frame;
+
+    #[test]
+    fn the_guard_lets_a_button_through_only_after_the_pointer_was_seen_up_and_never_on_a_hidden_pointer() {
+        let s = |buttons, visible| Sample { x: 1.0, y: 2.0, buttons, visible };
+        let mut g = Guard::default();
+        // down as the pointer first shows: no press, however long it stays down; its release is nothing and the next press is one
+        assert_eq!(g.filter(s(1, true)).buttons, 0);
+        assert_eq!(g.filter(s(1, true)).buttons, 0);
+        assert_eq!(g.filter(s(0, true)).buttons, 0);
+        assert_eq!(g.filter(s(1, true)).buttons, 1, "up was seen: a press");
+        assert_eq!(g.filter(s(1, true)).buttons, 1, "held");
+        assert_eq!(g.filter(s(0, true)).buttons, 0);
+        // hidden: no buttons, and the pointer has to be seen up again
+        let hidden = g.filter(s(1, false));
+        assert!(!hidden.visible && hidden.buttons == 0);
+        assert_eq!(g.filter(s(1, true)).buttons, 0, "down as it shows again");
+        assert_eq!(g.filter(s(0, true)).buttons, 0);
+        assert_eq!(g.filter(s(1, true)).buttons, 1);
+    }
 
     fn rig() -> (ui::testing::Harness, crate::kit::Kit, Engine, Pointer) {
         let (h, kit) = testkit::kit(1.0);

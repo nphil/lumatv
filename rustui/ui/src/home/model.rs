@@ -130,6 +130,11 @@ pub struct Home {
     pub inner: Option<String>,
     pub inner_index: Option<usize>,
     pointer_down: bool,
+    /// A visible sample with the button up has been seen since the pointer last showed: only then is a button down a press seen (a button already down
+    /// as the pointer appears, or a release with no press, is nothing).
+    pointer_armed: bool,
+    /// What the press of a click landed on: the click is made when the same button is released over it.
+    click_press: Option<(Id, u64)>,
     pub active: bool,
     /// The clip of the moving wallpaper is on the plane under Home and the hole is open: Home's own picture and scrim are away ([`WallVideo::up`]).
     pub wall_hole: bool,
@@ -192,6 +197,8 @@ impl Home {
             inner: None,
             inner_index: None,
             pointer_down: false,
+            pointer_armed: false,
+            click_press: None,
             helper_up: false,
             dock: Dock::default(),
             focus: Focus::new(),
@@ -556,6 +563,14 @@ impl Home {
             self.ok_held = true;
             self.hold(out);
         }
+        // a button held as long as OK is held (`LuPointer`'s press and hold): the tile's options or the editor, and its release is no click
+        if let Some((_, at)) = self.click_press
+            && now >= at + self.hold_ms
+        {
+            self.click_press = None;
+            self.hold(out);
+            self.redraw(out);
+        }
         // an answer that never came (the host restarted) does not stop the next look
         if self.poll_outstanding > 0 && now >= self.next_poll + 2 * POLL_MS {
             self.poll_outstanding = 0;
@@ -586,6 +601,9 @@ impl Home {
                 due = Some(due.map_or(t, |d| d.min(t)));
             }
         };
+        if let Some((_, at)) = self.click_press {
+            take(Some(at + self.hold_ms));
+        }
         if let Some(at) = self.ok_down_at.filter(|_| !self.ok_held) {
             take(Some(at + self.hold_ms));
         }
@@ -791,7 +809,10 @@ impl Home {
     pub fn input_taken(&mut self, input: &Input) {
         match input {
             Input::Key { name, .. } if name == "ok" => self.reset_ok(),
-            Input::Pointer { .. } => self.pointer_down = false,
+            Input::Pointer { .. } => {
+                self.pointer_down = false;
+                self.click_press = None;
+            }
             _ => {}
         }
     }
@@ -1700,12 +1721,20 @@ impl Home {
                 self.redraw(out);
             }
             self.pointer_down = false;
+            self.pointer_armed = false;
+            self.click_press = None;
             return;
         }
         self.cursor_visible = true;
         let was = self.pointer_down;
-        self.pointer_down = buttons & 1 != 0;
-        if self.pointer_down && !was {
+        let down = buttons & 1 != 0;
+        if !down {
+            self.pointer_armed = true;
+        }
+        // a button down that was never seen going down is not a press
+        let pressed = down && (was || self.pointer_armed);
+        self.pointer_down = pressed;
+        if pressed && !was {
             // a click: focuses what is under it and acts on it, as OK would
             if let Some(ed) = &mut self.editor {
                 let outs = ed.press_at(x, y, &mut self.focus, self.now);
@@ -1722,7 +1751,23 @@ impl Home {
                 self.redraw(out);
                 return;
             }
-            if let Some(id) = self.focus.click(x, y) {
+            if let Some(id) = self.focus.hit(x, y).filter(|id| self.focus.is_live(*id)) {
+                self.focus.click(x, y);
+                self.click_press = Some((id, self.now));
+            }
+            return;
+        }
+        if !self.pointer_down && was {
+            let landed = self.click_press.take().map(|(id, _)| id);
+            if let Some(ed) = &mut self.editor
+                && let Some(o) = ed.release(x, y, &mut self.focus)
+            {
+                self.edit_outs(vec![o], out);
+                self.redraw(out);
+                return;
+            }
+            // the click: what the button went down on, released over the same control
+            if let Some(id) = landed.filter(|id| self.focus.hit(x, y) == Some(*id)) {
                 if self.layer == Layer::Apps {
                     let action = self.apps.clicked(id, &mut self.focus);
                     self.apps_out(action, out);
@@ -2111,14 +2156,114 @@ mod tests {
         assert_eq!(h.focus.hovered(), Some(Id(DOCK_ID + 1)));
         assert_eq!(h.state()["focusLayer"], "statusbar", "hover moved no focus");
         let out = h.update(&Input::Pointer { x, y, buttons: 1, visible: true }, 2100);
-        assert!(out.iter().any(|e| matches!(e, Effect::Luna { payload, .. } if payload["id"] == "netflix")), "a click opens what is under it");
-        h.update(&Input::Pointer { x, y, buttons: 0, visible: true }, 2200);
+        assert!(!out.iter().any(|e| matches!(e, Effect::Luna { .. })), "the press selects; nothing opens yet");
+        let out = h.update(&Input::Pointer { x, y, buttons: 0, visible: true }, 2200);
+        assert!(out.iter().any(|e| matches!(e, Effect::Luna { payload, .. } if payload["id"] == "netflix")), "a click opens what is under it when the button comes up over it");
         h.update(&Input::Key { name: "left".into(), down: true, repeat: false }, 2300);
         assert_eq!(h.focus.hovered(), None, "the next key hides the cue");
     }
 
+    fn launches(out: &[Effect]) -> usize {
+        out.iter().filter(|e| matches!(e, Effect::Luna { uri, .. } if uri.ends_with("/launch"))).count()
+    }
+
+    /// The pointer over the first dock tile, the tile's centre.
+    fn over_tile(h: &Home) -> (f32, f32) {
+        let r = h.dock_rect().unwrap();
+        let (sx, sy) = h.dock.slot(1);
+        (r.x as f32 + sx as f32 + 60.0, r.y as f32 + sy as f32 + 60.0)
+    }
+
+    #[test]
+    fn a_pointer_that_goes_to_sleep_opens_nothing() {
+        let mut h = home();
+        let (x, y) = over_tile(&h);
+        h.update(&Input::Pointer { x, y, buttons: 0, visible: true }, 2000);
+        h.update(&Input::Key { name: "right".into(), down: true, repeat: false }, 2100);
+        let mut all = Vec::new();
+        // the remote lies still: the pointer is hidden, with the button up and then, as a stray sample, with it down
+        for (buttons, visible, at) in [(0, false, 2200), (1, false, 2210), (0, false, 2220), (0, true, 2230)] {
+            all.extend(h.update(&Input::Pointer { x, y, buttons, visible }, at));
+        }
+        assert_eq!(launches(&all), 0, "{all:?}");
+        // a release with no press seen is nothing, with the pointer shown
+        all.extend(h.update(&Input::Pointer { x, y, buttons: 0, visible: true }, 2300));
+        assert_eq!(launches(&all), 0);
+    }
+
+    #[test]
+    fn a_button_already_down_when_the_pointer_shows_is_not_a_press_and_its_release_is_not_a_click() {
+        let mut h = home();
+        let (x, y) = over_tile(&h);
+        let mut all = Vec::new();
+        for (buttons, at) in [(1, 2000), (1, 2020), (0, 2040)] {
+            all.extend(h.update(&Input::Pointer { x, y, buttons, visible: true }, at));
+        }
+        assert_eq!(launches(&all), 0, "{all:?}");
+        // the same pointer, now armed, clicks as it should
+        for (buttons, at) in [(1, 2100), (0, 2140)] {
+            all.extend(h.update(&Input::Pointer { x, y, buttons, visible: true }, at));
+        }
+        assert_eq!(launches(&all), 1);
+    }
+
+    #[test]
+    fn a_pointer_that_hides_or_leaves_the_tile_between_the_press_and_the_release_clicks_nothing() {
+        let mut h = home();
+        let (x, y) = over_tile(&h);
+        let mut all = Vec::new();
+        h.update(&Input::Pointer { x, y, buttons: 0, visible: true }, 2000);
+        h.update(&Input::Pointer { x, y, buttons: 1, visible: true }, 2020);
+        all.extend(h.update(&Input::Pointer { x, y, buttons: 0, visible: false }, 2040));
+        all.extend(h.update(&Input::Pointer { x, y, buttons: 0, visible: true }, 2060));
+        assert_eq!(launches(&all), 0, "hiding between press and release cancels it");
+        h.update(&Input::Pointer { x, y, buttons: 1, visible: true }, 2100);
+        all.extend(h.update(&Input::Pointer { x: 5.0, y: 5.0, buttons: 0, visible: true }, 2140));
+        assert_eq!(launches(&all), 0, "released somewhere else");
+    }
+
     fn notes_of(h: &mut Home) -> Vec<Note> {
         h.take_notes()
+    }
+
+    #[test]
+    fn a_button_held_on_a_tile_opens_its_options_and_neither_its_release_nor_a_key_release_after_it_opens_or_picks_anything() {
+        let mut h = home();
+        let (x, y) = over_tile(&h);
+        let mut all = Vec::new();
+        h.update(&Input::Pointer { x, y, buttons: 0, visible: true }, 3000);
+        all.extend(h.update(&Input::Pointer { x, y, buttons: 1, visible: true }, 3020));
+        assert_eq!(h.layer, Layer::None);
+        all.extend(h.update(&Input::Tick, 3020 + h.hold_ms + 10));
+        assert_eq!(h.layer, Layer::Menu, "the hold opened the options");
+        all.extend(h.update(&Input::Pointer { x, y, buttons: 0, visible: true }, 3020 + h.hold_ms + 60));
+        assert_eq!(h.layer, Layer::Menu, "the release did not pick a row");
+        assert_eq!(h.menu_index, 0);
+        assert_eq!(launches(&all), 0, "{all:?}");
+        // Back leaves it; a stray OK release after that is nothing
+        press(&mut h, "back", 4000);
+        all.extend(h.update(&Input::Key { name: "ok".into(), down: false, repeat: false }, 4100));
+        assert_eq!((h.layer, launches(&all)), (Layer::None, 0));
+    }
+
+    #[test]
+    fn a_held_ok_that_opens_the_options_launches_nothing_whether_the_hold_is_found_at_a_tick_or_at_the_release() {
+        let mut h = home();
+        press(&mut h, "2", 1500);
+        h.close_all();
+        let mut all = Vec::new();
+        // no tick between the press and its release: the release finds the hold and is the hold's
+        h.update(&Input::Key { name: "ok".into(), down: true, repeat: false }, 3000);
+        all.extend(h.update(&Input::Key { name: "ok".into(), down: false, repeat: false }, 3000 + h.hold_ms + 20));
+        assert_eq!(h.layer, Layer::Menu);
+        assert_eq!((h.menu_index, launches(&all)), (0, 0), "{all:?}");
+        // with the remote's repeats between, the same
+        press(&mut h, "back", 3500);
+        h.update(&Input::Key { name: "ok".into(), down: true, repeat: false }, 4000);
+        h.update(&Input::Tick, 4000 + h.hold_ms + 5);
+        all.extend(h.update(&Input::Key { name: "ok".into(), down: true, repeat: true }, 4800));
+        all.extend(h.update(&Input::Key { name: "ok".into(), down: false, repeat: false }, 4900));
+        assert_eq!((h.layer, h.menu_index, launches(&all)), (Layer::Menu, 0, 0), "{all:?}");
     }
 
     #[test]
