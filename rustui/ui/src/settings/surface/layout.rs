@@ -181,8 +181,8 @@ pub fn measure_row(kit: &mut Kit, row: &Row, w: f32) -> RowGeom {
         }
         _ => {}
     }
-    // a row with words: a tile at the left when it has an icon, the control and the value at the right
-    g.text_x = sz.s6 + if row.icon.is_empty() { 0.0 } else { sz.tile + sz.s5 };
+    // a row with words: a tile at the left when it has an icon or a face, the control and the value at the right
+    g.text_x = sz.s6 + if row.icon.is_empty() && row.face.is_none() { 0.0 } else { sz.tile + sz.s5 };
     let (trail_w, trail_gap) = match row.kind {
         Kind::Toggle => (sz.toggle().0, 0.0),
         Kind::Seg => {
@@ -343,6 +343,16 @@ mod tests {
         assert_eq!(two.h, 88.0);
         let head = measure_row(&mut kit, &Row::head("Vision", 0), 1272.0);
         assert_eq!(head.h, 58.0, "a head is under a row, with air above it that parts one group from the one before");
+    }
+
+    #[test]
+    fn a_row_with_a_face_keeps_its_words_clear_of_it_as_one_with_an_icon_does() {
+        let (_h, mut kit) = testkit::kit(1.0);
+        let face = crate::settings::row::Face { file: Some("/x/people-03.png".into()), letter: "I".into(), colour: "#EB6F92".into() };
+        let person = measure_row(&mut kit, &Row::link("p:isabel").face(face).label("Isabel"), 1272.0);
+        let icon = measure_row(&mut kit, &Row::link("p:isabel").icon("user").label("Isabel"), 1272.0);
+        assert_eq!(person.text_x, icon.text_x, "the name starts after the picture");
+        assert_eq!(person.text_x, 92.0);
     }
 
     #[test]

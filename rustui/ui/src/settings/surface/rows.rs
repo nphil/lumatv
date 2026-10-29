@@ -126,10 +126,11 @@ pub struct RowArt {
 pub fn signature(row: &Row) -> String {
     let opts: String = row.options.join("\u{1}");
     let cards: String = row.cards.iter().map(|c| format!("{}\u{2}{}\u{2}{}", c.title, c.icon, c.sub)).collect::<Vec<_>>().join("\u{1}");
+    let face = row.face.as_ref().map(|f| format!("{:?}|{}|{}", f.file, f.letter, f.colour)).unwrap_or_default();
     let value = if row.kind == Kind::Slider { String::new() } else { row.value.clone() };
     let own = if row.kind == Kind::Value { format!("{}", row.selected) } else { String::new() };
     format!(
-        "{:?}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{:?}",
+        "{:?}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{:?}|{}",
         row.kind,
         row.icon,
         row.label,
@@ -149,7 +150,8 @@ pub fn signature(row: &Row) -> String {
         row.strip,
         row.unit,
         own,
-        row.zones
+        row.zones,
+        face
     )
 }
 

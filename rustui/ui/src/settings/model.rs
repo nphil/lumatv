@@ -1250,8 +1250,9 @@ impl Model {
         })
     }
 
-    /// The glyphs of what the keys do now, as the Magic Remote carries them (no sentence): the one thing the focus does, then the way
-    /// out. Never a legend of every key.
+    /// The glyphs of what the keys do now, as the Magic Remote carries them (no sentence): the way out, and before it the one thing the
+    /// focus does that a person would not guess (a row that moves sideways). OK on a row is never hinted, nor is the rail's. Never a legend
+    /// of every key.
     fn hints(&self, page: Option<&PageView>, sheet: Option<&SheetView>) -> Vec<Hint> {
         let lr = Hint { keys: vec![(Key::Left, false), (Key::Right, false)], action: Some(Action::Move), label: None };
         let out = |a: Action| Hint::key(Key::Back, a);
@@ -1261,18 +1262,14 @@ impl Model {
             None => {}
         }
         if self.zone == Zone::Rail || page.is_none() {
-            return vec![Hint::key(Key::Ok, Action::Open), out(Action::Close)];
+            return vec![out(Action::Close)];
         }
         let page = page.expect("checked");
         let first = match page.stop {
             StopView::Tabs => Some(lr),
             StopView::Row(_) => {
                 let r = page.focused_row().expect("a row stop has a row");
-                Some(match r.kind {
-                    Kind::Slider | Kind::Nudge | Kind::Seg | Kind::Cards | Kind::Stepper => lr,
-                    Kind::Toggle | Kind::Action => Hint::key(Key::Ok, Action::Confirm),
-                    _ => Hint::key(Key::Ok, Action::Open),
-                })
+                matches!(r.kind, Kind::Slider | Kind::Nudge | Kind::Seg | Kind::Cards | Kind::Stepper).then_some(lr)
             }
             StopView::None => None,
         };
@@ -1969,12 +1966,12 @@ mod tests {
     }
 
     #[test]
-    fn the_bar_shows_the_one_thing_the_focus_does_and_the_way_out_never_a_legend() {
+    fn the_bar_shows_the_way_out_and_before_it_only_a_row_that_moves_sideways_never_a_legend() {
         use crate::kit::hint::{Action, Key};
         let mut m = model();
         m.open(None, 0);
         let names = |m: &Model| m.view().hints.iter().map(|h| (h.keys.iter().map(|k| k.0).collect::<Vec<_>>(), h.action)).collect::<Vec<_>>();
-        assert_eq!(names(&m), vec![(vec![Key::Ok], Some(Action::Open)), (vec![Key::Back], Some(Action::Close))], "the rail: open, and out");
+        assert_eq!(names(&m), vec![(vec![Key::Back], Some(Action::Close))], "the rail: the way out, OK is not hinted");
         press(&mut m, "right", 10);
         press(&mut m, "down", 100);
         assert_eq!(m.view().page.unwrap().focused_row().unwrap().kind, Kind::Seg);
@@ -1983,6 +1980,7 @@ mod tests {
         press(&mut m, "ok", 200);
         for _ in 0..4 {
             assert!(m.view().hints.len() <= 2, "{:?}", m.view().hints);
+            assert!(m.view().hints.iter().all(|h| h.keys != vec![(Key::Ok, false)]), "OK is not hinted on a row: {:?}", m.view().hints);
             press(&mut m, "down", 300);
         }
     }
