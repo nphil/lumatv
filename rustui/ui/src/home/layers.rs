@@ -727,7 +727,21 @@ impl PickerSurface {
                     let style = role_style(kit, TypeRole::Label, Some(Weight::SemiBold), if pr.active { ink } else { ink2 }, Align::Centre);
                     let mut name = Text::new(kit, Frame::new(-40.0, f.h + 16.0, f.w + 80.0, kit.line(TypeRole::Label)), z + 5, style, &pr.name)?;
                     name.set_props(Props::at(-40.0, f.h + 16.0));
-                    let tick = if pr.active { crate::kit::icon::layer(kit, "check", 28, kit.ui.look.accent_ink(), z + 6, Props::at(f.w - 44.0, 12.0))? } else { None };
+                    // the current person's tick: an accent disc with the check in the accent's ink, over the tile's corner
+                    let tick = if pr.active {
+                        let mut disc = kit.ui.scene.image(44, 44, z + 6, Props::at(f.w - 40.0, -4.0))?;
+                        {
+                            let mut canvas = super::widgets::Canvas { px: disc.pixels_mut(), w: 44, h: 44 };
+                            canvas.disc(22.0, 22.0, 22.0, kit.ui.look.accent());
+                            if let Some(px) = kit.icons.draw("check", 26, kit.ui.look.accent_ink()) {
+                                canvas.picture(&picture::Picture { width: 26, height: 26, rgba: px }, 9, 9, 26, 26);
+                            }
+                        }
+                        disc.damage(None);
+                        Some(disc)
+                    } else {
+                        None
+                    };
                     Ok((av, name, tick))
                 })
                 .ok_or_else(|| std::io::Error::other("the tile's group"))??;
@@ -813,6 +827,21 @@ impl PickerSurface {
             let _ = (&t.avatar, &t.name, &t.tick, t.id);
         }
         Ok(())
+    }
+
+    /// The picker's words for the lint: the title and the names (over the blur, which the lint takes as the sheet).
+    pub fn lint(&self, kit: &mut Kit, lint: &mut crate::kit::lint::Lint, home: &Home) {
+        let paint = kit.ui.look.colour(PaletteRole::Sheet);
+        let p = lint.panel("picker", Frame::new(0.0, 0.0, 1920.0, 1080.0), paint, false);
+        let ink = kit.ui.look.ink();
+        let tf = self.title.frame();
+        lint.word(kit, "picker.title", self.title.text(), tf, role_style(kit, TypeRole::Display, None, ink, Align::Centre), Some(p));
+        for (i, t) in self.tiles.iter().enumerate() {
+            let f = home.picker.tile_frame(i);
+            let nf = t.name.frame();
+            let style = role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Centre);
+            lint.word(kit, &format!("picker.name.{i}"), t.name.text(), Frame::new(f.x + nf.x, f.y + nf.y, nf.w, nf.h), style, Some(p));
+        }
     }
 
     pub fn destroy(self, engine: &mut Engine) {

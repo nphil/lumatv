@@ -917,7 +917,9 @@ impl HomeSurface {
                 lint.word(kit, "dock.pill", d.pill_text.text(), Frame::new(d.frame.x + f.x, d.frame.y + f.y, f.w, f.h), style, Some(p));
             }
         }
-        let _ = home;
+        if let Some(p) = &self.picker {
+            p.lint(kit, &mut lint, home);
+        }
         lint
     }
 
@@ -1001,6 +1003,27 @@ mod tests {
                 let bad: Vec<String> = findings.iter().map(|f| format!("{f:?}")).collect();
                 assert!(bad.is_empty(), "{mode:?} at {scale}: {}", bad.join("\n"));
             }
+        }
+    }
+
+    #[test]
+    fn whos_watching_passes_the_lint_at_both_text_sizes() {
+        for scale in [1.0, 2.0] {
+            let (h, mut kit) = testkit::kit_in(Mode::Dark, scale);
+            let mut engine = Engine::new(&kit).expect("an engine");
+            let theme = lumatv_tokens::Tokens::shipped().json().clone();
+            let mut home = Home::new(theme, super::super::grid::shipped(), json!({}));
+            fixtures(&mut home);
+            press(&mut home, "ok", 2000);
+            assert_eq!(home.layer, Layer::Picker);
+            let mut s = HomeSurface::new(1000);
+            s.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
+            s.apply(&mut kit, &mut engine, &mut home, 2300).expect("the picker drawn");
+            let lint = s.lint(&mut kit, &home);
+            let bad: Vec<String> = lint.findings().iter().filter(|f| f.subject.starts_with("picker")).map(|f| format!("{f:?}")).collect();
+            assert!(bad.is_empty(), "the picker at {scale}: {}", bad.join("\n"));
+            assert!(lint.words().iter().any(|w| w.name == "picker.name.1"), "the names were linted");
+            std::mem::forget(h);
         }
     }
 
