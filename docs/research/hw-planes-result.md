@@ -4,27 +4,25 @@ Three features of the compositor, each behind a switch that is off by default, n
 
 ## Resume here
 
-**State when this section was last written** (work in progress; update this block with each push).
+**State when this section was last written** (update with each push). Everything below is host-tested and pushed; nothing has run on the set.
 
-Done and pushed (host-tested, no TV):
+Done:
 
-- `compositor/crates/lumatv-compositor/src/pointer.rs`: the cursor-plane pointer's policy: `Mode`, `Alpha`, `plane_image` (the 28 px disc centred in a 32x32 ARGB image), `Backend` trait, `Plane` (worker thread, newest position wins, `set` returns whether the plane carries the pointer), `atomic_origin`. 9 unit tests.
-- `src/afbc.rs`: `Mode` (`off|probe|on`), `PageKind` (`Xrgb|Argb|Afbc`), AFBC layout arithmetic (`buffer_size` reproduces LG's two buffer sizes, 8,486,912 and 6,742,016), `describe(modifier)`, `scanout_reading` / `estimate` (bandwidth), `Probe` (what the plane and EGL list). 8 unit tests.
-- `src/vwin.rs`: the pure allocator: `Mode` (`off|idle|apps`), `Policy`, `limits(slot, codec)` (capability file), `Kind` priorities, `Reason`, `Request::from_json`, `World`, `Allocator::{request, settle, update, release, occupancy}`. 18 unit tests.
-- `config.rs`: `--pointer gpu|plane`, `--pointer-alpha`, `--page-alpha on|off`, `--afbc off|probe|on`, `--vwin off|idle|apps`, `--vwin-slots N` (parsed and validated; `--vwin` and `--afbc on` imply `--page-alpha on`).
-- `output.rs`: `Output::{set_pointer, set_pointer_mode, pointer_report, afbc_report}` with defaults (no plane).
+- `src/pointer.rs` (cursor-plane policy and worker thread), `src/kms/cursor.rs` (`DrmCursor`: legacy `set_cursor2`/`move_cursor`, atomic plane commit as the fallback), `Kms::{set_pointer, set_pointer_mode, pointer_report}`, `State::pointer_sync` (`server/seat.rs`), `ctl pointer [plane|gpu|X Y]`, `ctl status` `pointerPlane`. Tests: `tests/pointer_plane.rs` (8), unit tests in `pointer.rs` (9).
+- `src/afbc.rs` (layout arithmetic, probe, bandwidth estimate), `kms::make_page`/`make_ring` with `PageKind` (`Xrgb|Argb|Afbc`), `Egl::dmabuf_modifiers`, `Kms::capture` reading AFBC pages through the GPU, `ctl afbc`. Flags: `--page-alpha on|off`, `--afbc off|probe|on` (start only).
+- `src/vwin.rs`: the allocator (`Allocator`) and the glue (`impl State`: `vwin_sync`, `vwin_command`, `vwin_ctl`, `vwin_status`, `vwin_topic`, `vwin_report`), `WindowType::VideoWindow` / `Layer::Video`, `scene.rs`/`foreign.rs` changes, `Msg::Vwin` + `POST /v1/vwin` + topic `vwin`, the `videooutputd` status subscription, `ctl vwin ...`. Tests: `tests/vwin.rs` (10), unit tests in `vwin.rs` (22).
+- `gfn/feeder/src/feeder.c`: `-w video` (16 px window of type `_WEBOS_WINDOW_TYPE_LUMATV_VIDEO`), `tests/test_gfn_feeder.py`.
+- `rustui/ui/src/host/vwin.rs`: the shell's pure model of its claim (`Vwin::{want, update, due_at, grant}`), 6 tests.
 
-**Not done yet (in this order; each is a self-contained step):**
+Not done (in order):
 
-1. KMS side of the pointer: `kms/mod.rs` finds plane type 2, `DrmCursor` backends (legacy `set_cursor2`/`move_cursor` first, atomic plane commit second) implementing `pointer::Backend`; `Kms::{set_pointer, set_pointer_mode, pointer_report}`; `Kms::open` takes the new options (`PageKind`, pointer mode) from `main.rs`.
-2. `State::pointer_sync` (called from `seat::pointer_motion`, `set_cursor_visible`, `tick_at`): `scene.cursor` is `None` while the plane carries the pointer; the plane is hidden while a capture is armed and while the screen is off. `ctl pointer [plane|gpu|X Y]`, `ctl status` gets `pointerPlane`.
-3. Pages: `kms::make_page` takes a `PageKind` (AR24 with `--page-alpha`; AFBC: dumb buffer of `afbc::dumb_rows` rows, `add_planar_framebuffer` with the modifier, GL target with the modifier; fall back to linear with the reason). `Egl::dmabuf_modifiers` (`eglQueryDmaBufModifiersEXT`) for `afbc::Probe`. `Kms::capture` reads AFBC pages through the GPU. `ctl afbc` and `afbc_report`.
-4. vwin glue (`impl State` in `vwin.rs`): `WindowType::VideoWindow` (`_WEBOS_WINDOW_TYPE_LUMATV_VIDEO`) and `Layer::Video` (between Overlays and SystemUi) in `window.rs`; `Window::{vwin_live, vwin_rect}`; `scene.rs` (`build_stack` leaves a window with no grant out, `surface_at`, `shell_home_covered` and the gain flag skip it); `server/foreign.rs` `exported_changed` takes the grant's rectangle for a video window; `Msg::Vwin` + `POST /v1/vwin` + topic `vwin` in `shell.rs`/`shell_rust.rs`; `ctl vwin`; the `videooutputd` `getStatus` subscription (`LunaState` token) for `World::other_connected`/`both_scalers` and each claim's real sink.
-5. Tests: `tests/pointer_plane.rs`, `tests/vwin.rs` (harness clients: a `LUMATV_VIDEO` window with an exported element and a punch-through, an app card with video), a page-kind test through the GL renderer if Mesa lists the modifier.
-6. Hooks: `gfn/feeder/src/feeder.c` `-w video`; `rustui/ui/src/host/vwin.rs` (the shell's model of its claims, over `Effect::Channel` and the `vwin` topic); `helper` config note (`cameras.feederWindow: "video"`).
-7. This document: the design sections below and the TV-round checklist (exact commands, expected readings, revert).
+1. Live switching of the page layout. `--page-alpha` and `--afbc` are start flags, and `lumatv-sm` passes the compositor no flags (`sm/lumatv-sm.c spawn_compositor`), so a live session cannot turn them on. Plan: `Output::set_page_kind(kind)` converts the ring one page at a time, at the start of a composed `Kms::render`, in the page `Frames` is about to draw into (never the one on screen or pending): free the old page, make the new one (`make_page`), `Gl::free_target` the old GL target, `Frames::replace_target`, `ring.forget()`; on failure keep the old kind and say why in `ctl afbc`. `ctl afbc on|off|probe` and `ctl pagealpha on|off`. If this is not built, the TV round needs the maintenance window (`tv-kms-window.sh`, case `d` below) for those two.
+2. Wiring of `host::vwin::Vwin` into `rustui/ui/src/shell.rs`: a `vwin` field, `Event::Topic{topic == "vwin"}` into `Vwin::update`, and `Vwin::want(self.cameras().app.live_claim().map(|c| c.request()).as_ref(), now)` after the Cameras step (`live_claim()` is RustCameras' and was not on `main` when this was written), effects carried out like the switcher's `Effect::Channel`.
+3. Helper config: `cameras.feederWindow: "video"` (the helper already starts the feeder as `lumatv-gfn-feeder --serve SOCK -w <feederWindow> --once -a <brand>.cameras`).
+4. The TV-round checklist (section at the end).
+5. Final runs: `cargo test -p lumatv-compositor --offline --no-fail-fast`, `cargo check --features ui`, `sh compositor/tools/build-tv.sh`.
 
-**Decisions taken (conservative, all reversible):** default of every switch is off; the AFBC ring is chosen at start (a live switch would need 25 MB of CMA the set does not have free); `idle` mode never starts a second decoder next to an app's; the pointer's plane image is premultiplied until the TV says otherwise; claims are matched to windows by app id (empty app: the first video window without a claim).
+**Decisions taken (conservative, all reversible):** every switch is off by default; `idle` mode never starts a second decoder next to an app's; the pointer's plane image is premultiplied until the TV says otherwise; claims are matched to windows by app id (empty app: the first video window without a claim); a claim outranks the wallpaper and the grant closes the wallpaper's window (as `wall_handover` does); a video window nobody claimed within 3 s is closed so its decoder is free.
 
 ## What was found
 
