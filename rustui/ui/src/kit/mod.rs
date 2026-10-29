@@ -36,6 +36,8 @@ use ui::text::{Type, Weight};
 pub mod z {
     /// The quick panel, the input picker, Quick Access, the drawer, the context menu, confirm, the switcher's chrome.
     pub const PANELS: i32 = 100;
+    /// The Cameras app (the grid, the full view, the strip, the sheet): over the panels, under Settings.
+    pub const CAMERAS: i32 = 200;
     pub const SETTINGS: i32 = 300;
     /// The overlay layout editor.
     pub const EDITOR: i32 = 500;
