@@ -5,6 +5,7 @@ use super::page::Page;
 
 pub mod access;
 pub mod ambient;
+pub mod bluetooth;
 pub mod capture;
 pub mod home;
 pub mod language;
@@ -54,5 +55,9 @@ pub fn all() -> Vec<Page> {
         sound::hdmi_audio(),
         sound::usb(),
         receiver::page(),
+        bluetooth::audio(),
+        bluetooth::hid(),
+        bluetooth::audio_device(),
+        bluetooth::hid_device(),
     ]
 }
