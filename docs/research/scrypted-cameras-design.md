@@ -478,8 +478,8 @@ No fallback: a Scrypted that is down has no cameras in Home Assistant either (th
 Assistant entities stay in Home Assistant for what Nitin does there.
 
 Config (`cameras` in `helper.json`): `frame_hold_ms` (a still older than this is no picture, 10000), `max_picture_bytes`, `live` (default true: the link is the switch; false keeps stills only), `feeder`, `feeder_window`,
-`feeder_library`, `feeder_idle_seconds` (120), `test_events` (false). The keys `enabled`, `port`, `relay`, `popup_kinds`, `popup_seconds` and `cooldown_seconds` are gone, and a `helper.json` that still has them is refused: they are
-removed from the TV's file before this helper is installed. `build.sh` needs zig for the target (ring's C); `.cargo/config.toml` turns UBSan off for that C.
+`feeder_library`, `feeder_idle_seconds` (120), `test_events` (false). The keys `enabled`, `port`, `relay`, `popup_kinds`, `popup_seconds` and `cooldown_seconds` are gone; a `helper.json` that still has them (the TV's own is `{"cameras": {"enabled": true}}`) is read all the same: they are ignored and one log line says so.
+`build.sh` needs zig for the target (ring's C); `.cargo/config.toml` turns UBSan off for that C.
 
 ### 4.2 Nitin's steps
 

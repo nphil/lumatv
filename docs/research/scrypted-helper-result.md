@@ -41,7 +41,7 @@ Playback position is `started_at + stream time x rate` `[INFERENCE: check C10]`.
 ## Config
 
 `cameras.live` (now `true`: the link is the switch), `feeder`, `feederWindow`, `feederLibrary`, `feederIdleSeconds` (120), `frameHoldMs` (10000), `maxPictureBytes`, `testEvents` (`false`).
-Removed: `enabled`, `port`, `relay`, `popupKinds`, `popupSeconds`, `cooldownSeconds` (an old `helper.json` that sets one is refused at start, as for any unknown key).
+Removed: `enabled`, `port`, `relay`, `popupKinds`, `popupSeconds`, `cooldownSeconds` (an old `helper.json` that sets one, such as the TV's `{"cameras": {"enabled": true}}`, is read all the same: they are ignored and one log line says so; any other unknown key is still refused).
 The Cameras page is the first-party plugin `scrypted-cameras` (page rebuilt at a higher revision when the shown cameras change; `notify.<id>` values stay when a camera leaves).
 
 ## Removed and changed

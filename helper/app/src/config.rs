@@ -715,11 +715,49 @@ pub const CA_BUNDLE_CANDIDATES: [&str; 5] = [
     "/etc/ssl/ca-bundle.pem",
 ];
 
+/// The keys of `cameras` the Home Assistant camera path had and the Scrypted cameras do not.
+const OLD_CAMERAS_KEYS: [&str; 6] = [
+    "enabled",
+    "port",
+    "relay",
+    "popupKinds",
+    "popupSeconds",
+    "cooldownSeconds",
+];
+
+/// The document without the old `cameras` keys, when it had any (and says which in the log); `None` when it had none or is not JSON.
+fn without_old_cameras_keys(text: &str) -> Option<serde_json::Value> {
+    let mut value: serde_json::Value = serde_json::from_str(text).ok()?;
+    let cameras = value.get_mut("cameras")?.as_object_mut()?;
+    let dropped: Vec<&str> = OLD_CAMERAS_KEYS
+        .into_iter()
+        .filter(|key| cameras.remove(*key).is_some())
+        .collect();
+    if dropped.is_empty() {
+        return None;
+    }
+    crate::log_warn!(
+        "helper.json: cameras.{} belonged to the Home Assistant camera path and is ignored (the cameras come through Scrypted now)",
+        dropped.join(", cameras.")
+    );
+    Some(value)
+}
+
 impl Config {
-    /// Parses a config document and checks what serde cannot.
+    /// Parses a config document and checks what serde cannot. A file written for the Home Assistant camera path (the TV's own was
+    /// `{"cameras": {"enabled": true}}`) is read all the same: the keys that path had are dropped, once, and are said in the log; a refused
+    /// config would be a helper that does not start after the update.
     pub fn parse(text: &str) -> Result<Self, ConfigError> {
-        let config: Self =
-            serde_json::from_str(text).map_err(|e| ConfigError(format!("helper.json: {e}")))?;
+        let config: Self = match serde_json::from_str(text) {
+            Ok(config) => config,
+            Err(first) => {
+                let Some(value) = without_old_cameras_keys(text) else {
+                    return Err(ConfigError(format!("helper.json: {first}")));
+                };
+                serde_json::from_value(value)
+                    .map_err(|e| ConfigError(format!("helper.json: {e}")))?
+            }
+        };
         config.check()?;
         Ok(config)
     }
@@ -1282,6 +1320,27 @@ mod tests {
         ] {
             assert_eq!(app_id_from_brand(bad), None, "{bad}");
         }
+    }
+
+    #[test]
+    fn a_helper_json_of_the_home_assistant_camera_path_is_read_and_its_old_keys_are_ignored() {
+        // the file the TV has today
+        let config = Config::parse(r#"{"cameras":{"enabled":true}}"#).unwrap();
+        assert!(config.cameras.live);
+        assert_eq!(
+            config.cameras.frame_hold_ms,
+            Config::default().cameras.frame_hold_ms
+        );
+        // every old key, beside one that is still there
+        let config = Config::parse(
+            r#"{"cameras":{"enabled":true,"port":8123,"relay":{"x":1},"popupKinds":["person"],"popupSeconds":12,"cooldownSeconds":30,"frameHoldMs":5000}}"#,
+        )
+        .unwrap();
+        assert_eq!(config.cameras.frame_hold_ms, 5000);
+        // what never was a key is still refused, with or without the old ones
+        assert!(Config::parse(r#"{"cameras":{"bogus":1}}"#).is_err());
+        assert!(Config::parse(r#"{"cameras":{"enabled":true,"bogus":1}}"#).is_err());
+        assert!(Config::parse(r#"{"enabled":true}"#).is_err());
     }
 
     #[test]
