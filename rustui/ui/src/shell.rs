@@ -703,6 +703,9 @@ impl Shell {
             self.cameras.surface.feed_lint(&mut self.kit, &mut lint);
         }
         self.panels.feed_lint(&self.kinds, &mut self.kit, &mut lint);
+        if self.kinds.settings {
+            self.settings.feed_lint(&mut self.kit, &mut lint);
+        }
         json!(lint.findings().iter().map(|f| json!({"kind": f.kind.name(), "subject": f.subject, "detail": f.detail})).collect::<Vec<_>>())
     }
 

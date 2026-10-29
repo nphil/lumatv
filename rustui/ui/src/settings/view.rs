@@ -28,7 +28,6 @@ pub struct Bar {
     pub clock: String,
     pub wired: bool,
     pub link: bool,
-    pub pointer: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -45,8 +44,8 @@ pub struct RailRow {
     pub lg: bool,
 }
 
-/// The picture over a page's rows: the saver as it is drawn (`face`), what the focused row puts on it and how, and the key to the
-/// answers' glyphs with the one in force lit.
+/// The picture over a page's rows: the saver as it is drawn (`face`), what the focused row would put on it and how, and the name of the
+/// focused row for under it.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct Figure {
     /// "clock", "art" or "off".
@@ -54,15 +53,7 @@ pub struct Figure {
     pub dim: bool,
     /// The glyph of what is shown and the answer's id ("over", "inside", "wake", "hide"), when a row is focused.
     pub shows: Option<(String, String)>,
-    pub legend: Vec<Legend>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct Legend {
-    pub id: String,
-    pub icon: String,
-    pub word: String,
-    pub lit: bool,
+    pub caption: String,
 }
 
 #[derive(Clone, Debug)]

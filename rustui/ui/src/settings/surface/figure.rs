@@ -1,6 +1,6 @@
-//! The picture over a page's rows (During the screensaver): the dim saver in miniature, with what the focused row would put on it, and
-//! beside it the key to the answers' glyphs with the one shown lit. It follows the focus and the picker's highlight, so an answer is seen
-//! before it is chosen. The picture holds no words (a clock, two bars standing for text, glyphs); the words are the key's.
+//! The picture over a page's rows (During the screensaver): the dim saver in miniature, with what the focused row would put on it. It
+//! follows the focus and the picker's highlight, so an answer is seen before it is chosen. It stands alone: the only words are the name
+//! of the focused row under it (a clock, two bars standing for text and glyphs are all that is on the picture itself).
 //!
 //! The four answers look like what they are: *over* is a card above the dim saver, *inside* a quiet chip in the saver's own area, *wake*
 //! the screen lit with the card on it, *hide* nothing but the saver. Each is a group whose opacity springs between the states.
@@ -16,7 +16,7 @@ use compositor_protocol::{Ease, GroupPose, PoseBinding, PoseProperties, Props, R
 use lumatv_tokens::{Radius, TypeRole};
 use ui::components::Align;
 use ui::components::plate;
-use ui::components::text::{Run, line_height};
+use ui::components::text::{Run, ellipsise};
 use ui::components::text_layer::{Item, TextLayer};
 use ui::geometry::Frame;
 use ui::group::Group;
@@ -24,7 +24,6 @@ use ui::motion::{Motion, MotionBounds, MotionToken, Settle, Units};
 use ui::scene::{ImageLayer, ShapeLayer};
 
 const CLEAR: Rgba = Rgba(0, 0, 0, 0);
-const HIDDEN: Props = Props { opacity: 0.0, visible: false, ..Props::at(0.0, 0.0) };
 /// The panel's black and what sits on it: the saver is dark in both looks, it is a picture of the screen.
 const PANEL: Rgba = Rgba(9, 8, 13, 255);
 const CARD: Rgba = Rgba(40, 36, 56, 255);
@@ -33,37 +32,24 @@ const BAR: Rgba = Rgba(150, 144, 172, 255);
 const BAR_DIM: Rgba = Rgba(92, 88, 112, 255);
 const GLYPH: Rgba = Rgba(226, 222, 240, 255);
 
-/// Where the picture and its key are.
+/// Where the picture and the name of the focused row under it are.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FigureGeo {
     pub screen: Frame,
-    pub key: Frame,
+    pub caption: Frame,
     pub height: f32,
-    pub columns: usize,
-    pub line: f32,
-    /// At a large text size the key is the one answer shown, beside the picture, not the four.
-    pub single: bool,
 }
 
 impl FigureGeo {
-    /// Under the page's head, `w` wide from `x`: the screen at the left, 16:9, and the key's lines beside it. At a large text size the key
-    /// has two columns when they fit (the picture never takes the room of the rows) and each column is as wide as its longest word.
-    pub fn of(kit: &mut Kit, sz: &Sizes, x: f32, y: f32, w: f32, words: &[&str]) -> Self {
-        let single = kit.text_scale >= 1.5;
-        let sw: f32 = if single { 256.0 } else { 320.0 };
+    /// Under the page's head, from `x`: the screen, 16:9 and as large as the rows leave room for (smaller at a large text size, where the
+    /// rows take more), and a line for the focused row's name under it.
+    pub fn of(kit: &mut Kit, sz: &Sizes, x: f32, y: f32) -> Self {
+        let sw: f32 = if kit.text_scale >= 1.5 { 320.0 } else { 400.0 };
         let sh = (sw * 9.0 / 16.0).round();
-        let ty = kit.ty(TypeRole::Label);
-        let widest = words.iter().map(|t| kit.ui.fonts.measure(t, ty).width).fold(0.0, f32::max);
-        let col_w = (sz.s3 + sz.chevron() + sz.s3 + widest + sz.s4).ceil();
-        let kx = x + sw + sz.s7;
-        let avail = (x + w - kx).max(0.0);
-        let line = (kit.line(TypeRole::Label) + sz.s3).max((sz.target * 0.6).round()).ceil();
-        let lines = if single { 1 } else { words.len() };
-        let key_h = lines as f32 * line;
-        let height = sh.max(key_h);
-        let screen = Frame::new(x, y + ((height - sh) / 2.0).round(), sw, sh);
-        let key = Frame::new(kx, y + ((height - key_h) / 2.0).round(), col_w.min(avail.max(col_w)), key_h);
-        FigureGeo { screen, key, height, columns: 1, line, single }
+        let line = kit.line(TypeRole::Label);
+        let screen = Frame::new(x, y, sw, sh);
+        let caption = Frame::new(x, y + sh + sz.s2, sw, line);
+        FigureGeo { screen, caption, height: (sh + sz.s2 + line).ceil() }
     }
 }
 
@@ -113,34 +99,9 @@ pub struct FigureArt {
     inside: Mark,
     hide: Fader,
     _hide_glyph: Option<ImageLayer>,
-    key: Vec<KeyArt>,
-    key_plate: ShapeLayer,
-    key_text: TextLayer,
+    caption: TextLayer,
+    caption_now: String,
     icon_now: String,
-    lit_now: Option<String>,
-}
-
-struct KeyRun {
-    text: String,
-    ty: ui::text::Type,
-    colour: Rgba,
-    x: f32,
-    y: f32,
-    w: f32,
-}
-
-impl KeyRun {
-    fn item(&self) -> Item<'_> {
-        Item::Text(Run { text: &self.text, ty: self.ty, colour: self.colour, x: self.x, y: self.y, w: self.w, align: Align::Left })
-    }
-}
-
-struct KeyArt {
-    id: String,
-    icon: String,
-    glyph: Option<ImageLayer>,
-    at: Props,
-    frame: Frame,
 }
 
 /// `a` over `b` at `k` of `a`, opaque.
@@ -151,7 +112,7 @@ fn mix(a: Rgba, b: Rgba, k: f32) -> Rgba {
 
 impl FigureArt {
     pub fn signature(kit: &Kit, fig: &Figure, geo: &FigureGeo) -> String {
-        format!("{}|{}|{}|{}|{:?}|{}", fig.face, fig.dim, kit.mode as u8, kit.text_scale.to_bits(), geo.screen, fig.legend.iter().map(|l| format!("{}:{}:{}", l.id, l.icon, l.word)).collect::<Vec<_>>().join(","))
+        format!("{}|{}|{}|{}|{:?}", fig.face, fig.dim, kit.mode as u8, kit.text_scale.to_bits(), geo.screen)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -213,8 +174,7 @@ impl FigureArt {
         let hide = Fader::new(kit, parent)?;
         let hs = (s.h * 0.16).round() as u32;
         let hide_glyph = scene.adopting(&hide.group, || icon::layer(kit, "eye-off", hs, mix(BAR_DIM, PANEL, 0.9), z + 4, Props::at((s.x + (s.w - hs as f32) / 2.0).round(), (s.y + s.h * 0.75).round())))?;
-        // the key
-        let (key, key_plate, key_text) = Self::key(kit, paint, sz, &geo, fig, z + 1)?;
+        let caption = TextLayer::new(&mut kit.ui, geo.caption, z + 1, &[])?;
         let mut art = FigureArt {
             sig,
             geo,
@@ -227,14 +187,13 @@ impl FigureArt {
             inside,
             hide,
             _hide_glyph: hide_glyph,
-            key,
-            key_plate,
-            key_text,
+            caption,
+            caption_now: String::from("\u{0}"),
             icon_now: String::new(),
-            lit_now: None,
         };
         // the card and the chip hold a glyph of the row's: a neutral one until a row is focused
         art.paint_glyphs(kit, "bell");
+        art.name(kit, paint, sz, &fig.caption);
         Ok(art)
     }
 
@@ -263,44 +222,16 @@ impl FigureArt {
         Ok(Mark { fade, glyph, _parts: parts })
     }
 
-    fn key(kit: &mut Kit, paint: &Paint, sz: &Sizes, geo: &FigureGeo, fig: &Figure, z: i32) -> std::io::Result<(Vec<KeyArt>, ShapeLayer, TextLayer)> {
-        let side = sz.chevron().round() as u32;
-        let per = fig.legend.len().max(1);
-        let col_w = geo.key.w.floor();
-        let radius = kit.tokens.radius(Radius::Control).round();
-        let plate_shape = plate::shape(&kit.ui, Frame::new(0.0, 0.0, col_w, geo.line), z, pill(paint.wash_selected, CLEAR, radius, 0.0));
-        plate_shape.set(HIDDEN);
-        let mut entries = Vec::new();
-        for (i, l) in fig.legend.iter().enumerate() {
-            let (col, row) = (i / per, if geo.single { 0 } else { i % per });
-            let frame = Frame::new(geo.key.x + col as f32 * col_w, geo.key.y + row as f32 * geo.line, col_w, geo.line);
-            let at = Props::at(frame.x + sz.s3, (frame.y + (frame.h - side as f32) / 2.0).round());
-            let g = icon::layer(kit, &l.icon, side, paint.ink3, z + 2, if geo.single { HIDDEN } else { at })?;
-            entries.push(KeyArt { id: l.id.clone(), icon: l.icon.clone(), glyph: g, at, frame });
+    /// The focused row's name under the picture, in the secondary ink, cut with an ellipsis where it would run past the picture.
+    fn name(&mut self, kit: &mut Kit, paint: &Paint, sz: &Sizes, text: &str) {
+        let _ = sz;
+        if self.caption_now == text {
+            return;
         }
-        let runs = Self::key_runs(kit, paint, sz, geo, &entries, fig, None);
-        let layer = TextLayer::new(&mut kit.ui, geo.key, z + 2, &runs.iter().map(KeyRun::item).collect::<Vec<_>>())?;
-        Ok((entries, plate_shape, layer))
-    }
-
-    /// The key's words, each beside its glyph, the lit one in the full ink.
-    fn key_runs(kit: &mut Kit, paint: &Paint, sz: &Sizes, geo: &FigureGeo, entries: &[KeyArt], fig: &Figure, lit: Option<&str>) -> Vec<KeyRun> {
+        self.caption_now = text.to_string();
         let ty = kit.ty(TypeRole::Label);
-        let ll = line_height(ty);
-        let before = sz.s3 + sz.chevron() + sz.s3;
-        entries
-            .iter()
-            .zip(&fig.legend)
-            .filter(|(e, _)| !geo.single || lit == Some(e.id.as_str()))
-            .map(|(e, l)| KeyRun {
-                text: l.word.clone(),
-                ty,
-                colour: if lit == Some(e.id.as_str()) { paint.ink } else { paint.ink2 },
-                x: e.frame.x - geo.key.x + before,
-                y: e.frame.y - geo.key.y + ((e.frame.h - ll) / 2.0).round(),
-                w: (e.frame.w - before - sz.s3).max(1.0),
-            })
-            .collect()
+        let shown = ellipsise(&mut kit.ui.fonts, text, ty, self.geo.caption.w);
+        self.caption.draw(&mut kit.ui, &[Item::Text(Run { text: &shown, ty, colour: paint.ink2, x: 0.0, y: 0.0, w: self.geo.caption.w, align: Align::Left })]);
     }
 
     fn paint_glyphs(&mut self, kit: &mut Kit, name: &str) {
@@ -333,36 +264,12 @@ impl FigureArt {
         self.over.fade.set(kit, over);
         self.inside.fade.set(kit, inside);
         self.hide.set(kit, hide);
-        if self.lit_now.as_deref() != how {
-            self.lit_now = how.map(str::to_string);
-            let mut at = None;
-            for (e, l) in self.key.iter_mut().zip(&fig.legend) {
-                let on = how == Some(l.id.as_str());
-                if on {
-                    at = Some(e.frame);
-                }
-                if let Some(g) = &mut e.glyph {
-                    icon::repaint(kit, g, &e.icon, if on { paint.accent } else { paint.ink3 });
-                    if self.geo.single {
-                        g.set(if on { e.at } else { HIDDEN });
-                    }
-                }
-            }
-            match at {
-                Some(f) if !self.geo.single => self.key_plate.set(Props::at(f.x, f.y)),
-                Some(_) => {}
-                None => self.key_plate.set(HIDDEN),
-            }
-            let runs = Self::key_runs(kit, paint, sz, &self.geo, &self.key, fig, how);
-            self.key_text.draw(&mut kit.ui, &runs.iter().map(KeyRun::item).collect::<Vec<_>>());
-        }
+        self.name(kit, paint, sz, &fig.caption);
     }
 
-    /// The frames of the picture and of the key's entries, for the layout lint.
+    /// The frames of the picture and of its caption, for the layout lint.
     pub fn frames(&self) -> Vec<(String, Frame)> {
-        let mut v = vec![("saver".to_string(), self.geo.screen)];
-        v.extend(self.key.iter().map(|k| (format!("key:{}", k.id), k.frame)));
-        v
+        vec![("saver".to_string(), self.geo.screen), ("caption".to_string(), self.geo.caption)]
     }
 
     pub fn sig(&self) -> &str {

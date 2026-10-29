@@ -371,8 +371,7 @@ impl SettingsSurface {
         // the picture over the rows, when the page has one: it stays while the rows scroll under it
         let list_y = match &page.figure {
             Some(fig) => {
-                let words: Vec<&str> = fig.legend.iter().map(|l| l.word.as_str()).collect();
-                let fg = FigureGeo::of(kit, &sz, geo.content.x + sz.s6, after_tabs, geo.content.w - 2.0 * sz.s6, &words);
+                let fg = FigureGeo::of(kit, &sz, geo.content.x + sz.s6, after_tabs);
                 let sig = format!("{}|{}", page.id, FigureArt::signature(kit, fig, &fg));
                 let b = self.built.as_mut().expect("built");
                 if b.figure.as_ref().is_none_or(|f| f.sig() != sig) {
@@ -583,6 +582,31 @@ impl SettingsSurface {
                 Some(Target::Row { id: row.id.clone(), seg: None, value })
             }
             _ => Some(Target::Row { id: row.id.clone(), seg: None, value: None }),
+        }
+    }
+
+    /// Describes what is on screen to the layout lint: the three panes, the words of the rows in view (the rail's and the page's), the
+    /// picture's caption and the picker's strip.
+    pub fn feed_lint(&self, kit: &mut Kit, lint: &mut crate::kit::lint::Lint) {
+        let (Some(b), Some(view)) = (&self.built, &self.view) else { return };
+        let paint = b.paint;
+        lint.panel("settings bar", b.geo.bar, paint.sheet, true);
+        let rail = lint.panel("settings rail", b.geo.rail, paint.sheet, true);
+        let page = lint.panel("settings page", b.geo.page, paint.sheet, true);
+        if let Some(l) = &b.rail {
+            let rows: Vec<super::row::Row> = view.rail.iter().map(|r| super::row::Row::link(&r.id).icon(&r.icon).label(&r.title).detail(&r.summary).chevron(false)).collect();
+            l.feed_lint(kit, &paint, &rows, lint, rail);
+        }
+        if let (Some(l), Some(p)) = (&b.list, &view.page) {
+            l.feed_lint(kit, &paint, &p.rows, lint, page);
+        }
+        if let Some(f) = &b.figure {
+            for (name, frame) in f.frames() {
+                lint.panel(&format!("figure {name}"), frame, compositor_protocol::Rgba(0, 0, 0, 0), true);
+            }
+        }
+        if let Some(r) = b.sheets.strip_frame() {
+            lint.panel("picker strip", r, compositor_protocol::Rgba(0, 0, 0, 0), true);
         }
     }
 

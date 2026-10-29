@@ -1,0 +1,142 @@
+#!/usr/bin/env python3
+"""Renders the Rust shell's Settings (`lumatv-ui --host --kinds settings`: the engine in-process on Mesa, as the compositor runs it) against
+the compositor's stand-in channel, LG's settings service stood in (`qmlhost/lgsettings.py`) and a small fake of the helper, dark and light,
+at 100 % and 200 % text, into docs/mocks/host-rust/settings/ as 1280-wide JPEGs (a lean set: the pages one by one, the saver page with its
+picker, and a few 200 % and light ones).
+
+    python3 tests/render_rust_settings.py [--out docs/mocks/host-rust/settings] [--only saver,ambient] [--list]
+
+A scene is the page to open, what the helper and the TV answer, and the keys a person presses; the picture is taken at the end. Each
+render also runs the host's layout and contrast lint (`--eval lint`); `render` returns its findings. `SCENES` and `render` are what
+tests/test_rust_settings.py uses.
+"""
+import argparse
+import concurrent.futures
+import json
+import os
+import sys
+import tempfile
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.abspath(os.path.join(HERE, '..'))
+sys.path.insert(0, HERE)
+import rust_settings_host as host  # noqa: E402
+import lgsettings  # noqa: E402
+
+# the connection manager's status: the bar is quiet while the TV is online
+ONLINE = {'connectionmanager/getStatus': {'returnValue': True, 'wired': {'state': 'connected'}, 'wifi': {'state': 'disconnected'}}}
+
+OUT = os.path.join(ROOT, 'docs', 'mocks', 'host-rust', 'settings')
+WIDTH = 1280
+QUALITY = 80
+# the first report of the client, then the page opens, then the keys; a loaded host takes its time
+OPEN_AT = 900
+KEY_GAP = 450
+SETTLE = 1100
+
+
+def saver_rules():
+    answers = [{'id': 'over', 'glyph': 'picture-in-picture', 'title': 'Over'}, {'id': 'inside', 'glyph': 'moon', 'title': 'Inside'},
+               {'id': 'wake', 'glyph': 'sun', 'title': 'Wake'}, {'id': 'hide', 'glyph': 'eye-off', 'title': 'Hide'}]
+    four = ['over', 'inside', 'wake', 'hide']
+
+    def cls(id, title, glyph, choice, choices=four):
+        return {'id': id, 'title': title, 'glyph': glyph, 'choice': choice, 'default': choice, 'choices': choices}
+    return {'ok': True, 'answers': answers, 'classes': [
+        cls('camera.popup', 'Camera video', 'video', 'hide', ['over', 'wake', 'hide']), cls('camera.still', 'Camera events', 'camera', 'inside'),
+        cls('doorbell', 'Doorbell', 'bell-ring', 'wake'), cls('ha', 'Home Assistant', 'house-wifi', 'inside'), cls('timer', 'Timers', 'timer', 'wake'),
+        cls('complication', 'Saver items', 'sparkles', 'inside', ['inside', 'hide']),
+        cls('ntfy', 'ntfy', 'bell', 'inside'), cls('toast', 'System notices', 'message-square-warning', 'hide'),
+        cls('plugin:chores', 'Chores', 'plug', 'inside')]}
+
+
+class Scene:
+    def __init__(self, name, page, keys=(), routes=None, topics=None, theme=None, lg=None, tab=None, layout=None):
+        self.name, self.page, self.keys = name, page, list(keys)
+        self.routes, self.topics, self.theme, self.lg, self.tab, self.layout = routes or {}, topics or {}, theme, lg, tab, layout
+
+    def helper_routes(self):
+        routes = dict(self.routes)
+        routes['topics'] = dict(self.topics)
+        return routes
+
+
+SCENES = [
+    Scene('saver', 'duringsaver', routes={'GET /v1/saver/rules': lambda b: saver_rules()}, topics={'saver': {'rules': {}}},
+          keys=['right', 'down', 'down', 'down', 'down']),
+    Scene('saver-picker', 'duringsaver', routes={'GET /v1/saver/rules': lambda b: saver_rules()}, topics={'saver': {'rules': {}}},
+          keys=['right', 'down', 'down', 'down', 'down', 'ok', 'down']),
+]
+BY_NAME = {s.name: s for s in SCENES}
+
+
+def jpeg(png, path):
+    from PIL import Image
+    im = Image.open(png).convert('RGB')
+    im = im.resize((WIDTH, round(im.height * WIDTH / im.width)), Image.LANCZOS)
+    im.save(path, 'JPEG', quality=QUALITY, optimize=True, progressive=True)
+
+
+def render(scene, mode='dark', scale=1.0, out=None, wait=None):
+    """Runs the scene; returns (rc, output, lint findings, the png's path or None). `out` is a path for a JPEG."""
+    shot = os.path.join(tempfile.mkdtemp(prefix='rsrender-'), scene.name + '.png')
+    t = OPEN_AT + KEY_GAP * (len(scene.keys) + 1) + SETTLE + 200 * scene.keys.count('ok')
+    extra = []
+    for i, k in enumerate(scene.keys):
+        at = OPEN_AT + KEY_GAP * (i + 1)
+        extra += ['--key', '%d:%s' % (at, k)]
+        if k == 'ok':
+            # OK acts on its release (a hold is the help)
+            extra += ['--key', '%d:ok:up' % (at + 80)]
+    extra += ['--eval', '%d:lint' % (t - 200), '--eval', '%d:state' % (t - 200), '--snap', '%d:%s' % (t, shot)]
+    steps = [(OPEN_AT - 300, lambda c: c.push('foreground', {'app': 'com.webos.app.home', 'home': True})),
+             (OPEN_AT, lambda c: c.push('show', {'kind': 'settings', 'page': scene.page}))]
+    helper = host.FakeHelper(scene.helper_routes())
+    lg = scene.lg() if callable(scene.lg) else scene.lg or lgsettings.LgService(answers=ONLINE)
+    rc, text, chan, lg, helper = host.run(steps=steps, wait=wait or t + 800, extra=extra, lg=lg, helper=helper, text_scale=scale, mode=mode, theme=scene.theme)
+    evals = host.evals(text)
+    findings = evals[0] if evals and isinstance(evals[0], list) else []
+    png = shot if os.path.exists(shot) else None
+    if png and out:
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        jpeg(png, out)
+    return rc, text, findings, png
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--out', default=OUT)
+    ap.add_argument('--only', default='')
+    ap.add_argument('--modes', default='dark')
+    ap.add_argument('--scales', default='1')
+    ap.add_argument('--list', action='store_true')
+    ap.add_argument('--jobs', type=int, default=2)
+    a = ap.parse_args()
+    if a.list:
+        print('\n'.join(s.name for s in SCENES))
+        return 0
+    if not host.available():
+        print('needs rustui/target/debug/lumatv-ui and Mesa', file=sys.stderr)
+        return 1
+    only = [n for n in a.only.split(',') if n]
+    jobs = []
+    for s in SCENES:
+        if only and s.name not in only:
+            continue
+        for mode in a.modes.split(','):
+            for scale in a.scales.split(','):
+                label = '%s-%s%s' % (s.name, mode, '' if float(scale) == 1.0 else '-%sx' % scale.replace('.0', ''))
+                jobs.append((s, mode, float(scale), os.path.join(a.out, label + '.jpg')))
+    bad = 0
+    with concurrent.futures.ThreadPoolExecutor(a.jobs) as pool:
+        for (s, mode, scale, path), (rc, text, findings, png) in zip(jobs, pool.map(lambda j: render(j[0], j[1], j[2], j[3]), jobs)):
+            ok = rc == 0 and png is not None
+            bad += not ok
+            print('%s %s%s' % ('ok  ' if ok else 'FAIL', os.path.relpath(path, ROOT), ''.join('\n     lint: %s %s %s' % (f['kind'], f['subject'], f['detail']) for f in findings)))
+            if not ok:
+                print(text[-1500:])
+    return 1 if bad else 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

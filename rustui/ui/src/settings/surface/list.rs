@@ -113,6 +113,18 @@ impl ListArt {
         Some(ui::geometry::Frame::new(self.origin.0, self.origin.1 + self.zone + s.top - self.offset, s.w, s.geom.h))
     }
 
+    /// Describes the rows in view to the layout lint (a row the viewport cuts is not drawn at rest, so only whole rows are fed).
+    pub fn feed_lint(&self, kit: &mut Kit, paint: &Paint, rows: &[Row], lint: &mut crate::kit::lint::Lint, panel: usize) {
+        let sz = Sizes::of(kit);
+        let view = ui::geometry::Frame::new(self.origin.0, self.origin.1, self.size.0, self.size.1);
+        for (i, s) in self.slots.iter().enumerate() {
+            let (Some(art), Some(at), Some(row)) = (&s.art, self.frame_of(i), rows.get(i)) else { continue };
+            if at.y >= view.y - 1.0 && at.bottom() <= view.bottom() + 1.0 {
+                art.feed_lint(kit, paint, &sz, row, at, lint, panel);
+            }
+        }
+    }
+
     /// The rows' ids, in order.
     pub fn ids(&self) -> Vec<&str> {
         self.slots.iter().map(|s| s.id.as_str()).collect()

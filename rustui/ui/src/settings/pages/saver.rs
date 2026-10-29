@@ -7,7 +7,7 @@
 use crate::settings::ctx::{Ctx, ask};
 use crate::settings::page::{Page, Read};
 use crate::settings::row::{Arg, ChoiceSpec, Op, Pick, Row};
-use crate::settings::view::{Figure, Legend};
+use crate::settings::view::Figure;
 use serde_json::{Value, json};
 use std::rc::Rc;
 
@@ -19,14 +19,9 @@ fn reads(_: &Ctx) -> Vec<Read> {
     vec![Read::Get { name: "saver", path: "/v1/saver/rules" }]
 }
 
-/// The answers in the order they are listed in: how loud each one is, from over the saver to hidden. The glyph and the long words are the
+/// The answers in the order they are listed in: how loud each one is, from over the saver to hidden. The glyph and the word are the
 /// page's; a class may offer fewer of them (`choices`), and a new answer the helper adds is listed after these with the helper's words.
-const ANSWERS: [(&str, &str, &str, &str); 4] = [
-    ("over", "picture-in-picture", "Over", "Show over saver"),
-    ("inside", "moon", "Inside", "In the saver area"),
-    ("wake", "sun", "Wake", "Wake the screen"),
-    ("hide", "eye-off", "Hide", "Hide"),
-];
+const ANSWERS: [(&str, &str, &str); 4] = [("over", "picture-in-picture", "Over"), ("inside", "moon", "Inside"), ("wake", "sun", "Wake"), ("hide", "eye-off", "Hide")];
 
 /// The groups the classes are listed in, with the classes of each in order; the plugins' sources (`plugin:<id>`) are the last group.
 const GROUPS: [(&str, &[&str]); 3] = [("Cameras", &["camera.popup", "camera.still"]), ("Home", &["doorbell", "ha", "timer", "complication"]), ("Messages", &["ntfy", "toast"])];
@@ -49,10 +44,6 @@ fn answer_short(d: &Value, id: &str) -> String {
     ANSWERS.iter().find(|a| a.0 == id).map(|a| a.2.to_string()).or_else(|| d.get("answers").and_then(Value::as_array).and_then(|l| l.iter().find(|a| a.get("id").and_then(Value::as_str) == Some(id))).and_then(|a| a.get("title").and_then(Value::as_str)).map(str::to_string)).unwrap_or_else(|| id.to_string())
 }
 
-fn answer_long(d: &Value, id: &str) -> String {
-    ANSWERS.iter().find(|a| a.0 == id).map(|a| a.3.to_string()).unwrap_or_else(|| answer_short(d, id))
-}
-
 /// The class's answer now: the live topic's, which follows a change made elsewhere, else the one the document says.
 fn choice_of(c: &Ctx, class: &Value) -> String {
     let id = class.get("id").and_then(Value::as_str).unwrap_or("");
@@ -67,7 +58,7 @@ fn class_row(c: &Ctx, d: &Value, class: &Value) -> Row {
     let offered: Vec<String> = class.get("choices").and_then(Value::as_array).map(|l| l.iter().filter_map(Value::as_str).map(str::to_string).collect()).unwrap_or_default();
     let spec = Rc::new(ChoiceSpec {
         title: title.clone(),
-        options: offered.iter().map(|o| Pick { icon: answer_glyph(d, o).to_string(), ..Pick::new(o, &answer_long(d, o)) }).collect(),
+        options: offered.iter().map(|o| Pick { icon: answer_glyph(d, o).to_string(), ..Pick::new(o, &answer_short(d, o)) }).collect(),
         current: choice.clone(),
         write: {
             let id = id.clone();
@@ -116,24 +107,11 @@ fn rows(c: &Ctx) -> Vec<Row> {
     rows
 }
 
-/// The saver in miniature (its face as the theme has it) and the key to the answers' glyphs; the model lights the answer of the focused row.
+/// The saver in miniature, its face as the theme has it; the model puts the focused row's answer on it.
 fn figure(c: &Ctx) -> Option<Figure> {
-    let d = doc(c)?;
+    doc(c)?;
     let style = c.theme_str("screensaver.style").unwrap_or("clock");
-    let mut ids: Vec<String> = ANSWERS.iter().map(|a| a.0.to_string()).collect();
-    for a in d.get("answers").and_then(Value::as_array).into_iter().flatten() {
-        if let Some(id) = a.get("id").and_then(Value::as_str)
-            && !ids.iter().any(|i| i == id)
-        {
-            ids.push(id.to_string());
-        }
-    }
-    Some(Figure {
-        face: style.to_string(),
-        dim: c.theme_at("screensaver.dim").and_then(Value::as_bool) != Some(false),
-        shows: None,
-        legend: ids.iter().map(|id| Legend { id: id.clone(), icon: answer_glyph(d, id).to_string(), word: answer_long(d, id), lit: false }).collect(),
-    })
+    Some(Figure { face: style.to_string(), dim: c.theme_at("screensaver.dim").and_then(Value::as_bool) != Some(false), shows: None, caption: String::new() })
 }
 
 #[cfg(test)]
@@ -192,7 +170,7 @@ mod tests {
         let ops = (video.act.as_ref().unwrap())(Arg::Press);
         let [Op::Pick(spec)] = &ops[..] else { panic!("{ops:?}") };
         assert_eq!(spec.title, "Camera video");
-        assert_eq!(spec.options.iter().map(|o| (o.value.as_str(), o.label.as_str(), o.icon.as_str())).collect::<Vec<_>>(), vec![("over", "Show over saver", "picture-in-picture"), ("wake", "Wake the screen", "sun"), ("hide", "Hide", "eye-off")], "no 'inside' for the live video");
+        assert_eq!(spec.options.iter().map(|o| (o.value.as_str(), o.label.as_str(), o.icon.as_str())).collect::<Vec<_>>(), vec![("over", "Over", "picture-in-picture"), ("wake", "Wake", "sun"), ("hide", "Hide", "eye-off")], "no 'inside' for the live video");
         assert_eq!(spec.current, "hide");
         let sent = (spec.write)("over");
         assert!(matches!(&sent[..], [Op::Send { name: Some(n), method: "POST", path, body: Some(b) }] if n == "saver" && path == "/v1/saver/rules" && b == &json!({"id": "camera.popup", "choice": "over"})));
@@ -214,7 +192,7 @@ mod tests {
     }
 
     #[test]
-    fn rows_carry_what_they_would_put_on_the_picture_and_the_picture_has_the_legend_and_the_savers_face() {
+    fn rows_carry_what_they_would_put_on_the_picture_and_the_picture_has_the_savers_face_and_no_legend() {
         let mut w = world();
         let r = rows(&w.ctx());
         let still = r.iter().find(|x| x.id == "class:camera.still").unwrap();
@@ -222,7 +200,7 @@ mod tests {
         w.theme = json!({"screensaver": {"style": "art", "dim": false}});
         let f = figure(&w.ctx()).unwrap();
         assert_eq!((f.face.as_str(), f.dim), ("art", false));
-        assert_eq!(f.legend.iter().map(|l| (l.id.as_str(), l.word.as_str())).collect::<Vec<_>>(), vec![("over", "Show over saver"), ("inside", "In the saver area"), ("wake", "Wake the screen"), ("hide", "Hide")]);
+        assert_eq!(f.caption, "", "the model names the focused row under the picture");
     }
 
     #[test]

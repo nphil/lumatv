@@ -709,14 +709,14 @@ impl Model {
                     from
                 };
                 match k {
-                    K::Up => *index = step(*index, -1),
-                    K::Down => *index = step(*index, 1),
+                    // the card is a column and the strip a row: either pair of keys walks the options
+                    K::Up | K::Left => *index = step(*index, -1),
+                    K::Down | K::Right => *index = step(*index, 1),
                     K::Ok => {
                         let i = *index;
                         return self.pick(i);
                     }
                     K::Back => self.sheet = None,
-                    K::Left | K::Right => {}
                 }
                 return Vec::new();
             }
@@ -1162,7 +1162,6 @@ impl Model {
                 clock: clock_text(self.now),
                 wired: net.pointer("/wired/state").and_then(Value::as_str) == Some("connected"),
                 link: net.pointer("/wifi/state").and_then(Value::as_str) == Some("connected") || net.pointer("/wired/state").and_then(Value::as_str) == Some("connected"),
-                pointer: self.lg.on("general.remotePointer"),
             },
             rail,
             page,
@@ -1194,10 +1193,7 @@ impl Model {
                 _ => None,
             };
             fig.shows = focused.and_then(|r| r.preview.as_ref()).map(|p| (p.icon.clone(), choice.unwrap_or_else(|| p.choice.clone())));
-            let lit = fig.shows.as_ref().map(|(_, how)| how.clone());
-            for l in &mut fig.legend {
-                l.lit = lit.as_deref() == Some(l.id.as_str());
-            }
+            fig.caption = focused.filter(|r| r.preview.is_some()).map(|r| r.label.clone()).unwrap_or_default();
             fig
         });
         Some(PageView {
@@ -1216,43 +1212,33 @@ impl Model {
         })
     }
 
-    /// The glyphs of what the keys do now, as the Magic Remote carries them (no sentence).
+    /// The glyphs of what the keys do now, as the Magic Remote carries them (no sentence): the one thing the focus does, then the way
+    /// out. Never a legend of every key.
     fn hints(&self, page: Option<&PageView>, sheet: Option<&SheetView>) -> Vec<Hint> {
         let lr = Hint { keys: vec![(Key::Left, false), (Key::Right, false)], action: Some(Action::Move), label: None };
-        let ud = Hint { keys: vec![(Key::Up, false), (Key::Down, false)], action: Some(Action::Move), label: None };
+        let out = |a: Action| Hint::key(Key::Back, a);
         match sheet {
-            Some(SheetView::Confirm { .. }) => return vec![lr, Hint::key(Key::Ok, Action::Confirm), Hint::key(Key::Back, Action::Close)],
-            Some(SheetView::Help { .. }) => return vec![Hint::key(Key::Back, Action::Close)],
-            Some(SheetView::Pick { .. }) => return vec![ud, Hint::key(Key::Ok, Action::Confirm), Hint::key(Key::Back, Action::Close)],
-            Some(SheetView::Entry { .. }) => return vec![Hint::key(Key::Ok, Action::Confirm), Hint::key(Key::Back, Action::Close)],
+            Some(SheetView::Confirm { .. } | SheetView::Pick { .. } | SheetView::Entry { .. }) => return vec![Hint::key(Key::Ok, Action::Confirm), out(Action::Close)],
+            Some(SheetView::Help { .. }) => return vec![out(Action::Close)],
             None => {}
         }
         if self.zone == Zone::Rail || page.is_none() {
-            return vec![ud, Hint::key(Key::Ok, Action::Open), Hint::key(Key::Back, Action::Close)];
+            return vec![Hint::key(Key::Ok, Action::Open), out(Action::Close)];
         }
         let page = page.expect("checked");
-        let mut hints = Vec::new();
-        match page.stop {
-            StopView::Tabs => hints.push(lr),
+        let first = match page.stop {
+            StopView::Tabs => Some(lr),
             StopView::Row(_) => {
                 let r = page.focused_row().expect("a row stop has a row");
-                match r.kind {
-                    Kind::Slider | Kind::Nudge => hints.push(lr),
-                    Kind::Seg | Kind::Cards | Kind::Stepper => {
-                        hints.push(lr);
-                        hints.push(Hint::key(Key::Ok, Action::Confirm));
-                    }
-                    Kind::Toggle | Kind::Action => hints.push(Hint::key(Key::Ok, Action::Confirm)),
-                    _ => hints.push(Hint::key(Key::Ok, Action::Open)),
-                }
-                if !r.help.is_empty() {
-                    hints.push(Hint::hold(Key::Ok, Action::Options));
-                }
+                Some(match r.kind {
+                    Kind::Slider | Kind::Nudge | Kind::Seg | Kind::Cards | Kind::Stepper => lr,
+                    Kind::Toggle | Kind::Action => Hint::key(Key::Ok, Action::Confirm),
+                    _ => Hint::key(Key::Ok, Action::Open),
+                })
             }
-            StopView::None => {}
-        }
-        hints.push(Hint::key(Key::Back, if page.back.is_some() { Action::Collapse } else { Action::Close }));
-        hints
+            StopView::None => None,
+        };
+        first.into_iter().chain(std::iter::once(out(if page.back.is_some() { Action::Collapse } else { Action::Close }))).collect()
     }
 
     /// The state for the gate and the host harness: `--eval settings`.
@@ -1941,6 +1927,25 @@ mod tests {
     }
 
     #[test]
+    fn the_bar_shows_the_one_thing_the_focus_does_and_the_way_out_never_a_legend() {
+        use crate::kit::hint::{Action, Key};
+        let mut m = model();
+        m.open(None, 0);
+        let names = |m: &Model| m.view().hints.iter().map(|h| (h.keys.iter().map(|k| k.0).collect::<Vec<_>>(), h.action)).collect::<Vec<_>>();
+        assert_eq!(names(&m), vec![(vec![Key::Ok], Some(Action::Open)), (vec![Key::Back], Some(Action::Close))], "the rail: open, and out");
+        press(&mut m, "right", 10);
+        press(&mut m, "down", 100);
+        assert_eq!(m.view().page.unwrap().focused_row().unwrap().kind, Kind::Seg);
+        assert_eq!(names(&m), vec![(vec![Key::Left, Key::Right], Some(Action::Move)), (vec![Key::Back], Some(Action::Close))], "a segmented row is moved sideways");
+        press(&mut m, "down", 150);
+        press(&mut m, "ok", 200);
+        for _ in 0..4 {
+            assert!(m.view().hints.len() <= 2, "{:?}", m.view().hints);
+            press(&mut m, "down", 300);
+        }
+    }
+
+    #[test]
     fn the_calls_a_page_makes_keep_their_answers_by_name_and_a_subscription_is_let_go_when_settings_closes() {
         let mut m = model();
         m.open(None, 0);
@@ -1962,7 +1967,6 @@ mod tests {
         assert_eq!(first.len(), 1, "one read in flight");
         let fx = m.update(&Input::Luna { tag: first[0], payload: json!({"settings": {"remotePointer": "on"}}) }, 10);
         assert_eq!(fx.iter().filter(|e| matches!(e, Effect::Luna { uri, .. } if uri.contains("getSystemSetting"))).count(), 1, "the answer sends the next");
-        assert!(m.view().bar.pointer, "the pointer mark follows general.remotePointer");
         assert_eq!(m.due_at(), Some(10 + crate::host::sio::READ_MS), "a read that does not answer is let go after two seconds");
     }
 

@@ -34,7 +34,7 @@ pub struct Bar {
     clock_text: String,
     clock_x: f32,
     status: Vec<ImageLayer>,
-    status_key: Option<(bool, bool, bool)>,
+    status_key: Option<(bool, bool)>,
     cluster_left: f32,
     hints: Vec<Hint>,
     hint_rows: Vec<HintRow>,
@@ -73,27 +73,24 @@ impl Bar {
         })
     }
 
-    /// The clock, the cable or the Wi-Fi (quiet with no link), the pointer (only while it is on), and the hints.
+    /// The clock, the cable or the Wi-Fi (drawn only with no link), and the hints.
     #[allow(clippy::too_many_arguments)]
     pub fn update(&mut self, kit: &mut Kit, paint: &Paint, sz: &Sizes, geo: &Geometry, z: i32, state: &BarView, hints: &[Hint]) -> std::io::Result<()> {
         if self.clock_text != state.clock {
             self.clock.set(kit, &state.clock);
             self.clock_text = state.clock.clone();
         }
-        let key = (state.wired, state.link, state.pointer);
+        // quiet while the TV is online: the link's glyph is only drawn when there is none
+        let key = (state.wired, state.link);
         if self.status_key != Some(key) {
             self.status.clear();
-            let y = geo.bar.y + ((geo.bar.h - STATUS_ICON as f32) / 2.0).round();
-            let mut x = self.clock_x - sz.s5;
-            if state.pointer {
-                x -= STATUS_ICON as f32;
-                self.status.extend(icon::layer(kit, "mouse-pointer-2", STATUS_ICON, paint.ink2, z + 12, Props::at(x, y))?);
-                x -= sz.s5;
+            self.cluster_left = self.clock_x - sz.s5;
+            if !state.link {
+                let y = geo.bar.y + ((geo.bar.h - STATUS_ICON as f32) / 2.0).round();
+                let x = self.clock_x - sz.s5 - STATUS_ICON as f32;
+                self.status.extend(icon::layer(kit, if state.wired { "ethernet-port" } else { "wifi" }, STATUS_ICON, kit.ui.look.colour(PaletteRole::Warning), z + 12, Props::at(x, y))?);
+                self.cluster_left = x - sz.s5;
             }
-            x -= STATUS_ICON as f32;
-            let ink = if state.link { paint.ink2 } else { paint.ink3 };
-            self.status.extend(icon::layer(kit, if state.wired { "ethernet-port" } else { "wifi" }, STATUS_ICON, ink, z + 12, Props::at(x, y))?);
-            self.cluster_left = x - sz.s5;
             self.status_key = Some(key);
             self.hints.clear();
         }

@@ -299,6 +299,51 @@ impl RowArt {
         Ok(art)
     }
 
+    /// Describes the row's words to the layout lint, as they are placed: `at` is the row's frame on the screen, `panel` the pane under it.
+    pub fn feed_lint(&self, kit: &mut Kit, paint: &Paint, sz: &Sizes, row: &Row, at: Frame, lint: &mut crate::kit::lint::Lint, panel: usize) {
+        if matches!(self.kind, Kind::Head | Kind::Note | Kind::Empty | Kind::Figure | Kind::Cards) {
+            return;
+        }
+        let g = &self.geom;
+        let (tl, tc) = (kit.ty(TypeRole::Label), kit.ty(TypeRole::Caption));
+        let (ll, lc) = (line_height(tl), line_height(tc));
+        let block = g.label.len().max(1) as f32 * ll + g.detail.len() as f32 * lc;
+        let mut y = at.y + ((at.h - block) / 2.0).round();
+        let ink = paint.dim(if row.danger { paint.danger_ink } else { paint.ink }, row.enabled || row.info);
+        let muted = !(row.enabled || row.info);
+        let mut run = |kit: &mut Kit, name: String, text: &str, ty: ui::text::Type, x: f32, y: f32, room: f32, line: f32, ink: Rgba, muted: bool, right: bool| {
+            let w = kit.ui.fonts.measure(text, ty).width.ceil().min(room);
+            let x = if right { x + room - w } else { x };
+            lint.word_at(&name, Frame::new(x, y, w, line), ink, ty.px, muted, Some(panel));
+        };
+        for (i, l) in g.label.iter().enumerate() {
+            run(kit, format!("{} label {i}", row.id), l, tl, at.x + g.text_x, y, g.text_w, ll, ink, muted, false);
+            y += ll;
+        }
+        for (i, l) in g.detail.iter().enumerate() {
+            run(kit, format!("{} detail {i}", row.id), l, tc, at.x + g.text_x, y, g.text_w, lc, paint.ink2, true, false);
+            y += lc;
+        }
+        let local_right = at.right() - sz.s6;
+        let value_y = at.y + ((at.h - ll) / 2.0).round();
+        match row.kind {
+            Kind::Value if !g.value.is_empty() => {
+                if g.chip_w > 0.0 {
+                    run(kit, format!("{} chip", row.id), &g.value, tl, local_right - g.chip_w + sz.s3 + sz.chevron() + sz.s2, value_y, g.value_w, ll, ink, muted, false);
+                } else {
+                    let room = g.value_w;
+                    let x = local_right - g.trail_w - if g.trail_w > 0.0 { sz.s4 } else { 0.0 } - room;
+                    run(kit, format!("{} value", row.id), &g.value, tl, x, value_y, room, ll, ink, muted, true);
+                }
+            }
+            Kind::Slider => {
+                let text = row.value_text.clone().unwrap_or_else(|| format!("{}{}", row.num.round() as i64, row.unit));
+                run(kit, format!("{} number", row.id), &text, tl, local_right - g.value_w, value_y, g.value_w, ll, ink, muted, true);
+            }
+            _ => {}
+        }
+    }
+
     pub fn frame_on_screen(&self, env: &Env) -> Frame {
         Frame::new(env.origin.0 + self.rect.x, env.origin.1 + self.rect.y, self.rect.w, self.rect.h)
     }

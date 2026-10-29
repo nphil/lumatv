@@ -26,6 +26,11 @@ impl SettingsHost {
         SettingsHost { model: Model::new(pages::all(), theme.clone(), layout.clone()), surface: SettingsSurface::new(system_z), redraw: false }
     }
 
+    /// Describes what is on screen to the layout lint (`--eval lint`).
+    pub fn feed_lint(&self, kit: &mut Kit, lint: &mut crate::kit::lint::Lint) {
+        self.surface.feed_lint(kit, lint);
+    }
+
     pub fn is_open(&self) -> bool {
         self.model.is_open()
     }
