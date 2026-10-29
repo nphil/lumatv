@@ -9,7 +9,7 @@ Done: this document. Research only: no code, no TV access, nothing written to an
 Next, in order:
 
 1. A read-only TV slot with the commands in § TV checks (answers open questions 1, 2, 6, 7). Needs a TV window, no display change.
-2. Offline, behind switches, host-tested: a plane offset for the direct plan, driven by `oledcare`, and the KMS cursor plane. Files: `compositor/crates/lumatv-compositor/src/scene.rs` (`Plan::sole_candidate`, `NotSole`), `src/scanout/mod.rs` (`Scanout::choose`), `src/kms/mod.rs` (plane commit, `PlaneType::Cursor`), `src/oledcare.rs`, `src/render/cursor.rs`; tests in `tests/scanout.rs` and `tests/oledcare.rs` against the fake KMS.
+2. Offline, behind switches, host-tested: a plane offset for the direct plan, driven by `oledcare`; and the KMS side of the cursor plane (its policy and tests already exist in HwPlanes' `src/pointer.rs`). Files: `compositor/crates/lumatv-compositor/src/scene.rs` (`Plan::sole_candidate`, `NotSole`), `src/scanout/mod.rs` (`Scanout::choose`), `src/kms/mod.rs` (plane commit, `PlaneType::Cursor`), `src/oledcare.rs`, `src/render/cursor.rs`; tests in `tests/scanout.rs` and `tests/oledcare.rs` against the fake KMS.
 3. One display slot with Nitin at the set for wins 2-5 (§ 4); raw-register tests (wins 7 and 8) only if he wants them.
 
 Decisions taken: KMS-level doors rank above raw registers; the O22 tree (not O24) is the reference; OSD0_1 stays parked behind items 1-5; kernel-module and raw-write work is not started (Nitin's decision); no extracted firmware, script or capture was added to the repository. The pointer plane (win 3) is already HwPlanes' work (`docs/research/hw-planes-result.md`; `src/pointer.rs`, `src/afbc.rs`, `src/vwin.rs`): continue that, do not start a second one.
