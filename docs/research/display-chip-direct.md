@@ -12,7 +12,7 @@ Next, in order:
 2. Offline, behind switches, host-tested: a plane offset for the direct plan, driven by `oledcare`, and the KMS cursor plane. Files: `compositor/crates/lumatv-compositor/src/scene.rs` (`Plan::sole_candidate`, `NotSole`), `src/scanout/mod.rs` (`Scanout::choose`), `src/kms/mod.rs` (plane commit, `PlaneType::Cursor`), `src/oledcare.rs`, `src/render/cursor.rs`; tests in `tests/scanout.rs` and `tests/oledcare.rs` against the fake KMS.
 3. One display slot with Nitin at the set for wins 2-5 (§ 4); raw-register tests (wins 7 and 8) only if he wants them.
 
-Decisions taken: KMS-level doors rank above raw registers; the O22 tree (not O24) is the reference; OSD0_1 stays parked behind items 1-5; kernel-module and raw-write work is not started (Nitin's decision); no extracted firmware, script or capture was added to the repository.
+Decisions taken: KMS-level doors rank above raw registers; the O22 tree (not O24) is the reference; OSD0_1 stays parked behind items 1-5; kernel-module and raw-write work is not started (Nitin's decision); no extracted firmware, script or capture was added to the repository. The pointer plane (win 3) is already HwPlanes' work (`docs/research/hw-planes-result.md`; `src/pointer.rs`, `src/afbc.rs`, `src/vwin.rs`): continue that, do not start a second one.
 
 Open for Nitin: whether OLED-care orbit may move to the hardware plane offset, and whether a read-only slot may run now.
 
@@ -21,7 +21,7 @@ Open for Nitin: whether OLED-care orbit may move to the hardware plane offset, a
 - The display chip is LG's own: kernel command line `chip=O22A3 pqe.tool=C4 pqe.year=24`, device-tree model "LG Electronics, DTV SoC LG1213" (TV). MediaTek is only the MT7668 Wi-Fi/Bluetooth radio, so MediaTek display sources do not apply, and no public datasheet for the chip turned up. LG's GPL tree is the only register documentation.
 - That tree documents the **graphics side to bit-field level** (OSD layers, AFBC readers, OSD sharpener, 2D blitter) and gives **names and addresses** of 204 blocks of the whole display chip and about 2,860 picture-engine registers. It does not say how the scalers, picture quality, MEMC, orbit and HDR work: that runs as closed firmware on the display engine's MCUs, shipped in the tree only as byte arrays.
 - The OSD registers already have three writers: the `lg1k` driver at every flip, the PQE firmware at every frame, and LG's picture and panel services. A raw write fights at least one of them, so raw registers are the last resort. A kernel module is feasible in principle (public precedent below), is Nitin's decision, and buys little that user space cannot do.
-- The best wins use doors LG already opens: a read-only observation kit, the KMS plane position as hardware orbit, the cursor plane, a smaller primary buffer scaled by the OSD scaler, and the OSD sharpening knobs. Long shots: OSD0_1 as a second layer, video tiles through the four graphic scalers, the OSD's contrast and saturation registers.
+- The best wins use doors LG already opens: a read-only observation kit, the KMS plane position as hardware orbit, the cursor plane, a smaller primary buffer scaled by the OSD scaler, and the OSD sharpening knobs. Long shots: OSD0_1 as a second layer, video tiles through the four graphic scalers, the OSD's contrast, saturation and mixer-hole registers.
 
 ## Verified and inferred at a glance
 
@@ -60,7 +60,7 @@ The drop is not byte-identical to the set: kernel 5.4.268 submission 324 (the se
 | LG's V4L2 API and its documentation | `include/webosext/v4l2-ext-renderer-header/linux/*.h` and `.../documentation/source/renderer/{scaler,gp-scaler,video-texture,panel-controller,pq}.rst` (block diagram: `resources/Scaler_IP_Block_Diagram_n.PNG`) |
 | Kernel configuration | `linux-rockhopper/arch/arm64/configs/lg1k_defconfig`, `build.sh`, `submissions` |
 | TV captures | `docs/research/arch/{scanout-hw-02.txt,scanout-live-01.txt,lgproc-fbdev-01.txt,lgproc-gfx-de-01.txt,drmplanes-01.txt,drm-debugfs-01.txt}`, `docs/research/framerate/*/before.txt` (kernel command line), `docs/research/gfn/tv-2026-10-26/umediaserver_resource_config.txt`, `docs/research/hardware-census.md` |
-| Earlier results | `scanout-research.md`, `framerate-result.md`, `gfn-444-vrr-result.md`, `ui120-result.md`, `videoplane-saver-result.md`, `oledcare-result.md`, `hearth-update-result.md`, `compositor-gate9-result.md` (`:887-890`), `scrypted-cameras-design.md` (`:29`, `:145`) |
+| Earlier results | `scanout-research.md`, `hw-planes-result.md`, `framerate-result.md`, `gfn-444-vrr-result.md`, `ui120-result.md`, `videoplane-saver-result.md`, `oledcare-result.md`, `hearth-update-result.md`, `compositor-gate9-result.md` (`:887-890`), `scrypted-cameras-design.md` (`:29`, `:145`) |
 | Public | https://github.com/throwaway96/webos-kernel-drivers (out-of-tree modules for O22 webOS kernels), https://github.com/cfernande1470/webos-wayland (`fbdev_readme_section.md`: another LG set, same fb layout) |
 
 ## 1. What the chip contains
@@ -86,14 +86,14 @@ Source: LG's scaler diagram (`Scaler_IP_Block_Diagram_n.PNG`), the pattern probe
 | OSD0_1 with AFBC1, MIF1, SHP1 | `0xCC480400`, `0xCC482700`, `0xCC482800`, `0xCC482300` | `lg1k`, only in 4K-OSD mode (`support_4kosd 0` here) | same headers | none |
 | Cursor layer (`osd4_*`) | `0xCC480600` | `lg1k` | headers | DRM plane 36, `fb3` |
 | fb1 / "OSD1" | alias of OSD0 | `lg1k` swaps ownership | none | DRM plane 34 |
-| Mixers S.OSD, B.OSD0, B.OSD1; HDR-UI | `0xCC480180-0xCC4802E4`; `0xCC480700` | `lg1k` init (mux fixed `0x76543210`); firmware | headers (hole selects, white balance, LED and object alpha; HDR-UI: three LUTs and a CSC) | `pathctrl` |
+| Mixers S.OSD, B.OSD0, B.OSD1; HDR-UI | `0xCC480180-0xCC4802E4`; `0xCC480700` | `lg1k` init (mux fixed `0x76543210`); firmware | headers (three rectangular holes each with 8-bit alpha and a per-input select, white balance, LED and object alpha; HDR-UI: three LUTs and a CSC) | `pathctrl` |
 | 2D blitter | `/dev/lg/gfx0` | `lg1k` gfx | `gfx_reg_o22.h` 112 structs; a second header marked "reference only, DO NOT use" | 0666 node, `/proc/lg/gfx` |
 | Video windows: input mux, VDO, HDR, ISC/OSC scalers (main, sub0), NR/DI, super-resolution, MEMC | `0xCC300000-0xCCCC2B98` | DE MCU firmware through IPC; kernel DE, VSC, PE drivers | names and bases for 204 blocks; PE registers 2,860 (names, some comments); DE CVI, CVD, CTR, IPC, IPP, ATP, VBI headers | V4L2 ext (VSC, PQ, VT, GPSC), `/dev/lg/de0`, `/proc/lg/de` |
 | Video to memory: VT capture, GP scaler | `/dev/video60`, `/dev/video70`, `/dev/video27` | DE firmware (`PQE_TASK_Ipp4GpsManager`) | `v4l2-ext-vt.h`, `v4l2-ext-gpsc.h`, rst documents | `libvtcapture`, LG's compositor (GAV, VTG) |
 | Back end: FRC, LED, OLED, WCG, PWM; orbit, LSR/GSR, OSD gain | `0xCC400000-0xCC403F00`, `0xCC4C0000`, `0xCC9C0000` | BE firmware (`MCU_BE_IO_*`) | `be_reg_dpe_o22a0.h` 739 registers, 58 PWM, IPC structs | `/dev/lg/be0`, V4L2 VBE |
 | Panel link (OVI, Vx1, TCON) | `ovi_reg_o22a0.h` | kernel `ovi` | 70 registers and macros | `/dev/lg/ovi0` (0666) |
 
-Windows: two real scaler windows (main, sub0). `LX_DE_WIN_ID_T` has five ids, but window 2 is the encoder tap and 3 and 4 are firmware placeholders; O22 maps only two (`include/de_kapi.h:462-473`, `chip/o22/de/de_reg_o22.c:140`, `:1685-1780`). LG's resource table on the set: `MAIN_SCALER 1`, `SUB_SCALER 1`, `GP_SCALER 4`, `VTG 1`, `VT_CAPTURE 1`, `VDEC 4`, `DM 3`, `IMG_DEC 1` (TV). The `/proc/lg/de/win0..3` nodes exist for all four ids.
+Windows: two real scaler windows (main, sub0). `LX_DE_WIN_ID_T` has five ids, but window 2 is the encoder tap and 3 and 4 are firmware placeholders; O22 maps only two (`include/de_kapi.h:462-473`, `chip/o22/de/de_reg_o22.c:140`, `:1685-1780`). LG's resource table on the set: `MAIN_SCALER 1`, `SUB_SCALER 1`, `GP_SCALER 4`, `VTG 1`, `VT_CAPTURE 1`, `VDEC 4`, `DM 3`, `IMG_DEC 1` (TV). The `/proc/lg/de/win0..3` nodes exist for all four ids. The sub window decodes at most 1920×1088 at 30 fps, the main 4096×2304 at 60 (H.265 at 120), and `videooutputd` lists exactly two sinks (`hw-planes-result.md` § Video windows).
 
 Firmware: three images run on this set (regions `g_fw_mcu0` 4 MB, `g_fw_mcu1` 4 MB, `g_fw_mcu2` 13 MB; mcu3 and mcu4 have none; TV `/proc/lg/de/status`). The kernel embeds the images as C arrays and downloads them at boot (`chip/o22/de/de_fw_o22.c:60-130`): 1.8 MB, 0.57 MB, 4.5 MB and two of 9 KB. Their strings are symbol-rich (`PQE_TASK_*`, `MCU_DE_IO_SetWinInfo`, `MCU_DE_IO_SetOrbit`, `MCU_BE_IO_SET_GSR`, `PQE_CMD_*`, `OSD VSP WA`, `[CG] OSD`, `[OSD] Off:%d, OsdIn:%dx%d, Crop:%dx%d(%d,%d), Pos:(%d,%d)`) and show that the MCU0 firmware reads and rewrites OSD geometry; no source exists (FW).
 
@@ -102,6 +102,7 @@ Firmware: three images run on this set (regions `g_fw_mcu0` 4 MB, `g_fw_mcu1` 4 
 Present in the headers and the silicon, not written by `lg1k` or not offered to user space:
 
 - **OSD video-signal processor (VSP).** Contrast, saturation, offset, grayscale and RGB-inverse registers (`osd0_vsp_bosd_ctrl_0/1`, `osd_reg_o22.h:1537-1560`). Live: enabled at neutral values, `0xCC480360 = 0x02000001` (contrast 0x200, centre 0) and `0xCC480364 = 0x02008000` (saturation 0x80, offset 0x200) (TV `scanout-hw-02.txt:302-303`). `lg1k` never writes them (SRC grep over `chip/o22`, `core`), so the firmware or the boot code did. A hardware UI dim or grayscale without composition would live here.
+- **Mixer holes.** Each mixer (S.OSD, B.OSD0, B.OSD1) has three rectangular holes (x, y, w, h, 8-bit alpha, enable, reverse) and a per-input select (`ctrl_*_mixer_hole` and `mux_a..f`, `osd_reg_o22.h:548-625` and the same layout in the two B.OSD blocks). All are disabled live (TV: the B.OSD1 registers `0xCC4802C8-0xCC4802DC` and the other two mixers read 0). `lg1k` never programs them. Semantics are unwritten [INFERENCE: a rectangle where the OSD input is cut to the hole's alpha, so a hardware video hole or a fade]. HwPlanes found the same registers (`hw-planes-result.md` § Video windows).
 - **OSD scaler filter select** (`osd_ctrl_scaler`: bilinear, vertical cubic, phase offsets): live 0, the hardware default (TV `:0xCC480310`).
 - **Sharpener gain**: only as a proc knob (§ 3.2); live `ti_gain 0x10` (TV `chip/diag`).
 - **Colour key**: reachable only through the fb ioctl path.
@@ -147,7 +148,7 @@ The register headers parse mechanically: each register is a comment `0xOFFSET na
 | Plane 32 `FB_ID` | Honoured: address plus offset, pitch, width and height as the OSD input window, XRGB/ARGB/XBGR/ABGR, linear or AFBC `…62` | `drm.c:448-540`, `fbdev_drm.c:300-505` |
 | Plane 32 `CRTC_X/Y` | Passed on as the OSD output position and written to `osd_ctrl_hdr0` at every flip. Units: panel pixels [INFERENCE: the cursor path multiplies by 2, this path does not] | `fbdev_drm.c:494-495`, `fbdev_hw_o22_cmn.c:3158-3159`, `:2687-2695` |
 | Plane 32 `CRTC_W/H`, `SRC_*` | Ignored (the primary's `CRTC_W/H` only set the cursor's coordinate space): no crop, no scaling property | `drm.c:532-536` |
-| Alpha, zpos, rotation, blend | None exposed. Global alpha is reset at every flip: XR24/XB24 to 0xff on, AR24/AB24 off (pixel alpha) | `fbdev_drm.c:319-328`; TV `hdr.global_alpha_en 1` with XR24 |
+| Alpha, zpos, rotation, blend | None exposed. Global alpha is reset at every flip: XR24/XB24 to 0xff on (the OSD then ignores pixel alpha, so a video hole in an XR24 page is opaque black), AR24/AB24 off (pixel alpha) | `fbdev_drm.c:319-328`; TV `hdr.global_alpha_en 1` with XR24; `hw-planes-result.md` § The holes |
 | Plane 34 | Alias of OSD0; its enable is ignored while fb0 is on | `scanout-research.md` § Layers |
 | Plane 36 (cursor) | AR24, clamped to 128×128; image scaled ×2 by the blitter when it changes (`detect_cursor_change`); position ×2; hotspot from `fb->hot_x` ("not tested") | `drm.c:586-640`, `fbdev_drm.c:225-395` |
 | CRTC `VRR_ENABLED`; `IN_FENCE_FD`, `OUT_FENCE_PTR` | `VRR_ENABLED` is the DRM core's default and has no driver code; fences work | TV `drmplanes-01.txt`; `gfn-444-vrr-result.md` |
@@ -222,11 +223,11 @@ Channels: `/dev/mem` (devmem reads of `0xCC48xxxx` worked on the set; the defcon
 |---|---|---|---|---|
 | 1 | Observation kit | Answers open questions 1-6 and de-risks every item below | none (reads; at most tracefs) | yes, read-only |
 | 2 | Orbit through the KMS plane offset | OLED care and direct scan-out stop excluding each other | low | yes |
-| 3 | Hardware cursor plane for the pointer | The pointer stops forcing composed frames and repaints | low | yes |
+| 3 | Hardware cursor plane for the pointer (HwPlanes has the policy and tests; the KMS side is next) | The pointer stops forcing composed frames and repaints | low | yes |
 | 4 | Primary buffer smaller than the mode | Cheaper composed frames; path to direct-scanned reduced-resolution frames | low to medium | yes |
 | 5 | OSD sharpening knobs | UI crispness at ×2, free | very low | yes (eyes) |
 | 6 | Video tiles through the 4 graphic scalers | Up to four live hardware-decoded tiles (camera wall) instead of stills | study low; build high | yes, later |
-| 7 | OSD VSP registers | UI dim or grayscale with no composition | medium (writer unknown) | yes, Nitin at the set |
+| 7 | OSD VSP and mixer-hole registers | UI dim or grayscale, hardware video holes, with no composition | medium (writers unknown) | yes, Nitin at the set |
 | 8 | OSD0_1 second-layer probe | A hardware overlay (`scanout-research.md` design) | medium (hang) | yes, maintenance window |
 | 9 | Kernel module, raw writes | none that the above does not give | high | Nitin's decision |
 
@@ -238,7 +239,7 @@ Unknowns: the units (panel pixels or UI pixels), whether the position is applied
 
 ### 4.2 Cursor plane (win 3)
 
-The pointer is composed (`NotSole::Cursor`, `scene.rs:264-358`) and refuses scan-out. Plane 36 takes one AR24 image up to 128×128; the driver scales it ×2 when the framebuffer changes (a blitter call under the device lock the panel-care daemons share) and moves it with a header write. Use hotspot 0 and subtract the hotspot in LumaTV (the driver's hotspot path is "not tested"); upload the image once. LG draws its own pointer this way (`render/cursor.rs` header). Check: the sprite shows over Home and over a direct frame, follows at 120 Hz without a repaint, the flip counter of `fb3` rises, no stall in `/proc/lg/gfx/status`.
+The pointer is composed (`NotSole::Cursor`, `scene.rs:264-358`) and refuses scan-out. Plane 36 takes one AR24 image up to 128×128; the driver scales it ×2 when the framebuffer changes (a blitter call under the device lock the panel-care daemons share) and moves it with a header write. The hotspot comes only from `DRM_IOCTL_MODE_CURSOR2`; an atomic plane update has none and a negative `crtc_x` wraps; the legacy cursor ioctls take the kernel's unsynchronised path while an atomic commit waits for the flip in flight, so HwPlanes' design uses the legacy ioctls on a thread of its own (`hw-planes-result.md` § The cursor plane, `src/pointer.rs`). LG draws its own pointer this way (`render/cursor.rs` header). Check: the sprite shows over Home and over a direct frame, follows at 120 Hz without a repaint, the flip counter of `fb3` rises, no stall in `/proc/lg/gfx/status`.
 
 ### 4.3 Smaller primary buffer (win 4)
 
@@ -252,9 +253,9 @@ The driver sets the OSD input window from the framebuffer's own size and leaves 
 
 LG's GAV compositor plays two or more hardware-decoded videos by taking a scaled copy of each (NV12 or ARGB, at most 1920×1080) through `/dev/video70` into dma-buf textures; "previously, only up to two media could be played due to hardware limitations" (`gp-scaler.rst`). The set's resource table has `GP_SCALER 4` and `VTG 1`. The camera design uses stills for the grid, "never one decoder a tile", because decoders are the scarce part (`scrypted-cameras-design.md:29`); four graphic scalers change that count. Unmeasured: the cost of sampling such a buffer (`PLAN.md` measured 5-20× for rendering into imported memory, not for sampling), and whether LumaTV's compositor can serve LG's VTG protocol. Study first, build only if sampling is cheap.
 
-### 4.6 OSD VSP (win 7) and OSD0_1 (win 8)
+### 4.6 OSD VSP and mixer holes (win 7), OSD0_1 (win 8)
 
-VSP: read `0xCC480360-0xCC48036C` twice, a second apart, with the screen changing, to see whether anything rewrites them; only then a timed write of `r_contrast` to 0x100 with a revert. OSD0_1: the probe in `scanout-research.md` ("The probe, if it is wanted") stays as designed and parked. New evidence against: the firmware is told about OSD state through a handshake (`InformFBDEVStatus`), and a second layer is a state it does not know. For: the second reader is powered and its size fields are 12 bits.
+VSP and holes: read `0xCC480360-0xCC48036C` (VSP) and the three hole rectangles of each mixer (`0xCC4801C8-0xCC4801DC`, `0xCC480248-0xCC48025C`, `0xCC4802C8-0xCC4802DC`) twice, a second apart, with the screen changing, to see whether anything rewrites them; only then a timed write with a revert: `r_contrast` to 0x100, or one full-screen hole with alpha 0x80 on B.OSD1 (the mixer OSD0 selects). A hole with alpha is the candidate hardware dim (OLED care and direct scan-out together) and a hardware video hole for an opaque page. OSD0_1: the probe in `scanout-research.md` ("The probe, if it is wanted") stays as designed and parked. New evidence against: the firmware is told about OSD state through a handshake (`InformFBDEVStatus`), and a second layer is a state it does not know. For: the second reader is powered and its size fields are 12 bits.
 
 ## 5. Rules for any write below the DRM layer
 
@@ -317,10 +318,10 @@ One display slot with LumaTV's compositor, Nitin at the set (wins 2-5), in this 
 
 1. **Read-only observation slot.** Run the TV checks above (kernel and module facts, kprobe and kallsyms availability, parameters, `regdump` three times, `/proc/logm`, node modes). Value: high, answers open questions 1, 2, 6, 7 and sets up everything else. Risk: none. Needs TV round: yes (no display change).
 2. **Orbit through the plane offset.** Let the direct plan carry a plane offset and drive `oledcare` from it; host tests first, then one display slot to see units, edge strips and the firmware. Value: high (OLED care and direct scan-out together). Risk: low. Needs TV round: yes (photo).
-3. **Hardware cursor plane for the pointer.** Plane 36, AR24 up to 128×128, hotspot handled in LumaTV, behind a switch. Value: medium to high (pointer no longer forces composed frames). Risk: low. Needs TV round: yes.
+3. **Hardware cursor plane for the pointer.** Continue HwPlanes' pointer work (`docs/research/hw-planes-result.md`: policy and tests done, KMS side next): plane 36, AR24 up to 128×128, hotspot through the legacy cursor ioctl, behind its switch. Value: medium to high (the pointer no longer forces composed frames). Risk: low. Needs TV round: yes.
 4. **Smaller primary buffer.** One commit of a 1280×720 or 1440×810 XR24 buffer on plane 32, scaled by the OSD scaler. Value: medium (cheaper composed frames; direct reduced-resolution frames later). Risk: low to medium (softness, firmware workarounds). Needs TV round: yes.
 5. **OSD sharpening knobs.** `/proc/lg/fbdev/chip/osd_sr` and `osd_sr_gain` photographed at three settings, restored to 1 and 0x10. Value: low to medium (free UI crispness). Risk: very low. Needs TV round: yes (Nitin's eyes).
 6. **Offline register tool.** A script that decodes `regdump` against `osd_reg_o22.h` and diffs two dumps. Value: speeds every later read. Risk: none. Needs TV round: no.
 7. **Video tiles through the four graphic scalers.** Design study and one measurement of sampling a GPSC buffer; build only if cheap. Value: medium (live camera tiles). Risk: low for the study. Needs TV round: yes (measurement).
-8. **OSD VSP and OSD0_1 raw-register tests.** Read-only first (open question 6), then the timed `r_contrast` write and the existing OSD0_1 probe. Value: medium (hardware dim) and high-if-it-works (second layer, prior under 1 in 5). Risk: medium (hang, firmware fight). Needs TV round: yes, Nitin at the set.
+8. **OSD VSP, mixer-hole and OSD0_1 raw-register tests.** Read-only first (open question 6), then a timed `r_contrast` or full-screen hole write and the existing OSD0_1 probe. Value: medium (hardware dim, hardware video hole) and high if it works (second layer, prior under 1 in 5). Risk: medium (hang, firmware fight). Needs TV round: yes, Nitin at the set.
 9. **Kernel module and persistent register code stay parked.** Revisit only for a measured need the items above cannot meet; Nitin decides and approves each release. Value: n/a now. Risk: high. Needs TV round: no (decision first).
