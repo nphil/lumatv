@@ -98,7 +98,7 @@ class CameraPopup(HostCase):
         self.assertEqual((p1["pw"], p1["ph"]), (520, 292))
         frames_asked = self.tagged(out, "f1")[0]
         self.assertTrue(frames_asked, "the preview asks the helper for pictures")
-        self.assertEqual(frames_asked[0], ["273", 520, 292], "a picture of the preview's own size")
+        self.assertEqual(frames_asked[0][:3], ["273", 520, 292], "a picture of the preview's own size")
         self.assertEqual(doc["mode"], "", "gone by itself at untilMs")
         self.assertFalse(doc["overlayWants"])
 

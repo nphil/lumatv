@@ -945,6 +945,30 @@ mod tests {
     }
 
     #[test]
+    fn the_volume_bar_turned_onto_the_left_edge_is_drawn_standing_and_flush_with_it() {
+        let (_h, mut kit, mut engine, mut s, mut e) = rig(Mode::Dark, 1.0);
+        draw(&mut kit, &mut engine, &mut s, &e, 1000);
+        let bar = |s: &LayoutSurface| rect(s.geometry()["items"].as_array().unwrap().iter().find(|i| i["id"] == "volume").unwrap());
+        let (_, _, w0, h0) = bar(&s);
+        assert!(w0 > h0, "lying along the bottom edge");
+        e.key(EKey::Ok, 1100);
+        // along the bottom to its end, one press more turns the corner onto the left edge
+        let mut now = 1200;
+        for _ in 0..400 {
+            e.key(EKey::Left, now);
+            now += 300;
+            if e.view(now).items.iter().any(|i| i.id == "volume" && i.rect.w < i.rect.h) {
+                break;
+            }
+        }
+        draw(&mut kit, &mut engine, &mut s, &e, now);
+        let (x, _, w, h) = bar(&s);
+        assert!(h > w, "standing on a side edge: {w} by {h}");
+        assert_eq!(x, 64.0, "flush with the left edge of the zone");
+        assert!(lint_of(&mut kit, &s).is_empty());
+    }
+
+    #[test]
     fn done_closes_it_with_a_click_and_the_modal_scope_is_given_back() {
         let (_h, mut kit, mut engine, mut s, mut e) = rig(Mode::Dark, 1.0);
         draw(&mut kit, &mut engine, &mut s, &e, 1000);
