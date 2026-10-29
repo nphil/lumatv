@@ -432,5 +432,84 @@ class RustSystem(unittest.TestCase):
                     os.remove(shot)
 
 
+    # ---- the overlay layout editor (test_overlay_layout, overlay-layout-result.md)
+
+    def layout_run(self, scale=1.0, mode='dark', wait=3000, item='popup', extra_kinds=''):
+        import rust_cameras_scenes as sc
+        r = sc.Run(scale=scale, mode=mode, wait=wait, kinds='layout' + extra_kinds)
+        r.channel(200, 'foreground', HOME).channel(220, 'screen', {'on': True})
+        r.channel(500, 'show', {'kind': 'layout', 'item': item, 'warm': False, 'n': 1})
+        return sc, r
+
+    def test_the_layout_editor_opens_on_show_takes_every_key_writes_the_owners_place_when_it_is_put_down_and_leaves_on_back(self):
+        sc, r = self.layout_run()
+        r.eval(300, 'report').eval(900, 'report').eval(900, 'geometry')
+        r.press(1100, 'ok').press(1300, 'left').press(1500, 'left').eval(1700, 'geometry').press(1800, 'ok').eval(2100, 'geometry')
+        r.press(2300, 'back').eval(2700, 'report')
+        r.wait = 3000
+        res = sc.run(r)
+        self.assertEqual(res['rc'], 0, res['out'][-3000:])
+        reports = [e for e in res['evals'] if isinstance(e, dict) and 'wants' in e]
+        self.assertIn('layout', reports[0]['can'], "the process says it can show the editor")
+        self.assertFalse(reports[0]['wants'])
+        self.assertTrue(reports[1]['wants'] and reports[1]['live'], "open: it has every key and is on the screen: %s" % reports[1])
+        geos = [e for e in res['evals'] if isinstance(e, dict) and 'layout' in e]
+        before = [i for i in geos[0]['layout']['items'] if i['id'] == 'popup'][0]
+        moved = [i for i in geos[1]['layout']['items'] if i['id'] == 'popup'][0]
+        self.assertEqual(geos[0]['layout']['selected'], 'popup', "opened on the item Settings named")
+        self.assertEqual(geos[1]['layout']['mode'], 'move')
+        self.assertLess(moved['x'], before['x'], "the arrows moved it: %s -> %s" % (before, moved))
+        self.assertEqual(geos[2]['layout']['mode'], 'browse')
+        theme = json.load(open(os.path.join(res['data'], 'theme', 'theme.json')))
+        placed = theme['layout']['overlays']['popup']
+        self.assertIn(placed['anchor'], ('top-right', 'top', 'top-left'), "written whole in the owner's theme: %s" % placed)
+        self.assertTrue(placed['dx'] < 0 or placed['anchor'] != 'top-right', placed)
+        self.assertFalse(reports[2]['wants'], "Back left it: the keys are Home's again")
+
+    def test_the_layout_editor_refuses_the_pointer_to_what_is_under_it_and_a_click_on_done_leaves(self):
+        sc, r = self.layout_run(item='mute')
+        r.eval(900, 'geometry')
+        r.pointer(1100, 100, 100, 0)
+        r.wait = 1800
+        res = sc.run(r)
+        self.assertEqual(res['rc'], 0, res['out'][-3000:])
+        g = [e for e in res['evals'] if isinstance(e, dict) and 'layout' in e][0]['layout']
+        done = g['buttons'][2]
+        sc2, r2 = self.layout_run(item='mute')
+        x, y = done['x'] + 10, done['y'] + 10
+        r2.pointer(1000, x, y, 0).pointer(1050, x, y, 1).pointer(1100, x, y, 0).eval(1500, 'report')
+        r2.wait = 1900
+        res2 = sc2.run(r2)
+        self.assertEqual(res2['rc'], 0, res2['out'][-3000:])
+        self.assertFalse([e for e in res2['evals'] if isinstance(e, dict) and 'wants' in e][0]['wants'], "a click on Done left")
+
+    def test_what_the_layout_editor_draws_reads_clean_at_both_text_sizes_in_both_materials(self):
+        try:
+            from PIL import Image
+        except ImportError:
+            Image = None
+        for scale in (1.0, 2.0):
+            for mode in ('dark', 'light'):
+                sc, r = self.layout_run(scale=scale, mode=mode, item='volume', extra_kinds=',osd')
+                browse = os.path.join(tempfile.gettempdir(), 'rustsystem-layout-%s-%s-%d.png' % (scale, mode, os.getpid()))
+                move = os.path.join(tempfile.gettempdir(), 'rustsystem-layout-move-%s-%s-%d.png' % (scale, mode, os.getpid()))
+                r.eval(1200, 'lint').eval(1200, 'atlas').snap(1300, browse)
+                r.press(1500, 'ok').press(1650, 'right').press(1800, 'right').eval(2100, 'lint').snap(2200, move)
+                r.wait = 2600
+                res = sc.run(r)
+                self.assertEqual(res['rc'], 0, res['out'][-3000:])
+                self.assertEqual(res['evals'][0], [], "%s at %s: %s" % (mode, scale, res['evals'][0]))
+                self.assertEqual(res['evals'][1]['pictures'], 0, "every word is glyph quads of the atlas")
+                self.assertEqual(res['evals'][2], [], "in hand, %s at %s: %s" % (mode, scale, res['evals'][2]))
+                folder = render_dir()
+                for shot, name in ((browse, 'layout'), (move, 'layout-move')):
+                    if Image and os.path.exists(shot) and folder:
+                        out = os.path.join(folder, 'system')
+                        os.makedirs(out, exist_ok=True)
+                        Image.open(shot).convert('RGB').resize((1280, 720)).save(os.path.join(out, '%s-%s%s.jpg' % (name, mode, '' if scale == 1.0 else '-text200')), 'JPEG', quality=80)
+                    if os.path.exists(shot):
+                        os.remove(shot)
+
+
 if __name__ == "__main__":
     unittest.main()

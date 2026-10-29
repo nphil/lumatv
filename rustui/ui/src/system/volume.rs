@@ -67,6 +67,25 @@ pub struct View {
 }
 
 impl View {
+    /// What the layout editor's stand-in is measured on: the bar with a level and no mark.
+    pub fn sample() -> View {
+        View {
+            up: true,
+            source: Source::Tv,
+            level: "42".into(),
+            fraction: 0.42,
+            muted: false,
+            logo: String::new(),
+            format: String::new(),
+            mark_up: false,
+            mark_place: 0,
+            spots: Vec::new(),
+            over_video: false,
+            avoid_top_right: false,
+            offline: false,
+        }
+    }
+
     /// Something of the display is on screen: the layer that holds it is drawn for it.
     pub fn live(&self) -> bool {
         self.up || self.mark_up

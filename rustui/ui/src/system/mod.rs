@@ -8,6 +8,7 @@ pub mod cards;
 pub mod cards_surface;
 pub mod format;
 pub mod layer;
+pub mod layout_surface;
 pub mod overlay;
 pub mod parts;
 pub mod plugins;

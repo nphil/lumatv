@@ -290,6 +290,11 @@ impl Shell {
             },
             None => (500, json!({"error": "no data directory"})),
         };
+        // the owner's places the editor wrote: every surface reads them from now on, and Settings' rows say them in words
+        if tag == crate::system::layer::LAYOUT_TAG && status == 200 {
+            self.set_places(&data);
+            self.settings.set_theme(data.clone());
+        }
         self.feed(&Input::Fetched { tag, status, data }, now, acts);
     }
 
@@ -420,6 +425,29 @@ impl Shell {
         acts
     }
 
+    /// Opens the overlay layout editor on `item` (a registry id: `volume`, `mute`, `popup`, `cards`, `toast`; the first when it is none) over
+    /// whatever is up, Settings included: the editor is its own screen above it (Settings' row, the compositor's `show`).
+    pub fn open_layout(&mut self, item: Option<&str>, now: u64) -> Vec<Act> {
+        let mut acts = Vec::new();
+        self.start_layout(item);
+        self.after(now, &mut acts);
+        acts
+    }
+
+    /// The editor is started with the sizes of the stand-ins it draws, measured as the real surfaces are at the person's text size.
+    fn start_layout(&mut self, item: Option<&str>) {
+        if !self.kinds.layout {
+            return;
+        }
+        let mut sizes = lumatv_placement::Sizes::new();
+        self.sys.sample_sizes(&mut self.kit, &mut sizes);
+        self.volume_surface.sample_sizes(&mut self.kit, &mut sizes);
+        sizes.set("toast", lumatv_placement::Size::new(560, self.toast_surface.sample_height(&self.kit).ceil() as i32));
+        sizes.set("mute", lumatv_placement::Size::new(64, 64));
+        self.sys.start_layout(item, sizes);
+        self.redraw = true;
+    }
+
     /// An event of the UI channel.
     pub fn channel(&mut self, event: &Event, now: u64) -> Vec<Act> {
         let mut acts = Vec::new();
@@ -454,6 +482,9 @@ impl Shell {
                     self.carry(e, now, &mut acts);
                 }
                 self.redraw = true;
+            }
+            Event::Topic { topic, data } if topic == "show" && data.get("kind").and_then(Value::as_str) == Some("layout") && self.kinds.layout => {
+                self.start_layout(data.get("item").and_then(Value::as_str));
             }
             Event::Topic { topic, data } => {
                 self.feed(&Input::Topic { topic: topic.clone(), data: data.clone() }, now, &mut acts);
@@ -526,7 +557,8 @@ impl Shell {
                 self.cards_took = false;
                 let now_ns = self.kit.ui.scene.now_ns();
                 let sample = Sample { x: *x, y: *y, buttons: *buttons, visible: *visible };
-                if let Some(target) = self.sys.pointer(&self.kit, &mut self.engine, now_ns, sample) {
+                let editor = self.sys.layout_open();
+                if let Some(target) = self.sys.pointer(&self.kit, &mut self.engine, now_ns, now, sample) {
                     for e in self.sys.press(target) {
                         self.carry(e, now, &mut acts);
                     }
@@ -535,7 +567,7 @@ impl Shell {
                         self.carry(e, now, &mut acts);
                     }
                 }
-                if self.kinds.cameras && !(self.kinds.settings && self.settings.is_open()) {
+                if self.kinds.cameras && !(self.kinds.settings && self.settings.is_open()) && !editor {
                     for e in self.cameras.pointer(&mut self.kit, &mut self.engine, now_ns, now, sample) {
                         self.carry(e, now, &mut acts);
                     }
@@ -543,8 +575,10 @@ impl Shell {
                 }
                 self.feed(&Input::Pointer { x: *x, y: *y, buttons: *buttons, visible: *visible }, now, &mut acts);
                 let sample = Sample { x: *x, y: *y, buttons: *buttons, visible: *visible };
-                for e in self.panels.pointer(&self.kinds, &self.kit, &mut self.engine, now_ns, sample, now) {
-                    self.carry(e, now, &mut acts);
+                if !editor {
+                    for e in self.panels.pointer(&self.kinds, &self.kit, &mut self.engine, now_ns, sample, now) {
+                        self.carry(e, now, &mut acts);
+                    }
                 }
                 self.panel_events(now, &mut acts);
             }
@@ -591,6 +625,9 @@ impl Shell {
             self.carry(e, now, acts);
         }
         self.layer_intents(now, acts);
+        for e in self.sys.take_effects() {
+            self.carry(e, now, acts);
+        }
         if self.sys.take_redraw() {
             self.redraw = true;
         }
@@ -880,7 +917,13 @@ impl Shell {
                     body: Some(json!({"tag": crate::settings::src::TAG_END, "uri": "luna://com.webos.applicationManager/launch", "payload": {"id": app, "params": params}, "subscribe": false})),
                     tag: None,
                 })),
-                ShellRequest::Layout { item } => acts.push(Act::Log(format!("settings: the layout editor was asked for ({item:?})"))),
+                ShellRequest::Layout { item } => {
+                    if self.kinds.layout {
+                        self.start_layout(item.as_deref());
+                    } else {
+                        acts.push(Act::Log(format!("settings: the layout editor was asked for ({item:?}) and is not this process's")));
+                    }
+                }
                 ShellRequest::HomeLayout(layout) => {
                     let mut out = Vec::new();
                     self.home.set_layout_from_settings(&layout, &mut out);

@@ -9,6 +9,7 @@
 use super::alert::{Alerts, Target};
 use super::alert_surface::AlertSurface;
 use super::capture::{Capture, CaptureSurface};
+use super::layout_surface::LayoutSurface;
 use super::cards_surface::{CardsSurface, Column};
 use super::overlay::{self, Overlay};
 use super::plugins::Hub;
@@ -23,6 +24,8 @@ use crate::kit::pointer::Sample;
 use crate::kit::screen::{Effect, Input, Model};
 use crate::kit::{Engine, Kit};
 use crate::shell::Kinds;
+use lumatv_placement::editor::{Editor, Key as EditorKey};
+use lumatv_placement::{Effect as PlaceEffect, Frame as PlacementFrame, Registry, Sizes, User};
 use serde_json::{Value, json};
 
 /// Where each kind draws, as offsets from the system band's base (`system_z + kit::z::SYSTEM`): the volume display and the
@@ -37,6 +40,9 @@ pub mod z {
 
 /// The client name the saver votes on tvpower's lists with.
 const SAVER_CLIENT: &str = "org.nphil.lumatv.saver";
+
+/// The tag the layout editor's write of `layout.overlays` comes back with.
+pub const LAYOUT_TAG: u64 = 0x5359_0300;
 
 /// What a card of the layer asks the shell to do, which is not the layer's to do.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -73,6 +79,14 @@ pub struct Layer {
     cards_surface: CardsSurface,
     popup: Popup,
     popup_surface: PopupSurface,
+    /// The overlay layout editor (kind `layout`): the controller of the placement crate while it is open, and what draws it.
+    layout: Option<Editor>,
+    layout_surface: LayoutSurface,
+    /// What the owner placed, and the frame Home gave: the editor starts from them.
+    user: User,
+    frame: PlacementFrame,
+    /// Effects of the editor the shell carries (the write of the owner's places).
+    effects: Vec<Effect>,
     /// What the plugin broker publishes (cards, notes, the saver topic): the saver's slots and notices, and the overlay queue's records.
     hub: Hub,
     /// The helper's `weather` topic as it last was.
@@ -107,6 +121,11 @@ impl Layer {
             cards_surface: CardsSurface::new(base + z::CARDS, theme, layout),
             popup: Popup::new(),
             popup_surface: PopupSurface::new(base + z::POPUP, theme, layout),
+            layout: None,
+            layout_surface: LayoutSurface::new(base + crate::kit::z::EDITOR - crate::kit::z::SYSTEM),
+            user: Registry::shipped().user_from_json(theme.pointer("/layout/overlays").unwrap_or(&Value::Null)),
+            frame: PlacementFrame::from_json(layout, theme.pointer("/overlays/limit")),
+            effects: Vec::new(),
             hub: Hub::new(),
             weather: Value::Null,
             foreground: Foreground::default(),
@@ -141,7 +160,7 @@ impl Layer {
 
     /// The facts the cards and the pop-up wait on, given to both.
     fn sync_context(&mut self, kinds: &Kinds, now: u64) -> Vec<Effect> {
-        let busy = self.busy() || self.host_busy || (kinds.saver && self.saver.up());
+        let busy = self.busy() || self.host_busy || self.layout_open() || (kinds.saver && self.saver.up());
         let mut out = Vec::new();
         if kinds.popup {
             out.extend(self.popup.set_context(busy, self.app_front(), self.viewer_up, now));
@@ -234,6 +253,25 @@ impl Layer {
             out.extend(self.capture.update(input, now));
         }
         let key_like = matches!(input, Input::Key { .. } | Input::Pointer { .. });
+        if kinds.layout && self.layout_open() && !alert_has_keys {
+            match input {
+                Input::Key { name, down: true, .. } => {
+                    if let Some(k) = EditorKey::parse(name)
+                        && let Some(editor) = &mut self.layout
+                    {
+                        let effects = editor.key(k, now);
+                        self.editor_effects(effects);
+                    }
+                    self.redraw = true;
+                }
+                // the Home key leaves it: what was in the hand is put back, what was put down is already written
+                Input::Topic { topic, .. } if topic == "homekey" => {
+                    self.layout = None;
+                    self.redraw = true;
+                }
+                _ => {}
+            }
+        }
         if kinds.saver && !(key_like && alert_has_keys) {
             out.extend(self.saver.update(input, now));
         }
@@ -300,11 +338,86 @@ impl Layer {
         if !*down || *repeat {
             return false;
         }
-        let yes = !(self.alerts.wants() && kinds.alert) && !(kinds.saver && self.saver.wants_keys()) && ((kinds.popup && self.popup.armed(now)) || (kinds.cards && self.overlay.armed()));
+        let yes = !self.layout_open() && !(self.alerts.wants() && kinds.alert) && !(kinds.saver && self.saver.wants_keys()) && ((kinds.popup && self.popup.armed(now)) || (kinds.cards && self.overlay.armed()));
         if yes {
             self.taken.push(name.clone());
         }
         yes
+    }
+
+    /// Whether the layout editor is up: it has every key and the pointer.
+    pub fn layout_open(&self) -> bool {
+        self.layout.is_some()
+    }
+
+    /// What the editor asked for: the owner's places written whole, or to leave.
+    fn editor_effects(&mut self, effects: Vec<PlaceEffect>) {
+        for e in effects {
+            match e {
+                PlaceEffect::Save(map) => {
+                    self.user = Registry::shipped().user_from_json(&map);
+                    self.effects.push(Effect::Theme { tag: LAYOUT_TAG, patch: json!({"layout": {"overlays": map}}) });
+                }
+                PlaceEffect::Close => self.layout = None,
+            }
+        }
+        self.redraw = true;
+    }
+
+    /// The effects the layer's surfaces asked for (the write of the owner's places).
+    pub fn take_effects(&mut self) -> Vec<Effect> {
+        std::mem::take(&mut self.effects)
+    }
+
+    /// What the stand-ins of the pop-up and the cards measure at the kit's text size (the others are the volume bar's, the toast's and the mark's).
+    pub fn sample_sizes(&mut self, kit: &mut Kit, sizes: &mut Sizes) {
+        let view = super::popup::View {
+            up: true,
+            camera: "1".into(),
+            name: "Front door".into(),
+            icon: "bell-ring",
+            what: "Doorbell rang".into(),
+            age: "Just now".into(),
+            face: super::popup::Face::Live,
+            can_expand: true,
+            armed: true,
+        };
+        let (size, _) = self.popup_surface.measure(kit, &view);
+        sizes.set("popup", size);
+        let width = self.overlay.config().width as f32;
+        let mut cfg_entry = super::cards::Config::from_theme(&json!({}));
+        cfg_entry.enabled = true;
+        let note = super::plugins::Note {
+            plugin_id: "kitchen".into(),
+            plugin: "Kitchen Show".into(),
+            id: "p".into(),
+            channel: "timer".into(),
+            channel_title: "Kitchen Show".into(),
+            channel_icon: String::new(),
+            revision: 1,
+            received_at: 0.0,
+            expires_at: 0.0,
+            title: "Pasta".into(),
+            body: "Time\u{2019}s up".into(),
+            actions: vec![json!({"id": "stop", "label": "Stop", "action": "stop"})],
+            kind: "timer".into(),
+            level: String::new(),
+            privacy: String::new(),
+            score: Value::Null,
+            importance: String::new(),
+            channel_kind: String::new(),
+        };
+        if let Some(entry) = super::cards::from_note(&note, &cfg_entry, 0) {
+            sizes.set("cards", lumatv_placement::Size::new(width as i32, CardsSurface::height_of(kit, &entry, width, false).ceil() as i32));
+        }
+    }
+
+    /// Hands the editor the sizes the shell measured and starts it (called by the shell with the whole set).
+    pub fn start_layout(&mut self, item: Option<&str>, sizes: Sizes) {
+        let mut editor = Editor::new(Registry::shipped().clone(), self.user.clone(), self.frame, sizes);
+        editor.start(item);
+        self.layout = Some(editor);
+        self.redraw = true;
     }
 
     /// A press of a surface (a click of the pointer).
@@ -374,6 +487,17 @@ impl Layer {
                 Err(e) => return Err(format!("cards: {e}")),
             }
         }
+        if kinds.layout {
+            if let Some(editor) = &self.layout {
+                let view = editor.view(now_ms);
+                match self.layout_surface.apply(kit, engine, &view, editor, now_ms, now_ns) {
+                    Ok(on) => live |= on,
+                    Err(e) => return Err(format!("layout editor: {e}")),
+                }
+            } else if self.layout_surface.is_open() {
+                self.layout_surface.close(engine);
+            }
+        }
         if kinds.capture {
             match self.capture_surface.apply(kit, &self.capture.view(), over, now_ms) {
                 Ok(on) => live |= on,
@@ -386,10 +510,20 @@ impl Layer {
     /// A key of the remote: the pointer's cue goes.
     pub fn on_key(&mut self, kit: &Kit, engine: &mut Engine) {
         self.alert_surface.on_key(kit, engine);
+        self.layout_surface.on_key(kit, engine);
     }
 
     /// A sample of the pointer: a click is the target to press.
-    pub fn pointer(&mut self, kit: &Kit, engine: &mut Engine, now_ns: u64, sample: Sample) -> Option<Target> {
+    pub fn pointer(&mut self, kit: &Kit, engine: &mut Engine, now_ns: u64, now_ms: u64, sample: Sample) -> Option<Target> {
+        if let Some(editor) = &mut self.layout {
+            // the editor is the whole screen: the pointer is its own, and nothing under it sees it
+            let effects = self.layout_surface.pointer(kit, engine, now_ns, now_ms, sample, editor);
+            if !effects.is_empty() || self.layout_surface.take_dirty() {
+                self.redraw = true;
+            }
+            self.editor_effects(effects);
+            return None;
+        }
         self.alert_surface.pointer(kit, engine, now_ns, sample)
     }
 
@@ -437,13 +571,13 @@ impl Layer {
 
     /// Whether the layer wants every key: an alert, the input popup or a PIN prompt is up, or the saver is (any key wakes it).
     pub fn wants(&self, kinds: &Kinds) -> bool {
-        (kinds.alert && self.alerts.wants()) || (kinds.saver && self.saver.wants_keys())
+        (kinds.alert && self.alerts.wants()) || (kinds.saver && self.saver.wants_keys()) || (kinds.layout && self.layout_open())
     }
 
     /// The keys the layer takes by name while an app has the focus (the cards' OK and Back).
     pub fn takes(&self, kinds: &Kinds) -> Vec<&'static str> {
         let quiet = !(kinds.alert && self.alerts.wants()) && !(kinds.saver && self.saver.wants_keys());
-        if quiet && ((kinds.popup && self.popup.armed_now()) || (kinds.cards && self.overlay.armed())) { vec!["ok", "back"] } else { Vec::new() }
+        if quiet && !self.layout_open() && ((kinds.popup && self.popup.armed_now()) || (kinds.cards && self.overlay.armed())) { vec!["ok", "back"] } else { Vec::new() }
     }
 
     /// Whether the saver is up: what the compositor's OLED care and the helper's rules read (`state.saver`).
@@ -469,6 +603,9 @@ impl Layer {
         if kinds.popup {
             s["popup"] = self.popup.state();
         }
+        if kinds.layout {
+            s["layout"] = json!({"open": self.layout_open()});
+        }
         if kinds.cards {
             s["cards"] = self.overlay.state();
         }
@@ -490,6 +627,9 @@ impl Layer {
         if kinds.popup {
             g["popup"] = self.popup_surface.geometry();
         }
+        if kinds.layout {
+            g["layout"] = self.layout_surface.geometry();
+        }
         if kinds.cards {
             g["cards"] = self.cards_surface.geometry();
         }
@@ -510,6 +650,9 @@ impl Layer {
         if kinds.popup {
             self.popup_surface.feed_lint(kit, lint);
         }
+        if kinds.layout {
+            self.layout_surface.feed_lint(kit, lint);
+        }
         if kinds.cards {
             self.cards_surface.feed_lint(kit, lint);
         }
@@ -522,11 +665,13 @@ impl Layer {
         self.capture_surface.restyle();
         self.popup_surface.restyle();
         self.cards_surface.restyle();
+        self.layout_surface.restyle(engine);
         self.redraw = true;
     }
 
     /// The owner's places changed (`layout.overlays`).
     pub fn set_user(&mut self, user: lumatv_placement::User) {
+        self.user = user.clone();
         self.popup_surface.set_user(user.clone());
         self.cards_surface.set_user(user.clone());
         self.alert_surface.set_user(user);

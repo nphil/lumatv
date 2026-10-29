@@ -187,7 +187,7 @@ def run(r, pictures=None, helper_setup=None):
     hsrv.shutdown()
     out = done.stdout + done.stderr
     evals = [json.loads(m.group(1)) for m in re.finditer(r'^\[eval\] (.*)$', out, re.M)]
-    return {'rc': done.returncode, 'out': out, 'evals': evals, 'chan': chan, 'helper': st, 'lines': lines}
+    return {'rc': done.returncode, 'out': out, 'evals': evals, 'chan': chan, 'helper': st, 'lines': lines, 'data': data}
 
 
 # ----------------------------------------------------------------------------------------------------------------------------------------

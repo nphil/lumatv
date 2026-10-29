@@ -293,7 +293,7 @@ impl CardsSurface {
                     let s = &mut self.slots[k];
                     if (s.frame.x, s.frame.y) != at {
                         let (dx, dy) = (at.0 - s.frame.x, at.1 - s.frame.y);
-                        s.sheet.shift(kit, dx, dy);
+                        s.sheet.shift(kit, dx, dy, false);
                         s.frame.x = at.0;
                         s.frame.y = at.1;
                         for w in &mut s.words {

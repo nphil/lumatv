@@ -37,10 +37,16 @@ impl Part {
     }
 }
 
-#[derive(Default)]
 pub struct Sheet {
     parts: Vec<(Part, Props)>,
     shown: bool,
+    alpha: f32,
+}
+
+impl Default for Sheet {
+    fn default() -> Self {
+        Self { parts: Vec::new(), shown: false, alpha: 1.0 }
+    }
 }
 
 impl Sheet {
@@ -109,7 +115,7 @@ impl Sheet {
     }
 
     /// Moves every part by (`dx`, `dy`): the rests move, and the layers glide there while the sheet is shown (a card that moves up to the first place).
-    pub fn shift(&mut self, kit: &Kit, dx: f32, dy: f32) {
+    pub fn shift(&mut self, kit: &Kit, dx: f32, dy: f32, at_once: bool) {
         for (part, at) in &mut self.parts {
             at.x += dx;
             at.y += dy;
@@ -117,7 +123,21 @@ impl Sheet {
                 p.move_to(at.x, at.y);
             }
             if self.shown {
-                kit.glide(part.layer(), *at, Beat::Card);
+                if at_once {
+                    part.layer().set(Props { opacity: at.opacity * self.alpha, ..*at });
+                } else {
+                    kit.glide(part.layer(), Props { opacity: at.opacity * self.alpha, ..*at }, Beat::Card);
+                }
+            }
+        }
+    }
+
+    /// Draws the whole sheet at `factor` of its opacity (an item that waits is faint).
+    pub fn set_alpha(&mut self, factor: f32) {
+        self.alpha = factor;
+        if self.shown {
+            for (part, at) in &self.parts {
+                part.layer().set(Props { opacity: at.opacity * factor, ..*at });
             }
         }
     }

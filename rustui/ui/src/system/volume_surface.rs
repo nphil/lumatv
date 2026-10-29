@@ -131,6 +131,16 @@ impl VolumeSurface {
         Self { z, logos, registry, user, frame, built: None, mark: None, shown: false, last: None, edge }
     }
 
+    /// The bar's size on each edge as the editor draws its stand-in: along the bottom and, turned, up the sides (`Sizes::set_edge`).
+    pub fn sample_sizes(&self, kit: &mut Kit, sizes: &mut Sizes) {
+        let (w, h, _, _, _) = self.measure(kit, &View::sample());
+        let (w, h) = (w as i32, h as i32);
+        sizes.set("volume", Size::new(w, h));
+        for edge in [Anchor::Left, Anchor::Bottom, Anchor::Right] {
+            sizes.set_edge("volume", edge, if edge == Anchor::Bottom { Size::new(w, h) } else { Size::new(h, w) });
+        }
+    }
+
     /// The owner's places changed (`layout.overlays`): the bar is made again for its edge at the next draw.
     pub fn set_user(&mut self, user: User) {
         self.edge = self.registry.placement_of("volume", &user).map_or(Anchor::Bottom, |p| p.placement.anchor);

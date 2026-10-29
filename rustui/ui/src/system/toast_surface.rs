@@ -52,6 +52,11 @@ impl ToastSurface {
         Self { z, registry, user, frame, slots: Vec::new(), generation: 0, text_scale: 1.0, height: 0.0 }
     }
 
+    /// One card's height, for the editor's stand-in.
+    pub fn sample_height(&self, kit: &Kit) -> f32 {
+        Self::card_height(kit)
+    }
+
     /// The owner's places changed (`layout.overlays`).
     pub fn set_user(&mut self, user: User) {
         self.user = user;
