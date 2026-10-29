@@ -731,7 +731,7 @@ mod tests {
         assert!(matches!(&(dns.act.as_ref().unwrap())(Arg::Toggle(true))[..], [Op::Act { .. }, Op::RefreshIn(_), Op::Act { .. }]), "no question, then a toast");
         assert!(matches!(&(by_id(&r, "resetad").act.as_ref().unwrap())(Arg::Press)[..], [Op::Ask(_)]));
         let promo = by_id(&r, "option.livePromotion");
-        assert!(!promo.enabled && promo.detail == "Allow content recognition first", "it follows Live Plus");
+        assert!(!promo.enabled && promo.detail == "Allow Live Plus first", "it follows Live Plus");
         assert!(matches!(&(by_id(&r, "option.livePlus").act.as_ref().unwrap())(Arg::Toggle(true))[..], [Op::Lg { .. }, Op::Act { .. }]));
         assert!(matches!(&(by_id(&r, "option.livePlus").act.as_ref().unwrap())(Arg::Toggle(false))[..], [Op::Lg { .. }, Op::Act { .. }]));
     }

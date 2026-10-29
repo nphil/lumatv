@@ -38,8 +38,8 @@ ON means what the third column says; the setting underneath is untouched in ever
 | Privacy > LG may collect | Who.Where.What? | Allow Who.Where.What? suggestions | | |
 | Privacy > LG may collect | Marketing messages | Allow marketing messages | | |
 | Privacy > LG may collect | generalTermsAllowed, networkAllowed, firstUseAllowed, allAllowed (the raw key, dimmed) | Accept LG's general terms / network service terms / first-use terms / all of LG's terms | the agreement is accepted | the key was shown as the label; any other unknown consent now shows its key in words ("Allow some new consent") |
-| Privacy > LG may collect (also Support > Privacy) | Live Plus | Allow content recognition (Live Plus) | LG recognises what the TV shows for recommendations and ads | |
-| Privacy > Ads & data (also Support > Privacy) | Live Promotion; detail "Turn Live Plus on" | Allow custom ads while watching (Live Promotion); detail "Allow content recognition first" | LG shows custom ads and services while watching | moved to Ads & data; the detail names the row it waits for |
+| Privacy > LG may collect (also Support > Privacy) | Live Plus | Allow Live Plus (recognises what is on screen) | LG recognises what the TV shows for recommendations and ads | |
+| Privacy > Ads & data (also Support > Privacy) | Live Promotion; detail "Turn Live Plus on" | Allow custom ads while watching (Live Promotion); detail "Allow Live Plus first" | LG shows custom ads and services while watching | moved to Ads & data; the detail names the row it waits for |
 | Privacy > Ads & data (also Support > Privacy) | Do Not Sell My Personal Information | Ask LG not to sell my data | LG's ad service has been told not to sell this TV's data | "Do Not" next to a switch: a double negative when read as "on = do not" |
 | Privacy > Ads & data (also Support > Privacy) | Limit AD Tracking | Limit ad tracking | tracking is limited | case only |
 | Home & look > Home | Home Promotion | Show promotions in LG's Home | LG's own Home menu shows sponsored ads | a bare name; the help said "shows or hides" |
@@ -101,3 +101,6 @@ sits on a switch.
 
 The QML pages got only the removal of the question on the rows above (Support, Language, System, Look, App Permissions); there is no toast
 there. Their wording matches the Rust pages.
+
+Noted for the Rust kind only: the QML Support page keeps "Block LG system updates" as a switch (its allow-question stays); the Rust page has the
+status row.

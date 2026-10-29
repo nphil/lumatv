@@ -447,10 +447,10 @@ probe("home_power_on", FIND % "look" + "var row=R('Power On Screen');var now=p.e
 probe("home_switches", FIND % "look" + "R('Show promotions in LG\\'s Home').act(false);R('Show content recommendations in LG\\'s Home').act(false);return {a:p.ev(R('Show promotions in LG\\'s Home').on),b:p.ev(R('Show content recommendations in LG\\'s Home').on)}", wait=250)
 probe("saver_lg", FIND % "look" + "var row=R('Screen Saver Standby Time');var o=row.options();var now=p.ev(row.value);row.pick(o.map(function(x){return x.value}).indexOf('30'));"
       "R('Show ads on LG\\'s screen saver').act(false);return {now:now,options:o.map(function(x){return x.value+':'+x.label}),value:p.ev(row.value),ad:p.ev(R('Show ads on LG\\'s screen saver').on)}", wait=300)
-probe("live_locked", FIND % "support" + "var a=R('Allow content recognition (Live Plus)'),b=R('Allow custom ads while watching (Live Promotion)');return {on:p.ev(a.on),sub:p.ev(b.enabled)!==false,detail:p.ev(b.detail)}")
-probe("live_on", FIND % "support" + "R('Allow content recognition (Live Plus)').act(true);return {asked:root.confirmOpen,on:p.ev(R('Allow content recognition (Live Plus)').on)}", wait=400)
-probe("live_after", FIND % "support" + "var b=R('Allow custom ads while watching (Live Promotion)');b.act(true);return {on:p.ev(R('Allow content recognition (Live Plus)').on),sub:p.ev(b.enabled)!==false,promo:p.ev(b.on)}", wait=300)
-probe("live_off", FIND % "support" + "R('Allow content recognition (Live Plus)').act(false);return {asked:root.confirmOpen,on:p.ev(R('Allow content recognition (Live Plus)').on)}", wait=300)
+probe("live_locked", FIND % "support" + "var a=R('Allow Live Plus (recognises what is on screen)'),b=R('Allow custom ads while watching (Live Promotion)');return {on:p.ev(a.on),sub:p.ev(b.enabled)!==false,detail:p.ev(b.detail)}")
+probe("live_on", FIND % "support" + "R('Allow Live Plus (recognises what is on screen)').act(true);return {asked:root.confirmOpen,on:p.ev(R('Allow Live Plus (recognises what is on screen)').on)}", wait=400)
+probe("live_after", FIND % "support" + "var b=R('Allow custom ads while watching (Live Promotion)');b.act(true);return {on:p.ev(R('Allow Live Plus (recognises what is on screen)').on),sub:p.ev(b.enabled)!==false,promo:p.ev(b.on)}", wait=300)
+probe("live_off", FIND % "support" + "R('Allow Live Plus (recognises what is on screen)').act(false);return {asked:root.confirmOpen,on:p.ev(R('Allow Live Plus (recognises what is on screen)').on)}", wait=300)
 probe("emergency_row", FIND % "system" + "var r=R('Emergency Information');return {shown:!!r&&p.ev(r.visible)!==false,atsc3:p.atsc3}", wait=300)
 probe("emergency_none", FIND % "system" + "p.atsc3=false;var r=R('Emergency Information');var hidden=p.ev(r.visible)===false;p.atsc3=true;return {hidden:hidden}")
 probe("emergency_page", FIND % "emergency" + "R('Enable the function').act(true);var row=R('Audio Language');var o=row.options();row.pick(o.map(function(x){return x.value}).indexOf('spa'));"
@@ -923,7 +923,7 @@ class Coverage(unittest.TestCase):
             ["Device Name", "Model", "Model Code", "Serial Number", "webOS TV Version", "Total Power On Time", "Available Internal Storage", "MAC Address (Wired)",
              "MAC Address (Wireless)", "ESN", "Widevine", "Dolby Vision"],                                   # VSN is hidden by the TV
             ["Software Version", "Update status", "Install updates automatically", "Block LG system updates", "Open apps without updating", "Check for Updates"],
-            ["Ask LG not to sell my data", "Limit ad tracking", "AD ID", "Reset AD ID", "Allow content recognition (Live Plus)", "Allow custom ads while watching (Live Promotion)", "App Permissions", "Delete My Personal Information"],
+            ["Ask LG not to sell my data", "Limit ad tracking", "AD ID", "Reset AD ID", "Allow Live Plus (recognises what is on screen)", "Allow custom ads while watching (Live Promotion)", "App Permissions", "Delete My Personal Information"],
             ["Screen Self-diagnosis", "Sound Self-diagnosis", "Memory Optimizer"],
             ["Reset All", "Reset All Except Network Settings"]])
 
@@ -1216,7 +1216,7 @@ class Coverage(unittest.TestCase):
         self.assertEqual([c for c in self.probe("saver_lg")["calls"] if c["error"]], [])
 
     def test_live_plus_flips_in_place_and_live_promotion_waits_for_it(self):
-        self.assertEqual(self.probe("live_locked")["res"], {"on": False, "sub": False, "detail": "Allow content recognition first"})
+        self.assertEqual(self.probe("live_locked")["res"], {"on": False, "sub": False, "detail": "Allow Live Plus first"})
         d = self.probe("live_on")["res"]
         self.assertEqual((d["asked"], d["on"]), (False, True))
         self.assertEqual(self.written("live_on"), [{"livePlus": "on"}])

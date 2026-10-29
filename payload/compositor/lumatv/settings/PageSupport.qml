@@ -264,16 +264,16 @@ PageList {
                               function() { luna.act("luna://com.webos.service.admanager", "resetIFA", {}); page.adId = ""; reread.restart() }) }),
 
         // LG keeps these two under System › Additional Settings; they are consent, so they sit with the privacy rows. Live Promotion follows Live Plus.
-        C.lgShown(Sio, "option.livePlus", R.over(R.toggle(Sio, { ds: "option.livePlus", tab: 2, icon: "scan-eye", label: "Allow content recognition (Live Plus)",
+        C.lgShown(Sio, "option.livePlus", R.over(R.toggle(Sio, { ds: "option.livePlus", tab: 2, icon: "scan-eye", label: "Allow Live Plus (recognises what is on screen)",
                                                                  help: "LG recognises what the TV shows and uses it for recommendations and ads." }),
                 { act: function(v) {
                       if (!v) { Sio.write("option.livePlus", "off"); return }
                       Sio.write("option.livePlus", "on")
                   } })),
         C.lgShown(Sio, "option.livePromotion", R.over(R.toggle(Sio, { ds: "option.livePromotion", tab: 2, icon: "star", label: "Allow custom ads while watching (Live Promotion)",
-                                                                      help: "LG's custom ads and services while watching. Needs content recognition." }),
+                                                                      help: "LG's custom ads and services while watching. Needs Live Plus." }),
                 { enabled: function() { return page.livePlusOn && Sio.usable("option.livePromotion") },
-                  detail: function() { return !Sio.has("option.livePromotion") ? "TV not answering" : page.livePlusOn ? "" : "Allow content recognition first" } })),
+                  detail: function() { return !Sio.has("option.livePromotion") ? "TV not answering" : page.livePlusOn ? "" : "Allow Live Plus first" } })),
         R.link({ tab: 2, id: "permissions", icon: "shield-check", label: "App Permissions", help: "Which apps may use the camera, the microphone, nearby devices and files.",
                  go: function() { page.host.openPage("permissions") } }),
         R.link({ tab: 2, id: "deletedata", icon: "eye-off", label: "Delete My Personal Information", help: "Deletes the viewing and voice information LG collected from this TV.",

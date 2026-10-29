@@ -284,11 +284,11 @@ pub fn limit_tracking(c: &Ctx, tab: usize) -> Row {
     c.toggle(Spec::new("general.lmt").tab(tab).icon("eye-off").label("Limit ad tracking").help("Stops the tracking of ad-related data from this TV."))
 }
 
-/// "Allow content recognition (Live Plus)": on is LG recognising what the TV shows.
+/// "Allow Live Plus (recognises what is on screen)": on is LG recognising what the TV shows.
 pub fn live_plus(c: &Ctx, tab: usize) -> Row {
-    let r = c.toggle(Spec::new("option.livePlus").tab(tab).icon("scan-eye").label("Allow content recognition (Live Plus)").help("LG recognises what the TV shows and uses it for recommendations and ads.").lg_shown());
+    let r = c.toggle(Spec::new("option.livePlus").tab(tab).icon("scan-eye").label("Allow Live Plus (recognises what is on screen)").help("LG recognises what the TV shows and uses it for recommendations and ads.").lg_shown());
     r.act(|a| match a {
-        Arg::Toggle(v) => vec![Op::Lg { ds: "option.livePlus".into(), value: json!(if v { "on" } else { "off" }), app: None }, toast(if v { "Content recognition allowed" } else { "Content recognition no longer allowed" })],
+        Arg::Toggle(v) => vec![Op::Lg { ds: "option.livePlus".into(), value: json!(if v { "on" } else { "off" }), app: None }, toast(if v { "Live Plus allowed" } else { "Live Plus no longer allowed" })],
         _ => Vec::new(),
     })
 }
@@ -296,9 +296,9 @@ pub fn live_plus(c: &Ctx, tab: usize) -> Row {
 /// Live Promotion follows Live Plus: it is dimmed until that is on.
 pub fn live_promotion(c: &Ctx, tab: usize) -> Row {
     let plus = c.lg.on("option.livePlus");
-    let mut r = c.toggle(Spec::new("option.livePromotion").tab(tab).icon("star").label("Allow custom ads while watching (Live Promotion)").help("LG's custom ads and services while watching. Needs content recognition.").lg_shown());
+    let mut r = c.toggle(Spec::new("option.livePromotion").tab(tab).icon("star").label("Allow custom ads while watching (Live Promotion)").help("LG's custom ads and services while watching. Needs Live Plus.").lg_shown());
     r.enabled = plus && c.lg.usable("option.livePromotion");
-    r.detail = if !c.lg.has("option.livePromotion") { "TV not answering".into() } else if plus { String::new() } else { "Allow content recognition first".into() };
+    r.detail = if !c.lg.has("option.livePromotion") { "TV not answering".into() } else if plus { String::new() } else { "Allow Live Plus first".into() };
     r.act(|a| match a {
         Arg::Toggle(v) => vec![Op::Lg { ds: "option.livePromotion".into(), value: json!(if v { "on" } else { "off" }), app: None }, toast(if v { "Custom ads while watching allowed" } else { "Custom ads while watching no longer allowed" })],
         _ => Vec::new(),
@@ -623,13 +623,13 @@ mod tests {
         let r = rows(&c);
         let by = |id: &str| r.iter().find(|x| x.id == id).unwrap_or_else(|| panic!("{id}"));
         let plus = by("option.livePlus");
-        assert_eq!((plus.label.as_str(), plus.tab, plus.on), ("Allow content recognition (Live Plus)", 1, false));
+        assert_eq!((plus.label.as_str(), plus.tab, plus.on), ("Allow Live Plus (recognises what is on screen)", 1, false));
         let ops = (plus.act.as_ref().unwrap())(Arg::Toggle(true));
         assert!(matches!(&ops[0], Op::Lg { ds, value, .. } if ds == "option.livePlus" && value == "on"), "ON in the row is LG's on");
-        assert_eq!(toasts(&ops), vec!["Content recognition allowed"]);
-        assert_eq!(toasts(&(plus.act.as_ref().unwrap())(Arg::Toggle(false))), vec!["Content recognition no longer allowed"]);
+        assert_eq!(toasts(&ops), vec!["Live Plus allowed"]);
+        assert_eq!(toasts(&(plus.act.as_ref().unwrap())(Arg::Toggle(false))), vec!["Live Plus no longer allowed"]);
         let promo = by("option.livePromotion");
-        assert_eq!((promo.label.as_str(), promo.tab, promo.enabled, promo.detail.as_str()), ("Allow custom ads while watching (Live Promotion)", 2, false, "Allow content recognition first"));
+        assert_eq!((promo.label.as_str(), promo.tab, promo.enabled, promo.detail.as_str()), ("Allow custom ads while watching (Live Promotion)", 2, false, "Allow Live Plus first"));
         let dns = by("general.doNotSellMyPersonalInformation");
         assert_eq!(dns.label, "Ask LG not to sell my data");
         let ops = (dns.act.as_ref().unwrap())(Arg::Toggle(true));
