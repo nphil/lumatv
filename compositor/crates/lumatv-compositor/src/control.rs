@@ -197,7 +197,8 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             }
         }
         "pointer" => {
-            // pointer X Y: as if the Magic Remote moved there (enter/leave/motion by the scene, cursor shown).
+            // pointer X Y: as if the Magic Remote moved there (enter/leave/motion by the scene, cursor shown whatever shows it).
+            // pointer aim X Y: the remote's pointing as the device reports it: the cursor follows only where it shows (`remote.pointerShow`).
             // pointer [plane|gpu]: where the pointer is drawn, in the frame or by the cursor plane (`pointer`, docs/research/hw-planes-result.md); the
             // report (the switch, whether the plane carries it, its counters) with no word.
             let first = words.next();
@@ -226,14 +227,15 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
                     .to_string(),
                 );
             }
-            let x: Option<i32> = first.and_then(|c| c.parse().ok());
+            let aim = first == Some("aim");
+            let x: Option<i32> = if aim { words.next() } else { first }.and_then(|c| c.parse().ok());
             let y: Option<i32> = words.next().and_then(|c| c.parse().ok());
             match (x, y) {
                 (Some(x), Some(y)) => {
-                    let sent = crate::server::seat::pointer_motion(state, x, y);
+                    let sent = if aim { crate::server::seat::remote_motion(state, x, y) } else { crate::server::seat::pointer_motion(state, x, y) };
                     json!({"ok": true, "delivered": sent, "focus": state.seat.pointer_focus.map(|s| s.0)})
                 }
-                _ => json!({"ok": false, "error": "pointer X Y | pointer [plane|gpu]"}),
+                _ => json!({"ok": false, "error": "pointer [aim] X Y | pointer [plane|gpu]"}),
             }
         }
         // The scan-out pages as the display and the GPU driver have them (`afbc`, docs/research/hw-planes-result.md): their layout, what was asked for and
@@ -288,6 +290,11 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
         "vwin" => {
             let rest: Vec<&str> = words.collect();
             state.vwin_ctl(&rest)
+        }
+        // wheel: a turn of the Magic Remote's wheel, which shows the pointer where `pointer aim` last put it (`remote.pointerShow`).
+        "wheel" => {
+            let sent = crate::server::seat::wheel_turn(state);
+            json!({"ok": true, "delivered": sent, "visible": state.seat.cursor_visible, "pointer": state.pointer_report()})
         }
         "click" => {
             // click [press|release|tap]: OK through the key routing while the cursor shows, i.e. BTN_LEFT.
@@ -463,7 +470,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
         }
         "" => json!({"ok": false, "error": "empty command"}),
         other => {
-            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, screencap [status|shot|record start|record stop], key CODE, remote CODE, pointer X Y, click, sched mali fifo|other, callbacks shell|clients early|landing, mem, wake [reset|probe start|probe stop], ring [N], idle [MS], refresh [60|120], scanout [off|direct|offset on|off], pageprobe [WxH SECONDS|off], pointer [plane|gpu|X Y], afbc [on|off], pagealpha [on|off], vwin [off|idle|apps|claim|move|release], fallback [reason], quit")})
+            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, screencap [status|shot|record start|record stop], key CODE, remote CODE, pointer [aim] X Y, wheel, click, sched mali fifo|other, callbacks shell|clients early|landing, mem, wake [reset|probe start|probe stop], ring [N], idle [MS], refresh [60|120], scanout [off|direct|offset on|off], pageprobe [WxH SECONDS|off], pointer [plane|gpu|X Y], afbc [on|off], pagealpha [on|off], vwin [off|idle|apps|claim|move|release], fallback [reason], quit")})
         }
     };
     Reply::Now(reply.to_string())

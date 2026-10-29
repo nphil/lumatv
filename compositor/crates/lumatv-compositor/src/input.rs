@@ -3,7 +3,8 @@
 //! all and routes each key by the focused window's key mask and access policies, keeping the compositor's own
 //! keys (Home, the hold-Home escape) for itself. The Magic Remote's pointer arrives as absolute axes (the census in
 //! `docs/research/arch/input-devices-01.txt`: `ABS=3` on every `LGE M-RCU`, the only relative axis is the wheel);
-//! a motion shows the cursor, OK clicks while it shows, a navigation key or 10 s of stillness hides it. Reads are
+//! a turn of the wheel shows the cursor (`remote.pointerShow` `wheel`, the default; `movement` is LG's: a motion shows it),
+//! motion moves it while it shows, OK clicks while it shows, a navigation key or 10 s of stillness hides it. Reads are
 //! allocation-free (one fixed buffer per device).
 
 use std::fs::{File, OpenOptions};
@@ -137,15 +138,20 @@ struct InputEvent {
 
 const EV_SYN: u16 = 0;
 const EV_KEY: u16 = 1;
+const EV_REL: u16 = 2;
 const EV_ABS: u16 = 3;
+/// The wheel of the Magic Remote (`REL=100` in the census is bit 8), and the high-resolution report some drivers add to it.
+const REL_WHEEL: u16 = 8;
+const REL_WHEEL_HI_RES: u16 = 11;
 const ABS_X: u16 = 0;
 const ABS_Y: u16 = 1;
 
-/// What a device reports: one key, or the pointer's new position in output pixels (once per `SYN_REPORT`).
+/// What a device reports: one key, the pointer's new position in output pixels (once per `SYN_REPORT`), or a notch of the wheel.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Event {
     Key { code: u32, pressed: bool },
     Motion { x: i32, y: i32 },
+    Wheel,
 }
 
 /// The range of one absolute axis (`EVIOCGABS`), mapped onto the output.
@@ -172,6 +178,8 @@ pub struct Device {
     pub from_network: bool,
     /// Pointer axes, when the device has `ABS_X` and `ABS_Y` (the Magic Remotes); their events are dropped otherwise.
     pub abs: Option<AbsRange>,
+    /// Whether a turn of this device's wheel shows the pointer: a Magic Remote (see [`Device::turns_pointer`]).
+    wheel: bool,
     file: File,
     buf: [InputEvent; 64],
     /// The position the pending `SYN_REPORT` will report, and the last one reported.
@@ -203,6 +211,7 @@ impl Device {
         let monotonic = unsafe { libc::ioctl(file.as_raw_fd(), EVIOCSCLOCKID, &clock) } == 0;
         Ok(Device {
             path: path.to_string(),
+            wheel: Self::turns_pointer(&name, abs.is_some()),
             name,
             from_network,
             abs,
@@ -213,6 +222,13 @@ impl Device {
             monotonic,
             stamp_ns: None,
         })
+    }
+
+    /// A device whose wheel shows the pointer: one with pointer axes that is a remote in the hand (`LGE M-RCU`, `LGE TONE+`, `LGE W-RCU`,
+    /// `LGE Simple Premium`). The virtual devices of the network input service (`Smart Remote RCU Input`, `LGE Network Input`) have a wheel
+    /// and the axes too, and a phone's scroll is not the Magic Remote's wheel.
+    pub fn turns_pointer(name: &str, has_abs: bool) -> bool {
+        has_abs && !name.contains("Smart Remote") && !name.contains("Network Input")
     }
 
     pub fn fd(&self) -> i32 {
@@ -246,6 +262,7 @@ impl Device {
                 }
                 match ev.kind {
                     EV_KEY => f(Event::Key { code: ev.code as u32, pressed: ev.value != 0 }),
+                    EV_REL if self.wheel && matches!(ev.code, REL_WHEEL | REL_WHEEL_HI_RES) && ev.value != 0 => f(Event::Wheel),
                     EV_ABS => {
                         if let Some(abs) = self.abs {
                             let (mut x, mut y) = self.pending.unwrap_or(self.last);
@@ -329,6 +346,8 @@ pub struct Keys {
     pub router: keys::Router,
     /// Settings > Remote's app buttons, re-read when the theme file changes.
     pub app_keys: keys::AppKeyConfig,
+    /// What shows the Magic Remote's pointer (`remote.pointerShow`), read with the app buttons.
+    pub pointer_show: seat::PointerShow,
     theme: ThemeFile,
     /// Codes in LG's own range that the key table has no name for, once each: a button of this remote it lacks.
     pub unnamed: Vec<u32>,
@@ -339,6 +358,8 @@ pub struct Keys {
 struct ThemeFile {
     path: std::path::PathBuf,
     stamp: Option<(std::time::SystemTime, u64)>,
+    /// When the tick last looked at the file ([`Keys::poll_theme`]).
+    polled: Option<Instant>,
 }
 
 impl Keys {
@@ -355,24 +376,40 @@ impl Keys {
             }
             Err(_) => keys::KeyTable::default(),
         };
-        Keys { router: keys::Router::new(table), theme: ThemeFile { path: config.data_dir.join("theme/theme.json"), stamp: None }, ..Keys::default() }
+        Keys {
+            router: keys::Router::new(table),
+            theme: ThemeFile { path: config.data_dir.join("theme/theme.json"), stamp: None, polled: None },
+            ..Keys::default()
+        }
     }
 
-    /// Reads the theme again when the file is not the one last read. A file that is gone is no choice at all (LG's own targets); one
-    /// that cannot be read or parsed now (the theme is written in place, not atomically) leaves what was read and is tried again at
-    /// the next press.
-    pub fn refresh_app_keys(&mut self) {
+    /// Reads the theme again when the file is not the one last read. A file that is gone is no choice at all (LG's own targets, the
+    /// pointer shown by the wheel); one that cannot be read or parsed now (the theme is written in place, not atomically) leaves what was
+    /// read and is tried again at the next press.
+    pub fn refresh_theme(&mut self) {
         let stamp = std::fs::metadata(&self.theme.path).ok().map(|m| (m.modified().unwrap_or(std::time::UNIX_EPOCH), m.len()));
         if stamp == self.theme.stamp {
             return;
         }
         if stamp.is_none() {
             self.app_keys = keys::AppKeyConfig::default();
+            self.pointer_show = seat::PointerShow::default();
             self.theme.stamp = None;
         } else if let Some(theme) = std::fs::read_to_string(&self.theme.path).ok().and_then(|t| serde_json::from_str(&t).ok()) {
             self.app_keys = keys::AppKeyConfig::from_theme(&theme);
+            self.pointer_show = seat::PointerShow::from_theme(&theme);
             self.theme.stamp = stamp;
         }
+    }
+
+    /// [`Keys::refresh_theme`] at most once a second, from the tick: a change of what shows the pointer reaches the next device event
+    /// without a stat per motion.
+    pub fn poll_theme(&mut self, now: Instant) {
+        if self.theme.polled.is_some_and(|t| now.saturating_duration_since(t) < Duration::from_secs(1)) {
+            return;
+        }
+        self.theme.polled = Some(now);
+        self.refresh_theme();
     }
 }
 
@@ -398,7 +435,7 @@ impl State {
         self.note_unnamed_key(code, pressed);
         // The remote's own keys (gear, Input, the app buttons, the holds) are decided before any app sees one.
         if pressed && matches!(self.keys.router.table.classify(code), keys::Logical::App(_)) {
-            self.keys.refresh_app_keys();
+            self.keys.refresh_theme();
         }
         let foreground = self.foreground_app();
         let keyboard_up = self.keyboard_up();
@@ -506,6 +543,7 @@ impl State {
             self.ui_socket_new = true;
         }
         self.motion_tick(now);
+        self.keys.poll_theme(now);
         crate::server::ime::own_tick(self, now);
         if self.keys.router.waiting() {
             let foreground = self.foreground_app();
@@ -650,5 +688,64 @@ mod abs_tests {
         assert_eq!(AbsRange::scale((0, 65535), 32768, 1920), 959);
         assert_eq!(AbsRange::scale((0, 0), 2500, 1920), 1919, "no range: the value is a pixel, clamped");
         assert_eq!(AbsRange::scale((0, 0), -5, 1920), 0);
+    }
+}
+
+#[cfg(test)]
+mod wheel_tests {
+    use super::*;
+
+    /// A file of raw events read as a device (the ioctls fail on it, which a device without absolute axes also answers).
+    fn read(events: &[(u16, u16, i32)], wheel: bool) -> Vec<Event> {
+        let path = std::env::temp_dir().join(format!("lumatv-wheel-{}-{}", std::process::id(), events.len()));
+        let mut bytes = Vec::new();
+        for &(kind, code, value) in events {
+            let ev = InputEvent { kind, code, value, ..InputEvent::default() };
+            // SAFETY: InputEvent is repr(C) plain data; its bytes are what the kernel writes for one event.
+            bytes.extend_from_slice(unsafe { std::slice::from_raw_parts(&ev as *const InputEvent as *const u8, std::mem::size_of::<InputEvent>()) });
+        }
+        std::fs::write(&path, bytes).unwrap();
+        let mut device = Device::open(path.to_str().unwrap()).unwrap();
+        device.wheel = wheel;
+        let mut out = Vec::new();
+        device.drain(|e| out.push(e)).unwrap();
+        let _ = std::fs::remove_file(path);
+        out
+    }
+
+    #[test]
+    fn a_notch_of_the_wheel_is_a_wheel_event_and_no_other_relative_axis_is() {
+        assert_eq!(read(&[(EV_REL, REL_WHEEL, 1), (EV_REL, REL_WHEEL, -1), (EV_SYN, 0, 0)], true), vec![Event::Wheel, Event::Wheel]);
+        assert_eq!(read(&[(EV_REL, REL_WHEEL_HI_RES, 120)], true), vec![Event::Wheel]);
+        assert_eq!(
+            read(&[(EV_REL, 0, 5), (EV_REL, 1, -5), (EV_REL, 6, 1), (EV_REL, REL_WHEEL, 0)], true),
+            vec![],
+            "pointing and a sideways wheel are not a turn"
+        );
+        assert_eq!(
+            read(&[(EV_KEY, 28, 1), (EV_REL, REL_WHEEL, 1), (EV_KEY, 28, 0)], true),
+            vec![Event::Key { code: 28, pressed: true }, Event::Wheel, Event::Key { code: 28, pressed: false }]
+        );
+    }
+
+    #[test]
+    fn only_the_magic_remotes_wheel_shows_the_pointer() {
+        assert_eq!(
+            read(&[(EV_REL, REL_WHEEL, 1), (EV_KEY, 28, 1)], false),
+            vec![Event::Key { code: 28, pressed: true }],
+            "a wheel that is not a remote's is no turn"
+        );
+        for name in ["LGE M-RCU - Builtin [0]", "LGE TONE+ - Builtin [3]", "LGE W-RCU - Builtin [5]", "LGE Simple Premium"] {
+            assert!(Device::turns_pointer(name, true), "{name}");
+        }
+        for (name, abs) in [
+            ("Smart Remote RCU Input", true),
+            ("LGE Network Input", true),
+            ("LGE RCU", false),
+            ("LGE Smart Remote - TouchPad", false),
+            ("ClickableMouse", false),
+        ] {
+            assert!(!Device::turns_pointer(name, abs), "{name}");
+        }
     }
 }

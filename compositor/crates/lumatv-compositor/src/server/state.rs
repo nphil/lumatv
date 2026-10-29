@@ -226,7 +226,8 @@ impl State {
             surfaces: Surfaces::default(),
             scene,
             output,
-            seat: SeatState { seats: 1, ..SeatState::default() },
+            // The first turn of the wheel shows the pointer mid-screen until the remote has said where it points.
+            seat: SeatState { seats: 1, pointer_position: (crate::OUTPUT_WIDTH as i32 / 2, crate::OUTPUT_HEIGHT as i32 / 2), ..SeatState::default() },
             foreign: ForeignState::default(),
             luna,
             luna_state: crate::luna_methods::LunaState::default(),

@@ -71,6 +71,33 @@ impl SeatState {
     }
 }
 
+/// What shows the Magic Remote's pointer (the theme's `remote.pointerShow`, Settings > Remote & pointer > Show pointer).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PointerShow {
+    /// A turn of the wheel shows it; picking the remote up or moving it never does. The default.
+    #[default]
+    Wheel,
+    /// Any motion shows it: LG's behaviour.
+    Movement,
+}
+
+impl PointerShow {
+    /// The theme's choice: `"movement"` is LG's, anything else (absent, `"wheel"`, a word it does not know) the default.
+    pub fn from_theme(theme: &serde_json::Value) -> PointerShow {
+        match theme.pointer("/remote/pointerShow").and_then(serde_json::Value::as_str) {
+            Some("movement") => PointerShow::Movement,
+            _ => PointerShow::Wheel,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            PointerShow::Wheel => "wheel",
+            PointerShow::Movement => "movement",
+        }
+    }
+}
+
 /// Linux `BTN_LEFT`: what the Magic Remote's OK is to a client while the cursor shows.
 pub const BTN_LEFT: u32 = 0x110;
 /// A cursor that has not moved for this long hides (LG's default cursor timeout is in this range).
@@ -323,6 +350,32 @@ pub fn send_key(state: &mut State, seat: SeatId, code: u32, pressed: bool) -> bo
     sent
 }
 
+/// The Magic Remote's pointer axes reported `(x, y)`: [`pointer_motion`] where the pointer shows or where any motion shows it
+/// ([`PointerShow::Movement`]); otherwise only where the remote points is kept, so that a turn of the wheel shows the pointer there.
+/// A hidden pointer is nobody's: no client hears of the motion, and it is no input to the screen's care or to `getLastInputType`.
+pub fn remote_motion(state: &mut State, x: i32, y: i32) -> bool {
+    if state.keys.pointer_show == PointerShow::Movement || state.seat.cursor_visible {
+        return pointer_motion(state, x, y);
+    }
+    state.seat.pointer_position = (x.clamp(0, crate::OUTPUT_WIDTH as i32 - 1), y.clamp(0, crate::OUTPUT_HEIGHT as i32 - 1));
+    false
+}
+
+/// A notch of the Magic Remote's wheel: under [`PointerShow::Wheel`] it shows the pointer where the remote points, and while the pointer
+/// shows it keeps it up. A wheel press is OK, a key, and never gets here. Returns whether a client heard the pointer appear.
+pub fn wheel_turn(state: &mut State) -> bool {
+    if state.seat.cursor_visible {
+        state.seat.cursor_shown_at = Some(std::time::Instant::now());
+        state.scene.input(crate::output::monotonic_ns());
+        return false;
+    }
+    if state.keys.pointer_show == PointerShow::Wheel {
+        let (x, y) = state.seat.pointer_position;
+        return pointer_motion(state, x, y);
+    }
+    false
+}
+
 /// The pointer moved to `(x, y)` in output pixels: the cursor shows, the surface under it is entered (the
 /// previous one left) and gets the motion in its own coordinates. Returns whether a client got it.
 pub fn pointer_motion(state: &mut State, x: i32, y: i32) -> bool {
@@ -452,6 +505,7 @@ impl State {
             "mode": self.config.pointer.name(),
             "carried": self.pointer_carried,
             "visible": self.seat.cursor_visible,
+            "show": self.keys.pointer_show.name(),
             "at": [self.seat.pointer_position.0, self.seat.pointer_position.1],
             "motions": self.seat.motions,
             "plane": self.output.pointer_report(),
