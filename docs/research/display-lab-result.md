@@ -9,7 +9,7 @@ has run on the panel.
 
 Done (2026-10-29, host only): the lab's screens (`rustui/ui/src/lab/`), the helper's door with its hard list
 (`helper/app/src/displaylab/`), the compositor's `displaylab` kind and the wheel turn as the key `wheel`
-(`compositor/.../shell_rust.rs`, `server/seat.rs`), the wheel press as key 1199 (`3ff3b31`), the Settings row (Picture, Expert tab),
+(`compositor/.../shell_rust.rs`, `server/seat.rs`), the Settings row (Picture, Expert tab),
 host renders (`docs/mocks/host-rust/displaylab/`) and the tests below.
 
 After Round 19's run on the TV (2026-10-29 18:09-18:14, `slot-2026-10-29-r19/displaylab/`): the dimming steps are gone (VSP is the firmware's, §
@@ -19,13 +19,10 @@ run itself: Strong 92 switches and Normal better, Soft preferred in one step, th
 Next, in order:
 
 1. Main installs (Face ID); the kind is already on (`ctl shell rust +displaylab`).
-2. The TV check (§ 5), Round19 at the set: Medium and Medium / Strong are new; the window's frame against the real hole.
-3. From what the TV shows: decide the gain to keep; set `Card::Window`'s zone (`lab/plan.rs`) to where the hole really is, and whether the
-   second window setting (`on_b`) is worth keeping.
-   The hole's units are measured now (`layer-deep-result.md` § 8.4, Round19W, five runs with Nitin's photos): `x` counts the 1920-wide UI space,
-   `y`, `w` and `h` count panel pixels, and select value 3 (`on_b`) opens hole 0 while value 1 (`on_a`) opens none. The lab's registers
-   (`0x10B403C0`, `0x0032A21C`) opened a quarter-size window at the right edge, not the centred one its frame marks; the centred 960x540 panel
-   window (the frame at UI 720, 405, 480x270) is `HoleX 0x105A03C0` with `HoleY 0x0032A21C`, select value 3, so `on_a` is not worth keeping.
+2. The TV check (§ 5), Round19 at the set: Medium and Medium / Strong are new; the window over a playing video (needs `ctl pagealpha on`, § 6).
+3. From what the TV shows: decide the gain to keep. The window is settled (§ 6): the hole's units were measured by Round19W (`layer-deep-result.md`
+   § 8.4, five runs with Nitin's photos), the lab's first values opened a quarter-size window at the right edge, and the centred one is
+   `HoleX 0x105A03C0`, `HoleY 0x0032A21C`, select `0x3` (select `0x1` opens nothing, so there is one window setting).
 4. Follow-ups, not built: taking `dimming` and the VSP target off the helper's list (the unit tests use them as their register example), and
    an out-of-process guard that restores when the helper itself is killed (§ 4, last row).
 
@@ -40,8 +37,7 @@ Opened from Settings > Picture > Expert > **Display lab**, or `ctl shell show di
 | 3 Sharpness 3 of 5 | Medium / Strong, against each other | Small letters | Crisp, without jagged edges? | Which looks better? |
 | 4 Sharpness 4 of 5 | Normal / Soft (gain `0x00`) | Thin lines: 1-px lines and a checkerboard | Lines turn fainter and blurrier. | Which looks better? |
 | 5 Sharpness 5 of 5 | Normal / Sharpener off | Letters and colours: bars, ramps, text in colour | Plainer letters, colours may shift. | Which looks better? |
-| 6 Window 1 of 2 | Window off / Window on (mixer hole, select 1) | The window: a grey rectangle in the middle | The picture behind shows through. | Does the window show the picture cleanly? |
-| 7 Window 2 of 2 | Window off / Window on (select 3) | the same | the same | the same; left out when step 6 was answered Yes |
+| 6 Window | Window off / Window on (a mixer hole: 960x540 panel pixels in the middle, `0x105A03C0` / `0x0032A21C` / select `0x3`, measured in round 19W) | The window: a grey rectangle in the middle, framed | The picture behind shows through. | Does the window show the picture cleanly? |
 
 On every step: a frame round the zone with a tag (an eye, then two or three words) and, where there is room, a large arrow from the
 sheet to it. The sheet beside it: the group and counter, the one line on the difference, the option on the screen as a big letter and its
@@ -78,7 +74,7 @@ lists the `dimming` control (its tests are built on it as the register example);
 
 ## 2. How it is built
 
-- **The screens** (`rustui/ui/src/lab/`, no QML): `plan.rs` the steps (five of sharpness, two of the window), `card.rs` the test cards (painted once into a full-screen
+- **The screens** (`rustui/ui/src/lab/`, no QML): `plan.rs` the steps (five of sharpness, one of the window), `card.rs` the test cards (painted once into a full-screen
   image, theme-independent), `model.rs` the state (one request to the helper at a time, a ping every second while open, the exits),
   `surface.rs` the sheet and the frame, `host.rs` the part the shell feeds. Layer band `kit::z::LAB` (400): over Settings, which stays
   behind it for the way back, under the layout editor and the system layer.
@@ -86,10 +82,9 @@ lists the `dimming` control (its tests are built on it as the register example);
   A/B switches (the keys and the wheel switch too), then the line on the difference, then the key glyphs. The big letter follows the text
   size up to 125 %. The window step's sheet stays right of the window (592 wide at most): the hole would cut a sheet that reached into it.
 - **The helper's door** (`helper/app/src/displaylab/`): `GET /v1/displaylab`, `POST begin|set|ping|end|results`. The UI sends a control
-  and an option (`sharpness: normal|strong|soft|off`, `dimming: normal|dimmed|grey`, `window: off|on_a|on_b`), never an address or a
+  and an option (`sharpness: normal|medium|strong|soft|off`, `window: off|on`), never an address or a
   value.
-- **The compositor** (`shell_rust.rs`): the kind `displaylab`; the wheel press is key 1199 and is OK; the pointer's keep-alive 1198 is
-  no key; a turn of the wheel is sent to the client as the key `wheel` only while the lab is open and has said it takes it.
+- **The compositor** (`shell_rust.rs`): the kind `displaylab`; a turn of the wheel is sent to the client as the key `wheel` only while the lab is open and has said it takes it.
 
 ## 3. Tests
 
@@ -101,7 +96,7 @@ lists the `dimming` control (its tests are built on it as the register example);
   every exit restores, the dead-man fires on silence, restore at start, a restore that fails is retried and blocks new sessions),
   `tests/displaylab.rs` (the door: only the shell, no browser, the list), `tests/ai.rs` (the AI-access listener has no route to it and no
   tool for it).
-- Compositor: the wheel press is key 1199, the keep-alive is no key, the wheel turn reaches only a client that took it.
+- Compositor: the wheel turn reaches only a client that took it and only while its layer has the keys.
 - Host, against the real engine on Mesa: `tests/test_rust_displaylab.py` (what the keys send the helper, what is kept, lint clean);
   `tests/render_rust_displaylab.py` makes the pictures.
 
@@ -111,7 +106,7 @@ The lab writes the display chip's registers, so what it may write is one short l
 
 | Rule | How |
 |---|---|
-| A hard list | `allow.rs`: six targets, no others: `/proc/lg/fbdev/chip/osd_sr_gain` (`0x00`, `0x40`, `0x80`), `/proc/lg/fbdev/chip/osd_sr` (0, 1), `0xCC480360` (`0x01000001`, `0x02000003`), `0xCC4802C8` (`0x10B403C0`), `0xCC4802CC` (`0x0032A21C`), `0xCC48029C` (`0x1`, `0x3`). Besides these only the target's **original**, read from the target itself, is ever written |
+| A hard list | `allow.rs`: six targets, no others: `/proc/lg/fbdev/chip/osd_sr_gain` (`0x00`, `0x40`, `0x80`), `/proc/lg/fbdev/chip/osd_sr` (0, 1), `0xCC480360` (`0x01000001`, `0x02000003`), `0xCC4802C8` (`0x105A03C0`), `0xCC4802CC` (`0x0032A21C`), `0xCC48029C` (`0x3`). Besides these only the target's **original**, read from the target itself, is ever written |
 | No address or value from a client | a request names a control and an option; `plan` turns it into writes; `hw.rs` checks every write against the list again at the bottom |
 | Original first | the value read before the first write is the one restored; one that is not plausible (a lab value left by a crash, a register that holds nothing of this block) makes its control unusable instead of being guessed |
 | Journal before write | the originals and the values about to be written are on disk before the first byte; it is removed only when every touched target reads its original again |
@@ -138,10 +133,9 @@ Install needs Nitin's Face ID. `tools/displaylab-tv.sh` (copied to the set, read
 1. `ctl shell rust +displaylab`; `ctl shell` lists `displaylab` in the kinds and in `can`.
 2. With the lab closed: `displaylab-tv.sh baseline` (expected on the set of 2026-10-29: gain `0x10`, sharpener on, the VSP `0x02000001` or
    `0x0` as the boot left it, holes `0`), then `displaylab-tv.sh door`: `available true`, the three controls `usable` (`why` says what is not).
-3. Open it (Settings > Picture > Expert > Display lab, and `ctl shell show displaylab`). Press OK with the wheel exactly once: **one**
-   step happens (the wheel press arrives as 1199 and may also arrive as another key on a device that also sends KEY_ENTER; if a step is
-   skipped on one press, that is it). Turn the wheel: A and B switch. Move the remote without pressing: nothing happens (1198 is ignored).
-4. Step through all seven with a video playing behind (the window step); on Medium and Medium / Strong say whether Medium is crisp without the jagged edges close up. Watch for: whether the frame on the card is where the hole
+3. Open it (Settings > Picture > Expert > Display lab, and `ctl shell show displaylab`). Press OK (the wheel press) once: **one**
+   step happens. Turn the wheel: A and B switch. Move the remote without pressing: nothing happens.
+4. Step through all six with a video playing behind (the window step, with `ctl pagealpha on`: under XR24 pages no video shows anywhere); on Medium and Medium / Strong say whether Medium is crisp without the jagged edges close up. Watch for: whether the frame on the card is where the hole
    opens, whether the hole shows the picture cleanly, and what each sharpness and dimming look is (Nitin's answers).
 5. Every way out, with a look that changes a register on the screen (step 4, 5 or 6 at B), then `displaylab-tv.sh check LABEL`: Back; the
    Home key; another app in front; kill the UI client (`kill -9 lumatv-ui`, with `watch` running: back within about six seconds);
@@ -152,12 +146,15 @@ Install needs Nitin's Face ID. `tools/displaylab-tv.sh` (copied to the set, read
 
 - The lab starts no video. With Home in front the window step says so and a playing video shows the window best; open the lab over a
   video for the real test. Whether Home's own moving wallpaper counts is not known to the lab.
-- The window's frame is where the hole is expected (the middle, 480 by 270). The hole's units come from HwTest's notes and are not
-  confirmed on the panel; the first window setting may be the wrong one, which is why there are two.
+- The window: the frame on the card (UI 720, 405, 480 by 270) is where the hole opens now that the units are measured (round 19W: `x` in the
+  UI's 1920 units, `y`, `w` and `h` in panel pixels, `0xCC48029C` at `0x3`; the first values opened a quarter-size window at the right edge).
+  It shows the video only with `ctl pagealpha on` (AR24 pages, persisted since round 19W): under XR24 pages the video is hidden everywhere,
+  hole or not. The lab cannot turn that on and does not know it; the TV check does (§ 5).
 - At 200 % text the window step's sheet (592 wide) shows no switches and no line on the difference.
 - A turn of the wheel is one switch however many notches arrive in one read (the compositor merges a spun wheel into one event), and
   the turn has no direction: with two looks that is no loss.
-- Wheel press 1199 is mapped to OK at the top of the key path; the TV check confirms exactly one OK per press.
+- The lab was first built on the reading that the wheel press is key 1199 (`3ff3b31`); round 19 showed 1199 is the remote's cursor-off, and `f7b4610`
+  made it no key. The press is OK as it always was; the TV check confirms exactly one OK per press.
 
 ## 7. Design review
 

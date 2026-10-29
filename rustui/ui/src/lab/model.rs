@@ -10,7 +10,7 @@
 //! out (Back, Home, the screen going off, another app coming up, the end of the run). A word that does not come (the shell died, the link
 //! broke) is the helper's to answer: it puts everything back after six seconds of silence.
 
-use super::plan::{Answer, Ask, STEPS, StepDef, step_index};
+use super::plan::{Answer, Ask, STEPS, StepDef};
 use crate::kit::screen::{Effect, Input};
 use crate::panels::life::{Change, ENTER_MS, EXIT_MS, Life, Phase};
 use serde_json::{Value, json};
@@ -425,10 +425,7 @@ impl Lab {
     }
 
     fn next_step(&self, after: usize) -> Option<usize> {
-        (after + 1..STEPS.len()).find(|i| match STEPS[*i].skip_after.and_then(step_index) {
-            Some(j) => self.answers[j] != Some(Answer::Yes),
-            None => true,
-        })
+        (after + 1 < STEPS.len()).then_some(after + 1)
     }
 
     fn first_step(&self) -> usize {
@@ -487,7 +484,7 @@ impl Lab {
 
     /// Writes the run to the data directory, and sends it to the helper when the run is over.
     fn keep(&mut self, now: u64, send: bool) -> Vec<Effect> {
-        let doc = self.doc(now, self.answers.iter().enumerate().all(|(i, a)| a.is_some() || self.skipped(i)));
+        let doc = self.doc(now, self.answers.iter().all(Option::is_some));
         let mut out = vec![Effect::Write { path: RESULTS_FILE.into(), text: doc.to_string() }];
         self.kept.file = true;
         if send {
@@ -495,11 +492,6 @@ impl Lab {
             out.push(Effect::Request { tag: TAG_RESULTS, method: "POST".into(), path: "/v1/displaylab/results".into(), body: Some(doc) });
         }
         out
-    }
-
-    /// A step that is not answered because an earlier answer made it not needed.
-    fn skipped(&self, i: usize) -> bool {
-        STEPS[i].skip_after.and_then(step_index).is_some_and(|j| self.answers[j] == Some(Answer::Yes))
     }
 
     // ---- what comes in
@@ -896,6 +888,7 @@ impl Lab {
 
 #[cfg(test)]
 mod tests {
+    use super::super::plan::step_index;
     use super::*;
 
     fn key(name: &str) -> Input {
@@ -1163,36 +1156,27 @@ mod tests {
             "sharpness is put back, then the window's A"
         );
         let Some(View { body: Body::Step(s), .. }) = lab.view() else { panic!() };
-        assert_eq!((s.id, s.question, s.counter.as_str()), ("window-a", "Does the window show the picture cleanly?", "1 of 2"));
+        assert_eq!((s.id, s.question, s.counter.as_str()), ("window", "Does the window show the picture cleanly?", ""));
         assert_eq!(s.replies, vec![Reply::Yes, Reply::No, Reply::Same, Reply::Skip]);
-        // No on the first setting asks for the second; Yes on that one ends the run
+        // No on the one window step ends the run
         lab.update(&key("down"), now);
         lab.update(&key("ok"), now);
         assert_eq!(lab.answers()[5], Some(Answer::No));
-        assert_eq!(lab.step().map(|s| s.id), Some("window-b"));
-        lab.update(&key("ok"), now);
-        assert_eq!(lab.answers()[6], Some(Answer::Yes));
         assert_eq!(lab.stage(), Stage::Results);
     }
 
     #[test]
-    fn the_second_window_setting_is_left_out_when_the_first_worked_and_asked_when_it_did_not() {
-        for (first, second_asked) in [(Reply::Yes, false), (Reply::No, true), (Reply::Same, true), (Reply::Skip, true)] {
+    fn every_answer_to_the_window_step_ends_the_run() {
+        for first in [Reply::Yes, Reply::No, Reply::Same, Reply::Skip] {
             let (mut lab, now) = begun();
-            lab.update(&fetched(TAG_SET, 200, session(true)), now);
             let fx = lab.update(&key("ok"), now);
             settle(&mut lab, &fx, now);
-            // straight to the window step
-            lab.at = step_index("window-a").unwrap();
+            // straight to the window step, the last
+            lab.at = step_index("window").unwrap();
             let i = replies(STEPS[lab.at].ask).iter().position(|r| *r == first).unwrap();
-            let before = lab.at;
             lab.click(Target::Answer(i), now);
-            assert_eq!(lab.step().map(|s| s.id), if second_asked { Some("window-b") } else { None }, "{first:?}");
-            if second_asked {
-                assert_eq!(lab.at, before + 1);
-            } else {
-                assert_eq!(lab.stage(), Stage::Results, "the last step that is asked ends the run");
-            }
+            assert_eq!(lab.stage(), Stage::Results, "{first:?}: the last step ends the run");
+            assert_eq!(lab.step().map(|s| s.id), None);
         }
     }
 
@@ -1216,7 +1200,7 @@ mod tests {
         let paths: Vec<String> = requests(&last).iter().map(|r| r.1.clone()).collect();
         assert!(paths.contains(&"/v1/displaylab/end".to_owned()) && paths.contains(&"/v1/displaylab/results".to_owned()), "{paths:?}");
         let sent = requests(&last).into_iter().find(|r| r.0 == TAG_RESULTS).unwrap();
-        assert_eq!(sent.2["steps"].as_array().unwrap().len(), STEPS.len(), "a skipped first window setting does not make the second one needless");
+        assert_eq!(sent.2["steps"].as_array().unwrap().len(), STEPS.len(), "a run that skipped steps has a row for every one of them");
         assert_eq!(*lab.link(), Link::Ended);
         let Some(View { body: Body::Results(r), .. }) = lab.view() else { panic!("results") };
         assert_eq!(r.rows.len(), STEPS.len());
@@ -1473,7 +1457,7 @@ mod tests {
         lab.open(1000);
         let doc = json!({"ok": true, "displaylab": {"session": {"held": true, "usable": {"sharpness": true, "window": false}, "why": {"window": "hole_sel reads 0x3, which is not the set's own state"}}}});
         lab.update(&fetched(TAG_BEGIN, 200, doc), 1010);
-        lab.at = step_index("window-a").unwrap();
+        lab.at = step_index("window").unwrap();
         lab.stage = Stage::Step;
         assert_eq!(lab.note_for(&STEPS[lab.at]).as_deref(), Some("The TV cannot do this one: hole_sel reads 0x3, which is not the set's own state"));
         // a control that can be used has nothing to say
@@ -1483,7 +1467,7 @@ mod tests {
     #[test]
     fn the_window_says_so_when_only_home_is_behind_it() {
         let (lab, _) = begun();
-        assert_eq!(lab.note_for(&STEPS[step_index("window-a").unwrap()]).as_deref(), Some("Home is behind this. A playing video shows the window best."));
+        assert_eq!(lab.note_for(&STEPS[step_index("window").unwrap()]).as_deref(), Some("Home is behind this. A playing video shows the window best."));
         assert_eq!(lab.note_for(&STEPS[0]), None);
     }
 

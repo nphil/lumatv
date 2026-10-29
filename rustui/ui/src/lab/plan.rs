@@ -75,14 +75,12 @@ pub struct StepDef {
     /// What the difference looks like.
     pub hint: &'static str,
     pub ask: Ask,
-    /// Left out when this earlier step was answered yes (the first setting of the window worked: the second is not needed).
-    pub skip_after: Option<&'static str>,
 }
 
 const NORMAL: Opt = Opt { id: "normal", name: "Normal" };
 const WINDOW_OFF: Opt = Opt { id: "off", name: "Window off" };
 
-pub const STEPS: [StepDef; 7] = [
+pub const STEPS: [StepDef; 6] = [
     StepDef {
         id: "sharpness-strong",
         group: "Sharpness",
@@ -95,7 +93,6 @@ pub const STEPS: [StepDef; 7] = [
         look: "Small letters",
         hint: "Sharper edges, or bright halos.",
         ask: Ask::Compare,
-        skip_after: None,
     },
     StepDef {
         id: "sharpness-medium",
@@ -109,7 +106,6 @@ pub const STEPS: [StepDef; 7] = [
         look: "Small letters",
         hint: "Crisper edges. Jagged up close?",
         ask: Ask::Compare,
-        skip_after: None,
     },
     StepDef {
         id: "sharpness-medium-strong",
@@ -123,7 +119,6 @@ pub const STEPS: [StepDef; 7] = [
         look: "Small letters",
         hint: "Crisp, without jagged edges?",
         ask: Ask::Compare,
-        skip_after: None,
     },
     StepDef {
         id: "sharpness-soft",
@@ -137,7 +132,6 @@ pub const STEPS: [StepDef; 7] = [
         look: "Thin lines",
         hint: "Lines turn fainter and blurrier.",
         ask: Ask::Compare,
-        skip_after: None,
     },
     StepDef {
         id: "sharpness-off",
@@ -151,35 +145,19 @@ pub const STEPS: [StepDef; 7] = [
         look: "Letters and colours",
         hint: "Plainer letters, colours may shift.",
         ask: Ask::Compare,
-        skip_after: None,
     },
     StepDef {
-        id: "window-a",
+        id: "window",
         group: "Window",
         nth: 1,
-        of: 2,
+        of: 1,
         control: "window",
         a: WINDOW_OFF,
-        b: Opt { id: "on_a", name: "Window on" },
+        b: Opt { id: "on", name: "Window on" },
         card: Card::Window,
         look: "The window",
         hint: "The picture behind shows through.",
         ask: Ask::Question("Does the window show the picture cleanly?"),
-        skip_after: None,
-    },
-    StepDef {
-        id: "window-b",
-        group: "Window",
-        nth: 2,
-        of: 2,
-        control: "window",
-        a: WINDOW_OFF,
-        b: Opt { id: "on_b", name: "Window on 2" },
-        card: Card::Window,
-        look: "The window",
-        hint: "The picture behind shows through.",
-        ask: Ask::Question("Does the window show the picture cleanly?"),
-        skip_after: Some("window-a"),
     },
 ];
 
@@ -230,9 +208,9 @@ impl Answer {
 }
 
 impl StepDef {
-    /// The step's place in the panel's counter: "1 of 3".
+    /// The step's place in the panel's counter: "1 of 3"; a group of one steps has nothing to count.
     pub fn counter(&self) -> String {
-        format!("{} of {}", self.nth, self.of)
+        if self.of <= 1 { String::new() } else { format!("{} of {}", self.nth, self.of) }
     }
 
     /// What an answer to this step says, as the results screen reads it.
@@ -262,7 +240,7 @@ mod tests {
     #[test]
     fn the_steps_are_the_assignments_in_its_order_and_each_is_whole() {
         let ids: Vec<&str> = STEPS.iter().map(|s| s.id).collect();
-        assert_eq!(ids, ["sharpness-strong", "sharpness-medium", "sharpness-medium-strong", "sharpness-soft", "sharpness-off", "window-a", "window-b"]);
+        assert_eq!(ids, ["sharpness-strong", "sharpness-medium", "sharpness-medium-strong", "sharpness-soft", "sharpness-off", "window"]);
         let mut unique = ids.clone();
         unique.sort();
         unique.dedup();
@@ -282,11 +260,10 @@ mod tests {
         // the sharpness steps are comparisons, the window asks whether a look is acceptable
         assert!(STEPS[..5].iter().all(|s| s.ask == Ask::Compare && s.group == "Sharpness"));
         assert!(STEPS[5..].iter().all(|s| matches!(s.ask, Ask::Question(_)) && s.group == "Window"));
+        // one window step: a group of one is not counted
+        assert_eq!(STEPS[5].counter(), "");
         // OSD0's dimming is the firmware's (it puts its own value back at once, and grey showed nothing on LumaTV's plane): no step offers it
         assert!(STEPS.iter().all(|s| s.control != "dimming"));
-        // the second window setting is left out when the first one worked, and nothing else is
-        assert_eq!(STEPS.iter().filter_map(|s| s.skip_after).collect::<Vec<_>>(), ["window-a"]);
-        assert!(step_index("window-a").unwrap() < step_index("window-b").unwrap());
         assert_eq!(step_index("nothing"), None);
     }
 
@@ -297,7 +274,7 @@ mod tests {
         // Normal, Medium and Strong can all be set against each other: each against Normal, and the two of them together
         assert_eq!((by("sharpness-medium").a.id, by("sharpness-medium").b.id), ("normal", "medium"));
         assert_eq!((by("sharpness-medium-strong").a.id, by("sharpness-medium-strong").b.id), ("medium", "strong"));
-        assert_eq!(by("window-a").ask, Ask::Question("Does the window show the picture cleanly?"));
+        assert_eq!(by("window").ask, Ask::Question("Does the window show the picture cleanly?"));
         assert!(by("sharpness-strong").hint.contains("Sharper edges") && by("sharpness-strong").hint.contains("halos"));
     }
 

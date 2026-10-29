@@ -14,6 +14,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..'))
@@ -24,7 +25,9 @@ import lgsettings  # noqa: E402
 OUT = os.path.join(ROOT, 'docs', 'mocks', 'host-rust', 'displaylab')
 WIDTH = 1280
 QUALITY = 80
-OPEN_AT = 900
+# the client must be up (connected and polling) before the lab is shown: a `show` that comes before is read as the state of a session long past.
+# A loaded host (many builds at once) took more than a second to get there, so the keys wait longer than the Settings renders' do.
+OPEN_AT = 2500
 KEY_GAP = 500
 SETTLE = 1300
 
@@ -104,10 +107,10 @@ SCENES = [
     Scene('sharpness-off-b', to_step(4) + ['right']),
     # the firmware takes the Strong look back at once: two identical pictures are not offered for a pick
     Scene('sharpness-not-applied', to_step(0) + ['right'], firmware_owned),
-    Scene('window-a', to_step(5)),
-    Scene('window-a-b', to_step(5) + ['right']),
+    Scene('window', to_step(5)),
+    Scene('window-on', to_step(5) + ['right']),
     Scene('window-nothing-behind', to_step(5), app='com.webos.app.home'),
-    # Yes on the first window setting leaves the second out: the results come next
+    # the window is the last step: any answer to it ends the run
     Scene('results', to_step(5) + ['ok']),
 ]
 BY_NAME = {s.name: s for s in SCENES}
@@ -118,8 +121,8 @@ EXTRA = {
     'sharpness-strong': [('dark', 2.0), ('light', 1.0)],
     'sharpness-medium-b': [('dark', 2.0)],
     'sharpness-not-applied': [('dark', 2.0), ('light', 1.0)],
-    'window-a': [('dark', 2.0), ('light', 1.0)],
-    'window-a-b': [('dark', 2.0)],
+    'window': [('dark', 2.0), ('light', 1.0)],
+    'window-on': [('dark', 2.0)],
     'results': [('dark', 2.0), ('light', 1.0)],
 }
 
@@ -131,10 +134,18 @@ def jpeg(png, path):
     im.save(path, 'JPEG', quality=QUALITY, optimize=True, progressive=True)
 
 
+def wait_up(chan, seconds=30.0):
+    """Until the client has made its first report and is polling the channel's events."""
+    end = time.time() + seconds
+    while time.time() < end and not (chan.reports and chan.polls):
+        time.sleep(0.05)
+
+
 def play(scene, mode='dark', scale=1.0, wait=None, shot=None, evals=('lint', 'state', 'geometry')):
     """Runs the scene; returns (rc, output, helper, evals by name, the png's path or None). The helper keeps every request it was sent."""
     shot = shot or os.path.join(tempfile.mkdtemp(prefix='dlrender-'), scene.name + '.png')
-    t = OPEN_AT + KEY_GAP * (len(scene.keys) + 1) + SETTLE
+    # a loaded host takes longer over a long run of keys: the picture waits a little more for each
+    t = OPEN_AT + KEY_GAP * (len(scene.keys) + 1) + SETTLE + 100 * len(scene.keys)
     extra = []
     for i, k in enumerate(scene.keys):
         extra += ['--key', '%d:%s' % (OPEN_AT + 300 + KEY_GAP * (i + 1), k)]
@@ -142,6 +153,7 @@ def play(scene, mode='dark', scale=1.0, wait=None, shot=None, evals=('lint', 'st
         extra += ['--eval', '%d:%s' % (t - 200, e)]
     extra += ['--snap', '%d:%s' % (t, shot)]
     steps = [(OPEN_AT - 300, lambda c: c.push('foreground', {'app': scene.app, 'home': scene.app == 'com.webos.app.home'})),
+             (OPEN_AT - 100, lambda c: wait_up(c)),
              (OPEN_AT, lambda c: c.push('show', {'kind': 'displaylab'}))]
     helper = host.FakeHelper(scene.helper_routes())
     rc, text, chan, lg, helper = host.run(steps=steps, wait=wait or t + 800, extra=extra, lg=lgsettings.LgService(answers={}), helper=helper,

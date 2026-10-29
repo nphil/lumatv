@@ -38,7 +38,10 @@ class DisplayLab(unittest.TestCase):
     def test_a_step_starts_on_the_sets_own_state_and_the_switch_and_the_answer_each_send_one_look(self):
         # Start; Right to B; OK on "This one is better": B is the answer, and the next step starts on A again
         helper, got = self.play(rd.Scene('flow', ['ok', 'right', 'ok']))
-        self.assertEqual(sets(helper), [('sharpness', 'normal'), ('sharpness', 'strong'), ('sharpness', 'normal')])
+        # the exact order is the model's (its unit tests): on a loaded host a switch queued behind a slow answer is replaced by the newer one
+        looks = sets(helper)
+        self.assertEqual((looks[0], looks[-1]), (('sharpness', 'normal'), ('sharpness', 'normal')), 'A first, and the next step starts on A again')
+        self.assertLessEqual(set(looks), {('sharpness', 'normal'), ('sharpness', 'strong')})
         lab = self.lab(got)
         self.assertEqual((lab['step'], lab['shown'], lab['answers']), ('sharpness-medium', 0, {'sharpness-strong': 'b'}))
         self.assertEqual(len(posts(helper, 'begin')), 1)
@@ -46,11 +49,13 @@ class DisplayLab(unittest.TestCase):
 
     def test_the_wheel_press_is_ok_and_left_and_right_switch_between_the_two_looks(self):
         helper, got = self.play(rd.Scene('switch', ['ok', 'right', 'left', 'right']))
-        self.assertEqual(sets(helper), [('sharpness', 'normal'), ('sharpness', 'strong'), ('sharpness', 'normal'), ('sharpness', 'strong')])
-        self.assertEqual(self.lab(got)['answers'], {}, 'switching never answers')
+        looks = sets(helper)
+        self.assertEqual(looks[0], ('sharpness', 'normal'))
+        self.assertLessEqual(set(looks), {('sharpness', 'normal'), ('sharpness', 'strong')})
+        self.assertEqual((self.lab(got)['shown'], self.lab(got)['answers']), (1, {}), 'B after right, left, right; switching never answers')
 
     def test_a_whole_run_is_kept_and_sent_to_the_helper_with_what_each_answer_was_and_whether_both_looks_were_seen(self):
-        # B on the first step, then past the rest; Yes on the first window setting leaves the second out
+        # B on the first step, then past the rest; Yes on the window, the last step
         helper, got = self.play(rd.Scene('run', ['ok', 'right', 'ok'] + rd.PAST[1] + rd.PAST[2] + rd.PAST[3] + rd.PAST[4] + ['ok']))
         lab = self.lab(got)
         self.assertEqual((lab['open'], lab['stage']), (True, 'results'))
@@ -58,7 +63,7 @@ class DisplayLab(unittest.TestCase):
         self.assertEqual(len(sent), 1)
         run = sent[0]
         self.assertTrue(run['complete'])
-        self.assertEqual([s['id'] for s in run['steps']], ['sharpness-strong', 'sharpness-medium', 'sharpness-medium-strong', 'sharpness-soft', 'sharpness-off', 'window-a'])
+        self.assertEqual([s['id'] for s in run['steps']], ['sharpness-strong', 'sharpness-medium', 'sharpness-medium-strong', 'sharpness-soft', 'sharpness-off', 'window'])
         first = run['steps'][0]
         self.assertEqual((first['answer'], first['verdict'], first['sawBoth'], first['switches']), ('b', 'Strong looks better', True, 1))
         self.assertEqual([s['answer'] for s in run['steps'][1:]], ['skipped'] * 4 + ['yes'])
@@ -99,7 +104,7 @@ class DisplayLab(unittest.TestCase):
         self.assertIsNone(self.lab(got)['note'])
 
     def test_every_step_reads_clean_in_both_looks_at_both_text_sizes(self):
-        names = ['intro', 'sharpness-strong', 'sharpness-medium-b', 'sharpness-not-applied', 'window-a-b', 'results']
+        names = ['intro', 'sharpness-strong', 'sharpness-medium-b', 'sharpness-not-applied', 'window-on', 'results']
         jobs = [(rd.BY_NAME[n], mode, scale) for n in names for mode, scale in (('dark', 1.0), ('light', 2.0))]
         with concurrent.futures.ThreadPoolExecutor(2) as pool:
             for (scene, mode, scale), (rc, text, findings, png) in zip(jobs, pool.map(lambda j: rd.render(*j), jobs)):

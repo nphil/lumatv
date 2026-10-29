@@ -958,8 +958,7 @@ pub mod tests {
             ("sharpness", "off"),
             ("dimming", "dimmed"),
             ("dimming", "grey"),
-            ("window", "on_a"),
-            ("window", "on_b"),
+            ("window", "on"),
             ("window", "off"),
         ] {
             let v = r.lab.set(c, o).unwrap_or_else(|e| panic!("{c} {o}: {e:?}"));
@@ -1000,7 +999,7 @@ pub mod tests {
             ("0xCC480360", "1"),
             ("sharpness", "strong; reboot"),
             ("window", "on_c"),
-            ("Window", "on_a"),
+            ("Window", "on"),
             ("osd_sr_gain", "255"),
         ] {
             let e = r.lab.set(c, o).unwrap_err();
@@ -1017,8 +1016,8 @@ pub mod tests {
         r.lab.begin().unwrap();
         r.lab.set("sharpness", "strong").unwrap();
         r.lab.set("dimming", "grey").unwrap();
-        r.lab.set("window", "on_a").unwrap();
-        assert_eq!(r.regs.get(Target::HoleSel), 1);
+        r.lab.set("window", "on").unwrap();
+        assert_eq!(r.regs.get(Target::HoleSel), 3);
         // not yet: the lease is six seconds from the last word
         r.advance(DEADMAN_MS - 1);
         r.lab.tick();
@@ -1075,7 +1074,7 @@ pub mod tests {
         let r = Rig::new();
         r.lab.begin().unwrap();
         r.lab.set("sharpness", "soft").unwrap();
-        r.lab.set("window", "on_b").unwrap();
+        r.lab.set("window", "on").unwrap();
         r.lab.shutdown();
         assert!(at_rest(&r));
         assert!(!r.lab.open() && !r.journal_exists());
@@ -1088,7 +1087,7 @@ pub mod tests {
         r.lab.begin().unwrap();
         r.lab.set("sharpness", "strong").unwrap();
         r.lab.set("dimming", "grey").unwrap();
-        r.lab.set("window", "on_a").unwrap();
+        r.lab.set("window", "on").unwrap();
         assert!(!at_rest(&r));
         // the process is gone: its journal is on disk, its registers are as it left them
         let next = r.restarted();
@@ -1195,9 +1194,9 @@ pub mod tests {
     fn a_write_that_fails_puts_back_what_was_written() {
         let r = Rig::new();
         r.lab.begin().unwrap();
-        r.lab.set("window", "on_a").unwrap();
+        r.lab.set("window", "on").unwrap();
         r.regs.fail_writes(Target::HoleY);
-        let e = r.lab.set("window", "on_b").unwrap_err();
+        let e = r.lab.set("window", "off").unwrap_err();
         assert_eq!(e.code(), "hardware", "{e:?}");
         r.regs.fail_writes_off();
         // the restore could not write HoleY either while it failed: it is pending, and the next try puts it back
@@ -1284,7 +1283,7 @@ pub mod tests {
             "{v}"
         );
         assert_eq!(
-            r.lab.set("window", "on_a").unwrap_err().code(),
+            r.lab.set("window", "on").unwrap_err().code(),
             "not_original"
         );
         assert_eq!(
@@ -1349,7 +1348,7 @@ pub mod tests {
         let r = Rig::new();
         r.lab.begin().unwrap();
         r.lab.set("sharpness", "strong").unwrap();
-        let v = r.lab.set("window", "on_a").unwrap();
+        let v = r.lab.set("window", "on").unwrap();
         assert_eq!(
             v["session"]["heldBy"],
             json!({"sharpness": true, "window": true})
@@ -1367,7 +1366,7 @@ pub mod tests {
         let r = Rig::new();
         r.lab.begin().unwrap();
         assert_eq!(
-            r.lab.set("window", "on_a").unwrap()["session"]["heldBy"],
+            r.lab.set("window", "on").unwrap()["session"]["heldBy"],
             json!({"window": true})
         );
     }
@@ -1378,7 +1377,7 @@ pub mod tests {
         let v = r.lab.status();
         assert_eq!(v["available"], true);
         assert_eq!(v["session"], Value::Null);
-        assert_eq!(v["controls"]["window"], json!(["off", "on_a", "on_b"]));
+        assert_eq!(v["controls"]["window"], json!(["off", "on"]));
         assert_eq!(v["deadmanMs"], DEADMAN_MS);
         assert_eq!(r.regs.reads(), 0);
     }

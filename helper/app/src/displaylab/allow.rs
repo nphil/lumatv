@@ -86,12 +86,13 @@ pub fn fixed_values(t: Target) -> &'static [u32] {
         Target::Sharpener => &[0, 1],
         // half contrast (`r_contrast` 0x100 of the neutral 0x200), and graycolor on with the contrast neutral
         Target::Vsp => &[0x0100_0001, 0x0200_0003],
-        // x 1440, width 960, enabled (the mixer's 3840 units: the middle of the panel)
-        Target::HoleX => &[0x10B4_03C0],
+        // x 720 in the UI's 1920 units, width 960 panel pixels, enabled: a window in the middle of the panel (measured on the set, round 19W,
+        // `layer-deep-result.md` § 8.4; the session's first guess, x 1440, opened it at the right edge)
+        Target::HoleX => &[0x105A_03C0],
         // y 810, height 540, alpha 0
         Target::HoleY => &[0x0032_A21C],
-        // OSD0's input takes hole 0: `osd0_en` with the select field at 0, and with it at 1 (the encoding is the open question of the session)
-        Target::HoleSel => &[0x1, 0x3],
+        // OSD0's input takes hole 0 with `osd0_en` and the select field at 1; with the field at 0 (`0x1`) nothing opens (measured, § 8.4)
+        Target::HoleSel => &[0x3],
     }
 }
 
@@ -243,17 +244,9 @@ const WINDOW: &[Opt] = &[
         ],
     },
     Opt {
-        id: "on_a",
+        id: "on",
         writes: &[
-            (Target::HoleX, Val::Fixed(0x10B4_03C0)),
-            (Target::HoleY, Val::Fixed(0x0032_A21C)),
-            (Target::HoleSel, Val::Fixed(0x1)),
-        ],
-    },
-    Opt {
-        id: "on_b",
-        writes: &[
-            (Target::HoleX, Val::Fixed(0x10B4_03C0)),
+            (Target::HoleX, Val::Fixed(0x105A_03C0)),
             (Target::HoleY, Val::Fixed(0x0032_A21C)),
             (Target::HoleSel, Val::Fixed(0x3)),
         ],
@@ -312,12 +305,12 @@ mod tests {
         );
         assert_eq!(
             (fixed_values(Target::HoleX), fixed_values(Target::HoleY)),
-            (&[0x10B4_03C0][..], &[0x0032_A21C][..])
+            (&[0x105A_03C0][..], &[0x0032_A21C][..])
         );
         assert_eq!(
             fixed_values(Target::HoleSel),
-            &[0x1, 0x3],
-            "select 0, then select 1"
+            &[0x3],
+            "hole 0: the select field at 0 opened nothing on the set"
         );
         // every register lies in the one page the real access maps, and no target has two ways to be reached
         for t in Target::ALL {
@@ -329,12 +322,13 @@ mod tests {
                 assert!(t.knob().is_some());
             }
         }
-        // the hole's fields decode to the rectangle the session meant: 960x540 at (1440, 810), alpha 0
+        // the hole's fields decode to the centred window: width 960 and height 540 in panel pixels, x 720 of the UI's 1920 (the panel's 1440) and y 810
+        // of the panel's 2160, alpha 0
         let wx = fixed_values(Target::HoleX)[0];
         let hy = fixed_values(Target::HoleY)[0];
         assert_eq!(
             (wx & 0x1FFF, (wx >> 13) & 0x1FFF, (wx >> 28) & 1),
-            (960, 1440, 1)
+            (960, 720, 1)
         );
         assert_eq!((hy & 0xFFF, (hy >> 12) & 0xFFF, hy >> 24), (540, 810, 0));
         // the VSP values: half the neutral contrast 0x200 with the unit on, then neutral with the grey bit
@@ -412,7 +406,7 @@ mod tests {
             ["normal", "medium", "strong", "soft", "off"]
         );
         assert_eq!(ids(Control::Dimming), ["normal", "dimmed", "grey"]);
-        assert_eq!(ids(Control::Window), ["off", "on_a", "on_b"]);
+        assert_eq!(ids(Control::Window), ["off", "on"]);
         assert_eq!(Control::from_id("sharpness"), Some(Control::Sharpness));
         for bad in [
             "",
@@ -459,9 +453,9 @@ mod tests {
             Some(vec![(Target::Vsp, 0x0200_0003)])
         );
         assert_eq!(
-            plan(Control::Window, "on_b", originals),
+            plan(Control::Window, "on", originals),
             Some(vec![
-                (Target::HoleX, 0x10B4_03C0),
+                (Target::HoleX, 0x105A_03C0),
                 (Target::HoleY, 0x0032_A21C),
                 (Target::HoleSel, 0x3)
             ])
@@ -535,7 +529,7 @@ mod tests {
         // a value that is on another target's list is not on this one's
         assert!(!allowed(Target::Vsp, 0x80));
         assert!(!allowed(Target::Gain, 0x0200_0003));
-        assert!(!allowed(Target::HoleSel, 0x10B4_03C0));
+        assert!(!allowed(Target::HoleSel, 0x105A_03C0));
         assert!(!allowed(Target::HoleX, 0x0032_A21C));
         // nor a whole range: every hole value but the listed ones and zero is refused, and so is any VSP with bits outside its fields
         for v in [
@@ -544,11 +538,15 @@ mod tests {
             0x7,
             0xFF,
             0x1000_0000,
-            0x10B4_03C1,
-            0x10B4_0000,
+            0x105A_03C1,
+            0x105A_0000,
+            0x10B4_03C0,
             0xFFFF_FFFF,
         ] {
-            assert!(!allowed(Target::HoleX, v), "{v:#x}");
+            assert!(
+                !allowed(Target::HoleX, v),
+                "{v:#x} (0x10B403C0 opened the window at the right edge and is no longer on the list)"
+            );
         }
         for v in [0x0400_0001u32, 0x0200_0007, 0x8000_0001, 0xFFFF_FFFF] {
             assert!(!allowed(Target::Vsp, v), "{v:#x}");
