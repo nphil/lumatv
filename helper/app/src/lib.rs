@@ -77,6 +77,7 @@ pub mod receiver_telnet;
 pub mod receiver_volume;
 pub mod refreshguard;
 pub mod screen;
+pub mod saver;
 pub mod scrypted;
 pub mod service;
 pub mod settings;

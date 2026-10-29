@@ -27,6 +27,7 @@ esphome-api.workspace = true
 mdns.workspace = true
 lumatv-ambient.workspace = true
 lumatv-placement.workspace = true
+lumatv-saver.workspace = true
 lumatv-denon.workspace = true
 lumatv-feeds.workspace = true
 lumatv-privacy.workspace = true

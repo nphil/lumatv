@@ -1,0 +1,12 @@
+[package]
+name = "lumatv-saver"
+description = "What the screensaver's slots take, with no toolkit in it: the complication contract (a small glyph, label and value a plugin or a tool contributes, with a priority and an expiry), its validation, the board that holds them, and the rules that turn a plugin's cards into complications"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+license = "MIT"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

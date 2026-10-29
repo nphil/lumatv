@@ -36,6 +36,7 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 
 lumatv-ambient = { path = "../ambient" }
 lumatv-placement = { path = "../placement" }
+lumatv-saver = { path = "../saver" }
 lumatv-denon = { path = "denon" }
 lumatv-feeds = { path = "feeds" }
 lumatv-privacy = { path = "privacy" }
