@@ -59,7 +59,8 @@
 # 20 ms that is the compositor's (a late flip, the loop slow to take a flip up or waiting, callbacks that came late) or that nothing explains fails;
 # one that is the client's own wake-up after callbacks on time is reported with its count and does not. The length, the fps, the pacer's `late` and
 # the compositor's log (its loop passes and flip intervals; the client's frame gaps are late commits and are reported) are as in the strict rule.
-# A run kwait could not read (no trace, no client in it, no client log) is judged by the strict rule.
+# Raw swaps and RAW STRICT remain in every result, also saved as x1-strict-result.txt. Missing, truncated, lost or mismatched trace evidence is
+# INCONCLUSIVE and cannot pass attribution. Only explicitly requested --x1-strict may pass without a trace.
 STATE=${LUMATV_STATE:-/var/lib/lumatv/compositor}
 D=${LUMATV_D:-/tmp/lumatv}
 LIB=$D/lib
@@ -330,6 +331,24 @@ x1_rule() {
     return 0
 }
 
+# Raw strict evidence is never replaced by attribution. A missing/incomplete capture is inconclusive, not a smooth-run pass.
+# RESULT SECS LATE_BEFORE LATE_AFTER COMPOSITOR_OVER ATTRIBUTION COMPOSITOR_OWN COVERAGE STRICT
+x1_decision() {
+    d_res=$1; d_secs=$2; d_before=$3; d_after=$4; d_comp=$5; d_att=$6; d_own=$7; d_cover=$8; d_strict=${9:-}
+    d_raw=$(x1_rule "$d_res" "$d_secs" "$d_before" "$d_after" "$d_comp")
+    if [ -n "$d_strict" ]; then
+        echo "$d_raw | RAW RESULT: $d_res"
+        case "$d_raw" in PASS*) return 0 ;; *) return 1 ;; esac
+    fi
+    if [ "$d_cover" != COMPLETE ] || [ -z "$d_att" ]; then
+        echo "INCONCLUSIVE attribution: missing or incomplete trace ($d_cover) | RAW STRICT: $d_raw | RAW RESULT: $d_res"
+        return 2
+    fi
+    d_judged=$(x1_rule "$d_res" "$d_secs" "$d_before" "$d_after" "$d_comp" "$d_att" "$d_own")
+    echo "$d_judged | RAW STRICT: $d_raw | RAW RESULT: $d_res"
+    case "$d_judged" in PASS*) return 0 ;; *) return 1 ;; esac
+}
+
 # ime_rule METHODS UP CONTEXT TYPED CLOSED BOTTOM: "PASS what held" or "FAIL why" (returns 0 or 1). METHODS is how many input methods were
 # bound, UP, CONTEXT, CLOSED and BOTTOM are yes or no, TYPED is how many commits, preedits and keysyms came out at the field.
 ime_rule() {
@@ -396,9 +415,12 @@ x1)
     wakeline=$(ctl wake | jstr line); waitsline=$(waits_line)
     kwsum=""
     if [ -n "$kw" ]; then
-        sh /tmp/perf/capture.sh stop x1 >> $OUT/x1-capture.txt 2>&1
-        python3 /tmp/perf/kwait.py /tmp/perf/x1.trace --x1 $OUT/x1.log --json $OUT/x1-kwait.json > $OUT/x1-kwait.txt 2>&1
-        kwsum=$(tail -n 1 $OUT/x1-kwait.txt)
+        if sh /tmp/perf/capture.sh stop x1 >> $OUT/x1-capture.txt 2>&1 &&
+            python3 /tmp/perf/kwait.py /tmp/perf/x1.trace --x1 $OUT/x1.log --json $OUT/x1-kwait.json > $OUT/x1-kwait.txt 2>&1; then
+            kwsum=$(tail -n 1 $OUT/x1-kwait.txt)
+        else
+            kw=""; kwsum="x1 attribution INCONCLUSIVE: capture or analysis failed"
+        fi
         gzip -c /tmp/perf/x1.trace > $OUT/x1.trace.gz 2>/dev/null; rm -f /tmp/perf/x1.trace
     fi
     # `late` alone: `lost` is the pacer's own measure, which leaves a frame's render time out.
@@ -413,17 +435,18 @@ x1)
     stalls=$(grep -c 'loop: [0-9.]* ms in one pass' $OUT/x1-compositor.txt); gaps=$(grep -c 'frame gap' $OUT/x1-compositor.txt); churn=$(grep -c 'client connected' $OUT/x1-compositor.txt)
     # What counts against the rule is what the log says over the limit while the client was alive (not the second after).
     comp_over=$(comp_over_limit $STATE/compositor.log "${t0:-0}" "${t1:-0}")
-    # The client's own gaps are not the compositor's: a traced run (tv_gate.py's default for x1) tells from kwait.py's `x1 gaps:` line whose each is, and
-    # only the compositor's fail; the PLAN's strict rule (every gap, `--x1-strict`: LUMATV_X1_STRICT, untraced) and any run kwait could not read stay as
-    # they were.
-    attrib=""; own=""
-    if [ -z "${LUMATV_X1_STRICT:-}" ] && [ -n "$kw" ]; then
+    # Keep the original strict verdict and raw swaps even when a complete trace attributes gaps to the client.
+    raw_strict=$(x1_rule "$res" "$secs" "$late_before" "$late_after" "$comp_over")
+    echo "$raw_strict" > $OUT/x1-strict-result.txt
+    attrib=""; own=""; coverage="missing capture"
+    if [ -n "$kw" ]; then
+        coverage=$(sed -n 's/^x1 attribution: //p' $OUT/x1-kwait.txt 2>/dev/null | head -n 1)
         attrib=$(sed -n 's/^x1 gaps: .*compositor-attributable \([0-9]*\) .*client-only \([0-9]*\), unexplained \([0-9]*\)$/\1 \2 \3/p' $OUT/x1-kwait.txt 2>/dev/null | head -n 1)
         [ -z "$attrib" ] || own=$(comp_over_limit $STATE/compositor.log "${t0:-0}" "${t1:-0}" own)
     fi
-    detail="$res | pacer before: $before after: $after | compositor: loop stalls $stalls, frame gaps $gaps, clients connected $churn, over ${GAP_LIMIT_MS} ms $comp_over${attrib:+ (the loop's and the flips' own: $own)}; $sched${LUMATV_X1_RT:+; the client SCHED_FIFO $LUMATV_X1_RT}$cbnote${LUMATV_X1_STRICT:+; the strict rule} | wake-up latency: ${wakeline:-not read} | waits: $waitsline${kwsum:+ | $kwsum}"
+    detail="RAW STRICT: $raw_strict | RAW RESULT: $res | attribution coverage: $coverage | pacer before: $before after: $after | compositor: loop stalls $stalls, frame gaps $gaps, clients connected $churn, over ${GAP_LIMIT_MS} ms $comp_over${attrib:+ (the loop's and the flips' own: $own)}; $sched${LUMATV_X1_RT:+; the client SCHED_FIFO $LUMATV_X1_RT}$cbnote${LUMATV_X1_STRICT:+; the strict rule} | wake-up latency: ${wakeline:-not read} | waits: $waitsline${kwsum:+ | $kwsum}"
     echo "$detail" > $OUT/x1-result.txt
-    verdict=$(x1_rule "$res" "$secs" "$late_before" "$late_after" "$comp_over" "$attrib" "$own")
+    verdict=$(x1_decision "$res" "$secs" "$late_before" "$late_after" "$comp_over" "$attrib" "$own" "$coverage" "${LUMATV_X1_STRICT:-}")
     case "$verdict" in PASS*) pass x1 "${verdict#PASS }" ;; *) fail x1 "${verdict#FAIL } | $detail" ;; esac
     ;;
 netflix)

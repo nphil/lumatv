@@ -788,6 +788,34 @@ class FrameRule(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertNotIn("reported", out)
 
+    def decision(self, result=GOOD, attr="0 0 0", coverage="COMPLETE", strict="", comp=0):
+        return self.sh("x1_decision '%s' 60 1 1 %s '%s' 0 '%s' '%s'" % (result, comp, attr, coverage, strict))
+
+    def test_attribution_never_hides_a_raw_strict_failure(self):
+        rc, out = self.decision(self.ONE_GAP, attr="0 1 0")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("RAW STRICT: FAIL 1 gap(s) over 20 ms", out)
+        self.assertIn("RAW RESULT: " + self.ONE_GAP, out)
+        self.assertIn("client-only", out)
+
+    def test_missing_or_incomplete_capture_is_inconclusive_even_when_raw_strict_passes(self):
+        for coverage, attr in [("", "0 0 0"), ("missing capture", ""), ("INCONCLUSIVE; lost events", "0 0 0"), ("COMPLETE", "")]:
+            with self.subTest(coverage=coverage, attr=attr):
+                rc, out = self.decision(coverage=coverage, attr=attr)
+                self.assertEqual(rc, 2, out)
+                self.assertTrue(out.startswith("INCONCLUSIVE attribution:"), out)
+                self.assertIn("RAW STRICT: PASS", out)
+        rc, out = self.decision(self.ONE_GAP, attr="0 1 0", coverage="INCONCLUSIVE; overwritten events")
+        self.assertEqual(rc, 2)
+        self.assertIn("RAW STRICT: FAIL", out)
+
+    def test_explicit_strict_mode_remains_strict_without_a_trace(self):
+        rc, out = self.decision(coverage="missing capture", strict="1")
+        self.assertEqual(rc, 0, out)
+        rc, out = self.decision(self.ONE_GAP, attr="0 1 0", coverage="missing capture", strict="1")
+        self.assertEqual(rc, 1, out)
+        self.assertTrue(out.startswith("FAIL 1 gap(s) over 20 ms"), out)
+
 
 class GateFirmwareCheck(FakeSet):
     """tv-gate.sh firmware: the check run on the set's own files, against a scratch list."""

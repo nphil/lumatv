@@ -474,6 +474,88 @@ class ClientReaction(unittest.TestCase):
         self.assertEqual(len(kwait.x1_lines([(21.1, 26, 10.5), (20.5, 90, 11.5)], c, 20.0)), 1, "unequal counts are not paired")
 
 
+class X1Coverage(unittest.TestCase):
+    RESULT = "[x1] RESULT frames=60 in 1.00 s = 60.00 fps; gaps: <=17.5 ms 60, 17.5-20 0, 20-33.5 0, >33.5 0; worst 16.8 ms"
+
+    def check(self, lines=None, log=None):
+        if lines is None:
+            lines = ClientReaction().run_of()
+        lines = trace(marker(9.9, "start x1 100.0"), marker(9.9, f"loop {LOOP}"), lines, marker(11.1, "stop x1 101.1"))
+        if log is None:
+            log = self.RESULT
+        with tempfile.TemporaryDirectory() as d:
+            tp, lp = os.path.join(d, "x1.trace"), os.path.join(d, "x1.log")
+            with open(tp, "w") as f:
+                f.write("\n".join(lines) + "\n")
+            with open(lp, "w") as f:
+                f.write(log + "\n")
+            events, _ = kwait.parse(tp)
+            client = kwait.reactions(events, LOOP)
+            return kwait.coverage(tp, events, client, lp, kwait.x1_gaps(lp))
+
+    def test_a_whole_capture_and_matching_raw_record_are_complete(self):
+        c = self.check()
+        self.assertTrue(c["complete"], c)
+        self.assertEqual(c["raw"], {"frames": 60, "seconds": 1.0, "gaps": 0, "worst_ms": 16.8})
+
+    def test_missing_result_and_missing_raw_gap_lines_are_inconclusive(self):
+        c = self.check(log="[x1] gap 21.1 ms before swap 26 returned at monotonic 10.512")
+        self.assertFalse(c["complete"])
+        self.assertIn("raw client RESULT missing", c["reasons"])
+        c = self.check(log=self.RESULT.replace("20-33.5 0", "20-33.5 1"))
+        self.assertFalse(c["complete"])
+        self.assertIn("raw gap lines disagree with the RESULT histogram", c["reasons"])
+
+    def test_a_truncated_client_span_and_missing_jobs_are_inconclusive(self):
+        c = self.check(lines=ClientReaction().run_of(frames_=35))
+        self.assertFalse(c["complete"], c)
+        self.assertTrue(any("frames but raw RESULT" in r for r in c["reasons"]), c)
+        self.assertTrue(any("s but raw RESULT" in r for r in c["reasons"]), c)
+        c = self.check(lines=ClientReaction().run_of(job_tgid=LOOP))
+        self.assertIn("client GPU jobs not identified", c["reasons"])
+
+    def test_unmatched_inferred_gaps_are_not_assumed_to_be_client_only(self):
+        c = self.check(lines=ClientReaction().run_of(slow={30: 5.0}))
+        self.assertFalse(c["complete"])
+        self.assertIn("trace implies 1 gaps but raw log counted 0", c["reasons"])
+
+    def test_an_inferred_gap_and_its_raw_gap_must_also_match_in_size(self):
+        raw = self.RESULT.replace("20-33.5 0", "20-33.5 1") + "\n[x1] gap 30.0 ms before swap 26 returned at monotonic 10.512"
+        c = self.check(lines=ClientReaction().run_of(slow={30: 5.0}), log=raw)
+        self.assertFalse(c["complete"])
+        self.assertIn("raw and inferred gap sizes differ by more than 1 ms", c["reasons"])
+        c = self.check(lines=ClientReaction().run_of(slow={30: 5.0}), log=raw.replace("30.0 ms before", "21.1 ms before"))
+        self.assertTrue(c["complete"], c)
+
+    def test_the_inferred_gap_count_is_not_truncated_to_the_twenty_diagnostic_rows(self):
+        cr = ClientReaction()
+        c = cr.read(cr.run_of(frames_=180, slow={k: 5.0 for k in range(8, 170, 3)}))
+        self.assertGreater(len(c["implied"]), 20)
+        self.assertEqual(len(c["slow"]), 20, "only the human-readable slow-reaction list is capped")
+
+    def test_trace_loss_or_missing_capture_markers_are_inconclusive(self):
+        for header in ("# entries-in-buffer/entries-written: 20/50", "CPU:2 [LOST 3 EVENTS]"):
+            lines = ClientReaction().run_of()
+            # Loss metadata is checked separately from parsed events.
+            with tempfile.TemporaryDirectory() as d:
+                tp, lp = os.path.join(d, "x1.trace"), os.path.join(d, "x1.log")
+                with open(tp, "w") as f:
+                    f.write(header + "\n" + "\n".join(lines))
+                with open(lp, "w") as f:
+                    f.write(self.RESULT)
+                events, _ = kwait.parse(tp)
+                c = kwait.coverage(tp, events, kwait.reactions(events, LOOP), lp, [])
+                self.assertFalse(c["complete"], c)
+                self.assertIn("capture start/stop markers missing", c["reasons"])
+                self.assertTrue(any("events" in r for r in c["reasons"]), c)
+
+    def test_missing_loop_scheduler_events_are_inconclusive_even_with_no_raw_gaps(self):
+        lines = [line for line in ClientReaction().run_of() if "sched_switch:" not in line]
+        c = self.check(lines=lines)
+        self.assertFalse(c["complete"], c)
+        self.assertIn("loop scheduler coverage is incomplete", c["reasons"])
+
+
 class CommandOnATracedRun(unittest.TestCase):
     def run_kwait(self, lines, *args, name="t.trace", opener=open):
         with tempfile.TemporaryDirectory() as d:
@@ -525,6 +607,24 @@ class CommandOnATracedRun(unittest.TestCase):
     def test_a_trace_marker_that_a_kernel_names_print_marks_the_loop_too(self):
         events, _ = kwait.parse_lines(trace(ev(1.0, 0, "sh", 9, "print", "loop 321")))
         self.assertEqual(kwait.marked_loop(events), 321)
+
+    def test_the_machine_output_distinguishes_complete_evidence_from_diagnostics_only(self):
+        lines = trace(marker(9.9, "start x1 100.0"), marker(9.9, f"loop {LOOP}"), ClientReaction().run_of(), marker(11.1, "stop x1 101.1"))
+        with tempfile.TemporaryDirectory() as d:
+            log = os.path.join(d, "x1.log")
+            with open(log, "w") as f:
+                f.write(X1Coverage.RESULT + "\n")
+            r, doc = self.run_kwait(lines, "--x1", log)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("x1 attribution: COMPLETE", r.stdout.splitlines())
+            self.assertTrue(doc["coverage"]["complete"], doc["coverage"])
+            self.assertIn("x1 raw swaps: 60 frames in 1.0 s; 0 gap(s)", r.stdout)
+            with open(log, "w") as f:
+                f.write("partial client log\n")
+            r, doc = self.run_kwait(lines, "--x1", log)
+            self.assertFalse(doc["coverage"]["complete"])
+            self.assertIn("x1 attribution: INCONCLUSIVE; raw client RESULT missing", r.stdout)
+            self.assertNotIn("x1 attribution: COMPLETE", r.stdout.splitlines())
 
 
 class Command(unittest.TestCase):

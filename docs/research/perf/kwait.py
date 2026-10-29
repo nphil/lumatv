@@ -512,7 +512,7 @@ def reactions(events, loop_tid, gap_ms=20.0, slow_ms=REACTION_SLOW_MS, period_ms
     return {'client': client, 'trigger': trigger, 'frames': n, 'p50': pick(0.5), 'p90': pick(0.9), 'p99': pick(0.99), 'p999': pick(0.999),
             'max': round(ms[-1], 2), 'over2': sum(1 for v in ms if v > 2.0), 'over3': sum(1 for v in ms if v > 3.0),
             'flips': len(inside), 'flip_max_ms': round(max((b - a) * 1000.0 for a, b in zip(inside, inside[1:])), 2) if len(inside) > 1 else 0.0,
-            'slow': slow[:20], 'implied': implied[:20], 'span': (round(span[0], 6), round(span[-1], 6))}
+            'slow': slow[:20], 'implied': implied, 'span': (round(span[0], 6), round(span[-1], 6))}
 
 
 X1_GAP = re.compile(r'^\[x1\] gap ([\d.]+) ms before swap (\d+) returned at monotonic ([\d.]+)')
@@ -629,6 +629,64 @@ def attribution_lines(a, gap_ms):
     return out
 
 
+X1_RESULT = re.compile(r'\[x1\] RESULT frames=(\d+) in ([\d.]+) s = [\d.]+ fps; gaps: <=17\.5 ms \d+, 17\.5-20 \d+, 20-33\.5 (\d+), >33\.5 (\d+); worst ([\d.]+) ms')
+
+
+def coverage(trace_path, events, client, log_path, gaps):
+    """A complete capture and matching raw client record are prerequisites for attribution, never a replacement for its strict result."""
+    reasons = []
+    with (gzip.open(trace_path, 'rt', errors='replace') if trace_path.endswith('.gz') else open(trace_path, errors='replace')) as f:
+        for line in f:
+            m = re.search(r'entries-in-buffer/entries-written:\s*(\d+)/(\d+)', line)
+            if m and int(m.group(2)) > int(m.group(1)):
+                reasons.append('trace buffer overwrote events')
+            if re.search(r'LOST\s+\d+\s+EVENTS', line, re.I):
+                reasons.append('trace reports lost events')
+    markers = [e for e in events if e[2] in ('tracing_mark_write', 'print')]
+    begin = [e[0] for e in markers if e[5].startswith('start x1 ')]
+    end = [e[0] for e in markers if e[5].startswith('stop x1 ')]
+    if not begin or not end:
+        reasons.append('capture start/stop markers missing')
+    elif client and not (min(begin) <= client['span'][0] <= client['span'][1] <= max(end)):
+        reasons.append('capture markers do not bracket the client')
+    if client:
+        tid, _ = find_loop(events)
+        if tid is None or len(loop_runs(events, tid)) < client['frames']:
+            reasons.append('loop scheduler coverage is incomplete')
+    result = None
+    if log_path:
+        try:
+            with open(log_path, errors='replace') as f:
+                result = next((m for line in f if (m := X1_RESULT.search(line))), None)
+        except OSError:
+            pass
+    raw = None
+    if result is None:
+        reasons.append('raw client RESULT missing')
+    else:
+        frames, seconds = int(result[1]), float(result[2])
+        raw = {'frames': frames, 'seconds': seconds, 'gaps': int(result[3]) + int(result[4]), 'worst_ms': float(result[5])}
+        if gaps is None or len(gaps) != raw['gaps']:
+            reasons.append('raw gap lines disagree with the RESULT histogram')
+        if client:
+            if abs(client['frames'] - frames) > 8:
+                reasons.append(f"trace answered {client['frames']} frames but raw RESULT counted {frames}")
+            span = client['span'][1] - client['span'][0]
+            if abs(span - seconds) > 0.25:
+                reasons.append(f'trace covers {span:.3f} s but raw RESULT covers {seconds:g} s')
+    if not client:
+        reasons.append('client GPU jobs not identified')
+    elif gaps is not None:
+        implied = client['implied']
+        if len(implied) != len(gaps):
+            reasons.append(f'trace implies {len(implied)} gaps but raw log counted {len(gaps)}')
+        elif any(abs(g[0] - x['gap_ms']) > 1.0 for g, x in zip(gaps, implied)):
+            reasons.append('raw and inferred gap sizes differ by more than 1 ms')
+        if any(x['trigger'] == 'flip' and 'loop_late_ms' not in x for x in implied):
+            reasons.append('loop scheduling missing at a gap')
+    return {'complete': not reasons, 'reasons': list(dict.fromkeys(reasons)), 'raw': raw}
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     ap.add_argument('trace')
@@ -669,14 +727,21 @@ def main(argv=None):
             print(f'x1 log not read: {e}')
     if gaps is not None:
         print('\n'.join(x1_lines(gaps, client, a.gap)))
+    cov = coverage(a.trace, events, client, a.x1, gaps) if a.x1 else None
+    if cov:
+        if cov['raw']:
+            raw = cov['raw']
+            print(f"x1 raw swaps: {raw['frames']} frames in {raw['seconds']} s; {raw['gaps']} gap(s) over {a.gap:g} ms, worst {raw['worst_ms']} ms")
+        print('x1 attribution: COMPLETE' if cov['complete'] else 'x1 attribution: INCONCLUSIVE; ' + '; '.join(cov['reasons']))
     att = attribute(client, ctx, frames, gaps, a.gap, a.hops, a.min_wait)
     if att:
         print('\n'.join(attribution_lines(att, a.gap)))
     print(summary_line(summarize(frames)) + (f' | {client_summary(client, a.gap)}' if client else '')
-          + (f" | x1 gaps compositor-attributable {att['compositor']}, client-only {att['client_only']}, unexplained {att['unexplained']}" if att else ''))
+          + (f" | x1 gaps compositor-attributable {att['compositor']}, client-only {att['client_only']}, unexplained {att['unexplained']}" if att else '')
+          + (' | x1 attribution ' + ('COMPLETE' if cov['complete'] else 'INCONCLUSIVE') if cov else ''))
     if a.json:
         with open(a.json, 'w') as f:
-            json.dump({'tid': tid, 'how': how, 'frames': frames, 'summary': summarize(frames), 'client': client, 'attribution': att,
+            json.dump({'tid': tid, 'how': how, 'frames': frames, 'summary': summarize(frames), 'client': client, 'attribution': att, 'coverage': cov,
                        'x1': [{'ms': g[0], 'swap': g[1], 'at': g[2]} for g in gaps] if gaps is not None else None}, f, indent=1)
     return 0
 

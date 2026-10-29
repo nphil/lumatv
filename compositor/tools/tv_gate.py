@@ -9,9 +9,9 @@ lines and files land in /tmp/lumatv-tv-out/out/gate and docs/research/compositor
 
 The gate's rule for the frame check (the x1 probe, 60 s) fails on a gap that is the compositor's: a late flip, the loop slow to take a flip up
 or waiting, callbacks that went out late. A gap that is the client's own wake-up after callbacks that came on time is reported with its count and
-not counted. The run is traced for it (capture.sh's kwait mode; kwait.py says whose each gap is, tv-gate.sh, "The frame rule"), and a run kwait
-could not read is judged by the strict rule. --x1-strict is the PLAN's rule alone: an untraced run that fails on any gap over 20 ms in the client's
-swaps (and on a client frame gap in the compositor's log); --x1-seconds under 60
+not counted. The raw swaps and their original strict verdict remain prominent in every result; attribution does not claim a gapped run was smooth.
+The run is traced (capture.sh's kwait mode; tv-gate.sh, "The frame rule"). Missing, lost, truncated or mismatched evidence is INCONCLUSIVE and cannot pass.
+--x1-strict explicitly runs the PLAN's original rule without requiring a trace: every client swap gap or compositor frame gap over 20 ms fails. --x1-seconds under 60
 can only fail it. Checks that can be skipped: firmware, homeheld, volume, x1, netflix, hdmi, apps, keys, ime, standby, homekey,
 wd-hang, wd-crash, escape. --only runs just the named ones (in one session, the live check and the evidence included); the
 step-1 test of the remote's keys and the keyboard is `--only keys,ime`. --frames-callbacks landing runs the surface frame gate with
