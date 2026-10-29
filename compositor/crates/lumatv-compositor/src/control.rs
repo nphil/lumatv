@@ -426,6 +426,30 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
                 None => json!({"ok": false, "error": "scanout [off|direct|offset on|off|shell-env NAME=VALUE...|none]"}),
             },
         },
+        // A test picture of another size on the primary plane for a while (`kms::pageprobe`, docs/research/layer-deep-result.md): `pageprobe`
+        // reads its state, `pageprobe WxH SECONDS` starts one (a frame carries it out at once), `pageprobe off` ends it before its time.
+        "pageprobe" => match (words.next(), words.next()) {
+            (None, _) => json!({"ok": true, "pageprobe": state.output.page_probe_report()}),
+            (Some("off"), _) => {
+                let was_on = state.output.end_page_probe();
+                state.scene.redraw_all();
+                json!({"ok": true, "wasOn": was_on, "pageprobe": state.output.page_probe_report()})
+            }
+            (Some(size), Some(secs)) => {
+                let parsed = size.split_once('x').and_then(|(w, h)| Some((w.parse::<u32>().ok()?, h.parse::<u32>().ok()?))).zip(secs.parse::<u32>().ok());
+                match parsed {
+                    Some((size, seconds)) => match state.output.start_page_probe(size, seconds) {
+                        Ok(()) => {
+                            state.scene.redraw_all();
+                            json!({"ok": true, "pageprobe": state.output.page_probe_report()})
+                        }
+                        Err(e) => json!({"ok": false, "error": format!("pageprobe: {e}"), "pageprobe": state.output.page_probe_report()}),
+                    },
+                    None => json!({"ok": false, "error": "pageprobe WxH SECONDS | off"}),
+                }
+            }
+            _ => json!({"ok": false, "error": "pageprobe WxH SECONDS | off"}),
+        },
         "quit" => {
             state.should_exit = true;
             json!({"ok": true})
@@ -439,7 +463,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
         }
         "" => json!({"ok": false, "error": "empty command"}),
         other => {
-            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, screencap [status|shot|record start|record stop], key CODE, remote CODE, pointer X Y, click, sched mali fifo|other, callbacks shell|clients early|landing, mem, wake [reset|probe start|probe stop], ring [N], idle [MS], refresh [60|120], scanout [off|direct|offset on|off], pointer [plane|gpu|X Y], afbc [on|off], pagealpha [on|off], vwin [off|idle|apps|claim|move|release], fallback [reason], quit")})
+            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, screencap [status|shot|record start|record stop], key CODE, remote CODE, pointer X Y, click, sched mali fifo|other, callbacks shell|clients early|landing, mem, wake [reset|probe start|probe stop], ring [N], idle [MS], refresh [60|120], scanout [off|direct|offset on|off], pageprobe [WxH SECONDS|off], pointer [plane|gpu|X Y], afbc [on|off], pagealpha [on|off], vwin [off|idle|apps|claim|move|release], fallback [reason], quit")})
         }
     };
     Reply::Now(reply.to_string())

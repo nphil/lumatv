@@ -15,6 +15,7 @@
 pub mod assign;
 pub mod cursor;
 pub mod frames;
+pub mod pageprobe;
 pub mod timing;
 
 use std::collections::HashMap;
@@ -254,6 +255,19 @@ pub struct Kms {
     page_want: PageKind,
     /// A conversion failed (no memory for the new page): none is tried until the next `set_page_kind`.
     convert_stopped: bool,
+    /// A test picture of another size on the primary plane for a while (`ctl pageprobe`, `pageprobe.rs`).
+    page_probe: Option<PageProbe>,
+}
+
+/// The page probe's buffer and clock.
+struct PageProbe {
+    dumb: DumbBuffer,
+    fb: framebuffer::Handle,
+    size: (u32, u32),
+    /// When it is over (CLOCK_MONOTONIC ns).
+    until_ns: u64,
+    /// The frame that puts the ring's page back has been committed; the buffer goes once its flip has landed.
+    ending: bool,
 }
 
 const PAGES: usize = 3;
@@ -561,6 +575,7 @@ impl Kms {
             page_want: page_report.kind,
             convert_stopped: false,
             page_report,
+            page_probe: None,
         };
         if opts.pointer == crate::pointer::Mode::Plane
             && let Err(e) = Output::set_pointer_mode(&mut kms, crate::pointer::Mode::Plane)
@@ -572,6 +587,76 @@ impl Kms {
 
     pub fn gl(&self) -> &Gl {
         &self.gl
+    }
+
+    /// `ctl pageprobe WxH SECONDS`: a test picture of `size` on the primary plane for `seconds` (`pageprobe`). One at a time; the
+    /// caller redraws the scene so a frame carries it out. The picture is written on the CPU once, here.
+    pub fn start_page_probe(&mut self, size: (u32, u32), seconds: u32) -> io::Result<()> {
+        if !self.modeset_done {
+            return Err(other("the mode is not set yet"));
+        }
+        if self.page_probe.is_some() {
+            return Err(other("a page probe is on; `pageprobe off` ends it"));
+        }
+        pageprobe::check((self.width, self.height), size, seconds).map_err(other)?;
+        let mut dumb = self.card.create_dumb_buffer(size, DrmFourcc::Xrgb8888, 32)?;
+        let undo = |card: &Card, dumb: DumbBuffer, e: io::Error| {
+            let _ = card.destroy_dumb_buffer(dumb);
+            e
+        };
+        let pitch = dumb.pitch();
+        let mapped = self.card.map_dumb_buffer(&mut dumb).map(|mut m| pageprobe::fill(size.0, size.1, pitch, &mut m));
+        if let Err(e) = mapped {
+            return Err(undo(&self.card, dumb, e));
+        }
+        let fb = match self.card.add_framebuffer(&dumb, 24, 32) {
+            Ok(fb) => fb,
+            Err(e) => return Err(undo(&self.card, dumb, e)),
+        };
+        let until_ns = self.now_ns() + u64::from(seconds) * 1_000_000_000;
+        log::info!("kms: page probe {}x{} (fb {}) for {seconds} s", size.0, size.1, u32::from(fb));
+        self.page_probe = Some(PageProbe { dumb, fb, size, until_ns, ending: false });
+        Ok(())
+    }
+
+    /// `ctl pageprobe off`, and the probe's own clock: the next frame puts the ring's page back.
+    pub fn end_page_probe(&mut self) -> bool {
+        match &mut self.page_probe {
+            Some(p) if !p.ending => {
+                p.ending = true;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether the probe's time is up and no frame has put the page back yet: such a frame is owed (`ui_needs_frame`).
+    fn page_probe_due(&self) -> bool {
+        self.page_probe.as_ref().is_some_and(|p| !p.ending && self.now_ns() >= p.until_ns)
+    }
+
+    /// After the flip that put the page back: the probe's buffer is not read any more and goes.
+    fn page_probe_landed(&mut self) {
+        if self.page_probe.as_ref().is_some_and(|p| p.ending)
+            && let Some(p) = self.page_probe.take()
+        {
+            let _ = self.card.destroy_framebuffer(p.fb);
+            let _ = self.card.destroy_dumb_buffer(p.dumb);
+            log::info!("kms: page probe over, the ring's page is back");
+        }
+    }
+
+    pub fn page_probe_report(&self) -> serde_json::Value {
+        match &self.page_probe {
+            Some(p) => serde_json::json!({
+                "active": true,
+                "size": [p.size.0, p.size.1],
+                "fb": u32::from(p.fb),
+                "secondsLeft": p.until_ns.saturating_sub(self.now_ns()) / 1_000_000_000,
+                "ending": p.ending,
+            }),
+            None => serde_json::json!({"active": false}),
+        }
     }
 
     /// CLOCK_MONOTONIC in ns: the clock the kernel stamps page flips with, so the pacer's phase (flip time minus
@@ -618,6 +703,7 @@ impl Kms {
     fn flip_landed(&mut self, stamp_ns: u64) {
         self.pending_flip = false;
         self.scanout.landed();
+        self.page_probe_landed();
         let presented_ns = if self.monotonic_flips {
             stamp_ns
         } else {
@@ -800,23 +886,33 @@ impl Kms {
             flags |= AtomicCommitFlags::ALLOW_MODESET;
         }
         let full = Rect::new(0, 0, self.width as i32, self.height as i32);
-        let primary_fb = match a.primary {
-            Source::Page(i) => Some(u32::from(self.pages[i].fb)),
-            Source::UiPage(i) => Some(u32::from(self.ui_pages[i].fb)),
-            Source::Direct(fb) => Some(fb),
-            Source::Off => None,
+        // The page probe's picture takes the plane while its time runs (`pageprobe`); its time up, this frame puts the page back.
+        if self.page_probe_due() {
+            self.end_page_probe();
+        }
+        let probe = self.page_probe.as_ref().filter(|p| !p.ending).map(|p| (u32::from(p.fb), p.size));
+        let primary_fb = match (probe, a.primary) {
+            (Some((fb, _)), _) => Some(fb),
+            (None, Source::Page(i)) => Some(u32::from(self.pages[i].fb)),
+            (None, Source::UiPage(i)) => Some(u32::from(self.ui_pages[i].fb)),
+            (None, Source::Direct(fb)) => Some(fb),
+            (None, Source::Off) => None,
         };
-        // A composed page waits for the job that drew it, a window's own buffer for the job that sampled it (`Choice::acquired`).
-        let waits = matches!(a.primary, Source::Page(_)) || (acquire && matches!(a.primary, Source::Direct(_)));
+        // A composed page waits for the job that drew it, a window's own buffer for the job that sampled it (`Choice::acquired`); the
+        // probe's picture was written before it was shown.
+        let waits = probe.is_none() && (matches!(a.primary, Source::Page(_)) || (acquire && matches!(a.primary, Source::Direct(_))));
         let primary_fence = if waits { in_fence.as_ref().map(|f| f.as_raw_fd()) } else { None };
         // A direct frame the OLED care moved is placed by `CRTC_X/Y` (the driver writes them to the OSD header's position, never negative
         // here: `scanout` refuses a shift up or left); its size and source stay the mode's, which the driver ignores for the OSD planes.
-        let dst = full.translated(a.at.0, a.at.1);
+        // The probe's source is its own size (the DRM core keeps the source inside the framebuffer): the OSD's input window follows the
+        // framebuffer, the firmware keeps its output at the panel, so the scaler magnifies it.
+        let dst = if probe.is_some() { full } else { full.translated(a.at.0, a.at.1) };
+        let src = probe.map_or(full, |(_, (w, h))| Rect::new(0, 0, w as i32, h as i32));
         let primary_state = PlaneState { fb: primary_fb, dst };
         let mut new_state = self.state;
         // (a fence goes with the plane's properties, so a frame that waits sets them even when the framebuffer is the one already shown)
         if primary_state != self.state[0] || !self.modeset_done || primary_fence.is_some() {
-            set_plane(&mut req, &self.primary, self.crtc, primary_fb, dst, full, primary_fence);
+            set_plane(&mut req, &self.primary, self.crtc, primary_fb, dst, src, primary_fence);
             new_state[0] = primary_state;
         }
         if let Some(ov) = &self.overlay {
@@ -1221,7 +1317,8 @@ impl Output for Kms {
 
     /// The system UI's requests, and a frame owed to a surface a frame stood in for once its buffer is warm.
     fn ui_needs_frame(&mut self) -> io::Result<bool> {
-        Ok(self.gl.ui_needs_frame()? || self.gl.standin_due())
+        // The page probe's time up: a frame puts the ring's page back (`pageprobe`).
+        Ok(self.gl.ui_needs_frame()? || self.gl.standin_due() || self.page_probe_due())
     }
 
     fn ui_fd(&self) -> Option<RawFd> {
@@ -1306,6 +1403,18 @@ impl Output for Kms {
     fn set_scanout_offset(&mut self, on: bool) -> io::Result<()> {
         self.scanout.set_offset(on);
         Ok(())
+    }
+
+    fn start_page_probe(&mut self, size: (u32, u32), seconds: u32) -> io::Result<()> {
+        Kms::start_page_probe(self, size, seconds)
+    }
+
+    fn end_page_probe(&mut self) -> bool {
+        Kms::end_page_probe(self)
+    }
+
+    fn page_probe_report(&self) -> Option<serde_json::Value> {
+        Some(self.page_probe_report())
     }
 
     /// The pointer's thread is made on the first `plane` and ended by `gpu` (which takes the image off the screen); a refusal leaves the pointer in the

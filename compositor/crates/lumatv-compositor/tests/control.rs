@@ -135,6 +135,14 @@ fn the_loop_reports_its_wakeups_its_memory_and_its_ring_and_the_ring_outlives_it
     assert_eq!(json(&dir, &["idle"])["idle_tick_ms"], 100);
     assert_eq!(json(&dir, &["idle", "0"])["idle_tick_ms"], 0);
 
+    // The page probe needs the primary plane: this output has none, and says so; the words it takes are told.
+    let probe = json(&dir, &["pageprobe"]);
+    assert!(probe["ok"] == true && probe["pageprobe"].is_null(), "{probe}");
+    let probe = json(&dir, &["pageprobe", "1280x720", "5"]);
+    assert!(probe["ok"] == false && probe["error"].as_str().is_some_and(|e| e.contains("no primary plane")), "{probe}");
+    assert_eq!(json(&dir, &["pageprobe", "off"])["wasOn"], false);
+    assert!(json(&dir, &["pageprobe", "wide", "5"])["error"].as_str().is_some_and(|e| e.contains("pageprobe WxH SECONDS")));
+
     let _ = ctl(&dir, &["quit"]);
     let _ = child.wait();
     // The file is what a supervisor copies after the process is gone.

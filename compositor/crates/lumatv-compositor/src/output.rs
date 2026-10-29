@@ -144,6 +144,21 @@ pub trait Output {
         Err(io::Error::other("this output has no direct scan-out"))
     }
 
+    /// A test picture of `size` on the primary plane for `seconds` (`ctl pageprobe`, `kms::pageprobe`): what the OSD scaler makes of a buffer
+    /// smaller than the mode. Only the KMS output has the plane.
+    fn start_page_probe(&mut self, _size: (u32, u32), _seconds: u32) -> io::Result<()> {
+        Err(io::Error::other("this output has no primary plane"))
+    }
+
+    /// Ends the page probe early; whether one was on.
+    fn end_page_probe(&mut self) -> bool {
+        false
+    }
+
+    fn page_probe_report(&self) -> Option<serde_json::Value> {
+        None
+    }
+
     /// The pointer on the cursor plane (`pointer`): `Some(at)` shows it with its hotspot at `at` (output pixels), `None` takes it away. Returns
     /// whether the plane carries the pointer now; `false` (the default, and any output without the plane or whose plane failed) means the caller
     /// draws the sprite into the frame.
