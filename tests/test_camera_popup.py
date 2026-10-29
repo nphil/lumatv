@@ -36,9 +36,9 @@ def publish(topic, doc):
             "x.setRequestHeader('Content-Type','application/json'); x.send(JSON.stringify(d));" % (json.dumps(doc), topic))
 
 
-def popup(camera="273", kind="person", lasts=12000, ident=1, label=None, age=5000):
+def popup(camera="273", kind="person", lasts=12000, ident=1, label=None, age=5000, over_apps=True):
     doc = {"id": ident, "event": "e%d" % ident, "camera": camera, "name": "Front Door" if camera == "273" else camera, "kind": kind, "label": label,
-           "at": 0, "untilMs": 0, "seq": ident}
+           "at": 0, "untilMs": 0, "seq": ident, "thumbnail": True, "shownAt": 0, "overApps": over_apps, "test": False}
     # `at` and `untilMs` are epoch milliseconds, set in the host's own clock
     return ("var d=%s; d.at = Date.now() - %d; d.untilMs = Date.now() + %d; var x=new XMLHttpRequest(); x.open('POST','http://127.0.0.1:18731/__publish/cameras.popup');"
             "x.setRequestHeader('Content-Type','application/json'); x.send(JSON.stringify(d));" % (json.dumps(doc), age, lasts))
@@ -264,6 +264,37 @@ class CameraPopup(HostCase):
                  (READY + 1500, "var c = %s; console.info('[k1] ' + JSON.stringify({ago: c.ago}));" % C)]
         doc, out = self.run_overlay(steps, READY + 2200)
         self.assertEqual(self.tagged(out, "k1")[0]["ago"], "Just now", out[-2500:])
+
+
+    def test_with_pop_ups_over_apps_off_the_card_waits_while_an_app_is_in_front_and_shows_on_home_if_still_in_date(self):
+        # the owner's "Over playing apps" switch is on the record (`overApps`); the helper leaves enforcing it to the shell
+        steps = [(READY, publish("cameras", CAMERAS)),
+                 (READY + 300, popup(over_apps=False, lasts=9000)),
+                 (READY + 1600, "console.info('[a1] ' + JSON.stringify({mode: %s.mode, shown: %s.shownId}));" % (C, C)),
+                 (READY + 2000, "overlay.appFront = false;"),                          # back to Home within the card's time
+                 (READY + 3400, "console.info('[a2] ' + JSON.stringify({mode: %s.mode, shown: %s.shownId}));" % (C, C))]
+        doc, out = self.run_overlay(steps, READY + 10500)
+        self.assertEqual(self.tagged(out, "a1")[0], {"mode": "", "shown": 0}, "an app is in front: the card waits")
+        self.assertEqual(self.tagged(out, "a2")[0], {"mode": "popup", "shown": 1}, "Home is in front and the card is still in date: it shows")
+        self.assertEqual(doc["mode"], "", "and goes at its end")
+
+    def test_a_card_that_is_up_steps_aside_when_an_app_comes_to_the_front_with_pop_ups_over_apps_off(self):
+        steps = [(READY, publish("cameras", CAMERAS)),
+                 (READY + 300, popup(over_apps=False, lasts=12000)),
+                 (READY + 1300, "console.info('[b1] ' + JSON.stringify({mode: %s.mode}));" % C + "overlay.appFront = true;"),
+                 (READY + 2300, "console.info('[b2] ' + JSON.stringify({mode: %s.mode, shown: %s.shownId}));" % (C, C) + "overlay.appFront = false;"),
+                 (READY + 3600, "console.info('[b3] ' + JSON.stringify({mode: %s.mode}));" % C)]
+        doc, out = self.run_overlay(steps, READY + 4500, app=False)
+        self.assertEqual(self.tagged(out, "b1")[0], {"mode": "popup"}, "over Home the card shows")
+        self.assertEqual(self.tagged(out, "b2")[0], {"mode": "", "shown": 0}, "an app came to the front: the card stepped aside, not dismissed")
+        self.assertEqual(self.tagged(out, "b3")[0], {"mode": "popup"}, "Home again, still in date: it is back")
+
+    def test_with_pop_ups_over_apps_on_the_card_shows_over_an_app_as_before(self):
+        steps = [(READY, publish("cameras", CAMERAS)),
+                 (READY + 300, popup(over_apps=True, lasts=6000)),
+                 (READY + 1500, "console.info('[c1] ' + JSON.stringify({mode: %s.mode}));" % C)]
+        doc, out = self.run_overlay(steps, READY + 2200)
+        self.assertEqual(self.tagged(out, "c1")[0], {"mode": "popup"})
 
 
 if __name__ == "__main__":

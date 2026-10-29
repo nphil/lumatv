@@ -338,14 +338,14 @@
     case 'settings': video = false; backdrop = 'wall';
       html = `<div class="st on settings"><div class="wall fill"></div>` + page('Cameras', tabs(TABS, 0) + `<div class="rows">
         ${row('globe', 'Scrypted', `<div class="v"><span class="chip on"><i class="dot"></i>Connected · 8 cameras</span></div>`, { focus: true, info: true })}
-        ${row('tv-minimal', 'Device', `<div class="v">LumaTV</div>`)}
+        ${row('tv-minimal', 'Device name', `<div class="v">LumaTV</div>`)}
         ${row('key-round', 'Verifier', verifier, { info: true, cls: 'vrow' })}
         ${row('unplug', 'Forget link', `<span class="btn small danger">Forget</span>`, { d: 'Deletes the saved link to Scrypted' })}
         </div>`, 'Home &amp; look') + '</div>'; break;
     case 'settings-refused': video = false; backdrop = 'wall';
       html = `<div class="st on settings"><div class="wall fill"></div>` + page('Cameras', tabs(TABS, 0) + `<div class="rows">
         ${row('globe', 'Scrypted', `<div class="v"><span class="chip danger"><i class="dot"></i>Refused</span></div>`, { focus: true, info: true })}
-        ${row('tv-minimal', 'Device', `<div class="v">LumaTV</div>`)}
+        ${row('tv-minimal', 'Device name', `<div class="v">LumaTV</div>`)}
         ${row('key-round', 'Verifier', verifier, { info: true, cls: 'vrow' })}
         ${row('unplug', 'Forget link', `<span class="btn small danger">Forget</span>`, { d: 'Deletes the saved link to Scrypted' })}
         </div>`, 'Home &amp; look') + '</div>'; break;

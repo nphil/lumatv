@@ -77,7 +77,7 @@ Item {
             if (mode === "full") { var i = indexOf(popupTopic.camera); if (i >= 0) current = i }
             return
         }
-        if (hostBusy) { waiting.restart(); return }
+        if (hostBusy || blocked(popupTopic)) { waiting.restart(); return }
         waiting.stop()
         shownId = popupTopic.id
         shownAt = Date.now()
@@ -105,6 +105,10 @@ Item {
     // Do not disturb: a PIN, an alert, the keyboard or a panel arrives while the card is up and it steps aside, without telling the helper (it is
     // not dismissed): it is due again, and comes back when the host is free if its time (`untilMs`) is not over.
     onHostBusyChanged: { if (hostBusy && popupUp) holdPopup(); else if (!hostBusy) consider() }
+    // The owner's "Over playing apps" switch off (`overApps` false on the record; the helper leaves this to the shell): the card is not shown over an
+    // app, it waits like one that meets a busy host, and a card already up steps aside when an app comes to the front. On Home it shows if still in date.
+    function blocked(p) { return appFront && !!p && p.overApps === false }
+    onAppFrontChanged: { if (popupUp && blocked(popup)) holdPopup(); consider() }
     function holdPopup() {
         ends.stop()
         mode = ""
