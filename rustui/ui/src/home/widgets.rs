@@ -64,14 +64,16 @@ impl Words {
         self.block.is_glyph_run()
     }
 
-    /// Every line that says something, as the lint takes it: its box on the screen (`origin` is where the block's own origin is).
+    /// Every line that says something, as the lint takes it: its box on the screen (`origin` is where the block's own origin is) and
+    /// the block's layer, which is what the compositor places.
     pub fn lint(&self, kit: &mut Kit, lint: &mut crate::kit::lint::Lint, name: &str, origin: (f32, f32), panel: Option<usize>) {
+        let layer = (origin.0 + self.at.x, origin.1 + self.at.y);
         for (i, ((frame, style), text)) in self.lines.iter().zip(self.texts.iter()).enumerate() {
             if text.is_empty() {
                 continue;
             }
-            let f = Frame::new(origin.0 + self.at.x + frame.x, origin.1 + self.at.y + frame.y, frame.w, frame.h);
-            lint.word(kit, &format!("{name}.{i}"), text, f, *style, panel);
+            let f = Frame::new(layer.0 + frame.x, layer.1 + frame.y, frame.w, frame.h);
+            lint.word_on(kit, &format!("{name}.{i}"), text, f, *style, panel, layer);
         }
     }
 }

@@ -13,7 +13,10 @@
 //!   does not leave room for the lift's growth squares the plate's ends off;
 //! - `Contrast`: the ink against what is behind it: 4.5 to 1 under 48 px, 3 to 1 from 48 px up and for muted ink (ink2, a dimmed
 //!   row), the panel's paint over the worst of black, white and mid grey (a pane over video lets the picture through down to the
-//!   reading alpha, so the backdrop is not known).
+//!   reading alpha, so the backdrop is not known);
+//! - `Soft`: a text box whose origin is not on whole pixels: the run's glyphs are placed on whole pixels inside it, so the
+//!   compositor samples the whole run between texels (bilinear) and every stem is smeared over a neighbour; after the OSD's x2
+//!   scale to the panel that is the softest text on the screen (`docs/research/ui-sharpness-result.md`).
 //!
 //! The pixel check of the finished picture stays with the Python host tests (`tests/test_rust_system.py` reads the renders); this is
 //! the check that needs no picture and runs in `cargo test`.
@@ -30,6 +33,8 @@ pub const PAD_Y: f32 = 4.0;
 pub const TOL: f32 = 1.0;
 /// How far a focused plate may stand out of a clip: none but the rounding of a coordinate.
 pub const CLIP_TOL: f32 = 0.05;
+/// How far a text box may start from a whole pixel: float noise only (a fraction this small moves no sample).
+pub const SOFT_TOL: f32 = 0.01;
 /// How far the centre of words in a button may be from the button's.
 pub const CENTRE: f32 = 2.5;
 /// Panels taller than this hold a layout, not one run of words.
@@ -49,6 +54,7 @@ pub enum Kind {
     Safe,
     Contrast,
     Clipped,
+    Soft,
 }
 
 impl Kind {
@@ -61,6 +67,7 @@ impl Kind {
             Kind::Safe => "safe",
             Kind::Contrast => "contrast",
             Kind::Clipped => "clipped",
+            Kind::Soft => "soft",
         }
     }
 }
@@ -100,6 +107,8 @@ pub struct Word {
     /// Ink that is muted by design (ink2, a dimmed row).
     pub muted: bool,
     pub panel: Option<usize>,
+    /// Where the text layer's box starts on the screen; its glyphs are on whole pixels of the box.
+    pub at: (f32, f32),
 }
 
 #[derive(Debug)]
@@ -183,14 +192,21 @@ impl Lint {
         self.panel(name, rect, Rgba(mix(paint.0, under.0), mix(paint.1, under.1), mix(paint.2, under.2), mix(paint.3, under.3)), safe)
     }
 
-    /// A run of words whose painted rectangle is known.
+    /// A run of words whose painted rectangle is known; the rectangle's origin is the box's.
     pub fn word_at(&mut self, name: &str, rect: Frame, ink: Rgba, px: u32, muted: bool, panel: Option<usize>) {
-        self.words.push(Word { name: name.to_string(), rect, ink, px, muted, panel });
+        self.words.push(Word { name: name.to_string(), rect, ink, px, muted, panel, at: (rect.x, rect.y) });
     }
 
     /// A run of `text` in `style` drawn in a box `frame` wide (the box the text layer has): its painted rectangle is the measured width
     /// (cut to the box) by the line height, at the style's alignment; vertically it is the box's (a layer is one line high).
     pub fn word(&mut self, kit: &mut Kit, name: &str, text: &str, frame: Frame, style: Style, panel: Option<usize>) {
+        self.word_on(kit, name, text, frame, style, panel, (frame.x, frame.y));
+    }
+
+    /// [`Lint::word`] for a line of a block: `frame` is the line's box and `layer` where the block's layer starts on the screen,
+    /// which is what the compositor places (the line's glyphs are on whole pixels of the layer wherever its box starts).
+    #[allow(clippy::too_many_arguments)]
+    pub fn word_on(&mut self, kit: &mut Kit, name: &str, text: &str, frame: Frame, style: Style, panel: Option<usize>, layer: (f32, f32)) {
         let w = kit.ui.fonts.measure(text, style.ty).width.ceil();
         let shown = w.min(frame.w);
         let x = match style.align {
@@ -202,7 +218,7 @@ impl Lint {
         let y = frame.y + (frame.h - line) / 2.0;
         // ink that is not the full reading ink (ink2, ink3, a dimmed row) is muted by design
         let muted = style.colour != kit.ui.look.ink() || style.colour.3 < 230;
-        self.word_at(name, Frame::new(x, y, shown, line), style.colour, style.ty.px, muted, panel);
+        self.words.push(Word { name: name.to_string(), rect: Frame::new(x, y, shown, line), ink: style.colour, px: style.ty.px, muted, panel, at: layer });
     }
 
     /// The focused plate at full lift (`plate`, on the screen) and the clip every group above it makes (`clip`, on the screen).
@@ -286,6 +302,12 @@ impl Lint {
                     &w.name,
                     format!("{got:.2}:1 on {} where {need}:1 is needed", w.panel.and_then(|i| self.panels.get(i)).map_or("the screen", |p| p.name.as_str())),
                 ));
+            }
+        }
+        for w in &self.words {
+            let off = |v: f32| (v - v.round()).abs();
+            if off(w.at.0) > SOFT_TOL || off(w.at.1) > SOFT_TOL {
+                out.push(finding(Kind::Soft, &w.name, format!("its box starts between whole pixels at ({:.2}, {:.2})", w.at.0, w.at.1)));
             }
         }
         out
@@ -374,5 +396,32 @@ mod tests {
         let out = l.findings();
         assert_eq!(out.len(), 1, "{out:?}");
         assert_eq!(out[0].kind, Kind::Safe);
+    }
+
+    #[test]
+    fn a_text_box_between_whole_pixels_is_soft_and_a_line_of_a_block_on_whole_pixels_is_not() {
+        let mut l = Lint::new();
+        l.word_at("pill", Frame::new(293.0, 903.2, 120.0, 28.0), INK, 26, false, None);
+        l.word_at("mark", Frame::new(924.67, 351.0, 120.0, 28.0), INK, 26, false, None);
+        l.word_at("noise", Frame::new(100.004, 200.0, 120.0, 28.0), INK, 26, false, None);
+        l.word_at("whole", Frame::new(100.0, 400.0, 120.0, 28.0), INK, 26, false, None);
+        let out = l.findings();
+        let soft: Vec<&str> = out.iter().filter(|f| f.kind == Kind::Soft).map(|f| f.subject.as_str()).collect();
+        assert_eq!(soft, vec!["pill", "mark"], "{out:?}");
+        assert!(out.iter().any(|f| f.subject == "pill" && f.detail.contains("(293.00, 903.20)")), "{out:?}");
+    }
+
+    #[test]
+    fn a_line_of_a_block_is_judged_by_the_blocks_layer_not_its_own_box() {
+        let (h, mut kit) = crate::kit::testkit::kit_in(ui::lucent::palette::Mode::Dark, 1.0);
+        let style = crate::kit::text::role_style(&kit, lumatv_tokens::TypeRole::Label, None, INK, Align::Left);
+        let mut l = Lint::new();
+        // the caps of a keyboard: boxes at a fractional pitch inside one block whose layer is on whole pixels
+        l.word_on(&mut kit, "cap", "q", Frame::new(486.85, 586.55, 100.0, 28.0), style, None, (367.0, 482.0));
+        // a block whose layer itself is between pixels
+        l.word_on(&mut kit, "float", "q", Frame::new(100.0, 100.0, 100.0, 28.0), style, None, (99.5, 100.0));
+        let soft: Vec<String> = l.findings().iter().filter(|f| f.kind == Kind::Soft).map(|f| f.subject.clone()).collect();
+        assert_eq!(soft, vec!["float"]);
+        std::mem::forget(h);
     }
 }

@@ -356,13 +356,15 @@ impl Words {
         usize::from(self.block.is_some())
     }
 
-    /// Describes the lines to a lint, each as the word it is on the screen (the box shifted by `shift`, a scrolled list's offset).
+    /// Describes the lines to a lint, each as the word it is on the screen (the box shifted by `shift`, a scrolled list's offset); the
+    /// layer the compositor places is the block's, at the box's origin.
     pub fn feed_lint(&self, kit: &mut Kit, lint: &mut Lint, name: &str, panel: Option<usize>, shift: (f32, f32)) {
+        let layer = (self.frame.x + shift.0, self.frame.y + shift.1);
         let mut top = 0.0;
         for (i, (text, style)) in self.lines.iter().enumerate() {
             let lh = ui::components::line_height(style.ty);
-            let f = Frame::new(self.frame.x + shift.0, self.frame.y + top + shift.1, self.frame.w, lh);
-            lint.word(kit, &format!("{name} line {i}"), text, f, *style, panel);
+            let f = Frame::new(layer.0, layer.1 + top, self.frame.w, lh);
+            lint.word_on(kit, &format!("{name} line {i}"), text, f, *style, panel, layer);
             top += lh;
         }
     }

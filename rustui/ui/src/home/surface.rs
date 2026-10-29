@@ -745,7 +745,8 @@ impl HomeSurface {
                     let w = (width_of(kit, style, &title) + 26.0).round().max(40.0);
                     let above = home.dock.row_of(i) == home.dock.scroll_row && home.dock.scrollable();
                     let lift = home.dock.tile as f32 * (kit.tokens.focus.tile_scale - 1.0) / 2.0;
-                    let y = if above { sy as f32 - lift - 4.0 - 10.0 - 43.0 } else { sy as f32 + home.dock.tile as f32 + lift - 4.0 + 10.0 } - scroll;
+                    // on whole pixels (the lift is 7.2 at a 120 tile): a run between pixels is sampled soft
+                    let y = (if above { sy as f32 - lift - 4.0 - 10.0 - 43.0 } else { sy as f32 + home.dock.tile as f32 + lift - 4.0 + 10.0 } - scroll).round();
                     let x = (cx - w / 2.0).round();
                     let scene = kit.ui.scene.clone();
                     let (pill, text) = scene.adopting(&d.viewport, || {

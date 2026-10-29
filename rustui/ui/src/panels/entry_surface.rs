@@ -451,12 +451,14 @@ impl EntrySurface {
         let accent = kit.ui.look.accent();
         let accent_ink = kit.ui.look.accent_ink();
         let caps_style = role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Centre);
+        // the caps are one block at the grid: the compositor places the grid, the caps sit on whole pixels of it
+        let grid = (b.lay.grid.x, b.lay.grid.y);
         for (i, f) in b.lay.keys.iter().enumerate() {
             let key = lint.panel_on(&format!("key {i}"), *f, if i == 42 { accent } else { glass }, false, sheet);
             let text = &b.caps_now[i];
             if !text.is_empty() {
                 let style = Style { colour: if i == 42 { accent_ink } else { ink }, ..caps_style };
-                lint.word(kit, &format!("cap {i}"), text, *f, style, Some(key));
+                lint.word_on(kit, &format!("cap {i}"), text, *f, style, Some(key), grid);
             }
         }
     }

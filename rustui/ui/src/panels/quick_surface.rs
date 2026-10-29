@@ -705,11 +705,12 @@ impl QuickSurface {
                         } else {
                             Align::Centre
                         };
+                        // the thirds of the marks' width fall between pixels: the layer goes on a whole one (a run between pixels is sampled soft)
                         marks_words.push(Words::new(
                             kit,
-                            f.x + s.marks.x + k as f32 * s.mark_w,
+                            (f.x + s.marks.x + k as f32 * s.mark_w).round(),
                             f.y + s.marks.y,
-                            s.mark_w,
+                            s.mark_w.round(),
                             z + 2,
                             &[WordLine::new(m, TypeRole::Caption, ink3).aligned(al)],
                         )?);
