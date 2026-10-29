@@ -16,6 +16,14 @@ Done (parity with the QML Settings, by screen):
   Delete My Personal Information, Screenshots & recording), Picture (+ Fine Tune, White Balance, HDMI Signalling).
 - Compositor: `show {kind:"settings", page}`, `ctl shell show settings [PAGE]`, gear held; Home's Settings request opens it.
 
+Coverage against the QML Settings: 21 of 41 page files ported (about 50 %); of the nine rail sections Picture, Home & look and System are
+complete, Privacy and Profiles (new top-level sections) are complete, Sound, Inputs & devices, Network, Ambient light, Remote & pointer and
+AI access are not started.
+
+Checks run on the pushed tree: `cargo test -p lumatv-ui` (609), clippy (none in `settings/`, `host/sio.rs`), compositor `shell_rust` tests (6),
+`tests/test_cutover.py` (150), `tests/test_shell_client.py`; `tests/test_rust_shell.py` fails once under machine load (the toast count at
+2200 ms) and passes when the machine is quiet.
+
 Next, in order (each is a `Page` in `settings/pages/`, registered in `pages/mod.rs::all()`; QML source named):
 
 1. Sound (`PageSound.qml`, `PageEqualizer`, `PageHdmiAudio`, `PageUsbSound`, `PageBtAudio`, `SoundOut.js`, `PageBluetooth`, `PageBtDevice`, `PageBtHid`).
@@ -24,7 +32,8 @@ Next, in order (each is a `Page` in `settings/pages/`, registered in `pages/mod.
 3. Rail order in `pages/mod.rs`: picture, sound, inputs, network, ambient, look, remote, ai, system; Privacy and Profiles are first.
 4. Text entry (Wi-Fi password, TV name, profile name, PIN): `Op::Entry` is modelled and tested; the shell only logs `ShellRequest::Text`
    until RustPanels' keyboard kind lands: call `SettingsHost::entered / entry_cancelled` with its answer (`shell.rs settings_requests`).
-5. Layout editor: `ShellRequest::Layout{item}` is only logged in `shell.rs settings_requests`; call RustSystem's `open_layout(item)`.
+5. Cameras: `Shell::take_cameras_intents()` returns `Intent::OpenSettings` from the grid's Settings button: open Settings (Home & look,
+   Cameras) from it (nothing consumes it yet; `Shell::open_settings(page, now)` is the call). Layout editor: `ShellRequest::Layout{item}` is only logged in `shell.rs settings_requests`; call RustSystem's `open_layout(item)`.
 6. Not yet written: `tests/test_rust_settings.py` (use `tests/rust_settings_host.py`, `tests/qmlhost/lgsettings.py`), `tests/render_rust_settings.py`
    (dark/light, 100/200 % into `docs/mocks/host-rust/settings/`), lint at 100/200 % (`--eval lint` is clean on the saver page), a test that every
    `.icon("..")` literal exists in `payload/compositor/lumatv/icons/lucide` (known missing: `move`, `user-round`, `chevron-up`), `docs` section in
