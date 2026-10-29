@@ -3,7 +3,7 @@
 LumaTV's quick panel (the gear's tap) and input picker (the Input key) in place of LG's, through the offline QML host: Home's side
 (HomePanels.qml, asked through LumaBus.js as the key filter's second entry does) and the overlay's over an app (`--overlay`). The key
 filter's own side is `tests/keyfilter.test.js` and `tests/bus.test.js`. What these check: the panels open, close and move on when asked,
-that the panel slides from the right edge to its place in mock 10 (648 x 968, 64 from the right edge, 56 from the top and bottom)
+that the panel slides from the right edge to its place (560 x 968, 40 from the right edge, 56 from the top and bottom)
 and stays drawn until it has gone, that nothing is built when one opens, what each row and button does, and that a panel LG should
 have is not taken. Nothing here measures time: the set's gate does (docs/research/perf/gate.py, surfaces quick and picker).
 """
@@ -77,10 +77,10 @@ class HomePanels(HostCase):
         p = probes(out)
         self.assertEqual(p["ready"], [True, True, False], out[-2500:])
         self.assertEqual(p["open"], [True, "quick"])
-        # mock 10's place and size: 648 by 968, 64 from the right edge and 56 from the top (the Notification Centre's sheet sits there too)
+        # its place and size: 560 by 968, 40 from the right edge and 56 from the top
         s = p["shown"]
         self.assertEqual((s["open"], s["presented"], s["progress"], s["visible"]), ("quick", True, 1, True), out[-2500:])
-        self.assertEqual((s["x"], s["y"], s["w"], s["h"]), (1208, 56, 648, 968))
+        self.assertEqual((s["x"], s["y"], s["w"], s["h"]), (1320, 56, 560, 968))
         # nothing was created when it opened
         self.assertEqual(s["nodes"], p["nodes0"], "the panel built something when it opened")
         # shown again, the gear hides it: it is told to go at once and stays drawn while it slides back, then it is away
@@ -100,8 +100,8 @@ class HomePanels(HostCase):
             "--wait", str(READY + 1700))
         self.assertEqual(rc, 0, out[-2500:])
         p = probes(out)
-        self.assertEqual(p["early"]["x"], 1208, "the sheet travelled in reduced motion")
-        self.assertEqual(p["shown"], {"x": 1208, "progress": 1})
+        self.assertEqual(p["early"]["x"], 1320, "the sheet travelled in reduced motion")
+        self.assertEqual(p["shown"], {"x": 1320, "progress": 1})
 
     def test_the_input_key_shows_the_picker_and_the_key_again_goes_on_to_the_next_input(self):
         panel = "var s = find(root, 'soundLine');"
@@ -428,7 +428,7 @@ class OverlayPanels(HostCase):
         self.assertEqual(p["ready"], [True, True, True], out[-2000:])
         self.assertEqual(p["open"], [True, "quick", True, True])
         s = p["shown"]
-        self.assertEqual((s["progress"], s["x"], s["y"], s["w"], s["h"], s["presented"]), (1, 1208, 56, 648, 968, True))
+        self.assertEqual((s["progress"], s["x"], s["y"], s["w"], s["h"], s["presented"]), (1, 1320, 56, 560, 968, True))
         self.assertEqual(s["nodes"], p["nodes0"], "the panel built something when it opened")
         self.assertNotEqual(p["down"], "", "the D-pad did not reach the panel")
         self.assertEqual(p["back"], ["", True, True, True, True], "Back must start the slide, not cut it")

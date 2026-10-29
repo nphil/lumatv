@@ -7,7 +7,7 @@ import "../settings"
 import "../LumaBus.js" as Bus
 import "QuickArrange.js" as Arr
 
-// The quick panel (docs/mocks/10-quick-panel): a tall sheet docked to the right edge, 648 wide and 56 from the top, bottom and right edges, where
+// The quick panel (docs/mocks/10-quick-panel): a tall sheet docked to the right edge, 560 wide, 40 from the right edge and 56 from the top and bottom, where
 // the Notification Centre's sheet sits (the mock's place; LG's own sat at the left), with the few things reached for most, one row each (QuickList):
 // Left and Right change a value, OK opens the page that has more. It slides out from the right edge and back (PanelMotion: a transform, no
 // layout while it moves; reduced motion is a fade). Built once and kept, like Quick Settings after the patch that keeps LG's
@@ -49,12 +49,12 @@ Item {
     function warm() { clock = new Date(); motion.warm() }
     PanelMotion { id: motion; presented: panel.presented; window: panel.Window.window }
     readonly property real progress: motion.progress     // 0 away, 1 shown
-    readonly property real slideX: slide.x               // where the sheet is (1208 at rest), for the tests and the gate's step list
+    readonly property real slideX: slide.x               // where the sheet is (1320 at rest), for the tests and the gate's step list
     readonly property real slideY: slide.y
     // the sheet's place: docked right, as the Notification Centre is (mock 10)
-    readonly property int sheetW: 648
+    readonly property int sheetW: 560
     readonly property int sheetH: 1080 - 2 * edgeY
-    readonly property int edgeX: 64
+    readonly property int edgeX: 40
     readonly property int edgeY: 56
     readonly property int pad: Lu.space(6)
     readonly property int inner: sheetW - 2 * pad
