@@ -170,7 +170,8 @@ pub struct Pipe {
     reader: BufReader<UnixStream>,
     fd: RawFd,
     queue: Sender<String>,
-    line: String,
+    /// The line being read, kept across polls: a read can stop anywhere in a line, a UTF-8 character included.
+    line: Vec<u8>,
     /// The bridge closed its end (or the socket failed): nothing more comes, and the socket polls readable for good.
     closed: bool,
 }
@@ -183,7 +184,7 @@ impl Pipe {
         let writer = stream.try_clone()?;
         let (queue, rx) = mpsc::channel::<String>();
         std::thread::Builder::new().name("luna-writer".into()).spawn(move || write_queue(writer, rx))?;
-        Ok(Pipe { reader: BufReader::new(stream), fd, queue, line: String::new(), closed: false })
+        Ok(Pipe { reader: BufReader::new(stream), fd, queue, line: Vec::new(), closed: false })
     }
 }
 
@@ -229,16 +230,21 @@ impl Bridge for Pipe {
     fn poll(&mut self) -> Vec<FromBridge> {
         let mut out = Vec::new();
         loop {
-            self.line.clear();
-            match self.reader.read_line(&mut self.line) {
+            // `read_until` keeps what it read before a `WouldBlock` in `line`; the rest of the line comes with a later poll.
+            match self.reader.read_until(b'\n', &mut self.line) {
                 Ok(0) => {
                     self.closed = true;
                     break;
                 }
-                Ok(_) => match serde_json::from_str::<FromBridge>(self.line.trim_end()) {
-                    Ok(m) => out.push(m),
-                    Err(e) => log::warn!("luna bridge: bad line {:?}: {e}", self.line),
-                },
+                Ok(_) if self.line.last() == Some(&b'\n') => {
+                    match serde_json::from_slice::<FromBridge>(self.line.trim_ascii_end()) {
+                        Ok(m) => out.push(m),
+                        Err(e) => log::warn!("luna bridge: bad line {:?}: {e}", String::from_utf8_lossy(&self.line)),
+                    }
+                    self.line.clear();
+                }
+                // The end of the stream in the middle of a line: the next read says so.
+                Ok(_) => {}
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
                 Err(e) => {
@@ -355,6 +361,50 @@ pub mod power {
 mod tests {
     use super::*;
     use crate::Rect;
+
+    /// A line the bridge writes can reach the loop in pieces, a piece ending inside a UTF-8 character: the head is kept until the rest
+    /// comes, and the message is read whole.
+    #[test]
+    fn a_bridge_line_split_across_reads_is_read_whole() {
+        use std::time::{Duration, Instant};
+        let dir = std::env::temp_dir().join(format!("lumatv-pipe-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("bridge.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        let mut pipe = Pipe::connect(path.to_str().unwrap()).unwrap();
+        let (mut bridge, _) = listener.accept().unwrap();
+        let lines = "{\"kind\":\"event\",\"token\":3,\"payload\":{\"title\":\"Café\"}}\n{\"kind\":\"ping\",\"seq\":7}\n".as_bytes();
+        let in_e = lines.iter().position(|&b| b == 0xc3).unwrap() + 1;
+        let wait = |pipe: &mut Pipe| {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            loop {
+                let got = pipe.poll();
+                if !got.is_empty() || !pipe.is_connected() || Instant::now() > deadline {
+                    return got;
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        };
+        for piece in [&lines[..20], &lines[20..in_e]] {
+            bridge.write_all(piece).unwrap();
+            std::thread::sleep(Duration::from_millis(20));
+            assert!(pipe.poll().is_empty(), "nothing before the line's end");
+        }
+        bridge.write_all(&lines[in_e..]).unwrap();
+        let got = wait(&mut pipe);
+        assert_eq!(got.len(), 2, "{got:?}");
+        match &got[0] {
+            FromBridge::Event(e) => assert_eq!((e.token, e.payload["title"].as_str()), (3, Some("Café"))),
+            other => panic!("{other:?}"),
+        }
+        assert!(matches!(got[1], FromBridge::Ping { seq: 7 }));
+        assert!(pipe.is_connected());
+        drop(bridge);
+        let _ = wait(&mut pipe);
+        assert!(!pipe.is_connected(), "the bridge's end closed");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn placement_payloads_match_lg() {
