@@ -44,6 +44,7 @@ app.js
 style.css
 assets/icon.png
 assets/largeIcon.png
+assets/extraLargeIcon.png
 assets/splash.png
 tools/$SRC_NAME
 tools/brand.sh
@@ -110,6 +111,9 @@ payload/vplane/clips/index.json
 tools/cardapp.sh
 card/appinfo.json
 card/splash.png
+card/icon.png
+card/largeIcon.png
+card/extraLargeIcon.png
 rustui/build/card/bin/lumatv-card
 rustui/build/card/bin64/lumatv-card-app
 gfx64/launch.sh
@@ -248,7 +252,7 @@ build_ipk "$APP_ID.frame" "$FRAME_VERSION" "$BUILD_DIR/frame-data" "$BUILD_DIR/f
 CARD_VERSION=$(grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' card/appinfo.json | grep -o '[0-9.]*')
 CARD_DATA="$BUILD_DIR/card-data/usr/palm/applications/$APP_ID.card"
 mkdir -p "$CARD_DATA/bin" "$CARD_DATA/bin64" "$CARD_DATA/gfx64/bundle" "$CARD_DATA/assets/wallpaper"
-cp card/appinfo.json card/splash.png assets/icon.png assets/largeIcon.png "$CARD_DATA/"
+cp card/appinfo.json card/splash.png card/icon.png card/largeIcon.png card/extraLargeIcon.png "$CARD_DATA/"
 cp rustui/build/card/bin/lumatv-card "$CARD_DATA/bin/"
 cp rustui/build/card/bin64/lumatv-card-app "$CARD_DATA/bin64/"
 cp gfx64/launch.sh gfx64/build/out/heapshim.so "$CARD_DATA/gfx64/"
@@ -275,6 +279,7 @@ cp app.js "$DATA_ROOT/"
 cp style.css "$DATA_ROOT/"
 cp assets/icon.png "$DATA_ROOT/"
 cp assets/largeIcon.png "$DATA_ROOT/"
+cp assets/extraLargeIcon.png "$DATA_ROOT/"
 cp assets/splash.png "$DATA_ROOT/"
 
 # Copy tools with execute bit

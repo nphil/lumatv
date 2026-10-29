@@ -8,6 +8,7 @@
   "main": "index.html",
   "icon": "icon.png",
   "largeIcon": "largeIcon.png",
+  "extraLargeIcon": "extraLargeIcon.png",
   "splashBackground": "splash.png",
   "iconColor": "#26233a",
   "requiredPermissions": ["all"],

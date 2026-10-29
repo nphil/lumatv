@@ -33,7 +33,7 @@ data=$build/data/usr/palm/applications/$id
 rm -rf "$build"
 mkdir -p "$data/bin64" "$data/gfx64/bundle" "$data/assets/wallpaper" "$build/control"
 cp "$here/package/appinfo.json" "$here/package/run64.sh" "$data/"
-cp "$root/assets/icon.png" "$root/assets/largeIcon.png" "$root/assets/splash.png" "$data/"
+cp "$here/package/icon.png" "$here/package/largeIcon.png" "$here/package/extraLargeIcon.png" "$here/package/splash.png" "$data/"
 cp "$feeder" "$data/lumatv-gfn-feeder"
 # The core execs the engine by path with no loader of its own, and the set's 32-bit userland has no /lib/ld-linux-aarch64.so.1, so
 # the path the core gets is a shell wrapper that runs the real binary through the package's loader.

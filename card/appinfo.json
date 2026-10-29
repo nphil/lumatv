@@ -8,6 +8,7 @@
   "appDescription": "A 64-bit app in its own card window, drawn with LumaTV's Rust toolkit",
   "icon": "icon.png",
   "largeIcon": "largeIcon.png",
+  "extraLargeIcon": "extraLargeIcon.png",
   "iconColor": "#26233a",
   "splashBackground": "splash.png",
   "nativeLifeCycleInterfaceVersion": 2,
