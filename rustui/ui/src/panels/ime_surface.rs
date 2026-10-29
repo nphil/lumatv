@@ -182,6 +182,9 @@ impl Lit {
     }
 }
 
+/// The words of the keys: the block, what each line says in what ink, and which keys are characters.
+type Caps = (Block, Vec<(String, Rgba)>, Vec<bool>);
+
 struct Built {
     sig: String,
     /// What the plates and pictures were painted for (the layout, the enter key, the voice key).
@@ -263,10 +266,8 @@ impl ImeSurface {
     fn cap_style(kit: &mut Kit, geo: &Geometry, k: &super::ime::Key, text: &str, ink: Rgba) -> Style {
         let role = if k.kind == Kind::Char { TypeRole::Title } else { TypeRole::Label };
         let mut style = role_style(kit, role, Some(Weight::Medium), ink, Align::Centre);
-        if k.kind == Kind::Char {
-            if geo.padded {
-                style.ty.px = (style.ty.px as f32 * 1.2).round() as u32;
-            }
+        if k.kind == Kind::Char && geo.padded {
+            style.ty.px = (style.ty.px as f32 * 1.2).round() as u32;
         }
         // the line keeps its air above and below in the key: a large text size gives way before the key does
         let room_h = geo.key_h - 2.0 * kit.space(2);
@@ -284,7 +285,7 @@ impl ImeSurface {
     }
 
     /// The words of the keys as one block: each key's line in the style of its class, with what it says now.
-    fn make_caps(kit: &mut Kit, z: i32, geo: &Geometry, v: &View) -> std::io::Result<(Block, Vec<(String, Rgba)>, Vec<bool>)> {
+    fn make_caps(kit: &mut Kit, z: i32, geo: &Geometry, v: &View) -> std::io::Result<Caps> {
         let mut now = Vec::new();
         let mut lines = Vec::new();
         for (i, k) in v.layout.keys.iter().enumerate() {

@@ -193,6 +193,8 @@ struct PopupBuilt {
     _text: Option<Words>,
     face: PopupFace,
     layout: PopupLayout,
+    /// The options' window, when they are taller than the card can be.
+    scroll: Option<Scroll>,
     _box: Option<ShapeLayer>,
     _marks: Vec<Words>,
     _icons: Vec<ImageLayer>,
@@ -457,7 +459,9 @@ impl QuickSurface {
     }
 
     fn build_edit(kit: &mut Kit, engine: &mut Engine, root: &Group, e: &EditView, area: Frame, z: i32) -> std::io::Result<EditParts> {
-        let row_h = lay::edit_row_h(kit);
+        let texts: Vec<(&str, &str)> = e.rows.iter().map(|r| (r.label.as_str(), r.detail.as_str())).collect();
+        let m = lay::edit_metrics(kit, area.w, &texts);
+        let row_h = m.row_h;
         let spacing = kit.space(1);
         let n = e.rows.len();
         let content_h = (n as f32 + 1.0) * row_h + n as f32 * spacing;
@@ -465,11 +469,7 @@ impl QuickSurface {
         let scene = kit.ui.scene.clone();
         let ink = kit.ui.look.ink();
         let ink2 = kit.ui.look.ink2();
-        let tile_side = (kit.tokens.target * 0.75).round();
-        let words_x = kit.space(3) + tile_side + kit.space(4);
-        let mark = tile_side;
-        let grip_w = 3.0 * mark + 2.0 * kit.space(1);
-        let words_w = area.w - words_x - grip_w - 2.0 * kit.space(3);
+        let (tile_side, words_x, words_w, mark, grip_w) = (m.tile_side, m.words_x, m.words_w, m.mark, m.grip_w);
         let mut rows = Vec::new();
         let mut tops = Vec::new();
         for (i, r) in e.rows.iter().enumerate() {
@@ -483,23 +483,21 @@ impl QuickSurface {
                 let tile_px =
                     tile(kit, tile_side as u32, &r.icon, false).layer(kit, z + 2, Props::at(f.x + kit.space(3), f.y + ((row_h - tile_side) / 2.0).round()))?;
                 let label = wrap::elide(kit, role_style(kit, TypeRole::Label, None, ink, Align::Left), &r.label, words_w);
-                let detail = wrap::elide(kit, role_style(kit, TypeRole::Caption, None, ink2, Align::Left), &r.detail, words_w);
+                let detail_style = role_style(kit, TypeRole::Caption, None, ink2, Align::Left);
                 let mut lines = vec![WordLine::new(&label, TypeRole::Label, ink)];
-                if !detail.is_empty() {
-                    lines.push(WordLine::new(&detail, TypeRole::Caption, ink2));
+                if !r.detail.is_empty() {
+                    for d in wrap::lines(kit, detail_style, &r.detail, words_w, m.detail_lines) {
+                        lines.push(WordLine::new(&d, TypeRole::Caption, ink2));
+                    }
                 }
                 let wh = Words::height_of(kit, &lines);
-                let words = Words::new(kit, f.x + words_x, f.y + ((row_h - wh) / 2.0).round(), words_w, z + 3, &lines)?;
-                let grip = Px::new(grip_w as u32, mark as u32).layer(
-                    kit,
-                    z + 3,
-                    Props::at(f.x + area.w - kit.space(3) - grip_w, f.y + ((row_h - mark) / 2.0).round()),
-                )?;
+                let words_y = if m.stacked { m.words_y } else { ((row_h - wh) / 2.0).round() };
+                let words = Words::new(kit, f.x + words_x, f.y + words_y, words_w, z + 3, &lines)?;
+                let grip = Px::new(grip_w as u32, mark as u32).layer(kit, z + 3, Props::at(f.x + m.grip_x, f.y + m.grip_y))?;
                 Ok((tile_px, words, grip))
             })?;
             // the marks are pointer targets too: up, down and remove
-            let gx = f.x + area.w - kit.space(3) - grip_w;
-            let gy = f.y + ((row_h - mark) / 2.0).round();
+            let (gx, gy) = (f.x + m.grip_x, f.y + m.grip_y);
             let marks = [Target::EditMove(i, -1).id(), Target::EditMove(i, 1).id(), Target::EditRemove(i).id()];
             for (k, id) in marks.iter().enumerate() {
                 let mf = Frame::new(gx + k as f32 * (mark + kit.space(1)), gy, mark, mark);
@@ -531,8 +529,7 @@ impl QuickSurface {
             )?;
             Ok((outline, plus, words))
         })?;
-        let gx = area.w - kit.space(3) - grip_w;
-        let gy = ((row_h - mark) / 2.0).round();
+        let (gx, gy) = (m.grip_x, m.grip_y);
         let mark_rel = [0, 1, 2].map(|k| Frame::new(gx + k as f32 * (mark + kit.space(1)), gy, mark, mark));
         let mut me = EditParts { rows, add_id, add_plate, _add: parts, scroll, tops, row_h, x0: area.x, grips: None, mark_rel };
         Self::paint_grips(kit, &mut me, e);
@@ -613,7 +610,8 @@ impl QuickSurface {
             let sheet_bottom = sheet.y + sheet.h - pad;
             let (mut strip, mut list, mut edit, mut pad_parts, mut foot) = (Vec::new(), None, None, None, None);
             if let Some(p) = &view.pad {
-                pad_parts = Some(Self::build_pad(kit, engine, root_group, p, Frame::new(sheet.x + pad, cursor, inner, sheet_bottom - cursor), z)?);
+                let parts = Self::build_pad(kit, engine, root_group, p, Frame::new(sheet.x + pad, cursor, inner, sheet_bottom - cursor), z)?;
+                pad_parts = Some(parts);
             } else if let Some(e) = view.edit.as_ref().filter(|_| view.editing) {
                 edit = Some(Self::build_edit(kit, engine, root_group, e, Frame::new(sheet.x + pad, cursor, inner, sheet_bottom - cursor), z)?);
             } else {
@@ -687,7 +685,7 @@ impl QuickSurface {
                 let lines: Vec<WordLine> = layout.text.iter().map(|t| WordLine::new(t, TypeRole::Caption, ink2)).collect();
                 Some(Words::new(kit, f.x + pad, f.y + pad + kit.line(TypeRole::Title) + kit.space(3), f.w - 2.0 * pad, z + 2, &lines)?)
             };
-            let (mut marks_words, mut icons, mut box_shape) = (Vec::new(), Vec::new(), None);
+            let (mut marks_words, mut icons, mut box_shape, mut scroll) = (Vec::new(), Vec::new(), None, None);
             let face = match p {
                 PopupView::Slider { from, to, value, marks, icons: ends, .. } => {
                     let s = layout.slider.clone().expect("a slider layout");
@@ -736,48 +734,70 @@ impl QuickSurface {
                 }
                 PopupView::Pick { options, .. } => {
                     let label_style = role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Left);
+                    // the options move in a window of the card when they are more than it can hold
+                    scroll = layout.scroll.as_ref().map(|sc| Scroll::new(kit, &group, sc.window, sc.content_h)).transpose()?;
+                    let parent = scroll.as_ref().map_or(&group, |s| &s.inner);
                     let mut rows = Vec::new();
                     for (i, o) in options.iter().enumerate() {
                         let of = layout.options[i];
                         let rf = Frame::new(f.x + of.x, f.y + of.y, of.w, of.h);
+                        let fits = match (&scroll, &layout.scroll) {
+                            (Some(s), Some(sc)) => s.fits(sc.tops[i], of.h, 0.0),
+                            _ => true,
+                        };
                         let id = Target::Option(i).id();
-                        let plate_parts = Self::make_plate(kit, engine, &group, id, rf, rf, REGION_POPUP, POPUP_SCOPE, z + 1, Lift::Row, Radius::Row)?;
+                        let plate_parts = Self::make_plate(
+                            kit,
+                            engine,
+                            parent,
+                            id,
+                            if fits { rf } else { zero() },
+                            rf,
+                            REGION_POPUP,
+                            POPUP_SCOPE,
+                            z + 1,
+                            Lift::Row,
+                            Radius::Row,
+                        )?;
                         let x = kit.space(4) + if o.icon.is_empty() { 0.0 } else { 28.0 + kit.space(4) };
-                        let icon_layer = if o.icon.is_empty() {
-                            None
-                        } else {
-                            icon::layer(kit, &o.icon, 28, ink2, z + 2, Props::at(rf.x + kit.space(4), rf.y + ((rf.h - 28.0) / 2.0).round()))?
-                        };
-                        let lines = wrap::lines(kit, label_style, &o.label, rf.w - x - 120.0, 4);
-                        let wl: Vec<WordLine> = lines.iter().map(|t| WordLine::new(t, TypeRole::Label, ink).weight(Weight::SemiBold)).collect();
-                        let wh = Words::height_of(kit, &wl);
-                        let words = Words::new(kit, rf.x + x, rf.y + ((rf.h - wh) / 2.0).round(), rf.w - x - 120.0, z + 2, &wl)?;
-                        let (detail, tick) = if o.current {
-                            (
-                                None,
-                                icon::layer(
+                        let (icon_layer, words, detail, tick) = scene.adopting(parent, || -> std::io::Result<_> {
+                            let icon_layer = if o.icon.is_empty() {
+                                None
+                            } else {
+                                icon::layer(kit, &o.icon, 28, ink2, z + 2, Props::at(rf.x + kit.space(4), rf.y + ((rf.h - 28.0) / 2.0).round()))?
+                            };
+                            let lines = wrap::lines(kit, label_style, &o.label, rf.w - x - 120.0, 4);
+                            let wl: Vec<WordLine> = lines.iter().map(|t| WordLine::new(t, TypeRole::Label, ink).weight(Weight::SemiBold)).collect();
+                            let wh = Words::height_of(kit, &wl);
+                            let words = Words::new(kit, rf.x + x, rf.y + ((rf.h - wh) / 2.0).round(), rf.w - x - 120.0, z + 2, &wl)?;
+                            let (detail, tick) = if o.current {
+                                (
+                                    None,
+                                    icon::layer(
+                                        kit,
+                                        "check",
+                                        28,
+                                        kit.ui.look.accent(),
+                                        z + 2,
+                                        Props::at(rf.x + rf.w - kit.space(4) - 28.0, rf.y + ((rf.h - 28.0) / 2.0).round()),
+                                    )?,
+                                )
+                            } else if !o.detail.is_empty() {
+                                let dw = width_of(kit, role_style(kit, TypeRole::Caption, None, ink2, Align::Right), &o.detail) + 2.0;
+                                let w = Words::new(
                                     kit,
-                                    "check",
-                                    28,
-                                    kit.ui.look.accent(),
+                                    rf.x + rf.w - kit.space(4) - dw,
+                                    rf.y + ((rf.h - kit.line(TypeRole::Caption)) / 2.0).round(),
+                                    dw,
                                     z + 2,
-                                    Props::at(rf.x + rf.w - kit.space(4) - 28.0, rf.y + ((rf.h - 28.0) / 2.0).round()),
-                                )?,
-                            )
-                        } else if !o.detail.is_empty() {
-                            let dw = width_of(kit, role_style(kit, TypeRole::Caption, None, ink2, Align::Right), &o.detail) + 2.0;
-                            let w = Words::new(
-                                kit,
-                                rf.x + rf.w - kit.space(4) - dw,
-                                rf.y + ((rf.h - kit.line(TypeRole::Caption)) / 2.0).round(),
-                                dw,
-                                z + 2,
-                                &[WordLine::new(&o.detail, TypeRole::Caption, ink2).aligned(Align::Right)],
-                            )?;
-                            (Some(w), None)
-                        } else {
-                            (None, None)
-                        };
+                                    &[WordLine::new(&o.detail, TypeRole::Caption, ink2).aligned(Align::Right)],
+                                )?;
+                                (Some(w), None)
+                            } else {
+                                (None, None)
+                            };
+                            Ok((icon_layer, words, detail, tick))
+                        })?;
                         rows.push(PickRow { plate: plate_parts, _icon: icon_layer, _words: words, _detail: detail, _tick: tick });
                     }
                     PopupFace::Pick { rows }
@@ -791,6 +811,7 @@ impl QuickSurface {
                 _text: text,
                 face,
                 layout: layout.clone(),
+                scroll,
                 _box: box_shape,
                 _marks: marks_words,
                 _icons: icons,
@@ -1005,6 +1026,7 @@ impl QuickSurface {
         match &view.focus {
             Some(Focus::Row(i)) => self.reveal_row(engine, *i, now_ms, disabled),
             Some(Focus::EditRow(i)) => self.reveal_edit(engine, *i),
+            Some(Focus::Option(i)) => self.reveal_option(engine, *i),
             Some(Focus::EditAdd) => {
                 let n = self.built.as_ref().and_then(|b| b.edit.as_ref()).map_or(0, |e| e.rows.len());
                 self.reveal_edit(engine, n);
@@ -1047,6 +1069,23 @@ impl QuickSurface {
             engine.focus.place(r.id, if will { Frame::new(list.x0, window.y + r.top - target, window.w, r.layout.h) } else { zero() });
         }
         list.settle_due = Some(now_ms + SETTLE_MS);
+    }
+
+    /// Moves the card's options so that the focused one shows whole, and puts the registry's frames where the options will be.
+    fn reveal_option(&mut self, engine: &mut Engine, i: usize) {
+        let Some(p) = self.popup.as_mut() else { return };
+        let (Some(scroll), Some(sc)) = (p.scroll.as_mut(), p.layout.scroll.as_ref()) else { return };
+        let (Some(top), Some(of)) = (sc.tops.get(i).copied(), p.layout.options.get(i)) else { return };
+        let target = scroll.reveal(top, of.h, &sc.tops);
+        if (target - scroll.offset()).abs() < 0.5 {
+            return;
+        }
+        scroll.to(engine, target, false);
+        for (k, of) in p.layout.options.iter().enumerate() {
+            let will = scroll.fits(sc.tops[k], of.h, target);
+            let f = Frame::new(p.layout.frame.x + of.x, sc.window.y + sc.tops[k] - target, of.w, of.h);
+            engine.focus.place(Target::Option(k).id(), if will { f } else { zero() });
+        }
     }
 
     fn reveal_edit(&mut self, engine: &mut Engine, i: usize) {
@@ -1242,6 +1281,9 @@ impl QuickSurface {
             "edit": edit,
             "pad": pad,
             "popup": self.popup.as_ref().map(|p| f(p.layout.frame)),
+            // the options as the pointer and the keys see them (the ones the window does not show are nowhere), and how far they have moved
+            "popupOptions": self.popup.as_ref().map(|p| (0..p.layout.options.len()).map(|k| engine.focus.frame(Target::Option(k).id()).map(f)).collect::<Vec<_>>()),
+            "popupOffset": self.popup.as_ref().and_then(|p| p.scroll.as_ref()).map(Scroll::offset),
             "offset": b.list.as_ref().map_or(0.0, |l| l.scroll.offset()),
             "window": b.list.as_ref().map(|l| f(l.scroll.window())),
             "focus": engine.focus.current().map(|i| i.0),
@@ -1314,10 +1356,17 @@ impl QuickSurface {
             match &p.face {
                 PopupFace::Slider { value, .. } => value.feed_lint(kit, lint, "card value", Some(card), (0.0, 0.0)),
                 PopupFace::Pick { rows } => {
+                    let offset = p.scroll.as_ref().map_or(0.0, Scroll::offset);
                     for (i, r) in rows.iter().enumerate() {
-                        r._words.feed_lint(kit, lint, &format!("card option {i}"), Some(card), (0.0, 0.0));
+                        // an option the window shows only in part is cut, not crammed: only the ones it shows whole are read
+                        if let (Some(s), Some(sc)) = (&p.scroll, &p.layout.scroll)
+                            && !s.fits(sc.tops[i], p.layout.options[i].h, offset)
+                        {
+                            continue;
+                        }
+                        r._words.feed_lint(kit, lint, &format!("card option {i}"), Some(card), (0.0, -offset));
                         if let Some(d) = &r._detail {
-                            d.feed_lint(kit, lint, &format!("card option {i} detail"), Some(card), (0.0, 0.0));
+                            d.feed_lint(kit, lint, &format!("card option {i} detail"), Some(card), (0.0, -offset));
                         }
                     }
                 }
@@ -1329,6 +1378,7 @@ impl QuickSurface {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kit::hint::{Action, Hint, Key};
     use crate::kit::testkit;
     use crate::panels::K;
     use crate::panels::env::Env;
@@ -1475,6 +1525,74 @@ mod tests {
     }
 
     #[test]
+    fn a_card_with_more_options_than_the_screen_holds_scrolls_them_in_a_window_and_keeps_the_focused_one_whole() {
+        let mut u = Up::new(Mode::Dark, 2.0, true);
+        u.key(K::Ok);
+        let n = u.s.popup.as_ref().map_or(0, |p| p.layout.options.len());
+        assert!(n >= 4, "a card of choices");
+        // more choices than the card has room for at this text size
+        let many: Vec<crate::panels::quick::OptionView> = (0..14)
+            .map(|i| crate::panels::quick::OptionView { label: format!("Choice number {i}"), icon: "image".into(), detail: String::new(), current: i == 0 })
+            .collect();
+        let mut view = u.q.view(&u.env, u.t);
+        view.popup = Some(PopupView::Pick { title: "Picture mode".into(), text: "How the picture looks.".into(), options: many, index: 0 });
+        view.focus = Some(Focus::Option(0));
+        let phase = u.q.life.phase();
+        u.s.apply(&mut u.kit, &mut u.engine, &view, phase, u.t, u.t * 1_000_000).expect("drawn");
+        let g = u.s.geometry(&u.engine);
+        let (top, bottom) = (g["popup"]["y"].as_f64().unwrap(), g["popup"]["y"].as_f64().unwrap() + g["popup"]["h"].as_f64().unwrap());
+        assert!(top >= 54.0 - 0.5 && bottom <= 1080.0 - 54.0 + 0.5, "the card stays inside the safe area: {top}..{bottom}");
+        let shown = |g: &Value| g["popupOptions"].as_array().unwrap().iter().filter(|o| o.as_object().is_some_and(|f| f["h"].as_f64().unwrap() > 0.0)).count();
+        assert!(shown(&g) > 0 && shown(&g) < 14, "some of the options are in the window: {}", shown(&g));
+        assert_eq!(g["popupOffset"], 0.0);
+        assert!(u.lint().is_empty(), "{:?}", u.lint());
+        // down through all of them: the window follows and the focused one is always whole inside it
+        for i in 1..14 {
+            view.focus = Some(Focus::Option(i));
+            if let Some(PopupView::Pick { index, .. }) = view.popup.as_mut() {
+                *index = i;
+            }
+            u.s.apply(&mut u.kit, &mut u.engine, &view, phase, u.t, u.t * 1_000_000).expect("drawn");
+            let g = u.s.geometry(&u.engine);
+            let f = &g["popupOptions"][i];
+            let window = u.s.popup.as_ref().and_then(|p| p.layout.scroll.as_ref()).map(|s| s.window).expect("a window");
+            let (y, h) = (f["y"].as_f64().unwrap() as f32, f["h"].as_f64().unwrap() as f32);
+            assert!(h > 0.0 && y >= window.y - 0.5 && y + h <= window.y + window.h + 0.5, "option {i} is whole inside the window: {f} in {window:?}");
+        }
+        assert!(g["popupOffset"].as_f64().is_some() && u.s.geometry(&u.engine)["popupOffset"].as_f64().unwrap() > 0.0);
+        assert!(u.lint().is_empty(), "{:?}", u.lint());
+        // a card that fits has no window
+        u.key(K::Back);
+    }
+
+    #[test]
+    fn the_edit_list_keeps_every_tile_name_whole_at_200_percent_by_putting_the_marks_under_the_words() {
+        let mut heights = Vec::new();
+        for scale in [1.0, 2.0] {
+            for mode in [Mode::Dark, Mode::Light] {
+                let mut u = Up::new(mode, scale, true);
+                u.key(K::Down);
+                u.q.held(&u.env);
+                u.apply();
+                let e = u.s.built.as_ref().and_then(|b| b.edit.as_ref()).expect("the edit list");
+                for (i, r) in e.rows.iter().enumerate() {
+                    for l in 0..r.words.len() {
+                        assert!(!r.words.text(l).contains('\u{2026}'), "{mode:?} {scale}: row {i} line {l} is cut: {}", r.words.text(l));
+                    }
+                }
+                if mode == Mode::Dark {
+                    heights.push(e.row_h);
+                }
+                assert!(u.lint().is_empty(), "{mode:?} {scale}: {:?}", u.lint());
+                // the marks stay targets inside their row
+                let g = u.s.geometry(&u.engine);
+                assert!(g["edit"].as_array().is_some_and(|rows| !rows.is_empty()), "{g}");
+            }
+        }
+        assert!(heights[1] > heights[0], "a row grows with the text, as every row alike: {heights:?}");
+    }
+
+    #[test]
     fn the_oled_slider_card_follows_the_value_in_place() {
         let mut u = Up::new(Mode::Dark, 1.0, true);
         u.env.theme = json!({"remote": {"quickPanelEdit": true}, "quickPanel": {"tiles": ["oled", "picture"]}});
@@ -1505,6 +1623,27 @@ mod tests {
                 assert!(low <= sheet_bottom, "{mode:?} {scale}: the last row of keys ({low}) is inside the sheet ({sheet_bottom})");
                 assert!(u.lint().is_empty(), "{mode:?} {scale}: {:?}", u.lint());
             }
+        }
+    }
+
+    #[test]
+    fn the_pin_pad_shows_the_glyphs_of_the_keys_in_its_head_in_place_of_the_clock_at_both_sizes() {
+        for scale in [1.0, 2.0] {
+            let mut u = Up::new(Mode::Dark, scale, false);
+            feed(&mut u.env, "profiles", two_people("isabel", &["nitin"]), 10);
+            u.apply();
+            assert_eq!(u.q.view(&u.env, u.t).hints_head, Vec::new(), "none on the list");
+            u.key(K::Up);
+            u.key(K::Left);
+            u.key(K::Ok);
+            let v = u.q.view(&u.env, u.t);
+            assert_eq!(v.hints_head, vec![Hint::key(Key::Ok, Action::Confirm), Hint::key(Key::Back, Action::Close)]);
+            assert!(v.clock.is_empty(), "the clock gives way");
+            let head = u.s.built.as_ref().map(|b| b.head._hints.len());
+            assert_eq!(head, Some(2), "OK and Back, as glyphs");
+            assert!(u.lint().is_empty(), "{scale}: {:?}", u.lint());
+            u.key(K::Back);
+            assert_eq!(u.s.built.as_ref().map(|b| b.head._hints.len()), Some(0), "the list has its own foot hints");
         }
     }
 

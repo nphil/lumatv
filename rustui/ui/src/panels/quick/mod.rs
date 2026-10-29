@@ -1017,6 +1017,9 @@ impl Quick {
                 vec![Hint::key(Key::Ok, Action::Move), Hint::key(Key::Back, Action::Confirm)]
             };
             (String::new(), hint)
+        } else if self.pin.is_some() {
+            // the PIN pad: the clock gives way to what the keys do (OK types the digit under the focus, Back gives the list back)
+            (String::new(), vec![Hint::key(Key::Ok, Action::Confirm), Hint::key(Key::Back, Action::Close)])
         } else {
             (clock::time_of(now), Vec::new())
         };

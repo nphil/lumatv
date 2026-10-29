@@ -36,9 +36,20 @@ pub enum Trail {
     None,
     Toggle,
     /// A chip: a state tag (AI access's On) or an action's button words.
-    Chip { text: String, tone: String, w: f32, h: f32 },
+    Chip {
+        text: String,
+        tone: String,
+        w: f32,
+        h: f32,
+    },
     /// The value's words and a chevron.
-    Value { text: String, text_w: f32, chevron: bool, w: f32, h: f32 },
+    Value {
+        text: String,
+        text_w: f32,
+        chevron: bool,
+        w: f32,
+        h: f32,
+    },
 }
 
 impl Trail {
@@ -131,7 +142,8 @@ pub fn row_layout(kit: &mut Kit, r: &Row, width: f32) -> RowLayout {
     let trail = match r.kind {
         Kind::Toggle => Trail::Toggle,
         Kind::Value | Kind::Action => {
-            let (text, tone, chip) = if r.kind == Kind::Action { (r.button.clone(), String::new(), true) } else { (r.value.clone(), r.tone.to_string(), r.chip) };
+            let (text, tone, chip) =
+                if r.kind == Kind::Action { (r.button.clone(), String::new(), true) } else { (r.value.clone(), r.tone.to_string(), r.chip) };
             if chip {
                 let (w, h) = Chip::size(kit, &text, &tone);
                 Trail::Chip { text, tone, w, h }
@@ -140,7 +152,13 @@ pub fn row_layout(kit: &mut Kit, r: &Row, width: f32) -> RowLayout {
                 let text_w = if text.is_empty() { 0.0 } else { width_of(kit, role_style(kit, TypeRole::Label, None, ink2, Align::Left), &text) };
                 let chevron = r.chevron;
                 let w = text_w + if text_w > 0.0 && chevron { kit.space(3) } else { 0.0 } + if chevron { chevron_side } else { 0.0 };
-                let h = if text_w > 0.0 { label_line.max(if chevron { chevron_side } else { 0.0 }) } else if chevron { chevron_side } else { 0.0 };
+                let h = if text_w > 0.0 {
+                    label_line.max(if chevron { chevron_side } else { 0.0 })
+                } else if chevron {
+                    chevron_side
+                } else {
+                    0.0
+                };
                 Trail::Value { text, text_w, chevron, w, h }
             }
         }
@@ -176,7 +194,8 @@ pub fn row_layout(kit: &mut Kit, r: &Row, width: f32) -> RowLayout {
     let tile_y = if stacked { pad } else { ((h - tile) / 2.0).round() };
     let words_y = if stacked { pad } else { ((h - words_h) / 2.0).round() };
     let below = below_value.map(|value| {
-        let (x, y, w) = if beside { (width - pad - need, ((h - below_h) / 2.0).round(), need) } else { (text_x, pad + text_h + kit.space(2), width - text_x - pad) };
+        let (x, y, w) =
+            if beside { (width - pad - need, ((h - below_h) / 2.0).round(), need) } else { (text_x, pad + text_h + kit.space(2), width - text_x - pad) };
         Below { need, h: below_h, value, frame: Frame::new(x, y, w, below_h) }
     });
     RowLayout {
@@ -196,7 +215,7 @@ pub fn row_layout(kit: &mut Kit, r: &Row, width: f32) -> RowLayout {
     }
 }
 
-/// The head: the title in lines, the clock beside it while both fit on a line, else under it (a large text size); in edit mode the hints
+/// The head: the title in lines, the clock beside it while both fit on a line, else under it (a large text size); in edit mode and on the PIN pad the hints
 /// of what the keys do take the clock's place.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HeadLayout {
@@ -215,8 +234,13 @@ pub fn head_layout(kit: &mut Kit, v: &View, inner: f32) -> HeadLayout {
     let label_line = kit.line(TypeRole::Label);
     let one_line = width_of(kit, title_style, &v.title);
     let gap = kit.space(4);
-    let (side_w, side_h) = if v.editing {
-        (super::ui::hints_width(kit, &v.hints_head, TypeRole::Label, kit.space(5)), super::ui::hint_width(kit, &Hint::key(crate::kit::hint::Key::Ok, crate::kit::hint::Action::Move), TypeRole::Label) * 0.0 + crate::kit::hint::glyph_side(kit, TypeRole::Label) as f32)
+    let hinted = v.editing || !v.hints_head.is_empty();
+    let (side_w, side_h) = if hinted {
+        (
+            super::ui::hints_width(kit, &v.hints_head, TypeRole::Label, kit.space(5)),
+            super::ui::hint_width(kit, &Hint::key(crate::kit::hint::Key::Ok, crate::kit::hint::Action::Move), TypeRole::Label) * 0.0
+                + crate::kit::hint::glyph_side(kit, TypeRole::Label) as f32,
+        )
     } else {
         let w = if v.clock.is_empty() { 0.0 } else { width_of(kit, role_style(kit, TypeRole::Label, None, kit.ui.look.ink2(), Align::Left), &v.clock) };
         (w, label_line)
@@ -225,8 +249,14 @@ pub fn head_layout(kit: &mut Kit, v: &View, inner: f32) -> HeadLayout {
     let title_w = if below || side_w == 0.0 { inner } else { inner - side_w - gap };
     let title = wrap::lines(kit, title_style, &v.title, title_w, 3);
     let title_h = title.len() as f32 * title_line;
-    let h = if side_w == 0.0 { title_h } else if below { title_h + side_h } else { title_h.max(side_h) };
-    let (clock, hints_at) = if v.editing {
+    let h = if side_w == 0.0 {
+        title_h
+    } else if below {
+        title_h + side_h
+    } else {
+        title_h.max(side_h)
+    };
+    let (clock, hints_at) = if hinted {
         (None, if below { (0.0, title_h) } else { (inner - side_w, ((title_h.min(title_line) - side_h) / 2.0).round().max(0.0)) })
     } else if v.clock.is_empty() {
         (None, (0.0, 0.0))
@@ -235,12 +265,74 @@ pub fn head_layout(kit: &mut Kit, v: &View, inner: f32) -> HeadLayout {
     } else {
         (Some((v.clock.clone(), inner - side_w, ((title_line - label_line) / 2.0).round())), (0.0, 0.0))
     };
-    HeadLayout { title, title_w, clock, hints: if v.editing { v.hints_head.clone() } else { Vec::new() }, hints_at, below, h }
+    HeadLayout { title, title_w, clock, hints: if hinted { v.hints_head.clone() } else { Vec::new() }, hints_at, below, h }
 }
 
-/// The edit list's row height: as tall as its two lines need, so a large text size grows every row alike and none is cut.
-pub fn edit_row_h(kit: &Kit) -> f32 {
-    (kit.tokens.row * 0.95).round().max(kit.line(TypeRole::Label) + kit.line(TypeRole::Caption) + kit.space(4))
+/// Where the parts of an edit row go (relative to the row), and how tall every row is.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EditMetrics {
+    pub row_h: f32,
+    /// The marks (up, down, remove) are under the words, not beside them: at a text size where the names would be cut beside them.
+    pub stacked: bool,
+    pub tile_side: f32,
+    pub words_x: f32,
+    pub words_y: f32,
+    pub words_w: f32,
+    /// The most lines a detail takes (stacked rows give a long one a second line).
+    pub detail_lines: usize,
+    pub mark: f32,
+    pub grip_w: f32,
+    pub grip_x: f32,
+    pub grip_y: f32,
+}
+
+/// The edit list's rows: an icon tile, the name (and what it says under it) and the three marks. Beside the words while every name and every
+/// line under it fits there, else under them with the words given the row's width: a large text size grows every row alike and no name is cut
+/// off (an elision is the last resort, for a name that is longer than the row itself).
+pub fn edit_metrics(kit: &mut Kit, area_w: f32, texts: &[(&str, &str)]) -> EditMetrics {
+    let tile_side = (kit.tokens.target * 0.75).round();
+    let words_x = kit.space(3) + tile_side + kit.space(4);
+    let mark = tile_side;
+    let grip_w = 3.0 * mark + 2.0 * kit.space(1);
+    let beside_w = area_w - words_x - grip_w - 2.0 * kit.space(3);
+    let (label, detail) =
+        (role_style(kit, TypeRole::Label, None, kit.ui.look.ink(), Align::Left), role_style(kit, TypeRole::Caption, None, kit.ui.look.ink2(), Align::Left));
+    let fits = texts.iter().all(|(l, d)| width_of(kit, label, l) <= beside_w && (d.is_empty() || width_of(kit, detail, d) <= beside_w));
+    let (label_line, caption_line) = (kit.line(TypeRole::Label), kit.line(TypeRole::Caption));
+    let two_lines = (kit.tokens.row * 0.95).round().max(label_line + caption_line + kit.space(4));
+    if fits {
+        return EditMetrics {
+            row_h: two_lines,
+            stacked: false,
+            tile_side,
+            words_x,
+            words_y: 0.0,
+            words_w: beside_w,
+            detail_lines: 1,
+            mark,
+            grip_w,
+            grip_x: area_w - kit.space(3) - grip_w,
+            grip_y: ((two_lines - mark) / 2.0).round(),
+        };
+    }
+    // the marks take a line of their own at the foot of the row, at its right; a detail longer than the words' room goes on to a second line
+    let top = kit.space(2);
+    let words_w = area_w - words_x - kit.space(3);
+    let detail_lines = texts.iter().map(|(_, d)| if d.is_empty() { 1 } else { wrap::lines(kit, detail, d, words_w, 2).len() }).max().unwrap_or(1);
+    let row_h = (top + label_line + caption_line * detail_lines as f32 + kit.space(1) + mark + top).ceil().max(two_lines);
+    EditMetrics {
+        row_h,
+        stacked: true,
+        tile_side,
+        words_x,
+        words_y: top,
+        words_w,
+        detail_lines,
+        mark,
+        grip_w,
+        grip_x: area_w - kit.space(3) - grip_w,
+        grip_y: row_h - top - mark,
+    }
 }
 
 /// The strip of profiles above the list.
@@ -335,6 +427,31 @@ pub struct PopupLayout {
     pub slider: Option<SliderLayout>,
     pub options: Vec<Frame>,
     pub body_y: f32,
+    /// The options are taller than the room the card has (a long list at a large text size): the card is as tall as the screen allows and the
+    /// options move in a window of it.
+    pub scroll: Option<PopupScroll>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PopupScroll {
+    /// Where the options show, on the screen.
+    pub window: Frame,
+    /// How tall the options are together, from the window's top.
+    pub content_h: f32,
+    /// Each option's top from the window's top.
+    pub tops: Vec<f32>,
+}
+
+impl PopupLayout {
+    /// The card rises to the top of the safe area and fills the room to `limit`; the options go in a window of what is under its words.
+    fn scroll_options(&mut self, kit: &Kit, limit: f32) {
+        let (Some(first), Some(last)) = (self.options.first(), self.options.last()) else { return };
+        let content_h = last.y + last.h - first.y;
+        self.frame.y = POPUP_EDGE;
+        self.frame.h = limit - POPUP_EDGE;
+        let window = Frame::new(self.frame.x + first.x, self.frame.y + first.y, first.w, (self.frame.h - first.y - kit.space(5)).max(1.0));
+        self.scroll = Some(PopupScroll { window, content_h, tops: self.options.iter().map(|o| o.y - first.y).collect() });
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -360,7 +477,11 @@ pub fn popup_layout(kit: &mut Kit, p: &PopupView) -> PopupLayout {
         if l.frame.y + l.frame.h > limit {
             l.frame.y = (limit - l.frame.h).max(POPUP_EDGE);
         }
-        if l.frame.y + l.frame.h <= limit || text_max == 1 || l.text.is_empty() {
+        let fits = l.frame.y + l.frame.h <= limit;
+        if fits || text_max == 1 || l.text.is_empty() {
+            if !fits {
+                l.scroll_options(kit, limit);
+            }
             return l;
         }
         text_max -= 1;
@@ -425,7 +546,7 @@ fn popup_layout_with(kit: &mut Kit, p: &PopupView, text_max: usize) -> PopupLayo
     }
     let h = y + kit.space(5);
     let frame = Frame::new(popup_x(kit), POPUP_Y, w, h);
-    PopupLayout { frame, title, title_w, value: value.map(|v| (v, value_w)), text, slider, options, body_y }
+    PopupLayout { frame, title, title_w, value: value.map(|v| (v, value_w)), text, slider, options, body_y, scroll: None }
 }
 
 #[cfg(test)]
@@ -571,7 +692,16 @@ mod tests {
     #[test]
     fn the_card_sits_48_px_from_the_sheet_and_is_as_tall_as_its_content() {
         let (_h, mut kit) = testkit::kit(1.0);
-        let slider = PopupView::Slider { title: "OLED pixel brightness".into(), text: "How bright the screen is.".into(), from: 0.0, to: 100.0, step: 5.0, value: 40.0, marks: ["0", "50", "100"], icons: ["sun-dim", "sun"] };
+        let slider = PopupView::Slider {
+            title: "OLED pixel brightness".into(),
+            text: "How bright the screen is.".into(),
+            from: 0.0,
+            to: 100.0,
+            step: 5.0,
+            value: 40.0,
+            marks: ["0", "50", "100"],
+            icons: ["sun-dim", "sun"],
+        };
         let p = popup_layout(&mut kit, &slider);
         assert_eq!((p.frame.x, p.frame.y, p.frame.w), (712.0, 137.0, 560.0));
         assert_eq!(p.frame.x + p.frame.w + 48.0, sheet().x, "48 px from the sheet");
@@ -582,7 +712,9 @@ mod tests {
         let pick = PopupView::Pick {
             title: "Picture mode".into(),
             text: "How the picture looks.".into(),
-            options: (0..7).map(|i| super::super::quick::OptionView { label: format!("Mode {i}"), icon: "image".into(), detail: String::new(), current: i == 1 }).collect(),
+            options: (0..7)
+                .map(|i| super::super::quick::OptionView { label: format!("Mode {i}"), icon: "image".into(), detail: String::new(), current: i == 1 })
+                .collect(),
             index: 1,
         };
         let q = popup_layout(&mut kit, &pick);
@@ -598,7 +730,9 @@ mod tests {
         let pick = PopupView::Pick {
             title: "Picture mode".into(),
             text: "How the picture looks. Each input keeps its own.".into(),
-            options: (0..7).map(|i| super::super::quick::OptionView { label: format!("Mode {i}"), icon: "image".into(), detail: String::new(), current: i == 1 }).collect(),
+            options: (0..7)
+                .map(|i| super::super::quick::OptionView { label: format!("Mode {i}"), icon: "image".into(), detail: String::new(), current: i == 1 })
+                .collect(),
             index: 1,
         };
         let q = popup_layout(&mut kit, &pick);
