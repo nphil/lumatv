@@ -50,6 +50,8 @@ pub struct Stats {
     pub callbacks_sent: u64,
     /// Of those, the ones that went out before their frame landed ([`Owed::ahead`]).
     pub callbacks_ahead: u64,
+    /// Of those, the ones that went out with the commit that carried them ([`ClientCallbacks::Commit`]).
+    pub callbacks_at_commit: u64,
     pub releases: u64,
     pub clients_total: u64,
     pub render_us_last: u64,
@@ -120,23 +122,65 @@ pub struct CheckState {
     pub unread: u64,
 }
 
+/// When a client's frame callbacks go out (`ctl callbacks clients commit|early|landing`); the shell client has its own switch
+/// ([`State::shell_ahead`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClientCallbacks {
+    /// A card's with the commit that carries them, before the frame is drawn; every other window's as under [`Self::Draw`].
+    /// The default since round 19. Cards are the apps SAM launches, each drawing through LG's libmali; LG's own overlays and the
+    /// x1 probe (an overlay) keep the draw's pacing.
+    ///
+    /// LG's libmali (r46p0, read from the driver) presents each swap on its own thread: `display_window_buffer` waits for the frame
+    /// callback of the frame before, polling the socket a second at a time, and only then attaches and commits the next buffer on the
+    /// `wl_surface` it kept. The app's swap returns two frames ahead of that thread (`eglp_gles_flush_operation`'s semaphore), so with
+    /// the callback at the draw a present was waiting on the compositor at almost every moment: the commit the callback released
+    /// lands a millisecond after the draw and waits a whole tick for the next. LG's SDL destroys the `wl_surface` before
+    /// `eglTerminate`, which then waits for that thread (`eglp_delete_surface`); the callback goes with the surface, the thread waits
+    /// out its second, and SDL's `callback_forceQuit` runs a second `SDL_Quit` under it at 1 s: PlxNative crashed in 12 of 15 closes
+    /// (round 18; 10 of 10 at the flip). LG's compositor answers 5-10 ms after the commit, before the app's teardown is reached
+    /// (probed 2026-10-29); at the commit the present never waits at all.
+    Commit,
+    /// A frame ahead of the flip ([`Owed::ahead`]), with the buffers its frame replaced; the default of rounds 16-18.
+    Draw,
+    /// At the flip ([`Owed::callbacks`]), the buffers given back at the draw.
+    Landing,
+}
+
+impl ClientCallbacks {
+    pub fn parse(word: &str) -> Option<Self> {
+        match word {
+            "commit" => Some(Self::Commit),
+            "early" => Some(Self::Draw),
+            "landing" => Some(Self::Landing),
+            _ => None,
+        }
+    }
+
+    pub fn word(self) -> &'static str {
+        match self {
+            Self::Commit => "commit",
+            Self::Draw => "early",
+            Self::Landing => "landing",
+        }
+    }
+}
+
 /// What a frame on its way to the screen owes once it is there.
 struct Owed {
     /// Frame callbacks, fired when the frame lands.
     callbacks: Vec<WlCallback>,
     /// Frame callbacks fired as soon as the frame is the oldest on its way (at its draw when none is ahead of it), a frame before it
-    /// lands: the shell's, and every other client's while [`State::clients_early`].
+    /// lands: the shell's, and every other client's while [`State::client_callbacks`] is [`ClientCallbacks::Draw`].
     ///
     /// The shell's Qt starts each frame on the callback of the one before: 2-3.5 ms of CPU, then 11-13.5 ms of GPU on the picker's
     /// slide, and a flip needs the GPU done before its refresh. Started at the landing the frame had less than a millisecond to spare,
     /// and 5 of 34 slide frames took two refreshes (round 4: the quick panel, lighter by a millisecond or two, took none).
     ///
     /// LG's apps get theirs at the same moment as the buffer they draw their next frame into, as from LG's Qt compositor, which sends
-    /// frame callbacks after rendering (`afterRendering`) and gives buffers back when it renders. LG's libmali presents each frame on
-    /// a thread of its own once the callback of the frame before has come, and LG's SDL destroys its `wl_surface` before
-    /// `eglTerminate`. With the callback at the flip, 10.5 ms after the buffer, PlxNative's last swap was still waiting for it when
-    /// SDL destroyed the surface: the present then ran on the freed surface (round 16, 23 of 25 closes) or, its callback destroyed with
-    /// the surface, waited out libmali's 1 s, and SDL's force-quit crashed (round 17, 9 of 10).
+    /// frame callbacks after rendering (`afterRendering`) and gives buffers back when it renders. With the callback at the flip, 10.5 ms
+    /// after the buffer, PlxNative's last swap was still waiting for it when SDL destroyed the surface: the present then ran on the
+    /// freed surface (round 16, 23 of 25 closes) or, its callback destroyed with the surface, waited out libmali's 1 s, and SDL's
+    /// force-quit crashed (round 17, 9 of 10; round 18, 12 of 15 at the draw). See [`ClientCallbacks::Commit`].
     ahead: Vec<WlCallback>,
     /// What the commits of the surfaces with [`Owed::ahead`] callbacks (the shell's aside) replaced: given back with those callbacks,
     /// never before the callback of the frame that replaced them.
@@ -183,9 +227,9 @@ pub struct State {
     /// Whether the shell client's frame callbacks go out ahead of their flip ([`Owed::ahead`]); `ctl callbacks shell landing` turns it
     /// off, at the flip, for an A/B on the set.
     pub shell_ahead: bool,
-    /// Whether every other client's frame callbacks go out ahead of their flip, with the buffers its frame replaced ([`Owed::ahead`]);
-    /// `ctl callbacks clients landing` sends them at the flip and gives the buffers back at the draw.
-    pub clients_early: bool,
+    /// When every other client's frame callbacks go out ([`ClientCallbacks`]): at the commit, a frame ahead of the flip with the
+    /// buffers its frame replaced, or at the flip with the buffers given back at the draw.
+    pub client_callbacks: ClientCallbacks,
     /// The Rust shell's engine socket is new (its handshake just finished): the main loop adds it to its poll set and clears this.
     pub ui_socket_new: bool,
     serial: u32,
@@ -251,7 +295,7 @@ impl State {
             webos_shells: HashMap::new(),
             started: Instant::now(),
             shell_ahead: true,
-            clients_early: true,
+            client_callbacks: ClientCallbacks::Commit,
             ui_socket_new: false,
             serial: 0,
             release_after_present: Vec::new(),
@@ -391,6 +435,15 @@ impl State {
                     && self.output.prepare_buffer(&b)
                 {
                     self.stats.prepared += 1;
+                }
+            }
+            // A card's callbacks go out with the commit that carried them (`ClientCallbacks::Commit`); the other windows' and
+            // the shell's wait for their frame's draw, as do every client's under the other two settings.
+            if self.client_callbacks == ClientCallbacks::Commit && self.is_card_surface(sid) {
+                let callbacks = self.surfaces.take_frame_callbacks_of(sid);
+                if !callbacks.is_empty() {
+                    self.stats.callbacks_at_commit += callbacks.len() as u64;
+                    self.fire_callbacks(callbacks, crate::output::monotonic_ms());
                 }
             }
         }
@@ -595,9 +648,9 @@ impl State {
             self.stats.frames_drawn += 1;
             self.after_drawn_frame();
         }
-        let State { scene, surfaces, shell_ahead, clients_early, .. } = &mut *self;
+        let State { scene, surfaces, shell_ahead, client_callbacks, .. } = &mut *self;
         let is_shell = |id: SurfaceId| scene.window_of(id).and_then(|w| scene.window(w)).is_some_and(|w| w.kind.is_shell());
-        let early = |id: SurfaceId| if is_shell(id) { *shell_ahead } else { *clients_early };
+        let early = |id: SurfaceId| if is_shell(id) { *shell_ahead } else { *client_callbacks != ClientCallbacks::Landing };
         let (callbacks, ahead) = surfaces.take_frame_callbacks(early);
         // The buffers the commits replaced: given back now when the callbacks wait for the flip, with the early callbacks, or when
         // the frame lands (the shell's).
@@ -706,6 +759,11 @@ impl State {
             Ok(n) => self.frames_landed(n),
             Err(e) => log::warn!("output events: {e}"),
         }
+    }
+
+    /// Whether `id` is a card window's surface (`WindowType::is_card`).
+    fn is_card_surface(&self, id: SurfaceId) -> bool {
+        self.scene.window_of(id).and_then(|w| self.scene.window(w)).is_some_and(|w| w.kind.is_card())
     }
 
     fn fire_callbacks(&mut self, callbacks: Vec<WlCallback>, at_ms: u32) {

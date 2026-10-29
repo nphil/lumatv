@@ -536,8 +536,9 @@ x1)
     before=$(ctl status | sed -n 's/.*\(flips [0-9]* late [0-9]* lost [0-9]*\).*/\1/p')
     sched_before=$(comp_sched)
     ctl wake reset > /dev/null; waits_reset
-    # LUMATV_X1_CALLBACKS=early|landing (tv_gate.py --x1-callbacks) sets when every client's frame callbacks go out for this run (`ctl callbacks
-    # clients`): with the frame's draw (early, the compositor's default since 112d9cc) or at the flip (landing), and early again after it.
+    # LUMATV_X1_CALLBACKS=commit|early|landing (tv_gate.py --x1-callbacks) sets when every client's frame callbacks go out for this run
+    # (`ctl callbacks clients`): with the commit (the compositor's default since round 19), with the frame's draw (early) or at the flip
+    # (landing), and the default again after it.
     cbnote=""
     if [ -n "${LUMATV_X1_CALLBACKS:-}" ]; then
         r_cb=$(ctl callbacks clients "$LUMATV_X1_CALLBACKS")
@@ -553,7 +554,7 @@ x1)
     fi
     XDG_RUNTIME_DIR=/tmp/xdg WAYLAND_DISPLAY=wayland-0 X1_SECONDS=$secs X1_WINDOW_TYPE=_WEBOS_WINDOW_TYPE_OVERLAY X1_RT=${LUMATV_X1_RT:-} \
         $LD --library-path $LIB --preload $LIB/x1heapshim.so $D/bin/x1client $BLOB > $OUT/x1.log 2>&1
-    [ -z "${LUMATV_X1_CALLBACKS:-}" ] || ctl callbacks clients early > /dev/null
+    [ -z "${LUMATV_X1_CALLBACKS:-}" ] || ctl callbacks clients commit > /dev/null
     res=$(grep RESULT $OUT/x1.log)
     after=$(ctl status | sed -n 's/.*\(flips [0-9]* late [0-9]* lost [0-9]*\).*/\1/p')
     sched=$(echo "$sched_before $(comp_sched)" | awk 'function pol(v) { return (v == 1) ? "SCHED_FIFO" : (v == 0) ? "SCHED_OTHER" : "policy " v }

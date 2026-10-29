@@ -156,6 +156,9 @@ fn run_server(
     State::create_globals(&dh, true);
     let output = output();
     let mut state = State::new(dh, config, output, Box::new(luna::Null::default()));
+    // The tests read a client's frame callback as its frame's draw: a card's goes out at the draw here, as under
+    // `ctl callbacks clients early`; on the set it goes out with the commit (`tests/flips.rs` sets each case).
+    state.client_callbacks = lumatv_compositor::server::state::ClientCallbacks::Draw;
     display.handle().insert_client(stream, Arc::new(ClientHandler { events: events.clone() })).unwrap();
     let mut last_tick = Instant::now();
     while !stop.load(std::sync::atomic::Ordering::SeqCst) {

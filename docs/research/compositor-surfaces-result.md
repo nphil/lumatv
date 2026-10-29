@@ -90,10 +90,15 @@ and the journal's `focus ->` lines say where).
   (what is open, the OSD, toasts, alerts, the PIN prompt, the saver, keys seen, the link), the topics pushed, the open
   luna calls, the counters. `ctl luna`'s tokens: one counter for every outbound call now (`luna_call` shared the
   bridge's token space with the subscriptions before).
-- Frame callbacks: every client's go out when its frame's flip lands (`State::frames_in_flight`); a shell window's go out when its
-  frame is the oldest on its way, and the buffers its commits replaced are given back when the frame lands (`Owed`), so the
-  shell makes its next frame while the last waits for its refresh. `ctl callbacks shell early|landing` switches it; `ctl
-  status` `callbacksAhead` counts it.
+- Frame callbacks: a card's go out with the commit that carried them (`ClientCallbacks::Commit`, the default since round 19):
+  LG's libmali presents each swap on a thread of its own that waits, a second at a time, for the callback of the frame before,
+  and LG's SDL destroys the `wl_surface` before `eglTerminate`, which waits for that thread; with the callback at the draw
+  (rounds 16-18) a present was waiting at almost every close, the callback went with the surface, and SDL's 1 s force-quit
+  crashed PlxNative (12 of 15 closes in round 18). Every other client's go out when its frame's flip lands
+  (`State::frames_in_flight`); a shell window's go out when its frame is the oldest on its way, and the buffers its commits
+  replaced are given back when the frame lands (`Owed`), so the shell makes its next frame while the last waits for its
+  refresh. `ctl callbacks shell early|landing` and `ctl callbacks clients commit|early|landing` switch them; `ctl status`
+  `callbacksAhead` and `callbacksAtCommit` count them.
 
 Host tests: unit tests in `shell.rs` (allowlist, HTTP parsing, the outbox window, the token check, the server thread
 holding a long poll over TCP), `tests/shell.rs` (Home in the card slot with the stub in front and its keys; the system

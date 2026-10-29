@@ -363,6 +363,11 @@ impl Surfaces {
         (others, named)
     }
 
+    /// Takes the frame callbacks one surface owes.
+    pub fn take_frame_callbacks_of(&mut self, id: SurfaceId) -> Vec<WlCallback> {
+        self.map.get_mut(&id).map(|s| std::mem::take(&mut s.current.frame_callbacks)).unwrap_or_default()
+    }
+
     /// Takes every retired buffer (released after the frame that last read them), each into the bucket `bucket` names for its surface
     /// (`State::tick_at`: given back now, with its frame's callbacks, or when its frame lands).
     pub fn take_retired<const N: usize>(&mut self, bucket: impl Fn(SurfaceId) -> usize) -> [Vec<WlBuffer>; N] {

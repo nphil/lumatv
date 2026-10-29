@@ -9,6 +9,7 @@ use harness::{Client, Server};
 use lumatv_compositor::output::{Image, Output, Presented, RenderStats};
 use lumatv_compositor::render::software::Software;
 use lumatv_compositor::scene::Plan;
+use lumatv_compositor::server::state::ClientCallbacks;
 use lumatv_compositor::surface::Surfaces;
 use parking_lot::Mutex;
 use std::sync::Arc;
@@ -84,7 +85,7 @@ fn wait_drawn(drawn_at: &Mutex<Vec<Instant>>, n: usize) {
 fn a_landed_flip_has_its_callbacks_out_before_the_next_frame_is_drawn() {
     let (mut server, landed, drawn_at) = flipping(DRAW);
     // The flip path: `ctl callbacks clients landing`.
-    server.eval(|s| s.clients_early = false);
+    server.eval(|s| s.client_callbacks = ClientCallbacks::Landing);
     let mut client = Client::connect(&mut server);
     let card = client.card("_WEBOS_WINDOW_TYPE_CARD", "X1");
     let first = client.shm_buffer(1920, 1080, 0xff19_80e6);
@@ -175,6 +176,8 @@ fn a_shell_windows_replaced_buffer_is_released_when_the_frame_that_replaced_it_l
 #[test]
 fn a_cards_callback_and_replaced_buffer_go_out_when_its_frame_is_the_oldest_on_its_way() {
     let (mut server, landed, drawn_at) = flipping(QUICK_DRAW);
+    // The draw path: `ctl callbacks clients early`.
+    server.eval(|s| s.client_callbacks = ClientCallbacks::Draw);
     let mut client = Client::connect(&mut server);
     let card = client.card("_WEBOS_WINDOW_TYPE_CARD", "X1");
     let first = commit(&mut client, &card, 0xff19_80e6).id().protocol_id();
@@ -195,7 +198,7 @@ fn a_cards_callback_and_replaced_buffer_go_out_when_its_frame_is_the_oldest_on_i
 #[test]
 fn with_client_callbacks_at_the_flip_a_cards_replaced_buffer_is_released_when_the_frame_that_replaced_it_is_drawn() {
     let (mut server, _landed, drawn_at) = flipping(QUICK_DRAW);
-    server.eval(|s| s.clients_early = false);
+    server.eval(|s| s.client_callbacks = ClientCallbacks::Landing);
     let mut client = Client::connect(&mut server);
     let card = client.card("_WEBOS_WINDOW_TYPE_CARD", "X1");
     let first = commit(&mut client, &card, 0xff19_80e6).id().protocol_id();
@@ -206,51 +209,67 @@ fn with_client_callbacks_at_the_flip_a_cards_replaced_buffer_is_released_when_th
     assert_eq!(server.eval(|s| s.stats.callbacks_ahead), 0);
 }
 
-/// PlxNative's close as LG's libmali and SDL make it (2026-10-29). libmali gives the app a buffer to draw into once the compositor
-/// releases one, and presents each swap on a thread of its own: it waits there for the frame callback of the frame before (up to
-/// 1 s), then attaches and commits on the `wl_surface` it kept. LG's SDL destroys that `wl_surface` before `eglTerminate`. A present
-/// still waiting at the destroy runs on the freed surface when its callback comes (round 16), or, with the callback destroyed with
-/// the surface, waits out the second while `eglTerminate` waits for it and SDL's force-quit crashes (round 17).
+/// PlxNative's close as LG's libmali (r46p0) and SDL make it (2026-10-29). libmali presents each swap on a thread of its own
+/// (`display_window_buffer`): it waits there for the frame callback of the frame before, polling the socket a second at a time,
+/// then attaches and commits on the `wl_surface` it kept; the app's swap returns up to two frames ahead of that thread. LG's SDL
+/// destroys the `wl_surface` before `eglTerminate`, which waits for the thread. A present still waiting at the destroy runs on the
+/// freed surface when its callback comes (round 16), or, with the callback destroyed with the surface, waits out the second and
+/// SDL's force-quit crashes (rounds 17 and 18).
 ///
-/// The client here: two frames, the flip of the first landed before the second is drawn (as on the set: a flip lands 10.5 ms after
-/// its draw, the next tick 16.7 ms after it), then the buffer the second replaced comes back and the app draws its third frame into
-/// it and swaps; SDL's teardown follows. Returns whether that swap's present was left waiting on the compositor at the destroy.
-fn mali_close_leaves_a_present_waiting(clients_early: bool) -> bool {
+/// The client here: a first frame, drawn and landed; the second committed the moment the first's callback came, as libmali's
+/// thread does (on the set 1-2 ms after the draw, a whole tick before the next); the app's third swap is then waiting on the
+/// second's callback when SDL's teardown destroys the surface, unless that callback came with the commit. Returns whether it had;
+/// whatever comes after the destroy is too late either way (a `done` runs the present on the freed surface, none stalls it).
+fn mali_close_finds_the_last_callback_answered(policy: ClientCallbacks) -> bool {
     let (mut server, landed, drawn_at) = flipping(QUICK_DRAW);
-    server.eval(move |s| s.clients_early = clients_early);
+    server.eval(move |s| s.client_callbacks = policy);
     let mut client = Client::connect(&mut server);
     let card = client.card("_WEBOS_WINDOW_TYPE_CARD", "plxnative");
-    let first = commit(&mut client, &card, 0xff19_80e6).id().protocol_id();
+    commit(&mut client, &card, 0xff19_80e6);
     wait_drawn(&drawn_at, 1);
     landed.store(1, Ordering::SeqCst);
     assert!(client.wait_until(Duration::from_secs(3), |s| s.frames_done >= 1), "the first frame's callback");
+    // The tick that would draw the second frame has not come.
+    server.ticking.store(false, Ordering::SeqCst);
     commit(&mut client, &card, 0xffe6_8019);
-    wait_drawn(&drawn_at, 2);
-    // libmali's dequeue: the app draws its next frame once a buffer is back.
-    assert!(client.wait_until(Duration::from_secs(3), |s| s.releases.contains(&first)), "the buffer the second frame replaced is back");
-    // The swap: its present waits for the second frame's callback unless that came already.
-    let waiting = client.state.frames_done < 2;
-    if !waiting {
-        commit(&mut client, &card, 0xff80_e619);
-    }
+    client.roundtrip();
+    let answered = client.state.frames_done >= 2;
     // SDL's Wayland_DestroyWindow: the window's surface goes before eglTerminate (its shell surface only on the client's side).
     card.surface.destroy();
     client.roundtrip();
-    if waiting {
-        assert!(
-            !client.wait_until(Duration::from_millis(300), |s| s.frames_done >= 2),
-            "the destroyed surface's callback never comes: libmali's present waits out its second"
-        );
-    }
-    waiting
+    server.ticking.store(true, Ordering::SeqCst);
+    answered
 }
 
 #[test]
-fn a_mali_clients_close_leaves_no_present_waiting_on_the_compositor() {
-    assert!(!mali_close_leaves_a_present_waiting(true), "the callback came with the buffer, before the swap");
+fn a_mali_clients_close_finds_its_last_callback_answered() {
+    assert!(mali_close_finds_the_last_callback_answered(ClientCallbacks::Commit), "the callback came with the commit, before the teardown");
 }
 
 #[test]
-fn with_client_callbacks_at_the_flip_a_mali_clients_close_leaves_its_last_present_waiting() {
-    assert!(mali_close_leaves_a_present_waiting(false), "the buffer came at the draw, the callback waits for a flip that has not landed");
+fn with_client_callbacks_at_the_draw_a_mali_clients_close_can_leave_a_present_waiting() {
+    assert!(!mali_close_finds_the_last_callback_answered(ClientCallbacks::Draw), "the callback waits for a draw the teardown comes first to");
+}
+
+#[test]
+fn with_client_callbacks_at_the_flip_a_mali_clients_close_can_leave_a_present_waiting() {
+    assert!(!mali_close_finds_the_last_callback_answered(ClientCallbacks::Landing), "the callback waits for a flip the teardown comes first to");
+}
+
+/// With the callbacks at the commit, the buffers a client's commits replaced are still given back at the draw, as under `early`.
+#[test]
+fn with_client_callbacks_at_the_commit_a_cards_replaced_buffer_is_released_at_the_draw() {
+    let (mut server, _landed, drawn_at) = flipping(QUICK_DRAW);
+    server.eval(|s| s.client_callbacks = ClientCallbacks::Commit);
+    let mut client = Client::connect(&mut server);
+    let card = client.card("_WEBOS_WINDOW_TYPE_CARD", "X1");
+    let first = commit(&mut client, &card, 0xff19_80e6).id().protocol_id();
+    assert!(client.wait_until(Duration::from_secs(3), |s| s.frames_done >= 1), "the first frame's callback comes with its commit");
+    wait_drawn(&drawn_at, 1);
+    commit(&mut client, &card, 0xffe6_8019);
+    assert!(client.wait_until(Duration::from_secs(3), |s| s.frames_done >= 2), "and the second's");
+    wait_drawn(&drawn_at, 2);
+    assert!(client.wait_until(Duration::from_secs(3), |s| s.releases.contains(&first)), "the buffer the second frame replaced is back at its draw");
+    let (at_commit, ahead) = server.eval(|s| (s.stats.callbacks_at_commit, s.stats.callbacks_ahead));
+    assert_eq!((at_commit, ahead), (2, 0));
 }
