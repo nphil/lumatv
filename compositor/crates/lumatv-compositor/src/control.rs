@@ -237,12 +237,52 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             }
         }
         // The scan-out pages as the display and the GPU driver have them (`afbc`, docs/research/hw-planes-result.md): their layout, what was asked for and
-        // why a linear ring stands in when it does, what the plane and the driver list, and the bandwidth the layout costs and saves. The layout is chosen
-        // at start (`--afbc`, `--page-alpha`): the pages cannot be swapped with the CMA the set has free.
-        "afbc" => match state.output.afbc_report() {
-            Some(r) => json!({"ok": true, "afbc": r, "mode": state.config.afbc.name(), "pageAlpha": state.config.page_alpha}),
-            None => json!({"ok": false, "error": "this output has no scan-out pages"}),
-        },
+        // why the old one stays when the new cannot be made, what the plane and the driver list, and the bandwidth the layout costs and saves.
+        // `afbc on|off` and `pagealpha on|off` change the layout while running: the ring is converted one page at a time in the frames that draw into
+        // them (needs the memory for one more page; `pages.error` says when it was not there). Same flags as at start (`--afbc`, `--page-alpha`).
+        "afbc" | "pagealpha" => {
+            let arg = words.next();
+            let (mut mode, mut alpha) = (state.config.afbc, state.config.page_alpha);
+            let asked = match (cmd, arg) {
+                (_, None) => Ok(false),
+                ("afbc", Some("on")) => {
+                    // AFBC pages carry alpha: the page-alpha switch follows them (and stays on when they go)
+                    mode = crate::afbc::Mode::On;
+                    alpha = true;
+                    Ok(true)
+                }
+                ("afbc", Some("off")) => {
+                    mode = crate::afbc::Mode::Off;
+                    Ok(true)
+                }
+                ("pagealpha", Some("on")) => {
+                    alpha = true;
+                    Ok(true)
+                }
+                ("pagealpha", Some("off")) => {
+                    alpha = false;
+                    Ok(true)
+                }
+                _ => Err(format!("{cmd} [on|off]")),
+            };
+            let changed = asked.and_then(|changed| {
+                if !changed {
+                    return Ok(());
+                }
+                if !alpha && (mode == crate::afbc::Mode::On || state.config.vwin.mode != crate::vwin::Mode::Off) {
+                    return Err("pagealpha off cannot go with afbc on or a video window switch that is on: their holes and pages need alpha".to_string());
+                }
+                state.output.set_page_kind(crate::afbc::PageKind::wanted(mode, alpha)).map_err(|e| e.to_string())?;
+                state.config.afbc = mode;
+                state.config.page_alpha = alpha;
+                Ok(())
+            });
+            match (changed, state.output.afbc_report()) {
+                (Err(e), _) => json!({"ok": false, "error": e}),
+                (Ok(()), Some(r)) => json!({"ok": true, "afbc": r, "mode": state.config.afbc.name(), "pageAlpha": state.config.page_alpha}),
+                (Ok(()), None) => json!({"ok": false, "error": "this output has no scan-out pages"}),
+            }
+        }
         // The hardware video windows (`vwin`): `vwin` reads the allocator and the claims; `vwin off|idle|apps` is the switch; `vwin claim ID KIND X Y W H
         // [APP] [CODEC WxH@FPS]`, `vwin move ID X Y W H`, `vwin release ID|all` ask as the shell would (a TV check places a window without the shell).
         "vwin" => {
@@ -388,7 +428,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
         }
         "" => json!({"ok": false, "error": "empty command"}),
         other => {
-            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, screencap [status|shot|record start|record stop], key CODE, remote CODE, pointer X Y, click, sched mali fifo|other, callbacks shell|clients early|landing, mem, wake [reset|probe start|probe stop], ring [N], idle [MS], refresh [60|120], scanout [off|direct], pointer [plane|gpu|X Y], afbc, vwin [off|idle|apps|claim|move|release], fallback [reason], quit")})
+            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, screencap [status|shot|record start|record stop], key CODE, remote CODE, pointer X Y, click, sched mali fifo|other, callbacks shell|clients early|landing, mem, wake [reset|probe start|probe stop], ring [N], idle [MS], refresh [60|120], scanout [off|direct], pointer [plane|gpu|X Y], afbc [on|off], pagealpha [on|off], vwin [off|idle|apps|claim|move|release], fallback [reason], quit")})
         }
     };
     Reply::Now(reply.to_string())

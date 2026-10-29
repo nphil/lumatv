@@ -990,7 +990,7 @@ impl crate::State {
     pub fn vwin_command(&mut self, body: &Value) -> Value {
         let op = body.get("op").and_then(Value::as_str).unwrap_or("");
         let id = body.get("id").and_then(Value::as_str).unwrap_or("").to_string();
-        let reply = match op {
+        match op {
             "claim" => match Request::from_json(body) {
                 Ok(req) => {
                     let world = self.vwin_world();
@@ -1071,8 +1071,7 @@ impl crate::State {
                 json!({"ok": true, "released": n})
             }
             _ => json!({"ok": false, "error": "op is claim, move, release or releaseAll"}),
-        };
-        reply
+        }
     }
 
     /// The switch (`ctl vwin off|idle|apps`, the config at start): every claim of a mode that does not hold ends, and the status of the sinks is read

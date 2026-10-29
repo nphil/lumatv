@@ -162,6 +162,13 @@ pub trait Output {
         None
     }
 
+    /// Changes the layout of the scan-out pages while running (`ctl afbc on|off`, `ctl pagealpha on|off`): the ring is converted one page at a time, each
+    /// at the start of a composed frame that is to draw into it. Refused with the reason when the output has no such pages, the plane does not list the
+    /// layout, or (later, in the page's own turn) the memory for the new page is not there; the old layout then stays.
+    fn set_page_kind(&mut self, _kind: crate::afbc::PageKind) -> io::Result<()> {
+        Err(io::Error::other("this output has no scan-out pages"))
+    }
+
     /// Journal lines the output has to tell (direct scan-out's changes of state), taken once.
     fn take_journal(&mut self) -> Vec<String> {
         Vec::new()

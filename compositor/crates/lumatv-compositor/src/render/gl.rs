@@ -999,6 +999,25 @@ impl Gl {
         Ok(TargetId(self.targets.len() - 1))
     }
 
+    /// Frees a page's render target (a page that was replaced): its image, texture and framebuffer object go, and the slot stays, dead, so the other
+    /// targets keep their ids. Nothing may draw into or read from it afterwards; the stand-in and the current target are moved off it.
+    pub fn free_target(&mut self, id: TargetId) {
+        let dead = Target { fbo: 0, tex: 0, image: std::ptr::null_mut(), top_down: true };
+        let old = std::mem::replace(&mut self.targets[id.0], dead);
+        // SAFETY: objects this renderer made, no longer in use (the caller finished the GPU's work on the page first).
+        unsafe {
+            (self.egl.api.glDeleteFramebuffers)(1, &old.fbo);
+            (self.egl.api.glDeleteTextures)(1, &old.tex);
+            self.egl.destroy_image(old.image);
+        }
+        if self.current == id {
+            self.current = TargetId(0);
+        }
+        if self.standin_source == Some(id) {
+            self.standin_source = None;
+        }
+    }
+
     /// Pays the driver's first-use costs before any client does: a quad drawn through the frame's program from an
     /// uploaded texture and, when `page` names a dma-buf target, from that page's EGLImage into the current target
     /// (the first draw from an imported image cost X1's first frame a refresh on the third gate). Returns how long it

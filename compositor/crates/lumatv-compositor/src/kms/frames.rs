@@ -64,6 +64,18 @@ impl Frames {
         self
     }
 
+    /// The page the next composed frame goes into: not on the screen and not in a flip (the ring turns one ahead of both, and a frame that was
+    /// superseded gave its page back through [`Frames::redraw`]).
+    pub fn next_page(&self) -> usize {
+        self.next
+    }
+
+    /// Page `page` is another buffer now (`Kms::set_page_kind`): the ring draws into `target` and owes the page whole. Returns the target it had.
+    pub fn replace_target(&mut self, page: usize, target: TargetId) -> TargetId {
+        self.ring.forget_page(page);
+        std::mem::replace(&mut self.targets[page], target)
+    }
+
     /// The page the last composed frame went into.
     pub fn last_page(&self) -> usize {
         (self.next + self.targets.len() - 1) % self.targets.len()

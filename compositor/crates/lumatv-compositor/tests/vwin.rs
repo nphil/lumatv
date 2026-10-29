@@ -328,6 +328,19 @@ fn ctl_vwin_reads_switches_claims_and_releases() {
 }
 
 #[test]
+fn ctl_page_layout_is_refused_where_there_are_no_pages_or_the_holes_would_lose_their_alpha() {
+    let mut server = Server::start();
+    let ctl = |server: &Server, line: &'static str| -> Value { serde_json::from_str(&server.eval(move |s| control::handle(s, line).text())).unwrap() };
+    let r = ctl(&server, "afbc on");
+    assert_eq!(r["ok"], false, "the host output has no scan-out pages to convert: {r}");
+    assert!(r["error"].as_str().unwrap().contains("no scan-out pages"), "{r}");
+    assert_eq!(ctl(&server, "afbc dance")["ok"], false);
+    set_mode(&server, Mode::Idle);
+    let r = ctl(&server, "pagealpha off");
+    assert_eq!((r["ok"].as_bool(), r["error"].as_str().is_some_and(|e| e.contains("need alpha"))), (Some(false), true), "{r}");
+}
+
+#[test]
 fn the_shell_asks_through_its_channel_and_reads_the_answer_in_the_topic() {
     let mut server = Server::start();
     server.eval(|s| s.shell_handle(Msg::Connected));

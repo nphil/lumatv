@@ -250,6 +250,10 @@ pub struct Kms {
     pointer: Pointer,
     /// What the pages are, for `ctl afbc`.
     page_report: PageReport,
+    /// The layout the ring is being converted to (`set_page_kind`); the pages that are not of it are made over, one in each composed frame.
+    page_want: PageKind,
+    /// A conversion failed (no memory for the new page): none is tried until the next `set_page_kind`.
+    convert_stopped: bool,
 }
 
 const PAGES: usize = 3;
@@ -554,6 +558,8 @@ impl Kms {
             refresh_hz: crate::refresh::DEFAULT_HZ,
             compose_only: false,
             pointer: Pointer { mode: crate::pointer::Mode::Gpu, alpha: opts.pointer_alpha, plane: None, cursor_plane, refused: String::new() },
+            page_want: page_report.kind,
+            convert_stopped: false,
             page_report,
         };
         if opts.pointer == crate::pointer::Mode::Plane
@@ -728,6 +734,53 @@ impl Kms {
 
     /// A flip that has not reported 250 ms after its commit is taken as lost (the panel off, an event the driver
     /// dropped), so commits do not stop for good; the kernel refuses the next one if it really is still pending.
+    /// The size of a primary page (the mode's, until a smaller primary buffer is asked for).
+    pub fn page_size(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+
+    /// How many pages of the primary ring are not of the layout it is being converted to.
+    fn pages_to_convert(&self) -> usize {
+        self.pages.iter().filter(|p| p.kind != self.page_want).count()
+    }
+
+    /// Makes the page the next composed frame draws into over in the layout asked for (`set_page_kind`), if it is not already: that page is neither
+    /// scanning out nor in a flip (the ring turns one ahead of both), so nothing but this frame's own drawing has it. The new page is made before the
+    /// old one is freed, so a set without the memory for both keeps the old layout and says so (`ctl afbc`, `pages.error`): the CMA the set has free
+    /// was 3.5 to 12 MB at the reads on record, a 1080p page 8.3 MB. One page is converted per composed frame; a run of direct frames converts none.
+    fn convert_page(&mut self) {
+        let i = self.frames.next_page();
+        if self.convert_stopped || i >= self.pages.len() || self.pages[i].kind == self.page_want {
+            return;
+        }
+        let (want, from) = (self.page_want, self.pages[i].kind);
+        let (w, h) = self.page_size();
+        self.gl.finish();
+        match make_page(&self.card, &mut self.gl, w, h, want) {
+            Ok(new) => {
+                let old = std::mem::replace(&mut self.pages[i], new);
+                let old_target = self.frames.replace_target(i, self.pages[i].target);
+                self.gl.free_target(old_target);
+                let _ = self.card.destroy_framebuffer(old.fb);
+                drop(old.fd);
+                let _ = self.card.destroy_dumb_buffer(old.dumb);
+                if self.pages_to_convert() == 0 {
+                    self.page_report.kind = want;
+                    self.page_report.fallback = None;
+                    log::info!("kms: scan-out pages are {} now (converted from {})", want.name(), from.name());
+                }
+            }
+            Err(e) => {
+                // The ring stays as it is, mixed or not: every page is a good one. The conversion is not tried again until the next `set_page_kind`.
+                let why = format!("a {} page could not be made ({e}); the {} pages of the ring stay as they are", want.name(), from.name());
+                log::warn!("kms: {why}");
+                self.page_report.fallback = Some(why);
+                self.page_want = self.page_report.kind;
+                self.convert_stopped = true;
+            }
+        }
+    }
+
     fn flip_overdue(&mut self) -> bool {
         if self.pending_flip && self.now_ns().saturating_sub(self.committed_ns) > 250_000_000 {
             log::warn!("kms: no page-flip event 250 ms after the commit; going on without it");
@@ -1315,7 +1368,8 @@ impl Output for Kms {
 
     fn afbc_report(&self) -> Option<serde_json::Value> {
         let r = &self.page_report;
-        let page_bytes = if r.kind == PageKind::Afbc { afbc::buffer_size(self.width, self.height) } else { self.width as usize * self.height as usize * 4 };
+        let bytes_of = |k: PageKind| if k == PageKind::Afbc { afbc::buffer_size(self.width, self.height) } else { self.width as usize * self.height as usize * 4 };
+        let page_bytes = bytes_of(r.kind);
         Some(serde_json::json!({
             "pages": {
                 "kind": r.kind.name(),
@@ -1325,12 +1379,30 @@ impl Output for Kms {
                 "modifier": format!("{:#018x}", r.kind.modifier()),
                 "alpha": r.kind.has_alpha(),
                 "count": self.pages.len(),
+                "kinds": self.pages.iter().map(|p| p.kind.name()).collect::<Vec<_>>(),
+                "converting": if self.convert_stopped { 0 } else { self.pages_to_convert() },
                 "bytesEach": page_bytes,
-                "bytesAll": page_bytes * self.pages.len(),
+                "bytesAll": self.pages.iter().map(|p| bytes_of(p.kind)).sum::<usize>(),
             },
             "probe": r.probe.json(),
             "estimate": afbc::estimate(self.width, self.height),
         }))
+    }
+
+    fn set_page_kind(&mut self, kind: PageKind) -> io::Result<()> {
+        if kind == PageKind::Afbc && !self.page_report.probe.plane_takes() {
+            return Err(other("the primary plane does not list AB24 with the AFBC modifier"));
+        }
+        self.page_report.asked = kind;
+        self.page_report.fallback = None;
+        self.page_want = kind;
+        self.convert_stopped = false;
+        if self.pages_to_convert() == 0 {
+            self.page_report.kind = kind;
+        } else {
+            log::info!("kms: scan-out pages to {}: one page per composed frame", kind.name());
+        }
+        Ok(())
     }
 
     fn take_journal(&mut self) -> Vec<String> {
@@ -1377,6 +1449,7 @@ impl Output for Kms {
                 _ => None,
             };
         }
+        self.convert_page();
         // The plane takes the window's own buffer when it can (`scanout`); a frame it cannot take is composed below, in this frame.
         let capture = self.compose_only;
         let verdict = {

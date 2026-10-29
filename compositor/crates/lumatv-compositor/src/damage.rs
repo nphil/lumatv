@@ -206,6 +206,11 @@ impl Ring {
         if self.known[slot] { self.owed[slot].pixels() } else { self.scratch.width as u64 * self.scratch.height as u64 }
     }
 
+    /// Forgets one page whose memory was replaced: its next frame is drawn whole.
+    pub fn forget_page(&mut self, slot: usize) {
+        self.known[slot] = false;
+    }
+
     /// Forgets every page (a resize, a frame that may not have reached the panel whole).
     pub fn forget(&mut self) {
         for k in self.known.iter_mut() {
@@ -291,5 +296,20 @@ mod tests {
         assert_eq!(ring.frame(2, &d).count(), 1);
         assert_eq!(ring.frame(0, &d).count(), 1, "page 0 owes the tile it only copied");
         assert_eq!(ring.frame(1, &d).count(), 0, "the other pages owe nothing for it");
+    }
+
+    #[test]
+    fn a_page_made_over_in_another_layout_is_drawn_whole_and_the_others_keep_their_accounts() {
+        let mut ring = Ring::new(3, 1920, 1080);
+        let mut d = Tiles::new(1920, 1080);
+        for page in 0..3 {
+            ring.frame(page, &d);
+        }
+        ring.forget_page(1);
+        d.add(&Rect::new(64, 64, 16, 16));
+        assert_eq!(ring.frame(0, &d).count(), 1, "page 0 draws only its damage");
+        d.clear();
+        assert_eq!(ring.frame(1, &d).count(), 120 * 68, "the new page owes every tile");
+        assert_eq!(ring.frame(2, &d).count(), 1, "page 2 still owes the one change it missed");
     }
 }
