@@ -404,7 +404,7 @@ def scene_toast(r):
 
 
 # The scenes kept in docs/mocks/host-rust/cameras/ (dark and light, 100 % and 200 % text each); the others render the same way on demand.
-COMMITTED = 'grid,grid-unlinked,full,full-failed,strip-scrub,events,clips,options'
+COMMITTED = 'grid,grid-unlinked,full,full-failed,strip-scrub,events,options'
 
 SCENES = {
     'grid': scene_grid, 'grid-more': scene_grid_more, 'grid-offline': scene_grid_offline, 'grid-unlinked': scene_grid_unlinked, 'grid-refused': scene_grid_refused,
@@ -427,7 +427,7 @@ def run_scene(name, scale=1.0, mode='dark', out=None, wait=None):
 
 
 def one(args):
-    """One scene in one look at one text size, saved as a 1280 wide JPEG (the pictures in them would make PNGs of 2 MB each)."""
+    """One scene in one look at one text size, saved as a 1280 wide JPEG (about 3 MB for the committed set) (the pictures in them would make PNGs of 2 MB each)."""
     from PIL import Image
     name, scale, mode, outdir = args
     suffix = ('-light' if mode == 'light' else '') + ('-text200' if scale >= 2 else '')
@@ -436,7 +436,7 @@ def one(args):
     res = run_scene(name, scale, mode, shot)
     lint = next((e for e in res['evals'] if isinstance(e, list)), [])
     if os.path.exists(shot):
-        Image.open(shot).convert('RGB').resize((1280, 720), Image.LANCZOS).save(path, 'JPEG', quality=80, optimize=True)
+        Image.open(shot).convert('RGB').resize((1280, 720), Image.LANCZOS).save(path, 'JPEG', quality=68, optimize=True)
         os.remove(shot)
     return name, scale, mode, res['rc'], lint, path
 
