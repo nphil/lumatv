@@ -12,7 +12,7 @@ spots it found are on whole pixels now (the dock's name pill, the quick panel's 
 clock's lines were in-block false positives, the lint now judges a block's lines by the block's layer); the Rust dock tile
 keeps a store icon at the lifted box's size so the focused tile reads it 1:1; the QML dock tile samples its icon without
 mipmaps (RMS against a Lanczos downscale 6.8 to 3.8); `tools/layerdeep-tv.sh scaler` and `shift` for the set. Checks run:
-`cargo test -p lumatv-ui` (935 lib tests pass), `cargo clippy -D warnings` on the crate and its tests, `tests/qmlhost/compile_all.py`
+`cargo test -p lumatv-ui` (950 pass, after the rebase onto the drawer commit), `cargo clippy -D warnings` on the crate and its tests, `tests/qmlhost/compile_all.py`
 (151 files), `tests/test_rust_home.py` (14 pass, the renders in `docs/mocks/host-rust/home/`).
 
 Next, in order:
