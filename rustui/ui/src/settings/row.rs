@@ -209,7 +209,14 @@ impl std::fmt::Debug for Op {
             Op::Lg { ds, value, app } => write!(f, "Lg({ds}={value} app={app:?})"),
             Op::LgMany { category, settings, .. } => write!(f, "LgMany({category} {settings:?})"),
             Op::Act { uri, payload } => write!(f, "Act({uri} {payload})"),
-            Op::Call { name, uri, payload, subscribe } => write!(f, "Call({name} {uri} {payload} sub={subscribe})"),
+            Op::Call { name, uri, payload, subscribe } => {
+                // a Wi-Fi password must not reach a log through a debug print of the ops
+                let mut shown = payload.clone();
+                if let Some(key) = shown.pointer_mut("/security/simpleSecurity/passKey") {
+                    *key = json!("***");
+                }
+                write!(f, "Call({name} {uri} {shown} sub={subscribe})")
+            }
             Op::Close(n) => write!(f, "Close({n})"),
             Op::Send { name, method, path, body } => write!(f, "Send({name:?} {method} {path} {body:?})"),
             Op::Owner { owner, key, value } => write!(f, "Owner({owner}.{key}={value})"),

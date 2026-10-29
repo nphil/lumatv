@@ -10,6 +10,7 @@ pub mod capture;
 pub mod home;
 pub mod inputs;
 pub mod language;
+pub mod network;
 pub mod owner;
 pub mod picture;
 pub mod privacy;
@@ -31,6 +32,7 @@ pub fn all() -> Vec<Page> {
         picture::page(),
         sound::page(),
         inputs::page(),
+        network::page(),
         ambient::page(),
         home::page(),
         remote::page(),
@@ -67,5 +69,7 @@ pub fn all() -> Vec<Page> {
         bluetooth::hid(),
         bluetooth::audio_device(),
         bluetooth::hid_device(),
+        network::wifi(),
+        network::ip(),
     ]
 }

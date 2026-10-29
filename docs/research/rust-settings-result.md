@@ -45,3 +45,22 @@ Next, in order (each is a `Page` in `settings/pages/`, registered in `pages/mod.
 
 Host renders of the screensaver page (dark, light, 200 %) were checked by eye and with the layout lint; they are in `/tmp/rs-shots/` on the
 build machine and should be re-rendered into `docs/mocks/host-rust/settings/` by the render script above.
+
+## Network, Join Network, IP Settings (Rust)
+
+`settings/pages/network.rs` is the three QML pages (`PageNetwork`, `PageWifi`, `PageIp`) row for row, registered as `network` (rail),
+`wifi` and `ipsettings`. Host renders in `docs/mocks/host-rust/settings/` (`network-*`, `wifi-*`, `ipsettings-*`; the scenes are in
+`tests/render_rust_settings.py`, the TV and the networks are `qmlhost/lgsettings.py`'s stand-in, so no real network is touched).
+
+Resume here:
+
+- Typing is the open prerequisite: the Wi-Fi password, a hidden network's name, the TV name and the four addresses are `Op::Entry`, and
+  `shell.rs` only logs `ShellRequest::Text` until the keyboard kind answers through `SettingsHost::entered` / `entry_cancelled`. Join
+  Network and the address fields cannot be completed on the TV before that; `secret` asks for bullets.
+- Human-only writes: `wifi/connect`, `connectionmanager/setipv4` and `setdns` are only reachable from a row's action after a question
+  (`Join ...?`, `Change network settings?`), at the remote. The compositor's luna allowlist (`shell.rs ALLOWED_SERVICES`) admits both
+  services as a whole, as it did for the QML pages, so any client of the shell channel can make those calls: the allowlist is not a
+  gate. Nothing was added to it, and no verb for AI or MCP was added to drive these rows. A gate that tells Nitin's hand from a
+  program on the channel does not exist yet.
+- Method names and parameters are webOS's own (LG's Network app is not in the bundle) and have not run on the set.
+- A debug print of the join call hides the password (`Op`'s `Debug`); no log carries it.

@@ -12,6 +12,7 @@ tests/test_rust_settings.py uses.
 """
 import argparse
 import concurrent.futures
+import copy
 import json
 import os
 import sys
@@ -98,6 +99,32 @@ SCENES += [
     Scene('remote', 'remote', lg=with_apps, keys=['right', 'down']),
     Scene('remote-keys', 'remote', lg=with_apps, keys=['right', 'up', 'right', 'down', 'down', 'down', 'down', 'down', 'down', 'down', 'down', 'down', 'down', 'down']),
     Scene('appkey', 'remote', lg=with_apps, keys=['right', 'up', 'right'] + ['down'] * 10 + ['ok', 'down', 'down']),
+]
+
+WIFI_STATUS = {'returnValue': True, 'wired': {'state': 'disconnected'}, 'wifi': {
+    'state': 'connected', 'ssid': "Nate's Home", 'signalBars': 3, 'signalLevel': -58, 'channelFrequency': 5180, 'ipAddress': '192.168.1.57',
+    'netmask': '255.255.255.0', 'gateway': '192.168.1.1', 'dns1': '192.168.1.1', 'method': 'dhcp'}}
+FOUND = {'returnValue': True, 'foundNetworks': [
+    {'networkInfo': {'ssid': "Nate's Home", 'availableSecurityTypes': ['psk'], 'signalBars': 3}},
+    {'networkInfo': {'ssid': 'Neighbour 2G', 'availableSecurityTypes': ['psk', 'wpa'], 'signalBars': 1}},
+    {'networkInfo': {'ssid': 'Cafe Guest', 'availableSecurityTypes': ['none'], 'signalBars': 2}},
+    {'networkInfo': {'ssid': 'Basement', 'availableSecurityTypes': ['psk'], 'signalBars': 0}}]}
+
+
+def with_network(status=WIFI_STATUS):
+    """The TV's network: the link the connection manager gives, the networks Wi-Fi finds, and the two LG keys a TV may or may not have."""
+    values = copy.deepcopy(lgsettings.VALUES)
+    values['network'].update({'ipv6Enable': 'true', 'bleAdvertisingOnOff': 'false'})
+    return lgsettings.LgService(values=values, answers={'connectionmanager/getStatus': status, 'wifi/findnetworks': FOUND})
+
+
+MANUAL = copy.deepcopy(WIFI_STATUS)
+MANUAL['wifi']['method'] = 'manual'
+SCENES += [
+    Scene('network', 'network', lg=with_network, keys=['right', 'down']),
+    Scene('network-details', 'network', lg=with_network, keys=['right', 'up', 'right', 'right', 'down', 'down', 'down']),
+    Scene('wifi', 'wifi', lg=with_network, keys=['right', 'down']),
+    Scene('ipsettings', 'ipsettings', lg=lambda: with_network(MANUAL), keys=['right', 'down', 'down']),
 ]
 BY_NAME = {s.name: s for s in SCENES}
 
