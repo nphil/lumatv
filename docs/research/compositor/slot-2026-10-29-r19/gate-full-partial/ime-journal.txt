@@ -1,0 +1,37 @@
+client connected: pid 27189 uid 0 cmd '/usr/bin/com.webos.app.voice {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'com.webos.app.voice\\',\\'parameters\\':{\\'launchMode\\':\\'vkb\\',\\'activateType\\':\\'mrcu\\'},\\'inter'
+webOS shell surface on window 48 (surface 287) by pid 27189
+window 48 created on surface 287 by pid 27189
+window 48 committed without a buffer (Card app '' state Default)
+webOS shell surface on window 49 (surface 288) by pid 27189
+window 49 created on surface 288 by pid 27189
+window 49 committed without a buffer (Card app '' state Default)
+window 49: _WEBOS_WINDOW_TYPE = _WEBOS_WINDOW_TYPE_OVERLAY (Overlay)
+window 49: appId = com.webos.app.voice (Overlay)
+window 49 mapped (Overlay app 'com.webos.app.voice' title 'com.webos.app.voice' size Some((1920, 1080)))
+focus -> surface 288
+luna: foreground ['com.webos.app.home', 'com.webos.app.voice'] pushed to 15 subscriber(s) (com.webos.service.activitymanager, com.webos.applicationManager)
+shell-rust: the system layer lets go of the keys
+shell-rust: the system layer lets go of OK and Back
+ime: text model 3 activated on surface 288 ('com.webos.app.voice')
+ime: no input method is bound; asking the system for one (initctl emit ime-activate)
+client connected: pid 27313 uid 0 cmd '/usr/sbin/MaliitServer'
+webOS shell surface on window 50 (surface 302) by pid 27313
+window 50 created on surface 302 by pid 27313
+window 50 committed without a buffer (Card app '' state Default)
+webOS shell surface on window 51 (surface 304) by pid 27313
+window 51 created on surface 304 by pid 27313
+window 51 committed without a buffer (Card app '' state Default)
+webOS shell surface on window 52 (surface 305) by pid 27313
+window 52 created on surface 305 by pid 27313
+window 52 committed without a buffer (Card app '' state Default)
+ime: an input method (version 1) bound by pid 27313
+ime: text model 3 entered; the input method's context is made
+ime: window 50 is the keyboard's (surface 302) by pid 27313
+ime: window 52 is the keyboard's (surface 305) by pid 27313
+ime: the input method grabbed the keyboard
+luna: com.webos.service.ime.globalplugin subscribed to com.webos.surfacemanager/getForegroundAppInfo
+luna: com.webos.service.ime.globalplugin subscribed to com.webos.surfacemanager/getLastInputType
+window 50 mapped (Keyboard app '' title 'MaliitServer' size Some((1920, 438)))
+ime: the keyboard is on the screen: 1920x438 at (0, 642); its window 1920x438, input region None (keyboard 1920x438 at (0, 0) in it), the field asked for None
+window 50 unmapped (Keyboard app '' title 'MaliitServer' size None)
+ime: the keyboard is off the screen

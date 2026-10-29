@@ -1,0 +1,159 @@
+== date
+Thu Oct 29 16:27:07 EDT 2026
+4406.94 12256.09
+resume
+== lumatv status (persist/early)
+{"ok":true,"version":"0.4.0","applied":true,"live":true,"mounts":1,"persist":true,"early":true,"standby":"warm","fps":false,"ntfy":{"enabled":false,"url":"https://ntfy.sh/lumaglass-selftest-nphil"},"firmware":"10.2.1","model":"o22n2","homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0},"helper":{"healthy":true,"ok":true,"pid":31892,"port":18731,"running":true},"compositor":{"bundle":true,"enabled":true,"flag":"persistent","mounted":true,"live":true,"lgBinary":"mounted","firmware":"verified","escaped":false,"unsettled":false,"failures":0,"lastFallback":"","smLog":"[16:24:24] watchdog: drawn 7930 flips 7878 mapped 4 set ACTIVE"},"updateBlock":{"flag":true,"hosts":{"snu.lge.com":true,"su.lge.com":true,"su-ssl.lge.com":true,"su-dev.lge.com":true},"live":true,"blocking":true,"state":"blocked"},"openApps":{"enabled":false,"entries":1,"ids":["com.webos.app.lifeonscreen"],"state":"off","saved":false}}
+== declutter status
+{"ok":true,"profile":"lean","groups":{"uploaders":{"on":true,"inTarget":"7/7"},"ads":{"on":true,"inTarget":"6/6"},"push":{"on":true,"inTarget":"5/6"},"settings":{"on":true,"inTarget":"16/16"},"apps":{"on":true,"inTarget":"2/2"},"autoinstall":{"on":true,"inTarget":"8/8"},"voice":{"on":true,"inTarget":"16/16"},"connectivity":{"on":true,"inTarget":"4/4"},"share":{"on":true,"inTarget":"11/11"},"misc":{"on":true,"inTarget":"3/3"},"ai":{"on":false,"inTarget":"0/3"},"livetv":{"on":false,"inTarget":"0/9"},"cast":{"on":false,"inTarget":"0/3"}},"persist":true,"skip":false,"early":{"hook":true,"pending":false,"thisBoot":true,"last":{"ran":true,"why":"","bootId":"e10720d2-4f47-4e95-88b9-bda65dbbb0c0","startSec":13.73,"stubbedSec":17.56,"maskedSec":19.73,"uptimeSec":21.10,"masked":["rdxd.service","remotelogger.service","crashd.service","service-logger.service","faultmanager.service","uploadd.service","contentminer.service","com.webos.service.pushclient.service","nudge.service","user-context-manager.service","iot-client.service","voiceconductor.service","voiceinput.service","google-home-controller.service","com.webos.service.ruleengine.service","miracast.service","airplay-adaptor.service","dmr.service","appcasting.service","com.webos.service.mycar.service","ftms.service","tvlinkcmdprocessor.service","tvlink-network-proxy.service","cups.path","cups.socket","cups-lpd.socket"],"stubbed":["/usr/sbin/uploadd","/usr/sbin/admanager","/usr/sbin/adoverlay-service","/usr/sbin/acr2","/usr/sbin/sportsalarm","/usr/sbin/pbs","/usr/sbin/sdp-server-notice","/usr/sbin/nlpmanager","/usr/sbin/trigger_alexa","/usr/sbin/trigger_thinq","/usr/sbin/voiceclick","/usr/sbin/voiceinput_sound","/usr/sbin/voiceinput_network","/usr/sbin/voiceinput_hidraw","/usr/sbin/voiceinput_preprocessor","/usr/sbin/tts","/usr/sbin/iconnectivity","/usr/sbin/airplay","/usr/sbin/upnpd","/usr/sbin/mfi"],"running":["remotelogger.service","crashd.service","service-logger.service","faultmanager.service","com.webos.service.pushclient.service","voiceinput.service","com.webos.service.mycar.service","cups.path","cups.socket","cups-lpd.socket"]}},"updateBlock":{"flag":true,"mapped":4,"ours":false,"hook":true,"thisBoot":false,"last":null},"memAvailableKb":512436}
+== early.json
+active
+backup
+before
+early.json
+log
+profile
+stub
+{"ran":true,"why":"","bootId":"e10720d2-4f47-4e95-88b9-bda65dbbb0c0","startSec":13.73,"stubbedSec":17.56,"maskedSec":19.73,"uptimeSec":21.10,"masked":["rdxd.service","remotelogger.service","crashd.service","service-logger.service","faultmanager.service","uploadd.service","contentminer.service","com.webos.service.pushclient.service","nudge.service","user-context-manager.service","iot-client.service","voiceconductor.service","voiceinput.service","google-home-controller.service","com.webos.service.ruleengine.service","miracast.service","airplay-adaptor.service","dmr.service","appcasting.service","com.webos.service.mycar.service","ftms.service","tvlinkcmdprocessor.service","tvlink-network-proxy.service","cups.path","cups.socket","cups-lpd.socket"],"stubbed":["/usr/sbin/uploadd","/usr/sbin/admanager","/usr/sbin/adoverlay-service","/usr/sbin/acr2","/usr/sbin/sportsalarm","/usr/sbin/pbs","/usr/sbin/sdp-server-notice","/usr/sbin/nlpmanager","/usr/sbin/trigger_alexa","/usr/sbin/trigger_thinq","/usr/sbin/voiceclick","/usr/sbin/voiceinput_sound","/usr/sbin/voiceinput_network","/usr/sbin/voiceinput_hidraw","/usr/sbin/voiceinput_preprocessor","/usr/sbin/tts","/usr/sbin/iconnectivity","/usr/sbin/airplay","/usr/sbin/upnpd","/usr/sbin/mfi"],"running":["remotelogger.service","crashd.service","service-logger.service","faultmanager.service","com.webos.service.pushclient.service","voiceinput.service","com.webos.service.mycar.service","cups.path","cups.socket","cups-lpd.socket"]}
+== updateblock status
+{"ok":true,"updateBlock":{"flag":true,"mapped":4,"ours":false,"hook":true,"thisBoot":false,"last":null}}
+== declutter log
+2026-10-28 09:53:42 group settings on
+2026-10-28 09:53:43 group apps on
+2026-10-28 09:53:43 group autoinstall on
+2026-10-28 09:53:43 group voice on
+2026-10-28 09:53:43 group connectivity on
+2026-10-28 09:53:44 group share on
+2026-10-28 09:53:44 group misc on
+2026-10-28 09:53:44 boot: later passes done
+2026-10-28 21:55:08 units still active after 15 s, killed: service-logger.service faultmanager.service
+2026-10-28 21:55:09 group uploaders on
+2026-10-28 21:55:11 group ads on
+2026-10-28 21:55:12 group push on
+2026-10-28 21:55:12 group settings on
+2026-10-28 21:55:12 group apps on
+2026-10-28 21:55:13 group autoinstall on
+2026-10-28 21:55:14 group voice on
+2026-10-28 21:55:17 group connectivity on
+2026-10-28 21:55:19 group share on
+2026-10-28 21:55:19 group misc on
+2026-10-28 21:55:19 boot: first pass done
+2026-10-28 21:55:34 boot: settled
+2026-10-28 21:55:41 group uploaders on
+2026-10-28 21:55:42 group ads on
+2026-10-28 21:55:42 group push on
+2026-10-28 21:55:42 group settings on
+2026-10-28 21:55:42 group apps on
+2026-10-28 21:55:42 group autoinstall on
+2026-10-28 21:55:43 group voice on
+2026-10-28 21:55:43 group connectivity on
+2026-10-28 21:55:43 group share on
+2026-10-28 21:55:43 group misc on
+2026-10-28 21:56:11 group uploaders on
+2026-10-28 21:56:11 group ads on
+2026-10-28 21:56:11 group push on
+2026-10-28 21:56:11 group settings on
+2026-10-28 21:56:12 group apps on
+2026-10-28 21:56:12 group autoinstall on
+2026-10-28 21:56:12 group voice on
+2026-10-28 21:56:12 group connectivity on
+2026-10-28 21:56:12 group share on
+2026-10-28 21:56:12 group misc on
+2026-10-28 21:56:13 boot: later passes done
+2026-10-29 09:37:14 group settings on
+2026-10-29 09:37:14 group connectivity on
+2026-10-29 15:14:02 killed a running copy, pid 3169, at uptime 19 s
+2026-10-29 15:14:04 early: 26 unit(s) masked, 20 program(s) stubbed, already running: remotelogger.service crashd.service service-logger.service faultmanager.service com.webos.service.pushclient.service voiceinput.service com.webos.service.mycar.service cups.path cups.socket cups-lpd.socket, stubs at 17.56 s, masks at 19.73 s, done at uptime 21.82 s
+2026-10-29 15:14:18 early: settled
+2026-10-29 15:14:21 group uploaders on
+2026-10-29 15:14:21 group ads on
+2026-10-29 15:14:22 group push on
+2026-10-29 15:14:22 group settings on
+2026-10-29 15:14:22 group apps on
+2026-10-29 15:14:23 group autoinstall on
+2026-10-29 15:14:23 group voice on
+2026-10-29 15:14:23 group connectivity on
+2026-10-29 15:14:24 group share on
+2026-10-29 15:14:24 group misc on
+2026-10-29 15:14:24 boot: first pass done
+2026-10-29 15:14:39 boot: settled
+2026-10-29 15:14:47 group uploaders on
+2026-10-29 15:14:47 group ads on
+2026-10-29 15:14:47 group push on
+2026-10-29 15:14:47 group settings on
+2026-10-29 15:14:47 group apps on
+2026-10-29 15:14:48 group autoinstall on
+2026-10-29 15:14:48 group voice on
+2026-10-29 15:14:49 group connectivity on
+2026-10-29 15:14:49 group share on
+2026-10-29 15:14:49 group misc on
+2026-10-29 15:15:17 group uploaders on
+2026-10-29 15:15:17 group ads on
+2026-10-29 15:15:17 group push on
+2026-10-29 15:15:17 group settings on
+2026-10-29 15:15:17 group apps on
+2026-10-29 15:15:18 group autoinstall on
+2026-10-29 15:15:18 group voice on
+2026-10-29 15:15:18 group connectivity on
+2026-10-29 15:15:18 group share on
+2026-10-29 15:15:18 group misc on
+2026-10-29 15:15:18 boot: later passes done
+== lumatv log (declutter early / update block early / homestub-boot)
+2026-10-29 15:13:58 boot: [up 15.15 s] homestub-boot: {"ok":true,"stub":true}
+2026-10-29 15:14:00 compositor-boot: mounted
+2026-10-29 15:14:00 boot: [up 17.78 s] compositor-boot: {"ok":true,"compositor":"mounted"}
+2026-10-29 15:14:05 boot: [up 21.99 s] declutter early: {"ok":true,"early":true,"startSec":13.73,"stubbedSec":17.56,"maskedSec":19.73,"uptimeSec":21.86,"masked":26,"stubbed":20,"running":["remotelogger.service","crashd.service","service-logger.service","faultmanager.service","com.webos.service.pushclient.service","voiceinput.service","com.webos.service.m
+== units
+-- contentminer
+LoadState=masked
+ActiveState=inactive
+ActiveEnterTimestampMonotonic=0
+-- rdxd
+LoadState=masked
+ActiveState=inactive
+ActiveEnterTimestampMonotonic=0
+-- nudge
+LoadState=masked
+ActiveState=inactive
+ActiveEnterTimestampMonotonic=0
+-- uploadd
+LoadState=masked
+ActiveState=inactive
+ActiveEnterTimestampMonotonic=0
+-- user-context-manager
+LoadState=masked
+ActiveState=inactive
+ActiveEnterTimestampMonotonic=0
+-- iot-client
+LoadState=masked
+ActiveState=inactive
+ActiveEnterTimestampMonotonic=0
+== stubs mounted
+/dev/mmcblk0p58 /usr/sbin/uploadd ext4 rw,nosuid,relatime,data=ordered 0 0
+/dev/mmcblk0p58 /usr/sbin/admanager ext4 rw,nosuid,relatime,data=ordered 0 0
+/dev/mmcblk0p58 /usr/sbin/adoverlay-service ext4 rw,nosuid,relatime,data=ordered 0 0
+/dev/mmcblk0p58 /usr/sbin/acr2 ext4 rw,nosuid,relatime,data=ordered 0 0
+/dev/mmcblk0p58 /usr/sbin/sportsalarm ext4 rw,nosuid,relatime,data=ordered 0 0
+/dev/mmcblk0p58 /usr/sbin/pbs ext4 rw,nosuid,relatime,data=ordered 0 0
+tmpfs /tmp/uploadd tmpfs ro,relatime 0 0
+tmpfs /mnt/lg/cmn_data/var/palm/jail/com.lighting.huesync/tmp/uploadd tmpfs rw,relatime 0 0
+tmpfs /mnt/lg/flash/data/var/palm/jail/com.lighting.huesync/tmp/uploadd tmpfs rw,relatime 0 0
+tmpfs /mnt/lg/user/var/palm/jail/com.lighting.huesync/tmp/uploadd tmpfs rw,relatime 0 0
+tmpfs /mnt/lg/cmn_data/var/palm/jail/com.webos.chromecast/tmp/uploadd tmpfs rw,relatime 0 0
+tmpfs /mnt/lg/flash/data/var/palm/jail/com.webos.chromecast/tmp/uploadd tmpfs rw,relatime 0 0
+tmpfs /mnt/lg/user/var/palm/jail/com.webos.chromecast/tmp/uploadd tmpfs rw,relatime 0 0
+tmpfs /var/spool/uploadd/pending tmpfs ro,relatime 0 0
+tmpfs /mnt/lg/cmn_data/var/spool/uploadd/pending tmpfs rw,relatime 0 0
+tmpfs /mnt/lg/flash/data/var/spool/uploadd/pending tmpfs rw,relatime 0 0
+tmpfs /mnt/lg/user/var/spool/uploadd/pending tmpfs rw,relatime 0 0
+tmpfs /var/spool/uploadd/uploaded tmpfs ro,relatime 0 0
+tmpfs /mnt/lg/cmn_data/var/spool/uploadd/uploaded tmpfs rw,relatime 0 0
+tmpfs /mnt/lg/flash/data/var/spool/uploadd/uploaded tmpfs rw,relatime 0 0
+tmpfs /mnt/lg/user/var/spool/uploadd/uploaded tmpfs rw,relatime 0 0
+/dev/mmcblk0p58 /var/palm/jail/com.webos.app.browser/mnt/lg/cmn_data/admanager/cache ext4 ro,nosuid,relatime,data=ordered 0 0
+/dev/mmcblk0p58 /mnt/lg/cmn_data/var/palm/jail/com.webos.app.browser/mnt/lg/cmn_data/admanager/cache ext4 rw,nosuid,relatime,data=ordered 0 0
+/dev/mmcblk0p58 /mnt/lg/flash/data/var/palm/jail/com.webos.app.browser/mnt/lg/cmn_data/admanager/cache ext4 rw,nosuid,relatime,data=ordered 0 0
+/dev/mmcblk0p58 /mnt/lg/user/var/palm/jail/com.webos.app.browser/mnt/lg/cmn_data/admanager/cache ext4 rw,nosuid,relatime,data=ordered 0 0
+== iot-client path and mount
+-rwxr-xr-x    1 root     root        890404 Apr  5  2011 /usr/palm/services/com.webos.service.iotclient/iot-client
+10042 /usr/palm/services/com.webos.service.iotclient/iot-client

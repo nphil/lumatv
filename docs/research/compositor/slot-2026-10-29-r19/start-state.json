@@ -1,0 +1,140 @@
+{
+ "when": "2026-10-29 16:09:38 EDT",
+ "power": "Active",
+ "foreground": "com.webos.app.home",
+ "pictureMode": "filmMaker",
+ "inputs": {
+  "ok": true,
+  "inputs": {
+   "ports": [
+    {
+     "port": 0,
+     "open": false,
+     "connect": "UNKNOWN"
+    },
+    {
+     "port": 1,
+     "open": false,
+     "connect": "UNKNOWN"
+    }
+   ],
+   "running": [],
+   "held": ""
+  }
+ },
+ "md5": {
+  "theme.json": "07242387560c27a98f24641921ea4665",
+  "layout.json": "f5954cd081e327426bab31ae456eef9b",
+  "helper.json": "48b5aabe4f840a071f221552d21f9b00",
+  "Tokens.js": "ee51e2db1fe737b763b2886f61f5f269"
+ },
+ "keyboard": {
+  "ok": true,
+  "on": false,
+  "patched": false,
+  "keyboard": "lg"
+ },
+ "transitions": {
+  "ok": true,
+  "transitions": {
+   "on": true,
+   "compositor": "own"
+  }
+ },
+ "wallpaper": {
+  "ok": true,
+  "wallpaper": {
+   "source": "gpu",
+   "ready": true,
+   "missing": [],
+   "compositor": "own",
+   "vplane": {
+    "installed": true,
+    "role": true,
+    "clips": 6,
+    "walls": 2,
+    "running": true,
+    "pid": 15178
+   },
+   "player": {
+    "state": "idle",
+    "role": ""
+   }
+  }
+ },
+ "compositor": {
+  "bundle": true,
+  "enabled": true,
+  "flag": "persistent",
+  "mounted": true,
+  "live": true,
+  "lgBinary": "mounted",
+  "firmware": "verified",
+  "escaped": false,
+  "unsettled": false,
+  "failures": 0,
+  "lastFallback": "",
+  "smLog": "[16:08:10] watchdog: drawn 26028 flips 26028 mapped 4 set ACTIVE"
+ },
+ "ctl_shell": "ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.\n{\"can\":[\"quick\",\"picker\",\"drawer\",\"switcher\",\"keyboard\"],\"connected\":true,\"enabled\":true,\"error\":null,\"gaveUp\":false,\"homeCommits\":25037,\"homeDrawn\":true,\"homeMapped\":true,\"lunaOpen\":[{\"subscribe\":true,\"tag\":1,\"uri\":\"luna://com.webos.service.applicationmanager/listLaunchPoints\"},{\"subscribe\":true,\"tag\":2,\"uri\":\"luna://com.webos.notification/getPincodePromptNotification\"},{\"subscribe\":true,\"tag\":3,\"uri\":\"luna://com.webos.notification/getInputAlertNotification\"},{\"subscribe\":true,\"tag\":4,\"uri\":\"luna://com.webos.notification/getAlertNotification\"},{\"subscribe\":true,\"tag\":5,\"uri\":\"luna://com.webos.notification/getToastNotification\"},{\"subscribe\":true,\"tag\":8,\"uri\":\"luna://com.webos.service.homelaunchpoints/listLaunchPoints\"},{\"subscribe\":true,\"tag\":9,\"uri\":\"luna://com.webos.notification/getToastNotification\"},{\"subscribe\":true,\"tag\":10,\"uri\":\"luna://com.webos.applicationManager/running\"},{\"subscribe\":true,\"tag\":12,\"uri\":\"luna://com.webos.service.connectionmanager/getStatus\"},{\"subscribe\":true,\"tag\":27,\"uri\":\"luna://com.webos.service.panelcontroller/getPanelUsageTime\"},{\"subscribe\":true,\"tag\":167,\"uri\":\"luna://com.webos.service.tvpower/power2/registerScreenSaverRequest\"},{\"subscribe\":true,\"tag\":168,\"uri\":\"luna://com.webos.service.tvpower/power/registerScreenSaverRequest\"},{\"subscribe\":true,\"tag\":170,\"uri\":\"luna://com.webos.service.eim/getAllInputStatus\"},{\"subscribe\":true,\"tag\":171,\"uri\":\"luna://com.webos.service.applicationmanager/getForegroundAppInfo\"}],\"ok\":true,\"pid\":24333,\"rust\":{\"can\":[],\"connected\":false,\"enabled\":false,\"engine\":false,\"error\":null,\"gaveUp\":false,\"kinds\":[],\"lunaOpen\":[],\"pid\":null,\"stats\":{\"events\":0,\"exits\":0,\"lunaCalls\":0,\"lunaCancelledEarly\":0,\"lunaRefused\":0,\"shows\":0,\"starts\":0},\"systemLive\":false,\"takes\":[],\"topics\":{},\"ui\":null,\"wants\":false},\"stats\":{\"events\":521,\"exits\":0,\"lunaCalls\":178,\"lunaCancelledEarly\":0,\"lunaRefused\":0,\"shows\":2,\"starts\":1},\"systemCommits\":5757,\"systemLive\":false,\"systemMapped\":true,\"takes\":[],\"topics\":{\"apps\":[],\"audio\":{\"callerId\":\"com.webos.surfacemanager\",\"returnValue\":true,\"volumeStatus\":{\"activeStatus\":true,\"adjustVolume\":true,\"cause\":\"volumeUp\",\"externalDeviceControl\":true,\"maxVolume\":100,\"mode\":\"normal\",\"muteStatus\":false,\"ossActivate\":false,\"soundOutput\":\"external_arc\",\"volume\":84,\"volumeLimitable\":false,\"volumeLimiter\":\"none\",\"volumeSyncable\":false}},\"capture\":{\"last\":null,\"n\":0,\"recording\":false,\"since\":null,\"stage\":\"idle\"},\"cursor\":{\"visible\":false},\"foreground\":{\"app\":\"com.webos.app.home\",\"covered\":false,\"home\":true},\"ime\":{\"active\":false,\"show\":false},\"keyboard\":{\"up\":false},\"luna\":{\"payload\":{\"panelUsageTime\":26064,\"panelUsageTimeStore\":0,\"subscribed\":true},\"tag\":27},\"refresh\":{\"hz\":60},\"rust\":{\"kinds\":[]},\"screen\":{\"on\":true},\"show\":{\"kind\":\"quick\",\"n\":2,\"warm\":false},\"switcher\":{\"from\":\"\",\"n\":0,\"open\":false},\"transitions\":{\"on\":true,\"reduced\":false},\"vwi",
+ "pixelRefresher": {
+  "returnValue": true,
+  "jbLastTime": 4142,
+  "jbCount": 11,
+  "jbInterval": 500,
+  "pnwashKeyLock": true,
+  "offrsInterval": 4,
+  "offrsLastTime": 4343,
+  "offrsCount": 612,
+  "subscribed": false
+ },
+ "panelUsage": {
+  "returnValue": true,
+  "panelUsageTimeStore": 0,
+  "panelUsageTime": 26064
+ },
+ "panelTopic": {
+  "api": 1,
+  "boot": 1793301248320,
+  "now": 1793304579493,
+  "ok": true,
+  "seq": 405,
+  "topic": "panel",
+  "value": {
+   "due": false,
+   "error": null,
+   "guard": {
+    "deferrals": 0,
+    "enabled": false,
+    "last": null
+   },
+   "intervalHours": 4.0,
+   "lastRunHours": 4343.0,
+   "lastStandbyMinutes": null,
+   "offrsCount": 612,
+   "read": true,
+   "readAt": 1793304248593,
+   "standby": null,
+   "usageHours": 4344.0
+  }
+ },
+ "oledcare": "",
+ "theme_switches": {
+  "appDim": "",
+  "appShift": "",
+  "boxDim": "",
+  "overlays": "",
+  "capture": "",
+  "cameras": "",
+  "refreshGuard": ""
+ },
+ "helper_json": "{\"cameras\":{\"enabled\":true}}",
+ "always_ready": {
+  "ok": true,
+  "on": false,
+  "mode": "alwaysReady",
+  "prev": ""
+ },
+ "uptime": "16:09:40 up 55 min,  0 users,  load average: 16.06, 15.76, 15.12\nMemAvailable:     611340 kB\nCmaFree:           16984 kB",
+ "lumatv_procs": "6463 ?        00:00:07 lumatv-helper\n15100 ?        00:00:03 lumatv\n15149 ?        00:00:00 lumatv-capture\n15178 ?        00:00:00 lumatv-vplane"
+}

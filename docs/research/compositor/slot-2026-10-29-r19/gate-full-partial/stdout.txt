@@ -1,0 +1,59 @@
+start 17:08:47 --skip volume --apps-repeat 15
+power state: active
+home stub before the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+avr: left to the agent (True)
+GATE firmware: PASS Rockhopper release 10.2.1-5202 (ponytail-paparoa); fingerprint e34f8de94ef657a4; 10 files hashed in 1 s, unreadable: none; this set's entry: verified 10.2.1-5202; a flipped digit: 5; another release: 5; an empty list: 5; the set's own list: verified 10.2.1-5202; the supervisor: no off: not enabled (exit 3)
+
+GATE homeheld: PASS while held: exit 0 (0 = held); after the release: exit 1 (1 = not held); injector exit 0
+
+firmware: verified 10.2.1-5202
+safety timer: this session ends by itself after 104 min if it is still live ('cutover.sh disable' cancels the timer)
+mounted; restarting the unit
+t=5s unit=active exe=/usr/bin/surface-manager compositor=16490 mounted=yes wam=active
+   17:09:06 recover: WebAppMgr answering after 0s (active)
+   17:09:07 recover: Home running under LumaTV's compositor after 0s
+t=10s unit=active exe=/usr/bin/surface-manager compositor=16490 mounted=yes wam=active
+   17:09:06 recover: WebAppMgr answering after 0s (active)
+   17:09:07 recover: Home running under LumaTV's compositor after 0s
+t=15s unit=active exe=/usr/bin/surface-manager compositor=16490 mounted=yes wam=active
+   17:09:07 recover: Home running under LumaTV's compositor after 0s
+   17:09:17 recover: librdx reports swept; remaining 0
+t=20s unit=active exe=/usr/bin/surface-manager compositor=16490 mounted=yes wam=active
+   17:09:07 recover: Home running under LumaTV's compositor after 0s
+   17:09:17 recover: librdx reports swept; remaining 0
+t=25s unit=active exe=/usr/bin/surface-manager compositor=16490 mounted=yes wam=active
+   17:09:07 recover: Home running under LumaTV's compositor after 0s
+   17:09:17 recover: librdx reports swept; remaining 0
+t=30s unit=active exe=/usr/bin/surface-manager compositor=16490 mounted=yes wam=active
+   17:09:07 recover: Home running under LumaTV's compositor after 0s
+   17:09:17 recover: librdx reports swept; remaining 0
+enabled (session): LumaTV's compositor stays live (recovery done after 0s more); 'cutover.sh disable' restores LG's
+
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 388730 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+GATE x1: FAIL INCONCLUSIVE attribution: missing or incomplete trace (INCONCLUSIVE; trace answered 3617 frames but raw RESULT counted 3597; trace implies 4 gaps but raw log counted 3) | RAW STRICT: FAIL 3 gap(s) over 20 ms in the client's swaps (worst 20.7 ms); pacer late 7 -> 9; the compositor logged 4 loop pass(es), client frame gap(s) or page-flip interval(s) over 20 ms during the run | RAW RESULT: [x1] RESULT frames=3597 in 60.00 s = 59.95 fps; gaps: <=17.5 ms 3417, 17.5-20 176, 20-33.5 3, >33.5 0; worst 20.7 ms; ended at monotonic 1236.085 | RAW STRICT: FAIL 3 gap(s) over 20 ms in the client's swaps (worst 20.7 ms); pacer late 7 -> 9; the compositor logged 4 loop pass(es), client frame gap(s) or page-flip interval(s) over 20 ms during the run | RAW RESULT: [x1] RESULT frames=3597 in 60.00 s = 59.95 fps; gaps: <=17.5 ms 3417, 17.5-20 176, 20-33.5 3, >33.5 0; worst 20.7 ms; ended at monotonic 1236.085 | attribution coverage: INCONCLUSIVE; trace answered 3617 frames but raw RESULT counted 3597; trace implies 4 gaps but raw log counted 3 | pacer before: flips 385 late 7 lost 1416 after: flips 4001 late 9 lost 1456 | compositor: loop stalls 1, frame gaps 4, clients connected 0, over 20 ms 4 (the loop's and the flips' own: 0); major faults +1, run-queue wait +7.1 ms, loop thread SCHED_FIFO prio -21, mali-cmar-backe run-queue wait +7.4 ms SCHED_FIFO | wake-up latency: tick p50 0.02 p99 0.04 max 0.10 ms (n 3664); flip p50 0.00 p99 0.04 max 0.20 ms (n 3616); input no samples; tick waited on a busy loop p50 0.16 p99 0.34 max 0.34 ms (n 81) | waits: loop: run-queue wait 1 us a wake-up on average, no per-wait statistics; mali-cmar-backe: run-queue wait 0 us a wake-up on average, no per-wait statistics | kernel waits: no late frame | client 18108 reaction after the compositor's draw: p50 1.46 ms, p99.9 5.32, max 6.08; 108 over 3 ms, 4 frame gap(s) over 20 ms implied; answered 3617, flips at most 16.71 ms apart | x1 gaps compositor-attributable 1, client-only 3, unexplained 0 | x1 attribution INCONCLUSIVE
+
+avr: left to the agent (True)
+GATE netflix: PASS netflix windows 1 video "video":[{"context":"_Lxbk0MUALWBIAO","displayOutput":{"height":1080,"width":1920,"x":0,"y":0},"fullScreen":true,"windowId":"_Window_Id_5"}] placements 11 protocol errors 0 pictureMode playing dolbyHdrCinema after filmMaker fg playing netflix now com.webos.app.home panel 21985 bytes stale-instance-closed 0 audio-port-held-before none
+
+GATE hdmi: PASS hdmi2 windows 1 mapped 1 bufferless commits 0 fg while open com.webos.app.hdmi2 now com.webos.app.home panel 8846 bytes audio-port-held-after-close none
+
+GATE apps: FAIL failed: [pass 5 of 15] com.beb.plxnative pid 13588 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes APP_CLOSED {"app_id":"com.beb.plxnative","type":"native","pid":"13588","exit_status":11 crash-reports +1; [pass 9 of 15] com.beb.plxnative pid 18160 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes APP_CLOSED {"app_id":"com.beb.plxnative","type":"native","pid":"18160","exit_status":11 crash-reports +1; [pass 11 of 15] com.beb.plxnative pid 20360 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes crash-reports +1; [pass 14 of 15] com.beb.plxnative pid 23794 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes APP_CLOSED {"app_id":"com.beb.plxnative","type":"native","pid":"23794","exit_status":11 crash-reports +1; ok: [pass 1 of 15] youtube.leanback.v4 pid 8427 foreground-in-ms 1500 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 1 of 15] com.beb.plxnative pid 9162 foreground-in-ms 1500 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 2 of 15] youtube.leanback.v4 pid 9789 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 2 of 15] com.beb.plxnative pid 10302 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 3 of 15] youtube.leanback.v4 pid 10873 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 3 of 15] com.beb.plxnative pid 11327 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 4 of 15] youtube.leanback.v4 pid 11974 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 4 of 15] com.beb.plxnative pid 12499 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 5 of 15] youtube.leanback.v4 pid 13074 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 6 of 15] youtube.leanback.v4 pid 14161 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 6 of 15] com.beb.plxnative pid 14735 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 7 of 15] youtube.leanback.v4 pid 15362 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 7 of 15] com.beb.plxnative pid 15819 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 8 of 15] youtube.leanback.v4 pid 16449 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 8 of 15] com.beb.plxnative pid 16952 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 9 of 15] youtube.leanback.v4 pid 17668 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 10 of 15] youtube.leanback.v4 pid 18715 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 10 of 15] com.beb.plxnative pid 19226 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 11 of 15] youtube.leanback.v4 pid 19800 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 12 of 15] youtube.leanback.v4 pid 20986 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 12 of 15] com.beb.plxnative pid 21496 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 13 of 15] youtube.leanback.v4 pid 22069 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 13 of 15] com.beb.plxnative pid 22589 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 14 of 15] youtube.leanback.v4 pid 23196 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 15 of 15] youtube.leanback.v4 pid 24387 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; [pass 15 of 15] com.beb.plxnative pid 24893 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes; com.geforcenow.play browser-in-front yes front-6s-after-home com.webos.app.home;
+
+avr: left to the agent (True)
+GATE keys: PASS gear-shell ok; input-shell ok; netflix-button ok; digit-tap ok; digit-hold ok; exit ok; (key table: gear=139 input=241 netflix=1037 amazon=1038; unnamed keys seen: [])
+
+avr: left to the agent (True)
+GATE ime: PASS before: maliit-server.service inactive, MaliitServer not running; after the keyboard came up: unit active, MaliitServer pid 27313; input methods bound 1; asked for one 1 time(s); OK pressed 0 time(s); keyboard up yes (panel y 642 h 438, capture 135431 bytes); context yes; typed 3; closed by Back | an input method bound, the field's context made, the keyboard's window at the bottom, a key typed on it reached the field, the keyboard closed
+
+GATE shell: FAIL connected ok; home-loaded ok; idle-home(10/s,3%) ok; dpad(rust: dock -> widgets -> dock) ok; quick-home ok; picker-home ok; osd ok; toast ok; quick-app ok; idle-covered(0%) ok; NOT: saver (a key did not end it); (shell pid 17088, starts 1, exits 0, luna calls 381, refused 0; foreground com.webos.app.home, windows mapped: org.nphil.lumatv.shell org.nphil.lumatv.shell com.webos.app.home)
+
+avr: left to the agent (True)
+evidence: 2 subscription(s) from SAM, 90 client lines, 22 loop stalls, 5 watchdog lines
+
+already mounted; 'cutover.sh status' says what runs
+
+GATE live-frames: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 387812 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+GATE wake: reset
+

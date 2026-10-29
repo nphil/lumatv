@@ -1,0 +1,40 @@
+[srv    329.562] info client connected: pid 26666 uid 505 cmd "/usr/bin/WebAppMgr --accelerated-plugin-rendering-blacklist=device;drmAgent;sound;service --autoplay-policy=no-user-gesture-required --browser-subprocess-path=/"
+[srv    330.845] info shell-rust: client connected
+[srv    331.058] info client connected: pid 27151 uid 0 cmd "/usr/bin/qml-runner {\"appId\":\"org.nphil.lumatv.shell\",\"event\":\"launch\",\"main\":\"/var/lib/lumatv/compositor/shell/Shell.qml\",\"params\":{\"dataDir\":\"/var/lib/lumatv\""
+[srv    331.543] info shell: client connected
+[srv    331.677] info client disconnected: pid 26666 uid 505 after 2115 ms (ConnectionClosed); bound ["wl_compositor", "wl_subcompositor", "wl_shm", "wl_shell", "wl_seat", "wl_output", "wl_data_device_manager", "wl_webos_shell", "wl_webos_surface_group_compositor", "wl_webos_foreign", "wl_webos_input_manager", "wl_webos_xinput_extension", "text_model_factory", "zwp_linux_dmabuf_v1", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat"]; cmd "/usr/bin/WebAppMgr --accelerated-plugin-rendering-blacklist=device;drmAgent;sound;service --autoplay-policy=no-user-gesture-required --browser-subprocess-path=/"
+[srv    332.522] info client connected: pid 27227 uid 505 cmd "/usr/bin/WebAppMgr --accelerated-plugin-rendering-blacklist=device;drmAgent;sound;service --autoplay-policy=no-user-gesture-required --browser-subprocess-path=/"
+[srv    453.649] info client connected: pid 30760 uid 5365 cmd "/media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative {\"event\":\"launch\",\"reason\":\"undefined\",\"appId\":\"com.beb.plxnative\",\"parameters\":{},\"inte"
+[srv    490.518] info client disconnected: pid 30760 uid 5365 after 36869 ms (ConnectionClosed); bound ["wl_compositor", "wl_shm", "wl_shell", "wl_seat", "wl_output", "wl_webos_shell", "wl_webos_surface_group_compositor", "wl_webos_foreign", "wl_webos_input_manager", "wl_starfish_pointer", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat"]; cmd "/media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative {\"event\":\"launch\",\"reason\":\"undefined\",\"appId\":\"com.beb.plxnative\",\"parameters\":{},\"inte"
+[srv    993.187] info shell-rust: client connected
+[srv    993.460] info shell-rust: client connected
+[srv   1000.955] info shell-rust: client connected
+[srv   1001.210] info shell-rust: client connected
+[srv   1009.642] info shell-rust: client connected
+[srv   1009.893] info shell-rust: client connected
+[srv   1014.395] info shell-rust: client connected
+[srv   1014.654] info shell-rust: client connected
+[srv   1019.956] info shell-rust: client connected
+[srv   1020.205] info shell-rust: client connected
+[srv   1025.510] info shell-rust: client connected
+[srv   1025.769] info shell-rust: client connected
+[srv   1031.031] info shell-rust: client connected
+[srv   1031.279] info shell-rust: client connected
+[srv   1036.845] info shell-rust: client connected
+[srv   1037.171] info shell-rust: client connected
+[srv   1037.941] info shell-rust: client connected
+[srv   1043.074] info shell-rust: client connected
+[srv   1048.286] info shell-rust: client connected
+[srv   1048.551] info shell-rust: client connected
+[srv   1049.175] info shell-rust: client connected
+[srv   1049.793] info shell-rust: client connected
+[srv   1049.997] info shell-rust: client connected
+[srv   1050.583] info shell-rust: client connected
+[srv   1051.402] info shell-rust: client connected
+[srv   1052.170] info shell-rust: client connected
+[srv   1052.424] info shell-rust: client connected
+[srv   1053.390] info shell-rust: client connected
+[srv   1053.669] info shell-rust: client connected
+[srv   1054.544] info shell-rust: client connected
+[srv   1054.801] info shell-rust: client connected
+[srv   1055.458] info shell-rust: client connected

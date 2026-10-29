@@ -1,0 +1,281 @@
+2026-10-29T21:45:02.283521Z [3303.141192580] user.info lginput2 [] lginput2 MRCU_STATE {"TYPE":"INFO"} [_mrcu_state_update_cursorOnTimer (1695)] Retry Cursor On Timer Exit^M
+2026-10-29T21:45:13.428985Z [3314.286654580] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_print_device_info, 501]     !!! Got Device !!!^M
+2026-10-29T21:45:13.429064Z [3314.286728160] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_print_device_info, 502]     1) Node: { /dev/hidraw0 }^M
+2026-10-29T21:45:13.429089Z [3314.286752780] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_print_device_info, 503]     2) Subsystem: { hidraw }^M
+2026-10-29T21:45:13.429120Z [3314.286784260] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_print_device_info, 504]     3) Action: { remove }^M
+2026-10-29T21:45:13.429144Z [3314.286807660] user.info lginput2 [] lginput2 SVU_MAGICREMOTE {} [26] Dev[/dev/hidraw0][hidraw][remove]^M
+2026-10-29T21:45:13.429164Z [3314.286827860] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [_uhid_hidraw_monitor_thread, 1884] Remove (DEVNAME), /dev/hidraw0^M
+2026-10-29T21:45:13.429185Z [3314.286848200] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_set_disconn_device_info (1407)] {MRCU:"LGE MR24"} :: [STAGE_ADDED] ===> [STAGE_REMOVING]^M
+2026-10-29T21:45:13.429205Z [3314.286868420] user.info lginput2 [] lginput2 BTEVENT {"TYPE":"INFO"} [lginput_btevent_handler (273)]          @@@@@ LGINPUT_EVENT_DISCONNECTED (device : 0) @@@@@^M
+2026-10-29T21:45:13.429225Z [3314.286888360] user.info lginput2 [] lginput2 DEVMNGR {"TYPE":"INFO"} [lginput_devmngr_setConnState (942)] Dev(0) connection state(FALSE)^M
+2026-10-29T21:45:13.429245Z [3314.286908900] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [lginput_button_setButtonConnState (911)] isConnected[1:0]^M
+2026-10-29T21:45:13.429265Z [3314.286929120] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_remove_device (1684)] {MRCU:"LGE MR24"} :: [STAGE_REMOVING] ===> [STAGE_REMOVED]^M
+2026-10-29T21:45:13.429286Z [3314.286950220] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [_uhid_set_remove_device_count, 1746] connected device count change(1==>0)^M
+2026-10-29T21:45:13.429307Z [3314.286970720] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [_uhid_hidraw_epoll_ctrl (1978)] epoll fd = 71, hidraw fd = 17^M
+2026-10-29T21:45:13.429328Z [3314.286991320] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_hidraw_epoll_ctrl (1987)] hidraw fd close(17)^M
+2026-10-29T21:45:13.429348Z [3314.287011260] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_hidraw_epoll_ctrl (1991)] {MRCU} :: [STAGE_REMOVED] ===> [STAGE_NO_DEVICE]^M
+2026-10-29T21:45:13.429369Z [3314.287032800] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_data_parser_thread (2319)] "activated parser(0) : ["inactivated", "inactivated", "inactivated", "inactivated", "inactivated"]"^M
+2026-10-29T21:45:13.429389Z [3314.287053280] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [_uhid_data_parser_feed (2024)] "cond_wait :: parser will be stopped."^M
+2026-10-29T21:45:13.429445Z [3314.287108440] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_hidraw_epoll_destory (1943)] epoll fd close(71)^M
+2026-10-29T21:45:13.429473Z [3314.287137220] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_data_parser_thread (2305)] "cond_wait :: waiting motion packet feeding"^M
+2026-10-29T21:45:13.529156Z [3314.386826520] user.info lginput2 [] lginput2 DB {"TYPE":"INFO"} [lginput_db_getDevLiquidInfo (1867)] DevLiquidInfo : No liquid History of this dev[]^M
+2026-10-29T21:45:13.529271Z [3314.386935180] user.info lginput2 [] lginput2 getDeviceInfo {"TYPE":"INFO"} [interface_mrcu_replyDeviceInfo (612)] _gtempLiquidInfo[None], _gtempLiquidCurrent[0]^M
+2026-10-29T21:45:17.456460Z [3318.314130580] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_print_device_info, 501]     !!! Got Device !!!^M
+2026-10-29T21:45:17.457188Z [3318.314855680] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_print_device_info, 502]     1) Node: { /dev/hidraw0 }^M
+2026-10-29T21:45:17.457748Z [3318.315414640] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_print_device_info, 503]     2) Subsystem: { hidraw }^M
+2026-10-29T21:45:17.457791Z [3318.315455600] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_print_device_info, 504]     3) Action: { add }^M
+2026-10-29T21:45:17.457816Z [3318.315479540] user.info lginput2 [] lginput2 SVU_MAGICREMOTE {} [26] Dev[/dev/hidraw0][hidraw][add]^M
+2026-10-29T21:45:17.457907Z [3318.315573420] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_set_hidraw_fd, 571]         @ add (DEVNAME), /dev/hidraw0^M
+2026-10-29T21:45:17.457934Z [3318.315597800] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_set_hidraw_fd, 577]         @ hidraw open(17) success^M
+2026-10-29T21:45:17.457955Z [3318.315619300] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_set_hidraw_devName, 602]    @ Raw Name: { LGE MR24 }^M
+2026-10-29T21:45:17.458020Z [3318.315684140] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_set_hidraw_bdAddr, 631]     @ Raw Phys: { 30:3F:5D:EF:CA:49 }^M
+2026-10-29T21:45:17.458043Z [3318.315707240] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_check_mrcu_dev_index, 1155] found DB! device(0)^M
+2026-10-29T21:45:17.458064Z [3318.315727620] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_set_conn_device_info (1378)] {MRCU} :: [STAGE_NO_DEVICE] ===> [STAGE_ADDING]^M
+2026-10-29T21:45:17.458086Z [3318.315803920] user.info lginput2 [] lginput2 UTIL {"TYPE":"INFO"} [lginput_util_getHotelMode_Blocked (428)] hotelMode mrcu block : FALSE^M
+2026-10-29T21:45:17.458174Z [3318.315838780] user.info lginput2 [] lginput2 SVU_MAGICREMOTE {} [30] WEE WR[0]^M
+2026-10-29T21:45:17.458198Z [3318.315862080] user.info lginput2 [] lginput2 DEVMNGR {"TYPE":"INFO"} [lginput_devmngr_setRemoteCountry (1816)] country fw version = 97, LGE MR24 is JPN remote? : [FALSE]^M
+2026-10-29T21:45:19.457303Z [3320.314973320] user.err lginput2 [] IM_ERROR IM {} [IM_ReceiveMsgWithMq][431] The call timed out before a message could be transferred. 
+2026-10-29T21:45:19.457373Z [3320.315037520] user.err lginput2 [] IM_ERROR IM {} [IM_MQ_Connect][300] IM_CallMethodSyncWithMq is Error(retVal:0) 
+2026-10-29T21:45:19.457399Z [3320.315063140] user.info lginput2 [] lginput2 MRCU_STATE {"TYPE":"INFO"} [mrcu_state_registerCursorCallback, 1725] ^M
+2026-10-29T21:45:21.459880Z [3322.317550620] user.err lginput2 [] IM_ERROR IM {} [IM_ReceiveMsgWithMq][431] The call timed out before a message could be transferred. 
+2026-10-29T21:45:21.459964Z [3322.317628640] user.err lginput2 [] IM_ERROR IM {} [IM_RegisterCursorInfoCallback][572] IM_CallMethodSyncWithMq is Error(retVal:0) 
+2026-10-29T21:45:21.459992Z [3322.317655740] user.info lginput2 [] lginput2 LSM {"TYPE":"INFO"} [xpa_lsm_getWindowGroupInfo (114)] Subscription already exist^M
+2026-10-29T21:45:21.460015Z [3322.317679040] user.info lginput2 [] lginput2 MRCU_STATE {"TYPE":"INFO"} [mrcu_state_registerCursorCallback, 1792] ret : FALSE^M
+2026-10-29T21:45:21.460037Z [3322.317700680] user.info lginput2 [] lginput2 MRCU_STATE {"TYPE":"INFO"} [_mrcu_state_update_cursorOnTimer (1678)] Retry Cursor On Timer Enter^M
+2026-10-29T21:45:21.460059Z [3322.317722480] user.info lginput2 [] lginput2 UTIL {"TYPE":"INFO"} [lginput_util_parse_scd_version_info, 986] ##### has_scd : [TRUE] / year : [21] / version : [2] #####^M
+2026-10-29T21:45:21.460080Z [3322.317743620] user.info lginput2 [] lginput2 DEVMNGR {"TYPE":"INFO"} New device (LGE MR24) has been attached (index = 0 / handle = 0 / SCD : TRUE)^M
+2026-10-29T21:45:21.460101Z [3322.317765040] user.info lginput2 [] lginput2 DB {"TYPE":"INFO"} [lginput_db_getDevLiquidInfo (1867)] DevLiquidInfo : No liquid History of this dev[]^M
+2026-10-29T21:45:21.460123Z [3322.317786680] user.info lginput2 [] lginput2 getDeviceInfo {"TYPE":"INFO"} [interface_mrcu_replyDeviceInfo (612)] _gtempLiquidInfo[None], _gtempLiquidCurrent[0]^M
+2026-10-29T21:45:21.460144Z [3322.317808060] user.info lginput2 [] lginput2 ReadFile {"TYPE":"INFO"} [lginput_db_readLowSignalStrengthInfo (2561)] /mnt/lg/cmn_data/mrcu/lowsignalstrength.info db file open^M
+2026-10-29T21:45:21.460166Z [3322.317829820] user.err lginput2 [] lginput2 DB {"TYPE":"ERR"} [lginput_db_setLowSignalStrength (2710)]  Invalid DB data  res :[0] ^M
+2026-10-29T21:45:21.460189Z [3322.317852920] user.info lginput2 [] lginput2 ReadFile {"TYPE":"INFO"} [lginput_db_readLowSignalStrengthInfo (2561)] /mnt/lg/cmn_data/mrcu/lowsignalstrength.info db file open^M
+2026-10-29T21:45:21.460210Z [3322.317873680] user.info lginput2 [] lginput2 BTEVENT {"TYPE":"INFO"} [lginput_btevent_handler (244)]          @@@@@ LGINPUT_EVENT_CONNECTED (device : 0) LGE MR24 @@@@@^M
+2026-10-29T21:45:21.460232Z [3322.317895260] user.info lginput2 [] lginput2 DEVMNGR {"TYPE":"INFO"} [lginput_devmngr_setConnState (942)] Dev(0) connection state(TRUE)^M
+2026-10-29T21:45:21.460252Z [3322.317916120] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [lginput_button_setButtonConnState (911)] isConnected[0:1]^M
+2026-10-29T21:45:21.460273Z [3322.317936180] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [lginput_uhid_getSTBPowerControlDB (4656)] Get STB PWR CTRL(0x74) <<< sendPath(0)^M
+2026-10-29T21:45:21.460293Z [3322.317957140] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [lginput_uhid_writeData (5606)] =>(0@30:3f:5d:ef:ca:49), Opcode(0xf974), DataSize(2) write^M
+2026-10-29T21:45:21.460314Z [3322.317977440] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [lginput_uhid_printBasicBtCmd (5540)] Opcode(0xf974), DataSize(2) write^M
+2026-10-29T21:45:21.460348Z [3322.318011720] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [lginput_uhid_sendWritingNFC, 5079] LGE MR24(4) is not supported^M
+2026-10-29T21:45:21.460393Z [3322.318056380] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_add_device (1518)] {MRCU:"LGE MR24"} :: [STAGE_ADDING] ===> [STAGE_ADDED]^M
+2026-10-29T21:45:21.460413Z [3322.318076420] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [_uhid_set_add_device_count, 1469] connected device count change(0==>1)^M
+2026-10-29T21:45:21.460433Z [3322.318096560] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_hidraw_monitor_thread (1871)] "cond_signal :: start motion packet feeding"^M
+2026-10-29T21:45:21.460453Z [3322.318116760] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [_uhid_hidraw_monitor_thread, 1874] magicFd(17) connectedDev(1) added^M
+2026-10-29T21:45:21.460476Z [3322.318139140] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_data_parser_thread (2319)] "activated parser(1) : ["activated", "inactivated", "inactivated", "inactivated", "inactivated"]"^M
+2026-10-29T21:45:21.460496Z [3322.318159480] user.info lginput2 [] lginput2 UHID_PARSER {"TYPE":"INFO"} [lginput_uhid_parser (5422)] @@@ Get in the m_pkt(0) @@@^M
+2026-10-29T21:45:21.460581Z [3322.318244180] user.info lginput2 [] lginput2 DB {"TYPE":"INFO"} [lginput_db_getDevLiquidInfo (1867)] DevLiquidInfo : No liquid History of this dev[]^M
+2026-10-29T21:45:21.460601Z [3322.318264640] user.info lginput2 [] lginput2 getDeviceInfo {"TYPE":"INFO"} [interface_mrcu_replyDeviceInfo (612)] _gtempLiquidInfo[None], _gtempLiquidCurrent[0]^M
+2026-10-29T21:45:21.460621Z [3322.318285000] user.info lginput2 [] lginput2 ReadFile {"TYPE":"INFO"} [lginput_db_readLowSignalStrengthInfo (2561)] /mnt/lg/cmn_data/mrcu/lowsignalstrength.info db file open^M
+2026-10-29T21:45:21.460642Z [3322.318305980] user.err lginput2 [] lginput2 DB {"TYPE":"ERR"} [lginput_db_setLowSignalStrength (2710)]  Invalid DB data  res :[0] ^M
+2026-10-29T21:45:21.460663Z [3322.318326280] user.info lginput2 [] lginput2 ReadFile {"TYPE":"INFO"} [lginput_db_readLowSignalStrengthInfo (2561)] /mnt/lg/cmn_data/mrcu/lowsignalstrength.info db file open^M
+2026-10-29T21:45:21.460682Z [3322.318346140] user.info lginput2 [] lginput2 MRCU {"TYPE":"INFO"} [lginput_mrcu_isMuteGuidancePopUpRequiered (2781)] Mute guidance pop-up blocked FG[11]
+2026-10-29T21:45:21.460702Z [3322.318366040] user.info lginput2 [] lginput2 MRCU {"TYPE":"INFO"} {LGE MR24} [KEY_RIGHT] button press
+2026-10-29T21:45:21.460722Z [3322.318385620] user.info lginput2 [] lginput2 NL_NON_LIST_BUTTON_CLICK {"remote_type":"LGE MR24","button_type":"KEY_RIGHT"} 
+2026-10-29T21:45:21.505316Z [3322.362987180] user.info lginput2 [] lginput2 MRCU {"TYPE":"INFO"} [lginput_mrcu_isMuteGuidancePopUpRequiered (2781)] Mute guidance pop-up blocked FG[11]
+2026-10-29T21:45:21.505426Z [3322.363091000] user.info lginput2 [] lginput2 MRCU {"TYPE":"INFO"} {LGE MR24} [KEY_RIGHT] button release
+2026-10-29T21:45:21.506808Z [3322.364476800] user.info lginput2 [] lginput2 REMOTESTATUS {"TYPE":"INFO"} [interface_mrcu_sensor_setCursorBounds (195)] set resolution: [1920, 1080]
+2026-10-29T21:45:21.843541Z [3322.701212120] user.info lginput2 [] lginput2 MRCU {"TYPE":"INFO"} [lginput_mrcu_isMuteGuidancePopUpRequiered (2781)] Mute guidance pop-up blocked FG[11]
+2026-10-29T21:45:21.843634Z [3322.701298400] user.info lginput2 [] lginput2 MRCU {"TYPE":"INFO"} {LGE MR24} [KEY_LEFT] button press
+2026-10-29T21:45:21.843663Z [3322.701327500] user.info lginput2 [] lginput2 NL_NON_LIST_BUTTON_CLICK {"remote_type":"LGE MR24","button_type":"KEY_LEFT"} 
+2026-10-29T21:45:21.938255Z [3322.795925980] user.info lginput2 [] lginput2 MRCU {"TYPE":"INFO"} [lginput_mrcu_isMuteGuidancePopUpRequiered (2781)] Mute guidance pop-up blocked FG[11]
+2026-10-29T21:45:21.938368Z [3322.796032680] user.info lginput2 [] lginput2 MRCU {"TYPE":"INFO"} {LGE MR24} [KEY_LEFT] button release
+2026-10-29T21:45:22.517090Z [3323.374769180] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [lginput_uhid_writeData (5606)] =>(0@30:3f:5d:ef:ca:49), Opcode(0xf902), DataSize(2) write^M
+2026-10-29T21:45:22.517189Z [3323.374853780] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [lginput_uhid_printBasicBtCmd (5512)] ##### Opcode(Motion Sleep), DataSize(2) write #####^M
+2026-10-29T21:45:22.575524Z [3323.433195980] user.info lginput2 [] lginput2 MRCU {"TYPE":"INFO"} --->> { MRCU_BUTTON_MOTION_STOP } <<--- received (mrcu_process, 0, -1)^M
+2026-10-29T21:45:23.461597Z [3324.319267380] user.info lginput2 [] lginput2 IR {"TYPE":"INFO"} [_IrCmdResponseThread (4697)] IR Cmd Response Timeout, interval: 2003 ^M
+2026-10-29T21:45:26.457811Z [3327.315483380] user.info lginput2 [] lginput2 MRCU_STATE {"TYPE":"INFO"} [_mrcu_state_update_cursorOnTimer (1695)] Retry Cursor On Timer Exit^M
+2026-10-29T21:45:37.644471Z [3338.502143860] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_print_device_info, 501]     !!! Got Device !!!^M
+2026-10-29T21:45:37.644575Z [3338.502239940] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_print_device_info, 502]     1) Node: { /dev/hidraw0 }^M
+2026-10-29T21:45:37.644602Z [3338.502266140] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_print_device_info, 503]     2) Subsystem: { hidraw }^M
+2026-10-29T21:45:37.644625Z [3338.502288380] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_print_device_info, 504]     3) Action: { remove }^M
+2026-10-29T21:45:37.644647Z [3338.502310560] user.info lginput2 [] lginput2 SVU_MAGICREMOTE {} [26] Dev[/dev/hidraw0][hidraw][remove]^M
+2026-10-29T21:45:37.644683Z [3338.502346660] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [_uhid_hidraw_monitor_thread, 1884] Remove (DEVNAME), /dev/hidraw0^M
+2026-10-29T21:45:37.644706Z [3338.502369700] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_set_disconn_device_info (1407)] {MRCU:"LGE MR24"} :: [STAGE_ADDED] ===> [STAGE_REMOVING]^M
+2026-10-29T21:45:37.644727Z [3338.502390380] user.info lginput2 [] lginput2 BTEVENT {"TYPE":"INFO"} [lginput_btevent_handler (273)]          @@@@@ LGINPUT_EVENT_DISCONNECTED (device : 0) @@@@@^M
+2026-10-29T21:45:37.644748Z [3338.502411300] user.info lginput2 [] lginput2 DEVMNGR {"TYPE":"INFO"} [lginput_devmngr_setConnState (942)] Dev(0) connection state(FALSE)^M
+2026-10-29T21:45:37.644768Z [3338.502431780] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [lginput_button_setButtonConnState (911)] isConnected[1:0]^M
+2026-10-29T21:45:37.644789Z [3338.502452180] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_remove_device (1684)] {MRCU:"LGE MR24"} :: [STAGE_REMOVING] ===> [STAGE_REMOVED]^M
+2026-10-29T21:45:37.644809Z [3338.502472660] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [_uhid_set_remove_device_count, 1746] connected device count change(1==>0)^M
+2026-10-29T21:45:37.644829Z [3338.502492960] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [_uhid_hidraw_epoll_ctrl (1978)] epoll fd = 75, hidraw fd = 17^M
+2026-10-29T21:45:37.644859Z [3338.502523320] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_hidraw_epoll_ctrl (1987)] hidraw fd close(17)^M
+2026-10-29T21:45:37.644882Z [3338.502545980] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_data_parser_thread (2319)] "activated parser(0) : ["inactivated", "inactivated", "inactivated", "inactivated", "inactivated"]"^M
+2026-10-29T21:45:37.644903Z [3338.502566680] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_hidraw_epoll_ctrl (1991)] {MRCU} :: [STAGE_REMOVED] ===> [STAGE_NO_DEVICE]^M
+2026-10-29T21:45:37.645226Z [3338.502889780] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_hidraw_epoll_destory (1943)] epoll fd close(75)^M
+2026-10-29T21:45:37.645246Z [3338.502909900] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_data_parser_thread (2305)] "cond_wait :: waiting motion packet feeding"^M
+2026-10-29T21:45:37.741079Z [3338.598743120] user.info lginput2 [] lginput2 DB {"TYPE":"INFO"} [lginput_db_getDevLiquidInfo (1867)] DevLiquidInfo : No liquid History of this dev[]^M
+2026-10-29T21:45:37.741100Z [3338.598763820] user.info lginput2 [] lginput2 getDeviceInfo {"TYPE":"INFO"} [interface_mrcu_replyDeviceInfo (612)] _gtempLiquidInfo[None], _gtempLiquidCurrent[0]^M
+2026-10-29T21:45:46.332984Z [3347.190657380] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_print_device_info, 501]     !!! Got Device !!!^M
+2026-10-29T21:45:46.333070Z [3347.190734560] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_print_device_info, 502]     1) Node: { /dev/hidraw0 }^M
+2026-10-29T21:45:46.333097Z [3347.190761160] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_print_device_info, 503]     2) Subsystem: { hidraw }^M
+2026-10-29T21:45:46.333118Z [3347.190782000] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_print_device_info, 504]     3) Action: { add }^M
+2026-10-29T21:45:46.333139Z [3347.190802280] user.info lginput2 [] lginput2 SVU_MAGICREMOTE {} [26] Dev[/dev/hidraw0][hidraw][add]^M
+2026-10-29T21:45:46.333159Z [3347.190822620] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_set_hidraw_fd, 571]         @ add (DEVNAME), /dev/hidraw0^M
+2026-10-29T21:45:46.333180Z [3347.190843300] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_set_hidraw_fd, 577]         @ hidraw open(17) success^M
+2026-10-29T21:45:46.333201Z [3347.190864300] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_set_hidraw_devName, 602]    @ Raw Name: { LGE MR24 }^M
+2026-10-29T21:45:46.333221Z [3347.190884840] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_set_hidraw_bdAddr, 631]     @ Raw Phys: { 30:3F:5D:EF:CA:49 }^M
+2026-10-29T21:45:46.333243Z [3347.190906840] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_check_mrcu_dev_index, 1155] found DB! device(0)^M
+2026-10-29T21:45:46.333264Z [3347.190927400] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_set_conn_device_info (1378)] {MRCU} :: [STAGE_NO_DEVICE] ===> [STAGE_ADDING]^M
+2026-10-29T21:45:46.333284Z [3347.190947360] user.info lginput2 [] lginput2 UTIL {"TYPE":"INFO"} [lginput_util_getHotelMode_Blocked (428)] hotelMode mrcu block : FALSE^M
+2026-10-29T21:45:46.333303Z [3347.190967100] user.info lginput2 [] lginput2 SVU_MAGICREMOTE {} [30] WEE WR[0]^M
+2026-10-29T21:45:46.333323Z [3347.191383580] user.info lginput2 [] lginput2 DEVMNGR {"TYPE":"INFO"} [lginput_devmngr_setRemoteCountry (1816)] country fw version = 97, LGE MR24 is JPN remote? : [FALSE]^M
+2026-10-29T21:45:48.333520Z [3349.191190940] user.err lginput2 [] IM_ERROR IM {} [IM_ReceiveMsgWithMq][431] The call timed out before a message could be transferred. 
+2026-10-29T21:45:48.333591Z [3349.191255540] user.err lginput2 [] IM_ERROR IM {} [IM_MQ_Connect][300] IM_CallMethodSyncWithMq is Error(retVal:0) 
+2026-10-29T21:45:48.333616Z [3349.191279440] user.info lginput2 [] lginput2 MRCU_STATE {"TYPE":"INFO"} [mrcu_state_registerCursorCallback, 1725] ^M
+2026-10-29T21:45:50.334855Z [3351.192524580] user.err lginput2 [] IM_ERROR IM {} [IM_ReceiveMsgWithMq][431] The call timed out before a message could be transferred. 
+2026-10-29T21:45:50.334934Z [3351.192598740] user.err lginput2 [] IM_ERROR IM {} [IM_RegisterCursorInfoCallback][572] IM_CallMethodSyncWithMq is Error(retVal:0) 
+2026-10-29T21:45:50.334963Z [3351.192662480] user.info lginput2 [] lginput2 LSM {"TYPE":"INFO"} [xpa_lsm_getWindowGroupInfo (114)] Subscription already exist^M
+2026-10-29T21:45:50.335025Z [3351.192689620] user.info lginput2 [] lginput2 MRCU_STATE {"TYPE":"INFO"} [mrcu_state_registerCursorCallback, 1792] ret : FALSE^M
+2026-10-29T21:45:50.335049Z [3351.192712600] user.info lginput2 [] lginput2 MRCU_STATE {"TYPE":"INFO"} [_mrcu_state_update_cursorOnTimer (1678)] Retry Cursor On Timer Enter^M
+2026-10-29T21:45:50.335071Z [3351.192734340] user.info lginput2 [] lginput2 UTIL {"TYPE":"INFO"} [lginput_util_parse_scd_version_info, 986] ##### has_scd : [TRUE] / year : [21] / version : [2] #####^M
+2026-10-29T21:45:50.335092Z [3351.192755840] user.info lginput2 [] lginput2 DEVMNGR {"TYPE":"INFO"} New device (LGE MR24) has been attached (index = 0 / handle = 0 / SCD : TRUE)^M
+2026-10-29T21:45:50.335113Z [3351.192776620] user.info lginput2 [] lginput2 DB {"TYPE":"INFO"} [lginput_db_getDevLiquidInfo (1867)] DevLiquidInfo : No liquid History of this dev[]^M
+2026-10-29T21:45:50.335133Z [3351.192797100] user.info lginput2 [] lginput2 getDeviceInfo {"TYPE":"INFO"} [interface_mrcu_replyDeviceInfo (612)] _gtempLiquidInfo[None], _gtempLiquidCurrent[0]^M
+2026-10-29T21:45:50.336537Z [3351.194205680] user.info lginput2 [] lginput2 ReadFile {"TYPE":"INFO"} [lginput_db_readLowSignalStrengthInfo (2561)] /mnt/lg/cmn_data/mrcu/lowsignalstrength.info db file open^M
+2026-10-29T21:45:50.336786Z [3351.194452420] user.err lginput2 [] lginput2 DB {"TYPE":"ERR"} [lginput_db_setLowSignalStrength (2710)]  Invalid DB data  res :[0] ^M
+2026-10-29T21:45:50.336929Z [3351.194595340] user.info lginput2 [] lginput2 ReadFile {"TYPE":"INFO"} [lginput_db_readLowSignalStrengthInfo (2561)] /mnt/lg/cmn_data/mrcu/lowsignalstrength.info db file open^M
+2026-10-29T21:45:50.337030Z [3351.194694300] user.info lginput2 [] lginput2 BTEVENT {"TYPE":"INFO"} [lginput_btevent_handler (244)]          @@@@@ LGINPUT_EVENT_CONNECTED (device : 0) LGE MR24 @@@@@^M
+2026-10-29T21:45:50.337084Z [3351.194748720] user.info lginput2 [] lginput2 DEVMNGR {"TYPE":"INFO"} [lginput_devmngr_setConnState (942)] Dev(0) connection state(TRUE)^M
+2026-10-29T21:45:50.337160Z [3351.194825060] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [lginput_button_setButtonConnState (911)] isConnected[0:1]^M
+2026-10-29T21:45:50.337208Z [3351.194872880] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [lginput_uhid_getSTBPowerControlDB (4656)] Get STB PWR CTRL(0x74) <<< sendPath(0)^M
+2026-10-29T21:45:50.337257Z [3351.194921200] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [lginput_uhid_writeData (5606)] =>(0@30:3f:5d:ef:ca:49), Opcode(0xf974), DataSize(2) write^M
+2026-10-29T21:45:50.337304Z [3351.194967980] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [lginput_uhid_printBasicBtCmd (5540)] Opcode(0xf974), DataSize(2) write^M
+2026-10-29T21:45:50.337350Z [3351.195030580] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [lginput_uhid_sendWritingNFC, 5079] LGE MR24(4) is not supported^M
+2026-10-29T21:45:50.337393Z [3351.195074540] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_add_device (1518)] {MRCU:"LGE MR24"} :: [STAGE_ADDING] ===> [STAGE_ADDED]^M
+2026-10-29T21:45:50.337455Z [3351.195119360] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [_uhid_set_add_device_count, 1469] connected device count change(0==>1)^M
+2026-10-29T21:45:50.337542Z [3351.195207680] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_hidraw_monitor_thread (1871)] "cond_signal :: start motion packet feeding"^M
+2026-10-29T21:45:50.337593Z [3351.195257420] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [_uhid_hidraw_monitor_thread, 1874] magicFd(17) connectedDev(1) added^M
+2026-10-29T21:45:50.337690Z [3351.195356340] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_data_parser_thread (2319)] "activated parser(1) : ["activated", "inactivated", "inactivated", "inactivated", "inactivated"]"^M
+2026-10-29T21:45:50.337741Z [3351.195405680] user.info lginput2 [] lginput2 UHID_PARSER {"TYPE":"INFO"} [lginput_uhid_parser (5422)] @@@ Get in the m_pkt(0) @@@^M
+2026-10-29T21:45:50.337898Z [3351.195562840] user.info lginput2 [] lginput2 DB {"TYPE":"INFO"} [lginput_db_getDevLiquidInfo (1867)] DevLiquidInfo : No liquid History of this dev[]^M
+2026-10-29T21:45:50.337943Z [3351.195607460] user.info lginput2 [] lginput2 getDeviceInfo {"TYPE":"INFO"} [interface_mrcu_replyDeviceInfo (612)] _gtempLiquidInfo[None], _gtempLiquidCurrent[0]^M
+2026-10-29T21:45:50.337990Z [3351.195654520] user.info lginput2 [] lginput2 ReadFile {"TYPE":"INFO"} [lginput_db_readLowSignalStrengthInfo (2561)] /mnt/lg/cmn_data/mrcu/lowsignalstrength.info db file open^M
+2026-10-29T21:45:50.338034Z [3351.195698860] user.err lginput2 [] lginput2 DB {"TYPE":"ERR"} [lginput_db_setLowSignalStrength (2710)]  Invalid DB data  res :[0] ^M
+2026-10-29T21:45:50.338083Z [3351.195747320] user.info lginput2 [] lginput2 ReadFile {"TYPE":"INFO"} [lginput_db_readLowSignalStrengthInfo (2561)] /mnt/lg/cmn_data/mrcu/lowsignalstrength.info db file open^M
+2026-10-29T21:45:50.338133Z [3351.195796920] user.info lginput2 [] lginput2 MRCU {"TYPE":"INFO"} --->> { MRCU_BUTTON_MOTION_START } <<--- received (mrcu_process, 0, -1)^M
+2026-10-29T21:45:50.342016Z [3351.199681240] user.info lginput2 [] lginput2 REMOTESTATUS {"TYPE":"INFO"} [interface_mrcu_sensor_setCursorBounds (195)] set resolution: [1920, 1080]
+2026-10-29T21:45:51.360739Z [3352.218409280] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [lginput_uhid_writeData (5606)] =>(0@30:3f:5d:ef:ca:49), Opcode(0xf902), DataSize(2) write^M
+2026-10-29T21:45:51.360842Z [3352.218507680] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [lginput_uhid_printBasicBtCmd (5512)] ##### Opcode(Motion Sleep), DataSize(2) write #####^M
+2026-10-29T21:45:51.416533Z [3352.274203640] user.info lginput2 [] lginput2 MRCU {"TYPE":"INFO"} --->> { MRCU_BUTTON_MOTION_STOP } <<--- received (mrcu_process, 0, -1)^M
+2026-10-29T21:45:52.337594Z [3353.195265340] user.info lginput2 [] lginput2 IR {"TYPE":"INFO"} [_IrCmdResponseThread (4697)] IR Cmd Response Timeout, interval: 2003 ^M
+2026-10-29T21:45:55.334035Z [3356.191707120] user.info lginput2 [] lginput2 MRCU_STATE {"TYPE":"INFO"} [_mrcu_state_update_cursorOnTimer (1695)] Retry Cursor On Timer Exit^M
+2026-10-29T21:45:56.938191Z [3357.795860520] user.info lginput2 [] lginput2 MRCU {"TYPE":"INFO"} [lginput_mrcu_isMuteGuidancePopUpRequiered (2781)] Mute guidance pop-up blocked FG[11]
+2026-10-29T21:45:56.938274Z [3357.795938700] user.info lginput2 [] lginput2 MRCU {"TYPE":"INFO"} {LGE MR24} [KEY_RIGHT] button press
+2026-10-29T21:45:56.938301Z [3357.795964780] user.info lginput2 [] lginput2 NL_NON_LIST_BUTTON_CLICK {"remote_type":"LGE MR24","button_type":"KEY_RIGHT"} 
+2026-10-29T21:45:57.097234Z [3357.954906760] user.info lginput2 [] lginput2 MRCU {"TYPE":"INFO"} [lginput_mrcu_isMuteGuidancePopUpRequiered (2781)] Mute guidance pop-up blocked FG[11]
+2026-10-29T21:45:57.097360Z [3357.955026060] user.info lginput2 [] lginput2 MRCU {"TYPE":"INFO"} {LGE MR24} [KEY_RIGHT] button release
+2026-10-29T21:45:58.678036Z [3359.535706100] user.info lginput2 [] lginput2 MRCU {"TYPE":"INFO"} [lginput_mrcu_isMuteGuidancePopUpRequiered (2781)] Mute guidance pop-up blocked FG[11]
+2026-10-29T21:45:58.678122Z [3359.535786340] user.info lginput2 [] lginput2 MRCU {"TYPE":"INFO"} {LGE MR24} [KEY_LEFT] button press
+2026-10-29T21:45:58.678150Z [3359.535825380] user.info lginput2 [] lginput2 NL_NON_LIST_BUTTON_CLICK {"remote_type":"LGE MR24","button_type":"KEY_LEFT"} 
+2026-10-29T21:45:58.837420Z [3359.695090760] user.info lginput2 [] lginput2 MRCU {"TYPE":"INFO"} [lginput_mrcu_isMuteGuidancePopUpRequiered (2781)] Mute guidance pop-up blocked FG[11]
+2026-10-29T21:45:58.837509Z [3359.695173720] user.info lginput2 [] lginput2 MRCU {"TYPE":"INFO"} {LGE MR24} [KEY_LEFT] button release
+2026-10-29T21:46:00.598198Z [3361.455867960] user.info lginput2 [] lginput2 MRCU {"TYPE":"INFO"} --->> { MRCU_BUTTON_MOTION_START } <<--- received (mrcu_process, 0, -1)^M
+2026-10-29T21:46:01.639079Z [3362.496749500] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [lginput_uhid_writeData (5606)] =>(0@30:3f:5d:ef:ca:49), Opcode(0xf902), DataSize(2) write^M
+2026-10-29T21:46:01.639165Z [3362.496830300] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [lginput_uhid_printBasicBtCmd (5512)] ##### Opcode(Motion Sleep), DataSize(2) write #####^M
+2026-10-29T21:46:01.678606Z [3362.536275280] user.info lginput2 [] lginput2 MRCU {"TYPE":"INFO"} --->> { MRCU_BUTTON_MOTION_STOP } <<--- received (mrcu_process, 0, -1)^M
+2026-10-29T21:46:16.761378Z [3377.619126380] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_print_device_info, 501]     !!! Got Device !!!^M
+2026-10-29T21:46:16.761541Z [3377.619205960] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_print_device_info, 502]     1) Node: { /dev/hidraw0 }^M
+2026-10-29T21:46:16.761572Z [3377.619236400] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_print_device_info, 503]     2) Subsystem: { hidraw }^M
+2026-10-29T21:46:16.761597Z [3377.619260520] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_print_device_info, 504]     3) Action: { remove }^M
+2026-10-29T21:46:16.761626Z [3377.619289980] user.info lginput2 [] lginput2 SVU_MAGICREMOTE {} [26] Dev[/dev/hidraw0][hidraw][remove]^M
+2026-10-29T21:46:16.761648Z [3377.619311380] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [_uhid_hidraw_monitor_thread, 1884] Remove (DEVNAME), /dev/hidraw0^M
+2026-10-29T21:46:16.761669Z [3377.619332980] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_set_disconn_device_info (1407)] {MRCU:"LGE MR24"} :: [STAGE_ADDED] ===> [STAGE_REMOVING]^M
+2026-10-29T21:46:16.761690Z [3377.619353620] user.info lginput2 [] lginput2 BTEVENT {"TYPE":"INFO"} [lginput_btevent_handler (273)]          @@@@@ LGINPUT_EVENT_DISCONNECTED (device : 0) @@@@@^M
+2026-10-29T21:46:16.761710Z [3377.619373920] user.info lginput2 [] lginput2 DEVMNGR {"TYPE":"INFO"} [lginput_devmngr_setConnState (942)] Dev(0) connection state(FALSE)^M
+2026-10-29T21:46:16.761731Z [3377.619394340] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [lginput_button_setButtonConnState (911)] isConnected[1:0]^M
+2026-10-29T21:46:16.761751Z [3377.619415000] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_remove_device (1684)] {MRCU:"LGE MR24"} :: [STAGE_REMOVING] ===> [STAGE_REMOVED]^M
+2026-10-29T21:46:16.761772Z [3377.619435300] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [_uhid_set_remove_device_count, 1746] connected device count change(1==>0)^M
+2026-10-29T21:46:16.761792Z [3377.619455900] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [_uhid_hidraw_epoll_ctrl (1978)] epoll fd = 79, hidraw fd = 17^M
+2026-10-29T21:46:16.761813Z [3377.619477060] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_data_parser_thread (2319)] "activated parser(0) : ["inactivated", "inactivated", "inactivated", "inactivated", "inactivated"]"^M
+2026-10-29T21:46:16.763384Z [3377.621054300] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_hidraw_epoll_ctrl (1987)] hidraw fd close(17)^M
+2026-10-29T21:46:16.763470Z [3377.621134660] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_hidraw_epoll_ctrl (1991)] {MRCU} :: [STAGE_REMOVED] ===> [STAGE_NO_DEVICE]^M
+2026-10-29T21:46:16.763790Z [3377.621453940] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_hidraw_epoll_destory (1943)] epoll fd close(79)^M
+2026-10-29T21:46:16.763811Z [3377.621475160] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_data_parser_thread (2305)] "cond_wait :: waiting motion packet feeding"^M
+2026-10-29T21:46:16.862792Z [3377.720461400] user.info lginput2 [] lginput2 DB {"TYPE":"INFO"} [lginput_db_getDevLiquidInfo (1867)] DevLiquidInfo : No liquid History of this dev[]^M
+2026-10-29T21:46:16.862890Z [3377.720555060] user.info lginput2 [] lginput2 getDeviceInfo {"TYPE":"INFO"} [interface_mrcu_replyDeviceInfo (612)] _gtempLiquidInfo[None], _gtempLiquidCurrent[0]^M
+2026-10-29T21:46:35.527015Z [3396.384684960] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_print_device_info, 501]     !!! Got Device !!!^M
+2026-10-29T21:46:35.527090Z [3396.384754620] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_print_device_info, 502]     1) Node: { /dev/hidraw0 }^M
+2026-10-29T21:46:35.527116Z [3396.384779760] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_print_device_info, 503]     2) Subsystem: { hidraw }^M
+2026-10-29T21:46:35.527141Z [3396.384804460] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_print_device_info, 504]     3) Action: { add }^M
+2026-10-29T21:46:35.527163Z [3396.384827380] user.info lginput2 [] lginput2 SVU_MAGICREMOTE {} [26] Dev[/dev/hidraw0][hidraw][add]^M
+2026-10-29T21:46:35.527187Z [3396.384851120] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_set_hidraw_fd, 571]         @ add (DEVNAME), /dev/hidraw0^M
+2026-10-29T21:46:35.527210Z [3396.384874100] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_set_hidraw_fd, 577]         @ hidraw open(17) success^M
+2026-10-29T21:46:35.527253Z [3396.384916580] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_set_hidraw_devName, 602]    @ Raw Name: { LGE MR24 }^M
+2026-10-29T21:46:35.527288Z [3396.384952040] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_set_hidraw_bdAddr, 631]     @ Raw Phys: { 30:3F:5D:EF:CA:49 }^M
+2026-10-29T21:46:35.527311Z [3396.384974680] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_check_mrcu_dev_index, 1155] found DB! device(0)^M
+2026-10-29T21:46:35.527332Z [3396.384995400] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_set_conn_device_info (1378)] {MRCU} :: [STAGE_NO_DEVICE] ===> [STAGE_ADDING]^M
+2026-10-29T21:46:35.527390Z [3396.385054500] user.info lginput2 [] lginput2 UTIL {"TYPE":"INFO"} [lginput_util_getHotelMode_Blocked (428)] hotelMode mrcu block : FALSE^M
+2026-10-29T21:46:35.527412Z [3396.385076140] user.info lginput2 [] lginput2 SVU_MAGICREMOTE {} [30] WEE WR[0]^M
+2026-10-29T21:46:35.527433Z [3396.385097120] user.info lginput2 [] lginput2 DEVMNGR {"TYPE":"INFO"} [lginput_devmngr_setRemoteCountry (1816)] country fw version = 97, LGE MR24 is JPN remote? : [FALSE]^M
+2026-10-29T21:46:37.527526Z [3398.385196780] user.err lginput2 [] IM_ERROR IM {} [IM_ReceiveMsgWithMq][431] The call timed out before a message could be transferred. 
+2026-10-29T21:46:37.527631Z [3398.385296420] user.err lginput2 [] IM_ERROR IM {} [IM_MQ_Connect][300] IM_CallMethodSyncWithMq is Error(retVal:0) 
+2026-10-29T21:46:37.527663Z [3398.385327500] user.info lginput2 [] lginput2 MRCU_STATE {"TYPE":"INFO"} [mrcu_state_registerCursorCallback, 1725] ^M
+2026-10-29T21:46:39.527752Z [3400.385423320] user.err lginput2 [] IM_ERROR IM {} [IM_ReceiveMsgWithMq][431] The call timed out before a message could be transferred. 
+2026-10-29T21:46:39.527839Z [3400.385503400] user.err lginput2 [] IM_ERROR IM {} [IM_RegisterCursorInfoCallback][572] IM_CallMethodSyncWithMq is Error(retVal:0) 
+2026-10-29T21:46:39.527868Z [3400.385531560] user.info lginput2 [] lginput2 LSM {"TYPE":"INFO"} [xpa_lsm_getWindowGroupInfo (114)] Subscription already exist^M
+2026-10-29T21:46:39.527890Z [3400.385553840] user.info lginput2 [] lginput2 MRCU_STATE {"TYPE":"INFO"} [mrcu_state_registerCursorCallback, 1792] ret : FALSE^M
+2026-10-29T21:46:39.527912Z [3400.385575980] user.info lginput2 [] lginput2 MRCU_STATE {"TYPE":"INFO"} [_mrcu_state_update_cursorOnTimer (1678)] Retry Cursor On Timer Enter^M
+2026-10-29T21:46:39.527933Z [3400.385596760] user.info lginput2 [] lginput2 UTIL {"TYPE":"INFO"} [lginput_util_parse_scd_version_info, 986] ##### has_scd : [TRUE] / year : [21] / version : [2] #####^M
+2026-10-29T21:46:39.528028Z [3400.385692660] user.info lginput2 [] lginput2 DEVMNGR {"TYPE":"INFO"} New device (LGE MR24) has been attached (index = 0 / handle = 0 / SCD : TRUE)^M
+2026-10-29T21:46:39.528053Z [3400.385716820] user.info lginput2 [] lginput2 DB {"TYPE":"INFO"} [lginput_db_getDevLiquidInfo (1867)] DevLiquidInfo : No liquid History of this dev[]^M
+2026-10-29T21:46:39.528074Z [3400.385738020] user.info lginput2 [] lginput2 getDeviceInfo {"TYPE":"INFO"} [interface_mrcu_replyDeviceInfo (612)] _gtempLiquidInfo[None], _gtempLiquidCurrent[0]^M
+2026-10-29T21:46:39.528172Z [3400.385836480] user.info lginput2 [] lginput2 ReadFile {"TYPE":"INFO"} [lginput_db_readLowSignalStrengthInfo (2561)] /mnt/lg/cmn_data/mrcu/lowsignalstrength.info db file open^M
+2026-10-29T21:46:39.528195Z [3400.385859100] user.err lginput2 [] lginput2 DB {"TYPE":"ERR"} [lginput_db_setLowSignalStrength (2710)]  Invalid DB data  res :[0] ^M
+2026-10-29T21:46:39.528403Z [3400.386066540] user.info lginput2 [] lginput2 ReadFile {"TYPE":"INFO"} [lginput_db_readLowSignalStrengthInfo (2561)] /mnt/lg/cmn_data/mrcu/lowsignalstrength.info db file open^M
+2026-10-29T21:46:39.528426Z [3400.386089720] user.info lginput2 [] lginput2 BTEVENT {"TYPE":"INFO"} [lginput_btevent_handler (244)]          @@@@@ LGINPUT_EVENT_CONNECTED (device : 0) LGE MR24 @@@@@^M
+2026-10-29T21:46:39.529192Z [3400.386860420] user.info lginput2 [] lginput2 DEVMNGR {"TYPE":"INFO"} [lginput_devmngr_setConnState (942)] Dev(0) connection state(TRUE)^M
+2026-10-29T21:46:39.530476Z [3400.388141820] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [lginput_button_setButtonConnState (911)] isConnected[0:1]^M
+2026-10-29T21:46:39.530506Z [3400.388169720] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [lginput_uhid_getSTBPowerControlDB (4656)] Get STB PWR CTRL(0x74) <<< sendPath(0)^M
+2026-10-29T21:46:39.530529Z [3400.388192720] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [lginput_uhid_writeData (5606)] =>(0@30:3f:5d:ef:ca:49), Opcode(0xf974), DataSize(2) write^M
+2026-10-29T21:46:39.530551Z [3400.388214160] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [lginput_uhid_printBasicBtCmd (5540)] Opcode(0xf974), DataSize(2) write^M
+2026-10-29T21:46:39.530571Z [3400.388234860] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [lginput_uhid_sendWritingNFC, 5079] LGE MR24(4) is not supported^M
+2026-10-29T21:46:39.530592Z [3400.388255440] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_add_device (1518)] {MRCU:"LGE MR24"} :: [STAGE_ADDING] ===> [STAGE_ADDED]^M
+2026-10-29T21:46:39.530612Z [3400.388275760] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [_uhid_set_add_device_count, 1469] connected device count change(0==>1)^M
+2026-10-29T21:46:39.530632Z [3400.388295920] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_hidraw_monitor_thread (1871)] "cond_signal :: start motion packet feeding"^M
+2026-10-29T21:46:39.530653Z [3400.388316960] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [_uhid_hidraw_monitor_thread, 1874] magicFd(17) connectedDev(1) added^M
+2026-10-29T21:46:39.530675Z [3400.388338900] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_data_parser_thread (2319)] "activated parser(1) : ["activated", "inactivated", "inactivated", "inactivated", "inactivated"]"^M
+2026-10-29T21:46:39.530696Z [3400.388359340] user.info lginput2 [] lginput2 UHID_PARSER {"TYPE":"INFO"} [lginput_uhid_parser (5422)] @@@ Get in the m_pkt(0) @@@^M
+2026-10-29T21:46:39.530888Z [3400.388551860] user.info lginput2 [] lginput2 DB {"TYPE":"INFO"} [lginput_db_getDevLiquidInfo (1867)] DevLiquidInfo : No liquid History of this dev[]^M
+2026-10-29T21:46:39.530909Z [3400.388572600] user.info lginput2 [] lginput2 getDeviceInfo {"TYPE":"INFO"} [interface_mrcu_replyDeviceInfo (612)] _gtempLiquidInfo[None], _gtempLiquidCurrent[0]^M
+2026-10-29T21:46:39.530930Z [3400.388593220] user.info lginput2 [] lginput2 ReadFile {"TYPE":"INFO"} [lginput_db_readLowSignalStrengthInfo (2561)] /mnt/lg/cmn_data/mrcu/lowsignalstrength.info db file open^M
+2026-10-29T21:46:39.530950Z [3400.388613320] user.err lginput2 [] lginput2 DB {"TYPE":"ERR"} [lginput_db_setLowSignalStrength (2710)]  Invalid DB data  res :[0] ^M
+2026-10-29T21:46:39.530970Z [3400.388633840] user.info lginput2 [] lginput2 ReadFile {"TYPE":"INFO"} [lginput_db_readLowSignalStrengthInfo (2561)] /mnt/lg/cmn_data/mrcu/lowsignalstrength.info db file open^M
+2026-10-29T21:46:39.530990Z [3400.388654020] user.info lginput2 [] lginput2 MRCU {"TYPE":"INFO"} [lginput_mrcu_isMuteGuidancePopUpRequiered (2781)] Mute guidance pop-up blocked FG[11]
+2026-10-29T21:46:39.531011Z [3400.388674460] user.info lginput2 [] lginput2 MRCU {"TYPE":"INFO"} {LGE MR24} [KEY_RIGHT] button press
+2026-10-29T21:46:39.531031Z [3400.388694280] user.info lginput2 [] lginput2 NL_NON_LIST_BUTTON_CLICK {"remote_type":"LGE MR24","button_type":"KEY_RIGHT"} 
+2026-10-29T21:46:39.573779Z [3400.431449540] user.info lginput2 [] lginput2 MRCU {"TYPE":"INFO"} [lginput_mrcu_isMuteGuidancePopUpRequiered (2781)] Mute guidance pop-up blocked FG[11]
+2026-10-29T21:46:39.573864Z [3400.431528800] user.info lginput2 [] lginput2 MRCU {"TYPE":"INFO"} {LGE MR24} [KEY_RIGHT] button release
+2026-10-29T21:46:39.573890Z [3400.431553660] user.info lginput2 [] lginput2 REMOTESTATUS {"TYPE":"INFO"} [interface_mrcu_sensor_setCursorBounds (195)] set resolution: [1920, 1080]
+2026-10-29T21:46:39.766519Z [3400.624189680] user.info lginput2 [] lginput2 MRCU {"TYPE":"INFO"} [lginput_mrcu_isMuteGuidancePopUpRequiered (2781)] Mute guidance pop-up blocked FG[11]
+2026-10-29T21:46:39.766601Z [3400.624265740] user.info lginput2 [] lginput2 MRCU {"TYPE":"INFO"} {LGE MR24} [KEY_RIGHT] button press
+2026-10-29T21:46:39.766629Z [3400.624292760] user.info lginput2 [] lginput2 NL_NON_LIST_BUTTON_CLICK {"remote_type":"LGE MR24","button_type":"KEY_RIGHT"} 
+2026-10-29T21:46:39.861096Z [3400.718787360] user.info lginput2 [] lginput2 MRCU {"TYPE":"INFO"} [lginput_mrcu_isMuteGuidancePopUpRequiered (2781)] Mute guidance pop-up blocked FG[11]
+2026-10-29T21:46:39.861220Z [3400.718884280] user.info lginput2 [] lginput2 MRCU {"TYPE":"INFO"} {LGE MR24} [KEY_RIGHT] button release
+2026-10-29T21:46:40.590248Z [3401.447918740] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [lginput_uhid_writeData (5606)] =>(0@30:3f:5d:ef:ca:49), Opcode(0xf902), DataSize(2) write^M
+2026-10-29T21:46:40.590334Z [3401.447999120] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [lginput_uhid_printBasicBtCmd (5512)] ##### Opcode(Motion Sleep), DataSize(2) write #####^M
+2026-10-29T21:46:40.639084Z [3401.496754900] user.info lginput2 [] lginput2 MRCU {"TYPE":"INFO"} --->> { MRCU_BUTTON_MOTION_STOP } <<--- received (mrcu_process, 0, -1)^M
+2026-10-29T21:46:41.119594Z [3401.977264360] user.info lginput2 [] lginput2 MRCU {"TYPE":"INFO"} --->> { MRCU_BUTTON_MOTION_START } <<--- received (mrcu_process, 0, -1)^M
+2026-10-29T21:46:41.532018Z [3402.389689300] user.info lginput2 [] lginput2 IR {"TYPE":"INFO"} [_IrCmdResponseThread (4697)] IR Cmd Response Timeout, interval: 2003 ^M
+2026-10-29T21:46:42.160226Z [3403.017895540] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [lginput_uhid_writeData (5606)] =>(0@30:3f:5d:ef:ca:49), Opcode(0xf902), DataSize(2) write^M
+2026-10-29T21:46:42.160312Z [3403.017976780] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [lginput_uhid_printBasicBtCmd (5512)] ##### Opcode(Motion Sleep), DataSize(2) write #####^M
+2026-10-29T21:46:42.200437Z [3403.058106640] user.info lginput2 [] lginput2 MRCU {"TYPE":"INFO"} --->> { MRCU_BUTTON_MOTION_STOP } <<--- received (mrcu_process, 0, -1)^M
+2026-10-29T21:46:44.528207Z [3405.385878720] user.info lginput2 [] lginput2 MRCU_STATE {"TYPE":"INFO"} [_mrcu_state_update_cursorOnTimer (1695)] Retry Cursor On Timer Exit^M
+2026-10-29T21:46:57.284536Z [3418.142206280] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_print_device_info, 501]     !!! Got Device !!!^M
+2026-10-29T21:46:57.284638Z [3418.142302720] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_print_device_info, 502]     1) Node: { /dev/hidraw0 }^M
+2026-10-29T21:46:57.284673Z [3418.142337220] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_print_device_info, 503]     2) Subsystem: { hidraw }^M
+2026-10-29T21:46:57.284721Z [3418.142384580] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_print_device_info, 504]     3) Action: { remove }^M
+2026-10-29T21:46:57.284764Z [3418.142427700] user.info lginput2 [] lginput2 SVU_MAGICREMOTE {} [26] Dev[/dev/hidraw0][hidraw][remove]^M
+2026-10-29T21:46:57.284787Z [3418.142450820] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [_uhid_hidraw_monitor_thread, 1884] Remove (DEVNAME), /dev/hidraw0^M
+2026-10-29T21:46:57.284808Z [3418.142472000] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_set_disconn_device_info (1407)] {MRCU:"LGE MR24"} :: [STAGE_ADDED] ===> [STAGE_REMOVING]^M
+2026-10-29T21:46:57.284913Z [3418.142576580] user.info lginput2 [] lginput2 BTEVENT {"TYPE":"INFO"} [lginput_btevent_handler (273)]          @@@@@ LGINPUT_EVENT_DISCONNECTED (device : 0) @@@@@^M
+2026-10-29T21:46:57.284935Z [3418.142598440] user.info lginput2 [] lginput2 DEVMNGR {"TYPE":"INFO"} [lginput_devmngr_setConnState (942)] Dev(0) connection state(FALSE)^M
+2026-10-29T21:46:57.284958Z [3418.142621440] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [lginput_button_setButtonConnState (911)] isConnected[1:0]^M
+2026-10-29T21:46:57.284978Z [3418.142641920] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_remove_device (1684)] {MRCU:"LGE MR24"} :: [STAGE_REMOVING] ===> [STAGE_REMOVED]^M
+2026-10-29T21:46:57.284999Z [3418.142662460] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [_uhid_set_remove_device_count, 1746] connected device count change(1==>0)^M
+2026-10-29T21:46:57.285019Z [3418.142682380] user.info lginput2 [] lginput2 UDEV_HID {"TYPE":"INFO"} [_uhid_hidraw_epoll_ctrl (1978)] epoll fd = 83, hidraw fd = 17^M
+2026-10-29T21:46:57.285040Z [3418.142704120] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_data_parser_thread (2319)] "activated parser(0) : ["inactivated", "inactivated", "inactivated", "inactivated", "inactivated"]"^M
+2026-10-29T21:46:57.285062Z [3418.142726000] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_hidraw_epoll_ctrl (1987)] hidraw fd close(17)^M
+2026-10-29T21:46:57.285082Z [3418.142746180] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_hidraw_epoll_ctrl (1991)] {MRCU} :: [STAGE_REMOVED] ===> [STAGE_NO_DEVICE]^M
+2026-10-29T21:46:57.285331Z [3418.142994580] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_hidraw_epoll_destory (1943)] epoll fd close(83)^M
+2026-10-29T21:46:57.285351Z [3418.143014740] user.info lginput2 [] lginput2 UDEV_EVENT {"TYPE":"INFO"} [_uhid_data_parser_thread (2305)] "cond_wait :: waiting motion packet feeding"^M
+2026-10-29T21:46:57.384423Z [3418.242093900] user.info lginput2 [] lginput2 DB {"TYPE":"INFO"} [lginput_db_getDevLiquidInfo (1867)] DevLiquidInfo : No liquid History of this dev[]^M
+2026-10-29T21:46:57.384518Z [3418.242183780] user.info lginput2 [] lginput2 getDeviceInfo {"TYPE":"INFO"} [interface_mrcu_replyDeviceInfo (612)] _gtempLiquidInfo[None], _gtempLiquidCurrent[0]^M
+ 

@@ -1,0 +1,86 @@
+== what the rotated files cover
+63756 /tmp/r19-allmsgs.txt
+2026-10-29T19:56:57.698867Z [2596.737160840] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(88): Received: /getSoundOut '{}'
+== count by program (first / last stamp)
+pbs n=0 first= last=
+acr2 n=0 first= last=
+admanager n=0 first= last=
+adoverlay-service n=0 first= last=
+sportsalarm n=0 first= last=
+contentminer n=0 first= last=
+uploadd n=0 first= last=
+nudge n=0 first= last=
+iot-client n=18 first=[3473.381153500] last=[3478.404594040]
+== iot-client lines
+2026-10-29T20:11:34.342867Z [3473.381153500] user.info iot-client [] iot-client MSGID_DEFAULT {} [_getDevAuthStatus:362] responsePayload: { "subscribed": true, "returnValue": true, "isDeviceAuthenticated": true, "sdxReady": true, "provisioningCompleted": true, "stolenDevice": false, "dataCacheComple
+2026-10-29T20:11:34.342888Z [3473.381174740] user.info iot-client [] iot-client MSGID_DEFAULT {} [_getDevAuthStatus:385] Device authentication status is the same
+2026-10-29T20:11:34.346363Z [3473.384661560] user.info iot-client [] iot-client MSGID_DEFAULT {} [_getSdpHttpHeader:440] pre X-Device-Eula = takeOnAllowed,additional3Allowed,networkAllowed,chpAllowed,generalTermsAllowed
+2026-10-29T20:11:34.346476Z [3473.384765320] user.info iot-client [] iot-client MSGID_DEFAULT {} [_getSdpHttpHeader:446] new X-Device-Eula = takeOnAllowed,additional3Allowed,networkAllowed,chpAllowed,generalTermsAllowed
+2026-10-29T20:11:38.861315Z [3477.899602060] user.info iot-client [] iot-client LOG_INTERNET_STATE {} [_getInternetConnection:133] internet connected
+2026-10-29T20:11:38.861336Z [3477.899623100] user.info iot-client [] iot-client MSGID_DEFAULT {} [checkDeviceName:158] start checking deviceName
+2026-10-29T20:11:38.867751Z [3477.906043380] user.info iot-client [] iot-client MSGID_DEFAULT {} [checkDeviceName:174] deviceName: Living Room TV
+2026-10-29T20:11:38.867861Z [3477.906147720] user.info iot-client [] iot-client MSGID_DEFAULT {} [getFileDeviceName:336]path /mnt/lg/cmn_data/.iot/networkInfoFile
+2026-10-29T20:11:38.869257Z [3477.907544100] user.info iot-client [] iot-client MSGID_DEFAULT {} [getFileDeviceName:339]data {"subscribed":false,"category":"network","method":"getSystemSettings","returnValue":true,"settings":{"deviceName":"Living Room TV"}}
+2026-10-29T20:11:38.869279Z [3477.907565680] user.info iot-client [] iot-client MSGID_DEFAULT {} [checkDeviceName:178] hasFile: 1, new: Living Room TV, origin: Living Room TV
+2026-10-29T20:11:38.869299Z [3477.907585980] user.info iot-client [] iot-client MSGID_DEFAULT {} checkDeviceLanguage(212)
+2026-10-29T20:11:39.362285Z [3478.400571560] user.info iot-client [] iot-client LOG_INTERNET_STATE {} [_getInternetConnection:133] internet connected
+2026-10-29T20:11:39.362311Z [3478.400598340] user.info iot-client [] iot-client MSGID_DEFAULT {} [checkDeviceName:158] start checking deviceName
+2026-10-29T20:11:39.366138Z [3478.404430240] user.info iot-client [] iot-client MSGID_DEFAULT {} [checkDeviceName:174] deviceName: Living Room TV
+2026-10-29T20:11:39.366206Z [3478.404493440] user.info iot-client [] iot-client MSGID_DEFAULT {} [getFileDeviceName:336]path /mnt/lg/cmn_data/.iot/networkInfoFile
+2026-10-29T20:11:39.366259Z [3478.404546620] user.info iot-client [] iot-client MSGID_DEFAULT {} [getFileDeviceName:339]data {"subscribed":false,"category":"network","method":"getSystemSettings","returnValue":true,"settings":{"deviceName":"Living Room TV"}}
+2026-10-29T20:11:39.366283Z [3478.404569900] user.info iot-client [] iot-client MSGID_DEFAULT {} [checkDeviceName:178] hasFile: 1, new: Living Room TV, origin: Living Room TV
+2026-10-29T20:11:39.366307Z [3478.404594040] user.info iot-client [] iot-client MSGID_DEFAULT {} checkDeviceLanguage(212)
+== LSHUB_SRV_LNCH of the iot client
+
+== update service alert / nsuImageSize lines
+2026-10-29T20:11:28.057774Z [3467.096062280] user.info WebAppMgr [] WAM INFO {} [OP](void OPAPPPE::LunaSvcServerStatus::unsubscribeServerStatus(std::string):52)success to unsubscribe server status; serviceName: com.webos.service.wampluggable.hbbtv 
+2026-10-29T20:11:28.057802Z [3467.096088960] user.info WebAppMgr [] WAM INFO {} [OP](void OPAPPPE::LunaSvcServerStatus::unsubscribeServerStatus(std::string):52)success to unsubscribe server status; serviceName: com.webos.settingsservice 
+2026-10-29T20:11:28.057825Z [3467.096112060] user.info WebAppMgr [] WAM INFO {} [OP](void OPAPPPE::LunaSvcServerStatus::unsubscribeServerStatus(std::string):52)success to unsubscribe server status; serviceName: com.webos.service.config 
+2026-10-29T20:11:28.059417Z [3467.097705300] user.info WebAppMgr [] WAM INFO {} [HB](void HTVPE::HbbtvLunaServerStatusBlink::unsubscribeServerStatus(const char*):52)success to unsubscribe server status : serviceName[com.webos.service.config] 
+2026-10-29T20:11:28.059444Z [3467.097731420] user.info WebAppMgr [] WAM INFO {} [HB](void HTVPE::HbbtvLunaServerStatusBlink::unsubscribeServerStatus(const char*):52)success to unsubscribe server status : serviceName[com.webos.settingsservice] 
+2026-10-29T20:11:28.059466Z [3467.097753400] user.info WebAppMgr [] WAM INFO {} [HB](void HTVPE::HbbtvLunaServerStatusBlink::unsubscribeServerStatus(const char*):52)success to unsubscribe server status : serviceName[com.webos.service.utp.channel] 
+2026-10-29T20:11:28.059487Z [3467.097773900] user.info WebAppMgr [] WAM INFO {} [HB](void HTVPE::HbbtvLunaServerStatusBlink::unsubscribeServerStatus(const char*):52)success to unsubscribe server status : serviceName[com.webos.service.utp.channel/scan] 
+2026-10-29T20:11:28.059508Z [3467.097794600] user.warning WebAppMgr [] WAM WARN {} [HB](void HTVPE::HbbtvLunaServerStatusBlink::unsubscribeServerStatus(const char*):47)'com.webos.service.utp.channel/scan' not subscribed 
+2026-10-29T20:11:28.059529Z [3467.097815580] user.warning WebAppMgr [] WAM WARN {} [HB](void HTVPE::HbbtvLunaServerStatusBlink::unsubscribeServerStatus(const char*):47)'com.webos.service.lowlevelstorage' not subscribed 
+2026-10-29T20:11:28.730594Z [3467.768885880] user.info surface-manager [] surface-manager LSM {} QPA: RollingScreenSupportingKeyTable is loaded:  m_lengthOfSupportingKeysLut= 167
+2026-10-29T20:11:29.634837Z [3468.673127900] user.info surface-manager [] surface-manager LSM {} onSupportScreenTypeChanged, supportScreenType changed : none
+2026-10-29T20:11:29.664072Z [3468.702360160] user.info surface-manager [] surface-manager LSM {} onSupportScreenTypeChanged, supportScreenType changed : none
+2026-10-29T20:11:29.694977Z [3468.733267340] user.info surface-manager [] surface-manager LSM {} onSupportScreenTypeChanged, supportScreenType changed : none
+2026-10-29T20:11:29.698821Z [3468.737109060] user.info surface-manager [] surface-manager LSM {} onSupportScreenTypeChanged, supportScreenType changed : none
+2026-10-29T20:11:29.709813Z [3468.748100880] user.info surface-manager [] surface-manager LSM {} onSupportScreenTypeChanged, supportScreenType changed : none
+2026-10-29T20:11:30.565238Z [3469.603524420] user.info surface-manager [] surface-manager LSM {} WebOSCoreCompositor::onSurfaceDestroyed, QObject(0x0) WebOSSurfaceItem(0x1c0dfa8, name="surfaceItem_default", parent=0x0, geometry=0,0 -1x-1) "" WebOSSurfaceItem::ItemStateNormal ""
+2026-10-29T20:11:30.657776Z [3469.696063340] user.info pqcontroller [] pqcontroller-ux-plugin PQCONTROLLER_UX_PLUGIN_CTL {} [pluginObserver_setUiMessageCallback] OBSERVER_MSG_ENERGY_CONSUM_POPUP   
+2026-10-29T20:11:30.657798Z [3469.696084460] user.info pqcontroller [] pqcontroller-ux-plugin PQCONTROLLER_UX_PLUGIN_CTL {} [plugin_displayEnergyConsumptionPopup][260] [0][0]
+2026-10-29T20:11:31.078107Z [3470.116394240] user.info WebAppMgr [] WAM INFO {} [HB](void HTVPE::HbbtvLunaServerStatusBlink::unsubscribeServerStatus(const char*):52)success to unsubscribe server status : serviceName[com.webos.service.config] 
+2026-10-29T20:11:31.078379Z [3470.116666180] user.info WebAppMgr [] WAM INFO {} [HB](void HTVPE::HbbtvLunaServerStatusBlink::unsubscribeServerStatus(const char*):52)success to unsubscribe server status : serviceName[com.webos.settingsservice] 
+2026-10-29T20:11:31.078736Z [3470.117022460] user.info WebAppMgr [] WAM INFO {} [HB](void HTVPE::HbbtvLunaServerStatusBlink::unsubscribeServerStatus(const char*):52)success to unsubscribe server status : serviceName[com.webos.service.utp.channel] 
+2026-10-29T20:11:31.078904Z [3470.117191180] user.info WebAppMgr [] WAM INFO {} [OP](void OPAPPPE::LunaSvcServerStatus::unsubscribeServerStatus(std::string):52)success to unsubscribe server status; serviceName: com.webos.service.wampluggable.hbbtv 
+2026-10-29T20:11:31.078953Z [3470.117239420] user.info WebAppMgr [] WAM INFO {} [OP](void OPAPPPE::LunaSvcServerStatus::unsubscribeServerStatus(std::string):52)success to unsubscribe server status; serviceName: com.webos.settingsservice 
+2026-10-29T20:11:31.078995Z [3470.117281980] user.info WebAppMgr [] WAM INFO {} [OP](void OPAPPPE::LunaSvcServerStatus::unsubscribeServerStatus(std::string):52)success to unsubscribe server status; serviceName: com.webos.service.config 
+2026-10-29T20:11:31.251794Z [3470.290085260] user.info surface-manager [] LSM RECENTS_UPDATE {"status":"org.webosbrew.hbchannel","where":"onSurfaceAdded"} 
+2026-10-29T20:11:31.254203Z [3470.292492300] user.info surface-manager [] LSM RECENTS_UPDATE {"status":"netflix","where":"onSurfaceAdded"} 
+2026-10-29T20:11:31.256894Z [3470.295188540] user.info surface-manager [] LSM RECENTS_UPDATE {"status":"youtube.leanback.v4","where":"onSurfaceAdded"} 
+2026-10-29T20:11:31.259559Z [3470.297851540] user.info surface-manager [] LSM RECENTS_UPDATE {"status":"com.beb.plxnative","where":"onSurfaceAdded"} 
+2026-10-29T20:11:31.320739Z [3470.359026940] user.info sam [] SAM API_RETURN_FALSE {"category":"/","method":"getAppInfo","err_code":1,"err_text":"Invalid appId specified OR Unsupported Application Type: com.webos.keyfilter.magicnumber"} 
+2026-10-29T20:11:31.355663Z [3470.393951140] user.info WebAppMgr [] chromium.media Permission {} [26234]camera_permission_interface.cc(267) CallGetPermissionSubscribe, param: {"category":"option","keys":["cameraResourcePermission"],"subscribe":true} 
+== update getStatus now
+{
+    "ssuImageSize": 0,
+    "returnValue": true,
+    "status": "idle",
+    "platformUpgrade": false,
+    "nsuImageSize": 1769900424,
+    "usbImageSize": 0
+}
+== hosts (the four update names)
+127.0.0.1	snu.lge.com su-dev.lge.com su.lge.com su-ssl.lge.com
+::1	snu.lge.com su-dev.lge.com su.lge.com su-ssl.lge.com
+ls: /tmp/lumatv-update-hosts: No such file or directory
+/var/luna/preferences/webosbrew_block_updates
+== network up / boot timeline anchors
+2026-10-29T20:11:38.823690Z [3477.861980180] user.info webos-connman-adapter [] webos-connman-adapter CM_RUN_ONLINE_CHECK_INFO {} internet check for connected wired service : 0x17e1b30, wifi service : (nil)
+2026-10-29T20:11:38.846109Z [3477.884402400] user.info webos-connman-adapter [] webos-connman-adapter SVU_NW_CONNECTION_INFO {} CM(getStatus) : {"returnValue":true,"wifiDirect":{"state":"disconnected"},"wifi":{"tetheringEnabled":false,"stat
+2026-10-29T20:11:38.846199Z [3477.884487300] user.info webos-connman-adapter [] webos-connman-adapter SVU_NW_CONNECTION_INFO {} CM(getUserStatus) : {"returnValue":true,"wifiDirect":{"state":"disconnected"},"wifi":{"tetheringEnabled":false,"
+2026-10-29T20:11:38.859986Z [3477.898273960] user.info btaudiosrc [] bluetooth-audio-source CURL {} reply[{"subscribed":true,"returnValue":true,"offlineMode":"disabled","wifi":{"tetheringEnabled":false,"state":"disconnected"},"isInternetCon
+2026-10-29T20:11:38.861404Z [3477.899690940] user.info accountmanager [] accountmanager ACCOUNT {} [onNetworkStatueReceived:159] responsePayload: {"returnValue":true,"wifiDirect":{"state":"disconnected"},"wifi":{"tetheringEnabled":false,"st
+2026-10-29T20:11:38.862911Z [3477.901199160] user.info eula-service [] EULA-SERVICE EULA-SERVICE {} _subscribeGetStatusCallback[617] message payload : {"subscribed":true,"returnValue":true,"offlineMode":"disabled","wifi":{"tetheringEnabled"

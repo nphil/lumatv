@@ -1,0 +1,1 @@
+while held: exit 0 (0 = held); after the release: exit 1 (1 = not held); injector exit 0

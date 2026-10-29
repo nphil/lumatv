@@ -1,0 +1,6 @@
+input: Back or Exit: closing com.palm.app.settings
+luna: foreground ['com.webos.app.home'] pushed to 15 subscriber(s) (com.webos.service.activitymanager, com.webos.applicationManager)
+shell-rust: the system layer wants the keys
+shell-rust: the system layer takes screenremote and search for its cards
+transitions: frame 24 ms after the last in a leave (tick before 3.4 ms, this 3.0 ms, last render 1.5 ms, held ticks 1, buffers prepared 130, imported in a frame 0)
+luna: com.palm.app.settings-17161 cancelled com.webos.surfacemanager/getLastInputType

@@ -1,0 +1,449 @@
+{
+ "tid": 16490,
+ "how": "the loop marker in the trace",
+ "frames": [],
+ "summary": {
+  "late": 0,
+  "kernel": 0,
+  "sched": 0,
+  "unexplained": 0,
+  "by_class": {}
+ },
+ "client": {
+  "client": 18108,
+  "trigger": "draw",
+  "frames": 3617,
+  "p50": 1.46,
+  "p90": 2.39,
+  "p99": 4.24,
+  "p999": 5.32,
+  "max": 6.08,
+  "over2": 782,
+  "over3": 108,
+  "flips": 3595,
+  "flip_max_ms": 16.71,
+  "slow": [
+   {
+    "at": 0.464,
+    "t": 1176.128,
+    "trigger": "draw",
+    "ms": 3.45,
+    "cpu": 1,
+    "held_by": [
+     "lumatv-log-16504 x6",
+     "ServiceSender-3549 x3",
+     "n000001a-2784 x2",
+     "<...>-3549 x1"
+    ]
+   },
+   {
+    "at": 0.481,
+    "t": 1176.145,
+    "trigger": "draw",
+    "ms": 3.05,
+    "prev_ms": 3.45,
+    "gap_ms": 16.5,
+    "prev_t": 1176.127848,
+    "job_t": 1176.147826,
+    "late_ms": 0.24,
+    "cpu": 1,
+    "held_by": [
+     "lumatv-log-16504 x2"
+    ]
+   },
+   {
+    "at": 0.547,
+    "t": 1176.212,
+    "trigger": "draw",
+    "ms": 3.05,
+    "prev_ms": 2.82,
+    "gap_ms": 16.6,
+    "prev_t": 1176.195206,
+    "job_t": 1176.214641,
+    "late_ms": -0.3,
+    "cpu": 1,
+    "held_by": [
+     "n000001a-2784 x1",
+     "<...>-4598 x1",
+     "hci_sock_reader-4598 x1"
+    ]
+   },
+   {
+    "at": 1.2,
+    "t": 1176.864,
+    "trigger": "draw",
+    "ms": 4.23,
+    "prev_ms": 1.42,
+    "gap_ms": 18.7,
+    "prev_t": 1176.848432,
+    "job_t": 1176.868566,
+    "late_ms": -0.78,
+    "cpu": 1,
+    "held_by": [
+     "ld-linux-aarch6-17087 x1"
+    ]
+   },
+   {
+    "at": 2.201,
+    "t": 1177.865,
+    "trigger": "draw",
+    "ms": 4.11,
+    "prev_ms": 1.35,
+    "gap_ms": 18.7,
+    "prev_t": 1177.849456,
+    "job_t": 1177.869489,
+    "late_ms": -0.76,
+    "cpu": 1,
+    "held_by": []
+   },
+   {
+    "at": 3.202,
+    "t": 1178.866,
+    "trigger": "draw",
+    "ms": 4.21,
+    "prev_ms": 1.39,
+    "gap_ms": 18.6,
+    "prev_t": 1178.850251,
+    "job_t": 1178.870221,
+    "late_ms": -0.93,
+    "cpu": 0,
+    "held_by": []
+   },
+   {
+    "at": 3.586,
+    "t": 1179.251,
+    "trigger": "draw",
+    "ms": 4.35,
+    "prev_ms": 1.42,
+    "gap_ms": 19.6,
+    "prev_t": 1179.234008,
+    "job_t": 1179.255074,
+    "late_ms": 0.03,
+    "cpu": 1,
+    "held_by": []
+   },
+   {
+    "at": 4.203,
+    "t": 1179.867,
+    "trigger": "draw",
+    "ms": 4.17,
+    "prev_ms": 1.8,
+    "gap_ms": 18.1,
+    "prev_t": 1179.851129,
+    "job_t": 1179.871082,
+    "late_ms": -0.91,
+    "cpu": 1,
+    "held_by": []
+   },
+   {
+    "at": 4.62,
+    "t": 1180.285,
+    "trigger": "draw",
+    "ms": 4.02,
+    "prev_ms": 1.86,
+    "gap_ms": 18.7,
+    "prev_t": 1180.268068,
+    "job_t": 1180.288604,
+    "late_ms": -0.17,
+    "cpu": 0,
+    "held_by": []
+   },
+   {
+    "at": 5.203,
+    "t": 1180.868,
+    "trigger": "draw",
+    "ms": 4.8,
+    "prev_ms": 1.95,
+    "gap_ms": 18.2,
+    "prev_t": 1180.852249,
+    "job_t": 1180.872362,
+    "late_ms": -1.38,
+    "cpu": 2,
+    "held_by": []
+   },
+   {
+    "at": 5.252,
+    "t": 1180.916,
+    "trigger": "draw",
+    "ms": 3.09,
+    "prev_ms": 2.95,
+    "gap_ms": 16.6,
+    "prev_t": 1180.899437,
+    "job_t": 1180.918942,
+    "late_ms": -0.27,
+    "cpu": 2,
+    "held_by": [
+     "memchute-1923 x1",
+     "kworker/u8:0-4811 x1"
+    ]
+   },
+   {
+    "at": 5.335,
+    "t": 1181.0,
+    "trigger": "draw",
+    "ms": 3.13,
+    "prev_ms": 2.74,
+    "gap_ms": 17.1,
+    "prev_t": 1180.982972,
+    "job_t": 1181.002819,
+    "late_ms": 0.03,
+    "cpu": 2,
+    "held_by": []
+   },
+   {
+    "at": 6.205,
+    "t": 1181.869,
+    "trigger": "draw",
+    "ms": 4.36,
+    "prev_ms": 1.37,
+    "gap_ms": 18.9,
+    "prev_t": 1181.853124,
+    "job_t": 1181.873379,
+    "late_ms": -0.79,
+    "cpu": 2,
+    "held_by": [
+     "memchute-1923 x5",
+     "<...>-1923 x2"
+    ]
+   },
+   {
+    "at": 7.206,
+    "t": 1182.87,
+    "trigger": "draw",
+    "ms": 4.48,
+    "prev_ms": 1.35,
+    "gap_ms": 19.0,
+    "prev_t": 1182.853993,
+    "job_t": 1182.874328,
+    "late_ms": -0.83,
+    "cpu": 2,
+    "held_by": [
+     "latency-2910 x1"
+    ]
+   },
+   {
+    "at": 7.254,
+    "t": 1182.918,
+    "trigger": "draw",
+    "ms": 3.01,
+    "prev_ms": 2.79,
+    "gap_ms": 16.8,
+    "prev_t": 1182.901335,
+    "job_t": 1182.920882,
+    "late_ms": -0.15,
+    "cpu": 2,
+    "held_by": []
+   },
+   {
+    "at": 7.388,
+    "t": 1183.053,
+    "trigger": "draw",
+    "ms": 5.31,
+    "prev_ms": 2.48,
+    "gap_ms": 20.7,
+    "prev_t": 1183.034856,
+    "job_t": 1183.057999,
+    "late_ms": 1.14,
+    "cpu": 2,
+    "held_by": [
+     "mojodb-luna-3542 x2",
+     "mojodb-luna-3597 x2",
+     "<...>-3542 x1",
+     "<...>-3597 x1"
+    ]
+   },
+   {
+    "at": 8.207,
+    "t": 1183.871,
+    "trigger": "draw",
+    "ms": 4.13,
+    "prev_ms": 1.3,
+    "gap_ms": 18.7,
+    "prev_t": 1183.854995,
+    "job_t": 1183.874978,
+    "late_ms": -0.84,
+    "cpu": 2,
+    "held_by": []
+   },
+   {
+    "at": 8.339,
+    "t": 1184.003,
+    "trigger": "draw",
+    "ms": 3.11,
+    "prev_ms": 2.03,
+    "gap_ms": 17.8,
+    "prev_t": 1183.986362,
+    "job_t": 1184.006235,
+    "late_ms": 0.08
+   },
+   {
+    "at": 8.41,
+    "t": 1184.074,
+    "trigger": "draw",
+    "ms": 5.24,
+    "prev_ms": 2.59,
+    "gap_ms": 7.7,
+    "prev_t": 1184.069057,
+    "job_t": 1184.079304,
+    "late_ms": -11.68,
+    "cpu": 2,
+    "held_by": []
+   },
+   {
+    "at": 9.207,
+    "t": 1184.872,
+    "trigger": "draw",
+    "ms": 4.11,
+    "prev_ms": 1.4,
+    "gap_ms": 18.5,
+    "prev_t": 1184.855801,
+    "job_t": 1184.875737,
+    "late_ms": -0.86,
+    "cpu": 2,
+    "held_by": []
+   }
+  ],
+  "implied": [
+   {
+    "at": 7.388,
+    "t": 1183.053,
+    "trigger": "draw",
+    "ms": 5.31,
+    "prev_ms": 2.48,
+    "gap_ms": 20.7,
+    "prev_t": 1183.034856,
+    "job_t": 1183.057999,
+    "late_ms": 1.14,
+    "cpu": 2,
+    "held_by": [
+     "mojodb-luna-3542 x2",
+     "mojodb-luna-3597 x2",
+     "<...>-3542 x1",
+     "<...>-3597 x1"
+    ]
+   },
+   {
+    "at": 25.156,
+    "t": 1200.82,
+    "trigger": "draw",
+    "ms": 6.08,
+    "prev_ms": 1.8,
+    "gap_ms": 20.8,
+    "prev_t": 1200.803202,
+    "job_t": 1200.825842,
+    "late_ms": -0.12,
+    "cpu": 1,
+    "held_by": [
+     "rcu_preempt-10 x3",
+     "tDnnService-3615 x1"
+    ]
+   },
+   {
+    "at": 29.51,
+    "t": 1205.174,
+    "trigger": "draw",
+    "ms": 5.54,
+    "prev_ms": 1.58,
+    "gap_ms": 20.8,
+    "prev_t": 1205.157475,
+    "job_t": 1205.179854,
+    "late_ms": 0.15,
+    "cpu": 2,
+    "held_by": [
+     "SettingsService-4144 x3",
+     "tvpowerd-2701 x2",
+     "<...>-2701 x1",
+     "factorymanager-2960 x1"
+    ]
+   },
+   {
+    "at": 43.923,
+    "t": 1219.587,
+    "trigger": "draw",
+    "ms": 5.32,
+    "prev_ms": 1.38,
+    "gap_ms": 20.8,
+    "prev_t": 1219.570457,
+    "job_t": 1219.592624,
+    "late_ms": 0.16,
+    "cpu": 2,
+    "held_by": [
+     "extinput-integr-3418 x1"
+    ]
+   }
+  ],
+  "span": [
+   1176.127848,
+   1236.085078
+  ]
+ },
+ "attribution": {
+  "counted": 3,
+  "late_flips": 0,
+  "compositor": 1,
+  "client_only": 3,
+  "unexplained": 0,
+  "gaps": [
+   {
+    "at": 7.388,
+    "gap_ms": 20.7,
+    "ms": 5.31,
+    "who": "compositor",
+    "why": [
+     "its draw came 1.14 ms late"
+    ]
+   },
+   {
+    "at": 25.156,
+    "gap_ms": 20.8,
+    "ms": 6.08,
+    "who": "client",
+    "why": []
+   },
+   {
+    "at": 29.51,
+    "gap_ms": 20.8,
+    "ms": 5.54,
+    "who": "client",
+    "why": []
+   },
+   {
+    "at": 43.923,
+    "gap_ms": 20.8,
+    "ms": 5.32,
+    "who": "client",
+    "why": []
+   }
+  ]
+ },
+ "coverage": {
+  "complete": false,
+  "reasons": [
+   "trace answered 3617 frames but raw RESULT counted 3597",
+   "trace implies 4 gaps but raw log counted 3"
+  ],
+  "raw": {
+   "frames": 3597,
+   "seconds": 60.0,
+   "gaps": 3,
+   "worst_ms": 20.7
+  }
+ },
+ "x1": [
+  {
+   "ms": 20.5,
+   "swap": 418,
+   "at": 1183.057
+  },
+  {
+   "ms": 20.7,
+   "swap": 1744,
+   "at": 1205.178
+  },
+  {
+   "ms": 20.5,
+   "swap": 2608,
+   "at": 1219.591
+  }
+ ]
+}

@@ -1,0 +1,51 @@
+window 41 created on surface 242 by pid 17161
+webOS shell surface on window 41 (surface 242) by pid 17161
+window 41 committed without a buffer (Card app '' state Default)
+window 41: appId = com.geforcenow.play (Card)
+window 41: title = GeForce NOW (Card)
+foreign: surface 242 exported as _Window_Id_7 (type 0)
+window 41 mapped (Card app 'com.geforcenow.play' title 'GeForce NOW' size Some((1280, 720)))
+window 7: minimized (covered by a newer card)
+window 41: fullscreen (the front card)
+window 7: exposed nothing (covered)
+window 41: exposed 1280x720
+focus -> surface 242
+luna: foreground ['com.geforcenow.play'] pushed to 15 subscriber(s) (com.webos.service.activitymanager, com.webos.applicationManager)
+shell-rust: the system layer lets go of the keys
+shell-rust: the system layer lets go of OK and Back
+window 7: fullscreen (the front card)
+window 7: exposed 1920x1080
+luna: foreground ['com.webos.app.home'] pushed to 15 subscriber(s) (com.webos.service.activitymanager, com.webos.applicationManager)
+shell-rust: the system layer wants the keys
+shell-rust: the system layer takes screenremote and search for its cards
+shell: can show switcher, keyboard
+client connected: pid 25575 uid 6546 cmd '/mnt/otncabi/usr/palm/applications/com.webos.app.browser/chrome {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'com.webos.app.browser\\',\\'parameters\\':{\\'enableGame'
+client connected: pid 25575 uid 6546 cmd '/mnt/otncabi/usr/palm/applications/com.webos.app.browser/chrome {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'com.webos.app.browser\\',\\'parameters\\':{\\'enableGame'
+client disconnected: pid 25575 uid 6546 after 0 ms (ConnectionClosed); bound ['wl_output']; cmd '/mnt/otncabi/usr/palm/applications/com.webos.app.browser/chrome {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'com.webos.app.browser\\',\\'parameters\\':{\\'enableGame'
+window 42 created on surface 255 by pid 25575
+webOS shell surface on window 42 (surface 255) by pid 25575
+window 42: appId = com.webos.app.1 (Card)
+window 42: appId = com.webos.app.browser (Card)
+shell: can show quick, picker, drawer, switcher, keyboard
+luna: com.webos.app.browser subscribed to com.webos.surfacemanager/getFocusedWindowInfo
+window 42 mapped (Card app 'com.webos.app.browser' title '' size Some((1920, 1080)))
+window 7: minimized (covered by a newer card)
+window 42: fullscreen (the front card)
+window 7: exposed nothing (covered)
+window 42: exposed 1920x1080
+focus -> surface 255
+luna: foreground ['com.webos.app.browser'] pushed to 15 subscriber(s) (com.webos.service.activitymanager, com.webos.applicationManager)
+window 42: title = Web Browser (Card)
+shell-rust: the system layer lets go of the keys
+shell-rust: the system layer lets go of OK and Back
+foreign: surface 255 exported as _Window_Id_8 (type 0)
+window 7: raised to the front (set_state fullscreen)
+window 42: minimized (covered by a newer card)
+window 7: exposed 1920x1080
+window 42: exposed nothing (covered)
+luna: foreground ['com.webos.app.home'] pushed to 15 subscriber(s) (com.webos.service.activitymanager, com.webos.applicationManager)
+shell-rust: the system layer wants the keys
+shell-rust: the system layer takes screenremote and search for its cards
+shell: can show switcher, keyboard
+transitions: frame 24 ms after the last in a leave (tick before 3.5 ms, this 0.1 ms, last render 2.0 ms, held ticks 1, buffers prepared 116, imported in a frame 0)
+shell: can show quick, picker, drawer, switcher, keyboard

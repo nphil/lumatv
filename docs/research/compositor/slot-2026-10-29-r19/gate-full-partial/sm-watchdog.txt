@@ -1,0 +1,5 @@
+[17:09:03] watchdog: progress rules on (frozen output watched, empty panel watched)
+[17:09:03] watchdog: the set is ACTIVE
+[17:11:02] settled: two minutes healthy
+[17:14:01] watchdog: drawn 8020 flips 8007 mapped 3 set ACTIVE
+[17:19:01] watchdog: drawn 13735 flips 13713 mapped 3 set ACTIVE

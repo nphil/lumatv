@@ -1,0 +1,1 @@
+shell-rust: alert delivered to the client

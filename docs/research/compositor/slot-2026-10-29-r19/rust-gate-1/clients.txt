@@ -1,0 +1,40 @@
+[srv   3647.921] info client connected: pid 2699 uid 505 cmd "/usr/bin/WebAppMgr --accelerated-plugin-rendering-blacklist=device;drmAgent;sound;service --autoplay-policy=no-user-gesture-required --browser-subprocess-path=/"
+[srv   3648.817] info shell-rust: client connected
+[srv   3648.961] info client connected: pid 3289 uid 0 cmd "/usr/bin/qml-runner {\"appId\":\"org.nphil.lumatv.shell\",\"event\":\"launch\",\"main\":\"/var/lib/lumatv/compositor/shell/Shell.qml\",\"params\":{\"dataDir\":\"/var/lib/lumatv\""
+[srv   3649.132] info shell: client connected
+[srv   4743.489] info client connected: pid 19500 uid 5272 cmd "/media/cryptofs/apps/usr/palm/applications/youtube.leanback.v4/cobalt {\"event\":\"launch\",\"reason\":\"undefined\",\"appId\":\"youtube.leanback.v4\",\"parameters\":{},\"inte"
+[srv   4843.518] info client disconnected: pid 19500 uid 5272 after 100029 ms (ConnectionClosed); bound ["wl_compositor", "wl_shell", "wl_seat", "wl_webos_shell", "wl_webos_foreign", "wl_webos_input_manager", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat"]; cmd "/media/cryptofs/apps/usr/palm/applications/youtube.leanback.v4/cobalt {\"event\":\"launch\",\"reason\":\"undefined\",\"appId\":\"youtube.leanback.v4\",\"parameters\":{},\"inte"
+[srv   4856.099] info client connected: pid 21194 uid 5365 cmd "/media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative {\"event\":\"launch\",\"reason\":\"undefined\",\"appId\":\"com.beb.plxnative\",\"parameters\":{},\"inte"
+[srv   5031.225] info client disconnected: pid 21194 uid 5365 after 175125 ms (ConnectionClosed); bound ["wl_compositor", "wl_shm", "wl_shell", "wl_seat", "wl_output", "wl_webos_shell", "wl_webos_surface_group_compositor", "wl_webos_foreign", "wl_webos_input_manager", "wl_starfish_pointer", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat"]; cmd "/media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative {\"event\":\"launch\",\"reason\":\"undefined\",\"appId\":\"com.beb.plxnative\",\"parameters\":{},\"inte"
+[srv   5266.455] info shell-rust: client connected
+[srv   5266.730] info shell-rust: client connected
+[srv   5274.724] info shell-rust: client connected
+[srv   5275.022] info shell-rust: client connected
+[srv   5283.513] info shell-rust: client connected
+[srv   5283.766] info shell-rust: client connected
+[srv   5288.381] info shell-rust: client connected
+[srv   5288.629] info shell-rust: client connected
+[srv   5294.025] info shell-rust: client connected
+[srv   5294.295] info shell-rust: client connected
+[srv   5299.897] info shell-rust: client connected
+[srv   5300.190] info shell-rust: client connected
+[srv   5305.496] info shell-rust: client connected
+[srv   5305.846] info shell-rust: client connected
+[srv   5311.426] info shell-rust: client connected
+[srv   5311.756] info shell-rust: client connected
+[srv   5312.518] info shell-rust: client connected
+[srv   5317.666] info shell-rust: client connected
+[srv   5322.451] info shell-rust: client connected
+[srv   5322.740] info shell-rust: client connected
+[srv   5323.422] info shell-rust: client connected
+[srv   5324.143] info shell-rust: client connected
+[srv   5324.961] info shell-rust: client connected
+[srv   5325.614] info shell-rust: client connected
+[srv   5327.097] info shell-rust: client connected
+[srv   5327.862] info shell-rust: client connected
+[srv   5328.124] info shell-rust: client connected
+[srv   5329.066] info shell-rust: client connected
+[srv   5329.319] info shell-rust: client connected
+[srv   5330.061] info shell-rust: client connected
+[srv   5330.254] info shell-rust: client connected
+[srv   5331.048] info shell-rust: client connected

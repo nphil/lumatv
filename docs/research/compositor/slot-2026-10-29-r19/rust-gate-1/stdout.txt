@@ -1,0 +1,30 @@
+start 16:41:16 --only rust --rust-kinds all
+power state: active
+home stub before the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+avr: left to the agent (True)
+already mounted; 'cutover.sh status' says what runs
+
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 387365 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+GATE rust: FAIL osd ok (first 100 ms (a poll of about 73 ms), drawn +17, gl errors +0; off ok); toast ok (first 120 ms (a poll of about 73 ms), drawn +26, gl errors +0; off ok); alert ok (first 110 ms (a poll of about 76 ms), drawn +24, gl errors +0; off ok); quick ok (first 240 ms (a poll of about 63 ms), drawn +48, gl errors +0; off ok); picker ok (first 140 ms (a poll of about 83 ms), drawn +24, gl errors +0; off ok); drawer ok (first 100 ms (a poll of about 76 ms), drawn +21, gl errors +0; off ok); settings ok (first 340 ms (a poll of about 70 ms), drawn +54, gl errors +0; off ok); cameras ok (first 100 ms (a poll of about 70 ms), drawn +38, gl errors +0; off ok); saver ok (first 340 ms (a poll of about 76 ms), drawn +52, gl errors +0; off ok); menu SKIPPED (not driven: a tile's menu opens on a hold of OK on Home, which the gate does not press); confirm SKIPPED (not driven: a panel asks it for an action, which the gate does not take); switcher SKIPPED (not driven: the app switcher needs open apps; the frames gate's switcher surface covers it); cards SKIPPED (not driven: the owner's switch (overlays.enabled, cameras) is off and the gate does not set it); popup SKIPPED (not driven: the owner's switch (overlays.enabled, cameras) is off and the gate does not set it); capture SKIPPED (not driven: needs capture.enabled and the encoder, which are the owner's (docs/research/capture-result.md)); layout SKIPPED (not driven: Back asks whether to save the layout; the gate does not answer it); NOT: home (drawn +64, gl errors +0; dpad: focus 'statusbar' then 'statusbar' after Up, 'widgets' after Down; off ok); (kinds found [alert,drawer,entry,home,osd,picker,quick,saver,settings,switcher,toast]; 10 run, 7 skipped)
+
+evidence: 2 subscription(s) from SAM, 40 client lines, 213 loop stalls, 8 watchdog lines
+
+umount: /usr/bin/surface-manager: target is busy.
+revert: active; mounted: no; exe: /usr/bin/surface-manager
+recover: surface-manager-daemon.service active after 0s; exe /usr/bin/surface-manager
+recover: compositor answering on the bus after 0s
+recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+recover: WebAppMgr answering after 0s (active)
+recover: Home on the panel after 0s (capture 61637 bytes)
+recover: librdx reports swept; remaining 0
+
+avr: left to the agent (False)
+{"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+
+home stub after the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 387365 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE rust: FAIL osd ok (first 100 ms (a poll of about 73 ms), drawn +17, gl errors +0; off ok); toast ok (first 120 ms (a poll of about 73 ms), drawn +26, gl errors +0; off ok); alert ok (first 110 ms (a poll of about 76 ms), drawn +24, gl errors +0; off ok); quick ok (first 240 ms (a poll of about 63 ms), drawn +48, gl errors +0; off ok); picker ok (first 140 ms (a poll of about 83 ms), drawn +24, gl errors +0; off ok); drawer ok (first 100 ms (a poll of about 76 ms), drawn +21, gl errors +0; off ok); settings ok (first 340 ms (a poll of about 70 ms), drawn +54, gl errors +0; off ok); cameras ok (first 100 ms (a poll of about 70 ms), drawn +38, gl errors +0; off ok); saver ok (first 340 ms (a poll of about 76 ms), drawn +52, gl errors +0; off ok); menu SKIPPED (not driven: a tile's menu opens on a hold of OK on Home, which the gate does not press); confirm SKIPPED (not driven: a panel asks it for an action, which the gate does not take); switcher SKIPPED (not driven: the app switcher needs open apps; the frames gate's switcher surface covers it); cards SKIPPED (not driven: the owner's switch (overlays.enabled, cameras) is off and the gate does not set it); popup SKIPPED (not driven: the owner's switch (overlays.enabled, cameras) is off and the gate does not set it); capture SKIPPED (not driven: needs capture.enabled and the encoder, which are the owner's (docs/research/capture-result.md)); layout SKIPPED (not driven: Back asks whether to save the layout; the gate does not answer it); NOT: home (drawn +64, gl errors +0; dpad: focus 'statusbar' then 'statusbar' after Up, 'widgets' after Down; off ok); (kinds found [alert,drawer,entry,home,osd,picker,quick,saver,settings,switcher,toast]; 10 run, 7 skipped)
+GATE: FAIL
+wrote ../lumatv-r19/docs/research/compositor/gate-2026-10-29.txt
+EXIT 1 16:43:12

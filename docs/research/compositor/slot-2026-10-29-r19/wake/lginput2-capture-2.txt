@@ -1,0 +1,59 @@
+2026-10-29T21:54:04.894210Z [3845.751873560] UDEV_EVENT [_uhid_set_disconn_device_info (1407)] {MRCU:"LGE MR24"} :: [STAGE_ADDED] ===> [STAGE_REMOVING]
+2026-10-29T21:54:04.894274Z [3845.751937520] UDEV_HID [lginput_button_setButtonConnState (911)] isConnected[1:0]
+2026-10-29T21:54:04.894297Z [3845.751960880] UDEV_EVENT [_uhid_remove_device (1684)] {MRCU:"LGE MR24"} :: [STAGE_REMOVING] ===> [STAGE_REMOVED]
+2026-10-29T21:54:04.894405Z [3845.752068300] UDEV_EVENT [_uhid_hidraw_epoll_ctrl (1991)] {MRCU} :: [STAGE_REMOVED] ===> [STAGE_NO_DEVICE]
+2026-10-29T21:54:39.452047Z [3880.309710260] UDEV_EVENT [_uhid_set_conn_device_info (1378)] {MRCU} :: [STAGE_NO_DEVICE] ===> [STAGE_ADDING]
+2026-10-29T21:54:43.452330Z [3884.309994580] UDEV_HID [lginput_button_setButtonConnState (911)] isConnected[0:1]
+2026-10-29T21:54:43.453425Z [3884.311088500] UDEV_EVENT [_uhid_add_device (1518)] {MRCU:"LGE MR24"} :: [STAGE_ADDING] ===> [STAGE_ADDED]
+2026-10-29T21:54:43.453752Z [3884.311415460] MRCU --->> { MRCU_BUTTON_MOTION_START } <<--- received (mrcu_process, 0, -1)
+2026-10-29T21:54:44.212409Z [3885.070074400] MRCU_STATE {MRCU}(state) :: [SLEEP] ==> "[ACTIVE_READY]"
+2026-10-29T21:54:44.212520Z [3885.070183920] UINPUT [lginput_uinput_send_custom_event, 684]          <<< uinput: but=(CUSTOM_KEY_CURSOR_ON, 0, success) >>>
+2026-10-29T21:54:44.212563Z [3885.070226640] NL_WHEEL_SCROLL {"remote_type":"LGE MR24","button_type":"WHEEL_DOWN"} 
+2026-10-29T21:54:44.615926Z [3885.473595540] MRCU_STATE {MRCU}(state) :: [ACTIVE_READY] ==> "[ACTIVE]"
+2026-10-29T21:54:44.951056Z [3885.808726940] UINPUT [lginput_uinput_send_custom_event, 684]          <<< uinput: but=(CUSTOM_KEY_CURSOR_ON, 0, success) >>>
+2026-10-29T21:54:45.451363Z [3886.309039940] UINPUT [lginput_uinput_send_custom_event, 684]          <<< uinput: but=(CUSTOM_KEY_CURSOR_ON, 0, success) >>>
+2026-10-29T21:54:45.951506Z [3886.809177700] UINPUT [lginput_uinput_send_custom_event, 684]          <<< uinput: but=(CUSTOM_KEY_CURSOR_ON, 0, success) >>>
+2026-10-29T21:54:46.451470Z [3887.309140940] UINPUT [lginput_uinput_send_custom_event, 684]          <<< uinput: but=(CUSTOM_KEY_CURSOR_ON, 0, success) >>>
+2026-10-29T21:54:46.951575Z [3887.809246360] UINPUT [lginput_uinput_send_custom_event, 684]          <<< uinput: but=(CUSTOM_KEY_CURSOR_ON, 0, success) >>>
+2026-10-29T21:54:47.451687Z [3888.309358040] UINPUT [lginput_uinput_send_custom_event, 684]          <<< uinput: but=(CUSTOM_KEY_CURSOR_ON, 0, success) >>>
+2026-10-29T21:54:47.951804Z [3888.809474960] UINPUT [lginput_uinput_send_custom_event, 684]          <<< uinput: but=(CUSTOM_KEY_CURSOR_ON, 0, success) >>>
+2026-10-29T21:54:48.435199Z [3889.292868520] MRCU_STATE [_mrs_cond_a2sr_, 361] on table
+2026-10-29T21:54:48.435267Z [3889.292931200] MRCU_STATE {MRCU}(state) :: [ACTIVE] ==> "[SLEEP_READY]"
+2026-10-29T21:54:48.435313Z [3889.292976760] MRCU_STATE {MRCU}(state) :: [SLEEP_READY] ==> "[SLEEP]"
+2026-10-29T21:54:48.435353Z [3889.293017080] UINPUT [lginput_uinput_send_custom_event, 684]          <<< uinput: but=(CUSTOM_KEY_CURSOR_OFF, 0, success) >>>
+2026-10-29T21:54:48.493676Z [3889.351346280] MRCU --->> { MRCU_BUTTON_MOTION_STOP } <<--- received (mrcu_process, 0, -1)
+2026-10-29T21:55:03.555900Z [3904.413563980] UDEV_EVENT [_uhid_set_disconn_device_info (1407)] {MRCU:"LGE MR24"} :: [STAGE_ADDED] ===> [STAGE_REMOVING]
+2026-10-29T21:55:03.555963Z [3904.413627120] UDEV_HID [lginput_button_setButtonConnState (911)] isConnected[1:0]
+2026-10-29T21:55:03.556005Z [3904.413668220] UDEV_EVENT [_uhid_remove_device (1684)] {MRCU:"LGE MR24"} :: [STAGE_REMOVING] ===> [STAGE_REMOVED]
+2026-10-29T21:55:03.556142Z [3904.413805660] UDEV_EVENT [_uhid_hidraw_epoll_ctrl (1991)] {MRCU} :: [STAGE_REMOVED] ===> [STAGE_NO_DEVICE]
+2026-10-29T21:57:12.333584Z [4033.191248060] UDEV_EVENT [_uhid_set_conn_device_info (1378)] {MRCU} :: [STAGE_NO_DEVICE] ===> [STAGE_ADDING]
+2026-10-29T21:57:16.337589Z [4037.195255960] UDEV_HID [lginput_button_setButtonConnState (911)] isConnected[0:1]
+2026-10-29T21:57:16.337920Z [4037.195586000] UDEV_EVENT [_uhid_add_device (1518)] {MRCU:"LGE MR24"} :: [STAGE_ADDING] ===> [STAGE_ADDED]
+2026-10-29T21:57:16.338598Z [4037.196261440] MRCU --->> { MRCU_BUTTON_MOTION_START } <<--- received (mrcu_process, 0, -1)
+2026-10-29T21:57:16.697138Z [4037.554806660] MRCU_STATE {MRCU}(state) :: [SLEEP] ==> "[ACTIVE_READY]"
+2026-10-29T21:57:16.697259Z [4037.554923260] UINPUT [lginput_uinput_send_custom_event, 684]          <<< uinput: but=(CUSTOM_KEY_CURSOR_ON, 0, success) >>>
+2026-10-29T21:57:16.697301Z [4037.554964880] NL_WHEEL_SCROLL {"remote_type":"LGE MR24","button_type":"WHEEL_DOWN"} 
+2026-10-29T21:57:16.739888Z [4037.597558420] NL_WHEEL_SCROLL {"remote_type":"LGE MR24","button_type":"WHEEL_DOWN"} 
+2026-10-29T21:57:17.058076Z [4037.916054000] NL_WHEEL_SCROLL {"remote_type":"LGE MR24","button_type":"WHEEL_DOWN"} 
+2026-10-29T21:57:17.102883Z [4037.960553880] MRCU_STATE {MRCU}(state) :: [ACTIVE_READY] ==> "[ACTIVE]"
+2026-10-29T21:57:17.334246Z [4038.191917740] UINPUT [lginput_uinput_send_custom_event, 684]          <<< uinput: but=(CUSTOM_KEY_CURSOR_ON, 0, success) >>>
+2026-10-29T21:57:17.834366Z [4038.692036300] UINPUT [lginput_uinput_send_custom_event, 684]          <<< uinput: but=(CUSTOM_KEY_CURSOR_ON, 0, success) >>>
+2026-10-29T21:57:18.334507Z [4039.192179060] UINPUT [lginput_uinput_send_custom_event, 684]          <<< uinput: but=(CUSTOM_KEY_CURSOR_ON, 0, success) >>>
+2026-10-29T21:57:18.834800Z [4039.692472260] UINPUT [lginput_uinput_send_custom_event, 684]          <<< uinput: but=(CUSTOM_KEY_CURSOR_ON, 0, success) >>>
+2026-10-29T21:57:19.334755Z [4040.192426800] UINPUT [lginput_uinput_send_custom_event, 684]          <<< uinput: but=(CUSTOM_KEY_CURSOR_ON, 0, success) >>>
+2026-10-29T21:57:19.834881Z [4040.692552380] UINPUT [lginput_uinput_send_custom_event, 684]          <<< uinput: but=(CUSTOM_KEY_CURSOR_ON, 0, success) >>>
+2026-10-29T21:57:20.334972Z [4041.192642800] UINPUT [lginput_uinput_send_custom_event, 684]          <<< uinput: but=(CUSTOM_KEY_CURSOR_ON, 0, success) >>>
+2026-10-29T21:57:20.835107Z [4041.692777420] UINPUT [lginput_uinput_send_custom_event, 684]          <<< uinput: but=(CUSTOM_KEY_CURSOR_ON, 0, success) >>>
+2026-10-29T21:57:21.768547Z [4042.626211100] MRCU {LGE MR24} [KEY_OK] button press
+2026-10-29T21:57:21.768584Z [4042.626247600] NL_NON_LIST_BUTTON_CLICK {"remote_type":"LGE MR24","button_type":"KEY_OK"} 
+2026-10-29T21:57:21.965450Z [4042.823115460] MRCU {LGE MR24} [KEY_OK] button release
+2026-10-29T21:57:26.089317Z [4046.946981820] MRCU_STATE [_mrs_cond_a2sr_, 361] on table
+2026-10-29T21:57:26.091044Z [4046.948716540] MRCU_STATE {MRCU}(state) :: [ACTIVE] ==> "[SLEEP_READY]"
+2026-10-29T21:57:26.091208Z [4046.948872380] MRCU_STATE {MRCU}(state) :: [SLEEP_READY] ==> "[SLEEP]"
+2026-10-29T21:57:26.091289Z [4046.948953100] UINPUT [lginput_uinput_send_custom_event, 684]          <<< uinput: but=(CUSTOM_KEY_CURSOR_OFF, 0, success) >>>
+2026-10-29T21:57:26.138186Z [4046.995857220] MRCU --->> { MRCU_BUTTON_MOTION_STOP } <<--- received (mrcu_process, 0, -1)
+2026-10-29T21:57:41.166591Z [4062.024254720] UDEV_EVENT [_uhid_set_disconn_device_info (1407)] {MRCU:"LGE MR24"} :: [STAGE_ADDED] ===> [STAGE_REMOVING]
+2026-10-29T21:57:41.166663Z [4062.024327180] UDEV_HID [lginput_button_setButtonConnState (911)] isConnected[1:0]
+2026-10-29T21:57:41.166699Z [4062.024363300] UDEV_EVENT [_uhid_remove_device (1684)] {MRCU:"LGE MR24"} :: [STAGE_REMOVING] ===> [STAGE_REMOVED]
+2026-10-29T21:57:41.166804Z [4062.024467340] UDEV_EVENT [_uhid_hidraw_epoll_ctrl (1991)] {MRCU} :: [STAGE_REMOVED] ===> [STAGE_NO_DEVICE]
+ 

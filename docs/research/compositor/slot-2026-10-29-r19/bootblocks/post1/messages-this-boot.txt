@@ -1,0 +1,81 @@
+== what the rotated files cover
+43010 /tmp/r19-allmsgs.txt
+2023-01-01T00:00:04.388078Z [5.335998560] user.info sam [] SAM NL_APP_LAUNCH_BEGIN {"app_id":"com.webos.app.inputcommon","caller_id":"com.webos.lunasend-2510","
+== count by program (first / last stamp)
+pbs n=234 first=[16.718857680] last=[23.186195460]
+acr2 n=0 first= last=
+admanager n=0 first= last=
+adoverlay-service n=0 first= last=
+sportsalarm n=0 first= last=
+contentminer n=111 first=[17.605503080] last=[34.760268740]
+uploadd n=0 first= last=
+nudge n=0 first= last=
+iot-client n=0 first= last=
+== iot-client lines
+2026-10-29T20:50:28.276696Z [29.134375040] user.info ervice_server [] com.webos.service.secondscreen.gateway SSG_INTERFACE {} Added interface com.webos.service.iotclient
+2026-10-29T20:50:55.525017Z [56.382688720] user.info ls-hubd [] ls-hubd LSHUB_SRV_LNCH {"SERVICE_NAME":"com.webos.service.iotclient","EXE":"/usr/bin/run-service /usr/palm/services/com.webos.service.iotclient/iot-client","REQUESTER":"com.webos.service.homeconnect","APP_ID":"(null)","STATE":1,"PID":15
+2026-10-29T20:50:55.555665Z [56.413331920] user.info ervice_server [] hd-service SVCMAIN {} <getPackageInfo - app> {"packageId":"com.webos.app.homeconnect","returnValue":true,"packageInfo":{"standAloneLaunchable":false,"version":"2.0.0","folderPath":"/usr/palm/packages/com.webos.app.homeconnect","id
+2026-10-29T20:50:55.598582Z [56.456252600] user.info ls-hubd [] ls-hubd LSHUB_SRV_EXIT {"SERVICE_NAME":"com.webos.service.iotclient","EXE":"/usr/bin/run-service /usr/palm/services/com.webos.service.iotclient/iot-client","STATE":1,"EXIT_CODE":0,"RESPAWN":0,"PID":15168}  
+2026-10-29T20:50:55.598669Z [56.456334880] user.warning ls-hubd [] ls-hubd LSHUB_NO_SERVICE {} _LSHubSendQueryNameReplyMessage: Failed Connecting to Service err_code: -3, service_name: "com.webos.service.iotclient", unique_name: "(null)", static, fd -1 
+2026-10-29T20:50:55.727441Z [56.585111360] user.info ervice_server [] hd-service SVCMAIN {} <replyEventCallback - payload> {"serviceName":"com.webos.service.iotclient","returnValue":false,"errorCode":-1,"errorText":"com.webos.service.iotclient is not running."}
+2026-10-29T20:50:56.776614Z [57.634279960] user.info ervice_server [] hd-service TV {} <getHost> aic.lgtviot.com
+2026-10-29T20:50:56.776791Z [57.634456760] user.info ervice_server [] hd-service TV {} <updateSetting - host> aic.lgtviot.com
+2026-10-29T20:50:56.987634Z [57.845305820] user.info ls-hubd [] ls-hubd LSHUB_SRV_LNCH {"SERVICE_NAME":"com.webos.service.iotclient","EXE":"/usr/bin/run-service /usr/palm/services/com.webos.service.iotclient/iot-client","REQUESTER":"com.webos.service.homeconnect","APP_ID":"(null)","STATE":1,"PID":15
+2026-10-29T20:50:57.026803Z [57.884477720] user.info ls-hubd [] ls-hubd LSHUB_SRV_EXIT {"SERVICE_NAME":"com.webos.service.iotclient","EXE":"/usr/bin/run-service /usr/palm/services/com.webos.service.iotclient/iot-client","STATE":1,"EXIT_CODE":0,"RESPAWN":0,"PID":15895}  
+2026-10-29T20:50:57.026897Z [57.884562880] user.warning ls-hubd [] ls-hubd LSHUB_NO_SERVICE {} _LSHubSendQueryNameReplyMessage: Failed Connecting to Service err_code: -3, service_name: "com.webos.service.iotclient", unique_name: "(null)", static, fd -1 
+== LSHUB_SRV_LNCH of the iot client
+2026-10-29T20:50:55.525017Z [56.382688720] user.info ls-hubd [] ls-hubd LSHUB_SRV_LNCH {"SERVICE_NAME":"com.webos.service.iotclient","EXE":"/usr/bin/run-service /usr/palm/services/com.webos.service.iotclient/iot-client","REQUESTER":"com.webos.service.homeconnect","APP_ID":"(null)","STATE":1,"PID":15
+2026-10-29T20:50:56.987634Z [57.845305820] user.info ls-hubd [] ls-hubd LSHUB_SRV_LNCH {"SERVICE_NAME":"com.webos.service.iotclient","EXE":"/usr/bin/run-service /usr/palm/services/com.webos.service.iotclient/iot-client","REQUESTER":"com.webos.service.homeconnect","APP_ID":"(null)","STATE":1,"PID":15
+2026-10-29T20:50:57.445633Z [58.303304400] user.info ls-hubd [] ls-hubd LSHUB_SRV_LNCH {"SERVICE_NAME":"com.webos.service.familycare","EXE":"/usr/bin/run-service /usr/bin/run-iot-js-service /usr/palm/services/com.webos.service.familycare","REQUESTER":"com.webos.service.activitymanager","APP_ID":"com
+== update service alert / nsuImageSize lines
+2026-10-29T20:50:12.034842Z [13.816353260] user.info bthidmanager [] bthidmanager WBS {"TYPE":"INFO"} [a_bthidmngr_wbs_adapter_unsubscribeQueryAvailableCallback (1953)] called^M
+2026-10-29T20:50:12.198062Z [13.979571920] user.info lginput2 [] lginput2 WBS {"TYPE":"INFO"} [xpa_wbs_adapter_unsubscribeQueryAvailableCallback (2228)] called^M
+2026-10-29T20:50:12.612693Z [14.394204660] user.info surface-manager [] surface-manager LSM {} WebOSCoreCompositor::onSurfaceDestroyed, QObject(0x0) WebOSSurfaceItem(0x2abb0a0, name="surfaceItem_default", parent=0x0, geometry=0,0 -1x-1) "" WebOSSurfaceItem::ItemStateNormal ""
+2026-10-29T20:50:12.623801Z [14.405311040] user.info surface-manager [] surface-manager LSM {} WebOSCoreCompositor::onSurfaceMapped, QWaylandQuickSurface(0x289d470, name = "surface_com.webos.app.livetv_WEBOS_WINDOW_TYPE_CARD") WebOSSurfaceItem(0x29b8490, name="surfaceItem_com.webos.app.livetv_WEBOS_
+2026-10-29T20:50:12.623867Z [14.405376460] user.info surface-manager [] surface-manager LSM {} onSurfaceAdded, [FULLSCREEN:surface] surfaceAdded (start) com.webos.app.livetv
+2026-10-29T20:50:12.683106Z [14.464616160] user.info surface-manager [] surface-manager LSM {} onSurfaceOpened, [FULLSCREEN:Controller:CAPTURE] fullscreen_surface_is_opened
+2026-10-29T20:50:12.684835Z [14.466347520] user.info surface-manager [] surface-manager LSM {} onSurfaceAdded, [FULLSCREEN:surface] surfaceAdded (end) com.webos.app.livetv
+2026-10-29T20:50:12.684942Z [14.466453480] user.info surface-manager [] surface-manager LSM {} onSurfaceAdded, isPinnedOverlayView false currentId: com.webos.app.livetv overlayId: 
+2026-10-29T20:50:12.684978Z [14.466488160] user.info surface-manager [] surface-manager LSM {} onSurfaceAdded, isPinnedOverlayView false
+2026-10-29T20:50:12.689454Z [14.470972620] user.info surface-manager [] surface-manager LSM {} WebOSExported::onSurfaceItemMapped, Surface item of exported is mapped on  "_Window_Id_1"
+2026-10-29T20:50:13.065631Z [14.847141300] user.warning configd [] configd CONFIGURE {} [findSelection] : Failed to find selection of 'Consumer Hotel Mode for DVB', it could be luna type without alternative
+2026-10-29T20:50:13.092740Z [14.874249880] user.info sam [] SAM BADGE {"status":"unsubscribe_app_lock_info"} 
+2026-10-29T20:50:13.307641Z [15.089152660] user.info surface-manager [] surface-manager LSM {} WebOSCoreCompositor::onSurfaceDestroyed, QObject(0x0) WebOSSurfaceItem(0x22c66e8, name="surfaceItem_default", parent=0x0, geometry=0,0 -1x-1) "" WebOSSurfaceItem::ItemStateNormal ""
+2026-10-29T20:50:13.309552Z [15.091063100] user.info surface-manager [] surface-manager LSM {} WebOSCoreCompositor::onSurfaceDestroyed, QObject(0x0) WebOSSurfaceItem(0x22c66e8, name="surfaceItem_default", parent=0x0, geometry=0,0 -1x-1) "" WebOSSurfaceItem::ItemStateNormal ""
+2026-10-29T20:50:13.637051Z [15.418567980] user.info configd [] configd CONFIGURE {} [call] (Consumer Hotel Mode for DVB) : Connect to com.lge.settingsservice service. Start to subscribe for layer selection
+2026-10-29T20:50:13.674695Z [15.456205860] user.info configd [] configd CONFIGURE {} [call] (Consumer Hotel Mode for DVB) : Connect to com.lge.settingsservice service. Start to subscribe for layer selection
+2026-10-29T20:50:14.028018Z [15.809538940] user.info webos-bluetooth-service [] btmngr SVU_BT_WBS_MNGR {} powered changed : (1), insuspend : (0)   
+2026-10-29T20:50:14.047742Z [15.829251940] user.info lginput2 [] lginput2 ROLLING_SCR {"TYPE":"INFO"} [xpa_rollingscr_unsubscribegetViewStateCallback (208)] called^M
+2026-10-29T20:50:14.068852Z [15.850362020] user.info bthidmanager [] bthidmanager WBS {"TYPE":"INFO"} [a_bthidmngr_wbs_adapter_unsubscribeAwaitPairingRequestsCallback (1702)] called^M
+2026-10-29T20:50:14.268135Z [16.049645520] user.info physical-device-manager [] PDM_PLUGIN PlugInSubject: {} notify line: 28
+2026-10-29T20:50:14.280150Z [16.061660300] user.info physical-device-manager [] PDM_PLUGIN PlugInSubject: {} notify line: 28
+2026-10-29T20:50:14.287153Z [16.068664580] user.info physical-device-manager [] PDM_PLUGIN PlugInSubject: {} notify line: 28
+2026-10-29T20:50:14.287228Z [16.068738160] user.info physical-device-manager [] PDM_PLUGIN PlugInSubject: {} notifySystemProperties line: 36
+2026-10-29T20:50:14.293652Z [16.075162120] user.info physical-device-manager [] PDM_PLUGIN PlugInSubject: {} notify line: 28
+2026-10-29T20:50:14.299609Z [16.081126520] user.info physical-device-manager [] PDM_PLUGIN PlugInSubject: {} notify line: 28
+2026-10-29T20:50:14.299726Z [16.081236240] user.info physical-device-manager [] PDM_PLUGIN PlugInSubject: {} notify line: 28
+2026-10-29T20:50:14.299788Z [16.081297560] user.info physical-device-manager [] PDM_PLUGIN PlugInSubject: {} notify line: 28
+2026-10-29T20:50:14.299870Z [16.081380080] user.info physical-device-manager [] PDM_PLUGIN PlugInSubject: {} notify line: 28
+2026-10-29T20:50:14.480525Z [16.262034540] user.info physical-device-manager [] PDM_PLUGIN PlugInSubject: {} notify line: 28
+2026-10-29T20:50:14.491923Z [16.273433100] user.info physical-device-manager [] PDM_PLUGIN PlugInSubject: {} notify line: 28
+== update getStatus now
+{
+    "ssuImageSize": 0,
+    "returnValue": true,
+    "status": "idle",
+    "platformUpgrade": false,
+    "nsuImageSize": 0,
+    "usbImageSize": 0
+}
+== hosts (the four update names)
+127.0.0.1	snu.lge.com su-dev.lge.com su.lge.com su-ssl.lge.com
+::1	snu.lge.com su-dev.lge.com su.lge.com su-ssl.lge.com
+-rw-r--r--    1 root     root           642 Sep 14 16:20 /tmp/lumatv-update-hosts
+/var/luna/preferences/webosbrew_block_updates
+== network up / boot timeline anchors
+2026-10-29T20:50:13.498227Z [15.279744840] user.info webos-connman-adapter [] webos-connman-adapter SVU_NW_CONNECTION_INFO {} CM(getStatus) : {"returnValue":true,"wifiDirect":{"state":"disconnected"},"wifi":{"tetheringEnabled":false,"state"
+2026-10-29T20:50:13.498320Z [15.279831720] user.info webos-connman-adapter [] webos-connman-adapter SVU_NW_CONNECTION_INFO {} CM(getUserStatus) : {"returnValue":true,"wifiDirect":{"state":"disconnected"},"wifi":{"tetheringEnabled":false,"st
+2026-10-29T20:50:13.840880Z [15.622391640] user.info sdx [] sdx.logging LOG_NETWORK_STATE {} updateStatusData[42]: payload: {"subscribed":true,"returnValue":true,"offlineMode":"disabled","wifi":{"tetheringEnabled":false,"state":"disconnecte
+2026-10-29T20:50:13.841027Z [15.622536400] user.info accountmanager [] accountmanager ACCOUNT {} [onNetworkStatueReceived:159] responsePayload: {"returnValue":true,"wifiDirect":{"state":"disconnected"},"wifi":{"tetheringEnabled":false,"stat
+2026-10-29T20:50:13.841070Z [15.622579740] user.info hybridtv-manager [] hybridtv.COMMON CONTROL_EVENT {} [onNetworkConnectedChanged:288] network : (disconnect)
+2026-10-29T20:50:13.913391Z [15.694901100] user.info btaudiosrc [] bluetooth-audio-source CURL {} reply[{"returnValue":true,"wifiDirect":{"state":"disconnected"},"wifi":{"tetheringEnabled":false,"state":"disconnected"},"wan":{"connectedCont

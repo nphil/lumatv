@@ -1,0 +1,24 @@
+client connected: pid 14735 uid 5365 cmd '/media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'com.beb.plxnative\\',\\'parameters\\':{},\\'inte'
+window 22 created on surface 214 by pid 14735
+webOS shell surface on window 22 (surface 214) by pid 14735
+window 22: appId = com.beb.plxnative (Card)
+window 22 committed without a buffer (Card app 'com.beb.plxnative' state Default)
+window 22: title = plxnative (Card)
+window 22 mapped (Card app 'com.beb.plxnative' title 'plxnative' size Some((1920, 1080)))
+window 7: minimized (covered by a newer card)
+window 22: fullscreen (the front card)
+window 7: exposed nothing (covered)
+window 22: exposed 1920x1080
+focus -> surface 214
+luna: foreground ['com.beb.plxnative'] pushed to 15 subscriber(s) (com.webos.service.activitymanager, com.webos.applicationManager)
+shell-rust: the system layer lets go of the keys
+shell-rust: the system layer lets go of OK and Back
+window 7: fullscreen (the front card)
+window 7: exposed 1920x1080
+client disconnected: pid 14735 uid 5365 after 10952 ms (ConnectionClosed); bound ['wl_compositor', 'wl_shm', 'wl_shell', 'wl_seat', 'wl_output', 'wl_webos_shell', 'wl_webos_surface_group_compositor', 'wl_webos_foreign', 'wl_webos_input_manager', 'wl_starfish_pointer', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat']; cmd '/media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'com.beb.plxnative\\',\\'parameters\\':{},\\'inte'
+luna: foreground ['com.webos.app.home'] pushed to 15 subscriber(s) (com.webos.service.activitymanager, com.webos.applicationManager)
+shell-rust: the system layer wants the keys
+shell-rust: the system layer takes screenremote and search for its cards
+transitions: frame 25 ms after the last in a leave (tick before 3.2 ms, this 4.9 ms, last render 3.3 ms, held ticks 1, buffers prepared 56, imported in a frame 0)
+shell: can show switcher, keyboard
+shell: can show quick, picker, drawer, switcher, keyboard

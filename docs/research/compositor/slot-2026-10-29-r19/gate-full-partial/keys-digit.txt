@@ -1,0 +1,38 @@
+window 7: fullscreen (the front card)
+window 7: exposed 1920x1080
+luna: foreground ['com.webos.app.home'] pushed to 15 subscriber(s) (com.webos.service.activitymanager, com.webos.applicationManager)
+shell-rust: the system layer wants the keys
+shell-rust: the system layer takes screenremote and search for its cards
+shell: can show switcher, keyboard
+shell: can show quick, picker, drawer, switcher, keyboard
+client connected: pid 26548 uid 6546 cmd '/mnt/otncabi/usr/palm/applications/com.webos.app.browser/chrome {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'com.webos.app.browser\\',\\'parameters\\':{\\'enableGame'
+client connected: pid 26548 uid 6546 cmd '/mnt/otncabi/usr/palm/applications/com.webos.app.browser/chrome {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'com.webos.app.browser\\',\\'parameters\\':{\\'enableGame'
+client disconnected: pid 26548 uid 6546 after 0 ms (ConnectionClosed); bound ['wl_output']; cmd '/mnt/otncabi/usr/palm/applications/com.webos.app.browser/chrome {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'com.webos.app.browser\\',\\'parameters\\':{\\'enableGame'
+input: 5 held: Quick Access slot 5 has no window of its own here yet, launching com.webos.app.magicnum in its place
+window 45 created on surface 259 by pid 17161
+webOS shell surface on window 45 (surface 259) by pid 17161
+window 45 committed without a buffer (Card app '' state Default)
+window 45: _WEBOS_WINDOW_TYPE = _WEBOS_WINDOW_TYPE_OVERLAY (Overlay)
+window 45: appId = com.webos.app.magicnum (Overlay)
+window 45: title = Magic Number (Overlay)
+foreign: surface 259 exported as _Window_Id_10 (type 0)
+window 46 created on surface 272 by pid 26548
+webOS shell surface on window 46 (surface 272) by pid 26548
+window 46: appId = com.webos.app.1 (Card)
+window 46: appId = com.webos.app.browser (Card)
+luna: com.webos.app.browser subscribed to com.webos.surfacemanager/getFocusedWindowInfo
+window 46 mapped (Card app 'com.webos.app.browser' title '' size Some((1920, 1080)))
+window 7: minimized (covered by a newer card)
+window 46: fullscreen (the front card)
+window 7: exposed nothing (covered)
+window 46: exposed 1920x1080
+focus -> surface 272
+luna: foreground ['com.webos.app.browser'] pushed to 15 subscriber(s) (com.webos.service.activitymanager, com.webos.applicationManager)
+window 46: title = Web Browser (Card)
+shell-rust: the system layer lets go of the keys
+shell-rust: the system layer lets go of OK and Back
+luna: com.webos.app.magicnum-17161 subscribed to com.webos.surfacemanager/getLastInputType
+foreign: surface 272 exported as _Window_Id_11 (type 0)
+window 45 mapped (Overlay app 'com.webos.app.magicnum' title 'Magic Number' size Some((1920, 1080)))
+focus -> surface 259
+luna: foreground ['com.webos.app.browser', 'com.webos.app.magicnum'] pushed to 15 subscriber(s) (com.webos.service.activitymanager, com.webos.applicationManager)

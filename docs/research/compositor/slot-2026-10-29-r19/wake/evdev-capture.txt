@@ -1,0 +1,15 @@
+17:47:00
+opened {0: 'LGE RCU', 2: 'LGE M-RCU - Builtin [0]', 3: 'LGE M-RCU - Builtin [1]', 4: 'LGE M-RCU - Builtin [2]', 5: 'LGE TONE+ - Builtin [3]', 6: 'LGE W-RCU - Builtin [5]', 7: 'LGE Simple Premium', 8: 'Smart Remote RCU Input', 9: 'LGE Network Input', 10: 'LGE Smart Remote - TouchPad', 11: 'Bluetooth-audio-source'}
+1793310321.460 ev2(LGE M-RCU - Builtin [0]) stamp=1793310321.459853 type=1 code=106 val=1
+1793310321.505 ev2(LGE M-RCU - Builtin [0]) stamp=1793310321.505300 type=1 code=106 val=0
+1793310321.844 ev2(LGE M-RCU - Builtin [0]) stamp=1793310321.843496 type=1 code=105 val=1
+1793310321.938 ev2(LGE M-RCU - Builtin [0]) stamp=1793310321.938234 type=1 code=105 val=0
+1793310356.938 ev2(LGE M-RCU - Builtin [0]) stamp=1793310356.938075 type=1 code=106 val=1
+1793310357.097 ev2(LGE M-RCU - Builtin [0]) stamp=1793310357.097074 type=1 code=106 val=0
+1793310358.678 ev2(LGE M-RCU - Builtin [0]) stamp=1793310358.677906 type=1 code=105 val=1
+1793310358.837 ev2(LGE M-RCU - Builtin [0]) stamp=1793310358.837283 type=1 code=105 val=0
+1793310399.530 ev2(LGE M-RCU - Builtin [0]) stamp=1793310399.529770 type=1 code=106 val=1
+1793310399.572 ev2(LGE M-RCU - Builtin [0]) stamp=1793310399.572266 type=1 code=106 val=0
+1793310399.766 ev2(LGE M-RCU - Builtin [0]) stamp=1793310399.766190 type=1 code=106 val=1
+1793310399.861 ev2(LGE M-RCU - Builtin [0]) stamp=1793310399.860920 type=1 code=106 val=0
+ 

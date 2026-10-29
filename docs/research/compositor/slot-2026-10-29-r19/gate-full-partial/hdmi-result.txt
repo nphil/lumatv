@@ -1,0 +1,1 @@
+hdmi2 windows 1 mapped 1 bufferless commits 0 fg while open com.webos.app.hdmi2 now com.webos.app.home panel 8846 bytes audio-port-held-after-close none

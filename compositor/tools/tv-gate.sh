@@ -161,9 +161,11 @@ jbool() { grep -o "\"$1\":\(true\|false\)" | head -n 1 | cut -d: -f2; }
 # The shell client (`ctl shell`): whether it says it can show a panel of KIND now, and its own state's fields. The report is read without its
 # `rust` object (the Rust client's own report): the compositor's JSON has its keys in alphabetical order, `rust` sorts before `stats`,
 # `takes`, `topics`, `ui` and `wants`, and has keys of those names, so the first `"wants":` was the Rust client's (false while no Rust kind
-# is on) and `quick-app` failed on a layer that did want the keys (round 18b). rustjson.py reads the JSON, as for the rust check.
+# is on) and `quick-app` failed on a layer that did want the keys (round 18b). rustjson.py reads the JSON, as for the rust check. With a Rust
+# kind on, the screen the set shows is the Rust client's: `--merge-rust` folds its panel, volume display, toasts, saver, keys and `can` into the
+# fields the checks of `keys` and `shell` read (the QML client's are empty or false then); with no Rust kind on it is the QML report alone.
 RUSTJSON=$D/rustjson.py
-shell_json() { ctl shell | python3 $RUSTJSON --without rust; }
+shell_json() { ctl shell | python3 $RUSTJSON --merge-rust; }
 shell_can() { shell_json | grep -o '"can":\[[^]]*\]' | grep -q "\"$1\""; }
 shell_str() { shell_json | jstr "$1"; }
 shell_bool() { shell_json | jbool "$1"; }
@@ -259,6 +261,22 @@ rust_poll_ms() { t=$(uptime_cs); for i in 1 2 3; do rust_get rust.connected > /d
 rust_restore() {
     if [ "$2" = yes ]; then ctl shell rust +$1 > /dev/null; rust_wait_answers $1 yes $RUST_WAIT; else ctl shell rust -$1 > /dev/null; rust_wait_answers $1 no $RUST_WAIT; fi
 }
+# The Rust Home's D-pad: Up from where Home's focus is moves it to another layer and Down brings it back. The Rust Home starts on its top layer (the
+# status bar), where Up moves nothing: then Down moves the focus away and Up brings it back. Sets DPAD_OK (yes or no), the three layers read
+# (DPAD_F0 before, DPAD_F1 after the first key, DPAD_F2 after the second) and DPAD_KEYS (the order pressed).
+rust_home_dpad() {
+    DPAD_F0=$(rust_get rust.ui.home.focusLayer); key_tap 103; sleep 1
+    DPAD_F1=$(rust_get rust.ui.home.focusLayer)
+    if [ "$DPAD_F1" = "$DPAD_F0" ]; then
+        key_tap 108; sleep 1; DPAD_F1=$(rust_get rust.ui.home.focusLayer)
+        key_tap 103; sleep 1; DPAD_F2=$(rust_get rust.ui.home.focusLayer)
+        DPAD_KEYS="Down then Up"
+    else
+        key_tap 108; sleep 1; DPAD_F2=$(rust_get rust.ui.home.focusLayer)
+        DPAD_KEYS="Up then Down"
+    fi
+    if [ "$DPAD_F1" != "$DPAD_F0" ] && [ "$DPAD_F2" = "$DPAD_F0" ]; then DPAD_OK=yes; else DPAD_OK=no; fi
+}
 # One kind's checks, in this shell: sets RC (ok, no or skip) and RT (the words for the gate's line). Not built (the compositor refuses the name, or the
 # client's kinds lack it after the restart a change of kinds makes) is skip; so is a kind that is built and that the gate has no way to open (why: rust_undriven).
 rust_check_kind() {
@@ -295,11 +313,10 @@ rust_check_kind() {
         sleep 1
         dpad=""
         if [ $k = home ]; then
-            # The D-pad as the QML check reads it: Up from where Home's focus is moves it to another layer and Down brings it back. The frames it draws are Home's.
-            f0=$(rust_get rust.ui.home.focusLayer); key_tap 103; sleep 1
-            f1=$(rust_get rust.ui.home.focusLayer); key_tap 108; sleep 1
-            f2=$(rust_get rust.ui.home.focusLayer)
-            if [ "$f1" != "$f0" ] && [ "$f2" = "$f0" ]; then dpad="; dpad ok ($f0 -> $f1 -> $f2)"; else RC=no; dpad="; dpad: focus '$f0' then '$f1' after Up, '$f2' after Down"; fi
+            # The D-pad as the QML check reads it: Up from where Home's focus is moves it to another layer and Down brings it back (see rust_home_dpad).
+            # The frames it draws are Home's.
+            rust_home_dpad
+            if [ "$DPAD_OK" = yes ]; then dpad="; dpad ok ($DPAD_F0 -> $DPAD_F1 -> $DPAD_F2)"; else RC=no; dpad="; dpad: focus '$DPAD_F0', then '$DPAD_F1' and '$DPAD_F2' after $DPAD_KEYS"; fi
         fi
         ctl shell > $OUT/rust-$k.json
         d1=$(rust_drawn); g1=$(rust_gl_errors)
@@ -838,12 +855,18 @@ shell)
     # takes Home's buffer to the plane whole (the opaque rule in scene.rs), so each costs it a flip.
     set -- $(shell_idle_cost 10); ic=$1; icpu=$2
     if [ "${ic:-99}" -le 12 ] && [ "${icpu:-999}" -le 35 ]; then res ok "idle-home(${ic}/s,${icpu}%)"; else res no idle-home "$ic commits/s, $icpu % cpu on Home at rest"; fi
-    # The D-pad: Up from the dock reaches the widgets, Down comes back; the shell counts the keys it got.
-    k0=$(shell_num keys); key_tap 103; sleep 1
-    f1=$(shell_str focus); key_tap 108; sleep 1
-    f2=$(shell_str focus); k1=$(shell_num keys)
-    if [ "$f1" = widgets ] && [ "$f2" = dock ] && [ "${k1:-0}" -ge $(( ${k0:-0} + 4 )) ]; then res ok dpad
-    else res no dpad "focus '$f1' after Up, '$f2' after Down, keys $k0 -> $k1"; fi
+    # The D-pad: Up from the dock reaches the widgets, Down comes back; the shell counts the keys it got. With the Rust Home on, the keys go to the
+    # Rust client (the QML one counts none) and it starts on the status bar: the same two layers read from its own report.
+    if rust_answers home; then
+        rust_home_dpad
+        if [ "$DPAD_OK" = yes ]; then res ok "dpad(rust: $DPAD_F0 -> $DPAD_F1 -> $DPAD_F2)"; else res no dpad "Rust Home: focus '$DPAD_F0', then '$DPAD_F1' and '$DPAD_F2' after $DPAD_KEYS"; fi
+    else
+        k0=$(shell_num keys); key_tap 103; sleep 1
+        f1=$(shell_str focus); key_tap 108; sleep 1
+        f2=$(shell_str focus); k1=$(shell_num keys)
+        if [ "$f1" = widgets ] && [ "$f2" = dock ] && [ "${k1:-0}" -ge $(( ${k0:-0} + 4 )) ]; then res ok dpad
+        else res no dpad "focus '$f1' after Up, '$f2' after Down, keys $k0 -> $k1"; fi
+    fi
     # The quick panel and the input picker on Home: the gear's tap and Input, Back closes each.
     ctl note shell-quick > /dev/null; key_tap 139
     if wait_shell_str layer quick 10; then key_tap 412; if wait_shell_str layer "" 10; then res ok quick-home; else res no quick-home "Back left the layer '$(shell_str layer)'"; fi

@@ -1,0 +1,25 @@
+client connected: pid 24387 uid 5272 cmd '/media/cryptofs/apps/usr/palm/applications/youtube.leanback.v4/cobalt {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'youtube.leanback.v4\\',\\'parameters\\':{},\\'inte'
+luna: youtube.leanback.v4 subscribed to com.webos.surfacemanager/getLastInputType
+window 39 created on surface 239 by pid 24387
+webOS shell surface on window 39 (surface 239) by pid 24387
+window 39: appId = youtube.leanback.v4 (Card)
+window 39: title = YouTube (Card)
+window 39 mapped (Card app 'youtube.leanback.v4' title 'YouTube' size Some((1920, 1080)))
+window 7: minimized (covered by a newer card)
+window 39: fullscreen (the front card)
+window 7: exposed nothing (covered)
+window 39: exposed 1920x1080
+focus -> surface 239
+luna: foreground ['youtube.leanback.v4'] pushed to 15 subscriber(s) (com.webos.service.activitymanager, com.webos.applicationManager)
+shell-rust: the system layer lets go of the keys
+shell-rust: the system layer lets go of OK and Back
+luna: youtube.leanback.v4 cancelled com.webos.surfacemanager/getLastInputType
+window 7: fullscreen (the front card)
+window 7: exposed 1920x1080
+client disconnected: pid 24387 uid 5272 after 11353 ms (ConnectionClosed); bound ['wl_compositor', 'wl_shell', 'wl_seat', 'wl_webos_shell', 'wl_webos_foreign', 'wl_webos_input_manager', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat']; cmd '/media/cryptofs/apps/usr/palm/applications/youtube.leanback.v4/cobalt {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'youtube.leanback.v4\\',\\'parameters\\':{},\\'inte'
+luna: foreground ['com.webos.app.home'] pushed to 15 subscriber(s) (com.webos.service.activitymanager, com.webos.applicationManager)
+shell-rust: the system layer wants the keys
+shell-rust: the system layer takes screenremote and search for its cards
+transitions: frame 24 ms after the last in a leave (tick before 4.9 ms, this 2.7 ms, last render 1.5 ms, held ticks 1, buffers prepared 107, imported in a frame 0)
+shell: can show switcher, keyboard
+shell: can show quick, picker, drawer, switcher, keyboard

@@ -271,6 +271,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Device gate: with Rust kinds on, the shell and keys checks read the Rust client's panels, keys and
+  saver (`tv-rustjson.py --merge-rust`), and the Home check starts its D-pad walk on the status bar.
 - Privacy: tracking, ad and uploader programs are stubbed and masked first in the boot hook;
   each menu row distinguishes this boot's result from an older pass.
 - Volume: the mute mark stays in the top corners (hopping between four places against
