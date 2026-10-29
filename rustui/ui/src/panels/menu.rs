@@ -41,7 +41,8 @@ pub struct Anchor {
 pub struct Raised {
     pub frame: Frame,
     pub icon_url: String,
-    pub plate: bool,
+    /// The colour behind the picture (`#RRGGBB`), none when it has no plate.
+    pub plate: Option<String>,
     pub inset: f32,
     pub radius: Option<f32>,
 }
@@ -92,7 +93,7 @@ impl Spec {
         let raised = v.get("raised").filter(|r| r.is_object()).map(|r| Raised {
             frame: Frame::new(num(r, "x").unwrap_or(0.0), num(r, "y").unwrap_or(0.0), num(r, "width").unwrap_or(0.0), num(r, "height").unwrap_or(0.0)),
             icon_url: text(r, "iconUrl"),
-            plate: r.get("plate").is_some_and(|p| !p.is_null() && p != &json!(false) && p != &json!("")),
+            plate: r.get("plate").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string),
             inset: num(r, "inset").unwrap_or(0.0),
             radius: num(r, "radius"),
         });
@@ -378,7 +379,7 @@ mod tests {
         assert!(s.items[3].danger && s.items[1].disabled);
         assert_eq!(s.items[2].detail, "Stays in Apps");
         let r = s.raised.as_ref().unwrap();
-        assert!(r.plate && r.inset == 12.0 && r.icon_url == "/media/cr.png");
+        assert!(r.plate.as_deref() == Some("#fff") && r.inset == 12.0 && r.icon_url == "/media/cr.png");
         assert!(!Spec::from_json(&json!({"scrim": false, "items": []})).scrim);
         assert!(!Spec::from_json(&json!({"items": []})).has_head());
     }

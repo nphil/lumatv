@@ -56,6 +56,24 @@ pub fn picture(file: &str, side: u32) -> Option<Picture> {
     })
 }
 
+/// The picture of `file` shown whole inside `w` by `h` (an app's own icon, not cropped): decoded and scaled once; `None` for a file that is
+/// not there or not a picture.
+pub fn contained(file: &str, w: u32, h: u32) -> Option<Picture> {
+    PICTURES.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        let key = (format!("{file}\u{0}{w}x{h}"), 0);
+        if let Some(hit) = cache.get(&key) {
+            return hit.clone();
+        }
+        let made = std::fs::read(file).ok().and_then(|bytes| decode(&bytes).ok()).map(|p| p.fitted(w, h, Fit::Contain));
+        if cache.len() >= KEPT {
+            cache.clear();
+        }
+        cache.insert(key, made.clone());
+        made
+    })
+}
+
 /// A colour of the theme's `#RRGGBB` as an opaque colour; the fallback when it is not one.
 pub fn parse(colour: &str, fallback: Rgba) -> Rgba {
     match lumatv_tokens::colour(colour) {
