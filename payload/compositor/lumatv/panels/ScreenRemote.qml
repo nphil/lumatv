@@ -68,9 +68,10 @@ Item {
                         scale: 1 + (Lu.buttonScale - 1) * lift.value; transformOrigin: Item.Center      // the key lifts; its glyph stays put
                         Rectangle { visible: !!modelData.color; anchors.centerIn: parent; width: 56; height: 16; radius: 8; color: modelData.color || "transparent" }
                     }
+                    LuHover { on: ptr.hovered && !key.focused; radius: modelData.g === 1 ? Lu.radius("control") : height / 2 }
                     LuIcon { visible: !!modelData.icon; anchors.centerIn: parent; name: modelData.icon || ""; size: 36; color: Lu.ink; rotation: modelData.flip ? 180 : 0 }
                     LuText { visible: !!modelData.t; anchors.centerIn: parent; role: "label"; text: modelData.t || "" }
-                    MouseArea { anchors.fill: parent; hoverEnabled: true; onEntered: remote.index = index; onClicked: { remote.index = index; remote.pressed(modelData.n) } }
+                    LuPointer { id: ptr; anchors.fill: parent; onClicked: { remote.index = index; remote.pressed(modelData.n) } }
                 }
             }
         }

@@ -12,7 +12,7 @@ Item {
     property bool rested: true
     property bool dark: false
     signal activated()
-    signal hoverFocus()
+    signal pointerFocus()
 
     readonly property var mat: dark && Lu.theme && Lu.theme.dark ? Lu.theme.dark : Lu.material
     function tone(name, fallback) { var v = mat[name]; return typeof v === "string" ? Lu.asColor(v) : fallback }
@@ -31,6 +31,7 @@ Item {
         border.width: btn.focused ? 1 : 0; border.color: btn.tone("glassFocusEdge", Lu.edgeRaised)
         scale: 1 + (Lu.buttonScale - 1) * lift.value; transformOrigin: Item.Center      // the pill lifts; the label stays put
     }
+    LuHover { on: ptr.hovered && !btn.focused; radius: Lu.radius("pill") }
     Row {
         id: row
         anchors.centerIn: parent
@@ -38,5 +39,5 @@ Item {
         LuIcon { visible: btn.icon !== ""; anchors.verticalCenter: parent.verticalCenter; name: btn.icon; size: 28; color: btn.ink }
         LuText { anchors.verticalCenter: parent.verticalCenter; role: "label"; font.weight: Font.DemiBold; color: btn.ink; text: btn.text }
     }
-    MouseArea { anchors.fill: parent; hoverEnabled: true; onEntered: btn.hoverFocus(); onClicked: btn.activated() }
+    LuPointer { id: ptr; anchors.fill: parent; onClicked: { btn.pointerFocus(); btn.activated() } }
 }

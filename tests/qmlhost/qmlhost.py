@@ -187,6 +187,8 @@ def main(argv=None):
                     help='with --fake-helper: set a topic at MS after start')
     ap.add_argument('--eval', action='append', default=[], metavar='MS:EXPR',
                     help='evaluate a JavaScript expression at MS after start with `root` the surface; prints "[eval] value"')
+    ap.add_argument('--pointer', action='append', default=[], metavar='MS:move|click:EXPR',
+                    help='at MS after start, a pointer move or click (press and release) at the window position [x, y] that the JavaScript expression returns')
     ap.add_argument('--frames', action='append', default=[], metavar='MS:LABEL',
                     help='print "[frames] LABEL N", the frames the window has swapped so far, at MS after start (repeatable): the frame-driven motions\' count')
     ap.add_argument('--fake-helper', action='store_true', help='serve a stand-in for the native helper on 127.0.0.1:18731 while running')
@@ -386,6 +388,19 @@ def main(argv=None):
     for spec in a.eval:
         ms, expr = spec.split(':', 1)
         QtCore.QTimer.singleShot(int(ms), QtCore.Qt.PreciseTimer, lambda x=expr: evaluate(x))
+    def pointer(kind, expr):
+        """The Magic Remote's pointer as mouse events at the window position the JavaScript expression returns (an array [x, y], read as "x,y")."""
+        v = QtQml.QQmlExpression(view.rootContext(), surface, expr).evaluate()[0]
+        x, y = (v.toString() if isinstance(v, QtQml.QJSValue) else str(v)).split(',')
+        pos = QtCore.QPointF(float(x), float(y))
+        none, left = QtCore.Qt.NoButton, QtCore.Qt.LeftButton
+        events = {'move': [(QtCore.QEvent.MouseMove, none, none)],
+                  'click': [(QtCore.QEvent.MouseButtonPress, left, left), (QtCore.QEvent.MouseButtonRelease, left, none)]}[kind]
+        for typ, button, buttons in events:
+            app.sendEvent(view, QtGui.QMouseEvent(typ, pos, pos, view.mapToGlobal(pos.toPoint()), button, buttons, QtCore.Qt.NoModifier))
+    for spec in a.pointer:
+        ms, kind, expr = spec.split(':', 2)
+        QtCore.QTimer.singleShot(int(ms), QtCore.Qt.PreciseTimer, lambda k=kind, x=expr: pointer(k, x))
     frames = {'n': 0}
     view.frameSwapped.connect(lambda: frames.__setitem__('n', frames['n'] + 1))
     for spec in a.frames:

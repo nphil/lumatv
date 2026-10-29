@@ -20,7 +20,7 @@ Item {
     property alias trailing: trailingSlot.data
     property alias below: belowSlot.data
     signal activated()
-    signal hoverFocus()
+    signal pointerFocus()
 
     readonly property int pad: Lu.space(3)
     readonly property int gap: Lu.space(4)
@@ -70,6 +70,7 @@ Item {
         scale: 1 + (Lu.rowScale - 1) * lift.value
         transformOrigin: Item.Center
     }
+    LuHover { on: ptr.hovered && !tile.focused; radius: Lu.radius("row") }
     Rectangle {
         anchors.fill: parent
         radius: Lu.radius("row")
@@ -113,10 +114,9 @@ Item {
         width: tile.beside ? tile.belowNeed : tile.width - tile.textX - tile.pad
         height: childrenRect.height
     }
-    MouseArea {
+    LuPointer {
+        id: ptr
         anchors.fill: parent
-        hoverEnabled: true
-        onEntered: tile.hoverFocus()
-        onClicked: tile.activated()
+        onClicked: { tile.pointerFocus(); tile.activated() }
     }
 }

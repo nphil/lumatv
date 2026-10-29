@@ -20,6 +20,8 @@ LuRing 1.0 LuRing.qml
 LuAppIcon 1.0 LuAppIcon.qml
 LuInfo 1.0 LuInfo.qml
 LuHelp 1.0 LuHelp.qml
+LuPointer 1.0 LuPointer.qml
+LuHover 1.0 LuHover.qml
 singleton Inputs 1.0 Inputs.qml
 singleton Net 1.0 Net.qml
 singleton Helper 1.0 Helper.qml

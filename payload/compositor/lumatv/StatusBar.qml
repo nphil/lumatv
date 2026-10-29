@@ -34,7 +34,7 @@ Item {
 
     signal requestOpenPopover(int index)
     signal requestClosePopover()
-    signal hoverFocus(int index)
+    signal pointerFocus(int index)
     signal themePatch(var patch)
     signal themePersist(var patch)
     signal requestOpenSettings()
@@ -87,7 +87,7 @@ Item {
                 backdrop: bar.backdrop
                 screenX: bar.x + leftRow.x + x; screenY: bar.y + leftRow.y
                 onActivated: bar.activate(index)
-                onHoverFocus: bar.hoverFocus(index)
+                onPointerFocus: bar.pointerFocus(index)
             }
         }
     }
@@ -114,7 +114,7 @@ Item {
                 backdrop: bar.backdrop
                 screenX: bar.x + rightRow.x + x; screenY: bar.y + rightRow.y
                 onActivated: bar.activate(index + bar.leftCount)
-                onHoverFocus: bar.hoverFocus(index + bar.leftCount)
+                onPointerFocus: bar.pointerFocus(index + bar.leftCount)
             }
         }
     }
@@ -253,6 +253,7 @@ Item {
                             opacity: bar.popoverIndex === index ? 1 : 0
                             Behavior on opacity { NumberAnimation { duration: 120 } }
                         }
+                        LuHover { on: ptr.hovered && bar.popoverIndex !== index; radius: 12 }
                         Text {
                             x: 14; y: Math.round((44 - implicitHeight) / 2)
                             text: modelData.label
@@ -276,10 +277,9 @@ Item {
                             font.family: "Manrope"; font.weight: Font.DemiBold; font.pixelSize: 22
                             renderType: Text.NativeRendering
                         }
-                        MouseArea {
+                        LuPointer {
+                            id: ptr
                             anchors.fill: parent
-                            hoverEnabled: true
-                            onEntered: bar.popoverIndex = index
                             onClicked: { bar.popoverIndex = index; if (modelData.kind === "slider") bar.popoverAdjust(1); else bar.popoverActivate() }
                         }
                     }
@@ -340,6 +340,7 @@ Item {
                             opacity: bar.popoverIndex === index ? 1 : 0
                             Behavior on opacity { NumberAnimation { duration: 120 } }
                         }
+                        LuHover { on: ptr.hovered && bar.popoverIndex !== index; radius: 12 }
                         Text {
                             x: 14; y: Math.round((44 - implicitHeight) / 2)
                             text: modelData.label
@@ -347,10 +348,9 @@ Item {
                             font.family: "Manrope"; font.weight: Font.DemiBold; font.pixelSize: 20
                             renderType: Text.NativeRendering
                         }
-                        MouseArea {
+                        LuPointer {
+                            id: ptr
                             anchors.fill: parent
-                            hoverEnabled: true
-                            onEntered: bar.popoverIndex = index
                             onClicked: { bar.popoverIndex = index; bar.popoverActivate() }
                         }
                     }

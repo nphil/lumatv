@@ -58,7 +58,7 @@ Item {
                         danger: !!a.danger
                         focused: dialog.index === index
                         rested: dialog.rested
-                        onHoverFocus: dialog.index = index
+                        onPointerFocus: dialog.index = index
                         onActivated: { dialog.index = index; dialog.key("ok") }
                     }
                 }

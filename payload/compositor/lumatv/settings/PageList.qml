@@ -217,7 +217,7 @@ Item {
         segmentWidth: Math.max(page.tabs.length > 0 ? Math.floor(page.width / page.tabs.length) : Lu.target * 3, Math.ceil(tabBar.widest) + 2 * tabBar.pad + 2 * Lu.space(1))
         fit: page.width
         onPicked: { if (page.host) page.host.zone = "page"; page.stop = -1; page.tab = index }
-        onHoverFocus: { if (page.host) page.host.zone = "page"; page.stop = -1; page.tab = index }
+        onPointerFocus: { if (page.host) page.host.zone = "page"; page.stop = -1; page.tab = index }
     }
 
     // ---- rows
@@ -291,7 +291,7 @@ Item {
                             enabled: page.ev(cell.r.enabled) !== false
                             focused: cell.isFocus; rested: page.rested
                             onActivated: { page.pointAt(cell.ri); page.activate(cell.ri) }
-                            onHoverFocus: page.pointAt(cell.ri)
+                            onPointerFocus: page.pointAt(cell.ri)
                             trailing: LuToggle { checked: !!page.ev(cell.r.on) }
                         }
                     }
@@ -303,14 +303,14 @@ Item {
                             help: page.helpFor(cell.ri); onHelpAsked: { page.pointAt(cell.ri); page.showHelp(cell.ri) }
                             enabled: page.ev(cell.r.enabled) !== false
                             focused: cell.isFocus; rested: page.rested
-                            onHoverFocus: page.pointAt(cell.ri)
+                            onPointerFocus: page.pointAt(cell.ri)
                             trailing: LuSegmented {
                                 options: page.ev(cell.r.options) || []
                                 current: page.ev(cell.r.index) === undefined ? -1 : page.ev(cell.r.index)
                                 textRole: "caption"
                                 focusedIndex: cell.isFocus ? page.seg : -1
                                 onPicked: { page.pointAt(cell.ri); page.seg = index; page.activate(cell.ri) }
-                                onHoverFocus: { page.pointAt(cell.ri); page.seg = index }
+                                onPointerFocus: { page.pointAt(cell.ri); page.seg = index }
                             }
                         }
                     }
@@ -322,7 +322,7 @@ Item {
                             help: page.helpFor(cell.ri); onHelpAsked: { page.pointAt(cell.ri); page.showHelp(cell.ri) }
                             enabled: page.ev(cell.r.enabled) !== false
                             focused: cell.isFocus; rested: page.rested
-                            onHoverFocus: page.pointAt(cell.ri)
+                            onPointerFocus: page.pointAt(cell.ri)
                             trailing: Row {
                                 spacing: Lu.space(3)
                                 LuIcon { anchors.verticalCenter: parent.verticalCenter; name: "chevron-left"; size: Math.round(Lu.target * 0.5); color: Lu.ink2 }
@@ -344,7 +344,7 @@ Item {
                             enabled: page.ev(cell.r.enabled) !== false
                             focused: cell.isFocus; rested: page.rested
                             onActivated: { page.pointAt(cell.ri); page.activate(cell.ri) }
-                            onHoverFocus: page.pointAt(cell.ri)
+                            onPointerFocus: page.pointAt(cell.ri)
                             trailing: Row {
                                 spacing: Lu.space(3)
                                 LuIcon { anchors.verticalCenter: parent.verticalCenter; name: "chevron-left"; size: Math.round(Lu.target * 0.45); color: cell.isFocus ? Lu.ink : Lu.ink2 }
@@ -361,7 +361,7 @@ Item {
                             help: page.helpFor(cell.ri); onHelpAsked: { page.pointAt(cell.ri); page.showHelp(cell.ri) }
                             enabled: page.ev(cell.r.enabled) !== false
                             focused: cell.isFocus; rested: page.rested
-                            onHoverFocus: page.pointAt(cell.ri)
+                            onPointerFocus: page.pointAt(cell.ri)
                             trailing: Row {
                                 spacing: Lu.space(4)
                                 LuSlider {
@@ -394,7 +394,7 @@ Item {
                             selected: page.ev(cell.r.selected) === true
                             focused: cell.isFocus; rested: page.rested
                             onActivated: { page.pointAt(cell.ri); page.activate(cell.ri) }
-                            onHoverFocus: page.pointAt(cell.ri)
+                            onPointerFocus: page.pointAt(cell.ri)
                             trailing: LuIcon {
                                 visible: cell.r.chevron !== false || page.ev(cell.r.selected) === true
                                 name: page.ev(cell.r.selected) === true ? "check" : "chevron-right"
@@ -413,7 +413,7 @@ Item {
                             danger: page.ev(cell.r.danger) === true
                             focused: cell.isFocus; rested: page.rested
                             onActivated: { page.pointAt(cell.ri); page.activate(cell.ri) }
-                            onHoverFocus: page.pointAt(cell.ri)
+                            onPointerFocus: page.pointAt(cell.ri)
                             trailing: LuChip { text: page.ev(cell.r.button) || "Run"; danger: page.ev(cell.r.danger) === true }
                         }
                     }
@@ -462,7 +462,7 @@ Item {
                                         focused: cell.isFocus && page.seg === index
                                         rested: page.rested
                                         onActivated: { page.pointAt(cell.ri); page.seg = index; page.activate(cell.ri) }
-                                        onHoverFocus: { page.pointAt(cell.ri); page.seg = index }
+                                        onPointerFocus: { page.pointAt(cell.ri); page.seg = index }
                                     }
                                 }
                             }

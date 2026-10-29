@@ -130,6 +130,7 @@ Item {
                             antialiasing: true
                             scale: 1 + (Lu.rowScale - 1) * lift.value
                         }
+                        LuHover { on: ptr.hovered && !pick.isFocus; radius: Lu.radius("row") }
                         LuAppIcon { visible: !pick.isMore; x: Math.round((pick.width - width) / 2); y: Lu.space(3); width: 76; height: 76; radius: 18; source: pick.isMore ? "" : (qa.picks[index] ? qa.picks[index].iconUrl || "" : "") }
                         LuTile { visible: pick.isMore; x: Math.round((pick.width - width) / 2); y: Lu.space(3); size: 76; icon: "ellipsis" }
                         LuText {
@@ -143,10 +144,9 @@ Item {
                             elide: Text.ElideRight
                             text: pick.isMore ? "More\u2026" : (qa.picks[index] ? qa.picks[index].title : "")
                         }
-                        MouseArea {
+                        LuPointer {
+                            id: ptr
                             anchors.fill: parent
-                            hoverEnabled: true
-                            onEntered: qa.index = index
                             onClicked: { qa.index = index; qa.answer() }
                         }
                     }
@@ -162,7 +162,7 @@ Item {
                     focused: qa.asking && qa.index === qa.laterIndex
                     rested: qa.rested
                     onActivated: { qa.index = qa.laterIndex; qa.answer() }
-                    onHoverFocus: qa.index = qa.laterIndex
+                    onPointerFocus: qa.index = qa.laterIndex
                 }
             }
         }

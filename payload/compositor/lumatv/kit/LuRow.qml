@@ -21,9 +21,10 @@ Item {
     property bool focused: false
     property bool selected: false
     property bool rested: true              // the host's focus-rest flag (LumaHome.focusRested)
+    readonly property bool hovered: ptr.hovered     // the pointer is over it (and has moved since the last key): the cue, which is not focus
     property alias trailing: trailingSlot.data
     signal activated()
-    signal hoverFocus()
+    signal pointerFocus()
     signal helpAsked()                      // the pointer pressed the info mark (the D-pad and Menu key reach the host's own help)
 
     // two lines (label and detail) need more than the row height to breathe; a detail too long for its line takes a
@@ -50,6 +51,7 @@ Item {
         z: -1
         on: row.focused
     }
+    LuHover { on: ptr.hovered && !row.focused; radius: Lu.radius("row") }
     Rectangle {
         anchors.fill: parent
         radius: Lu.radius("row")
@@ -110,11 +112,10 @@ Item {
         width: childrenRect.width
         height: childrenRect.height
     }
-    MouseArea {
+    LuPointer {
+        id: ptr
         z: -1                               // under the controls: a click on a segment or on the info mark is theirs, the rest of the row is the row's
         anchors.fill: parent
-        hoverEnabled: true
-        onEntered: row.hoverFocus()
-        onClicked: row.activated()
+        onClicked: { row.pointerFocus(); row.activated() }
     }
 }

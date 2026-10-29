@@ -110,6 +110,7 @@ Item {
                         antialiasing: true
                         scale: 1 + (Lu.rowScale - 1) * (tile.moving ? 1 : lift.value)
                     }
+                    LuHover { on: ptr.hovered && !tile.isFocus && !tile.moving; radius: Lu.radius("row") }
                     LuTile { x: Lu.space(3); anchors.verticalCenter: parent.verticalCenter; icon: tile.r ? String(ed.ev(tile.r.icon) || "") : "" }
                     Column {
                         x: Lu.space(3) + Math.round(Lu.target * 0.75) + Lu.space(4)
@@ -142,7 +143,7 @@ Item {
                             }
                         }
                     }
-                    MouseArea { anchors.fill: parent; z: -1; hoverEnabled: true; onEntered: if (!ed.grab) ed.index = tile.ti }
+                    LuPointer { id: ptr; anchors.fill: parent; z: -1; onClicked: if (!ed.grab) ed.index = tile.ti }
                 }
             }
             // the way to put one back
@@ -159,9 +160,10 @@ Item {
                     border.color: addRow.isFocus ? Lu.edgeRaised : Lu.edge
                     antialiasing: true
                 }
+                LuHover { on: addPtr.hovered && !addRow.isFocus; radius: Lu.radius("row") }
                 LuIcon { x: Lu.space(4); anchors.verticalCenter: parent.verticalCenter; name: "plus"; size: 28; color: Lu.ink2 }
                 LuText { x: Lu.space(4) + 28 + Lu.space(3); anchors.verticalCenter: parent.verticalCenter; role: "label"; text: "Add a tile" }
-                MouseArea { anchors.fill: parent; hoverEnabled: true; onEntered: if (!ed.grab) ed.index = ed.addIndex; onClicked: { ed.index = ed.addIndex; ed.addRequested() } }
+                LuPointer { id: addPtr; anchors.fill: parent; onClicked: { ed.index = ed.addIndex; ed.addRequested() } }
             }
         }
     }

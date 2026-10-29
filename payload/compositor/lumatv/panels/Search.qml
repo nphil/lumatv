@@ -130,6 +130,7 @@ Item {
                         border.width: 1; border.color: ans.focused ? Lu.edgeRaised : "transparent"
                         scale: 1 + (Lu.buttonScale - 1) * alift.value; transformOrigin: Item.Center      // the plate lifts; the words stay put
                     }
+                    LuHover { on: ptr.hovered && !ans.focused; radius: Lu.radius("tile") }
                     Rectangle {
                         id: lead
                         x: 22; anchors.verticalCenter: parent.verticalCenter; width: 60; height: 60; radius: 16; antialiasing: true
@@ -144,7 +145,7 @@ Item {
                                  color: ans.a.match ? Lu.ink2 : Lu.ink; text: Match.highlight(ans.a.title, ans.a.match, String(Lu.ink)) }      // the typed part in full ink: the accent is too pale on the light sheet
                         LuText { width: parent.width; role: "caption"; color: Lu.ink2; elide: Text.ElideRight; text: ans.a.sub || "" }
                     }
-                    MouseArea { anchors.fill: parent; hoverEnabled: true; onEntered: search.index = search.nKeys + index; onClicked: { search.index = search.nKeys + index; search.key("ok") } }
+                    LuPointer { id: ptr; anchors.fill: parent; onClicked: { search.index = search.nKeys + index; search.key("ok") } }
                 }
             }
         }
@@ -179,6 +180,7 @@ Item {
                     z: focused ? 1 : 0
                     Rectangle { anchors.fill: parent; radius: Lu.radius("control"); color: parent.focused ? Lu.glassRaised : Lu.glass; border.width: 1; border.color: parent.focused ? Lu.edgeRaised : Lu.edge; antialiasing: true
                                 scale: 1 + (Lu.buttonScale - 1) * lift.value; transformOrigin: Item.Center }      // the key lifts; its glyph stays put
+                    LuHover { on: ptr.hovered && !keyItem.focused; radius: Lu.radius("control") }
                     LuText {
                         anchors.centerIn: parent; role: parent.wide ? "label" : "body"; font.weight: parent.wide ? Font.DemiBold : Font.Medium
                         text: parent.label === "\u232b" || parent.label === "\u21e7" ? "" : parent.label === "?123" ? (search.symbols ? "abc" : "?123")
@@ -186,7 +188,7 @@ Item {
                     }
                     LuIcon { visible: parent.label === "\u232b"; anchors.centerIn: parent; name: "delete"; size: 30; color: Lu.ink }
                     LuIcon { visible: parent.label === "\u21e7"; anchors.centerIn: parent; name: "arrow-big-up"; size: 30; color: search.shift ? Lu.accent : Lu.ink }
-                    MouseArea { anchors.fill: parent; hoverEnabled: true; onEntered: search.index = index; onClicked: { search.index = index; search.key("ok") } }
+                    LuPointer { id: ptr; anchors.fill: parent; onClicked: { search.index = index; search.key("ok") } }
                 }
             }
         }

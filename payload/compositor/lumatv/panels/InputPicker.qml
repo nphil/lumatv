@@ -138,6 +138,7 @@ Item {
                         scale: 1 + (Lu.rowScale - 1) * 2 * lift.value      // the plate lifts; the words and the icon stay put
                         transformOrigin: Item.Center
                     }
+                    LuHover { on: ptr.hovered && !tile.focused; radius: Lu.radius("card") }
                     LuText { id: portText; x: Lu.space(5); y: Lu.space(4); width: parent.width - 2 * Lu.space(5) - (soundMark.visible ? soundMark.width + Lu.space(2) : 0); role: "caption"; color: Lu.ink2; text: tile.t.port; wrapMode: Text.WordWrap; maximumLineCount: 2 }
                     // the input the sound goes out of (the head names it): a mark, not a second sentence
                     LuIcon { id: soundMark; visible: !!tile.t.sound; x: parent.width - width - Lu.space(4); y: Lu.space(4); name: "volume-2"; size: 26; color: Lu.positive }
@@ -153,7 +154,7 @@ Item {
                             LuText { role: "caption"; color: Lu.ink2; text: tile.t.state; wrapMode: Text.WordWrap; width: tile.width - 2 * Lu.space(5) - Lu.space(4) }
                         }
                     }
-                    MouseArea { anchors.fill: parent; hoverEnabled: true; onEntered: picker.index = index; onClicked: { picker.index = index; picker.key("ok") } }
+                    LuPointer { id: ptr; anchors.fill: parent; onClicked: { picker.index = index; picker.key("ok") } }
                 }
             }
         }

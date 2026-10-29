@@ -108,6 +108,17 @@ QtObject {
     readonly property int target: theme.target || 0      // smallest hit size, TV profile
     readonly property int row: theme.row || 0            // a list row's height, TV profile
 
+    // ---- the pointer (Magic Remote) ----
+    // Hover is a cue, never a move of focus: the pointer shows what a click would reach (kit/LuHover.qml) and only a click focuses
+    // and acts (kit/LuPointer.qml), as on LG's own Home. The cue is live from the pointer's last movement until the next key press
+    // (the remote hides its pointer on a key), then the D-pad's focus is what is shown. A hover Qt synthesises when content moves
+    // under a pointer that has not moved arrives at the same scene position and does not wake it.
+    property bool pointerLive: false
+    property real pointerX: -1
+    property real pointerY: -1
+    function pointerAt(x, y) { if (x !== pointerX || y !== pointerY) { pointerX = x; pointerY = y; pointerLive = true } }
+    function pointerHide() { pointerLive = false }
+
     // ---- focus ----
     readonly property var focus: theme.focus || ({})
     readonly property real rowScale: focus.rowScale || 1

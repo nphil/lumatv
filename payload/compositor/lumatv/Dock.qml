@@ -328,7 +328,7 @@ Item {
                     rested: dock.rested
                     labelAbove: Math.floor(index / dock.cols) === dock.scrollRow
                     glowStrength: (dock.theme.focus && dock.theme.focus.tileGlow) || 0
-                    onHoverFocus: { dock.row = Math.floor(index / dock.cols); dock.col = index % dock.cols; dock.ensureRowVisible() }
+                    onPointerFocus: { dock.row = Math.floor(index / dock.cols); dock.col = index % dock.cols; dock.ensureRowVisible() }
                     onActivated: { dock.row = Math.floor(index / dock.cols); dock.col = index % dock.cols; if (dock.moving) dock.endMove(); else dock.activate() }
                     onHoldActivated: { dock.row = Math.floor(index / dock.cols); dock.col = index % dock.cols; if (!dock.moving) dock.menuRequested() }
                 }

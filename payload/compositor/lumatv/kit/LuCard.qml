@@ -16,7 +16,7 @@ Item {
     property bool selected: false
     property bool rested: true
     signal activated()
-    signal hoverFocus()
+    signal pointerFocus()
     implicitWidth: Lu.target * 4
     implicitHeight: sub !== "" ? Lu.row + Lu.space(2) : Lu.row
     width: implicitWidth
@@ -43,6 +43,7 @@ Item {
         scale: 1 + (Lu.buttonScale - 1) * lift.value
         transformOrigin: Item.Center
     }
+    LuHover { on: ptr.hovered && !card.focused; radius: Lu.radius("control") }
     LuIcon {
         id: glyph
         visible: card.icon !== ""
@@ -68,10 +69,9 @@ Item {
         size: Math.round(Lu.target * 0.34)
         color: Lu.accent
     }
-    MouseArea {
+    LuPointer {
+        id: ptr
         anchors.fill: parent
-        hoverEnabled: true
-        onEntered: card.hoverFocus()
-        onClicked: card.activated()
+        onClicked: { card.pointerFocus(); card.activated() }
     }
 }

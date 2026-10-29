@@ -152,6 +152,7 @@ Item {
                             antialiasing: true
                             scale: 1 + (Lu.rowScale - 1) * lift.value
                         }
+                        LuHover { on: ptr.hovered && !opt.isFocus; radius: Lu.radius("row") }
                         LuIcon { x: Lu.space(4); anchors.verticalCenter: parent.verticalCenter; visible: opt.glyph !== ""; name: opt.glyph; size: 28; color: Lu.ink2 }
                         LuText {
                             id: optLabel
@@ -161,7 +162,7 @@ Item {
                         }
                         LuText { x: parent.width - width - Lu.space(4); anchors.verticalCenter: parent.verticalCenter; visible: !opt.current && opt.detail !== ""; role: "caption"; color: Lu.ink2; text: opt.detail }
                         LuIcon { x: parent.width - width - Lu.space(4); anchors.verticalCenter: parent.verticalCenter; visible: opt.current; name: "check"; size: 28; color: Lu.accent }
-                        MouseArea { anchors.fill: parent; hoverEnabled: true; onEntered: pop.index = index; onClicked: { pop.index = index; pop.choose() } }
+                        LuPointer { id: ptr; anchors.fill: parent; onClicked: { pop.index = index; pop.choose() } }
                     }
                 }
             }

@@ -154,7 +154,7 @@ Item {
                         tileAccent: page.section === r.id
                         focused: !page.inGrid && !page.searchFocused && page.railIndex === index
                         rested: page.rested
-                        onHoverFocus: { page.inGrid = false; page.searchFocused = false; page.setSection(index) }
+                        onPointerFocus: { page.inGrid = false; page.searchFocused = false; page.setSection(index) }
                         onActivated: { page.setSection(index); page.inGrid = true }
                     }
                     Rectangle { visible: page.section === r.id; x: -6; y: 22; width: 5; height: parent.height - 44; radius: 3; color: Lu.accent; antialiasing: true }
@@ -177,7 +177,7 @@ Item {
                 tileAccent: page.section === "hidden"
                 focused: !page.inGrid && !page.searchFocused && page.railIndex === parent.at
                 rested: page.rested
-                onHoverFocus: { page.inGrid = false; page.searchFocused = false; page.setSection(parent.at) }
+                onPointerFocus: { page.inGrid = false; page.searchFocused = false; page.setSection(parent.at) }
                 onActivated: { page.setSection(parent.at); page.inGrid = true }
             }
             Rectangle { visible: page.section === "hidden"; x: -6; y: 22; width: 5; height: parent.height - 44; radius: 3; color: Lu.accent; antialiasing: true }
@@ -200,7 +200,7 @@ Item {
                 x: parent.width - width; anchors.verticalCenter: parent.verticalCenter
                 icon: "search"; text: "Search apps"; height: 56
                 focused: page.searchFocused; rested: page.rested
-                onHoverFocus: { page.searchFocused = true }
+                onPointerFocus: { page.searchFocused = true }
                 onActivated: page.searchRequested()
             }
         }
@@ -229,6 +229,7 @@ Item {
                             color: cell.focused ? Lu.wash("focus") : "transparent"; border.width: cell.focused ? 1 : 0; border.color: Lu.edgeRaised
                             scale: 1 + (Lu.buttonScale - 1) * lift.value; transformOrigin: Item.Center
                         }
+                        LuHover { on: ptr.hovered && !cell.focused; radius: Lu.radius("tile") }
                         Image {
                             x: Math.round((parent.width - 152) / 2); y: 14; width: 152; height: 152
                             source: cell.a ? cell.a.iconUrl : ""; fillMode: Image.PreserveAspectFit; asynchronous: true; cache: true; smooth: true
@@ -236,11 +237,11 @@ Item {
                             scale: 1 + (Lu.buttonScale - 1) * lift.value; transformOrigin: Item.Center
                         }
                         LuText { x: 12; y: 14 + 152 + 12; width: parent.width - 24; horizontalAlignment: Text.AlignHCenter; role: "label"; font.weight: Font.DemiBold; elide: Text.ElideRight; text: cell.a ? cell.a.title : "" }
-                        MouseArea {
-                            anchors.fill: parent; hoverEnabled: true
-                            onEntered: { page.inGrid = true; page.searchFocused = false; page.cellIndex = index }
-                            onClicked: { page.cellIndex = index; page.key("ok") }
-                            onPressAndHold: { page.cellIndex = index; page.hold() }
+                        LuPointer {
+                            id: ptr
+                            anchors.fill: parent
+                            onClicked: { page.inGrid = true; page.searchFocused = false; page.cellIndex = index; page.key("ok") }
+                            onPressAndHold: { page.inGrid = true; page.searchFocused = false; page.cellIndex = index; page.hold() }
                         }
                     }
                 }

@@ -15,7 +15,7 @@ Item {
     property int current: 0
     property int focusedIndex: -1
     signal picked(int index)
-    signal hoverFocus(int index)
+    signal pointerFocus(int index)
 
     property string textRole: "label"        // "caption" for a dense row
     property bool tray: true                 // the quiet tray under the options; off for a tab bar, whose labels sit on the pane itself
@@ -93,6 +93,7 @@ Item {
                     border.color: Lu.edgeRaised
                     antialiasing: true
                 }
+                LuHover { on: ptr.hovered && index !== seg.focusedIndex; anchors.margins: Lu.space(1); radius: Lu.radius("control") - Lu.space(1) }
                 LuText {
                     id: label
                     anchors.centerIn: parent
@@ -109,11 +110,10 @@ Item {
                     color: Lu.accent
                     antialiasing: true
                 }
-                MouseArea {
+                LuPointer {
+                    id: ptr
                     anchors.fill: parent
-                    hoverEnabled: true
-                    onEntered: seg.hoverFocus(index)
-                    onClicked: seg.picked(index)
+                    onClicked: { seg.pointerFocus(index); seg.picked(index) }
                 }
             }
         }

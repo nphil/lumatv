@@ -38,7 +38,7 @@ Item {
     readonly property real padTop: 28
     readonly property real padSide: 32
 
-    signal hoverFocus()
+    signal pointerFocus()
     signal openMini(var spec)
     signal openSettingsPage(string id)
 
@@ -62,7 +62,7 @@ Item {
         mat: card.mat
         isLight: card.isLight
         cardRadius: Lu.radius("card")
-        focusMix: card.focused ? 1 : 0
+        focusMix: card.focused ? 1 : ptr.hovered ? 0.3 : 0      // hover is a part of the glass's lit state: faint sheen and rim, no lift
         liftMix: lift.value
         edgeFocus: card.inner ? 1 : 0
         scale: 1 + (card.cardScale - 1) * lift.value
@@ -220,10 +220,9 @@ Item {
 
     Component.onCompleted: loadContent()
 
-    MouseArea {
+    LuPointer {
+        id: ptr
         anchors.fill: parent
-        hoverEnabled: true
-        onEntered: card.hoverFocus()
-        onClicked: card.activate()
+        onClicked: { card.pointerFocus(); card.activate() }
     }
 }

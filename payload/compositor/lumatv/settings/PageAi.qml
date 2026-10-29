@@ -198,7 +198,7 @@ Item {
             detail: page.asking && Helper.aiPrompt.kind === "enable_listener" ? "Press OK on the remote" : ""
             help: "Off by default. Turning it on needs OK on the remote, and it reaches the TV from the home network only. AI can never change these settings."
             focused: page.active && page.fk === "listener"; rested: page.rested
-            onHoverFocus: page.pointAt("listener", 0)
+            onPointerFocus: page.pointAt("listener", 0)
             onHelpAsked: { page.pointAt("listener", 0); page.openHelp() }
             trailing: LuSegmented {
                 options: ["Off", "LAN only"]; current: page.listenerOn ? 1 : 0
@@ -214,7 +214,7 @@ Item {
             label: "Volume limit"
             help: "The loudest an assistant may set the receiver. Lower is done at once; higher asks on the TV."
             focused: page.active && page.fk === "limit"; rested: page.rested
-            onHoverFocus: page.pointAt("limit", 0)
+            onPointerFocus: page.pointAt("limit", 0)
             onHelpAsked: { page.pointAt("limit", 0); page.openHelp() }
             value: String(page.maxVolume)
         }
@@ -234,7 +234,7 @@ Item {
                     label: modelData.name
                     detail: page.armed === "remove:" + modelData.id ? "Press OK again" : page.lastFor(modelData)
                     focused: page.active && page.fk === "assistant" && page.fi === index; rested: page.rested
-                    onHoverFocus: page.pointAt("assistant", index)
+                    onPointerFocus: page.pointAt("assistant", index)
                     trailing: LuSegmented {
                         textRole: "caption"
                         options: [modelData.paused ? "Resume" : "Pause", page.armed === "remove:" + modelData.id ? "Sure?" : "Remove"]
@@ -254,7 +254,7 @@ Item {
                 enabled: page.listenerOn
                 focused: page.active && page.fk === "pair"; rested: page.rested
                 onActivated: { page.pointAt("pair", 0); page.act() }
-                onHoverFocus: page.pointAt("pair", 0)
+                onPointerFocus: page.pointAt("pair", 0)
                 onHelpAsked: { page.pointAt("pair", 0); page.openHelp() }
             }
             Item { width: 1; height: Lu.space(2) }
@@ -301,7 +301,7 @@ Item {
                     label: page.groupLabels[modelData.id] || modelData.title
                     help: page.groupNotes[modelData.id] || ""
                     focused: page.active && page.fk === "level" && page.fi === index; rested: page.rested
-                    onHoverFocus: page.pointAt("level", index)
+                    onPointerFocus: page.pointAt("level", index)
                     onHelpAsked: { page.pointAt("level", index); page.openHelp() }
                     trailing: LuSegmented {
                         textRole: "caption"
@@ -324,7 +324,7 @@ Item {
             help: "Removes every assistant and turns access off, at once."
             focused: page.active && page.fk === "lock"; rested: page.rested
             onActivated: { page.pointAt("lock", 0); page.act() }
-            onHoverFocus: page.pointAt("lock", 0)
+            onPointerFocus: page.pointAt("lock", 0)
             onHelpAsked: { page.pointAt("lock", 0); page.openHelp() }
         }
     }

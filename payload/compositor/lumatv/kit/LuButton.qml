@@ -15,7 +15,7 @@ Item {
     property bool rested: true
     property bool instant: false            // the surface is moving or out of sight: focus takes its new state at once (LuHalo)
     signal activated()
-    signal hoverFocus()
+    signal pointerFocus()
 
     readonly property int glyph: icon !== "" ? 22 + Lu.space(2) : 0
     implicitWidth: label.implicitWidth + glyph + 2 * Lu.space(7)
@@ -55,6 +55,7 @@ Item {
         transformOrigin: Item.Center
         Behavior on scale { enabled: !Lu.reduced && mouse.pressed; NumberAnimation { duration: Lu.pressMs } }
     }
+    LuHover { on: mouse.hovered && !button.focused; radius: Lu.radius("pill") }
     LuIcon {
         visible: button.icon !== ""
         x: Math.round((button.width - label.width - button.glyph) / 2); y: Math.round((button.height - height) / 2)
@@ -67,11 +68,9 @@ Item {
         text: button.text
         color: button.primary ? Lu.accentInk : button.danger ? Lu.dangerOnWash : Lu.ink
     }
-    MouseArea {
+    LuPointer {
         id: mouse
         anchors.fill: parent
-        hoverEnabled: true
-        onEntered: button.hoverFocus()
-        onClicked: button.activated()
+        onClicked: { button.pointerFocus(); button.activated() }
     }
 }

@@ -268,7 +268,7 @@ Item {
                     selected: settings.railIndex === index
                     rested: settings.rested
                     onActivated: { settings.railIndex = index; settings.zone = "page"; var p = settings.pageItem(settings.current); if (p && p.reset) p.reset() }
-                    onHoverFocus: { settings.railIndex = index; settings.zone = "rail" }
+                    onPointerFocus: { settings.railIndex = index; settings.zone = "rail" }
                 }
             }
             LuRow {
@@ -280,7 +280,7 @@ Item {
                 focused: settings.zone === "rail" && settings.lgRow
                 rested: settings.rested
                 onActivated: { settings.launchApp("com.palm.app.settings", {}); settings.closeRequested() }
-                onHoverFocus: { settings.railIndex = settings.sections.length; settings.zone = "rail" }
+                onPointerFocus: { settings.railIndex = settings.sections.length; settings.zone = "rail" }
             }
         }
     }

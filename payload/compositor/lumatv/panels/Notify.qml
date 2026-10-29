@@ -293,7 +293,7 @@ Item {
                             danger: !!b.danger
                             focused: alertLayer.a.index === index
                             rested: notify.rested
-                            onHoverFocus: { alertLayer.a.index = index; notify.alerts = notify.alerts.slice() }
+                            onPointerFocus: { alertLayer.a.index = index; notify.alerts = notify.alerts.slice() }
                             onActivated: notify.answerAlert(index)
                         }
                     }
@@ -336,7 +336,7 @@ Item {
                         primary: inputSheet.a.index === index
                         focused: inputSheet.a.index === index
                         rested: notify.rested
-                        onHoverFocus: notify.inputAlert = Object.assign({}, notify.inputAlert, { index: index })
+                        onPointerFocus: notify.inputAlert = Object.assign({}, notify.inputAlert, { index: index })
                         onActivated: { notify.act(inputSheet.inputs[index].action); notify.inputAlert = null }
                     }
                 }
@@ -344,7 +344,7 @@ Item {
                     text: "Stay here"
                     focused: inputSheet.a.index === inputSheet.inputs.length
                     rested: notify.rested
-                    onHoverFocus: notify.inputAlert = Object.assign({}, notify.inputAlert, { index: inputSheet.inputs.length })
+                    onPointerFocus: notify.inputAlert = Object.assign({}, notify.inputAlert, { index: inputSheet.inputs.length })
                     onActivated: notify.inputAlert = null
                 }
             }
@@ -392,7 +392,7 @@ Item {
                             text: k === "clear" ? "Clear" : k === "back" ? "\u232b" : k
                             focused: pinLayer.p.index === index
                             rested: notify.rested
-                            onHoverFocus: notify.pin = Object.assign({}, notify.pin, { index: index })
+                            onPointerFocus: notify.pin = Object.assign({}, notify.pin, { index: index })
                             onActivated: notify.padPress(k)
                         }
                     }
@@ -404,7 +404,7 @@ Item {
                     focused: pinLayer.p.index === 12
                     rested: notify.rested
                     opacity: (pinLayer.p.typed || "").length === 4 ? 1 : Lu.disabledOpacity
-                    onHoverFocus: notify.pin = Object.assign({}, notify.pin, { index: 12 })
+                    onPointerFocus: notify.pin = Object.assign({}, notify.pin, { index: 12 })
                     onActivated: notify.relayPin()
                 }
             }

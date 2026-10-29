@@ -214,7 +214,8 @@ Item {
                     LuIcon { anchors.verticalCenter: parent.verticalCenter; name: "x"; size: 28; color: Lu.ink }
                     LuText { anchors.verticalCenter: parent.verticalCenter; role: "label"; font.weight: Font.DemiBold; text: "Quit all" }
                 }
-                MouseArea { anchors.fill: parent; hoverEnabled: true; onEntered: sw.hover(sw.index, "all"); onClicked: { sw.level = "all"; sw.key("ok") } }
+                LuHover { on: allPtr.hovered && sw.level !== "all"; radius: Lu.radius("control") }
+                LuPointer { id: allPtr; anchors.fill: parent; onClicked: { sw.level = "all"; sw.key("ok") } }
             }
         }
 
@@ -286,9 +287,10 @@ Item {
                         visible: opacity > 0
                         Behavior on opacity { enabled: !Lu.reduced; NumberAnimation { duration: Lu.ms("focusMs") } }
                     }
-                    MouseArea {
-                        anchors.fill: parent; hoverEnabled: true
-                        onEntered: sw.hover(index, "card")
+                    LuHover { on: picPtr.hovered && !card.focused; radius: card.g.r }
+                    LuPointer {
+                        id: picPtr
+                        anchors.fill: parent
                         onClicked: { sw.hover(index, "card"); sw.key("ok") }
                     }
                 }
@@ -326,7 +328,8 @@ Item {
                             LuIcon { anchors.verticalCenter: parent.verticalCenter; name: "x"; size: 28; color: Lu.ink }
                             LuText { anchors.verticalCenter: parent.verticalCenter; role: "label"; font.weight: Font.DemiBold; text: card.e && card.e.state === "stuck" ? "Try again" : "Quit" }
                         }
-                        MouseArea { anchors.fill: parent; hoverEnabled: true; onEntered: sw.hover(index, "quit"); onClicked: { sw.hover(index, "quit"); sw.key("ok") } }
+                        LuHover { on: quitPtr.hovered && !card.quitFocus; radius: Lu.radius("control") }
+                        LuPointer { id: quitPtr; anchors.fill: parent; onClicked: { sw.hover(index, "quit"); sw.key("ok") } }
                     }
                 }
             }
@@ -402,7 +405,8 @@ Item {
                         color: Lu.isLight ? "#9A4B63" : Lu.danger
                         border.width: 2; border.color: sw.askIndex === 1 ? Lu.ink : "transparent"
                         LuText { id: yesText; anchors.centerIn: parent; role: "label"; font.weight: Font.DemiBold; color: Lu.isLight ? "#FFFFFF" : Lu.accentInk; text: "Quit all" }
-                        MouseArea { anchors.fill: parent; hoverEnabled: true; onEntered: sw.askIndex = 1; onClicked: { sw.askIndex = 1; sw.key("ok") } }
+                        LuHover { on: yesPtr.hovered && sw.askIndex !== 1; radius: Lu.radius("control") }
+                        LuPointer { id: yesPtr; anchors.fill: parent; onClicked: { sw.askIndex = 1; sw.key("ok") } }
                     }
                     Rectangle {
                         id: no
@@ -411,7 +415,8 @@ Item {
                         color: sw.askIndex === 0 ? (Lu.isLight ? "#F1E9F6" : "#3A3350") : (Lu.isLight ? "#FFFFFF" : "#2C263A")
                         border.width: 2; border.color: sw.askIndex === 0 ? Lu.ink : sw.boundary
                         LuText { id: noText; anchors.centerIn: parent; role: "label"; font.weight: Font.DemiBold; text: "Cancel" }
-                        MouseArea { anchors.fill: parent; hoverEnabled: true; onEntered: sw.askIndex = 0; onClicked: { sw.askIndex = 0; sw.key("ok") } }
+                        LuHover { on: noPtr.hovered && sw.askIndex !== 0; radius: Lu.radius("control") }
+                        LuPointer { id: noPtr; anchors.fill: parent; onClicked: { sw.askIndex = 0; sw.key("ok") } }
                     }
                 }
             }

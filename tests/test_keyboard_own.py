@@ -218,7 +218,7 @@ class OwnKeyboard(unittest.TestCase):
         cancels = self.lines(out, "cancel")
         self.assertGreaterEqual(len(cancels), 1, "a finished listening ends its subscription")
 
-    def test_the_pointer_hovers_to_a_key_and_types_it_on_release_over_the_same_key(self):
+    def test_the_pointer_presses_a_key_and_types_it_on_release_over_the_same_key(self):
         # letters at 100 % text: a key is 104 x 68 with 10 between, the first at the grid's corner; h is the seventh of the third row
         h = (6 * 114 + 10, 2 * 78 + 10)
         j = (7 * 114 + 10, 2 * 78 + 10)
@@ -237,7 +237,8 @@ class OwnKeyboard(unittest.TestCase):
         rc, out = self.host(*steps[0], *evs, wait=at + 400)
         self.clean(rc, out)
         got = self.evals(out)
-        self.assertEqual(got["hover"]["key"], "h", "hovering moves the focus and types nothing")
+        self.assertNotEqual(got["hover"]["key"], "h", "hovering shows the key under the pointer and does not move the focus")
+        self.assertEqual(got["down_h"]["key"], "h", "a press moves the focus to its key")
         self.assertEqual([p["text"] for p in self.lines(out, "ime") if p["op"] == "text"], ["h"], "a press let go on the same key types it, once")
         self.assertEqual(got["down_j"]["key"], "j", "a press moves the focus to its key")
         self.assertEqual(got["gap"]["key"], "j", "the gap between two keys is no key: the focus stays where it was")

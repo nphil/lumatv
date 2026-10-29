@@ -166,7 +166,7 @@ Item {
                 y: head.stacked ? titleText.height + Lu.space(2) : Math.round((head.lineH - height) / 2)
                 text: "Clear all"; icon: "check"; focused: drawer.index === 0; rested: drawer.rested
                 visible: drawer.count > 0
-                onHoverFocus: drawer.index = 0
+                onPointerFocus: drawer.index = 0
                 onActivated: drawer.clearAll()
             }
         }
@@ -208,6 +208,7 @@ Item {
                                 color: itemBox.focused ? Lu.wash("focus") : "transparent"; border.width: itemBox.focused ? 1 : 0; border.color: Lu.edgeRaised; antialiasing: true
                                 scale: 1 + (Lu.rowScale - 1) * lift.value; transformOrigin: Item.Center       // the plate lifts; the words stay put
                             }
+                            LuHover { on: ptr.hovered && !itemBox.focused; radius: Lu.radius("row") }
                             LuTile { x: Lu.space(4); y: Lu.space(3); size: 48; icon: itemBox.it ? itemBox.it.icon : "" }
                             Column {
                                 id: titleCol
@@ -226,12 +227,12 @@ Item {
                                         text: modelData.label
                                         focused: itemBox.focused && drawer.button === index
                                         rested: drawer.rested
-                                        onHoverFocus: { drawer.index = itemIndex; drawer.button = index }
+                                        onPointerFocus: { drawer.index = itemIndex; drawer.button = index }
                                         onActivated: { drawer.index = itemIndex; drawer.button = index; drawer.key("ok") }
                                     }
                                 }
                             }
-                            MouseArea { anchors.fill: parent; z: -1; hoverEnabled: true; onEntered: drawer.index = itemIndex; onClicked: { drawer.index = itemIndex; if (!itemBox.it.actions.length) drawer.dismiss(itemBox.it) } }
+                            LuPointer { id: ptr; anchors.fill: parent; z: -1; onClicked: { drawer.index = itemIndex; if (!itemBox.it.actions.length) drawer.dismiss(itemBox.it) } }
                         }
                     }
                 }

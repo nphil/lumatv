@@ -26,7 +26,7 @@ Item {
     readonly property string iconDir: "file://{{dataDir}}/qml/WebOSCompositor/{{qmlModule}}/icons/"
 
     signal activated()
-    signal hoverFocus()
+    signal pointerFocus()
 
     width: 48 + (labelText.visible ? labelText.implicitWidth + 12 : 0)
     height: 48
@@ -56,9 +56,9 @@ Item {
             mat: item.mat
             isLight: item.isLight
             cardRadius: 24
-            focusMix: item.hl
+            focusMix: item.focused ? 1 : 0.3
             liftMix: lift.value
-            opacity: item.hl
+            opacity: item.focused ? 1 : ptr.hovered ? 0.6 : 0      // hover is the disc, fainter and unlifted, under a glyph that keeps its resting ink
             visible: opacity > 0.01
             screenX: item.screenX; screenY: item.screenY; screenW: 48; screenH: 48
             backdrop: item.backdrop
@@ -142,10 +142,9 @@ Item {
         renderType: Text.NativeRendering
     }
 
-    MouseArea {
+    LuPointer {
+        id: ptr
         anchors.fill: parent
-        hoverEnabled: true
-        onEntered: item.hoverFocus()
-        onClicked: item.activated()
+        onClicked: { item.pointerFocus(); item.activated() }
     }
 }

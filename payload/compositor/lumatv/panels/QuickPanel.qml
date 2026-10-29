@@ -260,7 +260,7 @@ Item {
                     text: "All settings"; icon: "settings"
                     focused: panel.footFocus; rested: panel.rested; instant: !motion.settled
                     onActivated: { panel.footFocus = true; panel.openSettingsPage("") }
-                    onHoverFocus: { panel.footFocus = true }
+                    onPointerFocus: { panel.footFocus = true }
                 }
                 // what the keys do that the tiles do not say (docs/mocks/29-qp-slider)
                 LuText {

@@ -117,7 +117,7 @@ Item {
                     focused: menu.index === index
                     rested: menu.rested
                     enabled: !it.disabled
-                    onHoverFocus: { menu.index = index; menu.seg = it.options ? (it.index || 0) : 0 }
+                    onPointerFocus: { menu.index = index; menu.seg = it.options ? (it.index || 0) : 0 }
                     onActivated: { menu.index = index; menu.key("ok") }
                     trailing: Item {
                         width: it.options ? seg.width : hintText.width

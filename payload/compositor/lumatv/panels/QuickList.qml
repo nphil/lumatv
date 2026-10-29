@@ -157,7 +157,7 @@ Item {
                             label: list.ev(cell.r.label) || ""; detail: list.ev(cell.r.detail) || ""; detailLines: list.ev(cell.r.detailLines) || 1
                             enabled: list.ev(cell.r.enabled) !== false
                             focused: cell.isFocus; rested: list.rested; instant: list.instant
-                            onHoverFocus: list.pointAt(cell.ri)
+                            onPointerFocus: list.pointAt(cell.ri)
                             below: QuickStep {
                                 focused: cell.isFocus
                                 text: { var o = list.ev(cell.r.options) || []; var i = list.ev(cell.r.index) || 0; return o[i] === undefined ? "" : o[i] }
@@ -172,7 +172,7 @@ Item {
                             enabled: list.ev(cell.r.enabled) !== false
                             focused: cell.isFocus; rested: list.rested; instant: list.instant
                             onActivated: { list.pointAt(cell.ri); list.activate(cell.ri) }
-                            onHoverFocus: list.pointAt(cell.ri)
+                            onPointerFocus: list.pointAt(cell.ri)
                             below: QuickStep { focused: cell.isFocus; widest: "\u221234.5 dB"; text: list.ev(cell.r.value) || "" }
                         }
                     }
@@ -184,7 +184,7 @@ Item {
                             enabled: list.ev(cell.r.enabled) !== false
                             focused: cell.isFocus; rested: list.rested; instant: list.instant
                             onActivated: { list.pointAt(cell.ri); list.activate(cell.ri) }
-                            onHoverFocus: list.pointAt(cell.ri)
+                            onPointerFocus: list.pointAt(cell.ri)
                             trailing: LuToggle { checked: !!list.ev(cell.r.on) }
                         }
                     }
@@ -196,7 +196,7 @@ Item {
                             enabled: list.ev(cell.r.enabled) !== false
                             focused: cell.isFocus; rested: list.rested; instant: list.instant
                             onActivated: { list.pointAt(cell.ri); list.activate(cell.ri) }
-                            onHoverFocus: list.pointAt(cell.ri)
+                            onPointerFocus: list.pointAt(cell.ri)
                             trailing: Row {
                                 spacing: Lu.space(3)
                                 LuChip {
@@ -227,7 +227,7 @@ Item {
                             enabled: list.ev(cell.r.enabled) !== false
                             focused: cell.isFocus; rested: list.rested; instant: list.instant
                             onActivated: { list.pointAt(cell.ri); list.activate(cell.ri) }
-                            onHoverFocus: list.pointAt(cell.ri)
+                            onPointerFocus: list.pointAt(cell.ri)
                             trailing: LuChip { text: list.ev(cell.r.button) || "Run" }
                         }
                     }

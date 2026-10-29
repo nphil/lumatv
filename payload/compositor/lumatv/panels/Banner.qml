@@ -95,7 +95,7 @@ Item {
                 delegate: BannerButton {
                     icon: banner.buttons[index].icon; text: banner.buttons[index].label; dark: true
                     focused: banner.index === index; rested: banner.rested
-                    onHoverFocus: banner.index = index
+                    onPointerFocus: banner.index = index
                     onActivated: { banner.index = index; banner.key("ok") }
                 }
             }
@@ -168,7 +168,7 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     icon: banner.buttons[index].icon; text: banner.buttons[index].label
                     focused: banner.index === index; rested: banner.rested
-                    onHoverFocus: banner.index = index
+                    onPointerFocus: banner.index = index
                     onActivated: { banner.index = index; banner.key("ok") }
                 }
             }

@@ -161,6 +161,7 @@ Item {
     // the keys that repeat and at the keyboard's own pace.
     readonly property var repeatCfg: ({ delay: Lu.focus.repeatDelay || 300, interval: Lu.focus.repeatInterval || 100, fast: 60, fastAfter: 8 })
     function imeKey(name, down, repeat) {
+        if (down) Lu.pointerHide()
         if (!wanted) return
         if (name.length === 1 && name >= "0" && name <= "9") {
             if (down && !repeat) { flash(); typed(name) }
@@ -174,12 +175,11 @@ Item {
         else move(name)
     }
 
-    // The pointer (Magic Remote): hover moves the focus and nothing else; a press that is let go on the same key types it.
+    // The pointer (Magic Remote): hover shows the key under it (`hoverAt`, drawn as the hover cue) and moves nothing; a press moves the
+    // focus, and a press that is let go on the same key types it.
     property int downAt: -1
-    function pointerHover(x, y) {
-        var i = Kb.hit(grid, x, y)
-        if (i >= 0 && i !== focusAt) setFocus(i)
-    }
+    property int hoverAt: -1
+    function pointerHover(x, y) { hoverAt = Kb.hit(grid, x, y) }
     function pointerDown(x, y) {
         downAt = Kb.hit(grid, x, y)
         if (downAt >= 0) setFocus(downAt)
@@ -232,6 +232,16 @@ Item {
                 border.width: 1
                 border.color: kb.edgeColor(k)
             }
+        }
+
+        // the key under the pointer (not the focused one: that is the focus plate)
+        Item {
+            readonly property var r: kb.hoverAt >= 0 && kb.hoverAt < kb.grid.rects.length ? kb.grid.rects[kb.hoverAt] : null
+            x: kb.gridX + (r ? r.x : 0)
+            y: kb.topPad + (r ? r.y : 0)
+            width: r ? r.w : 0
+            height: r ? r.h : 0
+            LuHover { on: ptr.hovered && r !== null && kb.hoverAt !== kb.focusAt && kb.enabled(kb.layout.keys[kb.hoverAt]); radius: kb.keyRadius }
         }
 
         // the focus: one plate that moves; the accent key keeps its fill, the others are lit; the ring is the ink
@@ -338,10 +348,10 @@ Item {
             renderType: Text.NativeRendering
         }
 
-        MouseArea {
+        LuPointer {
+            id: ptr
             x: kb.gridX; y: kb.topPad
             width: kb.grid.width; height: kb.grid.height
-            hoverEnabled: true
             acceptedButtons: Qt.LeftButton
             onPositionChanged: kb.pointerHover(mouse.x, mouse.y)
             onPressed: kb.pointerDown(mouse.x, mouse.y)

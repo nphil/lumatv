@@ -34,7 +34,7 @@ Item {
 
     signal activated()
     signal holdActivated()
-    signal hoverFocus()
+    signal pointerFocus()
 
     width: size
     height: size
@@ -53,7 +53,8 @@ Item {
     property real boost: moving ? 0.6 : 0
     Behavior on boost { enabled: !tile.motionReduced; NumberAnimation { duration: tile.focusMs; easing.type: tile.focusEasing } }
     property real f: lift.value + boost
-    property real hl: (focused || moving) ? 1 : 0
+    // Hover is a part of the highlight, not all of it: a faint sheen and rim, with no lift, shadow or name pill (those are focus)
+    property real hl: (focused || moving) ? 1 : ptr.hovered ? 0.3 : 0
 
     Image {
         id: iconImage
@@ -179,11 +180,10 @@ Item {
         }
     }
 
-    MouseArea {
+    LuPointer {
+        id: ptr
         anchors.fill: parent
-        hoverEnabled: true
-        onEntered: tile.hoverFocus()
-        onClicked: if (!holdFired) tile.activated()
+        onClicked: if (!holdFired) { tile.pointerFocus(); tile.activated() }
         property bool holdFired: false
         onPressed: holdFired = false
         onPressAndHold: { holdFired = true; tile.holdActivated() }

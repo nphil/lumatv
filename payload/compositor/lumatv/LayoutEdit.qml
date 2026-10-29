@@ -301,6 +301,14 @@ Item {
         border.color: edit.ringColor
         antialiasing: true
     }
+    // the card under the pointer in select mode: the hover cue; the choice is the click
+    property string hoverId: ""
+    readonly property var hoverCard: hoverId !== "" && hoverId !== sel ? Grid.find(work, hoverId) : null
+    readonly property var hoverBox: hoverCard ? Grid.rectOf(work, hoverCard) : ({ x: 0, y: 0, w: 0, h: 0 })
+    Item {
+        x: edit.hoverBox.x; y: edit.hoverBox.y; width: edit.hoverBox.w; height: edit.hoverBox.h
+        LuHover { on: Lu.pointerLive && edit.mode === "select" && !edit.drag && !!edit.hoverCard; radius: Lu.radius("card") }
+    }
     // where the arrows act in a resize: the corner
     Rectangle {
         visible: !!edit.card && edit.mode === "resize"
@@ -341,7 +349,7 @@ Item {
                     danger: modelData.danger === true
                     focused: edit.zone === "bar" && edit.barIndex === index
                     onActivated: { edit.barIndex = index; edit.press(modelData.id) }
-                    onHoverFocus: { if (edit.mode === "select" && modelData.enabled) { edit.zone = "bar"; edit.barIndex = index } }
+                    onPointerFocus: { if (edit.mode === "select" && modelData.enabled) { edit.zone = "bar"; edit.barIndex = index } }
                 }
             }
         }
@@ -368,7 +376,7 @@ Item {
                     value: Grid.hiddenOf(edit.work, modelData) ? "Hidden" : ""
                     focused: edit.zone === "add" && edit.addIndex === index
                     onActivated: { edit.addIndex = index; edit.addCard(modelData) }
-                    onHoverFocus: edit.addIndex = index
+                    onPointerFocus: edit.addIndex = index
                 }
             }
         }
@@ -385,7 +393,7 @@ Item {
         Behavior on opacity { enabled: !Lu.reduced; NumberAnimation { duration: 120 } }
     }
 
-    // ---- the pointer: over a card it chooses it, dragging moves it, and the corner of the chosen card sizes it
+    // ---- the pointer: over a card it shows the cue, a press chooses it, dragging moves it, and the corner of the chosen card sizes it
     function cardAt(x, y) {
         var w = work.widgets || []
         for (var i = w.length - 1; i >= 0; i--) {
@@ -396,10 +404,9 @@ Item {
         return ""
     }
     property var drag: null                 // { x, y, kind: "move" | "size", to: {col,row} | {span,rows} | null }
-    MouseArea {
+    LuPointer {
         id: pointer
         anchors.fill: parent
-        hoverEnabled: true
         z: -1
         onPositionChanged: {
             if (edit.drag) {
@@ -410,8 +417,7 @@ Item {
                 edit.drag = d
                 dragGhost.update()
             } else if (edit.mode === "select") {
-                var id = edit.cardAt(mouse.x, mouse.y)
-                if (id !== "" && id !== edit.sel) { edit.sel = id; edit.zone = "grid" }
+                edit.hoverId = edit.cardAt(mouse.x, mouse.y)
             }
         }
         onPressed: {

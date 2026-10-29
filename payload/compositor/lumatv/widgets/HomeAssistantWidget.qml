@@ -256,6 +256,7 @@ Item {
                     border.width: 1
                     border.color: chip.on ? Lu.edgeRaised : root.chipEdge
                 }
+                LuHover { on: ptr.hovered && !chip.on; radius: Lu.radius("row") }
                 Rectangle {
                     x: 16; y: Math.round((parent.height - 36) / 2)
                     width: 36; height: 36; radius: 18
@@ -287,11 +288,10 @@ Item {
                         renderType: Text.NativeRendering
                     }
                 }
-                MouseArea {
+                LuPointer {
+                    id: ptr
                     anchors.fill: parent
-                    hoverEnabled: true
-                    onEntered: if (root.inner) { root.index = index; root.reveal() }
-                    onClicked: { root.index = index; root.laneKey("ok") }
+                    onClicked: { root.index = index; if (root.inner) root.reveal(); root.laneKey("ok") }
                 }
             }
         }

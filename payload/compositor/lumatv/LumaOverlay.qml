@@ -427,6 +427,7 @@ Item {
     property bool okHeldDown: false
     Timer { id: okHold; interval: Lu.motion.holdMs || 700; onTriggered: { if (ov.surface === "quick" && quickRes.item && quickRes.item.hold) quickRes.item.hold() } }
     function key(k, pressed, autoRepeat, deviceId) {
+        if (pressed) Lu.pointerHide()
         if (!wants) return false
         var dir = directionFor(k)
         if (dir === "") return false

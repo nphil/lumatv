@@ -859,6 +859,7 @@ Item {
     }
     property int saverEaten: 0              // the key whose press the screensaver took: its release is taken too
     function key(k, pressed, autoRepeat, deviceId) {
+        if (pressed) Lu.pointerHide()                    // a key hides the remote's pointer: the hover cue goes and the D-pad's focus is what shows
         // A volume key press is LG's whatever is on screen. The display does not wait for it: it answers the audio service and the receiver
         // (panels/VolumeOsd.qml, in LumaOverlay). A saver LumaTV owns (the TV is Active, nothing else will end it) ends with it, as LG's own
         // `Screen Saver` state ends on any key; in LG's state the TV's change of state does that, and the saver is left to it.
@@ -1057,7 +1058,7 @@ Item {
         onRequestOpenSettings: root.openSettings()
         onRequestSearch: root.openSearch()
         onRequestNotifications: root.openLayer("drawer")
-        onHoverFocus: { root.statusFocusIndex = index; if (root.focusLayer !== "popover") root.focusLayer = "statusbar" }
+        onPointerFocus: { root.statusFocusIndex = index; if (root.focusLayer !== "popover") root.focusLayer = "statusbar" }
     }
 
     // Popover scrim: one full-screen quad between the content and the status bar. A modest
@@ -1229,7 +1230,7 @@ Item {
                     rested: root.focusRested
                     live: root.hostActive && !root.saverUp
                     frameTick: root.frameTick
-                    onHoverFocus: { if (root.focusLayer === "widget" && root.widgetFocusId !== modelData) { var o = widgetRepeater.itemAt(root.widgetIndexById(root.widgetFocusId)); if (o) o.inner = false } root.widgetFocusId = modelData; if (root.focusLayer !== "widget" || root.widgetFocusId !== modelData) root.focusLayer = "widgets" }
+                    onPointerFocus: { if (root.focusLayer === "widget" && root.widgetFocusId !== modelData) { var o = widgetRepeater.itemAt(root.widgetIndexById(root.widgetFocusId)); if (o) o.inner = false } root.widgetFocusId = modelData; if (root.focusLayer !== "widget" || root.widgetFocusId !== modelData) root.focusLayer = "widgets" }
                 }
             }
         }
@@ -1270,12 +1271,11 @@ Item {
                 onMenuRequested: root.openTileMenu()
                 onOrderChanged: root.keepApps({ dockOrder: ids })
             }
-            MouseArea {
-                // hovering the dock card itself hands the layer to the dock
+            LuPointer {
+                // a click on the dock card itself hands the layer to the dock; hovering it only shows the pointer
                 anchors.fill: parent
-                hoverEnabled: true
                 z: -1
-                onEntered: root.focusLayer = "dock"
+                onClicked: root.focusLayer = "dock"
             }
         }
     }
