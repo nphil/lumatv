@@ -10,13 +10,17 @@
 //!
 //! The topic `receiver`:
 //! `{"enabled", "host", "polling", "reachable", "fresh", "updatedAt", "error", "power", "input", "volumeDb", "volumeAbs",
-//! "volumeDisplay", "volumeText", "mute"}`. The six values are present only while `fresh`: a reading older than
-//! `receiver.hideAfterMs` (6 s) is hidden, not shown stale, and so is everything when polling has stopped.
+//! "volumeDisplay", "volumeText", "mute", "soundMode", "signal", "volumeMax"}`. The values are present only while `fresh`: a reading older than
+//! `receiver.hideAfterMs` (6 s) is hidden, not shown stale, and so is everything when polling has stopped. `volumeMax` is the
+//! receiver's own volume limit on the 0 to 98 scale, once the telnet link has heard it.
 //! `reachable` is `true`/`false` for the last attempt and `null` before the first one or after polling stopped.
+//!
+//! The level the volume display shows goes the other way: a `Cmd::Volume` makes `receiver_volume.rs` send it to the receiver.
 
 use crate::ctx::Ctx;
 use crate::hub::Hub;
 use crate::receiver_telnet::{Event, Link, QUERY_GAP, Target, Tuning};
+use crate::receiver_volume::VolumeDriver;
 use crate::screen;
 use crate::timeutil::now_ms;
 use lumatv_denon::{Client, ClientError, Status, VolumeDisplay};
@@ -37,6 +41,8 @@ pub enum Cmd {
     Nudge,
     /// The telnet link queued an event.
     Link,
+    /// The volume display's level, in the receiver's half steps (0 to 196): send it to the receiver. Dropped while the screen is off.
+    Volume(u16),
     Stop,
 }
 
@@ -75,6 +81,8 @@ struct Poller<'a> {
     /// The sound mode and the input signal's words as the telnet link last heard them, raw (`DOLBY AUDIO-DSUR`, `PCM ZERO`).
     mode: Option<String>,
     signal: Option<String>,
+    /// The receiver's volume limit on the panel's 0 to 98 scale, as the telnet link last heard it.
+    max_volume: Option<f64>,
 }
 
 impl Poller<'_> {
@@ -128,6 +136,7 @@ impl Poller<'_> {
             "signal".into(),
             json!(self.signal.as_deref().filter(|_| fresh)),
         );
+        doc.insert("volumeMax".into(), json!(self.max_volume.filter(|_| fresh)));
         Value::Object(doc)
     }
 
@@ -178,6 +187,7 @@ impl Poller<'_> {
         at_ms: u64,
         mode: Option<String>,
         signal: Option<String>,
+        max_volume: Option<f64>,
     ) {
         status.volume_display = self.display.clone();
         self.failures = 0;
@@ -185,6 +195,8 @@ impl Poller<'_> {
         self.last_ok = Some(Reading { status, at, at_ms });
         self.mode = mode;
         self.signal = signal;
+        // heard with the volume answers; a reading without it keeps the last one
+        self.max_volume = max_volume.or(self.max_volume);
     }
 }
 
@@ -251,6 +263,14 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
         display: VolumeDisplay::Unknown,
         mode: None,
         signal: None,
+        max_volume: None,
+    };
+    let driver = match VolumeDriver::spawn(ctx) {
+        Ok(driver) => Some(driver),
+        Err(e) => {
+            crate::log_warn!("receiver: volume driver not started: {e}");
+            None
+        }
     };
     let mut burst_until: Option<Instant> = None;
     let mut next_poll = Instant::now();
@@ -306,6 +326,7 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
             );
             let moved = client_for.replace(target).is_some();
             poller.last_ok = None;
+            poller.max_volume = None;
             poller.last_attempt = None;
             poller.failures = 0;
             poller.display = VolumeDisplay::Unknown;
@@ -397,6 +418,11 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
                 next_poll = Instant::now();
             }
             Ok(Cmd::Wake) => {}
+            Ok(Cmd::Volume(halves)) => {
+                if let Some(driver) = &driver {
+                    driver.set(f64::from(halves) / 2.0);
+                }
+            }
             Ok(Cmd::Link) => {
                 for event in link.iter().flat_map(Link::drain) {
                     match event {
@@ -406,6 +432,7 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
                             at_ms,
                             mode,
                             signal,
+                            max_volume,
                         } => {
                             if link_state != LinkState::Up {
                                 link_state = LinkState::Up;
@@ -416,7 +443,7 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
                                     tuning.telnet_port
                                 );
                             }
-                            poller.accept(status, at, at_ms, mode, signal);
+                            poller.accept(status, at, at_ms, mode, signal, max_volume);
                         }
                         Event::Down(e) => {
                             if link_state != LinkState::Down {

@@ -18,10 +18,14 @@ import "../kit/AudioFormat.js" as AudioFormat
 // A reading that is not in date is never shown (kit/ReceiverGate). When the receiver may answer and has not yet (a key after minutes of
 // quiet) the bar waits `decideMs` for it instead of showing the TV's counter and then changing to the receiver's level.
 //
-// The key answers before the receiver does. The TV reports a volume key 44 to 63 ms after the press, with its direction (`cause`), and the
-// Denon's own reading follows some 0.4 s later. The bar appears and moves its fill on the key (one receiver step, 0.5, per key and per repeat of
-// a held key), keeps what the keys have made it say for `settleMs` after the last one, then takes the reading: no stale reading in between
-// moves it back.
+// The number is the target, and the receiver is driven to it. The TV reports a volume key 44 to 63 ms after the press, with its direction (`cause`),
+// and passes every key repeat (25 a second) on over HDMI-CEC, which the Denon takes slower than they come and drops the rest of: counting one step per
+// repeat made the bar run ahead of the receiver and then jump back at release. A tap is one receiver step (0.5). A held key moves the target by time,
+// not by repeats: `rateStart` steps a second, rising by `rateAccel` a second to `rateMax`, never past the receiver's own limit (`volumeMax`).
+// The target is posted to the helper at most every `sendMs` (`POST /v1/receiver/volume`), which sends it to the Denon as an absolute level
+// (helper/app/src/receiver_volume.rs): the receiver follows the display whatever the CEC steps do. The bar keeps the target while the keys come
+// and after the last one until the receiver reports that level or `settleMs` has passed, then takes the reading, so there is no step back when
+// the two agree. No stale reading in between moves it.
 //
 // When it opens: the audio service reports a change (a volume key, a mute, Home Assistant, an app: the moments LG's popup opened for), or
 // the receiver reports a new level or mute (its own remote too). It goes `holdMs` after the last of either. While the sound is muted a small
@@ -81,22 +85,72 @@ Item {
 
     // ---- the key answers before the receiver does
     property bool keyed: false                    // the keys have moved the receiver's level or mute since its last reading was trusted
-    property real optAbs: -1                      // the level the keys made it (0 to 98, the receiver's own steps), or -1
+    property real optAbs: -1                      // the target: the level the keys made it (0 to 98, the receiver's own steps), or -1
     property int optMute: -1                      // the mute the keys made it, 0 or 1, or -1
-    readonly property real receiverStep: 0.5      // one volume key moves the Denon this far on the set (42.5 to 43 to 42.5, read 2026-10-25)
-    Timer { id: settleT; interval: osd.settleMs; onTriggered: osd.keyed = false }
+    readonly property real receiverStep: 0.5      // one tap moves the Denon this far on the set (42.5 to 43 to 42.5, read 2026-10-25)
+    property int holdGapMs: 200                   // key reports closer than this are one held key (the repeat is every 40 ms; its first one comes after a pause)
+    property real rateStart: 6                    // a held key's target moves this many receiver steps (0.5) a second ...
+    property real rateAccel: 4                    // ... plus this many more each second it is held ...
+    property real rateMax: 16                     // ... up to this many
+    property int sendMs: 100                      // the target goes to the helper at most this often
+    readonly property real limit: rc && rc.volumeMax > 0 ? Math.min(98, rc.volumeMax) : 98     // the receiver's own limit (MVMAX), when the helper has heard it
+    property double lastKeyAt: 0                  // when the last volume key was reported, and its direction (1 up, -1 down)
+    property int lastDir: 0
+    property double heldSince: 0                  // when the hold in progress began (0: a tap, or none)
+    property real owed: 0                         // the part of a receiver step the hold has accrued and not yet moved
+    property real sentAbs: -1                     // the last target posted to the helper
+    property double sentAt: 0
+    Timer { id: settleT; interval: osd.settleMs; onTriggered: osd.endKeyed() }
+    // the keys' answer is over: the reading is what is shown (and the next key starts from it)
+    function endKeyed() { keyed = false; sentAbs = -1; settleT.stop() }
+    // the keys have stopped for `holdGapMs`: the hold is over, and a receiver that already says the target has confirmed it
+    Timer { id: holdT; interval: osd.holdGapMs; onTriggered: { osd.heldSince = 0; osd.owed = 0; osd.confirm(gate.doc) } }
+    // the receiver's reading says what the keys made it (the level to a quarter step, the mute as believed): the bar takes the reading from here
+    function confirm(r) {
+        if (!keyed || !r || holdT.running) return
+        if (optAbs >= 0 && !(Math.abs(Number(r.volumeAbs) - optAbs) < 0.25)) return
+        if (optMute >= 0 && !!r.mute !== (optMute === 1)) return
+        endKeyed()
+    }
     function readAbs() { return rc && rc.volumeAbs !== undefined && rc.volumeAbs !== null ? rc.volumeAbs : -1 }
+    // how many receiver steps this report is worth: one for a tap, and for a report of a held key the time since the last times the rate
+    function steps(now, dir) {
+        if (dir !== lastDir || lastKeyAt <= 0 || now - lastKeyAt > holdGapMs) { heldSince = 0; owed = 0; return 1 }
+        if (heldSince === 0) heldSince = lastKeyAt
+        var rate = Math.min(rateMax, rateStart + rateAccel * (now - heldSince) / 1000)
+        owed += rate * (now - lastKeyAt) / 1000
+        var whole = Math.floor(owed)
+        owed -= whole
+        return whole
+    }
     function key() {
         var cause = String(TvVolume.cause)
         var up = /up/i.test(cause), down = /down/i.test(cause)
         var base = keyed && optAbs >= 0 ? optAbs : readAbs()
-        if (base >= 0) optAbs = down ? Math.max(0, base - receiverStep) : up ? Math.min(98, base + receiverStep) : base
+        if (base >= 0 && (up || down)) {
+            var now = Date.now(), dir = up ? 1 : -1
+            var next = base + dir * steps(now, dir) * receiverStep
+            optAbs = up ? Math.min(next, Math.max(limit, base)) : Math.max(0, next)
+            lastKeyAt = now
+            lastDir = dir
+            holdT.restart()
+        }
         // the Denon cancels its mute on a volume key (read on the set: muted, Volume+, unmuted); a report with no direction keeps what is believed
         var was = keyed && optMute >= 0 ? optMute === 1 : !!(rc && rc.mute)
         optMute = up || down ? 0 : (was ? 1 : 0)
         keyed = true
         settleT.restart()
+        send()
     }
+    // the target to the helper: on the key if the last post is old enough, else when it is
+    function send() {
+        if (!viaReceiver || optAbs < 0 || optAbs === sentAbs) return
+        if (Date.now() - sentAt < sendMs) { if (!sendT.running) sendT.start(); return }
+        sentAbs = optAbs
+        sentAt = Date.now()
+        Helper.post("/v1/receiver/volume", { level: optAbs })
+    }
+    Timer { id: sendT; interval: osd.sendMs; onTriggered: osd.send() }
     // The mute key's report has no direction (the TV's muteStatus alone, read on the set) but the TV's own mute flag moves with it: when that flag
     // differs from what the receiver last said, the key was the mute key and the receiver follows in 0.5 to 1 s, so the bar shows it now.
     function muteKey() {
@@ -171,6 +225,7 @@ Item {
         levelKey = nextKey
         mutedRx = !!r.mute
         graceT.stop()
+        confirm(r)
     }
     property string levelKey: ""
     onFreshChanged: if (!fresh && mutedRx) graceT.restart()

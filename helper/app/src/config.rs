@@ -362,6 +362,12 @@ pub struct ReceiverTuning {
     /// The receiver's telnet port, held open for pushed changes while the screen is on. The HTTP reads are then only the
     /// fallback while it is down. 0 turns the telnet link off.
     pub telnet_port: u16,
+    /// The shortest time between two volume commands to the receiver (the display's level is sent coalesced: 100 ms is 10 a second).
+    pub volume_gap_ms: u64,
+    /// How long the level has to be quiet before the receiver is read once to see that it took it, and corrected if it did not.
+    pub volume_settle_ms: u64,
+    /// The most corrections after one level.
+    pub volume_retries: u32,
 }
 
 impl Default for ReceiverTuning {
@@ -375,6 +381,9 @@ impl Default for ReceiverTuning {
             connect_timeout_ms: 1_500,
             request_timeout_ms: 3_000,
             telnet_port: lumatv_denon::telnet::DEFAULT_TELNET_PORT,
+            volume_gap_ms: 100,
+            volume_settle_ms: 400,
+            volume_retries: 3,
         }
     }
 }
@@ -764,6 +773,8 @@ impl Config {
                 "receiver.requestTimeoutMs",
                 self.receiver.request_timeout_ms,
             ),
+            ("receiver.volumeGapMs", self.receiver.volume_gap_ms),
+            ("receiver.volumeSettleMs", self.receiver.volume_settle_ms),
         ] {
             if value == 0 {
                 return err(&format!("{name} must be above 0"));

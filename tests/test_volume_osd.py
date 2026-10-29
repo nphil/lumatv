@@ -160,21 +160,65 @@ class VolumeOsd(HostCase):
 
     def test_a_key_moves_the_level_at_once_and_an_old_reading_does_not_move_it_back(self):
         got, _ = self.run_osd([
-            (300, do("o.holdMs = 7000; o.settleMs = 1200"), "cfg"), (B, sound_out(), "out"), (B + 200, rx(RX), "rx"),
-            # five presses of a held key, 100 ms apart: the level has moved five steps before any reading, and the fill with it
-            (B + 2000, press("volumeUp", 32), "k0"), (B + 2100, press("volumeUp", 33), "k1"), (B + 2200, press("volumeUp", 34), "k2"),
-            (B + 2300, press("volumeUp", 35), "k3"), (B + 2400, press("volumeUp", 36), "k4"),
-            (B + 2500, on_osd("[o.level, o.fraction.toFixed(3)].join('|')"), "keyed"),
+            (300, do("o.holdMs = 9000; o.settleMs = 3000"), "cfg"), (B, sound_out(), "out"), (B + 200, rx(RX), "rx"),
+            # five taps, 300 ms apart (a tap is one receiver step, whatever the hold's rate is): the level has moved five steps before any reading
+            (B + 2000, press("volumeUp", 32), "k0"), (B + 2300, press("volumeUp", 33), "k1"), (B + 2600, press("volumeUp", 34), "k2"),
+            (B + 2900, press("volumeUp", 35), "k3"), (B + 3200, press("volumeUp", 36), "k4"),
+            (B + 3350, on_osd("[o.level, o.fraction.toFixed(3)].join('|')"), "keyed"),
             # a reading from before the keys reaches the display: it does not take the level back
-            (B + 2600, rx(RX), "old"), (B + 3000, on_osd("o.level"), "kept"),
-            # the receiver's own, after the last key: the level it reports is the one shown once the keys' answer has run out
-            (B + 3100, rx(dict(RX, volumeAbs=48.5, volumeDb=-31.5, volumeText="48.5")), "reported"),
-            (B + 5000, on_osd("[o.level, o.keyed].join('|')"), "reconciled"),
-        ], B + 5600)
-        self.assertEqual(got["keyed"].split("|")[0], "49", "five keys, five steps of 0.5, before the receiver says anything")
+            (B + 3450, rx(RX), "old"), (B + 3900, on_osd("o.level"), "kept"),
+            # the receiver reaches the level the keys made it: the display takes its reading at once, with no step, long before the keys' answer has run out
+            (B + 4000, rx(dict(RX, volumeAbs=48.5, volumeDb=-31.5, volumeText="48.5")), "reported"),
+            (B + 4400, on_osd("[o.level, o.keyed].join('|')"), "confirmed"),
+        ], B + 5000)
+        self.assertEqual(got["keyed"].split("|")[0], "49", "five taps, five steps of 0.5, before the receiver says anything")
         self.assertAlmostEqual(float(got["keyed"].split("|")[1]), 48.5 / 98, places=3)
         self.assertEqual(got["kept"], "49", "an old reading does not move it back")
-        self.assertEqual(got["reconciled"], "49|false", "then the reading is taken")
+        self.assertEqual(got["confirmed"], "49|false", "the receiver says the level the keys made it: the reading is taken, and it is the same number")
+
+    def test_a_level_the_receiver_does_not_reach_is_replaced_by_its_reading_once_the_keys_answer_has_run_out(self):
+        got, _ = self.run_osd([
+            (300, do("o.holdMs = 9000; o.settleMs = 1200"), "cfg"), (B, sound_out(), "out"), (B + 200, rx(RX), "rx"),
+            (B + 2000, press("volumeUp", 32), "k0"), (B + 2300, press("volumeUp", 33), "k1"),
+            (B + 2500, rx(dict(RX, volumeAbs=46.5, volumeDb=-33.5, volumeText="46.5")), "behind"), (B + 3000, on_osd("[o.level, o.keyed].join('|')"), "held"),
+            (B + 4500, on_osd("[o.level, o.keyed].join('|')"), "taken"),
+        ], B + 5100)
+        self.assertEqual(got["held"], "47|true", "the receiver is a step behind: the display keeps the target")
+        self.assertEqual(got["taken"], "47|false", "after the keys' answer has run out the reading is shown (46.5 rounds to 47 too)")
+
+    def test_a_held_key_moves_the_target_by_time_not_by_repeat_and_is_posted_at_most_ten_times_a_second(self):
+        # 26 repeats in a second, as the remote makes them: counted one step each the number would be 59; the hold's rate gives 49 to 52
+        steps = [(300, do("o.holdMs = 9000; o.settleMs = 4000"), "cfg"), (B, sound_out(), "out"), (B + 200, rx(RX), "rx")]
+        steps += [(B + 2000 + i * 40, press("volumeUp", 32 + i), "k%d" % i) for i in range(26)]
+        steps += [(B + 3300, on_osd("[o.optAbs, o.keyed].join('|')"), "target"), (B + 3400, POSTS, "posts")]
+        got, out = self.run_osd(steps, B + 4000)
+        target, keyed = got["target"].split("|")
+        self.assertEqual(keyed, "true")
+        self.assertTrue(48.5 <= float(target) <= 53, "the target after a second's hold: %s" % target)
+        posts = json.loads(re.findall(r"\[posts\] (.*)", out)[-1])["posts"]
+        levels = [b["level"] for p, b in posts if p == "/v1/receiver/volume"]
+        self.assertTrue(2 <= len(levels) <= 13, "the target is posted coalesced, not once per repeat: %s" % levels)
+        self.assertEqual(levels, sorted(levels), "the levels climb")
+        self.assertEqual(levels[-1], float(target), "the last post is the target the display ended on")
+
+    def test_the_target_stays_under_the_receivers_own_limit(self):
+        got, out = self.run_osd([
+            (300, do("o.holdMs = 9000; o.settleMs = 4000"), "cfg"), (B, sound_out(), "out"), (B + 200, rx(dict(RX, volumeMax=47.0)), "rx"),
+            (B + 2000, press("volumeUp", 32), "k0"), (B + 2300, press("volumeUp", 33), "k1"), (B + 2600, press("volumeUp", 34), "k2"),
+            (B + 3300, on_osd("[o.optAbs, o.limit].join('|')"), "target"), (B + 3400, POSTS, "posts"),
+        ], B + 4000)
+        self.assertEqual(got["target"], "47|47")
+        posts = json.loads(re.findall(r"\[posts\] (.*)", out)[-1])["posts"]
+        self.assertEqual([b["level"] for p, b in posts if p == "/v1/receiver/volume"][-1], 47.0)
+
+    def test_a_key_that_comes_back_the_other_way_starts_a_new_count(self):
+        got, _ = self.run_osd([
+            (300, do("o.holdMs = 9000; o.settleMs = 4000"), "cfg"), (B, sound_out(), "out"), (B + 200, rx(RX), "rx"),
+            (B + 2000, press("volumeUp", 32), "k0"), (B + 2040, press("volumeUp", 33), "k1"),
+            (B + 2080, press("volumeDown", 32), "k2"),
+            (B + 3000, on_osd("o.optAbs"), "target"),
+        ], B + 3600)
+        self.assertLessEqual(float(got["target"]), 46.5, "the reversal is one step down from wherever the target was: %s" % got["target"])
 
     def test_a_volume_key_over_a_muted_receiver_shows_it_unmuted_at_once_as_the_denon_cancels_its_mute(self):
         got, _ = self.run_osd([

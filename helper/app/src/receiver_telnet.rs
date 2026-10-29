@@ -50,13 +50,15 @@ pub struct Tuning {
 #[derive(Debug)]
 pub enum Event {
     /// The receiver's state, heard at `at` (`at_ms` on the wall clock). Its display mode is unknown: the link cannot learn it. `mode` and `signal` are
-    /// the sound mode and the input signal's words as last heard, raw, `None` until the receiver has said them.
+    /// the sound mode and the input signal's words as last heard, raw, `None` until the receiver has said them; `max_volume` is its volume limit
+    /// on the panel's 0 to 98 scale (`MVMAX`, sent with every volume answer).
     Reading {
         status: Status,
         at: Instant,
         at_ms: u64,
         mode: Option<String>,
         signal: Option<String>,
+        max_volume: Option<f64>,
     },
     /// The connection failed or was lost; the link is already waiting to try again.
     Down(ClientError),
@@ -330,6 +332,7 @@ fn converse(
                 at_ms: now_ms(),
                 mode: snapshot.mode().map(str::to_owned),
                 signal: snapshot.signal().map(str::to_owned),
+                max_volume: snapshot.max_volume(),
             };
             push(shared, generation, event, wake);
         }

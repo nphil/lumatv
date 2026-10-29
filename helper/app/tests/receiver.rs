@@ -330,3 +330,94 @@ fn a_receiver_that_keeps_failing_is_asked_less_and_less_often_and_found_again_wh
         avr.hits() - before
     );
 }
+
+#[test]
+fn a_held_volume_key_drives_the_receiver_to_the_displays_level_and_it_ends_there() {
+    // The set's Denon takes one CEC step in 150 ms; a held key makes 25 a second. The display's level climbs half a step every
+    // 80 ms and is posted on every key repeat: the receiver is sent at most one level in 60 ms and ends on the display's level,
+    // although a CEC step that was still in flight lands after the last command.
+    let avr = FakeAvr::start();
+    avr.set(|s| s.volume = "-44.5".into());
+    let (rig, _luna) = rig_with(
+        &avr,
+        "Active",
+        json!({"volumeGapMs": 60, "volumeSettleMs": 150}),
+    );
+    rig.wait_topic("receiver", WAIT, fresh)
+        .expect("first reading");
+    assert_eq!(avr.level(), 35.5);
+    let mut taken = 0;
+    let mut level = 35.5;
+    for repeat in 0..50 {
+        if avr.cec_step(true) {
+            taken += 1;
+        }
+        if repeat % 2 == 0 {
+            level += 0.5;
+        }
+        let body = format!(r#"{{"level":{level}}}"#);
+        assert_eq!(post(rig.addr, "/v1/receiver/volume", &body).status, 200);
+        thread::sleep(Duration::from_millis(40));
+    }
+    avr.cec_step_after(true, Duration::from_millis(60));
+    assert!(
+        taken < 16,
+        "the fake took {taken} CEC steps of 50 keys: it is not slow"
+    );
+    assert!(
+        wait_until(Duration::from_secs(3), || avr.level() == level),
+        "the receiver stopped at {} and the display at {level}",
+        avr.level()
+    );
+    thread::sleep(Duration::from_millis(400));
+    assert_eq!(avr.level(), level, "the receiver moved after it arrived");
+    let commands = avr.commands();
+    assert!(
+        commands.len() <= 2_000 / 60 + 4,
+        "{} commands in two seconds",
+        commands.len()
+    );
+    for pair in commands.windows(2) {
+        assert!(
+            pair[1].0.duration_since(pair[0].0) >= Duration::from_millis(55),
+            "two commands {:?} apart",
+            pair[1].0.duration_since(pair[0].0)
+        );
+    }
+    assert_eq!(
+        commands.last().unwrap().1,
+        "MV48",
+        "the last one sent is the display's level"
+    );
+    let doc = rig.topic("receiver").unwrap();
+    assert!(doc["volumeAbs"].is_number());
+}
+
+#[test]
+fn a_volume_level_is_not_sent_while_the_screen_is_off_or_the_receiver_switched_off() {
+    let avr = FakeAvr::start();
+    let (rig, luna) = rig_with(&avr, "Active Standby", json!({"volumeGapMs": 20}));
+    rig.wait_topic("receiver", WAIT, |v| v["polling"] == false)
+        .expect("idle");
+    assert_eq!(
+        post(rig.addr, "/v1/receiver/volume", r#"{"level":40}"#).status,
+        200
+    );
+    thread::sleep(Duration::from_millis(300));
+    assert!(avr.commands().is_empty(), "sent with the screen off");
+
+    luna.set_state("Active");
+    rig.wait_topic("receiver", WAIT, fresh).expect("a reading");
+    let off = r#"{"changes":[{"key":"enabled","value":{"type":"bool","value":false}}]}"#;
+    assert_eq!(
+        post(rig.addr, "/v1/settings/base.receiver", off).status,
+        200
+    );
+    thread::sleep(Duration::from_millis(200));
+    assert_eq!(
+        post(rig.addr, "/v1/receiver/volume", r#"{"level":40}"#).status,
+        200
+    );
+    thread::sleep(Duration::from_millis(300));
+    assert!(avr.commands().is_empty(), "sent to a receiver switched off");
+}

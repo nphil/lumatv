@@ -117,6 +117,7 @@ helper is down: retry in a couple of seconds). Every answer is `{"ok":true,"api"
 | `GET /v1/state/{topic}`, `/v1/screen`, `/v1/receiver`, `/v1/weather`, `/v1/news` | one topic with its `seq` |
 | `GET /v1/events?after=&boot=&timeout=&topics=` | long poll, up to 30 s: `{"seq","reset","events":[{"seq","at","topic","kind","data"}]}` |
 | `POST /v1/receiver/nudge` | read the receiver now and fast for 3 s (send it when a volume key is pressed) |
+| `POST /v1/receiver/volume` | `{"level": 0 to 98}`: send the volume display's level to the receiver as an absolute `MV` command (at most one in 100 ms, newest level only; read back after 400 ms and sent again, up to 3 times, if a late CEC step moved it) |
 | `POST /v1/refresh` | fetch weather and news now, even with the screen off |
 | `GET /v1/settings`, `GET /v1/settings/{owner}`, `POST /v1/settings/{owner}` | the settings layer |
 | `GET /v1/cameras`, `GET /v1/cameras/{id}/frame?w=&h=`, `POST /v1/cameras/popup/clear`, `POST /v1/cameras/event`, `POST /v1/cameras/live {camera}`, `POST /v1/cameras/live/stop` | the camera bridge's state and the shared cameras; a camera's current picture (a BMP from the hardware decoder, else the JPEG); the shell dismissed the pop-up; an event as the integration would send it (the TV check); the full view's stream on the video plane starts and stops. Topics `cameras`, `cameras.popup`, `cameras.live`, event `cameras.event` |
@@ -145,7 +146,7 @@ Topic documents (compact JSON, keys sorted):
 
 - `screen`: `{"on","state","since","source","error"}`. `state` is `tvpower`'s (`Active`, `Active Standby`, `Screen Saver`...).
   `Active` and `Screen Saver` are on. `source`: `luna-subscribe`, `luna-poll`, `config`, `assumed`.
-- `receiver`: `{"enabled","host","polling","reachable","fresh","updatedAt","error","power","input","volumeDb","volumeAbs","volumeDisplay","volumeText","mute"}`.
+- `receiver`: `{"enabled","host","polling","reachable","fresh","updatedAt","error","power","input","volumeDb","volumeAbs","volumeDisplay","volumeText","mute","soundMode","signal","volumeMax"}`.
   The six values are present only while `fresh` (read within 6 s while polling); otherwise `null`. `power` is `on`, `standby`
   or `unknown`; `input` is the receiver's code (`TV`); `volumeDb` is `MasterVolume`; `volumeAbs` is dB + 80 (the number the
   panel shows in Absolute mode); `volumeText` is what the panel shows for the receiver's display mode. Each successful read
@@ -202,7 +203,7 @@ telnet connection to port `receiver.telnetPort` (23; 0 turns it off) on the sett
 connecting and again every `receiver.pollMs`, and reads every push. `PW`, `MV` (`MV355` is 35.5 on the panel's scale, so -44.5 dB),
 `MU` and `SI` lines make a whole status once all four have been heard; each one publishes it, so a change is on the topic when it
 arrives, and an unchanged answer still moves `updatedAt` and the reading's freshness stamp (published with `set_ignoring`, so no
-event). Other lines (`MVMAX`, `SVOFF`, `SYSDA`) are ignored. The link only ever sends those four queries; commands stay on HTTP and
+event). Other lines (`SVOFF`, `SYSDA`) are ignored, except `MVMAX` (66.5 for `MVMAX 665`), which is the topic's `volumeMax`: the receiver's own limit on the 0 to 98 scale. The link only ever sends those four queries; commands stay on HTTP and
 come back as pushes. Telnet does not say which scale the panel shows, so one HTTP read learns `volumeDisplay` each time the link
 comes up (and again every `maxBackoffMs` while it is unknown).
 

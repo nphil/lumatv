@@ -40,12 +40,16 @@ pub enum Push {
     Mode(String),
     /// The input signal in the receiver's words (`SYSDA PCM ZERO`), without the `SYSDA` and the padding after it.
     Signal(String),
+    /// The receiver's volume limit on the panel's 0 to 98 scale (`MVMAX 665` is 66.5): the loudest an `MV` command can set.
+    MaxVolume(f64),
 }
 
-/// What a line means, or `None` for the many lines that are not main-zone state (`MVMAX 665`, `SVOFF`, `SYSDA PCM`, other
-/// zones, the sound mode and so on).
+/// What a line means, or `None` for the many lines that are not main-zone state (`SVOFF`, `SYSDA PCM`, other zones and so on).
 pub fn parse_line(line: &str) -> Option<Push> {
     let line = line.trim();
+    if let Some(rest) = line.strip_prefix("MVMAX ") {
+        return parse_level(rest.trim()).map(Push::MaxVolume);
+    }
     if let Some(rest) = line.strip_prefix("PW") {
         return Some(Push::Power(match rest {
             "ON" => Power::On,
@@ -55,16 +59,7 @@ pub fn parse_line(line: &str) -> Option<Push> {
         }));
     }
     if let Some(rest) = line.strip_prefix("MV") {
-        // Two digits are whole steps (`MV35`), three are tenths (`MV355` is 35.5, `MV055` is 5.5).
-        if !rest.bytes().all(|b| b.is_ascii_digit()) {
-            return None;
-        }
-        let level = match rest.len() {
-            2 => rest.parse::<f64>().ok()?,
-            3 => rest.parse::<f64>().ok()? / 10.0,
-            _ => return None,
-        };
-        return Some(Push::Volume(level - 80.0));
+        return parse_level(rest).map(|level| Push::Volume(level - 80.0));
     }
     if let Some(rest) = line.strip_prefix("MU") {
         return match rest {
@@ -89,6 +84,19 @@ pub fn parse_line(line: &str) -> Option<Push> {
     None
 }
 
+/// A volume as the receiver writes it on the panel's scale: two digits are whole steps (`35`), three are tenths (`355` is 35.5,
+/// `055` is 5.5).
+fn parse_level(digits: &str) -> Option<f64> {
+    if !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    match digits.len() {
+        2 => digits.parse::<f64>().ok(),
+        3 => digits.parse::<f64>().ok().map(|v| v / 10.0),
+        _ => None,
+    }
+}
+
 /// What the receiver has said so far, kept until all four parts are known.
 #[derive(Clone, Debug, Default)]
 pub struct Snapshot {
@@ -98,6 +106,7 @@ pub struct Snapshot {
     input: Option<String>,
     mode: Option<String>,
     signal: Option<String>,
+    max_volume: Option<f64>,
 }
 
 impl Snapshot {
@@ -110,6 +119,7 @@ impl Snapshot {
             Push::Input(i) => self.input = Some(i),
             Push::Mode(m) => self.mode = Some(m),
             Push::Signal(s) => self.signal = Some(s),
+            Push::MaxVolume(v) => self.max_volume = Some(v),
         }
     }
 
@@ -133,6 +143,11 @@ impl Snapshot {
     /// The input signal's words last heard, if any.
     pub fn signal(&self) -> Option<&str> {
         self.signal.as_deref()
+    }
+
+    /// The receiver's volume limit (0 to 98 scale) as last heard, if any.
+    pub fn max_volume(&self) -> Option<f64> {
+        self.max_volume
     }
 }
 
@@ -245,7 +260,9 @@ mod tests {
     #[test]
     fn lines_that_are_not_main_zone_state_are_ignored() {
         for line in [
-            "MVMAX 665",
+            "MVMAX",
+            "MVMAX x",
+            "MVMAX 6655",
             "SVOFF",
             "SYSMI Dolby Audio - Dolby Surround",
             "Z2ON",
@@ -263,6 +280,16 @@ mod tests {
         ] {
             assert_eq!(parse_line(line), None, "{line:?}");
         }
+    }
+
+    #[test]
+    fn the_volume_limit_is_on_the_panels_scale() {
+        assert_eq!(parse_line("MVMAX 665"), Some(Push::MaxVolume(66.5)));
+        assert_eq!(parse_line("MVMAX 81"), Some(Push::MaxVolume(81.0)));
+        let mut snapshot = Snapshot::default();
+        assert_eq!(snapshot.max_volume(), None);
+        snapshot.apply(parse_line("MVMAX 665").unwrap());
+        assert_eq!(snapshot.max_volume(), Some(66.5));
     }
 
     #[test]

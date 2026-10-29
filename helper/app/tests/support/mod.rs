@@ -186,13 +186,28 @@ impl Default for AvrState {
 }
 
 /// A receiver on the loopback: answers every connection with the Lite status as the set's receiver writes it (HTTP/1.0, no
-/// length, closes), counts the requests, and can be switched to `403` or shut down.
+/// length, closes), counts the requests, and can be switched to `403` or shut down. It also takes the web port's commands
+/// (`MV355`, recorded in `commands` and applied) and, like the set's Denon, takes the CEC volume steps LG's audio service passes on
+/// only one per `cec_gap`: [`FakeAvr::cec_step`] is such a step, and one that comes sooner is lost.
 pub struct FakeAvr {
     pub port: u16,
     state: Arc<Mutex<AvrState>>,
     hits: Arc<AtomicUsize>,
     stopping: Arc<AtomicBool>,
+    commands: Arc<Mutex<Vec<(Instant, String)>>>,
+    last_cec: Arc<Mutex<Option<Instant>>>,
+    cec_gap: Duration,
     thread: Option<JoinHandle<()>>,
+}
+
+/// The volume as the fake writes it in the status, from the panel's 0 to 98 scale.
+fn db_text(abs: f64) -> String {
+    format!("{:.1}", abs - 80.0)
+}
+
+/// The panel level a state's volume text says.
+fn abs_of(state: &AvrState) -> f64 {
+    state.volume.parse::<f64>().unwrap() + 80.0
 }
 
 impl FakeAvr {
@@ -202,8 +217,14 @@ impl FakeAvr {
         let state = Arc::new(Mutex::new(AvrState::default()));
         let hits = Arc::new(AtomicUsize::new(0));
         let stopping = Arc::new(AtomicBool::new(false));
+        let commands = Arc::new(Mutex::new(Vec::new()));
         let thread = {
-            let (state, hits, stopping) = (state.clone(), hits.clone(), stopping.clone());
+            let (state, hits, stopping, commands) = (
+                state.clone(),
+                hits.clone(),
+                stopping.clone(),
+                commands.clone(),
+            );
             thread::spawn(move || {
                 for stream in listener.incoming() {
                     if stopping.load(Ordering::SeqCst) {
@@ -219,9 +240,26 @@ impl FakeAvr {
                             Ok(n) => request.extend_from_slice(&buf[..n]),
                         }
                     }
-                    if !String::from_utf8_lossy(&request)
-                        .starts_with("GET /goform/formMainZone_MainZoneXmlStatusLite.xml ")
+                    let text = String::from_utf8_lossy(&request).into_owned();
+                    if let Some(command) = text
+                        .strip_prefix("GET /goform/formiPhoneAppDirect.xml?")
+                        .and_then(|rest| rest.split(' ').next())
                     {
+                        commands.lock().push((Instant::now(), command.to_owned()));
+                        if let Some(digits) = command.strip_prefix("MV") {
+                            let abs = match digits.len() {
+                                2 => digits.parse::<f64>().ok(),
+                                3 => digits.parse::<f64>().ok().map(|v| v / 10.0),
+                                _ => None,
+                            };
+                            if let Some(abs) = abs {
+                                state.lock().volume = db_text(abs);
+                            }
+                        }
+                        let _ = stream.write_all(b"HTTP/1.0 200 OK\r\n\r\n");
+                        continue;
+                    }
+                    if !text.starts_with("GET /goform/formMainZone_MainZoneXmlStatusLite.xml ") {
                         continue;
                     }
                     hits.fetch_add(1, Ordering::SeqCst);
@@ -244,12 +282,52 @@ impl FakeAvr {
             state,
             hits,
             stopping,
+            commands,
+            last_cec: Arc::new(Mutex::new(None)),
+            cec_gap: Duration::from_millis(150),
             thread: Some(thread),
         }
     }
 
     pub fn hits(&self) -> usize {
         self.hits.load(Ordering::SeqCst)
+    }
+
+    /// Every command the receiver was sent over its web port, in order, with when.
+    pub fn commands(&self) -> Vec<(Instant, String)> {
+        self.commands.lock().clone()
+    }
+
+    /// The volume on the panel's 0 to 98 scale.
+    pub fn level(&self) -> f64 {
+        abs_of(&self.state.lock())
+    }
+
+    /// One CEC volume step from the TV (half a step on the panel): taken if the last one was `cec_gap` ago or more, lost otherwise,
+    /// as the set's Denon loses the steps of a held key that come faster than it can take them. Returns whether it was taken.
+    pub fn cec_step(&self, up: bool) -> bool {
+        let mut last = self.last_cec.lock();
+        let now = Instant::now();
+        if last.is_some_and(|at| now.duration_since(at) < self.cec_gap) {
+            return false;
+        }
+        *last = Some(now);
+        let mut state = self.state.lock();
+        let abs = (abs_of(&state) + if up { 0.5 } else { -0.5 }).clamp(0.0, 98.0);
+        state.volume = db_text(abs);
+        true
+    }
+
+    /// A CEC step that reaches the receiver `after` from now, whatever came in between: one still in flight when the key was let go.
+    pub fn cec_step_after(&self, up: bool, after: Duration) {
+        let (state, last) = (self.state.clone(), self.last_cec.clone());
+        thread::spawn(move || {
+            thread::sleep(after);
+            *last.lock() = Some(Instant::now());
+            let mut state = state.lock();
+            let abs = (abs_of(&state) + if up { 0.5 } else { -0.5 }).clamp(0.0, 98.0);
+            state.volume = db_text(abs);
+        });
     }
 
     pub fn set(&self, change: impl FnOnce(&mut AvrState)) {

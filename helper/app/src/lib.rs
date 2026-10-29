@@ -69,6 +69,7 @@ pub mod plugins;
 pub mod preload;
 pub mod receiver;
 pub mod receiver_telnet;
+pub mod receiver_volume;
 pub mod refreshguard;
 pub mod screen;
 pub mod service;

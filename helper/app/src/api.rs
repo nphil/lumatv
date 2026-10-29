@@ -12,6 +12,7 @@
 //! | `GET /v1/state/{topic}`, `/v1/screen`, `/v1/receiver`, `/v1/weather`, `/v1/news` | one topic |
 //! | `GET /v1/events?after=&boot=&timeout=&topics=` | long poll for changes after `seq` |
 //! | `POST /v1/receiver/nudge` | read the receiver now and fast for a few seconds |
+//! | `POST /v1/receiver/volume` | send the level the volume display shows to the receiver: `{"level": 0 to 98}` (`receiver_volume.rs`) |
 //! | `POST /v1/refresh` | fetch weather and news now |
 //! | `GET /v1/settings`, `GET /v1/settings/{owner}`, `POST /v1/settings/{owner}` | the settings layer |
 //! | `GET /v1/voice`, `POST /v1/voice/{listen,stop,cancel,refresh}` | voice search (`voice.rs`) |
@@ -92,6 +93,11 @@ pub const ROUTES: &[(&str, &str, &str)] = &[
         "POST",
         "/v1/receiver/nudge",
         "read the receiver now and fast for a few seconds",
+    ),
+    (
+        "POST",
+        "/v1/receiver/volume",
+        "send the volume display's level to the receiver: {\"level\": 0 to 98}, in halves, coalesced to 10 a second",
     ),
     (
         "POST",
@@ -287,6 +293,25 @@ impl Api {
         }
         self.ambient.set_context(flags[0], flags[1]);
         self.ok(json!({"ambient": self.ambient.status()}))
+    }
+
+    /// The volume display's level, for the receiver thread to send as an absolute level. Only the newest level of a burst is sent.
+    fn receiver_volume(&self, request: &Request) -> Response {
+        let body = match body_object(request) {
+            Ok(b) => b,
+            Err(r) => return r,
+        };
+        let Some(level) = body.get("level").and_then(Value::as_f64) else {
+            return bad_request("level must be a number from 0 to 98");
+        };
+        if !(0.0..=crate::receiver_volume::MAX_LEVEL).contains(&level) {
+            return bad_request("level must be a number from 0 to 98");
+        }
+        let level = crate::receiver_volume::quantize(level).unwrap_or(level);
+        let _ = self
+            .receiver_tx
+            .send(receiver::Cmd::Volume((level * 2.0) as u16));
+        self.ok(json!({"requested": true, "level": level}))
     }
 
     fn helper_info(&self, now: u64) -> Value {
@@ -504,6 +529,7 @@ impl Handler for Api {
                 let _ = self.receiver_tx.send(receiver::Cmd::Nudge);
                 self.ok(json!({"requested": true}))
             }
+            ["v1", "receiver", "volume"] if post => self.receiver_volume(request),
             ["v1", "refresh"] if post => self.refresh(request),
             ["v1", "settings"] if get => self.settings_list(),
             ["v1", "settings", owner] if get => self.settings_get(owner),
@@ -570,7 +596,7 @@ fn is_known_path(segments: &[&str]) -> bool {
             | ["v1", "cameras", "live"]
             | ["v1", "cameras", "live", "stop"]
             | ["v1", "state" | "settings", _]
-            | ["v1", "receiver", "nudge"]
+            | ["v1", "receiver", "nudge" | "volume"]
             | ["v1", "ambient", "test" | "context" | "refresh"]
     )
 }
@@ -578,7 +604,7 @@ fn is_known_path(segments: &[&str]) -> bool {
 fn allowed_methods(segments: &[&str]) -> &'static str {
     match segments {
         ["v1", "refresh"]
-        | ["v1", "receiver", "nudge"]
+        | ["v1", "receiver", "nudge" | "volume"]
         | ["v1", "ambient", "test" | "context" | "refresh"] => "POST",
         ["v1", "settings", _] => "GET, POST",
         _ => "GET",
@@ -1034,6 +1060,32 @@ mod tests {
             200
         );
         assert_eq!(rig.receiver_rx.try_recv(), Ok(receiver::Cmd::Nudge));
+        assert_eq!(
+            rig.api
+                .handle(&request(
+                    "POST",
+                    "/v1/receiver/volume",
+                    r#"{"level":46.74}"#
+                ))
+                .status,
+            200
+        );
+        assert_eq!(rig.receiver_rx.try_recv(), Ok(receiver::Cmd::Volume(93)));
+        for bad in [
+            r#"{"level":99}"#,
+            r#"{"level":-1}"#,
+            r#"{"level":"loud"}"#,
+            "{}",
+        ] {
+            assert_eq!(
+                rig.api
+                    .handle(&request("POST", "/v1/receiver/volume", bad))
+                    .status,
+                400,
+                "{bad}"
+            );
+        }
+        assert!(rig.receiver_rx.try_recv().is_err());
         assert_eq!(
             rig.api.handle(&request("POST", "/v1/refresh", "")).status,
             200

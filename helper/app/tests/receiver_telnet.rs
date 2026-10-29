@@ -270,6 +270,10 @@ fn changes_reach_the_topic_as_they_are_pushed_and_nothing_is_polled() {
     assert_eq!(live["input"], "TV");
     assert_eq!(live["volumeDb"], -44.5);
     assert_eq!(live["volumeAbs"], 35.5);
+    assert_eq!(
+        live["volumeMax"], 66.5,
+        "the receiver's own limit, from its MVMAX"
+    );
     assert_eq!(live["mute"], false);
     // The panel's scale is not on the telnet port: one HTTP read learns it.
     let shown = rig
