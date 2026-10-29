@@ -122,7 +122,7 @@ class Tokens(unittest.TestCase):
         self.assertIn("--lu-ink: rgba(23, 19, 31, 1.000);", light)
         self.assertIn("--lu-accent: #907AA9;", light)          # the palette's own: the wallpaper tints Home, not a web page
         self.assertIn("--lu-accent-ink: #17131F;", light)          # whichever of the palette's inks reads best on it, as Lu.qml picks
-        for want in ("--lu-font: Manrope, system-ui, sans-serif;", "--lu-radius-sheet: 34px;", "--lu-type-body: 28px;", "--lu-card-ms: 180ms;",
+        for want in ("--lu-font: Manrope, system-ui, sans-serif;", "--lu-radius-sheet: 34px;", "--lu-type-body: 28px;", "--lu-card-ms: 260ms;",
                      "--lu-ease-card: cubic-bezier(0.215, 0.61, 0.355, 1);", "--lu-focus-wash: rgba(23, 19, 31, 0.060);"):
             self.assertIn(want, css)
         for face in ("Regular", "Medium", "SemiBold", "Bold"):

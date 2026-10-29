@@ -93,7 +93,7 @@ class Build(unittest.TestCase):
             self.assertNotIn(marker, text)
         self.assertNotIn("@@", text)
         self.assertEqual(options["parts"], ["look", "motion"])
-        self.assertEqual(options["capMs"], 180)
+        self.assertEqual(options["capMs"], 260)
         with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
             f.write(text)
         try:
@@ -560,7 +560,7 @@ class InTheBrowser(unittest.TestCase):
 
     def test_script_made_animations_are_asked_for_the_cap_and_forever_ones_are_left_alone(self):
         a = self.r["animate"]
-        self.assertEqual((a["long"], a["number"], a["short"], a["forever"], a["keeps"]), (180, 180, 100, 800, 30))
+        self.assertEqual((a["long"], a["number"], a["short"], a["forever"], a["keeps"]), (260, 260, 100, 800, 30))
         self.assertEqual(self.r["spinRate"], 1, "a spinner is not sped up")
 
     def test_lazy_pictures_only_when_asked_for(self):
