@@ -39,7 +39,7 @@ os.environ.setdefault('QML_XHR_ALLOW_FILE_WRITE', '1')
 
 sys.path.insert(0, HERE)
 import qmlhost  # noqa: E402
-from channel import Channel, serve  # noqa: E402
+from channel import Channel, emit, serve  # noqa: E402
 from PyQt5 import QtCore, QtGui, QtQml  # noqa: E402
 
 IGNORE = re.compile(r'\[host\]|Implicitly defined onFoo|QSslSocket|OpenSSL|place lookup failed|no stories; retry|load glyph failed|XMLHttpRequest: Using GET')
@@ -93,7 +93,7 @@ def main(argv=None):
 
     def handler(mode, ctx, msg):
         messages.append((int(mode), ctx.file or '', ctx.line, msg))
-        print(f'[{["debug", "warning", "critical", "fatal", "info"][int(mode)]}] {os.path.basename(ctx.file or "")}:{ctx.line}: {msg}', flush=True)
+        emit(f'[{["debug", "warning", "critical", "fatal", "info"][int(mode)]}] {os.path.basename(ctx.file or "")}:{ctx.line}: {msg}')
     QtCore.qInstallMessageHandler(handler)
 
     # qml-runner's first argument, as the compositor builds it (shell.rs).
@@ -176,7 +176,7 @@ def main(argv=None):
     def evaluate(expr):
         e = QtQml.QQmlExpression(ctx, home, expr)
         v = e.evaluate()
-        print(f'[eval] {v}', flush=True)
+        emit(f'[eval] {v}')
 
     def snap_sys(path):
         sysw.grabWindow().save(path)

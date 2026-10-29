@@ -6,9 +6,20 @@ cancels (`[cancel]`), the keyboard (`[ime]`) and the switcher (`[switcher]`); `-
 subscriptions as tvpower does, `--luna-delay` holds each luna call before it is handled.
 """
 import json
+import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+_emit_lock = threading.RLock()
+
+
+def emit(line):
+    """One whole line on stdout. `print` writes the text and the newline separately, so a line from the server's threads and one from Qt's
+    message handler (the main or the render thread) can run into each other when the host is slow; the tests read lines back as JSON."""
+    with _emit_lock:
+        sys.stdout.write(line + '\n')
+        sys.stdout.flush()
 
 
 class Channel:
@@ -55,7 +66,7 @@ class Channel:
 def serve(channel, port, say=None):
     """Serves `channel` on `port`; `say(line)` prints what the client sent (one line at a time, whole), the console by default."""
     say_lock = threading.Lock()
-    out = say or (lambda line: print(line, flush=True))
+    out = say or emit
 
     def say(line):
         # The server answers on threads of its own: one line at a time, whole.

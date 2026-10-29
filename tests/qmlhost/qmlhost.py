@@ -40,6 +40,7 @@ os.environ.setdefault('QML_XHR_ALLOW_FILE_READ', '1')
 os.environ.setdefault('QML_XHR_ALLOW_FILE_WRITE', '1')
 
 from PyQt5 import QtCore, QtGui, QtQml, QtQuick  # noqa: E402
+from channel import emit  # noqa: E402
 
 
 class TextFile(QtCore.QObject):
@@ -247,7 +248,7 @@ def main(argv=None):
 
     def handler(mode, ctx, msg):
         messages.append((int(mode), ctx.file or '', ctx.line, msg))
-        print(f'[{["debug", "warning", "critical", "fatal", "info"][int(mode)]}] {os.path.basename(ctx.file or "")}:{ctx.line}: {msg}', flush=True)
+        emit(f'[{["debug", "warning", "critical", "fatal", "info"][int(mode)]}] {os.path.basename(ctx.file or "")}:{ctx.line}: {msg}')
     QtCore.qInstallMessageHandler(handler)
 
     app = QtGui.QGuiApplication(sys.argv[:1])
@@ -384,7 +385,7 @@ def main(argv=None):
     def evaluate(expr):
         e = QtQml.QQmlExpression(view.rootContext(), surface, expr)
         v = e.evaluate()
-        print(f'[eval] {v}', flush=True)
+        emit(f'[eval] {v}')
     for spec in a.eval:
         ms, expr = spec.split(':', 1)
         QtCore.QTimer.singleShot(int(ms), QtCore.Qt.PreciseTimer, lambda x=expr: evaluate(x))
