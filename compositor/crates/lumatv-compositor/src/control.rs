@@ -45,6 +45,8 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             "lastCapture": state.last_capture,
             "oledcare": oledcare,
             "scanout": state.scanout_report(),
+            "pointerPlane": state.pointer_report(),
+            "vwin": state.vwin_report(),
             })
         }
         "windows" => {
@@ -196,15 +198,56 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
         }
         "pointer" => {
             // pointer X Y: as if the Magic Remote moved there (enter/leave/motion by the scene, cursor shown).
-            let x: Option<i32> = words.next().and_then(|c| c.parse().ok());
+            // pointer [plane|gpu]: where the pointer is drawn, in the frame or by the cursor plane (`pointer`, docs/research/hw-planes-result.md); the
+            // report (the switch, whether the plane carries it, its counters) with no word.
+            let first = words.next();
+            if first.is_none() || first == Some("status") {
+                return Reply::Now(json!({"ok": true, "pointer": state.pointer_report()}).to_string());
+            }
+            if let Some(mode) = first.and_then(crate::pointer::Mode::parse) {
+                let done = match mode {
+                    // the frame is always there to draw it
+                    crate::pointer::Mode::Gpu => {
+                        let _ = state.output.set_pointer_mode(mode);
+                        Ok(())
+                    }
+                    crate::pointer::Mode::Plane => state.output.set_pointer_mode(mode),
+                };
+                return Reply::Now(
+                    match done {
+                        Ok(()) => {
+                            state.config.pointer = mode;
+                            state.pointer_sync();
+                            state.journal(format!("pointer: {} (control socket)", mode.name()));
+                            json!({"ok": true, "pointer": state.pointer_report()})
+                        }
+                        Err(e) => json!({"ok": false, "error": format!("pointer {}: {e}", mode.name()), "pointer": state.pointer_report()}),
+                    }
+                    .to_string(),
+                );
+            }
+            let x: Option<i32> = first.and_then(|c| c.parse().ok());
             let y: Option<i32> = words.next().and_then(|c| c.parse().ok());
             match (x, y) {
                 (Some(x), Some(y)) => {
                     let sent = crate::server::seat::pointer_motion(state, x, y);
                     json!({"ok": true, "delivered": sent, "focus": state.seat.pointer_focus.map(|s| s.0)})
                 }
-                _ => json!({"ok": false, "error": "pointer X Y"}),
+                _ => json!({"ok": false, "error": "pointer X Y | pointer [plane|gpu]"}),
             }
+        }
+        // The scan-out pages as the display and the GPU driver have them (`afbc`, docs/research/hw-planes-result.md): their layout, what was asked for and
+        // why a linear ring stands in when it does, what the plane and the driver list, and the bandwidth the layout costs and saves. The layout is chosen
+        // at start (`--afbc`, `--page-alpha`): the pages cannot be swapped with the CMA the set has free.
+        "afbc" => match state.output.afbc_report() {
+            Some(r) => json!({"ok": true, "afbc": r, "mode": state.config.afbc.name(), "pageAlpha": state.config.page_alpha}),
+            None => json!({"ok": false, "error": "this output has no scan-out pages"}),
+        },
+        // The hardware video windows (`vwin`): `vwin` reads the allocator and the claims; `vwin off|idle|apps` is the switch; `vwin claim ID KIND X Y W H
+        // [APP] [CODEC WxH@FPS]`, `vwin move ID X Y W H`, `vwin release ID|all` ask as the shell would (a TV check places a window without the shell).
+        "vwin" => {
+            let rest: Vec<&str> = words.collect();
+            state.vwin_ctl(&rest)
         }
         "click" => {
             // click [press|release|tap]: OK through the key routing while the cursor shows, i.e. BTN_LEFT.
@@ -345,7 +388,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
         }
         "" => json!({"ok": false, "error": "empty command"}),
         other => {
-            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, screencap [status|shot|record start|record stop], key CODE, remote CODE, pointer X Y, click, sched mali fifo|other, callbacks shell|clients early|landing, mem, wake [reset|probe start|probe stop], ring [N], idle [MS], refresh [60|120], scanout [off|direct], fallback [reason], quit")})
+            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, screencap [status|shot|record start|record stop], key CODE, remote CODE, pointer X Y, click, sched mali fifo|other, callbacks shell|clients early|landing, mem, wake [reset|probe start|probe stop], ring [N], idle [MS], refresh [60|120], scanout [off|direct], pointer [plane|gpu|X Y], afbc, vwin [off|idle|apps|claim|move|release], fallback [reason], quit")})
         }
     };
     Reply::Now(reply.to_string())

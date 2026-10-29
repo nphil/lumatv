@@ -24,6 +24,8 @@
 use serde_json::{Value, json};
 
 use crate::Rect;
+use crate::luna::{Outbound, ToBridge};
+use crate::window::{WindowId, WindowType};
 
 /// The most windows a policy may name; the display has two.
 pub const MAX_SLOTS: usize = 4;
@@ -318,8 +320,10 @@ pub struct Claim {
     pub state: ClaimState,
     pub slot: Option<usize>,
     pub limits: Option<Limits>,
-    /// The window (`WindowId`) that plays it, once one has been bound.
+    /// The window (`WindowId`) that plays it, once one has been bound. Kept when the claim ends, for the caller to unplace and close it, then cleared.
     pub window: Option<u32>,
+    /// Its video uses the main and the sub scaler (`videooutputd` says `subScalerOccupied` for its sink): it holds two windows.
+    pub wide: bool,
     pub seq: u64,
 }
 
@@ -336,6 +340,8 @@ pub struct World {
     pub both_scalers: bool,
     /// The wallpaper's decoder is attached.
     pub wall: bool,
+    /// ... and its video uses both scalers.
+    pub wall_wide: bool,
     /// The screen is off.
     pub standby: bool,
 }
@@ -404,6 +410,10 @@ impl Allocator {
         self.claims.iter_mut().find(|c| c.id == id)
     }
 
+    pub fn claims_mut(&mut self) -> impl Iterator<Item = &mut Claim> {
+        self.claims.iter_mut()
+    }
+
     pub fn granted(&self) -> impl Iterator<Item = &Claim> {
         self.claims.iter().filter(|c| c.state == ClaimState::Granted)
     }
@@ -418,12 +428,23 @@ impl Allocator {
             let at = c.slot.filter(|s| occ.get(*s).is_some_and(Option::is_none)).or_else(|| first_free(&occ));
             if let Some(i) = at {
                 occ[i] = Some(Holder::Claim(c.id.clone()));
+                // a video that uses both scalers holds the next window too
+                if c.wide
+                    && let Some(j) = first_free(&occ)
+                {
+                    occ[j] = Some(Holder::Claim(c.id.clone()));
+                }
             }
         }
         if world.wall
             && let Some(i) = first_free(&occ)
         {
             occ[i] = Some(Holder::Wall);
+            if world.wall_wide
+                && let Some(j) = first_free(&occ)
+            {
+                occ[j] = Some(Holder::Wall);
+            }
         }
         occ
     }
@@ -469,6 +490,7 @@ impl Allocator {
             slot: None,
             limits: None,
             window: None,
+            wide: false,
             seq,
         };
         let decision = self.decide(world, &req);
@@ -482,7 +504,6 @@ impl Allocator {
                         && let Some(c) = self.claim_mut(id)
                     {
                         c.state = ClaimState::Preempted(Reason::Higher);
-                        c.window = None;
                     }
                 }
             }
@@ -548,7 +569,6 @@ impl Allocator {
                 && !n.fits(limits(slot, n.codec))
             {
                 c.state = ClaimState::Preempted(Reason::TooBig);
-                c.window = None;
                 return false;
             }
             c.limits = c.slot.map(|s| limits(s, n.codec));
@@ -574,30 +594,30 @@ impl Allocator {
         if let Some(reason) = gate {
             for i in order {
                 self.claims[i].state = ClaimState::Preempted(reason);
-                self.claims[i].window = None;
                 ended.push(self.claims[i].id.clone());
             }
             return ended;
         }
         // more holders than windows: the lowest claims give theirs up
         let apps = world.app_slots(self.policy.mode);
-        let wall = usize::from(world.wall);
-        let mut held = apps + order.len() + wall;
+        let wall = if world.wall { 1 + usize::from(world.wall_wide) } else { 0 };
+        let width = |c: &Claim| 1 + usize::from(c.wide);
+        let mut held = apps + order.iter().map(|i| width(&self.claims[*i])).sum::<usize>() + wall;
         order.sort_by_key(|i| (self.claims[*i].kind.priority(), std::cmp::Reverse(self.claims[*i].seq)));
         for i in order {
             if held <= self.policy.slots {
                 break;
             }
+            held -= width(&self.claims[i]);
             self.claims[i].state = ClaimState::Preempted(Reason::NoWindow);
-            self.claims[i].window = None;
             ended.push(self.claims[i].id.clone());
-            held -= 1;
         }
         ended
     }
 
     /// A claim's own record for the topic and `ctl`.
     pub fn claim_json(c: &Claim, placed: bool, sink: Option<&str>) -> Value {
+        // (`wide`: it holds the sub window as well)
         json!({
             "id": c.id,
             "kind": c.kind.name(),
@@ -610,9 +630,550 @@ impl Allocator {
             "rect": {"x": c.rect.x, "y": c.rect.y, "w": c.rect.w, "h": c.rect.h},
             "need": c.need.map(|n| json!({"codec": n.codec.name(), "w": n.w, "h": n.h, "fps": n.fps})),
             "window": c.window,
+            "wide": c.wide,
             "placed": placed,
             "sink": sink,
         })
+    }
+}
+
+// ---- the compositor's side: the sinks `videooutputd` reports, the windows the claims are played in, the shell's and `ctl`'s requests ----------
+
+/// One video sink of `videooutputd`'s status (`com.webos.service.videooutput/getStatus`, read on the set: `video` lists `MAIN` at z 0 and `SUB0` at z 1).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Sink {
+    pub name: String,
+    pub connected: bool,
+    pub context: String,
+    pub app: String,
+    pub z: i64,
+    /// `videoInfo.subScalerOccupied`: this video uses the main and the sub scaler.
+    pub occupied: bool,
+    pub width: u64,
+    pub height: u64,
+    pub fps: f64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Sinks {
+    pub video: Vec<Sink>,
+}
+
+impl Sinks {
+    /// The `video` list of a status answer; `None` for an answer that has none.
+    pub fn parse(payload: &Value) -> Option<Sinks> {
+        let list = payload.get("video")?.as_array()?;
+        let text = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+        Some(Sinks {
+            video: list
+                .iter()
+                .map(|v| Sink {
+                    name: text(v, "sink"),
+                    connected: v.get("connected").and_then(Value::as_bool).unwrap_or(false),
+                    context: text(v, "context"),
+                    app: text(v, "appId"),
+                    z: v.get("zOrder").and_then(Value::as_i64).unwrap_or(0),
+                    occupied: v.pointer("/videoInfo/subScalerOccupied").and_then(Value::as_bool).unwrap_or(false),
+                    width: v.get("width").and_then(Value::as_u64).unwrap_or(0),
+                    height: v.get("height").and_then(Value::as_u64).unwrap_or(0),
+                    fps: v.get("frameRate").and_then(Value::as_f64).unwrap_or(0.0),
+                })
+                .collect(),
+        })
+    }
+
+    /// The connected sink one of `contexts` is on.
+    pub fn of(&self, contexts: &[String]) -> Option<&Sink> {
+        self.video.iter().find(|s| s.connected && contexts.contains(&s.context))
+    }
+
+    pub fn json(&self) -> Value {
+        Value::Array(
+            self.video
+                .iter()
+                .map(|s| {
+                    json!({"sink": s.name, "connected": s.connected, "z": s.z, "app": s.app, "occupiesBoth": s.occupied, "size": [s.width, s.height], "fps": s.fps})
+                })
+                .collect(),
+        )
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Stats {
+    pub granted: u64,
+    pub denied: u64,
+    pub ended: u64,
+    pub released: u64,
+    pub windows_closed: u64,
+}
+
+/// What the compositor keeps beside the allocator.
+pub struct Vwin {
+    pub alloc: Allocator,
+    pub sinks: Sinks,
+    /// The token of the status subscription, once it is made.
+    pub status_token: Option<u64>,
+    last_topic: Value,
+    pub stats: Stats,
+}
+
+impl Vwin {
+    pub fn new(policy: Policy) -> Vwin {
+        Vwin { alloc: Allocator::new(policy), sinks: Sinks::default(), status_token: None, last_topic: Value::Null, stats: Stats::default() }
+    }
+}
+
+/// A video window nobody has claimed for this long is closed: whoever started it did not ask first (or the claim was refused and it started anyway).
+const NEVER_BOUND_NS: u64 = 3_000_000_000;
+const STATUS_URI: &str = "luna://com.webos.service.videooutput/getStatus";
+
+impl crate::State {
+    /// What the screen holds besides the claims: the exported elements by the kind of window that owns them, and what `videooutputd` says.
+    pub fn vwin_world(&self) -> World {
+        let mut w = World { standby: !self.luna_state.power.rendering, ..World::default() };
+        let mut known: Vec<&str> = Vec::new();
+        let mut ours: Vec<&str> = Vec::new();
+        let mut wall: Vec<&str> = Vec::new();
+        for e in self.foreign.exported.values() {
+            known.extend(e.contexts.iter().map(String::as_str));
+            let kind = self.scene.window_of(e.surface).and_then(|id| self.scene.window(id)).map(|w| w.kind);
+            match kind {
+                Some(WindowType::VideoWindow) => ours.extend(e.contexts.iter().map(String::as_str)),
+                Some(WindowType::ShellHome | WindowType::ShellSystem) => {}
+                Some(WindowType::Wallpaper) => {
+                    ours.extend(e.contexts.iter().map(String::as_str));
+                    if !e.contexts.is_empty() {
+                        w.wall = true;
+                        wall.extend(e.contexts.iter().map(String::as_str));
+                    }
+                }
+                _ => {
+                    w.app_elements += 1;
+                    if !e.contexts.is_empty() {
+                        w.app_playing += 1;
+                    }
+                }
+            }
+        }
+        let sinks = &self.vwin.sinks.video;
+        w.other_connected = sinks.iter().filter(|s| s.connected && !known.contains(&s.context.as_str())).count() as u32;
+        w.both_scalers = sinks.iter().any(|s| s.connected && s.occupied && !ours.contains(&s.context.as_str()));
+        w.wall_wide = sinks.iter().any(|s| s.connected && s.occupied && wall.contains(&s.context.as_str()));
+        w
+    }
+
+    /// The contexts the elements of a window carry.
+    fn vwin_contexts(&self, window: WindowId) -> Vec<String> {
+        let Some(surface) = self.scene.window(window).map(|w| w.surface) else { return Vec::new() };
+        self.foreign.exported.values().filter(|e| e.surface == surface).flat_map(|e| e.contexts.iter().cloned()).collect()
+    }
+
+    /// The sink a claim's video is on, read back from `videooutputd`'s status: the proof of which window LG's resource manager gave it.
+    fn vwin_sink_of(&self, c: &Claim) -> Option<String> {
+        let w = c.window.map(WindowId)?;
+        self.vwin.sinks.of(&self.vwin_contexts(w)).map(|s| s.name.clone())
+    }
+
+    /// Brings the windows and the claims into step: the claims the screen no longer allows end, each claim is bound to the video window that plays it
+    /// (by app id; an empty one takes the first window without a claim), that window is drawn with its hole and placement at the claim's rectangle, a window
+    /// without a claim is not, and one nobody ever claimed is closed. Called wherever the world or a claim changed and at each tick; with the switch off
+    /// and nothing to look after it returns at once.
+    pub fn vwin_sync(&mut self) {
+        let has_windows = self.scene.windows().any(|w| w.kind == WindowType::VideoWindow);
+        if self.vwin.alloc.policy.mode == Mode::Off && self.vwin.alloc.claims().is_empty() && !has_windows {
+            return;
+        }
+        // a claim's video that uses both scalers holds two windows (the status says)
+        let wides: Vec<(String, bool)> = self
+            .vwin
+            .alloc
+            .granted()
+            .filter_map(|c| {
+                let w = c.window.map(WindowId)?;
+                Some((c.id.clone(), self.vwin.sinks.of(&self.vwin_contexts(w)).is_some_and(|s| s.occupied)))
+            })
+            .collect();
+        for (id, wide) in wides {
+            if let Some(c) = self.vwin.alloc.claim_mut(&id) {
+                c.wide = wide;
+            }
+        }
+        let world = self.vwin_world();
+        for id in self.vwin.alloc.settle(&world) {
+            self.vwin_end(&id, "the screen no longer allows it");
+        }
+        self.vwin_bind();
+        self.vwin_close_unclaimed();
+        let topic = self.vwin_topic();
+        if topic != self.vwin.last_topic {
+            self.vwin.last_topic = topic;
+            self.shell_sync_topics();
+        }
+    }
+
+    /// A claim has ended (it is marked): its window stops being drawn and placed, and is closed so that the video it plays ends and the decoder is free
+    /// for whoever took the window.
+    fn vwin_end(&mut self, id: &str, why: &str) {
+        let Some(c) = self.vwin.alloc.claim_mut(id) else { return };
+        let (window, reason) = (c.window.take(), c.state.reason().map_or("", Reason::word));
+        self.vwin.stats.ended += 1;
+        self.journal(format!("vwin: claim {id} ended ({reason}): {why}"));
+        if let Some(w) = window {
+            let wid = WindowId(w);
+            self.vwin_unplace(wid);
+            self.vwin_close(wid, &format!("claim {id} ended"));
+        }
+    }
+
+    /// The window is not drawn, and its elements are hidden (a placement of 0x0); it stays, for the next claim.
+    fn vwin_unplace(&mut self, wid: WindowId) {
+        let Some(w) = self.scene.window_mut(wid) else { return };
+        let was = std::mem::replace(&mut w.vwin_live, false);
+        let surface = w.surface;
+        if was {
+            self.vwin_elements_changed(surface);
+        }
+    }
+
+    fn vwin_elements_changed(&mut self, surface: crate::surface::SurfaceId) {
+        let ids: Vec<String> = self.foreign.exported.values().filter(|e| e.surface == surface).map(|e| e.window_id.clone()).collect();
+        for id in ids {
+            self.exported_changed(&id);
+        }
+    }
+
+    /// Asks the window to close (`wl_webos_shell_surface.close`): the process that owns it ends its video and goes.
+    fn vwin_close(&mut self, wid: WindowId, why: &str) {
+        if let Some(w) = self.scene.window_mut(wid) {
+            w.vwin_closed = true;
+        }
+        if let Some(res) = self.webos_shell_resource(wid) {
+            res.close();
+            self.vwin.stats.windows_closed += 1;
+            self.journal(format!("vwin: close sent to window {} ({why})", wid.0));
+        }
+    }
+
+    /// The wallpaper's window is taken by a more important video: the same close `wall_handover` sends when Home leaves the screen.
+    fn vwin_close_wall(&mut self) {
+        let ids: Vec<WindowId> = self.scene.windows().filter(|w| w.kind == WindowType::Wallpaper && w.map_serial > 0).map(|w| w.id).collect();
+        for id in ids {
+            if let Some(res) = self.webos_shell_resource(id) {
+                res.close();
+                self.journal(format!("vwin: close sent to the wallpaper's window {} (a video of a claim takes its window)", id.0));
+            }
+        }
+    }
+
+    fn vwin_bind(&mut self) {
+        let alive: Vec<u32> = self.scene.windows().map(|w| w.id.0).collect();
+        for c in self.vwin.alloc.claims_mut() {
+            if c.window.is_some_and(|w| !alive.contains(&w)) {
+                c.window = None;
+            }
+        }
+        let windows: Vec<(WindowId, crate::surface::SurfaceId, String)> =
+            self.scene.windows().filter(|w| w.kind == WindowType::VideoWindow && !w.vwin_closed).map(|w| (w.id, w.surface, w.app_id().to_string())).collect();
+        for (wid, surface, app) in windows {
+            let claim = self
+                .vwin
+                .alloc
+                .granted()
+                .find(|c| c.window == Some(wid.0) || (c.window.is_none() && (c.app.is_empty() || c.app == app)))
+                .map(|c| (c.id.clone(), c.rect));
+            let (live, rect) = claim.as_ref().map_or((false, crate::Rect::default()), |(_, r)| (true, *r));
+            if let Some((id, _)) = &claim
+                && let Some(c) = self.vwin.alloc.claim_mut(id)
+            {
+                c.window = Some(wid.0);
+            }
+            let Some(w) = self.scene.window_mut(wid) else { continue };
+            let changed = w.vwin_live != live || (live && w.vwin_rect != rect);
+            w.vwin_live = live;
+            w.vwin_rect = rect;
+            w.vwin_bound |= live;
+            if changed {
+                if let Some((id, _)) = &claim {
+                    self.journal(format!("vwin: window {} plays claim {id} at {},{} {}x{}", wid.0, rect.x, rect.y, rect.w, rect.h));
+                }
+                self.vwin_elements_changed(surface);
+            }
+        }
+    }
+
+    fn vwin_close_unclaimed(&mut self) {
+        let now = crate::output::monotonic_ns();
+        let stale: Vec<WindowId> = self
+            .scene
+            .windows()
+            .filter(|w| w.kind == WindowType::VideoWindow && w.map_serial > 0 && !w.vwin_bound && !w.vwin_closed && !w.vwin_live)
+            .map(|w| w.id)
+            .collect();
+        for id in stale {
+            let seen = self.scene.window(id).map_or(0, |w| w.vwin_seen_ns);
+            if seen == 0 {
+                if let Some(w) = self.scene.window_mut(id) {
+                    w.vwin_seen_ns = now;
+                }
+            } else if now.saturating_sub(seen) > NEVER_BOUND_NS {
+                self.vwin_close(id, "no claim was granted for it");
+            }
+        }
+    }
+
+    /// The claims and the windows as the shell reads them (topic `vwin`).
+    pub fn vwin_topic(&self) -> Value {
+        let world = self.vwin_world();
+        let occupied = self.vwin.alloc.occupancy(&world);
+        let claims: Vec<Value> = self
+            .vwin
+            .alloc
+            .claims()
+            .iter()
+            .map(|c| {
+                let placed = c.window.and_then(|w| self.scene.window(WindowId(w))).is_some_and(|w| w.vwin_live && w.map_serial > 0);
+                Allocator::claim_json(c, placed, self.vwin_sink_of(c).as_deref())
+            })
+            .collect();
+        json!({
+            "mode": self.vwin.alloc.policy.mode.name(),
+            "slots": self.vwin.alloc.policy.slots,
+            "free": occupied.iter().filter(|o| o.is_none()).count(),
+            "apps": world.app_slots(self.vwin.alloc.policy.mode),
+            "wall": world.wall,
+            "claims": claims,
+        })
+    }
+
+    /// `ctl vwin`: the topic and what is behind it.
+    pub fn vwin_report(&self) -> Value {
+        let world = self.vwin_world();
+        let mut r = self.vwin_topic();
+        r["world"] = json!({
+            "appElements": world.app_elements, "appPlaying": world.app_playing, "otherConnected": world.other_connected, "bothScalers": world.both_scalers,
+            "wall": world.wall, "wallBoth": world.wall_wide, "standby": world.standby,
+        });
+        r["sinks"] = self.vwin.sinks.json();
+        r["subscribed"] = self.vwin.status_token.is_some().into();
+        r["windows"] = Value::Array(
+            self.scene
+                .windows()
+                .filter(|w| w.kind == WindowType::VideoWindow)
+                .map(|w| {
+                    json!({"id": w.id.0, "app": w.app_id(), "mapped": w.map_serial > 0, "live": w.vwin_live, "bound": w.vwin_bound, "closed": w.vwin_closed,
+                           "rect": [w.vwin_rect.x, w.vwin_rect.y, w.vwin_rect.w, w.vwin_rect.h]})
+                })
+                .collect(),
+        );
+        r["stats"] = json!({
+            "granted": self.vwin.stats.granted, "denied": self.vwin.stats.denied, "ended": self.vwin.stats.ended, "released": self.vwin.stats.released,
+            "windowsClosed": self.vwin.stats.windows_closed,
+        });
+        r["limits"] = json!({
+            "main": {"h264": [4096, 2304, 60], "h265": [4096, 2304, 120]},
+            "sub": {"h264": [1920, 1088, 30], "h265": [1920, 1088, 30], "vp9": [1920, 1088, 60]},
+            "source": "device_codec_capability_config.json, multiview_sub",
+        });
+        r
+    }
+
+    fn vwin_claim_json(&self, id: &str) -> Value {
+        self.vwin.alloc.claim(id).map_or(Value::Null, |c| {
+            let placed = c.window.and_then(|w| self.scene.window(WindowId(w))).is_some_and(|w| w.vwin_live && w.map_serial > 0);
+            Allocator::claim_json(c, placed, self.vwin_sink_of(c).as_deref())
+        })
+    }
+
+    /// One request of the shell (`POST /v1/vwin`) or of `ctl vwin`: `{"op": "claim", ...}`, `move`, `release`, `releaseAll`. The answer is the claim as it is
+    /// now; the shell reads the same in the topic.
+    pub fn vwin_command(&mut self, body: &Value) -> Value {
+        let op = body.get("op").and_then(Value::as_str).unwrap_or("");
+        let id = body.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+        let reply = match op {
+            "claim" => match Request::from_json(body) {
+                Ok(req) => {
+                    let world = self.vwin_world();
+                    let id = req.id.clone();
+                    let (kind, rect) = (req.kind, req.rect);
+                    let decision = self.vwin.alloc.request(&world, req);
+                    match decision {
+                        Decision::Granted { slot, limits, victims } => {
+                            self.vwin.stats.granted += 1;
+                            self.journal(format!(
+                                "vwin: claim {id} ({}) granted the {} window (up to {}x{} at {} a second) at {},{} {}x{}",
+                                kind.name(),
+                                slot_name(slot),
+                                limits.w,
+                                limits.h,
+                                limits.fps,
+                                rect.x,
+                                rect.y,
+                                rect.w,
+                                rect.h
+                            ));
+                            for v in victims {
+                                match v {
+                                    Victim::Wall => self.vwin_close_wall(),
+                                    Victim::Claim(other) => self.vwin_end(&other, &format!("claim {id} is more important")),
+                                }
+                            }
+                        }
+                        Decision::Denied(reason, _) => {
+                            self.vwin.stats.denied += 1;
+                            self.journal(format!("vwin: claim {id} ({}) denied ({}): {}", kind.name(), reason.word(), reason.text()));
+                        }
+                    }
+                    self.vwin_sync();
+                    json!({"ok": true, "claim": self.vwin_claim_json(&id)})
+                }
+                Err(e) => json!({"ok": false, "error": e}),
+            },
+            "move" => {
+                let rect = body.get("rect").map(rect_of).transpose();
+                let need = body.get("need").and_then(Need::from_json);
+                match rect {
+                    Err(e) => json!({"ok": false, "error": e}),
+                    Ok(rect) => {
+                        if self.vwin.alloc.claim(&id).is_none() {
+                            json!({"ok": false, "error": format!("no claim {id}")})
+                        } else {
+                            if !self.vwin.alloc.update(&id, rect, need) && self.vwin.alloc.claim(&id).is_some_and(|c| c.window.is_some()) {
+                                self.vwin_end(&id, "the stream no longer fits its window");
+                            }
+                            self.vwin_sync();
+                            json!({"ok": true, "claim": self.vwin_claim_json(&id)})
+                        }
+                    }
+                }
+            }
+            "release" => {
+                let window = self.vwin.alloc.claim(&id).and_then(|c| c.window);
+                let had = self.vwin.alloc.release(&id);
+                if had {
+                    self.vwin.stats.released += 1;
+                    self.journal(format!("vwin: claim {id} released"));
+                }
+                if let Some(w) = window {
+                    self.vwin_unplace(WindowId(w));
+                }
+                self.vwin_sync();
+                json!({"ok": true, "released": had})
+            }
+            "releaseAll" => {
+                let windows: Vec<u32> = self.vwin.alloc.claims().iter().filter_map(|c| c.window).collect();
+                let n = self.vwin.alloc.release_all();
+                self.vwin.stats.released += n as u64;
+                for w in windows {
+                    self.vwin_unplace(WindowId(w));
+                }
+                self.vwin_sync();
+                json!({"ok": true, "released": n})
+            }
+            _ => json!({"ok": false, "error": "op is claim, move, release or releaseAll"}),
+        };
+        reply
+    }
+
+    /// The switch (`ctl vwin off|idle|apps`, the config at start): every claim of a mode that does not hold ends, and the status of the sinks is read
+    /// while the switch is on.
+    pub fn vwin_set_mode(&mut self, mode: Mode) {
+        let was = self.vwin.alloc.policy.mode;
+        self.vwin.alloc.policy.mode = mode;
+        self.config.vwin.mode = mode;
+        if was != mode {
+            self.journal(format!("vwin: {} (was {})", mode.name(), was.name()));
+        }
+        if mode == Mode::Off {
+            if let Some(token) = self.vwin.status_token.take() {
+                self.luna.send(ToBridge::Cancel { token });
+            }
+            self.vwin.sinks = Sinks::default();
+        } else {
+            self.vwin_subscribe();
+        }
+        self.vwin_sync();
+    }
+
+    /// Subscribes to `videooutputd`'s status once (the bridge must be up): the sinks and which of them are connected and use both scalers.
+    pub fn vwin_subscribe(&mut self) {
+        if self.vwin.status_token.is_some() || self.vwin.alloc.policy.mode == Mode::Off || !self.luna.is_connected() {
+            return;
+        }
+        let token = self.luna_token();
+        self.vwin.status_token = Some(token);
+        self.luna.send(ToBridge::Outbound(Outbound { token, uri: STATUS_URI.into(), payload: json!({"subscribe": true}), subscribe: true }));
+    }
+
+    /// A push of the status: the sinks as they are, and the claims judged against them.
+    pub fn vwin_status(&mut self, payload: &Value) {
+        if let Some(sinks) = Sinks::parse(payload)
+            && sinks != self.vwin.sinks
+        {
+            self.vwin.sinks = sinks;
+            self.vwin_sync();
+        }
+    }
+
+    /// `ctl vwin ...` as words: no word reads; `off|idle|apps` switches; `slots N`; `claim ID KIND X Y W H [APP] [CODEC] [WxH@FPS]`; `move ID X Y W H`;
+    /// `release ID|all`.
+    pub fn vwin_ctl(&mut self, words: &[&str]) -> Value {
+        let ask = |s: &mut Self, v: Value| {
+            let r = s.vwin_command(&v);
+            // a frame for it now, on a still screen, as the shell's own requests get
+            if s.output.draws_on_damage(std::time::Instant::now()) {
+                s.tick();
+            }
+            r
+        };
+        let num = |w: &[&str], i: usize| w.get(i).and_then(|t| t.parse::<i64>().ok());
+        match words {
+            [] | ["status"] => json!({"ok": true, "vwin": self.vwin_report()}),
+            [m @ ("off" | "idle" | "apps")] => {
+                self.vwin_set_mode(Mode::parse(m).expect("matched"));
+                json!({"ok": true, "vwin": self.vwin_report()})
+            }
+            ["slots", n] => match n.parse::<usize>().ok().filter(|n| (1..=MAX_SLOTS).contains(n)) {
+                Some(n) => {
+                    self.vwin.alloc.policy.slots = n;
+                    self.config.vwin.slots = n;
+                    self.vwin_sync();
+                    json!({"ok": true, "vwin": self.vwin_report()})
+                }
+                None => json!({"ok": false, "error": format!("slots takes 1 to {MAX_SLOTS}")}),
+            },
+            ["claim", id, kind, rest @ ..] => {
+                let (Some(x), Some(y), Some(w), Some(h)) = (num(rest, 0), num(rest, 1), num(rest, 2), num(rest, 3)) else {
+                    return json!({"ok": false, "error": "vwin claim ID KIND X Y W H [APP] [CODEC] [WxH@FPS]"});
+                };
+                let mut v = json!({"op": "claim", "id": id, "kind": kind, "rect": {"x": x, "y": y, "w": w, "h": h}});
+                let (mut codec, mut size) = (None, None);
+                for t in &rest[4..] {
+                    if Codec::parse(t).is_some() {
+                        codec = Some(*t);
+                    } else if let Some((wh, fps)) = t.split_once('@')
+                        && let Some((nw, nh)) = wh.split_once('x')
+                    {
+                        size = Some((nw.parse::<u64>().unwrap_or(0), nh.parse::<u64>().unwrap_or(0), fps.parse::<u64>().unwrap_or(0)));
+                    } else {
+                        v["app"] = json!(t);
+                    }
+                }
+                if let Some((nw, nh, fps)) = size {
+                    v["need"] = json!({"codec": codec.unwrap_or("h264"), "w": nw, "h": nh, "fps": fps});
+                }
+                ask(self, v)
+            }
+            ["move", id, rest @ ..] => {
+                let (Some(x), Some(y), Some(w), Some(h)) = (num(rest, 0), num(rest, 1), num(rest, 2), num(rest, 3)) else {
+                    return json!({"ok": false, "error": "vwin move ID X Y W H"});
+                };
+                ask(self, json!({"op": "move", "id": id, "rect": {"x": x, "y": y, "w": w, "h": h}}))
+            }
+            ["release", "all"] => ask(self, json!({"op": "releaseAll"})),
+            ["release", id] => ask(self, json!({"op": "release", "id": id})),
+            _ => json!({"ok": false, "error": "vwin [off|idle|apps | slots N | claim ID camera-full|camera-popup|pip X Y W H [APP] [CODEC] [WxH@FPS] | move ID X Y W H | release ID|all]"}),
+        }
     }
 }
 
@@ -855,6 +1416,7 @@ mod tests {
             slot: Some(1),
             limits: None,
             window: None,
+            wide: false,
             seq: 1,
         });
         assert_eq!(a.occupancy(&w), vec![Some(Holder::App), Some(Holder::Claim("c".into()))], "the wallpaper has no window left");

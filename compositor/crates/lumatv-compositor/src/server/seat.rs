@@ -333,6 +333,7 @@ pub fn pointer_motion(state: &mut State, x: i32, y: i32) -> bool {
     set_cursor_visible(state, true);
     state.seat.cursor_shown_at = Some(std::time::Instant::now());
     state.seat.motions += 1;
+    state.pointer_sync();
     let hit = state.scene.surface_at(x, y);
     let target = hit.map(|(s, _)| s);
     let time = crate::output::monotonic_ms();
@@ -409,5 +410,42 @@ fn set_cursor_visible(state: &mut State, visible: bool) {
     for r in &state.seat.input_managers {
         r.cursor_visibility(visible as u32, None);
     }
+    state.pointer_sync();
     state.shell_sync_topics();
+}
+
+impl State {
+    /// Puts the pointer where it belongs: on the cursor plane when `--pointer plane` is on and the output carries it, else in the frame (`State::tick_at`
+    /// draws the sprite there). The output says which: it has no plane, or the plane failed, or a capture or a recording is armed (every frame is composed
+    /// and the picture must have the sprite in it, so the plane is hidden for as long). The screen being off hides the pointer. Called wherever the pointer's
+    /// place or visibility changes and at each tick (a mode switched); it costs a comparison when nothing changed.
+    pub fn pointer_sync(&mut self) {
+        let wanted = self.config.pointer == crate::pointer::Mode::Plane;
+        let at = (wanted && self.seat.cursor_visible && self.luna_state.power.rendering).then_some(self.seat.pointer_position);
+        let carried = self.output.set_pointer(at) && wanted;
+        if carried != self.pointer_carried {
+            self.pointer_carried = carried;
+            if wanted {
+                let line = if carried {
+                    "pointer: the cursor plane carries it".to_string()
+                } else {
+                    let why = self.output.pointer_report().and_then(|r| r["lastError"].as_str().filter(|e| !e.is_empty()).map(str::to_string));
+                    format!("pointer: drawn into the frame ({})", why.unwrap_or_else(|| "a capture is armed or the plane is not up".to_string()))
+                };
+                self.journal(line);
+            }
+        }
+    }
+
+    /// The pointer's state for `ctl pointer` and `ctl status`: the switch, whether the plane carries it and the plane's counters.
+    pub fn pointer_report(&self) -> serde_json::Value {
+        serde_json::json!({
+            "mode": self.config.pointer.name(),
+            "carried": self.pointer_carried,
+            "visible": self.seat.cursor_visible,
+            "at": [self.seat.pointer_position.0, self.seat.pointer_position.1],
+            "motions": self.seat.motions,
+            "plane": self.output.pointer_report(),
+        })
+    }
 }

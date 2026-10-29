@@ -155,6 +155,9 @@ pub enum Msg {
     Ime(Value),
     /// `POST /v1/switcher`: the app switcher's requests (`switcher.rs`): open, layout, close, activate, quit, quitall.
     Switcher(Value),
+    /// `POST /v1/vwin`: a claim for one of the display's hardware video windows, its move or its release (`vwin::State::vwin_command`); the answer is
+    /// the topic `vwin`.
+    Vwin(Value),
     /// `POST /v1/ui` with a `takes` list: the keys, by name (`ok`, `back`), the system layer wants as `syskey` events while an app keeps
     /// the keyboard focus (the overlay cards' OK and Back). A list that is empty is the layer letting them go.
     Takes(Vec<String>),
@@ -742,6 +745,15 @@ impl State {
                     return true;
                 }
             }
+            Msg::Vwin(body) => {
+                self.shell.note_seen(now);
+                self.vwin_command(&body);
+                // the picture changes with the answer: a still screen shows it now, a running one at the tick
+                if self.output.draws_on_damage(now) {
+                    self.tick();
+                    return true;
+                }
+            }
             Msg::Takes(names) => {
                 self.shell.note_seen(now);
                 // only the names the keyboard's key table knows (`own_key_name`), each once
@@ -815,6 +827,9 @@ impl State {
             // The moving wallpaper's hole is under Home: the shell takes its own wallpaper away only while this holds, and puts it back in
             // the frame after it stops (an app taking the front stops it at once: the wallpaper's window is left out of the stack with Home).
             ("wall".into(), json!({"hole": home_shown && self.scene.wall_hole()})),
+            // The hardware video windows (`vwin`): the mode, how many windows are free, and each claim's state, window, limits and reason. A client that
+            // asked reads its grant here and shows stills when it was denied or the claim was taken back.
+            ("vwin".into(), self.vwin_topic()),
             // The refresh the output runs at (`refresh`): the shell draws its frames per refresh and trims what a frame costs at 120.
             ("refresh".into(), json!({"hz": self.config.refresh_hz})),
         ]
@@ -1311,6 +1326,10 @@ fn handle_request(req: &Request, token: &str, outbox: &Arc<Mutex<Outbox>>, inbox
         }
         ("POST", "/v1/switcher") => {
             inbox.send(Msg::Switcher(body));
+            Handled::Answer(200, json!({"ok": true}))
+        }
+        ("POST", "/v1/vwin") => {
+            inbox.send(Msg::Vwin(body));
             Handled::Answer(200, json!({"ok": true}))
         }
         _ => Handled::Answer(404, json!({"ok": false, "error": "no such route"})),

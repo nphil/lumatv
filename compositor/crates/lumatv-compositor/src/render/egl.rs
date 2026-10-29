@@ -208,6 +208,8 @@ pub struct Optional {
     pub eglDestroySyncKHR: Option<unsafe extern "C" fn(EGLDisplay, EGLSync) -> EGLBoolean>,
     pub eglClientWaitSyncKHR: Option<unsafe extern "C" fn(EGLDisplay, EGLSync, EGLint, u64) -> EGLint>,
     pub eglDupNativeFenceFDANDROID: Option<unsafe extern "C" fn(EGLDisplay, EGLSync) -> EGLint>,
+    /// `EGL_EXT_image_dma_buf_import_modifiers`: the modifiers the driver takes for a format (`display, format, max, modifiers, external_only, count`).
+    pub eglQueryDmaBufModifiersEXT: Option<unsafe extern "C" fn(EGLDisplay, EGLint, EGLint, *mut u64, *mut EGLBoolean, *mut EGLint) -> EGLBoolean>,
 }
 
 /// How the EGL display is made.
@@ -278,6 +280,7 @@ impl Egl {
             eglDestroySyncKHR: opt!(c"eglDestroySyncKHR"),
             eglClientWaitSyncKHR: opt!(c"eglClientWaitSyncKHR"),
             eglDupNativeFenceFDANDROID: opt!(c"eglDupNativeFenceFDANDROID"),
+            eglQueryDmaBufModifiersEXT: opt!(c"eglQueryDmaBufModifiersEXT"),
         };
 
         // SAFETY: EGL calls in the documented order; every handle is checked.
@@ -404,6 +407,27 @@ impl Egl {
 
     pub fn has_gl_extension(&self, name: &str) -> bool {
         self.gl_extensions.split(' ').any(|e| e == name)
+    }
+
+    /// The modifiers the driver lists for `fourcc` as `(modifier, external_only)`: `external_only` means an image of that layout can be sampled but not
+    /// drawn into. `None` when the driver has no `eglQueryDmaBufModifiersEXT` or refuses the format (`afbc::Probe`).
+    pub fn dmabuf_modifiers(&self, fourcc: u32) -> Option<Vec<(u64, bool)>> {
+        let q = self.opt.eglQueryDmaBufModifiersEXT?;
+        let mut n: EGLint = 0;
+        // SAFETY: the first call only counts (no arrays); the second fills `n` entries of two arrays of that length.
+        unsafe {
+            if q(self.display, fourcc as EGLint, 0, std::ptr::null_mut(), std::ptr::null_mut(), &mut n) == EGL_FALSE || n <= 0 {
+                return if n == 0 { Some(Vec::new()) } else { None };
+            }
+            let mut mods = vec![0u64; n as usize];
+            let mut only = vec![0 as EGLBoolean; n as usize];
+            let max = n;
+            if q(self.display, fourcc as EGLint, max, mods.as_mut_ptr(), only.as_mut_ptr(), &mut n) == EGL_FALSE {
+                return None;
+            }
+            mods.truncate(n.max(0) as usize);
+            Some(mods.into_iter().zip(only).map(|(m, e)| (m, e != EGL_FALSE)).collect())
+        }
     }
 
     /// `eglBindWaylandDisplayWL`: the driver registers `mali_buffer_sharing` (and `wl_drm`) on `wl_display`.

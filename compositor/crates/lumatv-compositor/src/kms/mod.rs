@@ -13,6 +13,7 @@
 //! workstation beyond compiling; the pure parts (`assign`) are.
 
 pub mod assign;
+pub mod cursor;
 pub mod frames;
 pub mod timing;
 
@@ -31,6 +32,7 @@ use wayland_server::Resource;
 use wayland_server::protocol::wl_buffer::WlBuffer;
 
 use crate::Rect;
+use crate::afbc::{self, PageKind};
 use crate::output::{Image, Output, Presented, RenderStats, monotonic_ns as mono_ns};
 use crate::render::gl::{Gl, TargetId};
 use crate::scanout::{self, Scanout};
@@ -49,6 +51,37 @@ impl AsFd for Card {
 }
 impl Device for Card {}
 impl ControlDevice for Card {}
+
+impl Card {
+    /// The same open file again (`dup`): the same master, usable from another thread.
+    pub fn duplicate(&self) -> io::Result<Card> {
+        Ok(Card(self.0.try_clone()?))
+    }
+}
+
+/// What the output is asked for beyond the scan-out decision (`Config`): the pages' layout and the pointer.
+#[derive(Clone, Copy, Debug)]
+pub struct Options {
+    /// The primary ring's pages (`afbc::PageKind::wanted`).
+    pub pages: PageKind,
+    /// Whether the pages carry alpha when AFBC is refused and the ring falls back to a linear one.
+    pub page_alpha: bool,
+    pub afbc: afbc::Mode,
+    pub pointer: crate::pointer::Mode,
+    pub pointer_alpha: crate::pointer::Alpha,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Options {
+            pages: PageKind::Xrgb,
+            page_alpha: false,
+            afbc: afbc::Mode::Off,
+            pointer: crate::pointer::Mode::Gpu,
+            pointer_alpha: crate::pointer::Alpha::Premultiplied,
+        }
+    }
+}
 
 /// The properties of one plane, by handle, looked up once.
 #[derive(Clone, Copy)]
@@ -74,6 +107,11 @@ pub struct PlaneInfo {
 }
 
 impl PlaneInfo {
+    /// The handle and properties without the format list: what a thread of its own needs to drive the plane.
+    pub fn copy(&self) -> PlaneInfo {
+        PlaneInfo { handle: self.handle, props: self.props, formats: Vec::new() }
+    }
+
     /// Whether `fourcc` with `modifier` is in the plane's `IN_FORMATS`.
     pub fn takes(&self, fourcc: u32, modifier: u64) -> bool {
         self.formats.iter().any(|(f, m)| *f == fourcc && *m == modifier)
@@ -91,6 +129,24 @@ struct Page {
     fd: OwnedFd,
     fb: framebuffer::Handle,
     target: TargetId,
+    kind: PageKind,
+}
+
+/// What the cursor plane is doing: the switch, the thread that drives it while it is on, and why it is not up when it was asked for.
+struct Pointer {
+    mode: crate::pointer::Mode,
+    alpha: crate::pointer::Alpha,
+    plane: Option<crate::pointer::Plane>,
+    cursor_plane: Option<PlaneInfo>,
+    refused: String,
+}
+
+/// What the pages are and why: the ring's layout and what it was asked for, for `ctl afbc`.
+struct PageReport {
+    asked: PageKind,
+    kind: PageKind,
+    fallback: Option<String>,
+    probe: afbc::Probe,
 }
 
 /// What a plane showed in the last commit, to leave unchanged planes out of the request.
@@ -190,6 +246,10 @@ pub struct Kms {
     /// A screenshot or recording is on: no window goes to the plane directly, so the screen is always in the last composed page
     /// (`Output::set_compose_only`).
     compose_only: bool,
+    /// The cursor plane (`pointer`): off until `--pointer plane` or `ctl pointer plane`.
+    pointer: Pointer,
+    /// What the pages are, for `ctl afbc`.
+    page_report: PageReport,
 }
 
 const PAGES: usize = 3;
@@ -221,22 +281,76 @@ fn other(msg: impl Into<String>) -> io::Error {
     io::Error::other(msg.into())
 }
 
-/// One scan-out page: a dumb buffer with a framebuffer and a GL target over its dma-buf. `alpha` makes it ARGB8888 for
-/// the overlay plane, else XRGB8888 for the primary.
-fn make_page(card: &Card, gl: &mut Gl, width: u32, height: u32, alpha: bool) -> io::Result<Page> {
+/// One scan-out page: a dumb buffer with a framebuffer and a GL target over its dma-buf. XR24 is the original primary page and AR24 its
+/// version with alpha (also the overlay's); an AFBC page (AB24 `...62`) is an ordinary buffer of the rows an AFBC buffer of the picture's size needs
+/// (`afbc::dumb_rows`), with the framebuffer and the GL image made over it at the picture's size, a pitch of `width * 4` and the modifier.
+fn make_page(card: &Card, gl: &mut Gl, width: u32, height: u32, kind: PageKind) -> io::Result<Page> {
+    if kind == PageKind::Afbc {
+        let pitch = width * 4;
+        let rows = afbc::dumb_rows(width, height, pitch);
+        let dumb = card.create_dumb_buffer((width, rows), DrmFourcc::Abgr8888, 32)?;
+        let undo = |dumb: DumbBuffer, e: io::Error| {
+            let _ = card.destroy_dumb_buffer(dumb);
+            e
+        };
+        if dumb.pitch() != pitch {
+            let got = dumb.pitch();
+            return Err(undo(dumb, other(format!("the AFBC page's dumb buffer has a pitch of {got}, not {pitch}"))));
+        }
+        let planar = Planar { size: (width, height), fourcc: kind.fourcc(), modifier: kind.modifier(), pitch, offset: 0, handle: dumb.handle() };
+        let fb = match card.add_planar_framebuffer(&planar, FbCmd2Flags::MODIFIERS) {
+            Ok(fb) => fb,
+            Err(e) => return Err(undo(dumb, e)),
+        };
+        let fd = match card.buffer_to_prime_fd(dumb.handle(), libc::O_CLOEXEC as u32) {
+            Ok(fd) => fd,
+            Err(e) => {
+                let _ = card.destroy_framebuffer(fb);
+                return Err(undo(dumb, e));
+            }
+        };
+        return match gl.add_dmabuf_target(fd.as_raw_fd(), width as i32, height as i32, kind.fourcc(), pitch, kind.modifier()) {
+            Ok(target) => Ok(Page { dumb, fd, fb, target, kind }),
+            Err(e) => {
+                let _ = card.destroy_framebuffer(fb);
+                drop(fd);
+                Err(undo(dumb, e))
+            }
+        };
+    }
+    let alpha = kind.has_alpha();
     let (fourcc, drm, depth) =
         if alpha { (crate::buffer::fourcc::ARGB8888, DrmFourcc::Argb8888, 32) } else { (crate::buffer::fourcc::XRGB8888, DrmFourcc::Xrgb8888, 24) };
     let dumb = card.create_dumb_buffer((width, height), drm, 32)?;
     let fb = card.add_framebuffer(&dumb, depth, 32)?;
     let fd = card.buffer_to_prime_fd(dumb.handle(), libc::O_CLOEXEC as u32)?;
     let target = gl.add_dmabuf_target(fd.as_raw_fd(), width as i32, height as i32, fourcc, dumb.pitch(), 0)?;
-    Ok(Page { dumb, fd, fb, target })
+    Ok(Page { dumb, fd, fb, target, kind })
+}
+
+/// The pages of a ring: `PAGES` of one kind, none left behind when one fails.
+fn make_ring(card: &Card, gl: &mut Gl, width: u32, height: u32, kind: PageKind) -> io::Result<Vec<Page>> {
+    let mut pages: Vec<Page> = Vec::with_capacity(PAGES);
+    for i in 0..PAGES {
+        match make_page(card, gl, width, height, kind) {
+            Ok(p) => pages.push(p),
+            Err(e) => {
+                for p in pages {
+                    let _ = card.destroy_framebuffer(p.fb);
+                    drop(p.fd);
+                    let _ = card.destroy_dumb_buffer(p.dumb);
+                }
+                return Err(other(format!("page {i}: {e}")));
+            }
+        }
+    }
+    Ok(pages)
 }
 
 impl Kms {
     /// Opens `path` (`/dev/dri/card0`), becomes master and finds the CRTC, connector and planes. `gl` renders into
     /// the pages this makes.
-    pub fn open(path: &str, mut gl: Gl, width: u32, height: u32, scanout: Scanout) -> io::Result<Kms> {
+    pub fn open(path: &str, mut gl: Gl, width: u32, height: u32, scanout: Scanout, opts: Options) -> io::Result<Kms> {
         let file = OpenOptions::new().read(true).write(true).open(path)?;
         let card = Card(file);
         card.acquire_master_lock().map_err(|e| other(format!("DRM master on {path}: {e} (is LG's compositor still running?)")))?;
@@ -267,6 +381,7 @@ impl Kms {
 
         let mut primary = None;
         let mut overlay = None;
+        let mut cursor_plane = None;
         for h in card.plane_handles()?.iter().copied() {
             let info = card.get_plane(h)?;
             if !res.filter_crtcs(info.possible_crtcs()).contains(&crtc) {
@@ -305,6 +420,7 @@ impl Kms {
             match kind {
                 PlaneType::Primary if primary.is_none() => primary = Some(pi),
                 PlaneType::Overlay if overlay.is_none() => overlay = Some(pi),
+                PlaneType::Cursor if cursor_plane.is_none() => cursor_plane = Some(pi),
                 _ => {}
             }
         }
@@ -321,10 +437,38 @@ impl Kms {
             overlay.as_ref().map(|o| u32::from(o.handle).to_string()).unwrap_or_else(|| "none".into())
         );
 
-        let mut pages = Vec::with_capacity(PAGES);
-        for i in 0..PAGES {
-            pages.push(make_page(&card, &mut gl, width, height, false).map_err(|e| other(format!("page {i}: {e}")))?);
+        // What the pages are: asked for by the switches; AFBC only when the plane lists it for AB24 (and the GPU driver lets the image be made), else the
+        // linear ring the other switches imply, with the reason kept for `ctl afbc`.
+        let probe = afbc::Probe {
+            plane: primary.formats.iter().copied().filter(|(_, m)| *m != crate::buffer::modifier::LINEAR).collect(),
+            egl: gl.dmabuf_modifiers(),
+        };
+        if opts.afbc != afbc::Mode::Off {
+            log::info!("kms: AFBC {}: {}", opts.afbc.name(), probe.verdict());
         }
+        let mut kind = opts.pages;
+        let mut fallback = None;
+        if kind == PageKind::Afbc && !probe.plane_takes() {
+            fallback = Some("the primary plane does not list AB24 with the AFBC modifier".to_string());
+            kind = PageKind::linear(opts.page_alpha);
+        }
+        let pages = match make_ring(&card, &mut gl, width, height, kind) {
+            Ok(p) => p,
+            Err(e) if kind == PageKind::Afbc => {
+                log::warn!("kms: AFBC pages refused ({e}); linear pages instead");
+                fallback = Some(format!("the AFBC pages could not be made: {e}"));
+                kind = PageKind::linear(opts.page_alpha);
+                make_ring(&card, &mut gl, width, height, kind)?
+            }
+            Err(e) => return Err(e),
+        };
+        log::info!(
+            "kms: scan-out pages {} ({} bytes each){}",
+            kind.name(),
+            if kind == PageKind::Afbc { afbc::buffer_size(width, height) } else { width as usize * height as usize * 4 },
+            fallback.as_deref().map(|f| format!(" (asked for {}: {f})", opts.pages.name())).unwrap_or_default()
+        );
+        let page_report = PageReport { asked: opts.pages, kind, fallback, probe };
         // The UI ring for the split (the UI on the overlay over a direct window): only with a UI to draw, and only
         // when the overlay plane lists the format with alpha. Three pages as the primary ring: one scanning out, one
         // whose flip is pending, one drawn into.
@@ -332,7 +476,7 @@ impl Kms {
         let overlay_takes_alpha = overlay.as_ref().is_some_and(|o| o.formats.contains(&(crate::buffer::fourcc::ARGB8888, 0)));
         if gl.has_ui() && overlay_takes_alpha {
             for i in 0..PAGES {
-                match make_page(&card, &mut gl, width, height, true) {
+                match make_page(&card, &mut gl, width, height, PageKind::Argb) {
                     Ok(p) => ui_pages.push(p),
                     Err(e) => {
                         log::warn!("kms: UI page {i}: {e}; the UI over a direct window composes instead");
@@ -362,7 +506,7 @@ impl Kms {
         let period_ns = 1_000_000_000 / mode.vrefresh().max(1) as u64;
         let monotonic_flips = card.get_driver_capability(DriverCapability::MonotonicTimestamp).map(|v| v != 0).unwrap_or(false);
         log::info!("kms: page-flip timestamps are {}", if monotonic_flips { "CLOCK_MONOTONIC" } else { "CLOCK_REALTIME (translated)" });
-        Ok(Kms {
+        let mut kms = Kms {
             card,
             crtc,
             connector,
@@ -409,7 +553,15 @@ impl Kms {
             divider: crate::refresh::Divider::new(),
             refresh_hz: crate::refresh::DEFAULT_HZ,
             compose_only: false,
-        })
+            pointer: Pointer { mode: crate::pointer::Mode::Gpu, alpha: opts.pointer_alpha, plane: None, cursor_plane, refused: String::new() },
+            page_report,
+        };
+        if opts.pointer == crate::pointer::Mode::Plane
+            && let Err(e) = Output::set_pointer_mode(&mut kms, crate::pointer::Mode::Plane)
+        {
+            log::warn!("kms: the pointer stays in the frame: {e}");
+        }
+        Ok(kms)
     }
 
     pub fn gl(&self) -> &Gl {
@@ -1095,6 +1247,92 @@ impl Output for Kms {
         Ok(())
     }
 
+    /// The pointer's thread is made on the first `plane` and ended by `gpu` (which takes the image off the screen); a refusal leaves the pointer in the
+    /// frame and keeps the reason.
+    fn set_pointer_mode(&mut self, mode: crate::pointer::Mode) -> io::Result<()> {
+        match mode {
+            crate::pointer::Mode::Gpu => {
+                self.pointer.plane = None;
+                self.pointer.mode = mode;
+                self.pointer.refused.clear();
+                Ok(())
+            }
+            crate::pointer::Mode::Plane => {
+                if self.pointer.plane.as_ref().is_some_and(|p| !p.broken()) {
+                    self.pointer.mode = mode;
+                    return Ok(());
+                }
+                self.pointer.plane = None;
+                let made = self
+                    .card
+                    .duplicate()
+                    .and_then(|card| cursor::DrmCursor::new(card, self.crtc, self.pointer.cursor_plane.as_ref().map(PlaneInfo::copy), self.pointer.alpha));
+                match made {
+                    Ok(backend) => {
+                        self.pointer.plane = Some(crate::pointer::Plane::start(backend));
+                        self.pointer.mode = mode;
+                        self.pointer.refused.clear();
+                        log::info!("kms: the pointer is the cursor plane's ({}x{} image, hotspot {},{})", crate::pointer::SPRITE, crate::pointer::SPRITE, crate::pointer::HOTSPOT.0, crate::pointer::HOTSPOT.1);
+                        Ok(())
+                    }
+                    Err(e) => {
+                        self.pointer.refused = e.to_string();
+                        Err(e)
+                    }
+                }
+            }
+        }
+    }
+
+    /// While a capture is armed (`compose_only`) the picture it reads has the sprite in it and the plane shows none: two pointers would be one too many.
+    fn set_pointer(&mut self, at: Option<(i32, i32)>) -> bool {
+        match (&self.pointer.plane, self.pointer.mode) {
+            (Some(p), crate::pointer::Mode::Plane) if self.compose_only => {
+                p.set(None);
+                false
+            }
+            (Some(p), crate::pointer::Mode::Plane) => p.set(at),
+            _ => false,
+        }
+    }
+
+    fn pointer_report(&self) -> Option<serde_json::Value> {
+        let mut r = match &self.pointer.plane {
+            Some(p) => {
+                let mut r = p.report();
+                r["carried"] = (self.pointer.mode == crate::pointer::Mode::Plane && !p.broken()).into();
+                r
+            }
+            None => crate::pointer::idle_report(self.pointer.mode, self.pointer.alpha, &self.pointer.refused),
+        };
+        r["mode"] = self.pointer.mode.name().into();
+        r["alpha"] = self.pointer.alpha.name().into();
+        r["sprite"] = format!("{0}x{0}, hotspot {1},{2}", crate::pointer::SPRITE, crate::pointer::HOTSPOT.0, crate::pointer::HOTSPOT.1).into();
+        r["cursorPlane"] = self.pointer.cursor_plane.as_ref().map(|p| u32::from(p.handle)).into();
+        r["composeOnly"] = self.compose_only.into();
+        Some(r)
+    }
+
+    fn afbc_report(&self) -> Option<serde_json::Value> {
+        let r = &self.page_report;
+        let page_bytes = if r.kind == PageKind::Afbc { afbc::buffer_size(self.width, self.height) } else { self.width as usize * self.height as usize * 4 };
+        Some(serde_json::json!({
+            "pages": {
+                "kind": r.kind.name(),
+                "asked": r.asked.name(),
+                "fallback": r.fallback,
+                "format": crate::buffer::fourcc::name(r.kind.fourcc()),
+                "modifier": format!("{:#018x}", r.kind.modifier()),
+                "alpha": r.kind.has_alpha(),
+                "count": self.pages.len(),
+                "bytesEach": page_bytes,
+                "bytesAll": page_bytes * self.pages.len(),
+            },
+            "probe": r.probe.json(),
+            "estimate": afbc::estimate(self.width, self.height),
+        }))
+    }
+
     fn take_journal(&mut self) -> Vec<String> {
         self.scanout.take_journal()
     }
@@ -1227,9 +1465,13 @@ impl Output for Kms {
     }
 
     fn capture(&mut self) -> io::Result<Image> {
-        // The page last composed, through the CPU mapping, once the GPU is done with it.
+        // The page last composed, through the CPU mapping, once the GPU is done with it; an AFBC page is not readable that way, the GPU reads it.
         self.gl.finish();
         let idx = self.frames.last_page();
+        if self.pages[idx].kind == PageKind::Afbc {
+            return self.gl.grab_target(self.pages[idx].target, (self.width, self.height), Vec::new());
+        }
+        let alpha = self.pages[idx].kind.has_alpha();
         let (w, h, pitch) = (self.width as usize, self.height as usize, self.pages[idx].dumb.pitch() as usize);
         let mapping = self.card.map_dumb_buffer(&mut self.pages[idx].dumb)?;
         let bytes: &[u8] = &mapping;
@@ -1237,7 +1479,7 @@ impl Output for Kms {
         for y in 0..h {
             let row = &bytes[y * pitch..y * pitch + w * 4];
             for px in row.chunks_exact(4) {
-                rgba.extend_from_slice(&[px[2], px[1], px[0], 255]);
+                rgba.extend_from_slice(&[px[2], px[1], px[0], if alpha { px[3] } else { 255 }]);
             }
         }
         Ok(Image { width: self.width, height: self.height, rgba })
@@ -1246,6 +1488,8 @@ impl Output for Kms {
 
 impl Drop for Kms {
     fn drop(&mut self) {
+        // the pointer's thread hides the image before the device goes
+        self.pointer.plane = None;
         let (mut drm, scanout) = self.split();
         scanout.close(&mut drm);
         for p in self.pages.drain(..).chain(self.ui_pages.drain(..)) {

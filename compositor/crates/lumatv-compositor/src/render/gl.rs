@@ -957,6 +957,20 @@ impl Gl {
         self.import_failures
     }
 
+    /// The modifiers the GPU driver lists for each format a scan-out page may have (`afbc::Probe`): `None` for the driver's lack of the query.
+    pub fn dmabuf_modifiers(&self) -> Option<Vec<crate::afbc::EglModifier>> {
+        use crate::buffer::fourcc;
+        let mut all = Vec::new();
+        let mut asked = false;
+        for f in [fourcc::ABGR8888, fourcc::XBGR8888, fourcc::ARGB8888, fourcc::XRGB8888] {
+            if let Some(list) = self.egl.dmabuf_modifiers(f) {
+                asked = true;
+                all.extend(list.into_iter().map(|(modifier, external_only)| crate::afbc::EglModifier { fourcc: f, modifier, external_only }));
+            }
+        }
+        asked.then_some(all)
+    }
+
     /// Makes a dma-buf (a scan-out page) a render target: imported as an EGLImage, bound to a texture and an FBO.
     pub fn add_dmabuf_target(&mut self, fd: i32, width: i32, height: i32, fourcc: u32, pitch: u32, modifier: u64) -> io::Result<TargetId> {
         let image = self.egl.image_from_dmabuf(fd, width, height, fourcc, 0, pitch, modifier)?;

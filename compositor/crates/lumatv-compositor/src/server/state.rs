@@ -207,11 +207,16 @@ pub struct State {
     pub tap: crate::scanout::tap::Tap,
     pub meta: crate::scanout::meta::Registry,
     pub wl_display: Option<*mut std::ffi::c_void>,
+    /// The cursor plane carries the pointer (`pointer_sync`): the sprite is not drawn into the frame while this holds.
+    pub pointer_carried: bool,
+    /// The hardware video windows' allocator, claims and the `videooutputd` status they read (`vwin`).
+    pub vwin: crate::vwin::Vwin,
 }
 
 impl State {
     pub fn new(dh: DisplayHandle, config: Config, output: Box<dyn Output>, luna: Box<dyn luna::Bridge>) -> State {
         let keys = crate::input::Keys::new(&config);
+        let config_vwin = config.vwin;
         let mut scene = Scene::default();
         scene.care = crate::oledcare::Care::new(&config.data_dir);
         let motion = crate::transition::ThemeSwitch::new(&config.data_dir);
@@ -254,6 +259,8 @@ impl State {
             tap: crate::scanout::tap::Tap::off(),
             meta: crate::scanout::meta::Registry::default(),
             wl_display: None,
+            pointer_carried: false,
+            vwin: crate::vwin::Vwin::new(config_vwin),
         }
     }
 
@@ -487,8 +494,14 @@ impl State {
             self.holding = false;
             log::info!("tick: warm done, drawing again");
         }
-        self.scene.cursor =
-            if self.seat.cursor_visible { Some(crate::render::cursor::rect_at(self.seat.pointer_position.0, self.seat.pointer_position.1)) } else { None };
+        // The pointer: on the cursor plane when it carries it (no sprite in the frame, no damage for a move), else a sprite in the frame.
+        self.pointer_sync();
+        self.vwin_sync();
+        self.scene.cursor = if self.seat.cursor_visible && !self.pointer_carried {
+            Some(crate::render::cursor::rect_at(self.seat.pointer_position.0, self.seat.pointer_position.1))
+        } else {
+            None
+        };
         self.switcher_frame(t0);
         self.scene.transitions.suspended = self.switcher_active();
         // The screen is off (standby): nothing is mid-move when it comes back.

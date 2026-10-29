@@ -699,6 +699,14 @@ impl State {
                 // the keyboard and the switcher are the QML client's until their kinds move
                 self.shell_rust.note_seen(now);
             }
+            Msg::Vwin(body) => {
+                self.shell_rust.note_seen(now);
+                self.vwin_command(&body);
+                if self.output.draws_on_damage(now) {
+                    self.tick();
+                    return true;
+                }
+            }
             Msg::Takes(names) => {
                 self.shell_rust.note_seen(now);
                 let mut takes: Vec<String> = Vec::new();

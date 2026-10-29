@@ -529,7 +529,8 @@ impl Scene {
             .iter()
             .rev()
             .filter(|i| !i.ghost && i.rect.contains(x, y))
-            .find(|i| self.windows.get(&i.window).is_none_or(|w| w.kind != WindowType::ShellSystem || w.takes_keys || keyboard))
+            // (a video window is transparent and nobody's: the pointer goes through it to what is under)
+            .find(|i| self.windows.get(&i.window).is_none_or(|w| w.kind != WindowType::VideoWindow && (w.kind != WindowType::ShellSystem || w.takes_keys || keyboard)))
             .map(|i| (i.surface, i.rect))
     }
 
@@ -571,7 +572,9 @@ impl Scene {
         let Some(home) = self.stack.iter().position(|(layer, _, _)| *layer == Layer::Home) else { return true };
         self.stack[home + 1..].iter().any(|(_, _, id)| {
             self.windows.get(id).is_some_and(|w| {
-                !w.kind.is_shell() && surfaces.get(w.surface).map(|s| s.size()).is_some_and(|(sw, sh)| sw >= OUTPUT_WIDTH as i32 && sh >= OUTPUT_HEIGHT as i32)
+                !w.kind.is_shell()
+                    && w.kind != WindowType::VideoWindow
+                    && surfaces.get(w.surface).map(|s| s.size()).is_some_and(|(sw, sh)| sw >= OUTPUT_WIDTH as i32 && sh >= OUTPUT_HEIGHT as i32)
             })
         })
     }
@@ -797,6 +800,10 @@ impl Scene {
                 continue;
             }
             if w.kind == WindowType::ShellHome && self.home_rust {
+                continue;
+            }
+            // A video window is in the stack only while a claim is granted for it (`vwin`): without one it is a transparent window of nobody's.
+            if w.kind == WindowType::VideoWindow && !w.vwin_live {
                 continue;
             }
             self.stack.push((w.kind.layer(), w.map_serial, w.id));
@@ -1139,7 +1146,7 @@ impl Scene {
             let owner = w.surface;
             let pose = self.pose_of(wid, now_ns);
             let ghost = self.transitions.active() && !self.stack.iter().any(|(_, _, id)| *id == wid);
-            let gain = !w.kind.is_shell() && w.kind != WindowType::Wallpaper;
+            let gain = !w.kind.is_shell() && !matches!(w.kind, WindowType::Wallpaper | WindowType::VideoWindow);
             let look = Look { window: wid, origin, dim, pose, ghost, under_hole: false, gain, drift };
             self.build_members(owner);
             let m = self.members.len();

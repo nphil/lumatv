@@ -120,6 +120,7 @@ impl Dispatch<WlWebosForeign, ()> for State {
                 );
                 state.scene.set_video_expected(sid, true);
                 state.journal(format!("foreign: surface {} exported as {window_id} (type {exported_type})", sid.0));
+                state.vwin_sync();
             }
             wl_webos_foreign::Request::ImportElement { id, window_id, exported_type } => {
                 let res = data_init.init(id, ());
@@ -204,6 +205,7 @@ impl Dispatch<WlWebosExported, ExportedData> for State {
             let still = state.foreign.exported.values().any(|x| x.surface == e.surface);
             state.scene.set_video_expected(e.surface, still);
         }
+        state.vwin_sync();
     }
 }
 
@@ -302,10 +304,15 @@ impl State {
     }
 
     /// Output-space rectangle of an exported element: the exporting surface's window origin plus its destination.
-    fn exported_output_rect(&self, e: &Exported) -> Rect {
-        let origin =
-            self.scene.window_of(e.surface).and_then(|w| self.scene.window(w)).map(|w| if w.kind.is_card() { (0, 0) } else { w.position }).unwrap_or((0, 0));
-        e.destination.translated(origin.0, origin.1)
+    fn exported_output_rect(&self, surface: SurfaceId, destination: Rect) -> Rect {
+        // (a video window's rectangle is the claim's, in the output's space already)
+        let origin = self
+            .scene
+            .window_of(surface)
+            .and_then(|w| self.scene.window(w))
+            .map(|w| if w.kind.is_card() || w.kind == crate::window::WindowType::VideoWindow { (0, 0) } else { w.position })
+            .unwrap_or((0, 0));
+        destination.translated(origin.0, origin.1)
     }
 
     /// An output rectangle in the panel's pixels, the space videooutputd places video in (LG's compositor scales by the
@@ -317,10 +324,15 @@ impl State {
         Rect::new(scale(r.x, pw, ow), scale(r.y, ph, oh), scale(r.w, pw, ow), scale(r.h, ph, oh))
     }
 
-    fn exported_changed(&mut self, window_id: &str) {
+    pub(crate) fn exported_changed(&mut self, window_id: &str) {
         let Some(e) = self.foreign.exported.get(window_id) else { return };
-        let (surface, dest, source, original, contexts) = (e.surface, e.destination, e.source, e.original, e.contexts.clone());
-        let out_rect = self.exported_output_rect(e);
+        let (surface, mut dest, source, original, contexts) = (e.surface, e.destination, e.source, e.original, e.contexts.clone());
+        // A video window of LumaTV's (`vwin`) is where its claim says, whatever rectangle its element asked for (the feeder asks for the whole
+        // screen), and nowhere while it has no granted claim: its element is hidden and has no hole.
+        if let Some(w) = self.scene.window_of(surface).and_then(|w| self.scene.window(w)).filter(|w| w.kind == crate::window::WindowType::VideoWindow) {
+            dest = if w.vwin_live { w.vwin_rect } else { Rect::default() };
+        }
+        let out_rect = self.exported_output_rect(surface, dest);
         self.scene.holes.retain(|h| h.surface != surface);
         if !contexts.is_empty() && !dest.is_empty() {
             self.scene.holes.push(Hole { surface, rect: dest });
@@ -363,6 +375,7 @@ impl State {
             let (uri, payload) = luna::video::set_property(&ctx, name, value);
             self.luna_call(uri, payload);
         }
+        self.vwin_sync();
     }
 
     fn detach_punchthrough(&mut self, imported: &wayland_backend::server::ObjectId, window_id: &str) -> Option<String> {
@@ -379,6 +392,7 @@ impl State {
             self.luna_call(uri, payload);
         }
         self.exported_changed(window_id);
+        self.vwin_sync();
         ctx
     }
 }

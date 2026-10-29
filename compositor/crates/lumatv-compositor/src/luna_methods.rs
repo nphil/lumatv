@@ -143,6 +143,8 @@ impl State {
         let token = self.luna_token();
         self.luna_state.audio_token = Some(token);
         self.luna.send(ToBridge::Outbound(Outbound { token, uri: format!("{AUDIO}/master/getVolume"), payload: json!({"subscribe": true}), subscribe: true }));
+        // the hardware video windows read the video sinks' status while their switch is on (`vwin`)
+        self.vwin_subscribe();
     }
 
     /// An answer to one of the compositor's own calls: tvpower pushes and the audio service's volume state are the
@@ -150,6 +152,10 @@ impl State {
     pub fn luna_event(&mut self, ev: Event) {
         if let Some(line) = self.luna_state.video_answer(ev.token, &ev.payload) {
             self.journal(line);
+            return;
+        }
+        if Some(ev.token) == self.vwin.status_token {
+            self.vwin_status(&ev.payload);
             return;
         }
         if Some(ev.token) == self.luna_state.audio_token {

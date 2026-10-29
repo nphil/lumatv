@@ -171,7 +171,14 @@ fn run(config: Config) -> io::Result<()> {
         RendererKind::Kms => {
             let gl = make_gl()?;
             let scanout = lumatv_compositor::scanout::Scanout::new(config.scanout.clone(), scanout_meta.clone());
-            Box::new(lumatv_compositor::kms::Kms::open(&config.card, gl, config.width, config.height, scanout)?)
+            let opts = lumatv_compositor::kms::Options {
+                pages: lumatv_compositor::afbc::PageKind::wanted(config.afbc, config.page_alpha),
+                page_alpha: config.page_alpha,
+                afbc: config.afbc,
+                pointer: config.pointer,
+                pointer_alpha: config.pointer_alpha,
+            };
+            Box::new(lumatv_compositor::kms::Kms::open(&config.card, gl, config.width, config.height, scanout, opts)?)
         }
     };
     let own_mali = config.renderer == RendererKind::Software || config.buffers == BufferPath::Own;

@@ -3,6 +3,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::Rect;
 use crate::surface::SurfaceId;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -46,6 +47,10 @@ pub enum WindowType {
     /// under LumaTV's Home and only while that is drawn: `_WEBOS_WINDOW_TYPE_LUMATV_WALLPAPER`. Under LG's compositor the type is not
     /// known, so the player is never asked for it there.
     Wallpaper,
+    /// A window that owns one of LumaTV's own video elements on a hardware video window (`vwin`): `_WEBOS_WINDOW_TYPE_LUMATV_VIDEO`, the Cameras feeder's
+    /// and a picture-in-picture's. Transparent, never focused, never hit by the pointer, above the cards and the overlays and under the system
+    /// layer; it is drawn, and its hole cut, only while a claim for it is granted (`vwin::Allocator`), at the claim's rectangle.
+    VideoWindow,
     /// A type this compositor does not know; kept by name so a TV session shows it.
     Unknown,
 }
@@ -86,6 +91,7 @@ impl WindowType {
             "_WEBOS_WINDOW_TYPE_LUMATV_HOME" => ShellHome,
             "_WEBOS_WINDOW_TYPE_LUMATV_SYSTEM" => ShellSystem,
             "_WEBOS_WINDOW_TYPE_LUMATV_WALLPAPER" => Wallpaper,
+            "_WEBOS_WINDOW_TYPE_LUMATV_VIDEO" => VideoWindow,
             _ => Unknown,
         }
     }
@@ -98,6 +104,7 @@ impl WindowType {
             ShellHome => Layer::Home,
             Card | Home | Screensaver | Unknown => Layer::Cards,
             Overlay | Floating | Restricted => Layer::Overlays,
+            VideoWindow => Layer::Video,
             SystemUi | TopUi | Volume | Indicator | Spinner | LongPressSpinner | InfiniteSpinner | CoverUi => Layer::SystemUi,
             Popup | Alert | AdvancedAlert | PinCodePrompt | Toast | BootPopup => Layer::Popups,
             Keyboard | VoiceAgent => Layer::Keyboard,
@@ -125,6 +132,8 @@ pub enum Layer {
     Home,
     Cards,
     Overlays,
+    /// LumaTV's own video windows (`WindowType::VideoWindow`): over the cards and LG's overlays, under everything that must stay visible over a video.
+    Video,
     SystemUi,
     Popups,
     Keyboard,
@@ -134,7 +143,8 @@ pub enum Layer {
 }
 
 impl Layer {
-    pub const ALL: [Layer; 9] = [Layer::Wallpaper, Layer::Home, Layer::Cards, Layer::Overlays, Layer::SystemUi, Layer::Popups, Layer::Keyboard, Layer::Shell, Layer::Cover];
+    pub const ALL: [Layer; 10] =
+        [Layer::Wallpaper, Layer::Home, Layer::Cards, Layer::Overlays, Layer::Video, Layer::SystemUi, Layer::Popups, Layer::Keyboard, Layer::Shell, Layer::Cover];
 }
 
 /// `wl_webos_shell_surface.state`.
@@ -208,6 +218,16 @@ pub struct Window {
     /// layer coming back live says whether a frame of it arrived meanwhile (`Scene::set_shell_system_live`).
     pub commits_drawn: u64,
     pub last_commit_ns: u64,
+    /// A video window (`WindowType::VideoWindow`) with a granted claim: it is in the stack and its element has a hole and a placement, at
+    /// [`Window::vwin_rect`] (`vwin`). Never true for another kind.
+    pub vwin_live: bool,
+    /// Where the granted claim puts the picture, in output pixels.
+    pub vwin_rect: Rect,
+    /// A claim has been bound to the window at least once (the feeder that was told to stay is not a window nobody asked for), and when the window was
+    /// first seen mapped (CLOCK_MONOTONIC ns, 0 before), for the one that never gets one.
+    pub vwin_bound: bool,
+    pub vwin_seen_ns: u64,
+    pub vwin_closed: bool,
 }
 
 impl Window {
@@ -234,6 +254,11 @@ impl Window {
             commits: 0,
             commits_drawn: 0,
             last_commit_ns: 0,
+            vwin_live: false,
+            vwin_rect: Rect::default(),
+            vwin_bound: false,
+            vwin_seen_ns: 0,
+            vwin_closed: false,
         }
     }
 
@@ -291,7 +316,7 @@ impl Window {
     pub fn needs_focus(&self) -> bool {
         match self.kind {
             WindowType::ShellSystem => self.takes_keys,
-            WindowType::Wallpaper => false,
+            WindowType::Wallpaper | WindowType::VideoWindow => false,
             _ => self.props.get("needFocus").map(|v| v != "false").unwrap_or(self.kind != WindowType::Keyboard),
         }
     }
