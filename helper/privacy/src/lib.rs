@@ -109,7 +109,7 @@ const GROUPS: &[(&str, &str, &str)] = &[
     (
         "push",
         "LG push promotions",
-        "Stops push notices and nudges. The Content Store authentication service stays available.",
+        "Stops push notices, nudges and LG's IoT client. The Content Store authentication service stays available.",
     ),
 ];
 impl Privacy {

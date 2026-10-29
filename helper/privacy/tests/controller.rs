@@ -400,3 +400,38 @@ fn each_item_says_whether_it_is_blocked_from_boot_and_why() {
     assert_eq!(ads["blocked"], false);
     assert_eq!(ads["reason"], "The TV's privacy tool did not answer.");
 }
+#[test]
+fn the_push_row_lists_the_iot_client_that_ls_hubd_launched_although_its_unit_is_masked() {
+    let (_d, _paths, p, privacy) = rig();
+    let iot = "/usr/palm/services/com.webos.service.iotclient/iot-client";
+    let set = |running: Value| {
+        let early = json!({"hook":true,"pending":false,"thisBoot":true,"last":pass(true,running)});
+        let mut status = status_json(true, early);
+        status["groups"]["push"]["on"] = json!(true);
+        *p.dc.lock() = status;
+    };
+    let item = |push: &Value| {
+        push["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["name"] == iot)
+            .cloned()
+            .expect("the IoT client is an item of the push row")
+    };
+    set(json!([]));
+    let push = boot_of(&privacy, "push");
+    let it = item(&push);
+    assert_eq!(
+        (&it["kind"], &it["blocked"], &it["startedBefore"]),
+        (&json!("program"), &json!(true), &json!(false))
+    );
+    assert_eq!(push["blocked"], true);
+    // LG's service hub had launched it before the step could act: not blocked from boot, and the row says which.
+    set(json!([iot]));
+    let push = boot_of(&privacy, "push");
+    let it = item(&push);
+    assert_eq!((&it["blocked"], &it["startedBefore"]), (&json!(false), &json!(true)));
+    assert_eq!(push["blocked"], false);
+    assert!(push["reason"].as_str().unwrap().contains(iot));
+}

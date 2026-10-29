@@ -3,7 +3,7 @@
 # opt = only when named with --group.
 uploaders|ads|log, crash and diagnostic uploaders|nothing the set is used for; local logging stays
 ads|ads|ad, content-recognition and promotion services|LG promotional tiles and sports alerts stop
-push|ads|server push chain: sdx, push client, nudges|no LG nudges, no server-pushed app list, no server-set promotions
+push|ads|server push chain: sdx, push client, nudges, the IoT client|no LG nudges, no server-pushed app list, no server-set promotions, no ThinQ cloud link from the IoT client
 settings|ads|telemetry, ad and promotion switches in LG's settings store|none; every value is restored exactly by off
 apps|ads|the two server-pushed stub apps and their re-install entries|8 Ball Pool and LG Movies & TV are gone from the launcher
 autoinstall|ads|LG's silent app installs: automatic app updates off through LG's own switches, the factory stubs that an update turns into a full app removed, every not-installed id of LG's country list marked deleted so the wake-time sync adds nothing|apps update only by hand, from the store or its "update to open" prompt; the DAZN, Twitch, Kanto, Highbrow and Tennis TV stubs are gone
