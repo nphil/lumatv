@@ -53,6 +53,11 @@ pub mod code {
     /// The Netflix and Prime Video buttons, from LG's network-input-service key table (`NETFLIX`, `AMAZON`); not yet read on this set.
     pub const KEY_NETFLIX: u32 = 1037;
     pub const KEY_AMAZON: u32 = 1038;
+    /// The Magic Remote's wheel press as the set's input service reports it (`LGE M-RCU`, recorded 2026-10-29: key 1199, down and up in one report; no
+    /// KEY_ENTER, no BTN_LEFT): OK.
+    pub const KEY_WHEEL_PRESS: u32 = 1199;
+    /// The pulse (1198, down and up) the same remote sends every 0.5 s while its pointer moves, to keep it alive: no key at all.
+    pub const KEY_POINTER_ALIVE: u32 = 1198;
 }
 
 /// How long Home is held for the escape to LG's compositor (PLAN: 650 ms).
@@ -421,6 +426,14 @@ impl State {
 
     /// [`State::key_event`] at a given time, which is what the holds are measured against (the host tests move it by hand).
     pub fn key_event_at(&mut self, seat: seat::SeatId, code: u32, pressed: bool, from_network: bool, now: Instant) {
+        // The Magic Remote's pointer keep-alive is no key (it pulses every 0.5 s while the pointer moves and must not count as the person's input),
+        // and its wheel press arrives as key 1199, not as KEY_ENTER: from here on it is OK in every rule below (the click while the cursor shows,
+        // the shell's `ok`, the apps' Enter).
+        let code = match code {
+            code::KEY_POINTER_ALIVE => return,
+            code::KEY_WHEEL_PRESS => code::KEY_ENTER,
+            other => other,
+        };
         self.scene.input(crate::output::monotonic_ns());
         // While the Magic Remote's cursor shows, OK is a click on what it points at (LG's behaviour); an arrow or
         // Back hides the cursor and goes on as a key.
