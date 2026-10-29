@@ -2,18 +2,50 @@
 
 Research only, 2026-10-29. No TV access and no hardware write. The question: can LumaTV use the C4's display hardware (OSD layers, video windows, scalers, AFBC, picture-quality blocks) directly, past LG's driver limits, and what is worth doing first. The next worker starts from § Open questions, § Dead ends and the **Actionable items** at the end.
 
+## Resume here
+
+Done: this document. Research only: no code, no TV access, nothing written to any hardware; committed to forge/main.
+
+Next, in order:
+
+1. A read-only TV slot with the commands in § TV checks (answers open questions 1, 2, 6, 7). Needs a TV window, no display change.
+2. Offline, behind switches, host-tested: a plane offset for the direct plan, driven by `oledcare`, and the KMS cursor plane. Files: `compositor/crates/lumatv-compositor/src/scene.rs` (`Plan::sole_candidate`, `NotSole`), `src/scanout/mod.rs` (`Scanout::choose`), `src/kms/mod.rs` (plane commit, `PlaneType::Cursor`), `src/oledcare.rs`, `src/render/cursor.rs`; tests in `tests/scanout.rs` and `tests/oledcare.rs` against the fake KMS.
+3. One display slot with Nitin at the set for wins 2-5 (§ 4); raw-register tests (wins 7 and 8) only if he wants them.
+
+Decisions taken: KMS-level doors rank above raw registers; the O22 tree (not O24) is the reference; OSD0_1 stays parked behind items 1-5; kernel-module and raw-write work is not started (Nitin's decision); no extracted firmware, script or capture was added to the repository.
+
+Open for Nitin: whether OLED-care orbit may move to the hardware plane offset, and whether a read-only slot may run now.
+
 ## Verdict
 
-- The display chip is LG's own: kernel command line `chip=O22A3 pqe.tool=C4 pqe.year=24`, device-tree model "LG Electronics, DTV SoC LG1213" (TV). MediaTek is only the MT7668 Wi-Fi/Bluetooth radio, so MediaTek display sources do not apply, and LG publishes no datasheet. LG's GPL tree is the only register documentation.
-- That tree documents the **graphics side to bit-field level** (OSD layers, AFBC readers, OSD sharpener, 2D blitter) and gives **names and addresses** of 204 video-pipeline blocks and about 2,860 picture-engine registers. It does not say how the scalers, picture quality, MEMC, orbit and HDR work: that runs as closed firmware on the display engine's MCUs, shipped in the tree only as byte arrays.
+- The display chip is LG's own: kernel command line `chip=O22A3 pqe.tool=C4 pqe.year=24`, device-tree model "LG Electronics, DTV SoC LG1213" (TV). MediaTek is only the MT7668 Wi-Fi/Bluetooth radio, so MediaTek display sources do not apply, and no public datasheet for the chip turned up. LG's GPL tree is the only register documentation.
+- That tree documents the **graphics side to bit-field level** (OSD layers, AFBC readers, OSD sharpener, 2D blitter) and gives **names and addresses** of 204 blocks of the whole display chip and about 2,860 picture-engine registers. It does not say how the scalers, picture quality, MEMC, orbit and HDR work: that runs as closed firmware on the display engine's MCUs, shipped in the tree only as byte arrays.
 - The OSD registers already have three writers: the `lg1k` driver at every flip, the PQE firmware at every frame, and LG's picture and panel services. A raw write fights at least one of them, so raw registers are the last resort. A kernel module is feasible in principle (public precedent below), is Nitin's decision, and buys little that user space cannot do.
 - The best wins use doors LG already opens: a read-only observation kit, the KMS plane position as hardware orbit, the cursor plane, a smaller primary buffer scaled by the OSD scaler, and the OSD sharpening knobs. Long shots: OSD0_1 as a second layer, video tiles through the four graphic scalers, the OSD's contrast and saturation registers.
+
+## Verified and inferred at a glance
+
+| Claim | Status |
+|---|---|
+| Chip O22A3, y24 PQE firmware (`pqe.year=24`) | verified (TV command line) |
+| One blended graphics layer; fb1 is an alias of OSD0 | verified (TV dmesg, SRC) |
+| Two scaler windows (main, sub0) and four graphic scalers | verified (TV resource table, SRC) |
+| `lg1k` honours FB address, size, format and `CRTC_X/Y` of plane 32; ignores `CRTC_W/H` and `SRC_*` | verified in source; not exercised on the set |
+| `CRTC_X/Y` moves the picture on the panel, and in which units | inferred |
+| OSD0 output size and crop belong to the firmware; live canvas 3860×2170, crop 3840×2160 at (10, 5) | verified (TV registers, SRC); the cause (LG orbit) is inferred |
+| OSD VSP is enabled at neutral values and `lg1k` never writes it | verified; who writes it is unknown |
+| Sharpener knobs exist; live gain 0x10 | verified; effect on the panel not seen |
+| The AFBC decoder has no layout registers; z-list, video mixer, pivot, 3D, CSC ioctls are no-ops | verified (SRC) |
+| `DE_IOW_REG_WR` writes any physical address through a 0666 node | verified (SRC; node mode TV) |
+| A kernel module loads on the set | inferred (defconfig, public precedent); not tried |
+| Cursor plane works under LumaTV's DRM master; the OSD scaler takes a 720p buffer | inferred / unknown |
+| `kprobe_events` is available; OSD0_1 blends at 2K | unknown (the second with a low prior) |
 
 ## Evidence and sources
 
 Tags: `TV` (read on this set), `REPO` (recorded result or code here), `SRC` (LG's GPL tree), `FW` (strings of the firmware images inside that tree), `PUB` (public page), `[INFERENCE]` (not shown; the check that would show it is named).
 
-`SRC` root: `/data/home/lgtv/research/lgsrc/k/soc_GO/linux-and-kdriver_paluma-5/` (tarball `linux-and-kdriver_paluma-5-241025-0301.tar.gz`, LG's public drop, https://opensource.lge.com/product). Paths below are relative to its `kdriver/` unless they start with `linux-rockhopper/`. Its `build.sh` defaults to the O24 chip; the C4 is O22 (`chip/o22`).
+`SRC` root: `/data/home/lgtv/research/lgsrc/k/soc_GO/linux-and-kdriver_paluma-5/` (tarball `linux-and-kdriver_paluma-5-241025-0301.tar.gz`, LG's GPL drop; LG publishes such drops at https://opensource.lge.com/product). Paths below are relative to its `kdriver/` unless they start with `linux-rockhopper/`. Its `build.sh` defaults to the O24 chip; the C4 is O22 (`chip/o22`).
 
 The drop is not byte-identical to the set: kernel 5.4.268 submission 324 (the set runs 5.4.268-329.ptl4tv.2), kdriver `1237.paluma.1` (webOS 25), DE firmware images per board year (`BUILD_FEATURE_y24_board` links `de_fw_pak_o22a0_y25_o22n2.h`; the set reports firmware 7356, 2025-04-14). `SRC` says how LG's code works; `TV` says what this set did.
 
@@ -28,19 +60,20 @@ The drop is not byte-identical to the set: kernel 5.4.268 submission 324 (the se
 | LG's V4L2 API and its documentation | `include/webosext/v4l2-ext-renderer-header/linux/*.h` and `.../documentation/source/renderer/{scaler,gp-scaler,video-texture,panel-controller,pq}.rst` (block diagram: `resources/Scaler_IP_Block_Diagram_n.PNG`) |
 | Kernel configuration | `linux-rockhopper/arch/arm64/configs/lg1k_defconfig`, `build.sh`, `submissions` |
 | TV captures | `docs/research/arch/{scanout-hw-02.txt,scanout-live-01.txt,lgproc-fbdev-01.txt,lgproc-gfx-de-01.txt,drmplanes-01.txt,drm-debugfs-01.txt}`, `docs/research/framerate/*/before.txt` (kernel command line), `docs/research/gfn/tv-2026-10-26/umediaserver_resource_config.txt`, `docs/research/hardware-census.md` |
-| Earlier results | `scanout-research.md`, `framerate-result.md`, `gfn-444-vrr-result.md`, `ui120-result.md`, `videoplane-saver-result.md`, `oledcare-result.md`, `hearth-update-result.md`, `compositor-gate9-result.md` (`:887-890`), `scrypted-cameras-design.md` (`:145`) |
+| Earlier results | `scanout-research.md`, `framerate-result.md`, `gfn-444-vrr-result.md`, `ui120-result.md`, `videoplane-saver-result.md`, `oledcare-result.md`, `hearth-update-result.md`, `compositor-gate9-result.md` (`:887-890`), `scrypted-cameras-design.md` (`:29`, `:145`) |
 | Public | https://github.com/throwaway96/webos-kernel-drivers (out-of-tree modules for O22 webOS kernels), https://github.com/cfernande1470/webos-wayland (`fbdev_readme_section.md`: another LG set, same fb layout) |
 
 ## 1. What the chip contains
 
 ```
-video   HDMI A-D / ADC / CVD ─ input mux ─┐
-        VDEC 1-4 ─ VDO ───────────────────┴─ main:  HDR ─ ISC ─ NR, DI ─ DDR ─ OSC ─ PQ ─ MEMC ─┐
-                                              sub0:  ISC ─ DDR ─ OSC ──────────────────────────────┤
-                                                                         video compositor ────────┘
-graphics  CMA buffer (linear or AFBC 32x8) ─ AFBC0 / MIF0 ─ OSD0 layer ─ scaler ─ SHP ─ mixers ─┐
-          cursor layer (256x256) ──────────────────────────────────────────────────────────────┤
-          video compositor + OSD blend ─ post blocks (gamma incl. OSD, white balance, OLED, orbit crop) ─ OVI (Vx1) ─ panel
+video     inputs (HDMI A-D, ADC, CVD) ─ input mux ─┐
+          decoders (VDEC 1-4) ─ VDO ────────────────┤
+              main path:  HDR ─ ISC ─ NR, DI ─ DDR ─ OSC ─ PQ ─ MEMC ─┐
+              sub0 path:  ISC ─ DDR ─ OSC ─────────────────────────────┴─ video compositor ─┐
+graphics  CMA buffer (linear or AFBC 32x8) ─ AFBC0, MIF0 ─ OSD0 layer ─ scaler ─ SHP ─ mixers ─┼─ OSD blend ─ post blocks ─ OVI ─ panel
+          cursor layer (256x256) ─────────────────────────────────────────────────────────────┘
+post blocks: gamma (includes the OSD), white balance, OLED compensation, orbit crop
+ISC, OSC: input and output scaler. Simplified from LG's diagram; only the main path carries PQ and MEMC.
 ```
 
 Source: LG's scaler diagram (`Scaler_IP_Block_Diagram_n.PNG`), the pattern probe points in `v4l2-ext-vsc.h:731-732`, and the gamma note "must be set including the OSD" (`v4l2-ext-pq.h:4083`). The sub0 path has no PQ or MEMC box. Picture quality and MEMC therefore act on the video windows and not on the UI (agrees with `videoplane-saver-result.md`: the plane reads 0.93 of its clip, the UI plane 1.01-1.03).
@@ -83,18 +116,18 @@ Hardware limits, not driver limits: one blended graphics layer at 2K; the AFBC d
 |---|---|---|
 | `lg1k` (kernel) | at every flip: `osd_ctrl_hdr0` (position, colour key), `hdr1` (memory size), `hdr3-6` (pitch, alpha, format, pointers), AFBC pointers and region; enable and fb0/fb1 ownership | `fbdev_hw_o22_cmn.c:2601-2822`, `:3120-3270` |
 | PQE firmware (MCU0) | output size `hdr2`, SHP size, crop and orbit offsets, OSD init (SR, orbit), clock-gate bits, size workarounds; told about every OSD enable through `NotifyPQEDriver` and `InformFBDEVStatus` | `fbdev_hw_o22_cmn.c:2702-2790`, `:519-560`; TV dmesg (`scanout-live-01.txt:7-27`); FW strings |
-| LG user space | `pqcontroller`, `panelcontroller`, `eplmanager` through V4L2 VBE and PQ controls (OSD gain, LSR/GSR, orbit, gamma every 30 ms) | `v4l2-ext-vbe.h:777-3345`, `v4l2-ext-pq.h:4083`; `hardware-census.md` holders |
-| LumaTV today | DRM atomic commits only | `compositor/crates/lumatv-compositor/src/kms/` |
+| LG user space | `pqcontroller`, `panelcontroller`, `eplmanager` through V4L2 VBE and PQ controls (OSD gain, LSR/GSR, orbit; the gamma control is documented as set every 30 ms) | `v4l2-ext-vbe.h:777-3345`, `v4l2-ext-pq.h:4083`; `hardware-census.md` holders |
+| LumaTV today | DRM atomic commits; the 120 Hz mode writes `fbdev_vsync_cnt_on_flip`; the helper writes `fr_rate` | `compositor/crates/lumatv-compositor/src/{kms,refresh.rs}`, `framerate-result.md` |
 
 Live state of OSD0 (TV `scanout-hw-02.txt`, LumaTV's compositor on screen, XR24 pages): input 1920×1080 (`hdr1 0x07800438`); output 3860×2170 (`hdr2 0x0f14087a`, line 288); crop 3840×2160 at (10, 5) of that canvas (`crop_ctrl_1/2 0x000a0f00`, `0x00050870`, lines 314-315); global alpha 0xff enabled (`hdr3 0xeeff03c0`, the XR24 rule of `fbdev_drm.c:319-328`); `chip/diag`: `hw_wa.pqwfw_osd0_out_ctrl 1`, `hw_wa_flag 0x5`, `osd_sr.sw_status 1`, `support_4kosd 0`, `vsync_clk 120Hz`.
 
-The 3860×2170 canvas with a 20×10 margin is LG's OLED orbit arrangement ("overscan" case: OSD input 1908×1074 to output 3860×2170 in the example, `v4l2-ext-vsc.h:2090-2165`; LG's Screen Shift is on, `hearth-update-result.md:30`). The UI therefore scales by 2.0104, not exactly 2 [INFERENCE: the cause; the numbers are measured]. The exact-×2 arrangement is the "just scan" orbit of the same document; which one the set uses is `videooutputd`'s decision, and it is panel-care policy.
+The 3860×2170 canvas with a 20×10 margin matches LG's OLED orbit arrangement [INFERENCE]: LG's VSC orbit document gives an "overscan" example that scales a 1908×1074 crop to 3860×2170 (`v4l2-ext-vsc.h:2090-2165`), and LG's Screen Shift is on (`hearth-update-result.md:30`). The measured scale is 2.0104 horizontally and 2.0093 vertically, not exactly 2. The same document's "just scan" orbit scales the OSD to exactly 3840×2160; which arrangement applies is `videooutputd`'s decision and panel-care policy.
 
 ## 2. Does the GPL source document the register maps?
 
 | Area | Coverage | Quality |
 |---|---|---|
-| OSD, AFBC, TOP, SHP | complete bit fields | Generated from LG's register manual (`osd_shp_reg_o22.h` footer: `O22_PQE_OSD_SHP_reg_man.csv`). Names, almost no descriptions. Base addresses in comments are stale (`0xC901xxxx`); the live dump (`0xCC48xxxx`) is right. The master struct `OSD_O22_REG_T` (`osd_reg_o22.h:3364-3779`) places blocks at +0x000 status and common, +0x080/+0x100/+0x180 mixers, +0x200..+0x500 layers (from `0xCC480100`), HDR-UI at `0xCC480700`. |
+| OSD, AFBC, TOP, SHP | complete bit fields | The SHP and GFX headers carry LG's generator footer (`O22_PQE_OSD_SHP_reg_man.csv` 2017-06-09, `o22_gfx_register_manual.csv` 2021-03-15), so they come from LG's register manuals. Names, almost no descriptions. Base addresses in comments are stale (`0xC901xxxx`); the live dump (`0xCC48xxxx`) is right. The master struct `OSD_O22_REG_T` (`osd_reg_o22.h:3364-3779`) places blocks at +0x000 status and common, +0x080/+0x100/+0x180 mixers, +0x200..+0x500 layers (from `0xCC480100`), HDR-UI at `0xCC480700`. |
 | GFX blitter | complete | 112 structs plus a manual-style header. |
 | Picture engine (`chip/o22/pe/reg`) | about 2,860 registers, 10,500 fields | Names; comments in some files (`pe_osd_reg_o22a0.h` has them per field). |
 | Display engine (`chip/o22/de`) | CVI, CVD, CTR, IPC, IPP, ATP, VBI registers | Scaler, window and VDO logic is in the firmware; the kernel sends IPC commands (`core/de/mcu/de_ipc_def.h:103-335`: window, source, zlist, orbit, GPS, HFR, PQL, DIMM). |
@@ -113,7 +146,7 @@ The register headers parse mechanically: each register is a comment `0xOFFSET na
 |---|---|---|
 | Plane 32 `FB_ID` | Honoured: address plus offset, pitch, width and height as the OSD input window, XRGB/ARGB/XBGR/ABGR, linear or AFBC `…62` | `drm.c:448-540`, `fbdev_drm.c:300-505` |
 | Plane 32 `CRTC_X/Y` | Passed on as the OSD output position and written to `osd_ctrl_hdr0` at every flip. Units: panel pixels [INFERENCE: the cursor path multiplies by 2, this path does not] | `fbdev_drm.c:494-495`, `fbdev_hw_o22_cmn.c:3158-3159`, `:2687-2695` |
-| Plane 32 `CRTC_W/H`, `SRC_*` | Ignored (the primary's `CRTC_W/H` only set the cursor's coordinate space): no crop, no scaling property | `drm.c:520-530` |
+| Plane 32 `CRTC_W/H`, `SRC_*` | Ignored (the primary's `CRTC_W/H` only set the cursor's coordinate space): no crop, no scaling property | `drm.c:532-536` |
 | Alpha, zpos, rotation, blend | None exposed. Global alpha is reset at every flip: XR24/XB24 to 0xff on, AR24/AB24 off (pixel alpha) | `fbdev_drm.c:319-328`; TV `hdr.global_alpha_en 1` with XR24 |
 | Plane 34 | Alias of OSD0; its enable is ignored while fb0 is on | `scanout-research.md` § Layers |
 | Plane 36 (cursor) | AR24, clamped to 128×128; image scaled ×2 by the blitter when it changes (`detect_cursor_change`); position ×2; hotspot from `fb->hot_x` ("not tested") | `drm.c:586-640`, `fbdev_drm.c:225-395` |
@@ -142,8 +175,8 @@ Sources: `core/fbdev/fbdev_proc.c:169-201, 471-646`, `chip/o22/fbdev/fbdev_proc_
 
 ### 3.3 LG's own kernel interfaces
 
-- `/dev/lg/de0` (0666 on the set): 99 ioctls (`include/de_kapi.h`) for windows, source selection, mute, freeze, HFR, orbit, GP scaler, and `DE_IOR_REG_RD` / `DE_IOW_REG_WR`, which read and write **any physical address** with no filter (`core/de/de_io.c:1157-1204`, `chip/o22/de/de_reg_o22.c:886-984`: `ioremap` under `0xCC000000`, `vmap_phys` elsewhere).
-- `/proc/lg/de/*`: `fr_rate` (already used by the helper), `command` (forwards text to the firmware's command line: `osdinit`, `orbitnen`, `mcususpend`, `ipc log` [FW]), `disp` and `v4l2_vsc_debug_func` (window and source macros), `bwm` (bandwidth monitor), `wdog`, `bin_download` (loads MCU firmware).
+- `/dev/lg/de0` (0666 on the set): about 100 ioctls (`include/de_kapi.h`) for windows, source selection, mute, freeze, HFR, orbit, GP scaler, and `DE_IOR_REG_RD` / `DE_IOW_REG_WR`, which read and write **any physical address** with no filter (`core/de/de_io.c:1157-1204`, `chip/o22/de/de_reg_o22.c:886-984`: `ioremap` under `0xCC000000`, `vmap_phys` elsewhere).
+- `/proc/lg/de/*`: `fr_rate` (already used by the helper); `command` (text for the MCU firmware's command line: `ipc log`, `curr`, `pat ipp m0`; the firmware also carries `OSDINIT` and `ORBITNEN` [FW]; the kernel handles `mcususpend` and `ipcdisable` itself); `disp` and `v4l2_vsc_debug_func` (window and source macros); `bwm` (bandwidth monitor); `wdog`; `bin_download` (loads MCU firmware).
 - V4L2 ext controls on LG's video nodes (root, group `composit`): VSC (`WIN_REGION`, `ORBIT_WINDOW`, `ORBIT_MOVE`, `PATTERN`), PQ, VBE (`ORBIT`, `LSR`, `GSR`, `OSD_GAIN`, `ALPHA_OSD`), VT and GPSC. These are what `videooutputd`, `pqcontroller` and `panelcontroller` drive.
 - `/dev/vo` (0666): raw frames to a DE window: `VO_WRITE_PICTURE` takes physical Y/Cb/Cr addresses, `VO_SET_DE_ID` picks the window, flags for HFR, low latency and secure video (`core/vdec/include/vo_kapi.h`). LG's media pipeline and the NDL path ride on it.
 - `/dev/lg/{be0,pe0,ovi0,sys0}`: back end, picture engine (one packet ioctl), panel link, system.
@@ -209,7 +242,7 @@ The pointer is composed (`NotSole::Cursor`, `scene.rs:264-358`) and refuses scan
 
 ### 4.3 Smaller primary buffer (win 4)
 
-The driver sets the OSD input window from the framebuffer's own size and leaves the output to the firmware, so a 1280×720 or 1440×810 XR24 buffer on plane 32 makes the OSD scaler magnify it (×3 or ×2.67). LG builds board options for 4K, 2K and HD graphics on this driver (`fbdev_drv_o22.c`, `LX_BOARD_OPT_*_GRAPHIC`; HD means a 1280×720 UI on a 4K panel), and the firmware tracks the OSD input size (`OsdIn`, `OSD lineCnt WA`, `OSD VSP WA`), so the path is designed for it [INFERENCE for this board at run time]. Check: a `TEST_ONLY` commit, then a real one with the pattern; read `hdr1` (memory size), the scaler status (`osd0_info_scaler`, `osd0_out_buf_status`) and `dmesg`; photograph; commit 1080p again. Value is bounded: the compositor's 4.1 ms pass shrinks with its output, but the shell's own render does not unless the shell renders smaller too; a direct-scanned smaller shell frame removes the pass entirely. Text at ×3 is soft, so this fits animation bursts, not a still Home.
+The driver sets the OSD input window from the framebuffer's own size and leaves the output to the firmware, so a 1280×720 or 1440×810 XR24 buffer on plane 32 makes the OSD scaler magnify it (about ×3.0 or ×2.7 into the 3860-wide canvas). LG builds board options for 4K, 2K and HD graphics on this driver (`fbdev_drv_o22.c:225-300`, `LX_BOARD_OPT_*_GRAPHIC`; HD means a 1280×720 UI on a 4K panel), and the firmware tracks the OSD input size (`OsdIn`, `OSD lineCnt WA`, `OSD VSP WA`), so the path looks designed for it [INFERENCE for this board at run time]. Check: a `TEST_ONLY` commit, then a real one with the pattern; read `hdr1` (memory size), the scaler status (`osd0_info_scaler`, `osd0_out_buf_status`) and `dmesg`; photograph; commit 1080p again. Value is bounded: the compositor's 4.1 ms pass shrinks with its output, but the shell's own render does not unless the shell renders smaller too; a direct-scanned smaller shell frame removes the pass entirely. Text at ×3 is soft, so this fits animation bursts, not a still Home.
 
 ### 4.4 Sharpening knobs (win 5)
 
@@ -217,11 +250,11 @@ The driver sets the OSD input window from the framebuffer's own size and leaves 
 
 ### 4.5 Video tiles (win 6)
 
-LG's GAV compositor plays two or more hardware-decoded videos by taking a scaled copy of each (NV12 or ARGB, at most 1920×1080, four instances) through `/dev/video70` into dma-buf textures; "previously only two media could be played" (`gp-scaler.rst`, `video-texture.rst`). The set's resource table has `GP_SCALER 4` and `VTG 1`. The camera design uses stills for the grid because "decoders are the scarce resource" (`scrypted-cameras-design.md:29`); four graphic scalers change that count. Unmeasured: the cost of sampling such a buffer (`PLAN.md` measured 5-20× for rendering into imported memory, not for sampling), and whether LumaTV's compositor can serve LG's VTG protocol. Study first, build only if sampling is cheap.
+LG's GAV compositor plays two or more hardware-decoded videos by taking a scaled copy of each (NV12 or ARGB, at most 1920×1080) through `/dev/video70` into dma-buf textures; "previously, only up to two media could be played due to hardware limitations" (`gp-scaler.rst`). The set's resource table has `GP_SCALER 4` and `VTG 1`. The camera design uses stills for the grid, "never one decoder a tile", because decoders are the scarce part (`scrypted-cameras-design.md:29`); four graphic scalers change that count. Unmeasured: the cost of sampling such a buffer (`PLAN.md` measured 5-20× for rendering into imported memory, not for sampling), and whether LumaTV's compositor can serve LG's VTG protocol. Study first, build only if sampling is cheap.
 
 ### 4.6 OSD VSP (win 7) and OSD0_1 (win 8)
 
-VSP: read `0xCC480360-0xCC48036C` twice, a second apart, with the screen changing, to see whether anything rewrites them; only then a timed write of `r_contrast` to 0x100 with a revert. OSD0_1: the probe in `scanout-research.md` § The probe stays as designed and parked; new evidence against: the firmware is told about OSD state through a handshake (`InformFBDEVStatus`), a second layer is a state it does not know; for: the second reader is powered and its size fields are 12 bits.
+VSP: read `0xCC480360-0xCC48036C` twice, a second apart, with the screen changing, to see whether anything rewrites them; only then a timed write of `r_contrast` to 0x100 with a revert. OSD0_1: the probe in `scanout-research.md` ("The probe, if it is wanted") stays as designed and parked. New evidence against: the firmware is told about OSD state through a handshake (`InformFBDEVStatus`), and a second layer is a state it does not know. For: the second reader is powered and its size fields are 12 bits.
 
 ## 5. Rules for any write below the DRM layer
 
@@ -243,8 +276,8 @@ VSP: read `0xCC480360-0xCC48036C` twice, a second apart, with the screen changin
 | Blitter as the compositor | Linear only, device lock, synchronous, no fence | `scanout-research.md` § The 2D blitter |
 | `capture`, `fbmem_hook`, `user_flip_opt` | They sit in the fb `pan_display` path, not the DRM flip; the first two wait on a mutex with no timeout | `fbdev_drv.c:842-1015` |
 | DRM VRR, writeback, async flips, AFRC at run time | `VRR_ENABLED` is core default; no writeback connector; async cap 0; `use_afrc` is a probe-time parameter and the G52 has no AFRC encoder | TV `drmplanes-01.txt`; `drm.c:822-830` |
-| Direct picture-engine or PQ writes | `pqcontroller` rewrites gamma every 30 ms; panel care shares the blocks; the settings service already exposes every user-facing control | `v4l2-ext-pq.h:4083`; `settings-coverage.md` |
-| DE firmware download, firmware command line | The whole picture pipeline, no source; `osdinit`, `orbitnen`, `mcususpend` act at once | `de_proc.c:903-947` |
+| Direct picture-engine or PQ writes | LG documents the gamma control as set every 30 ms by `pqcontroller`; panel care shares the blocks; the settings service already exposes every user-facing control | `v4l2-ext-pq.h:4083`; `settings-coverage.md` |
+| DE firmware download, firmware command line | The whole picture pipeline, no source; commands such as `mcususpend` act at once | `core/de/de_proc.c:903-947`, FW strings |
 | A second video window as a UI layer | Opaque, below the OSD, no PQ or MEMC on the sub path, content must be video frames | LG diagram; `scanout-research.md` |
 | GPU sampling the video plane | Not possible; a GPSC or VT copy is the only way | `videoplane-saver-result.md` |
 | Overlay via `/dev/vo` raw frames | Needs physical addresses and LG's pipeline for the window; no gain over NDL for LumaTV's content | `vo_kapi.h` |
@@ -278,7 +311,7 @@ ls -l /dev/mem /dev/vo /dev/lg /dev/video60 /dev/video70; head -20 /proc/iomem
 for i in 1 2 3; do cat /proc/lg/fbdev/regdump > /tmp/rd$i; sleep 1; done; diff /tmp/rd1 /tmp/rd3 | head -60
 ```
 
-One display slot with LumaTV's compositor, Nitin at the set (wins 2-5), in this order: cursor plane; `CRTC_X/Y`; the 720p buffer; the sharpening knobs. Each ends with `ctl` back to the normal path; `python3 compositor/tools/tv_kms.py restore` ends an interrupted run. Raw-register tests (7, 8) only after these.
+One display slot with LumaTV's compositor, Nitin at the set (wins 2-5), in this order: cursor plane; `CRTC_X/Y`; the 720p buffer; the sharpening knobs. Each step is one commit and one revert; `python3 compositor/tools/tv_kms.py restore` ends an interrupted run (`scanout-research.md` § TV check list, b). Raw-register tests (wins 7 and 8) only after these.
 
 ## Actionable items
 
