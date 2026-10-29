@@ -467,15 +467,27 @@ mod tests {
         }
     }
 
+    /// The probes' summaries once probe `i` has `n` samples (a 60 s cap ends a probe that never wakes).
+    fn wait_for_samples(i: usize, n: u64) -> Vec<(String, Summary)> {
+        let end = std::time::Instant::now() + Duration::from_secs(60);
+        loop {
+            let live = probe_read();
+            if live.get(i).is_some_and(|l| l.1.n >= n) || std::time::Instant::now() >= end {
+                return live;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
     #[test]
     fn a_time_shared_probe_measures_a_sleeping_thread_and_stops() {
         let _g = globals();
         let started = probe_start(&[Spec { class: Class::Other, cpu: None }], Duration::from_millis(2));
         assert_eq!(started, vec!["other".to_string()]);
-        std::thread::sleep(Duration::from_millis(120));
-        let live = probe_read();
+        // 20 wake-ups at 2 ms is 40 ms of an idle machine; a loaded one is given as long as it takes (the count is the test, not the time).
+        let live = wait_for_samples(0, 20);
         assert_eq!(live.len(), 1);
-        assert!(live[0].1.n >= 20, "{} wake-ups in 120 ms at 2 ms", live[0].1.n);
+        assert!(live[0].1.n >= 20, "{} wake-ups at 2 ms", live[0].1.n);
         let done = probe_stop();
         assert_eq!(done[0].0, "other");
         assert!(done[0].1.n >= live[0].1.n);
@@ -491,9 +503,9 @@ mod tests {
         let nowhere = Spec::parse("other@1023").unwrap();
         let started = probe_start(&[here, nowhere], Duration::from_millis(2));
         assert_eq!(started, vec![format!("other@{cpu}"), "other@1023".to_string()]);
-        std::thread::sleep(Duration::from_millis(150));
+        wait_for_samples(0, 20);
         let done = probe_stop();
-        assert!(done[0].1.n >= 20, "{} wake-ups on CPU {cpu} in 150 ms at 2 ms", done[0].1.n);
+        assert!(done[0].1.n >= 20, "{} wake-ups on CPU {cpu} at 2 ms", done[0].1.n);
         assert_eq!(done[1].1.n, 0, "CPU 1023 does not exist: nothing was measured and nothing was made up");
         assert!(describe(&done[1].1).contains("no samples"));
     }
