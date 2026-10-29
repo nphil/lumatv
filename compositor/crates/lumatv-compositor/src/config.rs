@@ -47,6 +47,8 @@ pub struct Config {
     /// Read the set's input devices and route keys (C4). Off by default: beside LG's compositor it would only
     /// feed the test clients.
     pub input: bool,
+    /// Where `--input` finds its `event*` devices.
+    pub input_dir: PathBuf,
     /// Exercise the optional system-layer renderer without replacing any TV surfaces.
     pub ui_demo: bool,
     /// LumaTV's data directory (`/var/lib/lumatv` on the set): the theme the remote's app buttons are read from (`theme/theme.json`) and
@@ -119,6 +121,7 @@ impl Default for Config {
             control: true,
             exit_on_disconnect: false,
             input: false,
+            input_dir: PathBuf::from("/dev/input"),
             ui_demo: false,
             data_dir: PathBuf::from("/var/lib/lumatv"),
             rt_priority: 20,
@@ -156,6 +159,7 @@ pub const USAGE: &str = "lumatv-compositor [options]
   --tick-hz HZ           frame tick (default 60)
   --no-control           no control socket
   --input                read /dev/input/event* and route keys to the focused window (C4)
+  --input-dir DIR        read the event* devices of DIR instead of /dev/input
   --data-dir DIR         LumaTV's data directory (default /var/lib/lumatv): theme/theme.json holds Settings > Remote's app buttons,
                          compositor/keys.conf the key codes the routing was taught (`NAME CODE` per line)
   --ui-demo              draw the system-layer diagnostic (requires feature ui and gl|kms); LUMATV_UI_DEMO_HZ (ticker rate,
@@ -259,6 +263,7 @@ impl Config {
                 }
                 "--no-control" => c.control = false,
                 "--input" => c.input = true,
+                "--input-dir" => c.input_dir = PathBuf::from(value()?),
                 "--data-dir" => c.data_dir = PathBuf::from(value()?),
                 "--ui-demo" => c.ui_demo = true,
                 "--rt-priority" => {

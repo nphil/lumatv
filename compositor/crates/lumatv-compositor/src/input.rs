@@ -225,16 +225,18 @@ impl Device {
         self.stamp_ns.take()
     }
 
-    /// Reads what is pending; `f` per key event (repeats are reported as presses) and per pointer motion.
+    /// Reads what is pending; `f` per key event (repeats are reported as presses) and per pointer motion. An error, or the end of the
+    /// file, means the device is gone (a removed evdev node answers `ENODEV` and polls readable for good): the caller stops reading it.
     pub fn drain(&mut self, mut f: impl FnMut(Event)) -> io::Result<()> {
         loop {
             let size = std::mem::size_of::<InputEvent>();
             // SAFETY: the buffer is a plain array of repr(C) structs; read fills whole events.
             let bytes = unsafe { std::slice::from_raw_parts_mut(self.buf.as_mut_ptr() as *mut u8, size * self.buf.len()) };
             let n = match self.file.read(bytes) {
-                Ok(0) => return Ok(()),
+                Ok(0) => return Err(io::Error::from(io::ErrorKind::UnexpectedEof)),
                 Ok(n) => n,
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
                 Err(e) => return Err(e),
             };
             for i in 0..n / size {
@@ -293,10 +295,10 @@ fn absinfo(fd: i32, axis: u16) -> Option<(i32, i32)> {
     if r < 0 { None } else { Some((info[1], info[2])) }
 }
 
-/// Every `/dev/input/event*` that opens.
-pub fn open_all() -> Vec<Device> {
+/// Every `event*` of `dir` (`/dev/input` on the set) that opens.
+pub fn open_all(dir: &std::path::Path) -> Vec<Device> {
     let mut out = Vec::new();
-    let Ok(dir) = std::fs::read_dir("/dev/input") else { return out };
+    let Ok(dir) = std::fs::read_dir(dir) else { return out };
     let mut paths: Vec<String> = dir.filter_map(|e| e.ok()).map(|e| e.path().to_string_lossy().into_owned()).filter(|p| p.contains("/event")).collect();
     paths.sort();
     for p in paths {

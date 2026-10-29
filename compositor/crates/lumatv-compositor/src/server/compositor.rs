@@ -88,13 +88,14 @@ impl Dispatch<WlRegion, RegionData> for State {
     }
 }
 
-impl Dispatch<WlCallback, ()> for State {
+/// A frame callback's data is its surface: the callbacks of a surface that is destroyed are destroyed with it, wherever they wait.
+impl Dispatch<WlCallback, SurfaceId> for State {
     fn request(
         _state: &mut Self,
         _client: &Client,
         _resource: &WlCallback,
         _request: wayland_server::protocol::wl_callback::Request,
-        _data: &(),
+        _data: &SurfaceId,
         _dh: &DisplayHandle,
         _di: &mut DataInit<'_, Self>,
     ) {
@@ -144,7 +145,7 @@ impl Dispatch<WlSurface, SurfaceData> for State {
                 }
             }
             wl_surface::Request::Frame { callback } => {
-                let cb = data_init.init(callback, ());
+                let cb = data_init.init(callback, id);
                 state.note_request("wl_surface", pid, "frame");
                 if let Some(s) = state.surfaces.get_mut(id) {
                     s.pending.frame_callbacks.push(cb);

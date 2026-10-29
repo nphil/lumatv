@@ -171,6 +171,8 @@ pub struct Pipe {
     fd: RawFd,
     queue: Sender<String>,
     line: String,
+    /// The bridge closed its end (or the socket failed): nothing more comes, and the socket polls readable for good.
+    closed: bool,
 }
 
 impl Pipe {
@@ -181,7 +183,7 @@ impl Pipe {
         let writer = stream.try_clone()?;
         let (queue, rx) = mpsc::channel::<String>();
         std::thread::Builder::new().name("luna-writer".into()).spawn(move || write_queue(writer, rx))?;
-        Ok(Pipe { reader: BufReader::new(stream), fd, queue, line: String::new() })
+        Ok(Pipe { reader: BufReader::new(stream), fd, queue, line: String::new(), closed: false })
     }
 }
 
@@ -229,14 +231,19 @@ impl Bridge for Pipe {
         loop {
             self.line.clear();
             match self.reader.read_line(&mut self.line) {
-                Ok(0) => break,
+                Ok(0) => {
+                    self.closed = true;
+                    break;
+                }
                 Ok(_) => match serde_json::from_str::<FromBridge>(self.line.trim_end()) {
                     Ok(m) => out.push(m),
                     Err(e) => log::warn!("luna bridge: bad line {:?}: {e}", self.line),
                 },
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
                 Err(e) => {
                     log::warn!("luna bridge read: {e}");
+                    self.closed = true;
                     break;
                 }
             }
@@ -245,7 +252,7 @@ impl Bridge for Pipe {
     }
 
     fn is_connected(&self) -> bool {
-        true
+        !self.closed
     }
 
     fn fd(&self) -> Option<RawFd> {

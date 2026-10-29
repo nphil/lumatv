@@ -1225,11 +1225,12 @@ fn frame_callbacks_wait_for_the_frame_to_land() {
     assert!(client.wait_until(Duration::from_secs(2), |s| s.frames_done == 2), "sent after 250 ms without a flip");
 }
 
-/// A surface destroyed while the output paces frames, with a commit no frame drew yet: that commit's callback still goes out, with
-/// the frame in flight or at once. LG's SDL destroys the wl_surface before eglTerminate, and Mali's EGL waits there for the callback of
-/// the last swap (PlxNative, 2026-10-28: the close hung until SDL's force-quit crashed it).
+/// A destroyed surface's frame callbacks are destroyed with it and never answered, wherever they wait: committed with a frame on its
+/// way, committed and not drawn, or asked for and not committed; another surface's callback in the same frame still goes out. LG's
+/// compositor does the same; answered after the destroy, PlxNative's close crashed in libwayland-client on a freed proxy (23 of 25
+/// closes, 2026-10-28).
 #[test]
-fn a_destroyed_surface_still_gets_the_callbacks_it_was_owed() {
+fn a_destroyed_surfaces_frame_callbacks_are_destroyed_and_never_answered() {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU32, Ordering};
     let landings = Arc::new(AtomicU32::new(0));
@@ -1246,39 +1247,49 @@ fn a_destroyed_surface_still_gets_the_callbacks_it_was_owed() {
             s.frames_landed(n);
         });
     };
-    // The last swap comes while a frame is on its way: its callback goes with that frame.
-    let win = client.card("_WEBOS_WINDOW_TYPE_CARD", "Swapping");
+    let owed = |server: &mut Server| server.eval(|s| s.held()["owedCallbacks"].as_u64().unwrap());
     let buf = client.shm_buffer(64, 64, 0xff00_ff00);
-    client.present(&win.surface, &buf);
-    client.roundtrip();
-    server.eval(|s| {
-        s.tick();
-    });
-    win.surface.attach(Some(&buf), 0, 0);
-    win.surface.damage(0, 0, i32::MAX, i32::MAX);
-    let _last = win.surface.frame(&client.qh, ());
-    win.surface.commit();
-    win.surface.destroy();
-    client.roundtrip();
-    assert_eq!(client.state.frames_done, 0, "both wait for the frame on its way");
-    land(&mut server, &landings);
-    assert!(client.wait_until(WAIT, |s| s.frames_done == 2), "the landing pays the destroyed surface's last callback too");
-    // The last swap comes after the last frame landed: its callback goes at once.
+    let other_buf = client.shm_buffer(64, 64, 0xff00_00ff);
+    let other = client.card("_WEBOS_WINDOW_TYPE_OVERLAY", "Other");
     let win = client.card("_WEBOS_WINDOW_TYPE_CARD", "Closing");
+    // A frame on its way owes a callback to each surface; the closing one then commits its next frame, asks for one more callback
+    // without committing, and is destroyed.
+    client.present(&other.surface, &other_buf);
     client.present(&win.surface, &buf);
     client.roundtrip();
     server.eval(|s| {
         s.tick();
     });
-    land(&mut server, &landings);
-    assert!(client.wait_until(WAIT, |s| s.frames_done == 3));
+    assert_eq!(owed(&mut server), 2);
     win.surface.attach(Some(&buf), 0, 0);
     win.surface.damage(0, 0, i32::MAX, i32::MAX);
-    let _last = win.surface.frame(&client.qh, ());
+    let _committed = win.surface.frame(&client.qh, ());
+    win.surface.commit();
+    let _asked = win.surface.frame(&client.qh, ());
+    win.surface.destroy();
+    client.roundtrip();
+    assert_eq!(owed(&mut server), 1, "the destroyed surface owes nothing any more");
+    land(&mut server, &landings);
+    assert!(client.wait_until(WAIT, |s| s.frames_done == 1), "the other surface's callback goes out with the frame");
+    std::thread::sleep(Duration::from_millis(300));
+    client.roundtrip();
+    assert_eq!(client.state.frames_done, 1, "none of the destroyed surface's three callbacks is answered");
+    // Nothing on its way: a committed frame's callback goes with the surface all the same.
+    let win = client.card("_WEBOS_WINDOW_TYPE_CARD", "Closing again");
+    win.surface.attach(Some(&buf), 0, 0);
+    win.surface.damage(0, 0, i32::MAX, i32::MAX);
+    let _cb = win.surface.frame(&client.qh, ());
     win.surface.commit();
     win.surface.destroy();
     client.roundtrip();
-    assert!(client.wait_until(WAIT, |s| s.frames_done == 4), "nothing is on its way: the callback goes with the destroy");
+    server.eval(|s| {
+        s.tick();
+    });
+    land(&mut server, &landings);
+    std::thread::sleep(Duration::from_millis(300));
+    client.roundtrip();
+    assert_eq!(client.state.frames_done, 1);
+    assert_eq!(owed(&mut server), 0);
     assert!(server.eval(|s| s.clients.len()) == 1, "the client is still connected");
 }
 

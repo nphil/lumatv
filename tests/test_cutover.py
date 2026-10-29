@@ -983,8 +983,18 @@ elif method == "closeByAppId":
     app = json.loads(payload)["id"]
     s["closed"].append(app)
     if any(w[0] == app for w in s["windows"]):
-        # PlxNative crashed a second after its close (SIGSEGV), with its connection kept until then
-        sam_log(app, 11 if app in cfg.get("crashes_at_close", []) else 0)
+        if app in cfg.get("crashes_at_close", []):
+            # PlxNative's SIGSEGV after its close: SAM logs it after the app has left its running list (round 16, about a second)
+            if os.fork() == 0:
+                import time
+                null = os.open(os.devnull, os.O_RDWR)
+                for fd in (0, 1, 2):
+                    os.dup2(null, fd)
+                time.sleep(0.3)
+                sam_log(app, 11)
+                os._exit(0)
+        else:
+            sam_log(app, 0)
     drop_app(app)
     if app == "com.webos.app.voice":
         s["panel"] = None

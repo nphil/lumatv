@@ -402,15 +402,29 @@ impl State {
             self.tick();
         }
         self.scene.zombify(id, &self.surfaces);
+        // None of the surface's frame callbacks is answered after it is gone, wherever it waits (pending, committed, or with a frame
+        // on its way): each is destroyed, as LG's compositor does. With all of them answered after the destroy, PlxNative crashed in
+        // libwayland-client on a freed proxy (wl_proxy_create_wrapper, and a request marshalled with no signature) in 23 of 25 closes
+        // on 2026-10-28; with those of frames already on their way answered, in 4 of 13 (round 15); never under LG's compositor.
+        let mut gone = Vec::new();
         if let Some(s) = self.surfaces.remove(id) {
             for b in s.current.buffer.into_iter().chain(s.current.retired) {
                 self.release_after_present.push(b);
             }
-            // While the output paces frames the commit is not drawn here, and its callbacks would never be paid. LG's SDL destroys the
-            // wl_surface before eglTerminate, and Mali's EGL waits there for the callback of the last eglSwapBuffers: PlxNative's close
-            // hung until SDL's 1 s force-quit ran a second SDL_Quit, which crashed (SIGSEGV in 4 of 13 closes, 2026-10-28).
-            self.owe_after_destroy(s.current.frame_callbacks);
+            gone.extend(s.pending.frame_callbacks);
+            gone.extend(s.cached.into_iter().flat_map(|c| c.frame_callbacks));
+            gone.extend(s.current.frame_callbacks);
         }
+        for (_, owed) in self.frames_in_flight.iter_mut() {
+            for list in [&mut owed.callbacks, &mut owed.ahead] {
+                if list.iter().any(|cb| cb.data::<SurfaceId>() == Some(&id)) {
+                    let (of_it, kept): (Vec<_>, Vec<_>) = std::mem::take(list).into_iter().partition(|cb| cb.data::<SurfaceId>() == Some(&id));
+                    *list = kept;
+                    gone.extend(of_it);
+                }
+            }
+        }
+        self.destroy_callbacks(gone);
         let was_card = self.scene.window_of(id).and_then(|wid| self.scene.window(wid)).is_some_and(|w| w.kind.is_card());
         self.scene.remove_surface(id);
         super::ime::surface_gone(self, id);
@@ -638,13 +652,13 @@ impl State {
         }
     }
 
-    /// Frame callbacks a destroyed surface owed for a commit no frame drew: they go out with the last frame in flight (a client's
-    /// callbacks never overtake its earlier ones), or at once when none is on its way.
-    fn owe_after_destroy(&mut self, callbacks: Vec<WlCallback>) {
-        if let Some((_, last)) = self.frames_in_flight.back_mut() {
-            last.callbacks.extend(callbacks);
-        } else {
-            self.fire_callbacks(callbacks, crate::output::monotonic_ms());
+    /// Destroys frame callbacks that will never be answered (their surface is gone), as `wl_resource_destroy` does: the client gets
+    /// `delete_id` for each and never `done`.
+    fn destroy_callbacks(&mut self, callbacks: Vec<WlCallback>) {
+        for cb in callbacks {
+            if cb.is_alive() {
+                let _ = self.dh.backend_handle().destroy_object::<State>(&cb.id());
+            }
         }
     }
 
@@ -790,6 +804,32 @@ impl State {
             if out.is_empty() { "" } else { " " },
             out
         )
+    }
+
+    /// What the compositor holds that clients made, by kind (`ctl status` `held`): a client that goes, cleanly or by dying mid-teardown,
+    /// takes its share with it, so these counts come back to where they were (the crash-loop test).
+    pub fn held(&self) -> serde_json::Value {
+        let owed = |f: fn(&Owed) -> usize| self.frames_in_flight.iter().map(|(_, o)| f(o)).sum::<usize>();
+        serde_json::json!({
+            "surfaces": self.surfaces.len(),
+            "windows": self.scene.windows().count(),
+            "webosShells": self.webos_shells.len(),
+            "cadence": self.cadence.len(),
+            "framesInFlight": self.frames_in_flight.len(),
+            "owedCallbacks": owed(|o| o.callbacks.len() + o.ahead.len()),
+            "owedBuffers": owed(|o| o.buffers.len()),
+            "releaseAfterPresent": self.release_after_present.len(),
+            "displayHeld": self.display_held.len(),
+            "seat": {
+                "keyboards": self.seat.keyboards.len(), "pointers": self.seat.pointers.len(), "touches": self.seat.touches.len(),
+                "inputManagers": self.seat.input_managers.len(), "surfaces": self.seat.surfaces.len(), "pressed": self.seat.pressed.len(),
+            },
+            "exported": self.foreign.exported.len(),
+            "imported": self.foreign.imported.len(),
+            "groups": self.scene.groups.len(),
+            "holes": self.scene.holes.len(),
+            "lunaSubscriptions": self.luna_state.subscriptions.len(),
+        })
     }
 
     /// Whether a commit is waiting to be drawn and the output would rather draw it now than at the tick.

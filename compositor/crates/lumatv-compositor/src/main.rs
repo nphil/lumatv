@@ -262,11 +262,14 @@ fn run(config: Config) -> io::Result<()> {
     if let Some(fd) = state.shell_fd() {
         epoll.add(fd, TAG_SHELL)?;
     }
-    let mut inputs = if config.input { lumatv_compositor::input::open_all() } else { Vec::new() };
+    let mut inputs: Vec<Option<lumatv_compositor::input::Device>> =
+        if config.input { lumatv_compositor::input::open_all(&config.input_dir).into_iter().map(Some).collect() } else { Vec::new() };
     // One wl_seat per device, as LG's compositor has them: a device's keys go out on its own seat.
-    let seats: Vec<lumatv_compositor::server::seat::SeatId> = inputs.iter().map(|d| state.add_seat(&d.name)).collect();
+    let seats: Vec<lumatv_compositor::server::seat::SeatId> = inputs.iter().flatten().map(|d| state.add_seat(&d.name)).collect();
     for (i, d) in inputs.iter().enumerate() {
-        epoll.add(d.fd(), TAG_INPUT | i as u64)?;
+        if let Some(d) = d {
+            epoll.add(d.fd(), TAG_INPUT | i as u64)?;
+        }
     }
     let client_events = Arc::new(Mutex::new(Vec::new()));
     let mut control_clients: Vec<ControlClient> = Vec::new();
@@ -279,6 +282,11 @@ fn run(config: Config) -> io::Result<()> {
     // The one-second snapshot of the ring: when it was last written, and the frames the last pass found drawn.
     let mut snapshot_at_ns = monotonic_ns();
     let mut drawn_seen = 0u64;
+    // Passes since the last snapshot and what woke them: a healthy loop makes 70 to 80 a second on idle Home. A descriptor that polls
+    // ready for good makes it spin (round 16: 99.9 % of a core for an hour, every pass cheap); the journal names what woke it.
+    let mut passes = 0u32;
+    let mut passes_woke = 0u32;
+    let mut spin_told_ns = 0u64;
     // When the last pass ended and what it handled, and the last flip stamp read: a flip the loop reached late is
     // told from them whether the loop was busy when it landed or woke late for it.
     let mut pass_end_ns = monotonic_ns();
@@ -359,6 +367,13 @@ fn run(config: Config) -> io::Result<()> {
                 }
                 TAG_LUNA => {
                     luna_poll(&mut state);
+                    // The bridge's end closed: its socket polls readable for good, so it leaves the loop (it spun a core otherwise).
+                    if !state.luna.is_connected()
+                        && let Some(fd) = state.luna.fd()
+                    {
+                        epoll.del(fd);
+                        state.journal("luna: the bridge closed its socket; nothing more is read from it".into());
+                    }
                 }
                 TAG_UI => {
                     // The UI app committed: taken in now; drawn now on a still screen, else at the tick.
@@ -388,11 +403,11 @@ fn run(config: Config) -> io::Result<()> {
                 }
                 t if t & TAG_INPUT != 0 => {
                     let i = (t & 0xffff_ffff) as usize;
-                    if let Some(d) = inputs.get_mut(i) {
+                    if let Some(Some(d)) = inputs.get_mut(i) {
                         let from_network = d.from_network;
                         let mut evs: [lumatv_compositor::input::Event; 64] = [lumatv_compositor::input::Event::Key { code: 0, pressed: false }; 64];
                         let mut n = 0;
-                        let _ = d.drain(|ev| {
+                        let read = d.drain(|ev| {
                             if n < evs.len() {
                                 evs[n] = ev;
                                 n += 1;
@@ -404,6 +419,13 @@ fn run(config: Config) -> io::Result<()> {
                                 ring::note(format_args!("W input +{} us", late / 1000));
                             }
                         }
+                        // A removed device (a remote that went, a virtual one its maker closed) polls readable for good and every read
+                        // fails: it leaves the loop, or the loop spins on it. Its seat stays, for the clients that bound it.
+                        let gone = match read {
+                            Err(e) => Some(e.to_string()),
+                            Ok(()) if ev.events & (libc::EPOLLHUP | libc::EPOLLERR) as u32 != 0 => Some("hung up".to_string()),
+                            Ok(()) => None,
+                        };
                         for &ev in &evs[..n] {
                             match ev {
                                 lumatv_compositor::input::Event::Key { code, pressed } => state.key_event(seats[i], code, pressed, from_network),
@@ -411,6 +433,12 @@ fn run(config: Config) -> io::Result<()> {
                                     lumatv_compositor::server::seat::pointer_motion(&mut state, x, y);
                                 }
                             }
+                        }
+                        if let Some(why) = gone
+                            && let Some(d) = inputs[i].take()
+                        {
+                            epoll.del(d.fd());
+                            state.journal(format!("input: {} ({}) is gone ({why}); its seat stays, nothing more is read from it", d.name, d.path));
                         }
                     }
                 }
@@ -492,17 +520,28 @@ fn run(config: Config) -> io::Result<()> {
             drawn_seen = state.stats.frames_drawn;
             ring::note(format_args!("D frame {} render {} us ({})", drawn_seen, state.stats.render_us_last, handled_names(handled)));
         }
+        passes += 1;
+        passes_woke |= handled;
         if pass_end_ns.saturating_sub(snapshot_at_ns) >= 1_000_000_000 {
+            let secs = pass_end_ns.saturating_sub(snapshot_at_ns) as f64 / 1e9;
             snapshot_at_ns = pass_end_ns;
             ring::note(format_args!(
-                "S ticks {} drawn {} held {} releases {} rss {} KiB; {}",
+                "S ticks {} drawn {} held {} releases {} rss {} KiB passes {} ({}); {}",
                 state.stats.ticks,
                 state.stats.frames_drawn,
                 state.stats.held_ticks,
                 state.stats.releases,
                 rss_kib(),
+                passes,
+                handled_names(passes_woke),
                 state.output.stats_line()
             ));
+            if passes as f64 > SPIN_PASSES_PER_SECOND * secs && pass_end_ns.saturating_sub(spin_told_ns) >= 10_000_000_000 {
+                spin_told_ns = pass_end_ns;
+                state.journal(format!("loop: {passes} passes in {secs:.1} s, woken by {}", handled_names(passes_woke)));
+            }
+            passes = 0;
+            passes_woke = 0;
         }
         if let Some(d) = deadline
             && Instant::now() >= d
@@ -606,6 +645,9 @@ impl ControlClient {
         }
     }
 }
+
+/// Passes a second above which the loop is spinning; idle Home makes 70 to 80 (round 16).
+const SPIN_PASSES_PER_SECOND: f64 = 1000.0;
 
 /// What a loop pass handled, by the `handled` bits, for its log lines.
 fn handled_names(handled: u32) -> String {

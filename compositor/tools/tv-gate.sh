@@ -112,6 +112,12 @@ exit_watch_stop() {
 exit_status_of() {
     sort -u "$1" | grep -vxFf "$1.before" | grep "\"pid\":\"${2:-[0-9]*}\"" | sed -n 's/.*"app_id":"\([^"]*\)".*"pid":"\([0-9]*\)".*"exit_status":\([1-9][0-9]*\).*/APP_CLOSED {"app_id":"\1","type":"native","pid":"\2","exit_status":\3/p' | head -n 1
 }
+# SAM logs an app's APP_CLOSED line about a second after the app left its running list (round 16: Plex's crash, 0.5 s after the close,
+# was logged after the check had read the log and passed): the line of PID is waited for in FILE, SECS at most.
+exit_wait() {
+    end=$(($(date +%s) + $3))
+    while [ "$(date +%s)" -lt "$end" ] && ! sort -u "$1" | grep -vxFf "$1.before" | grep -q "\"pid\":\"$2\""; do sleep 1; done
+}
 # Where the screen stands, for a check's failure line.
 where_now() { echo "foreground $(fg), windows mapped: $(mapped_apps | tr '\n' ' ' | sed 's/ $//')"; }
 # The compositor's journal after the line a `ctl note` left (the journal is one JSON array of strings), one entry a line; the quotes
@@ -433,6 +439,7 @@ apps)
         dropped=$(journal_after apps-$app | grep -c "client disconnected: pid ${pid:-none} ")
         close_app "$app"
         gone=no; wait_app_gone "$app" 15 && gone=yes
+        exit_wait $OUT/apps-$app.exit "${pid:-none}" 5
         exit_watch_stop "$app" $OUT/apps-$app.exit
         died=$(exit_status_of $OUT/apps-$app.exit "$pid")
         journal_after apps-$app > $OUT/apps-$app.txt

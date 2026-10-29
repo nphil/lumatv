@@ -31,6 +31,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             "output": state.output.name(),
             "buffers": format!("{:?}", state.buffer_path()),
             "clients": state.clients.values().map(|c| json!({"pid": c.pid, "uid": c.uid, "seconds": c.since.elapsed().as_secs(), "cmd": c.cmd, "bound": c.bound})).collect::<Vec<_>>(),
+            "held": state.held(),
             "stats": {
                 "requests": state.stats.requests, "commits": state.stats.commits, "buffers": state.stats.buffers_created,
                 "ticks": state.stats.ticks, "drawn": state.stats.frames_drawn, "callbacks": state.stats.callbacks_sent, "callbacksAhead": state.stats.callbacks_ahead,
