@@ -5,7 +5,7 @@ A compatible, sole, full-screen client buffer can go to the primary plane withou
 Three facts decide the design:
 
 - A descriptor alone is insufficient. The display driver needs contiguous device-addressed memory and a layout its OSD decoder really understands. LG app buffers normally use a different AFBC layout (`…151`) from the OSD's own (`…62`).
-- **There is one graphics layer.** The installed driver ignores OSD1 while OSD0 is on, in its own log (§ Layers). A window over a directly scanned one is composed, and a side panel on OSD1 is not an option.
+- **There is one graphics layer.** Linux's fb1 is OSD0 itself, shared with the E-Streamer path, and the installed driver ignores its enable while OSD0 is on (§ Layers). The only extra image reader, OSD0_1, carries the right half of a 4K UI and is idle at 1080p; whether it could blend over OSD0 is untested (§ A second OSD layer in the hardware). A window over a directly scanned one is composed, and a side panel on OSD1 is not an option.
 - LG's normal app path is itself GPU-composed in the measured cases. There is no evidence that its 32-bit compositor generally scans app buffers out directly. Its decoded video and HDMI bypass the GPU through separate display-engine windows; those windows are not generic RGBA graphics planes.
 
 ## Hardware layers
@@ -14,13 +14,14 @@ Three facts decide the design:
 |---|---|---|---|---|
 | Video windows w0, w1 | `/proc/lg/de/win0..3/status`; the O22 source has `NUM_WIN_MAX 2`, so win2 and win3 are proc slots; no DRM plane | Display-engine windows fed by AVD, ADC, HDMI, VDEC or JPEG, PIP and PBP capable. Opaque pictures with no alpha, scaled by the engine, below every OSD. All four read zero when idle | Yes, below it | Video, HDMI, the video wallpaper. Never a layer over the UI |
 | OSD0 | `fb0` `osd0_fb`; DRM primary plane 32; `viewctrl` OSD 0 (on) | The UI layer: 1920×1080 (virtual 1920×2160, two pages), scaled ×2 to 3840×2160 by the engine. AB24/XB24 linear or AFBC `…62`; per-pixel alpha and a constant alpha (`glalpha`, 0xff). About 157,000 flips since boot | n/a | The scan-out target |
-| OSD1 | `fb1` `osd1_fb`; DRM overlay plane 34; `viewctrl` OSD 1 (off) | At most 512×2160 in the 3840×2160 panel space, a 256×1080 strip at UI scale (768×2160 buffer, 512×2160 shown); AFBC only; no constant alpha. The E-Streamer image in source. 24 flips at 23:25 UTC, 28 at 00:15 | **No.** The driver ignores its enable while OSD0 is on | Nothing |
+| OSD0_1 | `osdx_ctrl[1]` at 0xCC480400, AFBC1, MIF1, SHP1; no fb, no DRM plane | The second image reader of a 4K UI, the right half. Idle at 1080p: `osd_en` 0, 4K mode 0 (E12). Its size fields are 12 bits wide, so a 1296×2160 sheet would fit | Unknown: LG never uses it as an overlay | The one candidate for a hardware overlay (§ A second OSD layer in the hardware) |
+| OSD1 | `fb1` `osd1_fb`; DRM overlay plane 34; `viewctrl` OSD 1 (off) | A virtual layer: its registers are OSD0's (`fb1/status` prints OSD0's header), the E-Streamer image path in source. At most 512×2160 in the 3840×2160 panel space, a 256×1080 strip at UI scale (768×2160 buffer, 512×2160 shown); AFBC only. 24 flips at 23:25 UTC, 28 at 00:15 | **No.** The same hardware as OSD0: the driver ignores its enable while OSD0 is on | Nothing |
 | OSD2 | `fb2` `osd2_fb`; no DRM plane | 128×4, sysfs `state` 2 (the others 0), absent from `osdinfo`; the source has no hardware behind it | n/a | Nothing |
 | OSD3, cursor | `fb3` `crsr_fb`; DRM cursor plane 36; `viewctrl` OSD 3 | 256×256 ARGB (the DRM plane caps it at 128×128), positioned in 1920×1080 and scaled ×2. Its own enable; 0 flips | Yes | A sprite up to 128×128: the pointer, a mute mark |
 | 2D blitter | `/dev/lg/gfx0` (a `gfx1` node has no proc entry); `/proc/lg/gfx` | Memory-to-memory ARGB blend, scale, colour key and raster ops over physically addressed surfaces. 79 MB pool, 50 MB allocated. Open in pqcontroller, eplmanager and captureservice | Not a layer | Not for per-frame composition (§ Layers) |
 | Mali G52 | `/dev/mali0` | Composes every frame today: one 1080p pass of 4.1 ms | Not a layer | The fallback |
 
-Bottom to top the engine stacks the video windows, one OSD (OSD0 or OSD1, never both) and the cursor [INFERENCE for the cursor: its place was not read]. `pathctrl` (`bosd`, `sosd`) sets whether OSD and video share one path or have two; it is a mode of the whole screen, not a layer. Any write to `viewctrl`, `glalpha` or `pathctrl` is a display change and belongs in a test round (E3, E10, E11).
+Bottom to top the engine stacks the video windows, the OSD (fb0, or fb1 as its alias, never both) and the cursor [INFERENCE for the cursor: its place was not read]. `pathctrl` (`bosd`, `sosd`) sets whether OSD and video share one path or have two; it is a mode of the whole screen, not a layer. Any write to `viewctrl`, `glalpha` or `pathctrl` is a display change and belongs in a test round (E3, E10, E11).
 
 ## Evidence key
 
@@ -39,6 +40,7 @@ Bottom to top the engine stacks the video windows, one OSD (OSD0 or OSD1, never 
 | E9 | Read-only TV observations on 2026-10-28 (first snapshot at 22:26:56 UTC), and offline ELF inspection, summarized below. No display change, app launch, install, restart, key press or buffer-import experiment was performed for this research. |
 | E10 | [Read-only TV reads, 2026-10-28 23:21 to 2026-10-29 00:37 UTC](arch/scanout-live-01.txt): `osdinfo` of fb0, fb1 and fb3, `viewctrl`, `pathctrl`, `glalpha`, the DRM and fb holders, the kernel log's `fb(1)` lines, the DE windows, `/proc/lg/gfx`, the fb names and sizes. No write, no app launch, no display change. |
 | E11 | `SRC` lines used by § Layers: `core/fbdev/fbdev_proc.c:471–483` (`viewctrl` calls `FBDEV_SetOSDEnable`), `core/fbdev/fbdev_drm.c:509–545` (`osd_drm_enable` forces OSD1 off when OSD0 turns on), `core/drm/drm.c:495–542` (the plane update), `chip/o22/fbdev/fbdev_drv_o22.c:236–274` (fb1's image by panel class), `include/gfx_kapi.h`, `core/gfx/gfx_drv.c:1340–1385` (a blend under the device lock, with retries), `chip/o22/gfx/gfx_drv_o22.c:170–225` (O22's configuration), `core/afbc_sw/afbc_sw_drv.h`. |
+| E12 | [Read-only TV reads, 2026-10-29 01:11–01:12 UTC](arch/scanout-hw-02.txt): `chip/diag`, the OSD header registers through `fb0`/`fb1`/`fb3` `status`, the full `regdump` (OSD, TOP, AFBC0/1, SHP0/1, MIF0/1) and `devmem` reads of the four layer-control registers, with LumaTV's compositor owning the display. No write, no display change. Compared with `chip/o22/fbdev/{osd_reg_o22.h,osd_top_reg_o22.h,fbdev_hw_o22.h,fbdev_hw_o22_cmn.c}` (E8). |
 
 ## 1. How LG gets an app to the screen
 
@@ -212,7 +214,7 @@ osd_drm_enable 537: id=1 (fb1), view=0 -> 1
 FBDEV_O22_CMN_SetOSDEnable 3401: ++ fb(1) on ignore. fb(0) is already enabled
 ```
 
-- **Both at once?** No. The enable is accepted and ignored while fb0 is on, and `viewctrl` read `OSD 1 : 0` at every read from 22:26 to 00:37 UTC. In source the reverse holds as well: enabling OSD0 forces OSD1 off, "called by driver due to UI ON" (`fbdev_drm.c:526–535`), and `echo 1 1 > viewctrl` calls the same `FBDEV_SetOSDEnable` as the DRM path (`fbdev_proc.c:471–483`), so the proc knob is not a way around it. [INFERENCE for the proc path: source newer than the image; § TV check list c is the write that tests it.]
+- **Both at once?** No. The enable is accepted and ignored while fb0 is on, and `viewctrl` read `OSD 1 : 0` at every read from 22:26 to 01:12 UTC. The reason is an alias, not a spare layer to protect from misuse: fb1 uses the same hardware as fb0 (§ A second OSD layer in the hardware). In source the reverse holds as well: enabling OSD0 forces OSD1 off, "called by driver due to UI ON" (`fbdev_drm.c:526–535`), and `echo 1 1 > viewctrl` calls the same `FBDEV_SetOSDEnable` as the DRM path (`fbdev_proc.c:471–483`), so the proc knob is not a way around it. [INFERENCE for the proc path: source newer than the image; § TV check list c is the write that tests it.]
 - **Order and blend?** None between OSD1 and OSD0: they exclude each other.
 - **Which DRM object?** Overlay plane 34. `lg1k_plane_atomic_update` flips the framebuffer and then enables the OSD (`core/drm/drm.c:495–542`, SRC), so every commit that gives plane 34 a framebuffer counts a fb1 flip, shown or ignored.
 - **Who made the 23 flips?** The log cannot say: the enable runs in a kernel worker, not in the process that committed. LumaTV's compositor only ever sets plane 34's `FB_ID` and `CRTC_ID` to 0 (without the `ui` feature it never gives the plane a picture), so LG's surface-manager is the likelier source: the buffer fb1 flipped, 768×2160 at 0x89234000, is its secondary output, and its address did not change between 22:26 and 23:21 [INFERENCE]. The counter read 1 at 22:26, 23 at 23:21, 24 at 23:25 (one enable in the log, at a start of the DRM master) and 28 at 00:15. None was ever shown.
@@ -254,6 +256,118 @@ Verdict: not for per-frame composition. One-off work, composing a still into a b
 ### Video windows
 
 A video window carries what its source delivers: decoded video, HDMI or a JPEG still, as opaque pixels with no alpha, below every OSD. That makes it a background and nothing else: a wallpaper, still or looping (the round-15 video wallpaper), under an OSD0 that has holes where it shows. It cannot carry a panel or any RGBA content over the UI, and a source outside LG's media paths needs its services, conversion or encoding, which adds cost instead of removing it. For this build the use is the wallpaper: a Home whose wallpaper is a window has holes, and holes are refused as `video`, so Home with a still wallpaper can go direct and Home with a video wallpaper is composed (§ Not built).
+
+## A second OSD layer in the hardware
+
+The question: whether the O22 hardware could blend a second graphics layer over OSD0 at a 1080p UI, whatever the driver allows. Sources: the O22 register map and driver (E8), and read-only dumps of the live set (E12); nothing was written.
+
+**Answer.** Probably not, and not as Linux's "OSD1" or "OSD2".
+
+- **fb1 is OSD0.** `FBDEV_O22_CMN_GetHWXListEx` maps fb1 to the same hardware as fb0 ("fb1 does not really exist, it serves special purposes such as the E-Streamer", `fbdev_hw_o22_cmn.c:210–222`); `WriteOSDHeader` lets only the current "owner" of OSD0 write its registers (`3256–3268`); live, `fb1/status` prints OSD0's header (`posd_idx 0`, the same bitmap pointer as fb0). The XOR in `SetOSDEnable` (`3380–3387`) is software, but it guards one set of registers: the comments at the guards cite the shared register set and the E-Streamer hand-over, not bandwidth or a shared scaler. Enabling fb1 also tells the picture-quality firmware that the E-Streamer owns the path and waits up to 45 ms for its answer (`3472–3492`).
+- **There is no OSD2.** fb2 has no hardware list, and the chip's register map labels its third layer block "OSD1 (removed)" (`osd_reg_o22.h:3705–3710`).
+- **The one separate candidate is OSD0_1**, a second image reader (its own AFBC1, MIF1, SHP1) that exists to carry the right half of a 4K UI (`xlst {0,1}` when `b_support_4kosd`). At 1080p it is idle (E12). Nothing in the source or the registers excludes it as a second blended layer, and nothing shows that it is one; several things point the other way (§ Assessment). Only a register-level probe decides it, at a low prior [INFERENCE].
+
+### What the source says
+
+| Block | Registers | Use |
+|---|---|---|
+| OSD register file | 0xCC480100: status and common registers; the S.OSD mixer (+0x80), B.OSD0 mixer (+0x100) and B.OSD1 mixer (+0x180); then four 0x100-byte layer blocks | `osd_reg_o22.h`, `FBDEV_O22_CMN_InitHW` |
+| `osdx_ctrl[0]` 0xCC480300, OSD0 | the UI layer: enable, header, scaler (header memory size to output size), path, bitmap, SR and crop controls | fb0 (and fb1 as its alias) |
+| `osdx_ctrl[1]` 0xCC480400, OSD0_1 | enable, header, a 4K mode bit, scaler in and out sizes, position; no path or sync registers ("OSD_IMAGE0_1 doesn't have osd_ctrl_path, osd_ctrl_sync etc", `fbdev_hw_o22_cmn.c:935`) | the right half of a 4K UI |
+| `osdx_ctrl[2]` 0xCC480500 | "OSD1 (removed)" | nothing |
+| `osdx_ctrl[3]` 0xCC480600 | the cursor | fb3 |
+| TOP 0xCC480000 | per-layer picture init (g0 UI, g1 OSD0_1, g4 cursor), the display path (`ctrl_dpath`), AFBC auto init, pulse timers | `fbdev_drv_o22.c`, `fbdev_hw_o22_cmn.c` |
+| AFBC0 0xCC480800, AFBC1 0xCC482700; MIF0 0xCC480C00, MIF1 0xCC482800; SHP0 0xCC481C00, SHP1 0xCC482300 | the readers and memory interfaces of the two image pipelines; SHP0 is the OSD super-resolution that scales a 2K UI ("only OSD0 supports OSD SR", `fbdev_hw_o22.h:374`) | |
+| Mixers | eight OSD inputs and the video, the order set by `mux1`, fixed at 0x76543210 ("O22 has the fixed mux value. DO NOT change", `fbdev_hw_o22_cmn.c:685–698`); per-input off bits and video-hole selects; white-balance and "rm" controls only for OSD0 and the cursor. In the blend path each layer works on half the display width ("HW spec", same file, `:812` and `:840`) | `osd_reg_o22.h:323–1185` |
+
+Per layer, the header registers hold: position (x, y), memory size, output size, pixel order, words per line, constant alpha and its enable, format, depth, colour key, palette and bitmap pointers; `osd_ctrl_main` the enable, the header source (registers or memory) and the header-ready flag the hardware latches at vsync; `osd_ctrl_sync0` the second enable. LG's comments name four valid layers: UI, 4K UI extension, E-Streamer and cursor (`fbdev_hw_o22.h:220–225`: "O20 supports only one graphic plane and one cursor plane").
+
+### What the set says
+
+| Register or node | Live value | Reading |
+|---|---|---|
+| OSD0 `ctrl_main` 0xCC480300 | 0x00080011 | on; header from registers; header 1920×1080 in memory, 3860×2170 out at (0,0): the ×2 scale plus a 20×10 margin [INFERENCE: OLED orbit, which the picture-quality firmware controls, `PQEFW_OSD0_OUT_CTRL`]; constant alpha 0xff; bitmap pointer the compositor's current linear page |
+| OSD0_1 0xCC480400 | all zero; 4K mode bit 0; scaler output (`+0x4c`) 3860×2170 | off. The scaler output follows OSD0's out size, which the driver writes only in 4K mode (as 3840×2160): the firmware keeps it in step [INFERENCE] |
+| `osdx_ctrl[2]`, `[3]` | `osd_en` 0, readable | the "removed" block still reads back; the cursor is hidden |
+| Mixers | S.OSD and B.OSD1: 3840×2160, `mux1` 0x76543210, no input off. B.OSD0: all zero | OSD0 selects B.OSD1 (`osd_ctrl_bosd_pos` 0, "fixed to BOSD1", `fbdev_hw_o22_cmn.c:950`); B.OSD0 is unconfigured |
+| TOP | `ctrl_dpath` 0; picture auto-init set for g0, g1, g4 (and g7) | `osd0_afbc_en` 0: LumaTV's pages are linear, not AFBC |
+| AFBC1, MIF1, SHP1 | readable, with configuration | the second reader is powered, not gated off |
+| `chip/diag` | `support_fb1 1`, `support_4kosd 0`, `support_ext_render 0`, `hw_osd0_owner fb(0)`, OSD SR on, vsync clock 120 Hz | fb1 takes the alias branch; 4K OSD is off |
+| `devmem` | the four `ctrl_main` registers read the same as in the dump | /dev/mem reaches the OSD registers from user space; `/proc/iomem` has no entry over 0xCC48xxxx |
+
+### Assessment
+
+For an overlay through OSD0_1 [INFERENCE]:
+
+- For: a second reader with its own memory interface, alive and idle; a mixer with eight fixed-order inputs; position, size and constant alpha in every layer's header; 12-bit size fields (up to 4095, so the 512 of fb1 is the driver's configuration, not the layer's); on boards with a 4K UI the driver already runs OSD0 and OSD0_1 at once.
+- Against: it has no path or sync registers and follows OSD0's; its 4K controls (mode bit, scaler, position) tie it to the 4K split; the firmware keeps its scaler output in step with OSD0's; in the blend path OSD0 feeds only B.OSD1, while B.OSD0, where a second half-width stream would go, is unconfigured; LG's comments call the other layers removed; the direction of the z-order, and whether OSD0_1 reaches the same mixer as OSD0 at 2K, are written nowhere.
+
+The prior is low (below 1 in 5 by this reading); a bounded probe settles it. Its value is also bounded: Home or an app alone already goes direct without it, and an overlay helps only the frames where a system layer shows over a direct window, which § TV check list d counts.
+
+### The probe, if it is wanted (not run)
+
+Needs a test round and the owner's go: LumaTV's compositor live, Home idle and still, a second SSH session for the capture. Nothing is allocated. OSD0_1 is pointed at the page OSD0 is scanning, at 1:1, in the top-right quadrant of the panel, at half alpha.
+
+Stage 0, read-only: `cat /proc/lg/fbdev/regdump > /tmp/osd-before.txt`.
+
+Stage 1, writes with no display effect: whether the idle blocks hold a value.
+
+```sh
+for a in 0xCC480430 0xCC480530; do o=$(devmem $a 32); devmem $a 32 0xA5A5A5A5; echo "$a was $o, now $(devmem $a 32)"; devmem $a 32 $o; done
+```
+
+A register that reads back the pattern is storage; one that does not proves little (a latched shadow reads back old too), so only a hit counts [INFERENCE].
+
+Stage 2, the mirror: twelve writes, the last two turn the layer on; the dead-man switch is started first and puts every register back after 12 s, whatever happens to the shell.
+
+```sh
+BMP=$(devmem 0xCC480338 32); BASE=$(devmem 0xCC480304 32); PLT=$(devmem 0xCC480334 32)   # OSD0: the page being scanned, header memory, palette
+REV='devmem 0xCC480400 32 0; devmem 0xCC480440 32 0; devmem 0xCC480404 32 0; devmem 0xCC480420 32 0; devmem 0xCC480424 32 0x07800870; devmem 0xCC480428 32 0x07800870; devmem 0xCC48042C 32 0x6eff03c0; devmem 0xCC480430 32 0; devmem 0xCC480434 32 0; devmem 0xCC480438 32 0'
+nohup sh -c "sleep 12; $REV" > /dev/null 2>&1 &
+devmem 0xCC480400 32 0x10080010     # header from registers, header-ready enabled, feeder order 2; layer off
+devmem 0xCC480404 32 $BASE
+devmem 0xCC480420 32 0x07800000     # x 1920, y 0
+devmem 0xCC480424 32 0x07800438     # 1920x1080 in memory
+devmem 0xCC480428 32 0x07800438     # 1920x1080 out, no scaling
+devmem 0xCC48042C 32 0xee8003c0     # ARGB, constant alpha 0x80
+devmem 0xCC480430 32 0
+devmem 0xCC480434 32 $PLT
+devmem 0xCC480438 32 $BMP
+devmem 0xCC480400 32 0x30080010     # header ready
+sleep 1
+devmem 0xCC480440 32 0x00000001     # second enable
+devmem 0xCC480400 32 0x30080011     # layer on
+for r in 0xCC480400 0xCC480420 0xCC480424 0xCC480428 0xCC48042C 0xCC480438 0xCC480440; do echo $r $(devmem $r 32); done
+sleep 6                             # the capture and the photograph are taken now
+sh -c "$REV"
+```
+
+Checks: every write read back as written; LG's capture service (`tv_kms.pty(tv_kms.CAPTURE % '/tmp/osd1-probe.png')`, `compositor/tools/tv_kms.py`) before, during and after; a phone photograph of the panel, which also sees what the capture point may not; `regdump` after against `/tmp/osd-before.txt` (only OSD0's bitmap pointer and live status registers may differ).
+
+| Panel | Means | Next |
+|---|---|---|
+| A half-size copy of the UI at half alpha over the big UI, top right | OSD0_1 blends over OSD0 at 2K: a hardware overlay exists | the order (`echo 0 80 > /proc/lg/fbdev/glalpha` shows a layer under OSD0; `echo 0 ff` restores), then AFBC1 and § A permanent route |
+| The copy, opaque | the layer works; the constant alpha is not applied | as above |
+| Nothing, registers hold | not an overlay at 2K, or under OSD0 | once with OSD0 at half alpha, once with the 4K mode bit (`0xCC480440` = 0x80000001); stop if still nothing |
+| Garbage or flicker in the quadrant | wrong format or memory | revert, stop |
+| OSD0 frozen, or the panel black | see below | revert first |
+
+What can go wrong, and how it ends: a header latched half written across a vsync gives one bad frame (the ready flag exists for that); the second layer's reads may starve OSD0's memory interface at 120 Hz and tear it [INFERENCE]; the picture-quality firmware may react to an OSD state it was not told about [INFERENCE]; a reader pointed outside RAM could hang the bus, which this probe avoids by using a page the display already reads. Nothing persists: the registers are volatile and reset at power-up.
+
+| Symptom | Recovery |
+|---|---|
+| Garbage or a stuck copy | the dead-man switch (12 s), or `devmem 0xCC480400 32 0; devmem 0xCC480440 32 0` |
+| OSD0 stops updating (`fb0/status` flip count still rising, the panel static) | revert OSD0_1; restart the compositor (a new modeset re-initialises OSD0); standby and wake (the driver re-initialises the OSD on resume, `FBDEV_O22_CMN_RunResume`) |
+| Panel black or the set unresponsive | the same, then a power cycle (a boot starts every OSD register from reset) |
+| SSH and the dead-man switch dead (a CPU or bus hang) | power cycle |
+
+### A permanent route, only if the probe shows an overlay
+
+1. A user-space daemon over `/dev/mem`: works today, needs no kernel change. It races lg1k and the picture-quality firmware, which both write OSD registers; it has no vsync event except the page-flip events of plane 32; the mixer and TOP settings the probe needs would be hard-coded from experiment; root only. A 1296×2160 linear ARGB sheet is 11 MB of CMA (about 0.7 GB/s at 60 Hz, 1.3 GB/s at 120), against OSD0's 8 MB.
+2. A kernel module that owns OSD0_1: an out-of-tree module needs the TV kernel's exact build (5.4.268-329.ptl4tv.2; the tree and config are not on hand, and the set has no `/proc/config.gz`), coordination with lg1k's header lock and its resume path (`ReInitHW` and `InitOSDLayer` know only OSD0 at 2K), and its own plane or device, since plane 34 is wired to the fb1 alias.
+3. A patched lg1k that maps plane 34 to OSD0_1 and drops the owner swap: the source differs from the installed driver (the ignore message is at line 3401 in the installed log and 3385 in source), and a mismatched early-boot display driver means no picture.
+
+Common risks: a firmware update replaces the kernel and modules; the picture-quality firmware's OSD logic (orbit, change detection) was never told about a second layer; a static layer on an OLED needs the panel-care rules. Every step is a display or infrastructure change that needs the owner's approval.
 
 ## Built
 
@@ -349,6 +463,8 @@ python3 docs/research/arch/tv.py 'echo 1 1 > /proc/lg/fbdev/viewctrl; sleep 1; c
 ```
 
 Expected, from the log and the source: `OSD 1 : 0`, a new `fb(1) on ignore. fb(0) is already enabled`, nothing on the panel. That closes the side-panel design (§ Layers). If `OSD 1 : 1` instead, OSD1 is on beside OSD0: look at the panel and capture it (the strip shows LG's retained 768×2160 buffer, content unknown), restore with the last command, and take § Layers' conditional design as the next round's work, starting with `echo 1 80 > /proc/lg/fbdev/glalpha` and the stacking order. `pathctrl` is not touched in either case.
+
+The register-level probe of the one remaining candidate layer, OSD0_1, is § A second OSD layer in the hardware; it comes after this check.
 
 ### d. Home slide at 120 Hz with the switch on, against round 16
 
