@@ -25,7 +25,7 @@ fn the_shells_client_is_not_refused_by_the_helpers_host_check() {
     for (method, path) in [("GET", "/v1/state"), ("POST", "/v1/anything")] {
         let mut stream = TcpStream::connect(server.local_addr()).unwrap();
         stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-        let (status, body) = ui_http::exchange(&mut stream, method, path, Some("token"), (method == "POST").then_some(b"{}".as_slice())).unwrap();
+        let (status, body, _) = ui_http::exchange(&mut stream, method, path, Some("token"), (method == "POST").then_some(b"{}".as_slice())).unwrap();
         assert_eq!(status, 200, "{method} {path}: {}", String::from_utf8_lossy(&body));
     }
     server.stop(Duration::from_secs(2));
