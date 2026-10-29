@@ -132,6 +132,9 @@ install)
     if is_mounted; then echo "LumaTV's compositor is mounted over LG's; run disable first"; exit 1; fi
     mkdir -p $STATE/bin $STATE/lib
     cp $D/bin/lumatv-compositor $D/bin/lumatv-sm $STATE/bin/
+    # The Rust shell (a bundle built with `ui`) is looked for beside the compositor, which the supervisor runs from here; one left by an
+    # earlier bundle is not kept when this one has none.
+    if [ -f $D/bin/lumatv-ui ]; then cp $D/bin/lumatv-ui $STATE/bin/; else rm -f $STATE/bin/lumatv-ui; fi
     cp $D/recover-home.sh $STATE/bin/recover-home.sh
     cp $D/lib/* $STATE/lib/
     chmod +x $STATE/bin/*

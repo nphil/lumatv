@@ -512,46 +512,52 @@ apps)
     # log 3 s after the close. YouTube may play sound; the driver muted the receiver. Then NVIDIA's GeForce NOW, which opens LG's
     # browser and ends itself: Home launched over the browser stays in front (the browser took the front back the same day). A later
     # app that fails the same way is added here.
-    bad=""; kd=""
-    for app in youtube.leanback.v4 com.beb.plxnative; do
-        if app_running "$app"; then close_app "$app"; wait_app_gone "$app" 15; sleep 3; fi
-        ctl note apps-$app > /dev/null
-        log=$(crash_log "$app"); reports=$(crash_reports "$log")
-        exit_watch_start "$app" $OUT/apps-$app.exit
-        ls1 com.webos.applicationManager/launch "{\"id\":\"$app\"}" > /dev/null
-        n=0; up=none
-        while [ $n -lt 10 ]; do
-            if app_mapped "$app" && [ "$(fg)" = "$app" ]; then up=$((n * 500)); break; fi
-            sleep 0.5; n=$((n+1))
+    # LUMATV_APPS_REPEAT=N (tv_gate.py --apps-repeat N) runs the YouTube-then-PlxNative pair N times (round 17: PlxNative's close crashed in 9 of 10
+    # after YouTube): every pass must be clean, a failing one names its number, and the evidence files of a pass carry `-rN`.
+    bad=""; kd=""; reps=${LUMATV_APPS_REPEAT:-1}; rep=1
+    while [ "$rep" -le "$reps" ]; do
+        sfx=""; tag=""; [ "$reps" -le 1 ] || { sfx="-r$rep"; tag="[pass $rep of $reps] "; }
+        for app in youtube.leanback.v4 com.beb.plxnative; do
+            if app_running "$app"; then close_app "$app"; wait_app_gone "$app" 15; sleep 3; fi
+            ctl note apps-$app$sfx > /dev/null
+            log=$(crash_log "$app"); reports=$(crash_reports "$log")
+            exit_watch_start "$app" $OUT/apps-$app$sfx.exit
+            ls1 com.webos.applicationManager/launch "{\"id\":\"$app\"}" > /dev/null
+            n=0; up=none
+            while [ $n -lt 10 ]; do
+                if app_mapped "$app" && [ "$(fg)" = "$app" ]; then up=$((n * 500)); break; fi
+                sleep 0.5; n=$((n+1))
+            done
+            # Its pid from the compositor's own connection line (an app that died is already off SAM's list), SAM's as the fallback.
+            pid=$(journal_after apps-$app$sfx | sed -n "s/^client connected: pid \([0-9]*\) .*$app.*/\1/p" | head -n 1)
+            [ -n "$pid" ] || pid=$(ls1 com.webos.applicationManager/running '{}' | tr -d ' \n' | sed -n "s/.*\"id\":\"$app\",\"processid\":\"\([0-9]*\)\".*/\1/p")
+            sleep 10
+            alive=no; app_running "$app" && app_mapped "$app" && alive=yes
+            dropped=$(journal_after apps-$app$sfx | grep -c "client disconnected: pid ${pid:-none} ")
+            closed_cs=$(uptime_cs)
+            close_app "$app"
+            gone=no; wait_app_gone "$app" 15 && gone=yes
+            exit_wait $OUT/apps-$app$sfx.exit "${pid:-none}" 5
+            exit_watch_stop "$app" $OUT/apps-$app$sfx.exit
+            died=$(exit_status_of $OUT/apps-$app$sfx.exit "$pid")
+            crashed=0
+            if [ -n "$log" ]; then
+                settle_after "$closed_cs"
+                now=$(crash_reports "$log")
+                # A log that shrank was started anew: all of it is new.
+                crashed=$((now >= reports ? now - reports : now))
+            fi
+            journal_after apps-$app$sfx > $OUT/apps-$app$sfx.txt
+            what="$tag$app pid ${pid:-none} foreground-in-ms ${up} alive-at-10s $alive connection-lost $dropped closed-in-15s $gone${died:+ $died}"
+            [ "$crashed" = 0 ] || what="$what crash-reports +$crashed"
+            if [ "$up" != none ] && [ "$alive" = yes ] && [ "$dropped" = 0 ] && [ "$gone" = yes ] && [ -z "$died" ] && [ "$crashed" = 0 ]; then
+                kd="$kd $what;"
+            else
+                bad="$bad $what;"
+            fi
+            home; sleep 4
         done
-        # Its pid from the compositor's own connection line (an app that died is already off SAM's list), SAM's as the fallback.
-        pid=$(journal_after apps-$app | sed -n "s/^client connected: pid \([0-9]*\) .*$app.*/\1/p" | head -n 1)
-        [ -n "$pid" ] || pid=$(ls1 com.webos.applicationManager/running '{}' | tr -d ' \n' | sed -n "s/.*\"id\":\"$app\",\"processid\":\"\([0-9]*\)\".*/\1/p")
-        sleep 10
-        alive=no; app_running "$app" && app_mapped "$app" && alive=yes
-        dropped=$(journal_after apps-$app | grep -c "client disconnected: pid ${pid:-none} ")
-        closed_cs=$(uptime_cs)
-        close_app "$app"
-        gone=no; wait_app_gone "$app" 15 && gone=yes
-        exit_wait $OUT/apps-$app.exit "${pid:-none}" 5
-        exit_watch_stop "$app" $OUT/apps-$app.exit
-        died=$(exit_status_of $OUT/apps-$app.exit "$pid")
-        crashed=0
-        if [ -n "$log" ]; then
-            settle_after "$closed_cs"
-            now=$(crash_reports "$log")
-            # A log that shrank was started anew: all of it is new.
-            crashed=$((now >= reports ? now - reports : now))
-        fi
-        journal_after apps-$app > $OUT/apps-$app.txt
-        what="$app pid ${pid:-none} foreground-in-ms ${up} alive-at-10s $alive connection-lost $dropped closed-in-15s $gone${died:+ $died}"
-        [ "$crashed" = 0 ] || what="$what crash-reports +$crashed"
-        if [ "$up" != none ] && [ "$alive" = yes ] && [ "$dropped" = 0 ] && [ "$gone" = yes ] && [ -z "$died" ] && [ "$crashed" = 0 ]; then
-            kd="$kd $what;"
-        else
-            bad="$bad $what;"
-        fi
-        home; sleep 4
+        rep=$((rep + 1))
     done
     if ls1 com.webos.applicationManager/getAppInfo '{"id":"com.geforcenow.play"}' | tr -d ' \n' | grep -q '"returnValue":true'; then
         for a in com.webos.app.browser com.geforcenow.play; do

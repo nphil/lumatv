@@ -202,6 +202,19 @@ class Install(FakeSet):
         self.assertEqual(int(bundle["bin/lumatv-compositor"][0]), len("the compositor\n"))
         self.assertFalse(os.path.exists(self.st("enabled")))
 
+    def test_the_rust_shell_of_a_ui_bundle_is_installed_beside_the_compositor_and_a_stale_one_is_dropped(self):
+        # the supervisor runs the compositor from the installed copy, and the compositor looks for lumatv-ui beside itself
+        write(os.path.join(self.dep, "bin", "lumatv-ui"), "the ui\n", 0o755)
+        rc, out = self.cutover("install")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(read(self.st("bin/lumatv-ui")), "the ui\n")
+        self.assertTrue(os.access(self.st("bin/lumatv-ui"), os.X_OK))
+        self.assertIn("bin/lumatv-ui", [l.split()[2] for l in read(self.st("bundle.manifest")).strip().split("\n")])
+        os.remove(os.path.join(self.dep, "bin", "lumatv-ui"))
+        rc, out = self.cutover("install")
+        self.assertEqual(rc, 0, out)
+        self.assertFalse(os.path.exists(self.st("bin/lumatv-ui")))
+
     def test_a_build_nobody_listed_is_said_so_and_cached_as_nothing(self):
         rc, out = self.cutover("install")
         self.assertIn("firmware: unverified: verified.list has no entry", out)
@@ -1255,13 +1268,16 @@ class GateKeysAndIme(FakeSet):
         r = subprocess.run(["sh", "-c", ". %s\nime_rule 1 yes yes 3 yes yes" % GATE], env=dict(self.env, GATE_LIB="1"), capture_output=True, text=True)
         self.assertEqual((r.returncode, r.stdout[:4]), (0, "PASS"))
 
-    def apps(self, **cfg):
+    def apps(self, repeat=None, **cfg):
         messages = os.path.join(self.tmp.name, "messages")
         write(messages, "old lines\n")
         # One report from before the check, which it does not count.
         write(self.crash_log, "*** SIGNAL 11 (SIGSEGV) addr=0x0 pc=0xf7c24acc lr=0xf7c24f21\n")
         self.configure(**cfg)
-        return self.gate("apps", env={"LUMATV_MESSAGES": messages, "LUMATV_PLX_CRASH_LOG": self.crash_log, "LUMATV_CRASH_SETTLE": "0.6"})
+        env = {"LUMATV_MESSAGES": messages, "LUMATV_PLX_CRASH_LOG": self.crash_log, "LUMATV_CRASH_SETTLE": "0.6"}
+        if repeat:
+            env["LUMATV_APPS_REPEAT"] = str(repeat)
+        return self.gate("apps", env=env)
 
     @property
     def crash_log(self):
@@ -1279,6 +1295,21 @@ class GateKeysAndIme(FakeSet):
         self.assertEqual(sim["windows"], [["com.webos.app.home", "Card"]], "Home alone is left")
         self.assertTrue(os.path.exists(os.path.join(self.out, "apps-com.beb.plxnative.txt")))
         self.assertTrue(os.path.exists(os.path.join(self.out, "apps-geforcenow.txt")))
+
+    def test_the_apps_check_repeats_the_pair_and_keeps_each_passes_evidence(self):
+        rc, out = self.apps(repeat=3)
+        self.assertIn("GATE apps: PASS", out)
+        sim = self.sim()
+        self.assertEqual([a for a in sim["launched"] if a == "com.beb.plxnative"], ["com.beb.plxnative"] * 3)
+        self.assertEqual([a for a in sim["launched"] if a == "com.geforcenow.play"], ["com.geforcenow.play"], "the browser case runs once")
+        for n in (1, 2, 3):
+            self.assertTrue(os.path.exists(os.path.join(self.out, "apps-com.beb.plxnative-r%d.txt" % n)))
+        self.assertIn("[pass 3 of 3] com.beb.plxnative pid ", out)
+
+    def test_a_crashing_close_in_a_repeated_apps_check_is_named_with_its_pass(self):
+        rc, out = self.apps(repeat=2, crashes_at_close=["com.beb.plxnative"])
+        self.assertIn("GATE apps: FAIL failed: [pass 1 of 2] com.beb.plxnative pid ", out)
+        self.assertIn("[pass 2 of 2] com.beb.plxnative pid ", out)
 
     def test_sams_list_is_read_as_luna_send_prints_it_with_spaces_and_lines(self):
         # the app is on SAM's list while it runs and off it after the close: an app_running that never matches passed every app as "not alive"

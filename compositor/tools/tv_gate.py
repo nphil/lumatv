@@ -5,7 +5,7 @@ the standby check, and the checks that end the live session (Home held on a virt
 killed, the compositor's own hold-Home escape) each get a fresh session. Exit 0 only when every check passed; the result
 lines and files land in /tmp/lumatv-tv-out/out/gate and docs/research/compositor/gate-<date>.txt.
 
-    tv_gate.py [--skip netflix,hdmi,apps,...] [--only keys,ime] [--x1-seconds N] [--x1-strict] [--x1-rt N] [--x1-callbacks early|landing] [--enable-after] [--frames-callbacks landing] [--frames-quick] [--refresh 120] [--scanout direct] [--force-wake]
+    tv_gate.py [--skip netflix,hdmi,apps,...] [--only keys,ime] [--x1-seconds N] [--x1-strict] [--apps-repeat N] [--x1-rt N] [--x1-callbacks early|landing] [--enable-after] [--frames-callbacks landing] [--frames-quick] [--refresh 120] [--scanout direct] [--force-wake]
 
 The gate's rule for the frame check (the x1 probe, 60 s) fails on a gap that is the compositor's: a late flip, the loop slow to take a flip up
 or waiting, callbacks that went out late. A gap that is the client's own wake-up after callbacks that came on time is reported with its count and
@@ -292,6 +292,7 @@ def main():
     ap.add_argument("--skip", default="")
     ap.add_argument("--only", default="")
     ap.add_argument("--x1-seconds", type=int, default=60)
+    ap.add_argument("--apps-repeat", type=int, default=1, help="run the apps check's YouTube-then-PlxNative pair this many times (1 to 30): PlxNative's close crashed in 9 of 10 of round 17's, so the fix is judged over a run of them")
     ap.add_argument("--x1-rt", type=int, default=0, help="run the x1 client SCHED_FIFO N (1 to 99) instead of time-shared: an A/B for the client's own wake-ups against the set's other tasks, the rule unchanged")
     ap.add_argument("--x1-callbacks", choices=["early", "landing"], help="when every client's frame callbacks go out for the x1 run (`ctl callbacks clients`): with the frame's draw (early, the default since 112d9cc) or at the flip (landing), the rule unchanged")
     ap.add_argument("--enable-after", action="store_true")
@@ -309,6 +310,8 @@ def main():
     ap.add_argument("--force-wake", action="store_true",
                     help="wake the set without waiting for LG's panel refresh (a run due at standby is left alone until 15 minutes of standby have passed: refresh_guard.py)")
     a = ap.parse_args()
+    if not 1 <= a.apps_repeat <= 30:
+        ap.error("--apps-repeat is a count of passes, 1 to 30")
     if not 0 <= a.x1_rt <= 99:
         ap.error("--x1-rt is a SCHED_FIFO priority, 1 to 99 (0 leaves the client time-shared)")
     global FORCE_WAKE
@@ -395,7 +398,8 @@ def main():
         if "hdmi" not in skip:
             step("hdmi", "sh /tmp/lumatv/gate.sh hdmi")
         if "apps" not in skip:
-            step("apps", "sh /tmp/lumatv/gate.sh apps", 300)
+            # A pass is the YouTube-then-PlxNative pair, about 45 s with the 4 s waits (round 17's loops).
+            step("apps", "%ssh /tmp/lumatv/gate.sh apps" % ("LUMATV_APPS_REPEAT=%d " % a.apps_repeat if a.apps_repeat > 1 else ""), 300 + 60 * (a.apps_repeat - 1))
             avr_mute(True)   # YouTube may have played sound
         if "keys" not in skip:
             step("keys", "sh /tmp/lumatv/gate.sh keys", 300)
