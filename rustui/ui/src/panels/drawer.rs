@@ -347,14 +347,14 @@ impl Drawer {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::kit::screen::Input;
     use crate::panels::notelog;
 
-    const NOW: u64 = 1_761_000_000_000;
+    pub(crate) const NOW: u64 = 1_761_000_000_000;
 
-    fn env() -> Env {
+    pub(crate) fn env() -> Env {
         let mut env = Env::new(json!({}));
         let feed = |env: &mut Env, topic: &str, data: Value| {
             env.update(&Input::Helper { topic: topic.into(), data }, 0);
@@ -380,7 +380,7 @@ mod tests {
         ]})
     }
 
-    fn open(env: &Env) -> Drawer {
+    pub(crate) fn open(env: &Env) -> Drawer {
         let mut d = Drawer::new();
         d.life.show(0);
         d.log.from_toast(&json!({"message": "TV update ready\nwebOS 10.2.3"}), &[], NOW - 100_000);

@@ -338,17 +338,23 @@ impl Button {
 
     /// Describes the button to a lint: its pill (over what `under` is, a panel of the lint) and its words.
     pub fn feed_lint(&self, kit: &mut Kit, lint: &mut super::lint::Lint, under: usize) {
+        self.feed_lint_at(kit, lint, under, (0.0, 0.0));
+    }
+
+    /// [`Button::feed_lint`] for a button that a scrolled list has moved by `shift`.
+    pub fn feed_lint_at(&self, kit: &mut Kit, lint: &mut super::lint::Lint, under: usize, shift: (f32, f32)) {
         let look = &kit.ui.look;
         let paint = match self.spec.tone {
             Tone::Plain => look.colour(PaletteRole::Glass),
             Tone::Primary => look.accent(),
             Tone::Danger => faded(look.danger(), 0.16),
         };
-        let panel = lint.panel_on(&format!("button {}", self.spec.label), self.frame, paint, false, under);
+        let at = Frame::new(self.frame.x + shift.0, self.frame.y + shift.1, self.frame.w, self.frame.h);
+        let panel = lint.panel_on(&format!("button {}", self.spec.label), at, paint, false, under);
         if !self.spec.label.is_empty() {
             // the icon and the words are one run, centred together: the words alone sit half an icon to the right of the button's centre
             let half = if self.icon.is_some() { (Self::icon_side(kit) as f32 + kit.space(2)) / 2.0 } else { 0.0 };
-            let at = Frame::new(self.frame.x + self.label_box.x - half, self.frame.y + self.label_box.y, self.label_box.w, self.label_box.h);
+            let at = Frame::new(at.x + self.label_box.x - half, at.y + self.label_box.y, self.label_box.w, self.label_box.h);
             lint.word(kit, &format!("button {}", self.spec.label), &self.spec.label, at, self.style, Some(panel));
         }
     }

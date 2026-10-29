@@ -9,6 +9,7 @@
 //! dots, the card's slider, the clock) is changed in place; what changes the layout builds the panel's content again under the same root.
 
 use super::life::Phase;
+use super::stage::Dim;
 use super::quick::tiles::Row;
 use super::quick::{EditView, Focus, PadView, Person, PopupView, Target, View};
 use super::quick_layout::{self as lay, PopupLayout, RowLayout, Trail};
@@ -201,6 +202,7 @@ pub struct QuickSurface {
     built: Option<Built>,
     popup: Option<PopupBuilt>,
     pointer: Pointer,
+    dim: Dim,
     hover: Hover,
     popup_hover: Hover,
     modal: bool,
@@ -224,6 +226,7 @@ impl QuickSurface {
             built: None,
             popup: None,
             pointer: Pointer::new(),
+            dim: Dim::default(),
             hover: Hover::new(z + 4),
             popup_hover: Hover::new(z + 24),
             modal: false,
@@ -1098,6 +1101,8 @@ impl QuickSurface {
     pub fn pointer(&mut self, kit: &Kit, engine: &mut Engine, now_ns: u64, s: Sample) -> Option<(Target, Option<i32>)> {
         self.root.as_ref()?;
         let foot_id = Target::Foot.id();
+        let on_dim = self.built.as_ref().is_some_and(|b| s.visible && engine.focus.hit(s.x, s.y) == Some(b.backdrop));
+        let dim_click = self.dim.feed(on_dim, &s);
         let mut click = None;
         for g in self.pointer.feed(engine, now_ns, s) {
             match g {
@@ -1120,7 +1125,7 @@ impl QuickSurface {
                 _ => {}
             }
         }
-        click
+        click.or(dim_click.then_some((Target::Backdrop, None)))
     }
 
     // ---- what the tests, the lint and the harness read
@@ -1502,6 +1507,20 @@ mod tests {
         // a key hides the cue
         u.s.on_key(&u.kit, &mut u.engine);
         assert!(!u.s.hover.is_shown());
+    }
+
+    #[test]
+    fn a_click_on_the_dim_beside_the_panel_is_the_backdrop() {
+        let mut u = Up::new(Mode::Dark, 1.0, false);
+        let at = |x: f32, y: f32, b: u32| Sample { x, y, buttons: b, visible: true };
+        let t = |n: u64| (4000 + n) * 1_000_000;
+        assert_eq!(u.s.pointer(&u.kit, &mut u.engine, t(0), at(300.0, 300.0, 0)), None);
+        assert_eq!(u.s.pointer(&u.kit, &mut u.engine, t(10), at(300.0, 300.0, 1)), None);
+        assert_eq!(u.s.pointer(&u.kit, &mut u.engine, t(20), at(300.0, 300.0, 0)), Some((Target::Backdrop, None)));
+        // a press that began on the sheet and ended on the dim is no click
+        let f = u.engine.focus.frame(Target::Row(1).id()).expect("a row");
+        u.s.pointer(&u.kit, &mut u.engine, t(30), at(f.x + 20.0, f.y + 10.0, 1));
+        assert_eq!(u.s.pointer(&u.kit, &mut u.engine, t(40), at(300.0, 300.0, 0)), None);
     }
 
     #[test]
