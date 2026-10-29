@@ -1064,7 +1064,7 @@ impl Home {
         if self.layer == Layer::Edit {
             return;
         }
-        let ed = Editor::new(&self.layout, id, self.now);
+        let ed = Editor::new(&self.layout, id, self.now, self.text_scale);
         self.preview_layout(ed.work.clone());
         ed.register(&mut self.focus, SCOPE_EDIT);
         self.editor = Some(ed);

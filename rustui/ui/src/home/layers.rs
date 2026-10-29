@@ -473,6 +473,7 @@ pub struct EditorSurface {
     cells_key: String,
     toast_key: String,
     enabled_key: String,
+    hint_w: f32,
     z: i32,
 }
 
@@ -487,13 +488,20 @@ impl EditorSurface {
         let corner = kit.ui.scene.shape(36, 36, z + 2, plate::solid(kit.ui.look.accent(), 18.0), HIDDEN);
         let corner_glyph = crate::kit::icon::layer(kit, "chevron-right", 22, kit.ui.look.accent_ink(), z + 3, HIDDEN)?;
         let ghost = kit.ui.scene.shape(8, 8, z + 1, plate::ring(kit.ui.look.accent(), kit.tokens.radius(Radius::Card), 3.0), HIDDEN);
-        let bf = Frame::new(64.0, editor::BAR_Y, 1792.0, editor::BAR_H);
+        let bf = Frame::new(64.0, editor::BAR_Y, 1792.0, ed.bar_h());
         let mut g = glass_of(kit, PaneKind::Sheet, bf.h, false, false);
         g.corner_radius = kit.tokens.radius(Radius::Sheet) / 2.0;
         let bar = kit.ui.scene.glass(bf.w as u32, bf.h as u32, z + 4, g, Props::at(bf.x, bf.y));
+        // the heading and the hint take the room left of the buttons; at a text size where the buttons fill the bar they are left out
+        // (the buttons say what the bar is)
+        let heading_w = (200.0 * kit.text_scale.max(1.0)).round();
+        let first_button = ed.buttons()[0].frame.x;
+        let room = first_button - bf.x - kit.space(6) - kit.space(4);
+        let heading_w = if room >= heading_w { heading_w } else { 0.0 };
+        let hint_w = (room - heading_w).max(0.0);
         let bar_lines = vec![
-            (Frame::new(kit.space(6), 0.0, 200.0, bf.h), role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Left), "Edit Home".to_owned()),
-            (Frame::new(kit.space(6) + 200.0, 0.0, 700.0, bf.h), role_style(kit, TypeRole::Caption, None, ink2, Align::Left), ed.hint_words()),
+            (Frame::new(kit.space(6), 0.0, heading_w, bf.h), role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Left), if heading_w > 0.0 { "Edit Home".to_owned() } else { String::new() }),
+            (Frame::new(kit.space(6) + heading_w, 0.0, hint_w, bf.h), role_style(kit, TypeRole::Caption, None, ink2, Align::Left), ed.hint_words()),
         ];
         let bar_text = Block::new(&mut kit.ui, bf, z + 5, bar_lines)?;
         let mut buttons = Vec::new();
@@ -516,7 +524,8 @@ impl EditorSurface {
             let _ = i;
         }
         let add_rows = Block::new(&mut kit.ui, af, z + 9, rows)?;
-        let add_focus = kit.ui.scene.shape((af.w - 16.0) as u32, 80, z + 8, plate::solid(faded(ink, kit.tokens.states.focus_wash[0]), kit.tokens.radius(Radius::Row)), HIDDEN);
+        let row_h = ed.add_rows().first().map_or(80.0, |r| r.4.h);
+        let add_focus = kit.ui.scene.shape((af.w - 16.0) as u32, row_h as u32, z + 8, plate::solid(faded(ink, kit.tokens.states.focus_wash[0]), kit.tokens.radius(Radius::Row)), HIDDEN);
         let toast = kit.ui.scene.glass(10, 56, z + 10, glass_of(kit, PaneKind::Pill, 56.0, false, false), HIDDEN);
         let warning = kit.ui.look.colour(PaletteRole::Warning);
         let mut toast_text = Text::new(kit, Frame::new(0.0, 0.0, 10.0, 56.0), z + 11, role_style(kit, TypeRole::Label, Some(Weight::SemiBold), warning, Align::Centre), "")?;
@@ -531,7 +540,7 @@ impl EditorSurface {
             let btn = Button::new(kit, engine, Place { id: Id(editor::ASK_ID + i as u32), frame: answers[i], region: editor::ASK, scope: super::model::SCOPE_EDIT, z: z + 14 }, Spec::new(label, tone))?;
             ask_buttons.push(btn);
         }
-        Ok(Self { cells, ring, corner, corner_glyph, ghost, bar, bar_text, buttons, add_pane, add_rows, add_focus, toast, toast_text, ask_pane, ask_title, ask_buttons, cells_key: String::new(), toast_key: String::new(), enabled_key: String::new(), z })
+        Ok(Self { cells, ring, corner, corner_glyph, ghost, bar, bar_text, buttons, add_pane, add_rows, add_focus, toast, toast_text, ask_pane, ask_title, ask_buttons, cells_key: String::new(), toast_key: String::new(), enabled_key: String::new(), hint_w, z })
     }
 
     /// The cells where no card is: rounded squares, drawn once per layout.
@@ -603,7 +612,8 @@ impl EditorSurface {
             }
             None => self.ghost.set(HIDDEN),
         }
-        let hint = ed.hint_words();
+        let hint_style = role_style(kit, TypeRole::Caption, None, ink2, Align::Left);
+        let hint = if self.hint_w < 120.0 { String::new() } else { ui::components::text::ellipsise(&mut kit.ui.fonts, &ed.hint_words(), hint_style.ty, self.hint_w) };
         self.bar_text.set_many(&mut kit.ui, &[(1, &hint, ink2)]);
         let bs = ed.buttons();
         let enabled_key: String = bs.iter().map(|b| if b.enabled { '1' } else { '0' }).collect();

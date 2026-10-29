@@ -17,6 +17,7 @@ pub const BAR: Region = Region(8);
 pub const ADD: Region = Region(9);
 pub const ASK: Region = Region(10);
 pub const BAR_Y: f32 = 50.0;
+/// The bar's height, the add list's width and the row at 100 % text; each grows with the text size.
 pub const BAR_H: f32 = 72.0;
 pub const ADD_W: f32 = 380.0;
 
@@ -83,10 +84,12 @@ pub struct Editor {
     pub refused_until: u64,
     drag: Option<Drag>,
     pub ghost: Option<(Rect, bool)>,
+    /// The person's text size: the bar, its buttons, the add list and the question grow with it.
+    pub scale: f32,
 }
 
 impl Editor {
-    pub fn new(layout: &Value, id: &str, _now: u64) -> Self {
+    pub fn new(layout: &Value, id: &str, _now: u64, scale: f32) -> Self {
         let base = grid::tidy_layout(&grid::to_uniform(layout));
         let order = grid::order(&base);
         let sel = if grid::find(&base, id).is_some_and(|e| !e.hidden) {
@@ -111,7 +114,12 @@ impl Editor {
             refused_until: 0,
             drag: None,
             ghost: None,
+            scale: scale.max(1.0),
         }
+    }
+
+    pub fn bar_h(&self) -> f32 {
+        (BAR_H * self.scale).round()
     }
 
     pub fn dirty(&self) -> bool {
@@ -156,45 +164,54 @@ impl Editor {
             ("cancel", "Cancel", "x", true, false, 184.0),
             ("save", "Save", "check", true, true, 150.0),
         ];
+        let k = self.scale;
         let gap = 12.0;
-        let total: f32 = specs.iter().map(|s| s.5).sum::<f32>() + gap * 4.0;
+        let total: f32 = specs.iter().map(|s| s.5 * k).sum::<f32>() + gap * 4.0;
         let mut x = 64.0 + 1792.0 - 16.0 - total;
-        let y = BAR_Y + (BAR_H - 56.0) / 2.0;
+        let bh = (56.0 * k).round();
+        let y = BAR_Y + ((self.bar_h() - bh) / 2.0).round();
         specs
             .iter()
             .map(|s| {
-                let b = Button { id: s.0, label: s.1, icon: s.2, enabled: s.3, primary: s.4, frame: Frame::new(x, y, s.5, 56.0) };
-                x += s.5 + gap;
+                let b = Button { id: s.0, label: s.1, icon: s.2, enabled: s.3, primary: s.4, frame: Frame::new(x.round(), y, (s.5 * k).round(), bh) };
+                x += s.5 * k + gap;
                 b
             })
             .collect()
+    }
+
+    fn add_row_h(&self) -> f32 {
+        (80.0 * self.scale).round()
     }
 
     /// The add list's frame under the Add button.
     pub fn add_frame(&self) -> Frame {
         let b = self.buttons();
         let n = grid::ADDABLE.len() as f32;
-        Frame::new(b[0].frame.x, BAR_Y + BAR_H + 8.0, ADD_W, n * 80.0 + 24.0)
+        Frame::new(b[0].frame.x, BAR_Y + self.bar_h() + 8.0, (ADD_W * self.scale).round(), n * self.add_row_h() + 24.0)
     }
 
     pub fn add_rows(&self) -> Vec<(&'static str, &'static str, &'static str, bool, Frame)> {
         let f = self.add_frame();
+        let rh = self.add_row_h();
         grid::ADDABLE
             .iter()
             .enumerate()
             .map(|(i, name)| {
                 let t = grid::type_of(name).expect("every addable type is a type");
-                (t.id, t.title, t.icon, grid::hidden_of(&self.work, name), Frame::new(f.x + 8.0, f.y + 12.0 + i as f32 * 80.0, ADD_W - 16.0, 80.0))
+                (t.id, t.title, t.icon, grid::hidden_of(&self.work, name), Frame::new(f.x + 8.0, f.y + 12.0 + i as f32 * rh, f.w - 16.0, rh))
             })
             .collect()
     }
 
     /// The question's frame and its answers' frames.
     pub fn ask_frames(&self) -> (Frame, Vec<Frame>) {
-        let (w, h) = (760.0f32, 236.0f32);
+        let k = self.scale;
+        let (w, h) = ((760.0 * k).min(1792.0).round(), (236.0 * k).round());
         let f = Frame::new(((1920.0 - w) / 2.0).round(), ((1080.0 - h) / 2.0).round(), w, h);
-        let bw = (w - 32.0 * 2.0 - 12.0 * 2.0) / 3.0;
-        let answers = (0..3).map(|i| Frame::new(f.x + 32.0 + i as f32 * (bw + 12.0), f.y + h - 32.0 - 64.0, bw, 64.0)).collect();
+        let bh = (64.0 * k).round();
+        let bw = ((w - 32.0 * 2.0 - 12.0 * 2.0) / 3.0).floor();
+        let answers = (0..3).map(|i| Frame::new(f.x + 32.0 + i as f32 * (bw + 12.0), f.y + h - 32.0 - bh, bw, bh)).collect();
         (f, answers)
     }
 
@@ -718,7 +735,7 @@ mod tests {
 
     #[test]
     fn the_editor_picks_up_a_card_moves_it_by_the_cell_turns_a_move_down_and_saves() {
-        let mut ed = Editor::new(&free(), "clock", 0);
+        let mut ed = Editor::new(&free(), "clock", 0, 1.0);
         assert_eq!((ed.mode, ed.zone, ed.sel.as_str()), (Mode::Select, Zone::Grid, "clock"));
         keys(&mut ed, &["ok", "right", "down"], 100);
         assert_eq!(numbers(&ed.work, "clock"), (1, 0, 4, 4));
@@ -734,7 +751,7 @@ mod tests {
 
     #[test]
     fn back_asks_when_something_changed_and_the_bar_removes_undoes_and_adds() {
-        let mut ed = Editor::new(&free(), "weather", 0);
+        let mut ed = Editor::new(&free(), "weather", 0, 1.0);
         keys(&mut ed, &["ok", "left", "ok", "ok", "back"], 100);
         assert_eq!(ed.zone, Zone::Ask);
         assert_eq!(numbers(&ed.work, "weather").0, 8);
@@ -743,7 +760,7 @@ mod tests {
         keys(&mut ed, &["back"], 300);
         let outs = keys(&mut ed, &["right", "right", "ok"], 400);
         assert!(matches!(outs.last(), Some(EditorOut::Leave(_))));
-        let mut ed = Editor::new(&free(), "clock", 0);
+        let mut ed = Editor::new(&free(), "clock", 0, 1.0);
         keys(&mut ed, &["up", "right", "ok"], 500);
         assert!(grid::find(&ed.work, "clock").is_none(), "Remove took the clock away");
         keys(&mut ed, &["right", "ok"], 600);
@@ -756,7 +773,7 @@ mod tests {
 
     #[test]
     fn a_card_added_from_the_list_is_picked_up_where_it_fits() {
-        let mut ed = Editor::new(&free(), "clock", 0);
+        let mut ed = Editor::new(&free(), "clock", 0, 1.0);
         keys(&mut ed, &["up", "ok", "down", "down", "down", "ok"], 100);
         assert_eq!((ed.zone, ed.mode, ed.sel.as_str()), (Zone::Grid, Mode::Move, "news"));
         assert!(!grid::find(&ed.work, "news").unwrap().hidden);
@@ -766,7 +783,7 @@ mod tests {
 
     #[test]
     fn a_drag_moves_a_card_by_whole_cells() {
-        let mut ed = Editor::new(&free(), "clock", 0);
+        let mut ed = Editor::new(&free(), "clock", 0, 1.0);
         let mut f = Focus::new();
         let r = ed.sel_rect().unwrap();
         let (x, y) = (r.x as f32 + 40.0, r.y as f32 + 40.0);
