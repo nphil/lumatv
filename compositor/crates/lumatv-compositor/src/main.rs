@@ -276,7 +276,8 @@ fn run(config: Config) -> io::Result<()> {
         state.shell_rust.adopt_socket(socket);
     }
     state.shell_rust_start();
-    if let Some(fd) = state.shell_rust_fd() {
+    let mut rust_fd = state.shell_rust_fd();
+    if let Some(fd) = rust_fd {
         epoll.add(fd, TAG_SHELL_RUST)?;
     }
     let mut inputs: Vec<Option<lumatv_compositor::input::Device>> =
@@ -318,6 +319,16 @@ fn run(config: Config) -> io::Result<()> {
                 (true, None) => linger_until = Some(Instant::now() + Duration::from_secs(2)),
                 (true, Some(t)) if Instant::now() >= t => break,
                 _ => {}
+            }
+        }
+        // `ctl shell rust +kind` on a compositor started with no kinds opens the Rust client's channel now: its wake fd joins the loop.
+        if state.shell_rust_fd() != rust_fd {
+            if let Some(old) = rust_fd {
+                epoll.del(old);
+            }
+            rust_fd = state.shell_rust_fd();
+            if let Some(fd) = rust_fd {
+                epoll.add(fd, TAG_SHELL_RUST)?;
             }
         }
         let now = Instant::now();

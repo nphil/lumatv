@@ -20,7 +20,8 @@ use std::io::Write;
 use std::net::TcpListener;
 use std::os::fd::{AsRawFd, RawFd};
 use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
+use std::os::unix::ffi::OsStrExt;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -74,7 +75,7 @@ pub fn change_kinds(kinds: &[String], words: &[&str]) -> Result<Vec<String>, Str
 pub struct RustShell {
     /// The kinds this client answers; empty means it is not run.
     pub kinds: Vec<String>,
-    binary: Option<PathBuf>,
+    launch: Option<Launch>,
     link: Option<Link>,
     port: u16,
     token_path: Option<PathBuf>,
@@ -120,7 +121,7 @@ impl Default for RustShell {
     fn default() -> Self {
         RustShell {
             kinds: Vec::new(),
-            binary: None,
+            launch: None,
             link: None,
             port: 0,
             token_path: None,
@@ -276,15 +277,87 @@ fn write_kinds(data_dir: &std::path::Path, kinds: &[String]) -> std::io::Result<
     std::fs::write(path, format!("{}\n", kinds.join(",")))
 }
 
-/// `<bundle>/bin/lumatv-ui` beside this executable, or `LUMATV_UI_BIN`.
-fn find_binary() -> Option<PathBuf> {
-    if let Some(p) = std::env::var_os("LUMATV_UI_BIN") {
-        let p = PathBuf::from(p);
-        return p.exists().then_some(p);
+/// How the client is run. On the set the supervisor starts the compositor as `<lib>/ld-linux-aarch64.so.1 --library-path <lib>
+/// <bin>/lumatv-compositor`, because the 64-bit ELFs name `/lib/ld-linux-aarch64.so.1` as their interpreter and the set's 32-bit
+/// userland has none. The client has the same interpreter, so it is run the same way; on the host it is exec'd directly.
+#[derive(Clone, Debug, PartialEq)]
+struct Launch {
+    binary: PathBuf,
+    loader: Option<Loader>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct Loader {
+    path: PathBuf,
+    lib: PathBuf,
+}
+
+impl Launch {
+    fn command(&self) -> Command {
+        match &self.loader {
+            Some(l) => {
+                let mut cmd = Command::new(&l.path);
+                cmd.arg("--library-path").arg(&l.lib).arg(&self.binary);
+                cmd
+            }
+            None => Command::new(&self.binary),
+        }
     }
+}
+
+/// The loader this process was started through and the program it was given, from `/proc/self/exe` and `/proc/self/cmdline`
+/// (`current_exe` is the loader then, and the loader leaves argv as the supervisor wrote it). None when it runs directly.
+fn through_loader(exe: &Path, cmdline: &[u8]) -> Option<(Loader, PathBuf)> {
+    if !exe.file_name()?.to_str()?.starts_with("ld-linux") {
+        return None;
+    }
+    let mut args = cmdline.split(|b| *b == 0).skip(1).map(|a| PathBuf::from(std::ffi::OsStr::from_bytes(a)));
+    let mut lib = None;
+    while let Some(a) = args.next() {
+        match a.to_str() {
+            Some("--library-path") => lib = args.next(),
+            Some("--preload" | "--argv0" | "--audit" | "--glibc-hwcaps-prepend" | "--glibc-hwcaps-mask") => {
+                args.next();
+            }
+            Some(o) if o.starts_with("--") => {}
+            _ => {
+                let program = std::fs::canonicalize(&a).unwrap_or(a);
+                let lib = lib.unwrap_or_else(|| exe.parent().map(Path::to_path_buf).unwrap_or_default());
+                return Some((Loader { path: exe.to_path_buf(), lib }, program));
+            }
+        }
+    }
+    None
+}
+
+/// Where the client is and how to run it. `LUMATV_UI_BIN` names the binary, `LUMATV_UI_LOADER` (and `LUMATV_UI_LIBDIR`, default the
+/// loader's own directory) the loader to run it through; without them the client is `lumatv-ui` in the directory of the program this
+/// process runs (`<bundle>/bin`), through the loader this process was started through, if any.
+fn find_launch_with(env_bin: Option<PathBuf>, env_loader: Option<PathBuf>, env_lib: Option<PathBuf>, exe: &Path, cmdline: &[u8]) -> Option<Launch> {
+    let ours = through_loader(exe, cmdline);
+    let binary = match env_bin {
+        Some(p) => p,
+        None => {
+            let own = ours.as_ref().map(|(_, program)| program.as_path()).unwrap_or(exe);
+            own.parent()?.join("lumatv-ui")
+        }
+    };
+    let loader = match env_loader {
+        Some(path) => {
+            let lib = env_lib.or_else(|| path.parent().map(Path::to_path_buf)).unwrap_or_default();
+            Some(Loader { path, lib })
+        }
+        None => ours.map(|(l, _)| l),
+    };
+    let launch = Launch { binary, loader };
+    (launch.binary.exists() && launch.loader.as_ref().is_none_or(|l| l.path.exists())).then_some(launch)
+}
+
+fn find_launch() -> Option<Launch> {
+    let var = |k| std::env::var_os(k).map(PathBuf::from);
     let exe = std::env::current_exe().ok()?;
-    let beside = exe.parent()?.join("lumatv-ui");
-    beside.exists().then_some(beside)
+    let cmdline = std::fs::read("/proc/self/cmdline").unwrap_or_default();
+    find_launch_with(var("LUMATV_UI_BIN"), var("LUMATV_UI_LOADER"), var("LUMATV_UI_LIBDIR"), &exe, &cmdline)
 }
 
 impl State {
@@ -296,8 +369,8 @@ impl State {
             return;
         }
         self.shell_rust.kinds = kinds;
-        let Some(binary) = find_binary() else {
-            self.journal("shell-rust: no lumatv-ui beside this executable (or LUMATV_UI_BIN); the Rust shell is not run".into());
+        let Some(launch) = find_launch() else {
+            self.journal("shell-rust: no lumatv-ui beside the compositor's program (or LUMATV_UI_BIN), or its loader is gone; the Rust shell is not run".into());
             self.shell_rust.error = Some("no lumatv-ui".into());
             return;
         };
@@ -328,7 +401,7 @@ impl State {
             }
         };
         self.shell_rust.link = Some(link);
-        self.shell_rust.binary = Some(binary);
+        self.shell_rust.launch = Some(launch);
         self.shell_rust.port = port;
         self.shell_rust.token_path = Some(token_path);
         self.shell_rust.log = Some(self.config.data_dir.join("compositor/shell-rust.log"));
@@ -360,7 +433,8 @@ impl State {
     /// Starts the client: the engine attached (or the end kept from before the loop), the key socket pair, the fork and exec with
     /// the two sockets as descriptors 3 and 4.
     fn shell_rust_spawn(&mut self) {
-        let Some(binary) = self.shell_rust.binary.clone() else { return };
+        let Some(launch) = self.shell_rust.launch.clone() else { return };
+        let binary = launch.binary.clone();
         let now = Instant::now();
         self.shell_rust.starts.retain(|t| now.duration_since(*t) < RESTART_WINDOW);
         if self.shell_rust.starts.len() >= RESTART_LIMIT {
@@ -407,7 +481,7 @@ impl State {
         let _ = ours.set_nonblocking(true);
         self.shell_rust.starts.push_back(now);
         let log = self.shell_rust.log.clone().and_then(|p| std::fs::OpenOptions::new().create(true).append(true).open(p).ok());
-        let mut cmd = Command::new(&binary);
+        let mut cmd = launch.command();
         cmd.env_remove("NOTIFY_SOCKET")
             .env_remove("LUMATV_LUNA_BRIDGE")
             .env("LUMATV_UI_FD", "3")
@@ -953,6 +1027,111 @@ mod tests {
         state.shell.marker = dir.join("marker");
         state.shell_rust.marker = dir.join("marker");
         (state, dir)
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("lumatv-shell-rust-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn write_file(path: &Path, text: &str, mode: u32) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+
+    /// The set's layout: the compositor and the client in `bin/`, the loader in `lib/`.
+    fn bundle(name: &str) -> PathBuf {
+        let root = scratch(name);
+        write_file(&root.join("bin/lumatv-compositor"), "", 0o755);
+        write_file(&root.join("bin/lumatv-ui"), "", 0o755);
+        write_file(&root.join("lib/ld-linux-aarch64.so.1"), "", 0o755);
+        root
+    }
+
+    fn cmdline(words: &[&dyn AsRef<std::ffi::OsStr>]) -> Vec<u8> {
+        words.iter().flat_map(|w| w.as_ref().as_bytes().iter().copied().chain([0])).collect()
+    }
+
+    #[test]
+    fn started_through_the_loader_the_client_is_found_in_bin_and_run_through_the_same_loader() {
+        let root = bundle("indirect");
+        let loader = root.join("lib/ld-linux-aarch64.so.1");
+        let argv = cmdline(&[&loader, &"--library-path", &root.join("lib"), &root.join("bin/lumatv-compositor"), &"--runtime-dir", &"/tmp/xdg", &"--input"]);
+        // /proc/self/exe is the loader, as under lumatv-sm: lib/ has no lumatv-ui
+        let launch = find_launch_with(None, None, None, &loader, &argv).expect("found");
+        let want = Launch {
+            binary: std::fs::canonicalize(root.join("bin/lumatv-ui")).unwrap(),
+            loader: Some(Loader { path: loader.clone(), lib: root.join("lib") }),
+        };
+        assert_eq!(launch, want);
+        let cmd = launch.command();
+        assert_eq!(cmd.get_program(), loader.as_os_str());
+        let args: Vec<_> = cmd.get_args().collect();
+        assert_eq!(args, [std::ffi::OsStr::new("--library-path"), root.join("lib").as_os_str(), want.binary.as_os_str()]);
+
+        // the loader's own options before the program are skipped
+        let argv = cmdline(&[&loader, &"--preload", &"heapshim.so", &"--library-path", &root.join("lib"), &root.join("bin/lumatv-compositor")]);
+        assert_eq!(find_launch_with(None, None, None, &loader, &argv), Some(want));
+        // no library path: the loader's own directory
+        let argv = cmdline(&[&loader, &root.join("bin/lumatv-compositor")]);
+        assert_eq!(through_loader(&loader, &argv).unwrap().0.lib, root.join("lib"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn run_directly_the_client_is_beside_the_executable_and_exec_d_without_a_loader() {
+        let root = bundle("direct");
+        let exe = root.join("bin/lumatv-compositor");
+        let launch = find_launch_with(None, None, None, &exe, &cmdline(&[&exe, &"--input"])).expect("found");
+        assert_eq!(launch, Launch { binary: root.join("bin/lumatv-ui"), loader: None });
+        assert_eq!(launch.command().get_program(), root.join("bin/lumatv-ui").as_os_str());
+        assert_eq!(launch.command().get_args().count(), 0);
+        // the overrides win; a client or a loader that is not there is no launch
+        let other = root.join("lib/other-ui");
+        write_file(&other, "", 0o755);
+        assert_eq!(find_launch_with(Some(other.clone()), None, None, &exe, &[]).unwrap().binary, other);
+        std::fs::remove_file(root.join("bin/lumatv-ui")).unwrap();
+        assert_eq!(find_launch_with(None, None, None, &exe, &[]), None);
+        assert_eq!(find_launch_with(Some(other.clone()), Some(root.join("lib/gone")), None, &exe, &[]), None);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The client is started through the loader with its two descriptors and its environment. The stand-in loader drops the loader's
+    /// options and runs its program with `sh`; the stand-in client is not executable, so a direct exec of it (the bug) fails.
+    #[test]
+    fn the_client_is_spawned_through_the_loader_when_there_is_one() {
+        let root = scratch("spawn");
+        let out = root.join("out");
+        write_file(&root.join("lib/ld-linux-aarch64.so.1"), &format!("#!/bin/sh\necho \"loader $*\" >> {}\nshift 2\nexec sh \"$@\"\n", out.display()), 0o755);
+        write_file(&root.join("bin/lumatv-ui"), &format!("echo \"client fd3=$LUMATV_UI_FD kinds=$LUMATV_UI_KINDS\" >> {}\n", out.display()), 0o644);
+        let (mut state, _dir) = state_with("osd,toast");
+        let (engine, _theirs) = UnixStream::pair().unwrap();
+        state.shell_rust.adopt_socket(engine);
+        state.shell_rust.launch = Some(Launch {
+            binary: root.join("bin/lumatv-ui"),
+            loader: Some(Loader { path: root.join("lib/ld-linux-aarch64.so.1"), lib: root.join("lib") }),
+        });
+        state.shell_rust_spawn();
+        assert!(state.shell_rust.child.is_some(), "{:?}", state.journal);
+        let child = state.shell_rust.child.as_mut().unwrap();
+        assert!(child.wait().unwrap().success());
+        let text = std::fs::read_to_string(&out).unwrap();
+        let lines: Vec<_> = text.lines().collect();
+        assert_eq!(lines, [format!("loader --library-path {} {}", root.join("lib").display(), root.join("bin/lumatv-ui").display()), "client fd3=3 kinds=osd,toast".into()]);
+
+        // the same client exec'd directly, as before: not executable, so the spawn fails and is journalled
+        let (mut state, _dir) = state_with("osd,toast");
+        let (engine, _theirs) = UnixStream::pair().unwrap();
+        state.shell_rust.adopt_socket(engine);
+        state.shell_rust.launch = Some(Launch { binary: root.join("bin/lumatv-ui"), loader: None });
+        state.shell_rust_spawn();
+        assert!(state.shell_rust.child.is_none());
+        assert!(state.journal.iter().any(|l| l.contains("did not start")), "{:?}", state.journal);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
