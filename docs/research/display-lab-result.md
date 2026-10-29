@@ -22,6 +22,10 @@ Next, in order:
 2. The TV check (§ 5), Round19 at the set: Medium and Medium / Strong are new; the window's frame against the real hole.
 3. From what the TV shows: decide the gain to keep; set `Card::Window`'s zone (`lab/plan.rs`) to where the hole really is, and whether the
    second window setting (`on_b`) is worth keeping.
+   The hole's units are measured now (`layer-deep-result.md` § 8.4, Round19W, five runs with Nitin's photos): `x` counts the 1920-wide UI space,
+   `y`, `w` and `h` count panel pixels, and select value 3 (`on_b`) opens hole 0 while value 1 (`on_a`) opens none. The lab's registers
+   (`0x10B403C0`, `0x0032A21C`) opened a quarter-size window at the right edge, not the centred one its frame marks; the centred 960x540 panel
+   window (the frame at UI 720, 405, 480x270) is `HoleX 0x105A03C0` with `HoleY 0x0032A21C`, select value 3, so `on_a` is not worth keeping.
 4. Follow-ups, not built: taking `dimming` and the VSP target off the helper's list (the unit tests use them as their register example), and
    an out-of-process guard that restores when the helper itself is killed (§ 4, last row).
 
