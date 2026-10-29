@@ -1,0 +1,24 @@
+[19:24:37] bridge: compositor connected
+[19:24:37] subscription t1: com.webos.surfacemanager/getForegroundVideoWindow from com.webos.service.screenmanager
+[19:24:37] subscription t2: com.webos.surfacemanager/getForegroundWindowInfo from com.webos.service.multiviewcontroller
+[19:24:37] subscription t3: com.webos.surfacemanager/getFocusedWindowInfo from com.webos.service.multiviewcontroller
+[19:24:37] subscription t4: com.webos.surfacemanager/getMultiViewLayoutAnimationState from com.webos.service.multiviewcontroller
+[19:24:37] subscription t5: com.webos.surfacemanager/getForegroundVideoWindow from com.webos.service.multiviewcontroller
+[19:24:37] subscription t6: com.webos.surfacemanager/getFocusedWindowInfo from com.webos.service.eim
+[19:24:37] subscription t7: com.webos.surfacemanager/getForegroundWindowInfo from com.webos.service.blegattsoundbar
+[19:24:37] subscription t8: com.webos.surfacemanager/getForegroundAppInfo from com.webos.applicationManager
+[19:24:37] subscription t9: com.webos.coverUI/getStatus from com.webos.applicationManager
+[19:26:56] subscription t11: com.webos.surfacemanager/getWindowGroupInfo from com.webos.app.hdmi2
+[19:26:56] subscription t12: com.webos.surfacemanager/getForegroundWindowInfo from com.webos.app.hdmi2
+[19:26:56] subscription t13: com.webos.surfacemanager.home/getCurrentHomeUIState from com.webos.app.hdmi2
+[19:26:56] subscription t14: com.webos.surfacemanager/getLastInputType from com.webos.app.hdmi2
+[19:26:56] subscription t15: com.webos.service.systemUIManager/getForegroundAppInfo from com.webos.app.hdmi2
+[19:26:57] subscription t16: com.webos.surfacemanager/getForegroundVideoWindow from com.webos.service.hybridtvmanager.async
+[19:27:12] subscription t17: com.webos.surfacemanager/getLastInputType from youtube.leanback.v4
+[19:27:49] subscription t18: com.webos.surfacemanager/getFocusedWindowInfo from com.webos.app.browser
+[19:28:25] subscription t19: com.webos.surfacemanager/getFocusedWindowInfo from com.webos.app.browser
+[19:28:26] subscription t20: com.webos.surfacemanager/getLastInputType from com.webos.app.magicnum-21511
+[19:28:34] subscription t21: com.webos.surfacemanager/getLastInputType from com.palm.app.settings-21511
+[19:28:55] subscription t22: com.webos.surfacemanager/getForegroundAppInfo from com.webos.service.ime.globalplugin
+[19:28:55] subscription t23: com.webos.surfacemanager/getLastInputType from com.webos.service.ime.globalplugin
+[19:29:24] subscription t24: com.webos.surfacemanager/getLastInputType from com.webos.app.homeconnect-21511

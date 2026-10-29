@@ -1,0 +1,3 @@
+18:14:04 INFO all care switches off, 40 s: {'ticks/s': 72.2, 'drawn/s': 9.98, 'commits/s': 11.4, 'wake n': 2475, 'shell': {'systemLive': False}}
+18:14:48 INFO oledcare on (stepSec 30), 40 s: {'ticks/s': 72.4, 'drawn/s': 9.98, 'commits/s': 10.8, 'wake n': 2490, 'shell': {'systemLive': False}}
+18:14:50 INFO shell ui: osd False toasts 0 saver False layer ''

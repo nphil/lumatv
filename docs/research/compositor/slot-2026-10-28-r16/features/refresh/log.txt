@@ -1,0 +1,6 @@
+18:12:34 INFO step 1: getPixelRefresherInfoList: offrsCount 609 offrsLastTime 4330 offrsInterval 4
+18:12:34 FAIL step 1: getPanelUsageTime with {} (what helper/app/src/refreshguard.rs and tools refresh_guard.py send): {"errorCode": 3, "returnValue": false, "errorMessage": "Failed to validate against schema: Missing mandatory field: 'subscribe'"}
+18:12:34 INFO step 1: with {"subscribe":false}: panelUsageTime 25993 ticks = 4332.17 h; last run at 4330 h, interval 4 h: due=False (due at 4334 h)
+18:12:34 FAIL step 2: GET /v1/state/panel: read=False error=getPanelUsageTime: returnValue false offrsCount None lastRunHours None intervalHours None usageHours None due None guard {"deferrals": 0, "enabled": false, "last": null} standby null
+18:12:35 FAIL step 4: refresh_guard.py status: refresh guard: getPanelUsageTime: returnValue false
+18:12:35 INFO refreshGuard in the owner's theme: False

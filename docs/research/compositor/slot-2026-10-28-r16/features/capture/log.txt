@@ -1,0 +1,10 @@
+18:11:06 INFO captures folder before: ls: /var/lib/lumatv/captures: No such file or directory
+18:11:06 PASS step 1: off by default: POST /v1/capture/screenshot -> 403 {"api":1,"error":{"code":"client_header_required","message":"writes must send the X-Luma-Client header"},"ok":false}; ctl screencap shot -> {"code":"disabled","error":"screen capture is off (capture.enabled in helper.json)","ok":false}
+18:11:34 FAIL step 2: capture.enabled, helper restarted: GET /v1/capture {"api": 1, "capture": {"available": true, "captures": {"bytes": 0, "count": 0, "dir": "/var/lib/lumatv/captures", "max": 268435456}, "enabled": true, "encoder": {"available": false, "path": "/var/lib/
+18:11:38 INFO step 3: POST screenshot at Home: {"api": 1, "bytes": 1233222, "height": 1080, "ms": 85, "name": "shot-20261028-211137.png", "now": 1793236297527, "ok": true, "path": "/var/lib/lumatv/captures/shot-20261028-211137.png", "width": 1920}
+18:11:39 PASS step 3: /var/lib/lumatv/captures/shot-20261028-211137.png (1920, 1080) mean luma 56.8 (not black); ctl status tick warnings []
+18:11:41 INFO step 4: with a toast up: {"api": 1, "bytes": 1219259, "height": 1080, "ms": 80, "name": "shot-20261028-211140.png", "now": 1793236301039, "ok": true, "path": "/var/l -> /var/lib/lumatv/captures/shot-20261028-211140.png
+18:11:50 INFO step 4: shots of the toast, the quick panel and the cursor in img/cap-*.jpg (look: the toast, the panel and the cursor sprite are in the picture)
+18:12:27 INFO Netflix film: fg=netflix video windows=1 picture mode=dolbyHdrCinema
+18:12:29 PASS step 5: Netflix film playing: screenshot {"api": 1, "bytes": 177172, "height": 1080, "ms": 28, "name": "shot-20261028-211229.png", "now": 179; the picture area mean luma 11.0 (black where the film plays), whole picture mean 8.7
+18:12:34 INFO end: 5 files removed, folder removed, helper.json as found, helper restarted; POST screenshot now 403; helper.json {"cameras":{"enabled":true}}

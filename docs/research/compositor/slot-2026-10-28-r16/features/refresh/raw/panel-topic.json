@@ -1,0 +1,25 @@
+{
+ "api": 1,
+ "boot": 1793236354698,
+ "now": 1793236354976,
+ "ok": true,
+ "seq": 45,
+ "topic": "panel",
+ "value": {
+  "due": null,
+  "error": "getPanelUsageTime: returnValue false",
+  "guard": {
+   "deferrals": 0,
+   "enabled": false,
+   "last": null
+  },
+  "intervalHours": null,
+  "lastRunHours": null,
+  "lastStandbyMinutes": null,
+  "offrsCount": null,
+  "read": false,
+  "readAt": 1793236354789,
+  "standby": null,
+  "usageHours": null
+ }
+}

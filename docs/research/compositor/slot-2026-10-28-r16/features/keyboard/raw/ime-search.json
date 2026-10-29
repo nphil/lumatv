@@ -1,0 +1,59 @@
+{
+ "active": {
+  "app": "com.webos.app.voice",
+  "context": false,
+  "enter": 5,
+  "hint": 5,
+  "max": 32767,
+  "model": 1,
+  "own": true,
+  "ownShow": true,
+  "purpose": 0,
+  "showWanted": false,
+  "surface": 372,
+  "surround": {
+   "cursor": 0,
+   "len": 0
+  }
+ },
+ "asked": 0,
+ "counts": {
+  "activations": 1,
+  "commits": 0,
+  "declined": 0,
+  "deletes": 0,
+  "grabbedKeys": 0,
+  "keysyms": 0,
+  "preedits": 0
+ },
+ "grab": false,
+ "grabbing": true,
+ "keyboardUp": true,
+ "methods": [],
+ "models": 1,
+ "ok": true,
+ "own": {
+  "broken": false,
+  "canShow": true,
+  "counts": {
+   "activations": 1,
+   "clears": 0,
+   "failed": 0,
+   "hides": 0,
+   "keys": 0,
+   "nav": 0,
+   "shown": 1,
+   "texts": 0
+  },
+  "flag": true,
+  "pending": false,
+  "serving": true,
+  "up": {
+   "h": 454,
+   "w": 1920,
+   "x": 0,
+   "y": 626
+  }
+ },
+ "panel": null
+}

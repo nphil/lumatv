@@ -1,0 +1,3 @@
+17:39:18 INFO com.crunchyroll.webapp: foreground 2s:home 4s:home 6s:home 8s:com.crunchyroll.webapp 10s:com.crunchyroll.webapp 12s:com.crunchyroll.webapp 15s:com.crunchyroll.webapp; running True; before: MemAvailable: 659876 kB SwapFree: 17652 kB
+17:39:36 INFO com.webos.app.lgchannels: foreground 2s:lgchannels 4s:lgchannels 6s:lgchannels 8s:lgchannels 10s:lgchannels 12s:lgchannels 15s:lgchannels; running True; before: MemAvailable: 657668 kB SwapFree: 18164 kB
+17:39:53 INFO netflix: foreground 2s:netflix 4s:netflix 6s:netflix 8s:netflix 10s:netflix 12s:netflix 15s:netflix; running True; before: MemAvailable: 631844 kB SwapFree: 14212 kB

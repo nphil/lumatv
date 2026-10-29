@@ -1,0 +1,21 @@
+17:26:01 INFO start: power Active fg com.webos.app.home saver False homestub {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+17:26:01 INFO helper screen topic: {"api": 1, "boot": 1793228911697, "now": 1793233561499, "ok": true, "seq": 426, "topic": "screen", "value": {"error": null, "on": true, "since": 1793231874733, "source": "luna-subscribe", "state": "Active"}}
+17:26:01 INFO shell luna subscriptions to tvpower screensaver list: 137 (power2 65, power 72)
+17:26:01 INFO power2/turnOnScreenSaver answered {"returnValue": true}
+17:26:02 INFO t+1s: power state Active, saver(shell) True, fg com.webos.app.home
+17:26:03 INFO t+2s: power state Active, saver(shell) True, fg com.webos.app.home
+17:26:04 INFO t+3s: power state Active, saver(shell) True, fg com.webos.app.home
+17:26:06 INFO t+5s: power state Active, saver(shell) True, fg com.webos.app.home
+17:26:09 INFO t+8s: power state Active, saver(shell) True, fg com.webos.app.home
+17:26:13 INFO t+12s: power state Active, saver(shell) True, fg com.webos.app.home
+17:26:17 INFO t+16s: power state Active, saver(shell) True, fg com.webos.app.home
+17:26:21 INFO t+20s: power state Active, saver(shell) True, fg com.webos.app.home
+17:26:21 INFO journal after: []
+17:26:21 INFO windows mapped: ['org.nphil.lumatv.shell', 'org.nphil.lumatv.shell', 'com.webos.app.home']
+17:26:23 INFO after a key: power Active saver False fg com.webos.app.home
+17:27:25 PASS gate-sequence-1: turnOnScreenSaver {"returnValue": true} -> saver(shell) True within 15 s; power Active; windows ['org.nphil.lumatv.shell', 'org.nphil.lumatv.shell', 'com.webos.app.home']; subscriptions 139 -> 139
+17:27:25 INFO gate-sequence-1: journal []
+17:27:53 PASS gate-sequence-2: turnOnScreenSaver {"returnValue": true} -> saver(shell) True within 15 s; power Active; windows ['org.nphil.lumatv.shell', 'org.nphil.lumatv.shell', 'com.webos.app.home']; subscriptions 141 -> 141
+17:27:53 INFO gate-sequence-2: journal []
+17:28:06 PASS plain-home: turnOnScreenSaver {"returnValue": true} -> saver(shell) True within 15 s; power Active; windows ['org.nphil.lumatv.shell', 'org.nphil.lumatv.shell', 'com.webos.app.home']; subscriptions 141 -> 141
+17:28:06 INFO plain-home: journal []

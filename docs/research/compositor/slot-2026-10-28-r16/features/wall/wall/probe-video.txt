@@ -1,0 +1,1 @@
+{"verdict": "ok", "why": "the frame shows silk-tuned at 7.2 s, full screen and unshifted, its light 0.95/0.93/0.91 (R/G/B) of the clip's", "area": "frame", "clip": "silk-tuned", "picture": 143, "t": 7.15, "corr": 0.9981, "ratio": [0.949, 0.928, 0.914], "fit": [[0.934, 0.597], [0.934, -0.266], [0.919, -0.325]], "margin": 45.05}

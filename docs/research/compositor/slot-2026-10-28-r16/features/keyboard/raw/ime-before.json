@@ -1,0 +1,38 @@
+{
+ "active": null,
+ "asked": 0,
+ "counts": {
+  "activations": 0,
+  "commits": 0,
+  "declined": 0,
+  "deletes": 0,
+  "grabbedKeys": 0,
+  "keysyms": 0,
+  "preedits": 0
+ },
+ "grab": false,
+ "grabbing": false,
+ "keyboardUp": false,
+ "methods": [],
+ "models": 0,
+ "ok": true,
+ "own": {
+  "broken": false,
+  "canShow": true,
+  "counts": {
+   "activations": 0,
+   "clears": 0,
+   "failed": 0,
+   "hides": 0,
+   "keys": 0,
+   "nav": 0,
+   "shown": 0,
+   "texts": 0
+  },
+  "flag": false,
+  "pending": false,
+  "serving": false,
+  "up": null
+ },
+ "panel": null
+}

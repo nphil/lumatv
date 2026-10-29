@@ -1,0 +1,23 @@
+{
+ "getPixelRefresherInfoList": {
+  "returnValue": true,
+  "jbLastTime": 4142,
+  "jbCount": 11,
+  "jbInterval": 500,
+  "pnwashKeyLock": true,
+  "offrsInterval": 4,
+  "offrsLastTime": 4330,
+  "offrsCount": 609,
+  "subscribed": false
+ },
+ "getPanelUsageTime {}": {
+  "errorCode": 3,
+  "returnValue": false,
+  "errorMessage": "Failed to validate against schema: Missing mandatory field: 'subscribe'"
+ },
+ "getPanelUsageTime {\"subscribe\":false}": {
+  "returnValue": true,
+  "panelUsageTimeStore": 0,
+  "panelUsageTime": 25993
+ }
+}

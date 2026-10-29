@@ -1,0 +1,6 @@
+18:02:15 PASS step 1: appDim.enabled / appShift.enabled within 2 s: {'afterMin': 1, 'enabled': True, 'level': 1.0, 'to': 0.75} {'enabled': True, 'offset': [0, 0]}
+18:02:23 INFO step 6: before engaging (still 2 s): buffers=Driver renderUsMax=47961
+18:04:57 FAIL step 2: com.webos.app.browser hands off: stillSec [0, 0, 0, 0]; engaged at t=None s; level series [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]; offsets [(0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0)]; journal []
+18:04:59 INFO step 2: composed capture mean luma before 129.8 after 129.8 (ratio 1.00); first 4 rows mean 62.4, first 4 columns mean 196.0 (a black strip of at most 3 px)
+18:05:59 INFO step 6: engaged and still, 60 s: tick {"max_us": 50942, "mean_us": 95, "n": 3490, "p50_us": 0, "p99_us": 3}; buffers Driver
+18:06:00 PASS step 3: the Magic Remote pointer: 0.03 s later level 1.0 offset [0, 0] engaged False

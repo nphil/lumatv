@@ -1,0 +1,33 @@
+{
+ "busy": {
+  "max_us": 50997,
+  "mean_us": 631,
+  "n": 2972,
+  "p50_us": 2,
+  "p99_us": 36863
+ },
+ "flip": {
+  "max_us": 10,
+  "mean_us": 1,
+  "n": 20,
+  "p50_us": 1,
+  "p99_us": 10
+ },
+ "input": {
+  "max_us": 0,
+  "mean_us": 0,
+  "n": 0,
+  "p50_us": 0,
+  "p99_us": 0
+ },
+ "line": "tick p50 0.00 p99 0.00 max 50.94 ms (n 3490); flip p50 0.00 p99 0.01 max 0.01 ms (n 20); input no samples; tick waited on a busy loop p50 0.00 p99 36.86 max 51.00 ms (n 2972)",
+ "ok": true,
+ "probes": {},
+ "tick": {
+  "max_us": 50942,
+  "mean_us": 95,
+  "n": 3490,
+  "p50_us": 0,
+  "p99_us": 3
+ }
+}

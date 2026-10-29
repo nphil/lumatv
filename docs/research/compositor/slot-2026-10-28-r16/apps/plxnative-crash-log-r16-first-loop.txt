@@ -1,0 +1,353 @@
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x24 pc=0xf7be4430 lr=0xf7e13e69
+time: 1793208070
+reg: sp=0xffa0de20 fp=0xffa0de50 ip=0xdd cpsr=0x60800030 r0=0x0 r1=0xf7e62e18 r2=0xf7e62e40 r3=0xf7be4431 r4=0x493e0 r5=0x0 r6=0xf7be3925 r7=0xf7e5df7c r8=0x3 r9=0xffa0de40 r10=0xffa0df40
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7be0000-f7be8000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0
+at: f7d90000-f7e4c000 r-xp 00000000 fd:01 46693                              /usr/lib/libSDL2-2.0.so.0.14.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x24 pc=0xf7734430 lr=0xf7963e69
+time: 1793208097
+reg: sp=0xfff056b0 fp=0xfff056e0 ip=0xdd cpsr=0x60800030 r0=0x0 r1=0xf79b2e18 r2=0xf79b2e40 r3=0xf7734431 r4=0x493e0 r5=0x0 r6=0xf7733925 r7=0xf79adf7c r8=0x3 r9=0xfff056d0 r10=0xfff057d0
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7730000-f7738000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0
+at: f78e0000-f799c000 r-xp 00000000 fd:01 46693                              /usr/lib/libSDL2-2.0.so.0.14.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x24 pc=0xf7be4430 lr=0xf7e13e69
+time: 1793208109
+reg: sp=0xffa8d7f0 fp=0xffa8d820 ip=0xdd cpsr=0x60800030 r0=0x0 r1=0xf7e62e18 r2=0xf7e62e40 r3=0xf7be4431 r4=0x493e0 r5=0x0 r6=0xf7be3925 r7=0xf7e5df7c r8=0x3 r9=0xffa8d810 r10=0xffa8d910
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7be0000-f7be8000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0
+at: f7d90000-f7e4c000 r-xp 00000000 fd:01 46693                              /usr/lib/libSDL2-2.0.so.0.14.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x24 pc=0xf79f4430 lr=0xf7c23e69
+time: 1793208125
+reg: sp=0xfffbbe50 fp=0xfffbbe80 ip=0xdd cpsr=0x60800030 r0=0x0 r1=0xf7c72e18 r2=0xf7c72e40 r3=0xf79f4431 r4=0x493e0 r5=0x0 r6=0xf79f3925 r7=0xf7c6df7c r8=0x3 r9=0xfffbbe70 r10=0xfffbbf70
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f79f0000-f79f8000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0
+at: f7ba0000-f7c5c000 r-xp 00000000 fd:01 46693                              /usr/lib/libSDL2-2.0.so.0.14.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x24 pc=0xf7794430 lr=0xf79c3e69
+time: 1793208362
+reg: sp=0xff7e83d0 fp=0xff7e8400 ip=0xdd cpsr=0x60800030 r0=0x0 r1=0xf7a12e18 r2=0xf7a12e40 r3=0xf7794431 r4=0x493e0 r5=0x0 r6=0xf7793925 r7=0xf7a0df7c r8=0x3 r9=0xff7e83f0 r10=0xff7e84f0
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7790000-f7798000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0
+at: f7940000-f79fc000 r-xp 00000000 fd:01 46693                              /usr/lib/libSDL2-2.0.so.0.14.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x24 pc=0xf7594430 lr=0xf77c3e69
+time: 1793208502
+reg: sp=0xfffafa40 fp=0xfffafa70 ip=0xdd cpsr=0x60800030 r0=0x0 r1=0xf7812e18 r2=0xf7812e40 r3=0xf7594431 r4=0x493e0 r5=0x0 r6=0xf7593925 r7=0xf780df7c r8=0x3 r9=0xfffafa60 r10=0xfffafb60
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7590000-f7598000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0
+at: f7740000-f77fc000 r-xp 00000000 fd:01 46693                              /usr/lib/libSDL2-2.0.so.0.14.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x24 pc=0xf75c4430 lr=0xf77f3e69
+time: 1793208583
+reg: sp=0xffc41920 fp=0xffc41950 ip=0xdd cpsr=0x60800030 r0=0x0 r1=0xf7842e18 r2=0xf7842e40 r3=0xf75c4431 r4=0x493e0 r5=0x0 r6=0xf75c3925 r7=0xf783df7c r8=0x3 r9=0xffc41940 r10=0xffc41a40
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f75c0000-f75c8000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0
+at: f7770000-f782c000 r-xp 00000000 fd:01 46693                              /usr/lib/libSDL2-2.0.so.0.14.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x18 pc=0xf7aa75c6 lr=0xf7a924b5
+time: 1793218302
+reg: sp=0xea1fd498 fp=0x27cc244 ip=0xf7aee5c4 cpsr=0x60800030 r0=0x27d3210 r1=0x27c82d8 r2=0x0 r3=0xfb4 r4=0xf7aedf7c r5=0x27c82d8 r6=0x27c7bd8 r7=0x0 r8=0x0 r9=0xf7af2e40 r10=0xf7af2e18
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7a20000-f7adc000 r-xp 00000000 fd:01 46693                              /usr/lib/libSDL2-2.0.so.0.14.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x18 pc=0xf7a675c6 lr=0xf7a524b5
+time: 1793220133
+reg: sp=0xe9ff4498 fp=0x237c96c ip=0xf7aae5c4 cpsr=0x60800030 r0=0x23a3210 r1=0x23b7580 r2=0x0 r3=0xfb4 r4=0xf7aadf7c r5=0x23b7580 r6=0x239a5c8 r7=0x0 r8=0x0 r9=0xf7ab2e40 r10=0xf7ab2e18
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f79e0000-f7a9c000 r-xp 00000000 fd:01 46693                              /usr/lib/libSDL2-2.0.so.0.14.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x18 pc=0xf7d475c6 lr=0xf7d324b5
+time: 1793221957
+reg: sp=0xea4f4498 fp=0x1d0133c ip=0xf7d8e5c4 cpsr=0x60800030 r0=0x1d3b210 r1=0x1d302d8 r2=0x0 r3=0xfb4 r4=0xf7d8df7c r5=0x1d302d8 r6=0x1d2fbd8 r7=0x0 r8=0x0 r9=0xf7d92e40 r10=0xf7d92e18
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7cc0000-f7d7c000 r-xp 00000000 fd:01 46693                              /usr/lib/libSDL2-2.0.so.0.14.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x18 pc=0xf7d675c6 lr=0xf7d524b5
+time: 1793224302
+reg: sp=0xea5fd498 fp=0x291935c ip=0xf7dae5c4 cpsr=0x60800030 r0=0x2920210 r1=0x292b0f8 r2=0x0 r3=0xfb4 r4=0xf7dadf7c r5=0x292b0f8 r6=0x2919240 r7=0x0 r8=0x0 r9=0xf7db2e40 r10=0xf7db2e18
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7ce0000-f7d9c000 r-xp 00000000 fd:01 46693                              /usr/lib/libSDL2-2.0.so.0.14.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x0 pc=0xf7864acc lr=0xf7864f21
+time: 1793229460
+reg: sp=0xed0f8280 fp=0x125fa98 ip=0xf72ff0d0 cpsr=0x608e0030 r0=0x0 r1=0xed0f8280 r2=0x14 r3=0x0 r4=0xed0f8324 r5=0xed0f82b0 r6=0x0 r7=0x14 r8=0x3 r9=0x0 r10=0xebf79080
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7860000-f7868000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x0 pc=0xf7b84acc lr=0xf7b84f21
+time: 1793232313
+reg: sp=0xed3f8280 fp=0x1ca3848 ip=0xf761f0d0 cpsr=0x608e0030 r0=0x0 r1=0xed3f8280 r2=0x14 r3=0x0 r4=0xed3f8324 r5=0xed3f82b0 r6=0x0 r7=0x14 r8=0x3 r9=0x0 r10=0xec2c8e80
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7b80000-f7b88000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x0 pc=0xf7584acc lr=0xf7584f21
+time: 1793232346
+reg: sp=0xecdf8280 fp=0x1e8ca10 ip=0xf701f0d0 cpsr=0x608e0030 r0=0x0 r1=0xecdf8280 r2=0x14 r3=0x0 r4=0xecdf8324 r5=0xecdf82b0 r6=0x0 r7=0x14 r8=0x3 r9=0x0 r10=0xebc1aad0
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7580000-f7588000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x3c pc=0xf7664494 lr=0xf7664491
+time: 1793232379
+reg: sp=0xecef8310 fp=0x1f5f480 ip=0x0 cpsr=0x808e0030 r0=0xebd2b948 r1=0x0 r2=0xffffffff r3=0xebd2b974 r4=0xebd2b948 r5=0x30 r6=0x1f55fe8 r7=0xecef8338 r8=0x0 r9=0x2003a00 r10=0xf70ff000
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7660000-f7668000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x0 pc=0xf7714acc lr=0xf7714f21
+time: 1793232412
+reg: sp=0xecff8280 fp=0xe83ef8 ip=0xf71af0d0 cpsr=0x608e0030 r0=0x0 r1=0xecff8280 r2=0x14 r3=0x0 r4=0xecff8324 r5=0xecff82b0 r6=0x0 r7=0x14 r8=0x3 r9=0x0 r10=0xebe67be0
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7710000-f7718000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x0 pc=0xf79d4acc lr=0xf79d4f21
+time: 1793232445
+reg: sp=0xed1f8280 fp=0x16619f0 ip=0xf746f0d0 cpsr=0x608e0030 r0=0x0 r1=0xed1f8280 r2=0x14 r3=0x0 r4=0xed1f8324 r5=0xed1f82b0 r6=0x0 r7=0x14 r8=0x3 r9=0x0 r10=0xeab58560
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f79d0000-f79d8000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x0 pc=0xf7634acc lr=0xf7634f21
+time: 1793232478
+reg: sp=0xecef8280 fp=0x18a59f0 ip=0xf70cf0d0 cpsr=0x608e0030 r0=0x0 r1=0xecef8280 r2=0x14 r3=0x0 r4=0xecef8324 r5=0xecef82b0 r6=0x0 r7=0x14 r8=0x3 r9=0x0 r10=0xebd495a8
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7630000-f7638000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x0 pc=0xf7b44acc lr=0xf7b44f21
+time: 1793232511
+reg: sp=0xed3f8280 fp=0x2867088 ip=0xf75df0d0 cpsr=0x608e0030 r0=0x0 r1=0xed3f8280 r2=0x14 r3=0x0 r4=0xed3f8324 r5=0xed3f82b0 r6=0x0 r7=0x14 r8=0x3 r9=0x0 r10=0xec256888
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7b40000-f7b48000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x0 pc=0xf7bb4acc lr=0xf7bb4f21
+time: 1793232544
+reg: sp=0xed3f8280 fp=0x17ccf68 ip=0xf764f0d0 cpsr=0x608e0030 r0=0x0 r1=0xed3f8280 r2=0x14 r3=0x0 r4=0xed3f8324 r5=0xed3f82b0 r6=0x0 r7=0x14 r8=0x3 r9=0x0 r10=0xec2acc50
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7bb0000-f7bb8000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x0 pc=0xf7514acc lr=0xf7514f21
+time: 1793232577
+reg: sp=0xecdf8280 fp=0x19bf950 ip=0xf6faf0d0 cpsr=0x608e0030 r0=0x0 r1=0xecdf8280 r2=0x14 r3=0x0 r4=0xecdf8324 r5=0xecdf82b0 r6=0x0 r7=0x14 r8=0x3 r9=0x0 r10=0xebc2d790
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7510000-f7518000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x0 pc=0xf7804acc lr=0xf7804f21
+time: 1793232609
+reg: sp=0xed0f8280 fp=0x1219c50 ip=0xf729f0d0 cpsr=0x608e0030 r0=0x0 r1=0xed0f8280 r2=0x14 r3=0x0 r4=0xed0f8324 r5=0xed0f82b0 r6=0x0 r7=0x14 r8=0x3 r9=0x0 r10=0xebf22ec0
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7800000-f7808000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x7c pc=0xf7824494 lr=0xf7824491
+time: 1793232642
+reg: sp=0xed0f8310 fp=0x228b050 ip=0x0 cpsr=0x808e0030 r0=0xebf714e0 r1=0x0 r2=0xffffffff r3=0xebf7150c r4=0xebf714e0 r5=0x70 r6=0x21da9f8 r7=0xed0f8338 r8=0x0 r9=0x228b278 r10=0xf72bf000
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7820000-f7828000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x0 pc=0xf75b4acc lr=0xf75b4f21
+time: 1793232675
+reg: sp=0xecdf8280 fp=0x2a0f908 ip=0xf704f0d0 cpsr=0x608e0030 r0=0x0 r1=0xecdf8280 r2=0x14 r3=0x0 r4=0xecdf8324 r5=0xecdf82b0 r6=0x0 r7=0x14 r8=0x3 r9=0x0 r10=0xebc0b258
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f75b0000-f75b8000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x3c pc=0xf7504494 lr=0xf7504491
+time: 1793232708
+reg: sp=0xecdf8310 fp=0x13378e0 ip=0x0 cpsr=0x808e0030 r0=0xebc2c8b8 r1=0x0 r2=0xffffffff r3=0xebc2c8e4 r4=0xebc2c8b8 r5=0x30 r6=0xeb16a0 r7=0xecdf8338 r8=0x0 r9=0x115fa80 r10=0xf6f9f000
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7500000-f7508000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x0 pc=0xf7ac4acc lr=0xf7ac4f21
+time: 1793232741
+reg: sp=0xed2f8280 fp=0x28ccf30 ip=0xf755f0d0 cpsr=0x608e0030 r0=0x0 r1=0xed2f8280 r2=0x14 r3=0x0 r4=0xed2f8324 r5=0xed2f82b0 r6=0x0 r7=0x14 r8=0x3 r9=0x0 r10=0xec1d7058
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7ac0000-f7ac8000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x0 pc=0xf75e4acc lr=0xf75e4f21
+time: 1793232775
+reg: sp=0xecdf8280 fp=0x19c5cb8 ip=0xf707f0d0 cpsr=0x608e0030 r0=0x0 r1=0xecdf8280 r2=0x14 r3=0x0 r4=0xecdf8324 r5=0xecdf82b0 r6=0x0 r7=0x14 r8=0x3 r9=0x0 r10=0xebcc69d8
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f75e0000-f75e8000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x0 pc=0xf7a54acc lr=0xf7a54f21
+time: 1793232843
+reg: sp=0xed2f8280 fp=0x145f970 ip=0xf74ef0d0 cpsr=0x608e0030 r0=0x0 r1=0xed2f8280 r2=0x14 r3=0x0 r4=0xed2f8324 r5=0xed2f82b0 r6=0x0 r7=0x14 r8=0x3 r9=0x0 r10=0xeae19920
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7a50000-f7a58000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x3c pc=0xf7664494 lr=0xf7664491
+time: 1793232876
+reg: sp=0xecef8310 fp=0x28669c0 ip=0x0 cpsr=0x808e0030 r0=0xebd22b80 r1=0x0 r2=0xffffffff r3=0xebd22bac r4=0xebd22b80 r5=0x30 r6=0x2794db0 r7=0xecef8338 r8=0x0 r9=0x2866be8 r10=0xf70ff000
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7660000-f7668000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x0 pc=0xf7ab4acc lr=0xf7ab4f21
+time: 1793232909
+reg: sp=0xed4f7280 fp=0x29630d0 ip=0xf754f0d0 cpsr=0x608e0030 r0=0x0 r1=0xed4f7280 r2=0x14 r3=0x0 r4=0xed4f7324 r5=0xed4f72b0 r6=0x0 r7=0x14 r8=0x3 r9=0x0 r10=0xec1c9970
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7ab0000-f7ab8000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x0 pc=0xf7c84acc lr=0xf7c84f21
+time: 1793232943
+reg: sp=0xed4f8280 fp=0x17d2bb8 ip=0xf771f0d0 cpsr=0x608e0030 r0=0x0 r1=0xed4f8280 r2=0x14 r3=0x0 r4=0xed4f8324 r5=0xed4f82b0 r6=0x0 r7=0x14 r8=0x3 r9=0x0 r10=0xec339ba8
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7c80000-f7c88000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x0 pc=0xf7694acc lr=0xf7694f21
+time: 1793232976
+reg: sp=0xecef8280 fp=0x2057390 ip=0xf712f0d0 cpsr=0x608e0030 r0=0x0 r1=0xecef8280 r2=0x14 r3=0x0 r4=0xecef8324 r5=0xecef82b0 r6=0x0 r7=0x14 r8=0x3 r9=0x0 r10=0xebd3e9a0
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7690000-f7698000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x0 pc=0xf7704acc lr=0xf7704f21
+time: 1793233043
+reg: sp=0xecff8280 fp=0x1773590 ip=0xf719f0d0 cpsr=0x608e0030 r0=0x0 r1=0xecff8280 r2=0x14 r3=0x0 r4=0xecff8324 r5=0xecff82b0 r6=0x0 r7=0x14 r8=0x3 r9=0x0 r10=0xebe31f48
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7700000-f7708000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x0 pc=0xf7b84acc lr=0xf7b84f21
+time: 1793233076
+reg: sp=0xed3f8280 fp=0x248c128 ip=0xf761f0d0 cpsr=0x608e0030 r0=0x0 r1=0xed3f8280 r2=0x14 r3=0x0 r4=0xed3f8324 r5=0xed3f82b0 r6=0x0 r7=0x14 r8=0x3 r9=0x0 r10=0xec267078
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7b80000-f7b88000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x0 pc=0xf7c14acc lr=0xf7c14f21
+time: 1793233109
+reg: sp=0xed4f8280 fp=0x200e000 ip=0xf76af0d0 cpsr=0x608e0030 r0=0x0 r1=0xed4f8280 r2=0x14 r3=0x0 r4=0xed4f8324 r5=0xed4f82b0 r6=0x0 r7=0x14 r8=0x3 r9=0x0 r10=0xec3392b8
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7c10000-f7c18000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x7c pc=0xf77c4494 lr=0xf77c4491
+time: 1793233143
+reg: sp=0xecff8310 fp=0x2bd1b60 ip=0x0 cpsr=0x808e0030 r0=0xebe4d2b0 r1=0x0 r2=0xffffffff r3=0xebe4d2dc r4=0xebe4d2b0 r5=0x70 r6=0x27a3a78 r7=0xecff8338 r8=0x0 r9=0x2b95be0 r10=0xf725f000
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f77c0000-f77c8000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0

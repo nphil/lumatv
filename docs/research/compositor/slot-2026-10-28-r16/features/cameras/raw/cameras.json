@@ -1,0 +1,192 @@
+{
+ "api": 1,
+ "cameras": {
+  "cameras": [
+   {
+    "area": null,
+    "id": "camera.back_door_camera",
+    "kinds": [
+     "person",
+     "animal",
+     "doorbell",
+     "motion"
+    ],
+    "name": "Back Door Camera",
+    "picture": true,
+    "stream": false
+   },
+   {
+    "area": "back_deck",
+    "id": "camera.back_door_camera_fluent",
+    "kinds": [
+     "person",
+     "vehicle",
+     "animal",
+     "doorbell",
+     "motion"
+    ],
+    "name": "Back Door Camera Fluent",
+    "picture": true,
+    "stream": false
+   },
+   {
+    "area": "exterior",
+    "id": "camera.exterior_backyard_camera",
+    "kinds": [
+     "person",
+     "animal",
+     "package",
+     "motion"
+    ],
+    "name": "Backyard Camera",
+    "picture": true,
+    "stream": false
+   },
+   {
+    "area": null,
+    "id": "camera.bird_camera",
+    "kinds": [
+     "vehicle",
+     "animal",
+     "motion"
+    ],
+    "name": "Bird Camera",
+    "picture": true,
+    "stream": false
+   },
+   {
+    "area": "gym",
+    "id": "camera.gym_camera",
+    "kinds": [
+     "person",
+     "motion"
+    ],
+    "name": "Camera",
+    "picture": true,
+    "stream": false
+   },
+   {
+    "area": "office",
+    "id": "camera.office_camera",
+    "kinds": [
+     "person",
+     "vehicle",
+     "animal",
+     "motion"
+    ],
+    "name": "Camera",
+    "picture": true,
+    "stream": false
+   },
+   {
+    "area": "plant_room",
+    "id": "camera.plant_room_cat_feeder",
+    "kinds": [
+     "animal"
+    ],
+    "name": "Cat Feeder",
+    "picture": true,
+    "stream": false
+   },
+   {
+    "area": null,
+    "id": "camera.plant_room_cat_feeder_nvr",
+    "kinds": [],
+    "name": "Cat Feeder NVR",
+    "picture": true,
+    "stream": false
+   },
+   {
+    "area": null,
+    "id": "camera.downstairs_door_camera",
+    "kinds": [
+     "doorbell",
+     "motion"
+    ],
+    "name": "Downstairs Door Camera",
+    "picture": true,
+    "stream": false
+   },
+   {
+    "area": "exterior",
+    "id": "camera.exterior_front_door_camera",
+    "kinds": [
+     "person",
+     "vehicle",
+     "animal",
+     "package",
+     "doorbell",
+     "motion"
+    ],
+    "name": "Front Door Camera",
+    "picture": true,
+    "stream": false
+   },
+   {
+    "area": "front_porch",
+    "id": "camera.front_doorbell_camera_fluent",
+    "kinds": [
+     "person",
+     "vehicle",
+     "animal",
+     "package",
+     "doorbell",
+     "motion"
+    ],
+    "name": "Front Doorbell Camera Fluent",
+    "picture": true,
+    "stream": false
+   },
+   {
+    "area": "nitin_s_office",
+    "id": "camera.office_camera_fluent",
+    "kinds": [
+     "person",
+     "vehicle",
+     "animal",
+     "motion"
+    ],
+    "name": "Office Camera Fluent",
+    "picture": true,
+    "stream": false
+   },
+   {
+    "area": null,
+    "id": "camera.plant_room_camera",
+    "kinds": [
+     "motion"
+    ],
+    "name": "Plant Room Camera",
+    "picture": true,
+    "stream": false
+   },
+   {
+    "area": "office",
+    "id": "camera.office_tool_room_camera",
+    "kinds": [
+     "motion"
+    ],
+    "name": "Tool Room Camera",
+    "picture": true,
+    "stream": false
+   }
+  ],
+  "detail": "Connected via LumaShow integration (Home Assistant 2026.10.0)",
+  "enabled": true,
+  "entities": 14,
+  "live": false,
+  "paired": true,
+  "popupKinds": [
+   "person",
+   "vehicle",
+   "animal",
+   "doorbell"
+  ],
+  "popupSeconds": 12,
+  "port": 6054,
+  "problem": null,
+  "state": "connected"
+ },
+ "now": 1793234183908,
+ "ok": true
+}

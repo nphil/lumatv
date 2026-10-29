@@ -1,0 +1,3 @@
+18:10:01 INFO static page, 80 s hands off (switches on, after 1 min): app.stillSec series [2, 4, 0, 2, 4, 1, 3, 0, 2, 4, 1, 3, 0, 2, 4, 1, 3, 0, 2, 4, 1, 3, 0, 2, 4, 1, 3, 0, 2, 4, 1, 3, 0, 2, 0, 2, 4, 1, 3, 0]; engaged False; boxDim samples 0 -> 16, sampleUsMax 56020, cells 0, restart ['change']
+18:10:01 INFO journal: []
+18:10:01 INFO status: buffers Driver renderUsMax 47961 pointer {"focus": null, "lastInput": "pointer", "motions": 3, "visible": false, "x": 300, "y": 300}

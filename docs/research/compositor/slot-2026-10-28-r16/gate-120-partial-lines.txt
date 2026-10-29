@@ -1,0 +1,3 @@
+home stub before the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+GATE refresh: measured hz 120 divider 1 shell 120 over 10 s: OSD flips/s 10.0, DE2VSYNC/s 120.9, osd_irq/s 120.3; compositor: "intervals":{"more":121,"one":0,"three":0,"two":0,"worst_ms":108.439} "frames":{"late":0,"lost":0,"missed":0,"n":121} "pipeline_ms":{"max":4.88946,"p50":4.75,"p99":4.88946} flips/s 9.997921265536874; mali busy 11.7 %; temperature 59; slides (steps/ms/for): none
+home stub after the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}

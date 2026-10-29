@@ -1,0 +1,20 @@
+17:47:47 INFO Netflix film: fg=netflix video windows=1 picture mode=dolbyHdrCinema
+17:47:47 INFO a film is playing (video window present): True
+17:47:51 PASS step 1 off: door card, systemLive=False takes=[] ui.cards={"armed": false, "dnd": false, "on": false, "popup": false, "stack": false}
+17:47:58 PASS step 1 on (set with Home in front): ui.cards.on=True takes=[]
+17:48:33 INFO Netflix film: fg=netflix video windows=1 picture mode=dolbyHdrCinema
+17:48:36 PASS step 2: card over the film: systemLive after 1.0 s (door is read once a second), takes at first read [] and 1 s later ['ok', 'back'], video windows still 1, foreground netflix
+17:48:36 INFO step 2: journal ['shell: system layer live; its last commit 0 ms ago, join draws it', 'shell: the system layer takes ok and back for its cards']
+17:48:38 PASS step 3: Right x2 with the card up: keys delivered +4 dropped +0 (the app gets the arrows)
+17:48:41 INFO step 3: OK on a card with no button (opens the drawer): systemLive True -> False, takes ['ok', 'back'] -> [], foreground netflix
+17:48:43 INFO step 3: Back after the drawer: systemLive=False takes=[] foreground netflix
+17:48:46 PASS step 3: a new card, Back: dismissed (systemLive=False), Netflix still in front (netflix)
+17:48:54 INFO step 4: alert then doorbell: shots alert-doorbell (the doorbell first), alert-after-doorbell (the alert after Back)
+17:49:01 INFO step 4: two timers: shot two-timers (the second 16 px under the first)
+17:49:11 INFO step 5: LG alert over a card: shot dnd-alert (the card should step aside); systemLive=True
+17:49:14 INFO step 5: after the alert is closed with OK: shot dnd-after-alert (the card returns with the time it had left)
+17:49:18 INFO step 6: score card: shot score
+17:49:24 INFO step 3: held Back (1.4 s) over Netflix: foreground com.webos.app.home afterwards
+17:50:02 INFO Netflix film: fg=netflix video windows=1 picture mode=dolbyHdrCinema
+17:50:06 PASS step 11: switch off: takes=[], a door card shows nothing (systemLive=False)
+17:50:22 INFO step 9: over Home: systemLive=False (the helper reads the door while an app is in front: INFO if not) takes=[]

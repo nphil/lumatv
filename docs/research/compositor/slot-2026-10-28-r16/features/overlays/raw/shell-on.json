@@ -1,0 +1,413 @@
+{
+ "can": [
+  "quick",
+  "picker",
+  "drawer",
+  "keyboard"
+ ],
+ "connected": true,
+ "enabled": true,
+ "error": null,
+ "gaveUp": false,
+ "homeCommits": 746,
+ "homeDrawn": true,
+ "homeMapped": true,
+ "lunaOpen": [
+  {
+   "subscribe": true,
+   "tag": 1,
+   "uri": "luna://com.webos.service.applicationmanager/listLaunchPoints"
+  },
+  {
+   "subscribe": true,
+   "tag": 2,
+   "uri": "luna://com.webos.notification/getPincodePromptNotification"
+  },
+  {
+   "subscribe": true,
+   "tag": 3,
+   "uri": "luna://com.webos.notification/getInputAlertNotification"
+  },
+  {
+   "subscribe": true,
+   "tag": 4,
+   "uri": "luna://com.webos.notification/getAlertNotification"
+  },
+  {
+   "subscribe": true,
+   "tag": 5,
+   "uri": "luna://com.webos.notification/getToastNotification"
+  },
+  {
+   "subscribe": true,
+   "tag": 8,
+   "uri": "luna://com.webos.service.homelaunchpoints/listLaunchPoints"
+  },
+  {
+   "subscribe": true,
+   "tag": 9,
+   "uri": "luna://com.webos.notification/getToastNotification"
+  },
+  {
+   "subscribe": true,
+   "tag": 10,
+   "uri": "luna://com.webos.applicationManager/running"
+  },
+  {
+   "subscribe": true,
+   "tag": 11,
+   "uri": "luna://com.webos.service.accountmanager/getLoginUserData"
+  },
+  {
+   "subscribe": true,
+   "tag": 15,
+   "uri": "luna://com.webos.service.connectionmanager/getStatus"
+  },
+  {
+   "subscribe": true,
+   "tag": 49,
+   "uri": "luna://com.webos.service.panelcontroller/getPanelUsageTime"
+  },
+  {
+   "subscribe": true,
+   "tag": 99,
+   "uri": "luna://com.webos.service.tvpower/power2/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 100,
+   "uri": "luna://com.webos.service.tvpower/power/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 102,
+   "uri": "luna://com.webos.service.eim/getAllInputStatus"
+  },
+  {
+   "subscribe": true,
+   "tag": 103,
+   "uri": "luna://com.webos.service.applicationmanager/getForegroundAppInfo"
+  },
+  {
+   "subscribe": true,
+   "tag": 151,
+   "uri": "luna://com.webos.service.tvpower/power2/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 152,
+   "uri": "luna://com.webos.service.tvpower/power/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 157,
+   "uri": "luna://com.webos.service.tvpower/power2/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 163,
+   "uri": "luna://com.webos.service.tvpower/power/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 162,
+   "uri": "luna://com.webos.service.tvpower/power2/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 168,
+   "uri": "luna://com.webos.service.tvpower/power2/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 169,
+   "uri": "luna://com.webos.service.tvpower/power/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 174,
+   "uri": "luna://com.webos.service.tvpower/power2/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 180,
+   "uri": "luna://com.webos.service.tvpower/power/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 183,
+   "uri": "luna://com.webos.service.tvpower/power2/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 184,
+   "uri": "luna://com.webos.service.tvpower/power/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 190,
+   "uri": "luna://com.webos.service.tvpower/power/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 189,
+   "uri": "luna://com.webos.service.tvpower/power2/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 198,
+   "uri": "luna://com.webos.service.tvpower/power2/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 204,
+   "uri": "luna://com.webos.service.tvpower/power/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 211,
+   "uri": "luna://com.webos.service.tvpower/power2/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 212,
+   "uri": "luna://com.webos.service.tvpower/power/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 216,
+   "uri": "luna://com.webos.service.tvpower/power/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 219,
+   "uri": "luna://com.webos.service.tvpower/power/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 222,
+   "uri": "luna://com.webos.service.tvpower/power2/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 223,
+   "uri": "luna://com.webos.service.tvpower/power/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 231,
+   "uri": "luna://com.webos.service.tvpower/power2/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 232,
+   "uri": "luna://com.webos.service.tvpower/power/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 241,
+   "uri": "luna://com.webos.service.tvpower/power2/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 250,
+   "uri": "luna://com.webos.service.tvpower/power2/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 254,
+   "uri": "luna://com.webos.service.tvpower/power/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 259,
+   "uri": "luna://com.webos.service.tvpower/power2/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 260,
+   "uri": "luna://com.webos.service.tvpower/power/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 263,
+   "uri": "luna://com.webos.service.tvpower/power2/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 264,
+   "uri": "luna://com.webos.service.tvpower/power/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 267,
+   "uri": "luna://com.webos.service.tvpower/power2/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 268,
+   "uri": "luna://com.webos.service.tvpower/power/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 274,
+   "uri": "luna://com.webos.service.tvpower/power/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 276,
+   "uri": "luna://com.webos.service.tvpower/power2/registerScreenSaverRequest"
+  },
+  {
+   "subscribe": true,
+   "tag": 277,
+   "uri": "luna://com.webos.service.tvpower/power/registerScreenSaverRequest"
+  }
+ ],
+ "ok": true,
+ "pid": 18507,
+ "stats": {
+  "events": 1992,
+  "exits": 0,
+  "lunaCalls": 951,
+  "lunaRefused": 0,
+  "shows": 4,
+  "starts": 2
+ },
+ "systemCommits": 1169,
+ "systemLive": false,
+ "systemMapped": true,
+ "takes": [],
+ "topics": {
+  "apps": [],
+  "audio": {
+   "callerId": "com.webos.service.eim",
+   "returnValue": true,
+   "volumeStatus": {
+    "activeStatus": true,
+    "adjustVolume": true,
+    "externalDeviceControl": true,
+    "maxVolume": 100,
+    "mode": "normal",
+    "muteStatus": false,
+    "ossActivate": false,
+    "soundOutput": "external_arc",
+    "volume": 62,
+    "volumeLimitable": false,
+    "volumeLimiter": "none",
+    "volumeSyncable": false
+   }
+  },
+  "capture": {
+   "last": null,
+   "n": 0,
+   "recording": false,
+   "since": null,
+   "stage": "idle"
+  },
+  "cursor": {
+   "visible": false
+  },
+  "foreground": {
+   "app": "com.webos.app.home",
+   "covered": false,
+   "home": true
+  },
+  "homekey": {
+   "n": 1813,
+   "switcher": false
+  },
+  "ime": {
+   "active": false,
+   "show": false
+  },
+  "keyboard": {
+   "up": false
+  },
+  "luna": {
+   "payload": {
+    "returnValue": true,
+    "running": [
+     {
+      "appType": "web",
+      "defaultWindowType": "card",
+      "id": "com.webos.app.home",
+      "processid": "16689",
+      "webprocessid": "16689"
+     }
+    ]
+   },
+   "tag": 10
+  },
+  "refresh": {
+   "hz": 60
+  },
+  "screen": {
+   "on": true
+  },
+  "switcher": {
+   "from": "",
+   "n": 5,
+   "open": false
+  },
+  "transitions": {
+   "on": false,
+   "reduced": false
+  },
+  "wall": {
+   "hole": false
+  }
+ },
+ "ui": {
+  "alert": false,
+  "baseCached": false,
+  "beat": true,
+  "capture": {
+   "dot": false
+  },
+  "cards": {
+   "armed": false,
+   "dnd": false,
+   "on": true,
+   "popup": false,
+   "stack": false
+  },
+  "dropped": 1,
+  "focus": "dock",
+  "homeLoaded": true,
+  "hostActive": true,
+  "idleHold": false,
+  "keyboard": {
+   "busy": false,
+   "focus": 0,
+   "key": "mode",
+   "layout": "letters",
+   "listening": false,
+   "live": false,
+   "shift": 0,
+   "up": false,
+   "voice": true
+  },
+  "keys": 42,
+  "layer": "",
+  "link": {
+   "calls": 277,
+   "events": 491,
+   "up": true
+  },
+  "osd": false,
+  "overlay": "",
+  "pin": false,
+  "refreshHz": 60,
+  "saver": false,
+  "settings": false,
+  "slides": [],
+  "toasts": 0,
+  "wall": {
+   "backend": "own",
+   "hole": false,
+   "up": false
+  }
+ },
+ "wants": false
+}

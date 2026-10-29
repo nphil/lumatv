@@ -1,0 +1,21 @@
+note: a16-com.apple.appletv-t
+client connected: pid 5171 uid 6045 cmd '/media/cryptofs/apps/usr/palm/applications/com.apple.appletv/AppleTV {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'com.apple.appletv\\',\\'parameters\\':{},\\'interfa'
+window 89 created on surface 345 by pid 5171
+webOS shell surface on window 89 (surface 345) by pid 5171
+window 89: appId = com.apple.appletv (Card)
+window 89 committed without a buffer (Card app 'com.apple.appletv' state Default)
+window 89: title = Apple TV (Card)
+window 89 mapped (Card app 'com.apple.appletv' title 'Apple TV' size Some((1920, 1080)))
+window 5: minimized (covered by a newer card)
+window 89: fullscreen (the front card)
+window 5: exposed nothing (covered)
+window 89: exposed 1920x1080
+focus -> surface 345
+luna: foreground ['com.apple.appletv'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+window 5: fullscreen (the front card)
+window 5: exposed 1920x1080
+focus -> surface 106
+client disconnected: pid 5171 uid 6045 after 67261 ms (ConnectionClosed); bound ['wl_compositor', 'wl_shm', 'wl_shell', 'wl_seat', 'wl_output', 'wl_webos_shell', 'wl_webos_surface_group_compositor', 'wl_webos_foreign', 'wl_webos_input_manager', 'wl_starfish_pointer', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat']; cmd '/media/cryptofs/apps/usr/palm/applications/com.apple.appletv/AppleTV {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'com.apple.appletv\\',\\'parameters\\':{},\\'interfa'
+luna: foreground ['com.webos.app.home'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+shell: can show keyboard
+shell: can show quick, picker, drawer, keyboard

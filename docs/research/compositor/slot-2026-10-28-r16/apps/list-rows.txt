@@ -1,0 +1,8 @@
+APPROW netflix pid 30494 in-front-ms 1500 (about 2.4 s incl. polling) alive-after-hold yes fg-at-hold netflix connection-lost 0 closed-in-15s yes exit none
+APPROW amazon pid 31479 in-front-ms 2500 (about 2.8 s incl. polling) alive-after-hold yes fg-at-hold amazon connection-lost 0 closed-in-15s yes exit none
+APPROW com.crunchyroll.webapp pid 32470 in-front-ms 6500 (about 7.1 s incl. polling) alive-after-hold no fg-at-hold com.webos.app.home connection-lost 0 closed-in-15s yes exit none
+APPROW com.webos.app.lgchannels pid 1103 in-front-ms 1000 (about 1.2 s incl. polling) alive-after-hold no fg-at-hold com.webos.app.home connection-lost 0 closed-in-15s yes exit none
+APPROW com.webos.app.browser pid 2066 in-front-ms 1500 (about 1.9 s incl. polling) alive-after-hold yes fg-at-hold com.webos.app.browser connection-lost 1 closed-in-15s yes exit APP_CLOSED {"app_id":"com.webos.app.browser","type":"native","pid":"2066","exit_status":15
+APPROW com.limelight.webos pid 3182 in-front-ms 4000 (about 4.3 s incl. polling) alive-after-hold yes fg-at-hold com.limelight.webos connection-lost 0 closed-in-15s y
+APPROW org.nphil.lumatv.gfn pid 4209 in-front-ms 2500 (about 2.8 s incl. polling) alive-after-hold yes fg-at-hold org.nphil.lumatv.gfn connection-lost 0 closed-in-15s y
+APPROW com.apple.appletv pid 5171 in-front-ms 41000 (about 52.4 s incl. polling) alive-after-hold yes fg-at-hold com.apple.appletv connection-lost 0 closed-in-15s yLIST done

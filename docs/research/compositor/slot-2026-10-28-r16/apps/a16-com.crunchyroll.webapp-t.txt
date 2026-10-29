@@ -1,0 +1,26 @@
+window 81 created on surface 318 by pid 20694
+webOS shell surface on window 81 (surface 318) by pid 20694
+window 81 committed without a buffer (Card app '' state Default)
+window 81: appId = com.crunchyroll.webapp (Card)
+window 81: title = Crunchyroll (Card)
+foreign: surface 318 exported as _Window_Id_8 (type 0)
+note: a16-com.crunchyroll.webapp-t
+window 82 created on surface 319 by pid 20694
+webOS shell surface on window 82 (surface 319) by pid 20694
+window 82 committed without a buffer (Card app '' state Default)
+window 82: appId = com.crunchyroll.webapp (Card)
+window 82: title = Crunchyroll (Card)
+foreign: surface 319 exported as _Window_Id_9 (type 0)
+window 82 mapped (Card app 'com.crunchyroll.webapp' title 'Crunchyroll' size Some((1920, 1080)))
+window 5: minimized (covered by a newer card)
+window 82: fullscreen (the front card)
+window 5: exposed nothing (covered)
+window 82: exposed 1920x1080
+focus -> surface 319
+luna: foreground ['com.crunchyroll.webapp'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+window 5: fullscreen (the front card)
+window 5: exposed 1920x1080
+focus -> surface 106
+luna: foreground ['com.webos.app.home'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+shell: can show keyboard
+shell: can show quick, picker, drawer, keyboard

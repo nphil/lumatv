@@ -1,0 +1,1 @@
+ok: youtube.leanback.v4 pid 8423 foreground-in-ms 1500 alive-at-10s yes connection-lost 0 closed-in-15s yes; com.beb.plxnative pid 8981 foreground-in-ms 1500 alive-at-10s yes connection-lost 0 closed-in-15s yes; com.geforcenow.play browser-in-front yes front-6s-after-home com.webos.app.home;

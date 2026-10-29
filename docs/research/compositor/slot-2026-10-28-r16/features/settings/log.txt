@@ -1,0 +1,1 @@
+18:13:12 INFO System > OLED care walked with keys only (no OK on a row): shots s0 to s7 in img/; look for the group "LumaTV panel care" with its five toggles and the "Panel refresh" row (hidden while LG has not answered the helper)

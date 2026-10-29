@@ -1,0 +1,10 @@
+localmute=777
+lowdelaymode=0
+h/v active : 0 / 0
+scanType   : 0
+vFreq      : 0
+svp        : 0
+hdr_type   : 0
+colordomain: 0
+hdmi444mode: 0
+phyMode    : 0

@@ -1,0 +1,13 @@
+17:39:55 INFO keyboard status: {"ok":true,"on":false,"patched":false,"keyboard":"lg"}
+17:39:55 PASS step 1: ctl shell can=['quick', 'picker', 'drawer', 'keyboard']
+17:39:55 PASS step 1: own.flag=False canShow=True asked=0
+17:39:58 PASS step 2: {"ok":true,"keyboard":"luma"} own.flag=True surfaces keyboard-luma on=true
+17:40:04 PASS step 3: LG Search under luma: sheet appeared 2.0 s after the launch (INFO), own.up={'h': 454, 'w': 1920, 'x': 0, 'y': 626} serving=True asked 0->0 grabbing=True
+17:40:04 PASS step 3: journal 'entered; the shell's keyboard serves it' / 'is on the screen': ["ime: text model 1 entered; the shell's keyboard serves it", "ime: the shell's keyboard is on the screen: 1920x454 at (0, 626)"]
+17:40:07 PASS step 4: OK, Right, OK: own.counts.texts +2, surround {'cursor': 2, 'len': 2}
+17:40:10 FAIL step 4: Left Left (wraps to Backspace) OK: surround len 2 -> 3, own.counts.keys +0
+17:40:12 INFO step 8a: RIGHT held 2 s: own.counts.nav +19 (9.5 events a second)
+17:40:14 FAIL step 4: Back with the keyboard up: own.up=None foreground=com.webos.app.home (the sheet goes, Search stays)
+17:40:20 PASS step 10: keyboard lg: maliit panel {'h': 438, 'w': 1920, 'x': 0, 'y': 642}, asked 0->1, own.flag=False
+17:40:26 PASS step 10: luma on, the shell restarted as the field opened: a keyboard came up: panel {'h': 438, 'w': 1920, 'x': 0, 'y': 642} own.up None (LG's is expected while the shell is away)
+17:40:31 INFO end: keyboard status {"ok":true,"on":false,"patched":false,"keyboard":"lg"} (found on lg)

@@ -1,0 +1,15 @@
+17:41:05 INFO running before the check: ['netflix', 'com.beb.plxnative', 'youtube.leanback.v4']
+17:41:16 PASS step 1: switch off, Home twice over Plex: launchDefaultApp lines 2, switcher open=False, shell can=['quick', 'picker', 'drawer', 'keyboard']
+17:41:17 PASS step 2: switch on: ctl shell can has switcher: True
+17:41:22 PASS step 3: one Home tap over Plex: Home in front 0.3 s after the key (INFO, polling), launchDefaultApp lines 1, switcher open=False; later lines ['shell: can show switcher, keyboard', 'shell: can show quick, picker, drawer, switcher, keyboard']
+17:41:29 PASS step 4: Home twice over Plex: open=True launchDefaultApp 1, journal twice-line True, placed-line True, apps [('com.beb.plxnative', 'live'), ('youtube.leanback.v4', 'live'), ('netflix', 'live')]
+17:41:29 INFO step 5: pictures: com.beb.plxnative=live, youtube.leanback.v4=live, netflix=live (shots switcher-open-0, switcher-open)
+17:41:30 PASS step 6: Right, OK: youtube.leanback.v4 in front 0.3 s after the key (first card com.beb.plxnative)
+17:41:36 PASS step 6: Back closes it: open before=True after=False
+17:41:41 PASS step 4: on Home one tap opens it (open=True), a second closes it (open=False)
+17:41:48 PASS step 6: pointer on card 2 ((760.0, 340.0, 400.0, 225.0)) and a click: youtube.leanback.v4 in front: True
+17:41:59 PASS step 6: remote.recents on, Back from the top of Home: switcher open=True
+17:42:12 FAIL step 7: Down OK on youtube.leanback.v4: left SAM's running list=False, journal closeByAppId ['luna: closeByAppId com.beb.plxnative -> close sent to 1 window(s)']
+17:42:19 PASS step 7: Quit all asks (shot switcher-quitall-ask); OK on the focused Cancel changes nothing: apps 2 -> 2
+17:42:21 PASS step 7: quitall (the shell's request via ctl): the three apps left SAM's list: True; LumaTV's own still running: []
+17:42:23 INFO step 8 (the 650 ms hold) is the gate's homekey/escape; step 9 is the frame gate's switcher surface; both in the gate result

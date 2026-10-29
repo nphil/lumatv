@@ -1,0 +1,69 @@
+{
+ "apps": [
+  {
+   "id": "com.beb.plxnative",
+   "picture": "live",
+   "size": [
+    1920,
+    1080
+   ]
+  },
+  {
+   "id": "youtube.leanback.v4",
+   "picture": "live",
+   "size": [
+    1920,
+    1080
+   ]
+  },
+  {
+   "id": "netflix",
+   "picture": "live",
+   "size": [
+    1920,
+    1080
+   ]
+  }
+ ],
+ "cards": [
+  {
+   "alpha": 1.0,
+   "id": "com.beb.plxnative",
+   "placed": true,
+   "rect": [
+    328.0,
+    340.0,
+    400.0,
+    225.0
+   ]
+  },
+  {
+   "alpha": 1.0,
+   "id": "youtube.leanback.v4",
+   "placed": true,
+   "rect": [
+    760.0,
+    340.0,
+    400.0,
+    225.0
+   ]
+  },
+  {
+   "alpha": 1.0,
+   "id": "netflix",
+   "placed": true,
+   "rect": [
+    1192.0,
+    340.0,
+    400.0,
+    225.0
+   ]
+  }
+ ],
+ "from": "com.beb.plxnative",
+ "ok": true,
+ "open": true,
+ "phase": "Open",
+ "quitting": [],
+ "stuck": []
+}

@@ -1,0 +1,6 @@
+17:56:50 PASS step 1: appDim.enabled / appShift.enabled within 2 s: {'afterMin': 1, 'enabled': True, 'level': 1.0, 'to': 0.75} {'enabled': True, 'offset': [0, 0]}
+17:56:58 INFO step 6: before engaging (still 0 s): buffers=Driver renderUsMax=47961
+17:59:31 FAIL step 2: com.beb.plxnative hands off: stillSec [1, 0, 0, 0]; engaged at t=None s; level series [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]; offsets [(0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0)]; journal []
+17:59:34 INFO step 2: composed capture mean luma before 77.9 after 87.0 (ratio 1.12); first 4 rows mean 120.6, first 4 columns mean 66.4 (a black strip of at most 3 px)
+18:00:34 INFO step 6: engaged and still, 60 s: tick {"max_us": 48905, "mean_us": 22, "n": 3589, "p50_us": 0, "p99_us": 2}; buffers Driver
+18:00:34 PASS step 3: the Magic Remote pointer: 0.04 s later level 1.0 offset [0, 0] engaged False

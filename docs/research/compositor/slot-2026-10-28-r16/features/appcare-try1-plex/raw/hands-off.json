@@ -1,0 +1,167 @@
+[
+ {
+  "t": 0,
+  "stillSec": 1,
+  "engaged": false,
+  "level": 1.0,
+  "offset": [
+   0,
+   0
+  ],
+  "beats": 0
+ },
+ {
+  "t": 10,
+  "stillSec": 0,
+  "engaged": false,
+  "level": 1.0,
+  "offset": [
+   0,
+   0
+  ],
+  "beats": 0
+ },
+ {
+  "t": 20,
+  "stillSec": 0,
+  "engaged": false,
+  "level": 1.0,
+  "offset": [
+   0,
+   0
+  ],
+  "beats": 0
+ },
+ {
+  "t": 30,
+  "stillSec": 0,
+  "engaged": false,
+  "level": 1.0,
+  "offset": [
+   0,
+   0
+  ],
+  "beats": 0
+ },
+ {
+  "t": 40,
+  "stillSec": 0,
+  "engaged": false,
+  "level": 1.0,
+  "offset": [
+   0,
+   0
+  ],
+  "beats": 0
+ },
+ {
+  "t": 50,
+  "stillSec": 0,
+  "engaged": false,
+  "level": 1.0,
+  "offset": [
+   0,
+   0
+  ],
+  "beats": 0
+ },
+ {
+  "t": 60,
+  "stillSec": 0,
+  "engaged": false,
+  "level": 1.0,
+  "offset": [
+   0,
+   0
+  ],
+  "beats": 0
+ },
+ {
+  "t": 70,
+  "stillSec": 0,
+  "engaged": false,
+  "level": 1.0,
+  "offset": [
+   0,
+   0
+  ],
+  "beats": 0
+ },
+ {
+  "t": 80,
+  "stillSec": 0,
+  "engaged": false,
+  "level": 1.0,
+  "offset": [
+   0,
+   0
+  ],
+  "beats": 0
+ },
+ {
+  "t": 90,
+  "stillSec": 0,
+  "engaged": false,
+  "level": 1.0,
+  "offset": [
+   0,
+   0
+  ],
+  "beats": 0
+ },
+ {
+  "t": 100,
+  "stillSec": 0,
+  "engaged": false,
+  "level": 1.0,
+  "offset": [
+   0,
+   0
+  ],
+  "beats": 0
+ },
+ {
+  "t": 110,
+  "stillSec": 0,
+  "engaged": false,
+  "level": 1.0,
+  "offset": [
+   0,
+   0
+  ],
+  "beats": 0
+ },
+ {
+  "t": 120,
+  "stillSec": 0,
+  "engaged": false,
+  "level": 1.0,
+  "offset": [
+   0,
+   0
+  ],
+  "beats": 0
+ },
+ {
+  "t": 130,
+  "stillSec": 0,
+  "engaged": false,
+  "level": 1.0,
+  "offset": [
+   0,
+   0
+  ],
+  "beats": 0
+ },
+ {
+  "t": 140,
+  "stillSec": 0,
+  "engaged": false,
+  "level": 1.0,
+  "offset": [
+   0,
+   0
+  ],
+  "beats": 0
+ }
+]
