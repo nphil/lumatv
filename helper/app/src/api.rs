@@ -547,7 +547,14 @@ impl Handler for Api {
             ["v1", "voice", rest @ ..] => crate::voice::handle(&self.voice, request, rest),
             ["v1", "gfn", rest @ ..] => crate::gfn_boost::handle(request, rest),
             ["v1", "crash", rest @ ..] => crate::crash::handle(request, rest),
-            ["v1", "openapps"] => crate::openapps::handle(&self.hub, request),
+            ["v1", "openapps"] => {
+                if post {
+                    if let Err(resp) = self.profiles.require_owner() {
+                        return resp;
+                    }
+                }
+                crate::openapps::handle(&self.hub, request)
+            }
             ["v1", "capture", rest @ ..] => self.capture.handle(request, rest),
             ["v1", "placement", rest @ ..] => crate::placement::handle(request, rest),
             ["v1", "profiles", rest @ ..] => self.profiles.handle(request, rest),
