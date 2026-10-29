@@ -561,7 +561,9 @@ impl Handler for Api {
             ["v1", "capture", rest @ ..] => self.capture.handle(request, rest),
             ["v1", "placement", rest @ ..] => crate::placement::handle(request, rest),
             ["v1", "profiles", rest @ ..] => self.profiles.handle(request, rest),
-            ["v1", "privacy", rest @ ..] => crate::privacy::handle(&self.privacy, request, rest, self.profiles.can_admin()),
+            ["v1", "privacy", rest @ ..] => {
+                crate::privacy::handle(&self.privacy, request, rest, self.profiles.can_admin())
+            }
             ["v1", "image", root, file] if get => self.images.serve(request, root, file),
             ["v1", "images"] if get => self.ok(self.images.status()),
             ["v1", "cameras", rest @ ..] => self.cameras.handle(request, rest),

@@ -235,6 +235,8 @@ to the file list; `declutter.sh` finds its app dir from its own path and needs
 after the `autostart.sh --worker` line, inside the same `ONCE` guard, add
 `"$APPDIR/tools/declutter.sh" early </dev/null >/dev/null 2>&1`; it returns in
 about a second and only lays the masks down, before `webos-rbd.target` (+22 s).
+[Done 2026-10-29 in `tools/autostart.sh`'s worker rather than the shim, with the stubs;
+see `docs/research/privacy-menu-result.md`, "Blocking from early boot".]
 Do not call `declutter.sh boot` from the shim as well: `boot` keeps a marker that
 a second call would read as a boot that never completed. (3) `persist_enable`:
 run `"$APPDIR/tools/declutter.sh" persist on` when

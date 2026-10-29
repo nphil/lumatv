@@ -69,6 +69,49 @@ Enabling reserves port 443 before changing trust or hosts. Off removes the jail 
 
 Saved switches are resumed by the helper's privacy worker. Normal shutdown removes Prime's redirect before stopping its listener; a failed startup removes a stale redirect rather than leaving Prime pointing at no server. Host-blocker and Prime startup failures do not prevent each other's independent saved choice from being attempted.
 
+## Blocking from early boot
+
+LG starts its ad, recognition and upload pieces before declutter's first boot pass, so the masks and stubs must be down earlier. Boot order on the set, from `docs/HANDOFF.md` (cold boot, measured) and `docs/research/compositor-gate9-result.md` (round 17, booted 21:53:58):
+
+| Boot time | Event |
+| --- | --- |
+| +10.8 to 13.1 s | `mount-readwrite.service` active; `/var` is writable only from here |
+| +12.1 to 14.3 s | `kdump.service` starts; its shim starts `autostart.sh --worker`, the earliest point the mod runs (about +13 s is the floor for a root mod) |
+| +16.8 s | `pbs` (`com.webos.service.pbsw`) subscribes at `bootd` |
+| +19 to +43 s | `contentminer.service` active, ended by itself |
+| +22 s, +30 s | `webos-rbd.target`, `webos-bd.target` pull `user-context-manager`, `nudge`, `uploadd` |
+| +33 s | Homebrew Channel's `init.d` runs `52-declutter boot` |
+| +70 to +73 s | first declutter pass done: units killed, `ads` group on, stubs bound |
+
+`acr2`, `admanager`, `adoverlay-service` and `sportsalarm` have no record in that window: the syslog keeps about 25 minutes and starts at +12.7 s, and no process accounting exists. `declutter.sh early` existed (masks only) but nothing called it: the kdump shim only starts the worker, and the stubs came with the first pass.
+
+The worker now runs `declutter.sh early` right after `homestub-boot` (Home must be covered by about +14 s), under `timeout 20`. It sits in the worker, not the shim, so an app update needs no `persist on` to take effect. `early`:
+
+- masks the units of every group that is on in `/run/systemd/system.control` and reloads systemd once;
+- binds the do-nothing stub over each stubbed program of those groups (`pbs`, `acr2`, `admanager`, `adoverlay-service`, `sportsalarm`, `uploadd`, `sdp-server-notice`), then stops (`--no-block`) any of the units already active and kills any real copy of the programs, so nothing launches as the real program from then on;
+- writes `early.json` (start and end uptime to the hundredth, masked, stubbed and already-running names) and starts a watch that waits for `sam`, `webapp-mgr` and the power state;
+- leaves settings, apps and list edits to LG's own persistence and the boot pass.
+
+Guard against a boot loop: `early` runs only with declutter's `persist` on, no skip file, no unfinished boot (`.boot-pending`, consumed by `boot`) and no unsettled earlier early pass (`.early-pending`, cleared by the watch once the set answers, within three minutes). Any of these skips that boot once and records why; the `init.d` pass still applies everything later. `on`, `off` and `persist` drop the record, which describes only the groups that were on when it was written.
+
+`declutter.sh status` gains `early`: `hook` (shim, persist flag, persist link and no skip file), `pending`, and `last` (the record). The privacy rows for ads, settings, uploaders and push carry `boot`: `blocked`, `reason`, `verified`, `lastPass` and per-item `blocked` / `startedBefore`; the menu root carries `boot` with `earlyStep`, `pending` and `lastPass`. `blocked` is yes only when the group is on, the hook is installed, the last pass was not skipped and found none of the group's items already running. `verified` is null until a boot has run a pass, true when the pass found nothing running, false when LG had started something first (the items are listed). The settings group persists across a reboot and is blocked whenever it is on. Hosts is reported as not blocked from boot: the helper applies it when it starts, after the early step. A `kill`-only program would be reported as stoppable only after it starts; none is in these four groups.
+
+Not covered: anything LG starts before about +13 s, and a TV with LumaTV's `persist` off, where only the `init.d` pass runs.
+
+### TV check: boot timeline
+
+Preconditions: ads, uploaders and push on in Privacy; `lumatv status` shows `persist` and `early` true; `declutter.sh status` shows `early.hook` true. Note whether the boot is a cold boot or a snapshot resume (`/proc/cmdline`, boot status `snapshot-resume-done`; `docs/HANDOFF.md`, "Boot: the proven mechanism"): on a resume the pass in the log may be the one saved in the image. Then reboot and read, pressing nothing:
+
+1. `declutter.sh status`: `early.last.ran` true, `uptimeSec` below 16.8, `running` empty, `pending` false once the set has settled (within three minutes).
+2. `/var/lib/lumatv/declutter/log`: an `early:` line with the uptime, no `killed a running copy` line for this boot, `boot: settled` and `early: settled`.
+3. `/var/lib/lumatv/log`: the worker's `declutter early:` line with its `[up N s]` stamp, before `compositor-boot`.
+4. `systemctl show contentminer.service -p LoadState,ActiveEnterTimestampMonotonic` reads `masked` and 0; the same for `nudge`, `uploadd` and `user-context-manager`.
+5. `bootd.log` and the syslog: no `pbsw` or `contentminer` start of the real programs; launches of `pbs`, `acr2`, `admanager`, `adoverlay-service` and `sportsalarm` exit 0 within about 70 ms.
+6. The mount table shows the stub on all seven programs; Home appears and the boot completes as before.
+7. Reboot again: the pass runs again. Then `touch /var/lib/lumatv/declutter/skip`, reboot and check `early.last.ran` false with the skip reason and `early.hook` false; remove the file.
+
+A name in `running` in step 1 means LG started it before the hook could act; the row says so, and the timeline shows the margin.
+
 ## Host evidence and TV checklist
 
 The host privacy tests use fake LG/declutter operations, temporary files and a loopback TLS server/client. They cover exact single-use confirmations, nonintrusive reads, existing-group reuse, agreement changes and shared voice protection, foreign/update host preservation, restart maintenance, per-TV trust constraints, legacy CA removal, ownership-safe off, old TLS-disable refusal, HTTP framing and per-route filtering/passthrough. The research fixture run compares both current wave outputs byte-for-byte with the upstream transform; `onebox2` is explicitly rejected rather than treated as compatible.

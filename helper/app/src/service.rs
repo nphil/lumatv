@@ -235,8 +235,8 @@ impl Service {
         );
         threads.push(("scrypted", cameras.spawn(&ctx)?));
 
-        let privacy=crate::privacy::new(&ctx);
-        threads.push(("privacy",crate::privacy::spawn(&ctx,privacy.clone())?));
+        let privacy = crate::privacy::new(&ctx);
+        threads.push(("privacy", crate::privacy::spawn(&ctx, privacy.clone())?));
         let api = Api {
             hub,
             settings,
