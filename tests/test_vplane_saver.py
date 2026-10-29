@@ -213,7 +213,7 @@ class VideoSaver(Surfaces):
         self.assertEqual(req["op"], "start")
         self.assertLess(abs(req["sent"] - time.time() * 1000), 15000)
         self.assertEqual(req["ttlMs"], 30000)
-        want = {"style": "art", "everyMin": 15, "shuffle": False, "dim": True, "dimTo": 0.6, "dimOverMin": 60, "moveMs": 4000, "fadeMs": 700,
+        want = {"style": "art", "everyMin": 15, "shuffle": False, "dim": True, "dimTo": 0.4, "dimOverMin": 20, "moveMs": 4000, "fadeMs": 700,
                 "ampX": 30, "ampY": 20, "periodX": 540, "periodY": 380, "drift": True, "clock": True, "twelveHour": True, "caption": True,
                 "overlay": True, "auto": False, "clip": "great-wave", "ink": "#f2eff6", "inkAlpha": 179, "ink2": "#f2eff6", "ink2Alpha": 118}
         for k, v in want.items():
