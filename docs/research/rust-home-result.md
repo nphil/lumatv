@@ -28,7 +28,11 @@ Done (host-tested, pushed as "Home in the Rust shell: the home kind"):
   weather at the reduced room. `HomeSurface::lint` feeds the kit's lint; the unit tests hold the shipped Home and the halves to it at
   100 % and 200 %, dark and light.
 - Kit additions: `Effect::Read`, `Effect::Write` (`kit/screen.rs`, carried out in `shell.rs`), `Flow::group`, `Flow::place`,
-  `Flow::take_lift` (`kit/flow.rs`). Shell: the `home` kind in `Kinds`, `system_wants()` (a system-layer kind with the keys takes a key
+  `Flow::take_lift` (`kit/flow.rs`). The host harness (`main.rs`) gives a scripted step its own time (`t0 + ms`), so a scripted hold
+  stays a hold on a loaded host.
+- Text size: the status bar, the chip, the cards' plans (clock, weather), the library's rail, heading and Search button, the editor's
+  bar, buttons, add list and question grow with `kit.text_scale` (`Home::set_text_scale` carries it to the model's geometry:
+  `apps.scale`, `Editor::scale`). Shell: the `home` kind in `Kinds`, `system_wants()` (a system-layer kind with the keys takes a key
   before Home), the report's `wants` while Home is in front, `--eval home`, `voice` in `HELPER_TOPICS`.
 - Compositor: `home` in `KINDS`; `Scene::set_home_rust` (the QML Home window left out of the stack, Home counts as drawn while no app's
   card is in front); `shell_rust_sync_home` on the engine's handshake, the client going and a kinds change; `shell_home_drawn` reads it.
@@ -42,8 +46,8 @@ Next, in this order:
    (`shell.rs`, RustSettings), the drawer is logged until RustPanels lands; the tile menu and the confirm are Home's own (`layers.rs`
    `MenuSurface`, the editor's `Zone::Ask`) and can move to RustPanels' `panels::menu`/`confirm` when they exist
    (`shell.panels.open_menu(spec)` answered on `Input::Topic{"menu.picked"}`).
-3. The dock's fade over overflowing rows draws (the `fade` shape) but the pill of a tile on the last visible row is not clipped by the
-   card: a tile beyond the visible rows is reached by the arrows and scrolls into view on the spring.
+3. At 200 % text the library's rail does not scroll: rows past the sixth are registered below the pane (the arrows reach them, the pane
+   does not follow); the editor's bar drops its heading and hint when the buttons fill it (`layers.rs`, `EditorSurface::new`).
 4. Camera stills on the cameras card (the spec's `/frame` route needs `Effect::Fetch` with a binary answer, `Input::Bytes`): the card
    draws names, rooms, the online dot and the link's state in words today.
 5. The status bar's bell badge (the toast log's unread count) is not drawn (`StatusItem.badge` is `None`).
