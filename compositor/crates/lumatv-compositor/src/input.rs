@@ -445,6 +445,9 @@ impl State {
             }
             _ => {}
         }
+        // Told over LG's Input Manager queue that the pointer shows (`im_queue`), lginput2 sends the wheel's press as the mouse button, BTN_LEFT, in
+        // place of KEY_ENTER (entries 0 and 185 of its key table). It is the same OK: a click while the pointer shows, the key when it hid first.
+        let code = if code == seat::BTN_LEFT { code::KEY_ENTER } else { code };
         self.scene.input(crate::output::monotonic_ns());
         // While the Magic Remote's cursor shows, OK is a click on what it points at (LG's behaviour); an arrow or
         // Back hides the cursor and goes on as a key. A release goes the way its press went: a press taken as a key (by the Rust shell, or by an app's

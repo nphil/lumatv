@@ -251,6 +251,7 @@ fn run(config: Config) -> io::Result<()> {
     const TAG_UI: u64 = 10;
     const TAG_SHELL: u64 = 11;
     const TAG_SHELL_RUST: u64 = 12;
+    const TAG_IM: u64 = 13;
     epoll.add(display.backend().poll_fd().as_raw_fd(), TAG_WL)?;
     epoll.add(listener.as_raw_fd(), TAG_LISTEN)?;
     epoll.add(tick.raw_fd(), TAG_TICK)?;
@@ -287,6 +288,24 @@ fn run(config: Config) -> io::Result<()> {
     for (i, d) in inputs.iter().enumerate() {
         if let Some(d) = d {
             epoll.add(d.fd(), TAG_INPUT | i as u64)?;
+        }
+    }
+    // LG's Input Manager queue, where the compositor owns the set's input: lginput2's handshake at each reconnect of the Magic Remote is
+    // answered from the loop (it waits 2 s for each answer, then gives the remote up for that long), and it is told where the pointer stands.
+    if config.input && config.im_queue {
+        match lumatv_compositor::im_queue::ImQueue::open() {
+            Ok(im) => {
+                epoll.add(im.fd(), TAG_IM)?;
+                state.journal(format!(
+                    "im: reading /IM_MQ_WEBOS for lginput2's requests ({} stale message(s) discarded, lginput2 {} /IM_MQ_MRCU)",
+                    im.stats.stale,
+                    if im.registered() { "reads" } else { "has not made" }
+                ));
+                state.im = Some(im);
+                let visible = state.seat.cursor_visible;
+                state.im_cursor_visible(visible);
+            }
+            Err(e) => state.journal(format!("im: /IM_MQ_WEBOS does not open ({e}); lginput2's handshake goes unanswered")),
         }
     }
     let client_events = Arc::new(Mutex::new(Vec::new()));
@@ -429,6 +448,9 @@ fn run(config: Config) -> io::Result<()> {
                         handled |= 1 << 9;
                         tick.rearm(&state)?;
                     }
+                }
+                TAG_IM => {
+                    state.im_poll();
                 }
                 TAG_CONTROL => {
                     if let Some(l) = &control_listener {

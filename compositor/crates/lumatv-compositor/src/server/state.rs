@@ -256,6 +256,9 @@ pub struct State {
     pub wl_display: Option<*mut std::ffi::c_void>,
     /// The cursor plane carries the pointer (`pointer_sync`): the sprite is not drawn into the frame while this holds.
     pub pointer_carried: bool,
+    /// LG's Input Manager queue (`im_queue`): the reader that answers lginput2's handshake at each reconnect of the Magic Remote and tells it
+    /// when the pointer shows or hides. `None` where the compositor does not own the set's input (`--input` off, `--no-im-queue`).
+    pub im: Option<crate::im_queue::ImQueue>,
     /// The hardware video windows' allocator, claims and the `videooutputd` status they read (`vwin`).
     pub vwin: crate::vwin::Vwin,
 }
@@ -308,6 +311,7 @@ impl State {
             meta: crate::scanout::meta::Registry::default(),
             wl_display: None,
             pointer_carried: false,
+            im: None,
             vwin: crate::vwin::Vwin::new(config_vwin),
         }
     }
@@ -372,6 +376,32 @@ impl State {
             self.journal.remove(0);
         }
         self.journal.push(line);
+    }
+
+    /// What the IM queue tells lginput2 about the pointer: whether it shows, and after how long a still one hides.
+    fn im_cursor(&self) -> crate::im_queue::CursorInfo {
+        crate::im_queue::CursorInfo { visible: self.seat.cursor_visible, standby_ms: super::seat::CURSOR_TIMEOUT.as_millis() as u32 }
+    }
+
+    /// The IM queue is readable: its requests are answered now, lginput2 waits 2 s for each.
+    pub fn im_poll(&mut self) {
+        let cursor = self.im_cursor();
+        let Some(im) = &mut self.im else { return };
+        let mut lines = Vec::new();
+        im.poll(cursor, &mut |l| lines.push(l));
+        for l in lines {
+            self.journal(l);
+        }
+    }
+
+    /// The pointer showed or hid: told to lginput2 over the IM queue once it has registered for it.
+    pub fn im_cursor_visible(&mut self, visible: bool) {
+        let Some(im) = &mut self.im else { return };
+        let mut lines = Vec::new();
+        im.cursor_visibility(visible, &mut |l| lines.push(l));
+        for l in lines {
+            self.journal(l);
+        }
     }
 
     pub fn client_info(&self, client: &Client) -> String {

@@ -49,6 +49,9 @@ pub struct Config {
     pub input: bool,
     /// Where `--input` finds its `event*` devices.
     pub input_dir: PathBuf,
+    /// Answer lginput2's Input Manager handshake over LG's message queue (`im_queue`) while `--input` is on; `--no-im-queue` leaves the
+    /// queue to LG's compositor.
+    pub im_queue: bool,
     /// Exercise the optional system-layer renderer without replacing any TV surfaces.
     pub ui_demo: bool,
     /// The kinds the Rust shell (`lumatv-ui`, `shell_rust.rs`) answers instead of the QML client: `osd` (the volume and mute display),
@@ -138,6 +141,7 @@ impl Default for Config {
             exit_on_disconnect: false,
             input: false,
             input_dir: PathBuf::from("/dev/input"),
+            im_queue: true,
             ui_demo: false,
             shell_rust: Vec::new(),
             data_dir: PathBuf::from("/var/lib/lumatv"),
@@ -182,6 +186,8 @@ pub const USAGE: &str = "lumatv-compositor [options]
   --no-control           no control socket
   --input                read /dev/input/event* and route keys to the focused window (C4)
   --input-dir DIR        read the event* devices of DIR instead of /dev/input
+  --no-im-queue          leave LG's Input Manager queue (/IM_MQ_WEBOS) alone: with --input the compositor answers lginput2's
+                         handshake on it, as LG's compositor did, so a reconnected Magic Remote works at once
   --data-dir DIR         LumaTV's data directory (default /var/lib/lumatv): theme/theme.json holds Settings > Remote's app buttons,
                          compositor/keys.conf the key codes the routing was taught (`NAME CODE` per line)
   --ui-demo              draw the system-layer diagnostic (requires feature ui and gl|kms); LUMATV_UI_DEMO_HZ (ticker rate,
@@ -304,6 +310,7 @@ impl Config {
                 "--no-control" => c.control = false,
                 "--input" => c.input = true,
                 "--input-dir" => c.input_dir = PathBuf::from(value()?),
+                "--no-im-queue" => c.im_queue = false,
                 "--data-dir" => c.data_dir = PathBuf::from(value()?),
                 "--ui-demo" => c.ui_demo = true,
                 "--shell-rust" => c.shell_rust = crate::shell_rust::parse_kinds(&value()?),

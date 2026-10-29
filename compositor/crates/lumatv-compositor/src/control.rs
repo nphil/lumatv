@@ -47,6 +47,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             "oledcare": oledcare,
             "scanout": state.scanout_report(),
             "pointerPlane": state.pointer_report(),
+            "im": state.im.as_ref().map(|im| im.report()),
             "vwin": state.vwin_report(),
             })
         }

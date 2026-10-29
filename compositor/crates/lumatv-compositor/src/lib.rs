@@ -18,6 +18,7 @@ pub mod capture;
 pub mod config;
 pub mod control;
 pub mod damage;
+pub mod im_queue;
 pub mod input;
 pub mod keys;
 pub mod kms;

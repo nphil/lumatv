@@ -491,7 +491,8 @@ pub fn hide_cursor(state: &mut State) {
 }
 
 /// Every client hears when the cursor appears or goes (`wl_webos_input_manager.cursor_visibility`): LG's web and
-/// native apps switch between pointer hover and 5-way focus on it.
+/// native apps switch between pointer hover and 5-way focus on it. So does lginput2, over LG's Input Manager queue (`im_queue`): it sends
+/// the wheel's press as the mouse button while the pointer shows, and asks for the pointer (1198) while it is hidden.
 fn set_cursor_visible(state: &mut State, visible: bool) {
     if state.seat.cursor_visible == visible {
         return;
@@ -501,6 +502,7 @@ fn set_cursor_visible(state: &mut State, visible: bool) {
     for r in &state.seat.input_managers {
         r.cursor_visibility(visible as u32, None);
     }
+    state.im_cursor_visible(visible);
     state.pointer_sync();
     state.shell_sync_topics();
 }
