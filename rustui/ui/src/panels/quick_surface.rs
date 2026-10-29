@@ -26,6 +26,7 @@ use crate::kit::text::{role_style, width_of};
 use crate::kit::widgets::{
     Chip, Hover, Lift, Plate, Px, Slider, Spot, Stepper, Toggle, edge as wash_edge, focus_wash, lit_edge, rotate_cw, selected_wash, tile,
 };
+use crate::kit::viewport::Reach;
 use crate::kit::wrap;
 use crate::kit::{Engine, Kit};
 use compositor_protocol::{Ease, Fill, GroupPose, Props, Shape};
@@ -321,7 +322,7 @@ impl QuickSurface {
             top += l.h + spacing;
         }
         let content_h = (top - spacing).max(0.0);
-        let scroll = Scroll::new(kit, root, window, content_h)?;
+        let scroll = Scroll::new(kit, root, window, content_h, Reach::lift(kit, Lift::Row, (window.w, layouts.iter().fold(0.0, |m: f32, l| m.max(l.h)))))?;
         let scene = kit.ui.scene.clone();
         let ink = kit.ui.look.ink();
         let ink2 = kit.ui.look.ink2();
@@ -465,7 +466,7 @@ impl QuickSurface {
         let spacing = kit.space(1);
         let n = e.rows.len();
         let content_h = (n as f32 + 1.0) * row_h + n as f32 * spacing;
-        let scroll = Scroll::new(kit, root, area, content_h)?;
+        let scroll = Scroll::new(kit, root, area, content_h, Reach::lift(kit, Lift::Row, (area.w, row_h)))?;
         let scene = kit.ui.scene.clone();
         let ink = kit.ui.look.ink();
         let ink2 = kit.ui.look.ink2();
@@ -735,7 +736,7 @@ impl QuickSurface {
                 PopupView::Pick { options, .. } => {
                     let label_style = role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Left);
                     // the options move in a window of the card when they are more than it can hold
-                    scroll = layout.scroll.as_ref().map(|sc| Scroll::new(kit, &group, sc.window, sc.content_h)).transpose()?;
+                    scroll = layout.scroll.as_ref().map(|sc| Scroll::new(kit, &group, sc.window, sc.content_h, Reach::lift(kit, Lift::Row, (sc.window.w, layout.options.iter().fold(0.0, |m: f32, o| m.max(o.h)))))).transpose()?;
                     let parent = scroll.as_ref().map_or(&group, |s| &s.inner);
                     let mut rows = Vec::new();
                     for (i, o) in options.iter().enumerate() {

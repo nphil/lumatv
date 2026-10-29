@@ -120,5 +120,20 @@ class RustSettings(unittest.TestCase):
                 self.assertEqual(findings, [], '%s: %s' % (job, json.dumps(findings)))
 
 
+    def test_a_focused_row_is_whole_on_every_page_in_both_looks_at_both_text_sizes(self):
+        """The list's clip leaves room for the lift: the host lint finds a focused plate that a clip of an ancestor cuts (`clipped`)."""
+        jobs = [(s.name, mode, scale) for s in rr.SCENES for mode in ('dark', 'light') for scale in (1.0, 2.0)]
+
+        def one(job):
+            n, mode, scale = job
+            rc, text, findings, png = rr.render(rr.BY_NAME[n], mode, scale)
+            return job, rc, [f for f in findings if f['kind'] == 'clipped'], text
+
+        with concurrent.futures.ThreadPoolExecutor(4) as pool:
+            for job, rc, clipped, text in pool.map(one, jobs):
+                self.assertEqual(rc, 0, '%s\n%s' % (job, text[-1500:]))
+                self.assertEqual(clipped, [], '%s: %s' % (job, json.dumps(clipped)))
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -971,10 +971,19 @@ impl Shell {
     /// The layout and contrast lint of what the layer has on the screen (`--eval lint`): an object per finding.
     pub fn lint(&mut self) -> Value {
         let mut lint = crate::kit::lint::Lint::new();
+        // the focused plate at full lift, whatever surface it is on: no clip above it may cut it
+        let at = self.kit.ui.scene.now_ns();
+        let lit: Vec<_> = self.engine.flow.lifted_ids(at).into_iter().filter_map(|id| self.engine.flow.lifted_plate(id, at).map(|(plate, clip)| (format!("focus {}", id.0), plate, clip))).collect();
+        let report = |mut lint: crate::kit::lint::Lint| {
+            for (name, plate, clip) in &lit {
+                lint.lifted(name, *plate, *clip);
+            }
+            json!(lint.findings().iter().map(|f| json!({"kind": f.kind.name(), "subject": f.subject, "detail": f.detail})).collect::<Vec<_>>())
+        };
         // the entry sheet's dim hides the screen it is over: only the sheet is read
         if self.panels.entry_up(&self.kinds) {
             self.panels.feed_lint(&self.kinds, &mut self.kit, &mut lint);
-            return json!(lint.findings().iter().map(|f| json!({"kind": f.kind.name(), "subject": f.subject, "detail": f.detail})).collect::<Vec<_>>());
+            return report(lint);
         }
         self.sys.feed_lint(&self.kinds, &mut self.kit, &mut lint);
         // what Home draws around itself stands over Home like the entry sheet does over Settings: while one is up only it is read
@@ -988,7 +997,7 @@ impl Shell {
         if self.kinds.settings {
             self.settings.feed_lint(&mut self.kit, &mut lint);
         }
-        json!(lint.findings().iter().map(|f| json!({"kind": f.kind.name(), "subject": f.subject, "detail": f.detail})).collect::<Vec<_>>())
+        report(lint)
     }
 
     /// The volume model's own account (`--eval volume`).

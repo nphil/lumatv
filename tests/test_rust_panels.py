@@ -343,10 +343,10 @@ class RustPanels(unittest.TestCase):
     def test_every_panel_screen_reads_clean_at_both_text_sizes_in_both_looks_and_the_renders_are_written_when_asked(self):
         jobs = []
         for s in scenes():
-            for mode, scale, suffix in (('dark', 1.0, 'dark-100'), ('light', 2.0, 'light-200')):
+            for mode, scale, suffix in (('dark', 1.0, 'dark-100'), ('light', 1.0, 'light-100'), ('dark', 2.0, 'dark-200'), ('light', 2.0, 'light-200')):
                 png = os.path.join(tempfile.mkdtemp(prefix='rustpanels-'), s.name + '.png')
                 jobs.append((s, mode, scale, suffix, png))
-        with concurrent.futures.ThreadPoolExecutor(2) as pool:
+        with concurrent.futures.ThreadPoolExecutor(4) as pool:
             results = list(pool.map(lambda j: run(j[0], j[1], j[2], evals=('lint', 'state'), snap=j[4]), jobs))
         for (s, mode, scale, suffix, png), r in zip(jobs, results):
             self.assertEqual(r['rc'], 0, '%s %s: %s' % (s.name, suffix, r['out'][-1500:]))

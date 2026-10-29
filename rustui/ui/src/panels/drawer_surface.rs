@@ -20,6 +20,7 @@ use crate::kit::pane::{Pane, PaneKind};
 use crate::kit::pointer::Sample;
 use crate::kit::text::{role_style, width_of};
 use crate::kit::widgets::{Lift, Plate, Spot, tile};
+use crate::kit::viewport::Reach;
 use crate::kit::wrap;
 use crate::kit::{Engine, Kit};
 use compositor_protocol::Props;
@@ -308,7 +309,8 @@ impl DrawerSurface {
                 Ok(Some((tile_layer, label, text)))
             })?;
         } else {
-            let sc = Scroll::new(kit, root, flick, lay.content_h)?;
+            let tallest = lay.slots.iter().fold(0.0, |m: f32, s| if let Slot::Item { h, .. } = s { m.max(*h) } else { m });
+            let sc = Scroll::new(kit, root, flick, lay.content_h, Reach::lift(kit, Lift::Row, (flick.w, tallest)))?;
             let inner = &sc.inner;
             for (i, s) in lay.slots.iter().enumerate() {
                 if i < range.0 || i > range.1 {

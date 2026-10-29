@@ -17,7 +17,6 @@ pub const CELLS: Region = Region(4);
 pub const RAIL: Region = Region(5);
 pub const TOP: Region = Region(6);
 pub const COLS: usize = 5;
-pub const VISIBLE_ROWS: usize = 3;
 pub const ROW_PITCH: f32 = 237.0;
 pub const COL_PITCH: f32 = 262.0;
 pub const CELL_W: f32 = 242.0;
@@ -331,12 +330,19 @@ impl Apps {
         focus.unregister(Id(SEARCH_ID));
     }
 
+    /// The rows of cells that are whole in the grid's window, which ends 70 px above the page's foot: three at 100 % text, two at 200 %, where the
+    /// heading takes more of the page (the focused cell is always one of them).
+    pub fn visible_rows(&self) -> usize {
+        let room = PAGE_FRAME.y + PAGE_FRAME.h - 70.0 - self.grid_y() - CELL_H;
+        1 + (room / ROW_PITCH).floor().max(0.0) as usize
+    }
+
     fn show_cell(&mut self) {
         let row = self.cell / COLS;
         if row < self.scroll_row {
             self.scroll_row = row;
-        } else if row + 1 > self.scroll_row + VISIBLE_ROWS {
-            self.scroll_row = row + 1 - VISIBLE_ROWS;
+        } else if row + 1 > self.scroll_row + self.visible_rows() {
+            self.scroll_row = row + 1 - self.visible_rows();
         }
     }
 

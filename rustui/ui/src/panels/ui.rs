@@ -8,8 +8,9 @@
 use crate::kit::hint::{Hint, glyph_side};
 use crate::kit::lint::Lint;
 use crate::kit::text::{Text, role_style};
+use crate::kit::viewport::Reach;
 use crate::kit::{Engine, Kit};
-use compositor_protocol::{Ease, GroupPose, PoseBinding, PoseProperties, Props, Rect, Rgba};
+use compositor_protocol::{Ease, GroupPose, PoseBinding, PoseProperties, Props, Rgba};
 use lumatv_tokens::TypeRole;
 use ui::components::{Align, Block, Style};
 use ui::geometry::Frame;
@@ -128,19 +129,20 @@ pub struct Scroll {
 }
 
 impl Scroll {
-    /// `window` is where the content shows (its clip), `content_h` how tall the content is from the window's top.
-    pub fn new(kit: &Kit, parent: &Group, window: Frame, content_h: f32) -> std::io::Result<Self> {
-        Self::make(kit, parent, window, content_h, false)
+    /// `window` is where the content shows, `content_h` how tall the content is from the window's top. The clip is the window grown by
+    /// `reach`, what the focusables in it stand out by when lifted ([`Reach::lift`]), so the focused plate is not cut.
+    pub fn new(kit: &Kit, parent: &Group, window: Frame, content_h: f32, reach: Reach) -> std::io::Result<Self> {
+        Self::make(kit, parent, window, content_h, false, reach)
     }
 
     /// A window onto content wider than itself (a row of cards): `content_w` is how wide the content is from the window's left edge.
-    pub fn row(kit: &Kit, parent: &Group, window: Frame, content_w: f32) -> std::io::Result<Self> {
-        Self::make(kit, parent, window, content_w, true)
+    pub fn row(kit: &Kit, parent: &Group, window: Frame, content_w: f32, reach: Reach) -> std::io::Result<Self> {
+        Self::make(kit, parent, window, content_w, true, reach)
     }
 
-    fn make(kit: &Kit, parent: &Group, window: Frame, content: f32, across: bool) -> std::io::Result<Self> {
+    fn make(kit: &Kit, parent: &Group, window: Frame, content: f32, across: bool, reach: Reach) -> std::io::Result<Self> {
         let scene = kit.ui.scene.clone();
-        let clip = scene.group(Some(parent.id()), GroupPose { clip: Some(Rect { x: window.x, y: window.y, w: window.w, h: window.h }), ..GroupPose::IDENTITY }).map_err(other)?;
+        let clip = scene.group(Some(parent.id()), GroupPose { clip: Some(reach.clip(window)), ..GroupPose::IDENTITY }).map_err(other)?;
         let inner = scene.group(Some(clip.id()), GroupPose::IDENTITY).map_err(other)?;
         let extent = (content - if across { window.w } else { window.h }).max(0.0);
         let track = if extent > 0.0 {
@@ -364,6 +366,7 @@ pub fn budget(kit: &Kit) -> usize {
 mod tests {
     use super::*;
     use crate::kit::testkit;
+    use crate::kit::widgets::Lift;
 
     #[test]
     fn a_root_is_inert_until_shown_arrives_on_a_track_and_is_parked_when_it_has_gone() {
@@ -387,10 +390,10 @@ mod tests {
         let (_h, kit) = testkit::kit(1.0);
         let root = kit.ui.scene.group(None, GroupPose::IDENTITY).expect("a group");
         let window = Frame::new(0.0, 100.0, 500.0, 300.0);
-        let flat = Scroll::new(&kit, &root, window, 250.0).expect("a scroll");
+        let flat = Scroll::new(&kit, &root, window, 250.0, Reach::NONE).expect("a scroll");
         assert_eq!(flat.extent(), 0.0);
         let tracks = kit.room().tracks;
-        let mut s = Scroll::new(&kit, &root, window, 700.0).expect("a scroll");
+        let mut s = Scroll::new(&kit, &root, window, 700.0, Reach::NONE).expect("a scroll");
         assert_eq!(tracks - kit.room().tracks, 1);
         assert_eq!(s.extent(), 400.0);
         let tops = [0.0, 120.0, 240.0, 360.0, 480.0, 600.0];
@@ -404,6 +407,21 @@ mod tests {
         s.to(&engine, 9999.0, false);
         assert_eq!(s.offset(), 400.0, "clamped");
         assert!(s.fits(480.0, 100.0, 400.0) && !s.fits(240.0, 100.0, 400.0));
+    }
+
+    #[test]
+    fn a_scroll_clips_to_its_window_and_the_reach_of_what_lifts_in_it_and_a_scrolled_clip_stays_put() {
+        let (_h, kit) = testkit::kit(1.0);
+        let root = kit.ui.scene.group(None, GroupPose::IDENTITY).expect("a group");
+        let window = Frame::new(40.0, 100.0, 500.0, 300.0);
+        let reach = Reach::lift(&kit, Lift::Row, (500.0, 70.0));
+        let mut s = Scroll::new(&kit, &root, window, 700.0, reach).expect("a scroll");
+        let clip = s.inner.world().clip.expect("a clip");
+        assert!((clip.x - (40.0 - reach.left)).abs() < 0.01 && (clip.w - (500.0 + reach.left + reach.right)).abs() < 0.01, "{clip:?} for {reach:?}");
+        assert!(reach.left > 4.0 && (clip.y - (100.0 - reach.top)).abs() < 0.01, "a row at 1.02 of 500 px leaves its window by 5 px and more: {clip:?}");
+        let engine = Engine::new(&kit).expect("an engine");
+        s.to(&engine, 240.0, true);
+        assert_eq!(s.inner.world().clip, Some(clip), "the clip is the window's, not the content's: it does not scroll");
     }
 
     #[test]

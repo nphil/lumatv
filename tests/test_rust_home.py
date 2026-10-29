@@ -304,6 +304,25 @@ class RustHome(unittest.TestCase):
         self.assertEqual(evals[0]["focusLayer"], "statusbar", "hover moved no focus")
         self.assertIn("[log] launch", out, "a click opens what is under it")
 
+    def test_the_library_scrolls_its_cells_under_a_window_that_stays_and_a_focused_plate_is_never_cut_on_any_screen(self):
+        scenes = [("bar", 2200, [self.k(600, "down", "down", "down")], {}), ("status", 2200, [self.k(600, "up")], {}),
+                  ("dock", 2200, [self.k(600, "down", "down", "down", "down")], {}),
+                  ("dock-right", 2600, [self.k(600, "down", "down", "down", "down", "right", "down")], {}),
+                  ("apps", 2200, [self.k(600, "1")], {}),
+                  ("apps-scrolled", 3000, [self.k(600, "1", "right", "down", "down", "down", "down", "down", "down")], {}),
+                  ("rail", 2600, [self.k(600, "1", "down", "down", "down")], {}),
+                  ("halves", 2200, [self.k(600, "down")], {"layout": HALVES}),
+                  ("edit", 3000, [self.k(600, "down"), self.hold(900, "ok", 900)], {"layout": FREE}),
+                  ("profiles", 2200, [self.k(600, "ok")], {})]
+        for name, wait, steps, kw in scenes:
+            for mode in ("dark", "light"):
+                for scale in (1, 2):
+                    _, values, _ = self.host(wait, list(steps) + [self.ev(wait - 300), ['--eval', '%d:lint' % (wait - 250)]], mode=mode, scale=scale, **kw)
+                    clipped = [f for f in values[-1] if f["kind"] == "clipped"]
+                    self.assertEqual(clipped, [], "%s %s text%d" % (name, mode, scale * 100))
+                    if name == "apps-scrolled" and scale == 1 and mode == "dark":
+                        self.assertEqual(values[0]["apps"]["scrollRow"], 2, "the scene scrolls")
+
     # ---- the renders beside the mocks
     def test_renders(self):
         for mode in ("dark", "light"):

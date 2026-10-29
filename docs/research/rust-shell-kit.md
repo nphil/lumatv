@@ -103,7 +103,15 @@ bilinear up), `round_corners(radius)` antialiases the corners, `paint(&mut Image
 its view to a `Lint` (`panel(name, rect, paint, safe)`, `word(kit, name, text, frame, style, panel)`) and `findings()` reports
 words outside their panel (1 px), crammed against it (8 px at the sides, 4 above and below), on top of other words, off the
 centre of a button, panels outside the safe area, and ink under 4.5 to 1 (3 to 1 from 48 px and for ink2) on the panel's paint
-over the worst of black, white and mid grey. Host tests run it at 100 % and 200 % text.
+over the worst of black, white and mid grey. Host tests run it at 100 % and 200 % text. It also holds every lifted plate to the clips
+above it (`clipped`, from `Flow::lifted_plate`): the plate at full lift, rounded corners and rim included, must lie inside the clip of every
+ancestor group.
+
+**Viewports** (`kit/viewport.rs`): a viewport that holds lifted focusables clips to its window grown by their `Reach` (`Reach::lift(kit,
+Lift::Row, (w, h))`: `(scale - 1) / 2` of the size, the rise above, and the rim), never to the window alone, which squares the focused
+plate's ends off by 12 px on a row 1270 px wide. The clip sits on a group of its own above the group that scrolls (a clip on the scrolled
+group moves with the content). `Scroll`, Settings' lists and Home's library take it; Home's dock and the Cameras grid and sheet
+clip with room of their own, which the lint holds.
 
 ## Home (`rustui/ui/src/home/`, the kind `home`)
 

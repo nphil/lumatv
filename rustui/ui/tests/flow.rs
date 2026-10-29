@@ -5,6 +5,8 @@
 use compositor_protocol::GroupPose;
 use lumatv_ui::kit::flow::{Flow, Lifted, POOL, Spec};
 use lumatv_ui::kit::focus::Id;
+use lumatv_ui::kit::viewport::Reach;
+use ui::geometry::Frame;
 use std::cell::Cell;
 use std::rc::Rc;
 use ui::testing::harness;
@@ -156,4 +158,37 @@ fn reduced_motion_is_a_crossfade_within_the_ceiling() {
     assert!(rig.lift(1, start + 125 * MS) > 0.99);
     assert!(rig.lift(0, start + 125 * MS) < 0.01);
     assert!(!rig.flow.settling_at(start + 130 * MS));
+}
+
+/// A row of 1200 by 70 under a viewport over `window` clipped to `clip`, lifted to the row scale: where the lint finds its plate and the clip.
+fn row_in_viewport(clip: impl Fn(Frame) -> compositor_protocol::Rect) -> (Frame, Option<Frame>) {
+    let h = harness();
+    let clock = Rc::new(Cell::new(1_000_000_000u64));
+    let c = Rc::clone(&clock);
+    h.ui.scene.set_clock(move || c.get(), 8 * MS);
+    let window = Frame::new(100.0, 200.0, 1200.0, 300.0);
+    let viewport = h.ui.scene.group(None, GroupPose { clip: Some(clip(window)), ..GroupPose::IDENTITY }).expect("a viewport");
+    let rest = GroupPose { x: window.x, y: window.y, pivot_x: 600.0, pivot_y: 35.0, ..GroupPose::IDENTITY };
+    let group = h.ui.scene.group(Some(viewport.id()), rest).expect("a group");
+    let lit = h.ui.scene.group(Some(group.id()), GroupPose { opacity: 0.0, ..GroupPose::IDENTITY }).expect("a lit group");
+    let mut flow = Flow::new(&h.ui.scene, Spec::default(), POOL).expect("a pool of tracks");
+    flow.lift(Id(1), Lifted { group, rest, scale: 1.02, rise: 0.0, lit: Some(lit) });
+    flow.go(None, Some(Id(1)), clock.get()).expect("a settle");
+    clock.set(clock.get() + 100 * MS);
+    // mid-flight: the plate is reported at full lift, wherever the spring is
+    let at = clock.get() + 8 * MS;
+    let lit_plate = flow.lifted_plate(Id(1), at).expect("a plate");
+    std::mem::forget((h, viewport));
+    lit_plate
+}
+
+#[test]
+fn a_focused_row_is_cut_by_a_clip_that_is_its_window_and_whole_in_the_kits_viewport_clip() {
+    let (plate, clip) = row_in_viewport(|w| compositor_protocol::Rect { x: w.x, y: w.y, w: w.w, h: w.h });
+    let clip = clip.expect("a clip");
+    assert!((plate.x - 88.0).abs() < 0.01 && (plate.w - 1224.0).abs() < 0.01, "the row at 1.02 leaves its window by 12 px each side: {plate:?}");
+    assert!(plate.x < clip.x - 11.0 && plate.right() > clip.right() + 11.0, "a clip that is the window cuts it: {plate:?} in {clip:?}");
+    let (plate, clip) = row_in_viewport(|w| Reach::of(1.02, 0.0, (1200.0, 70.0)).clip(w));
+    let clip = clip.expect("a clip");
+    assert!(plate.x >= clip.x && plate.y >= clip.y && plate.right() <= clip.right() && plate.bottom() <= clip.bottom(), "the kit's clip leaves it whole: {plate:?} in {clip:?}");
 }

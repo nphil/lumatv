@@ -14,6 +14,7 @@ use super::widgets::Words;
 use crate::kit::button::{Button, Place, Spec, Tone};
 use crate::kit::flow::Lifted;
 use crate::kit::focus::Region;
+use crate::kit::viewport::Reach;
 use crate::kit::pane::PaneKind;
 use crate::kit::picture::{self, Fit};
 use crate::kit::text::{Text, role_style, width_of};
@@ -109,6 +110,8 @@ pub struct AppsSurface {
     page: GlassLayer,
     heading: Words,
     search: Button,
+    /// The window the cells show in (clipped, still) and the group that scrolls them under it: a clip on the scrolled group would move with the cells.
+    _viewport: Group,
     grid: Group,
     cells: Vec<Cell>,
     empty: Text,
@@ -170,11 +173,14 @@ impl AppsSurface {
         let mut search = Button::new(kit, engine, Place { id: Id(apps::SEARCH_ID), frame: sf, region: apps::TOP, scope: super::model::SCOPE_APPS, z: z + 3 }, Spec::new("Search apps", Tone::Plain).with_icon("search"))?;
         search.show(kit, true);
         let grid_y = home.apps.grid_y();
-        let grid = kit.ui.scene.group(None, GroupPose { clip: Some(compositor_protocol::Rect { x: apps::GRID_X, y: grid_y, w: page_f.w - 80.0, h: page_f.h - (grid_y - page_f.y) - 70.0 }), ..GroupPose::IDENTITY }).map_err(other)?;
+        let window = Frame::new(apps::GRID_X, grid_y, page_f.w - 80.0, page_f.h - (grid_y - page_f.y) - 70.0);
+        let reach = Reach::of(kit.tokens.focus.card_scale, 0.0, (apps::CELL_W, apps::CELL_H));
+        let viewport = kit.ui.scene.group(None, GroupPose { clip: Some(reach.clip(window)), ..GroupPose::IDENTITY }).map_err(other)?;
+        let grid = kit.ui.scene.group(Some(viewport.id()), GroupPose::IDENTITY).map_err(other)?;
         engine.flow.scroller(&kit.ui.scene, apps::CELLS, &grid, GroupPose::IDENTITY, false, 6000.0).map_err(other)?;
         let mut empty = Text::line_at(kit, page_f.x, page_f.y + page_f.h / 2.0, page_f.w, z + 3, role_style(kit, TypeRole::Label, None, ink2, Align::Centre), "Nothing here")?;
         empty.set_props(HIDDEN);
-        Ok(Self { scrim, bar, bar_text, rail, rail_rows, rail_mark, rail_focus, page, heading, search, grid, cells: Vec::new(), empty, key: String::new(), scroll: 0.0, z })
+        Ok(Self { scrim, bar, bar_text, rail, rail_rows, rail_mark, rail_focus, page, heading, search, _viewport: viewport, grid, cells: Vec::new(), empty, key: String::new(), scroll: 0.0, z })
     }
 
     fn build_cells(&mut self, kit: &mut Kit, engine: &mut Engine, home: &Home) -> std::io::Result<()> {

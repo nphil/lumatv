@@ -21,6 +21,7 @@ use crate::kit::motion::Beat;
 use crate::kit::pointer::Sample;
 use crate::kit::text::{role_style, width_of};
 use crate::kit::widgets::edge;
+use crate::kit::viewport::Reach;
 use crate::kit::wrap;
 use crate::kit::{Engine, Kit};
 use compositor_protocol::{Fill, GroupPose, Props, Rgba, Shape};
@@ -320,7 +321,7 @@ impl SwitcherSurface {
         let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
         let n = entries.len();
         let content_w = WINDOW_W + (n.saturating_sub(geo::VISIBLE)) as f32 * (geo::W + geo::GAP);
-        let scroll = Scroll::row(kit, root, Frame::new(WINDOW_X, 0.0, WINDOW_W, 1080.0), content_w)?;
+        let scroll = Scroll::row(kit, root, Frame::new(WINDOW_X, 0.0, WINDOW_W, 1080.0), content_w, Reach::of(1.0, 0.0, (geo::W, geo::H)))?;
         let veil_look = plate::solid(Self::veil_colour(kit), geo::RADIUS);
         let raised = kit.ui.look.colour(PaletteRole::GlassRaised);
         let edge_c = edge(kit);

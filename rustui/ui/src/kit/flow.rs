@@ -16,8 +16,10 @@
 //! `motion.spring.responseMs` (260): critically damped it lands within about 1.05 periods, 270 ms, at 120 Hz about 33 frames.
 
 use super::focus::{Id, Region};
-use compositor_protocol::{Ease, GroupPose, PoseBinding, PoseProperties};
+use compositor_protocol::{Ease, GroupPose, PoseBinding, PoseProperties, Rect};
+use compositor_protocol::group::Transform;
 use ui::error::UiError;
+use ui::geometry::Frame;
 use ui::group::Group;
 use ui::motion::{Motion, MotionBounds, MotionToken, Settle, SpringToken, Units};
 use ui::scene::Scene;
@@ -339,6 +341,28 @@ impl Flow {
     /// The lift's speed (per second) by the estimate at `at_ns`.
     pub fn velocity_at(&self, id: Id, at_ns: u64) -> f32 {
         self.slots.iter().find(|s| s.owner == Some(id)).map_or(0.0, |s| s.track.velocity_at(at_ns))
+    }
+
+    /// The focusables that are lifted by more than half at `at_ns`: the ones the focus is on (the focus of each surface is its own: the
+    /// engine's registry, Home's model).
+    pub fn lifted_ids(&self, at_ns: u64) -> Vec<Id> {
+        self.slots.iter().filter_map(|s| s.owner.filter(|_| s.track.value_at(at_ns) > 0.5)).collect()
+    }
+
+    /// Where the plate of `id` is on the screen at full lift (its box at the lifted scale and rise, wherever the spring is now) and the
+    /// clip every ancestor of it puts on what it draws; `None` for a focusable with no lift, or one that is not shown.
+    pub fn lifted_plate(&self, id: Id, at_ns: u64) -> Option<(Frame, Option<Frame>)> {
+        let l = self.lifted(id)?;
+        let world = l.group.world_at(at_ns);
+        if !world.visible || world.opacity <= 0.0 {
+            return None;
+        }
+        // the parents' transform is the group's world with its own pose taken off; the lifted pose goes on in its place
+        let now = l.group.pose_at(at_ns);
+        let parents = world.transform.after(&Transform::of_pose(&now).inverse());
+        let pose = if self.spec.reduced { l.rest } else { l.lifted_pose() };
+        let r = parents.after(&Transform::of_pose(&pose)).apply_rect(&Rect { x: 0.0, y: 0.0, w: 2.0 * l.rest.pivot_x, h: 2.0 * l.rest.pivot_y });
+        Some((Frame::new(r.x, r.y, r.w, r.h), world.clip.map(|c| Frame::new(c.x, c.y, c.w, c.h))))
     }
 
     /// How many focusables are in flight or lifted.

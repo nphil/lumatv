@@ -9,6 +9,8 @@
 //! - `Overlap`: two runs of words on top of each other;
 //! - `OffCentre`: words in a panel that holds one run (a button, a pill; up to 160 px tall) not centred in it to within 2.5 px;
 //! - `Safe`: a panel outside the safe area its surface is held to;
+//! - `Clipped`: the focused plate at full lift (its rounded rectangle) is cut by a clip of an ancestor group: a list viewport that
+//!   does not leave room for the lift's growth squares the plate's ends off;
 //! - `Contrast`: the ink against what is behind it: 4.5 to 1 under 48 px, 3 to 1 from 48 px up and for muted ink (ink2, a dimmed
 //!   row), the panel's paint over the worst of black, white and mid grey (a pane over video lets the picture through down to the
 //!   reading alpha, so the backdrop is not known).
@@ -26,6 +28,8 @@ pub const PAD_X: f32 = 8.0;
 pub const PAD_Y: f32 = 4.0;
 /// How far words may leave a panel or the window.
 pub const TOL: f32 = 1.0;
+/// How far a focused plate may stand out of a clip: none but the rounding of a coordinate.
+pub const CLIP_TOL: f32 = 0.05;
 /// How far the centre of words in a button may be from the button's.
 pub const CENTRE: f32 = 2.5;
 /// Panels taller than this hold a layout, not one run of words.
@@ -44,6 +48,7 @@ pub enum Kind {
     OffCentre,
     Safe,
     Contrast,
+    Clipped,
 }
 
 impl Kind {
@@ -55,6 +60,7 @@ impl Kind {
             Kind::OffCentre => "off-centre",
             Kind::Safe => "safe",
             Kind::Contrast => "contrast",
+            Kind::Clipped => "clipped",
         }
     }
 }
@@ -102,6 +108,7 @@ pub struct Lint {
     safe: Frame,
     panels: Vec<Panel>,
     words: Vec<Word>,
+    plates: Vec<(String, Frame, Option<Frame>)>,
 }
 
 impl Default for Lint {
@@ -152,6 +159,7 @@ impl Lint {
             safe: Frame::new(64.0, 54.0, 1920.0 - 128.0, 1080.0 - 108.0),
             panels: Vec::new(),
             words: Vec::new(),
+            plates: Vec::new(),
         }
     }
 
@@ -197,6 +205,11 @@ impl Lint {
         self.word_at(name, Frame::new(x, y, shown, line), style.colour, style.ty.px, muted, panel);
     }
 
+    /// The focused plate at full lift (`plate`, on the screen) and the clip every group above it makes (`clip`, on the screen).
+    pub fn lifted(&mut self, name: &str, plate: Frame, clip: Option<Frame>) {
+        self.plates.push((name.to_string(), plate, clip));
+    }
+
     pub fn words(&self) -> &[Word] {
         &self.words
     }
@@ -217,6 +230,13 @@ impl Lint {
                     && p.rect.bottom() <= self.safe.bottom() + TOL)
             {
                 out.push(finding(Kind::Safe, &p.name, format!("{:?} is not inside the safe area {:?}", rect_text(&p.rect), rect_text(&self.safe))));
+            }
+        }
+        for (name, p, clip) in &self.plates {
+            let Some(c) = clip else { continue };
+            let (l, t, r, b) = (c.x - p.x, c.y - p.y, p.right() - c.right(), p.bottom() - c.bottom());
+            if l.max(t).max(r).max(b) > CLIP_TOL {
+                out.push(finding(Kind::Clipped, name, format!("{:?} at full lift is cut by the clip {:?}: {l:.1} left, {t:.1} above, {r:.1} right, {b:.1} below", rect_text(p), rect_text(c))));
             }
         }
         for w in &self.words {
@@ -287,6 +307,20 @@ mod tests {
         let p = l.panel("pill", rect, paint, true);
         l.word_at("label", word, ink, px, false, Some(p));
         l.findings()
+    }
+
+    #[test]
+    fn a_focused_plate_that_a_clip_cuts_is_found_and_one_inside_it_or_under_no_clip_is_not() {
+        let clip = Frame::new(100.0, 200.0, 1200.0, 300.0);
+        let mut l = Lint::new();
+        l.lifted("whole", Frame::new(90.0, 190.0, 1220.0, 80.0), Some(Frame::new(80.0, 180.0, 1240.0, 340.0)));
+        l.lifted("free", Frame::new(-30.0, 190.0, 1220.0, 80.0), None);
+        assert_eq!(l.findings(), vec![]);
+        l.lifted("row", Frame::new(88.0, 200.0, 1224.0, 71.4), Some(clip));
+        let found = l.findings();
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!((found[0].kind, found[0].subject.as_str()), (Kind::Clipped, "row"));
+        assert!(found[0].detail.contains("12.0 left") && found[0].detail.contains("12.0 right"), "{}", found[0].detail);
     }
 
     #[test]

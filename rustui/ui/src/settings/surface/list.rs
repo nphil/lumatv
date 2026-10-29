@@ -8,9 +8,12 @@ use super::layout::{Column, RowGeom, Sizes, follow, measure_row, whole_rows};
 use super::paint::Paint;
 use super::rows::{Env, Moment, Placed, RowArt, other, signature};
 use crate::kit::focus::{Id, Region, Scope};
+use crate::kit::viewport::Reach;
+use crate::kit::widgets::Lift;
 use crate::kit::{Engine, Kit};
 use crate::settings::row::{Kind, Row};
 use compositor_protocol::{Edges, GroupPose, Rect};
+use ui::geometry::Frame;
 use ui::group::Group;
 
 /// The id of the first row of a list; each row has room for its cards after it.
@@ -61,15 +64,17 @@ pub struct ListArt {
     key: String,
 }
 
-fn rect_clip(w: f32, y: f32, h: f32) -> Option<Rect> {
-    Some(Rect { x: 0.0, y, w, h })
+/// The clip of the viewport over the rows from `y` for `h`: the window and what a lifted row (or one of its cards) stands out by, so the
+/// focused plate is not squared off at its ends.
+fn rect_clip(reach: Reach, w: f32, y: f32, h: f32) -> Option<Rect> {
+    Some(reach.clip(Frame::new(0.0, y, w, h)))
 }
 
 impl ListArt {
     #[allow(clippy::too_many_arguments)]
     pub fn new(kit: &mut Kit, engine: &mut Engine, parent: Option<&Group>, key: String, origin: (f32, f32), size: (f32, f32), region: Region, scope: Scope, z: i32, id_base: u32, tight: bool) -> std::io::Result<Self> {
         let scene = kit.ui.scene.clone();
-        let viewport = scene.group(parent.map(Group::id), GroupPose { x: origin.0, y: origin.1, clip: rect_clip(size.0, 0.0, size.1), feather: Edges::NONE, ..GroupPose::IDENTITY }).map_err(other)?;
+        let viewport = scene.group(parent.map(Group::id), GroupPose { x: origin.0, y: origin.1, clip: rect_clip(Reach::lift(kit, Lift::Row, (size.0, 0.0)), size.0, 0.0, size.1), feather: Edges::NONE, ..GroupPose::IDENTITY }).map_err(other)?;
         let rest = GroupPose::IDENTITY;
         let scroll = scene.group(Some(viewport.id()), rest).map_err(other)?;
         let mut me = ListArt { region, scope, z, id_base, tight, viewport, scroll, origin, size, zone: 0.0, slots: Vec::new(), col: Column::default(), offset: 0.0, extent: 0.0, key };
@@ -223,9 +228,11 @@ impl ListArt {
         let clip_h = if whole.is_empty() { usable } else { self.col.tops[whole.end - 1] + self.col.heights[whole.end - 1] - self.offset };
         let clip_h = if self.col.total <= self.size.1 { self.size.1 } else { clip_h.max(0.0) };
         let clip_y = if self.col.total <= self.size.1 { 0.0 } else { self.zone };
-        self.viewport.set_clip_feathered(rect_clip(self.size.0, clip_y, clip_h), Edges::NONE);
-        // the rows in reach are built, the ones that left it are given back
         let tallest = self.col.heights.iter().copied().fold(0.0, f32::max);
+        let focus = &kit.tokens.focus;
+        let reach = self.slots.iter().filter_map(|s| s.geom.cards.as_ref()).fold(Reach::lift(kit, Lift::Row, (w, tallest)), |r, c| r.and(Reach::of(focus.button_scale, focus.card_lift, (c.card_w, c.card_h))));
+        self.viewport.set_clip_feathered(rect_clip(reach, self.size.0, clip_y, clip_h), Edges::NONE);
+        // the rows in reach are built, the ones that left it are given back
         let margin = 1.5 * sz.row + tallest.min(usable);
         let (lo, hi) = (self.offset - margin, self.offset + usable + margin);
         let origin = (self.origin.0, self.origin.1 + self.zone - self.offset);
