@@ -8,22 +8,27 @@ pub const LOCKED: &[&str] = &[
     "allAllowed",
     "chpAllowed",
 ];
+/// A consent's switch says what is allowed when it is on.
 pub const NAMED: &[(&str, &str)] = &[
-    ("acrAllowed", "Screen content recognition"),
-    ("acrOnAllowed", "Screen recognition (master consent)"),
-    ("acrGdprAllowed", "Screen recognition (GDPR consent)"),
-    ("acrAdAllowed", "Ads based on viewing"),
-    ("customAdAllowed", "Personalised advertising"),
-    ("customadsAllowed", "Personalised advertising (secondary)"),
-    ("cookiesAllowed", "Advertising cookies"),
+    ("acrAllowed", "Allow content recognition (ACR)"),
+    ("acrOnAllowed", "Allow content recognition (main consent)"),
+    ("acrGdprAllowed", "Allow content recognition (EU consent)"),
+    ("acrAdAllowed", "Allow ads based on what I watch"),
+    ("customAdAllowed", "Allow personalised ads"),
+    ("customadsAllowed", "Allow personalised ads (second consent)"),
+    ("cookiesAllowed", "Allow advertising cookies"),
     (
         "thirdPartySharingAllowed",
-        "Sharing data with other companies",
+        "Allow sharing data with other companies",
     ),
-    ("additionalDataAllowed", "Additional usage data"),
-    ("remoteDiagAllowed", "Remote diagnostics uploads"),
-    ("voiceAllowed", "Voice recordings"),
-    ("voice2Allowed", "Voice recordings (secondary)"),
+    ("additionalDataAllowed", "Allow extra usage data"),
+    ("remoteDiagAllowed", "Allow remote diagnostics uploads"),
+    ("voiceAllowed", "Allow voice recordings"),
+    ("voice2Allowed", "Allow voice recordings (second consent)"),
+    ("generalTermsAllowed", "Accept LG's general terms"),
+    ("networkAllowed", "Accept LG's network service terms"),
+    ("firstUseAllowed", "Accept LG's first-use terms"),
+    ("allAllowed", "Accept all of LG's terms"),
 ];
 pub type Groups = BTreeMap<String, Vec<String>>;
 pub fn groups(mapping: &Value) -> Groups {
@@ -50,19 +55,28 @@ pub fn groups(mapping: &Value) -> Groups {
 pub fn settable(key: &str, groups: &Groups) -> bool {
     !LOCKED.contains(&key) && (NAMED.iter().any(|(k, _)| *k == key) || groups.contains_key(key))
 }
-pub fn label<'a>(key: &'a str, groups: &Groups) -> &'a str {
+pub fn label(key: &str, groups: &Groups) -> String {
     if let Some((_, label)) = NAMED.iter().find(|(k, _)| *k == key) {
-        return label;
+        return (*label).to_owned();
     }
     for id in groups.get(key).into_iter().flatten() {
         match id.as_str() {
-            "S_DPA" => return "Sharing viewing data with data partners",
-            "S_TAK" => return "Who.Where.What?",
-            "S_MKT" => return "Marketing messages",
+            "S_DPA" => return "Allow sharing viewing data with data partners".into(),
+            "S_TAK" => return "Allow Who.Where.What? suggestions".into(),
+            "S_MKT" => return "Allow marketing messages".into(),
             _ => {}
         }
     }
-    key
+    // a consent this list does not know: its key in words (`someNewAllowed` is "Allow some new")
+    let stem = key.strip_suffix("Allowed").unwrap_or(key);
+    let mut words = String::new();
+    for c in stem.chars() {
+        if c.is_ascii_uppercase() && !words.is_empty() {
+            words.push(' ');
+        }
+        words.push(c.to_ascii_lowercase());
+    }
+    format!("Allow {words}")
 }
 pub fn plan(
     key: &str,
@@ -163,6 +177,17 @@ mod tests {
         assert_eq!(p["eulaInfoNetwork"]["eulaList"][1]["accepted"], true);
         assert_eq!(p["eulaInfoNetwork"]["eulaList"][0]["title"], "Analytics");
         assert!(plan("networkAllowed", false, &flags, &docs, &groups).is_err());
+    }
+    #[test]
+    fn every_consent_switch_says_what_is_allowed_when_it_is_on() {
+        let none = Groups::new();
+        for (key, _) in NAMED {
+            let l = label(key, &none);
+            assert!(l.starts_with("Allow ") || l.starts_with("Accept "), "{key}: {l}");
+        }
+        assert_eq!(label("someNewConsentAllowed", &none), "Allow some new consent");
+        let g = BTreeMap::from([("odd".to_owned(), vec!["S_TAK".to_owned()])]);
+        assert_eq!(label("odd", &g), "Allow Who.Where.What? suggestions");
     }
     #[test]
     fn voice_cannot_be_changed_by_another_consent() {

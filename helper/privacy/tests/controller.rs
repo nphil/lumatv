@@ -11,6 +11,7 @@ struct Fake {
     fail: Mutex<bool>,
     underlay: Mutex<BTreeMap<PathBuf, Vec<u8>>>,
     dc: Mutex<Value>,
+    old: Mutex<Vec<String>>,
 }
 impl Platform for Fake {
     fn luna(&self, method: &str, body: &Value) -> Result<Value, String> {
@@ -51,6 +52,14 @@ impl Platform for Fake {
     }
     fn cert_hash(&self, _: &Path) -> Result<String, String> {
         Ok("01234567".into())
+    }
+    fn close_app(&self, id: &str) -> Result<(), String> {
+        self.calls.lock().push(json!({"close":id}));
+        Ok(())
+    }
+    fn stop_old_amazoff(&self) -> Result<Vec<String>, String> {
+        self.calls.lock().push(json!({"stop_old_amazoff":true}));
+        Ok(self.old.lock().clone())
     }
 }
 fn status_json(ads_on: bool, early: Value) -> Value {
@@ -207,35 +216,54 @@ fn platform_failure_is_returned_not_reported_as_success() {
         "declutter failed"
     );
 }
-#[test]
-fn old_tls_bypass_refuses_activation_without_touching_prime_or_platform() {
-    let (_d, paths, p, privacy) = rig();
+fn prime_files(paths: &Paths, config: &[u8]) {
     std::fs::create_dir_all(paths.system(lumatv_privacy::prime::CERT_DIR)).unwrap();
-    atomic(
-        &paths.system(lumatv_privacy::prime::JAIL_HOSTS),
-        b"127.0.0.1 localhost\n",
-        false,
-    )
-    .unwrap();
-    atomic(
-        &paths.system("/media/cryptofs/apps/usr/palm/applications/amazon/default_config.json"),
-        br#"{"disable-ssl-cert":"1"}"#,
-        false,
-    )
-    .unwrap();
-    let token = privacy.prepare("amazoff", true).unwrap()["confirmation"]
-        .as_str()
-        .unwrap()
-        .to_owned();
-    assert!(
-        privacy
-            .apply("amazoff", true, &token)
-            .unwrap_err()
-            .contains("TLS checks")
-    );
-    assert!(p.calls.lock().is_empty());
-    assert!(!paths.state("prime.enabled").exists());
-    assert!(!paths.state("prime-identity.json").exists());
+    atomic(&paths.system(lumatv_privacy::prime::JAIL_HOSTS), b"127.0.0.1 localhost\n", false).unwrap();
+    atomic(&paths.system(lumatv_privacy::legacy::PRIME_CONFIG), config, false).unwrap();
+}
+#[test]
+fn turning_prime_ads_on_closes_prime_and_retires_the_old_amazoff_itself() {
+    let (_d, paths, p, _privacy) = rig();
+    prime_files(&paths, br#"{"disable-ssl-cert":"1","keep":"this"}"#);
+    atomic(&paths.system("/var/lib/webosbrew/init.d/50-amazoff"), b"#!/bin/sh\nstart amazoff\n", false).unwrap();
+    atomic(&paths.system("/var/lib/webosbrew/init.d/10-other"), b"#!/bin/sh\necho hi\n", false).unwrap();
+    *p.old.lock() = vec!["nginx".into(), "amazoff-monitor".into()];
+    lumatv_privacy::prime::retire_old(&paths, p.as_ref()).unwrap();
+    assert_eq!(*p.calls.lock(), vec![json!({"close":"amazon"}), json!({"stop_old_amazoff":true})], "Prime is closed first, then the old app stopped");
+    let config: Value = serde_json::from_slice(&std::fs::read(paths.system(lumatv_privacy::legacy::PRIME_CONFIG)).unwrap()).unwrap();
+    assert_eq!(config, json!({"keep":"this"}), "only the certificate-check override is removed");
+    assert!(!paths.system("/var/lib/webosbrew/init.d/50-amazoff").exists(), "its start-up script no longer runs at boot");
+    assert!(paths.state("retired/50-amazoff").exists(), "and is kept, not deleted");
+    assert!(paths.system("/var/lib/webosbrew/init.d/10-other").exists(), "another start-up script is left alone");
+}
+#[test]
+fn applying_prime_ads_asks_nothing_of_the_owner_and_never_leaves_prime_open() {
+    let (_d, paths, p, privacy) = rig();
+    prime_files(&paths, br#"{"disable-ssl-cert":true}"#);
+    let plan = privacy.prepare("amazoff", true).unwrap();
+    let notice = plan["plan"]["notice"].as_str().unwrap();
+    assert!(notice.contains("Prime Video restarts"), "{notice}");
+    for jargon in ["CA", "goproxy", "rootfs", "DRM", "cloudfront"] {
+        assert!(!notice.contains(jargon), "{notice}");
+    }
+    assert!(!notice.contains("before enabling"), "no step is left to the owner: {notice}");
+    let token = plan["confirmation"].as_str().unwrap().to_owned();
+    // the port is the only thing a test cannot give: whatever the outcome, the old app was dealt with first
+    let _ = privacy.apply("amazoff", true, &token);
+    let calls = p.calls.lock().clone();
+    assert_eq!(calls[..2], [json!({"close":"amazon"}), json!({"stop_old_amazoff":true})]);
+    let config: Value = serde_json::from_slice(&std::fs::read(paths.system(lumatv_privacy::legacy::PRIME_CONFIG)).unwrap()).unwrap();
+    assert_eq!(config.get("disable-ssl-cert"), None);
+}
+#[test]
+fn prime_ads_say_plainly_when_the_tv_cannot_have_them() {
+    let (_d, paths, _p, privacy) = rig();
+    let row = |privacy: &Privacy| privacy.status(true)["items"].as_array().unwrap().iter().find(|r| r["id"] == "amazoff").unwrap().clone();
+    let r = row(&privacy);
+    assert_eq!((r["available"].clone(), r["reason"].as_str().unwrap()), (json!(false), "Prime Video is not installed on this TV"));
+    std::fs::create_dir_all(paths.system(lumatv_privacy::prime::CERT_DIR)).unwrap();
+    assert_eq!(row(&privacy)["reason"], "Prime Video has not run on this TV yet");
+    assert!(privacy.apply("amazoff", true, "x").is_err());
 }
 #[test]
 fn hosts_off_preserves_another_owners_changes_below_the_overlay() {

@@ -147,6 +147,12 @@ mod tests {
         fn unmount(&self, _: &Path) -> Result<(), String> {
             panic!("validation must precede platform access")
         }
+        fn close_app(&self, _: &str) -> Result<(), String> {
+            panic!("validation must precede platform access")
+        }
+        fn stop_old_amazoff(&self) -> Result<Vec<String>, String> {
+            panic!("validation must precede platform access")
+        }
         fn cert_hash(&self, _: &Path) -> Result<String, String> {
             panic!("validation must precede platform access")
         }

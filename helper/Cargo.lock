@@ -537,6 +537,7 @@ name = "lumatv-privacy"
 version = "0.1.0"
 dependencies = [
  "fancy-regex",
+ "libc",
  "parking_lot",
  "rcgen",
  "rustls",

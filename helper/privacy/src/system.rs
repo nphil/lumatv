@@ -79,6 +79,23 @@ impl Platform for System {
         )
         .map(drop)
     }
+    fn close_app(&self, id: &str) -> Result<(), String> {
+        // closeByAppId answers returnValue true for an app that is not running as well
+        self.json(
+            Path::new(&self.luna_send),
+            &[
+                "-n",
+                "1",
+                "luna://com.webos.applicationManager/closeByAppId",
+                &serde_json::json!({ "id": id }).to_string(),
+            ],
+            4,
+        )
+        .map(drop)
+    }
+    fn stop_old_amazoff(&self) -> Result<Vec<String>, String> {
+        crate::legacy::stop(Path::new("/proc"), std::process::id(), crate::legacy::NAME, Duration::from_secs(3))
+    }
     fn cert_hash(&self, pem: &Path) -> Result<String, String> {
         let hash = run(
             Path::new("/usr/bin/openssl"),

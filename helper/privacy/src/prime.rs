@@ -1,8 +1,9 @@
-//! Prime's asset host only. No system trust-store, DRM, licence, rootfs or Prime configuration writes.
+//! Prime's asset host only. No system trust-store, DRM, licence or rootfs writes; the only Prime configuration written is the removal of
+//! an earlier AmazOff's certificate-check override (`legacy::clear_tls_override`).
 use crate::{
     Paths, Platform,
     assets::{Amazon, AssetSource},
-    atomic, hosts, noads, read_json, remove, sha, text,
+    atomic, hosts, legacy, noads, read_json, remove, sha, text,
 };
 use parking_lot::Mutex;
 use rcgen::{
@@ -24,6 +25,8 @@ use std::time::Duration;
 pub const HOST: &str = "cloudfront.xp-assets.aiv-cdn.net";
 pub const CERT_DIR: &str = "/media/cryptofs/apps/usr/palm/applications/amazon/bin/certs";
 pub const JAIL_HOSTS: &str = "/var/palm/jail/amazon/etc/hosts";
+/// Prime Video's application id.
+pub const APP: &str = "amazon";
 const OLD_CA_SHA: &str = "4ca2f57b4a9958bf7743c9234aa12e80efaf7dcd8351ad624874666b700ef4f6";
 #[derive(Serialize, Deserialize)]
 struct Identity {
@@ -101,22 +104,31 @@ pub fn remove_redirect(paths: &Paths) -> Result<(), String> {
     // Jail hosts is not rootfs. Write in place so a jail's existing bind retains this inode.
     std::fs::write(path, next).map_err(|e| e.to_string())
 }
+/// Everything the switch does before it listens, so the owner has nothing to do first: Prime Video is closed (its certificates and
+/// hosts are read when it starts), what an earlier AmazOff left running or set to start is stopped, and its one change to Prime's
+/// configuration, which switched certificate checks off, is taken back. Nothing else of Prime's configuration is written.
+pub fn retire_old(paths: &Paths, platform: &dyn Platform) -> Result<(), String> {
+    if !paths.system(CERT_DIR).is_dir() || !paths.system(JAIL_HOSTS).is_file() {
+        return Err("Prime Video has not run on this TV yet".into());
+    }
+    let _ = platform.close_app(APP);
+    legacy::retire_autostart(paths)?;
+    platform.stop_old_amazoff()?;
+    legacy::clear_tls_override(paths)?;
+    Ok(())
+}
 pub fn enable(paths: &Paths, platform: &dyn Platform) -> Result<Front, String> {
     if !paths.system(CERT_DIR).is_dir() || !paths.system(JAIL_HOSTS).is_file() {
-        return Err(
-            "Prime's certificate folder or jail hosts is unavailable; open and close Prime first"
-                .into(),
-        );
+        return Err("Prime Video has not run on this TV yet".into());
     }
-    let config =
-        paths.system("/media/cryptofs/apps/usr/palm/applications/amazon/default_config.json");
+    let config = paths.system(legacy::PRIME_CONFIG);
     if config.is_file() {
         let v = read_json(&config)?;
         if v["disable-ssl-cert"] == "1"
             || v["disable-ssl-cert"] == true
             || v["disable-ssl-cert"] == 1
         {
-            return Err("old AmazOff disabled Prime's TLS checks; remove that old override manually before enabling LumaTV (LumaTV never edits Prime's config)".into());
+            return Err("Prime Video still has its certificate checks switched off".into());
         }
     }
     let file = paths.state("prime-identity.json");
@@ -132,7 +144,7 @@ pub fn enable(paths: &Paths, platform: &dyn Platform) -> Result<Front, String> {
             .map_err(|e| e.to_string())?,
         &text(&paths.system("/etc/resolv.conf"))?,
     )?);
-    // Bind before any trust/hosts changes. An old AmazOff listener is a visible conflict, never killed or replaced.
+    // Bind before any trust/hosts changes. `retire_old` has stopped an old AmazOff; anything else on the port is a visible conflict.
     let front = Front::start("127.0.0.1:443".parse().unwrap(), tls, source)?;
     let ca_file = paths.state("prime-ca.pem");
     atomic(&ca_file, id.ca.as_bytes(), false)?;
@@ -238,7 +250,7 @@ impl Front {
             return Err("Prime assets may only listen on loopback".into());
         }
         let listener = TcpListener::bind(addr).map_err(|e| {
-            format!("Prime TLS port is unavailable (stop the old AmazOff service): {e}")
+            format!("Another program is using the port Prime Video ads need: {e}")
         })?;
         listener.set_nonblocking(true).map_err(|e| e.to_string())?;
         let stop = Arc::new(AtomicBool::new(false));

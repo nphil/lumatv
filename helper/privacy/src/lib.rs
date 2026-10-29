@@ -3,6 +3,7 @@ pub mod assets;
 pub mod boot;
 pub mod consent;
 pub mod hosts;
+pub mod legacy;
 pub mod noads;
 pub mod prime;
 pub mod system;
@@ -20,6 +21,10 @@ pub trait Platform: Send + Sync {
     fn bind(&self, source: &Path, target: &Path) -> Result<(), String>;
     fn unmount(&self, target: &Path) -> Result<(), String>;
     fn cert_hash(&self, pem: &Path) -> Result<String, String>;
+    /// Closes an app through the application manager. Closing one that is not running is not an error.
+    fn close_app(&self, id: &str) -> Result<(), String>;
+    /// Stops the programs of an earlier AmazOff install and returns their names.
+    fn stop_old_amazoff(&self) -> Result<Vec<String>, String>;
 }
 #[derive(Clone)]
 pub struct Paths {
@@ -93,23 +98,23 @@ pub struct Privacy {
 const GROUPS: &[(&str, &str, &str)] = &[
     (
         "ads",
-        "Content recognition & advertising services",
-        "Stops ACR, content mining, ad overlays, sports promotions and banners; the same declutter ads group.",
+        "Block content recognition (ACR) and ads",
+        "Stops content recognition, content mining, ad overlays, sports promotions and banners.",
     ),
     (
         "settings",
-        "Viewing information, ads & promotions",
-        "Holds LG's 16 existing declutter privacy settings off. Turning this off restores their saved values.",
+        "Keep LG's viewing and ad settings off",
+        "Switches LG's 16 viewing-data and ad settings off and keeps them off. Turning this off puts back the values they had.",
     ),
     (
         "uploaders",
-        "Telemetry & diagnostic uploaders",
-        "Stops LG's log, crash, usage and diagnostic uploaders. Local logging stays.",
+        "Block telemetry uploads",
+        "Stops LG's log, crash, usage and diagnostic uploads. Logs stay on the TV.",
     ),
     (
         "push",
-        "LG push promotions",
-        "Stops push notices, nudges and LG's IoT client. The Content Store authentication service stays available.",
+        "Block LG push promotions",
+        "Stops push notices, nudges and LG's smart-home client. The Content Store sign-in keeps working.",
     ),
 ];
 impl Privacy {
@@ -179,7 +184,7 @@ impl Privacy {
         rows[1]["settings"] = json!(settings);
         let host_on = self.paths.state("hosts.enabled").is_file();
         let effective = text(&self.paths.system("/etc/hosts"));
-        rows.push(json!({"id":"hosts","title":"Block ad & tracker hosts","detail":"Glasshouse's ads tier, including regional LG and Alphonso names. Keeps the Content Store, ThinQ and system-update blocks intact.","kind":"switch","on":host_on,"available":effective.is_ok(),"effective":effective.as_ref().is_ok_and(|s|s.lines().any(|l|l==hosts::BEGIN)),"count":hosts::names(&self.country()).len(),"boot":boot::after_boot(host_on),"admin":true}));
+        rows.push(json!({"id":"hosts","title":"Block ad & tracker hosts","detail":"Blocks advertising and tracker names, including LG's and Alphonso's regional ones, for every app. The Content Store, ThinQ and update blocks stay as they are.","kind":"switch","on":host_on,"available":effective.is_ok(),"effective":effective.as_ref().is_ok_and(|s|s.lines().any(|l|l==hosts::BEGIN)),"count":hosts::names(&self.country()).len(),"boot":boot::after_boot(host_on),"admin":true}));
         let state = self.state.lock();
         let routes = state.prime.as_ref().map(|f| f.routes());
         let protection = match routes.as_ref() {
@@ -195,12 +200,19 @@ impl Privacy {
             Some(r) if r.values().any(|v| v["state"] == "patched") => "partial",
             Some(_) => "unmodified",
         };
-        let reason = state.error.as_deref().or_else(|| {
+        let missing = if !self.paths.system(prime::CERT_DIR).is_dir() {
+            Some("Prime Video is not installed on this TV")
+        } else if !self.paths.system(prime::JAIL_HOSTS).is_file() {
+            Some("Prime Video has not run on this TV yet")
+        } else {
+            None
+        };
+        let reason = missing.or(state.error.as_deref()).or_else(|| {
             routes
                 .as_ref()
                 .and_then(|r| r.values().find_map(|v| v["reason"].as_str()))
         });
-        rows.push(json!({"id":"amazoff","title":"Prime Video ads (Amazoff)","detail":"Filters the current player per route; other assets pass through verified HTTPS. Changes Prime's own certificate folder and jail hosts only.","kind":"switch","on":self.paths.state("prime.enabled").is_file(),"running":state.prime.is_some(),"protection":protection,"available":self.paths.system(prime::CERT_DIR).is_dir(),"routes":routes.as_deref(),"reason":reason,"admin":true,"confirm":true}));
+        rows.push(json!({"id":"amazoff","title":"Block Prime Video ads","detail":"Takes the ads out of Prime Video. Prime Video restarts when this is turned on or off.","kind":"switch","on":self.paths.state("prime.enabled").is_file(),"running":state.prime.is_some(),"protection":protection,"available":missing.is_none(),"routes":routes.as_deref(),"reason":reason,"admin":true,"confirm":true}));
         drop(routes);
         drop(state);
         match self.consent_data() {
@@ -249,13 +261,13 @@ impl Privacy {
                 json!({"key":key,"on":on,"hosts":hosts::names(&self.country()),"mechanism":"writable hosts table bind-mounted at /etc/hosts; original file never written"}),
             ),
             "amazoff" => Ok(
-                json!({"key":key,"on":on,"changes":[prime::CERT_DIR,prime::JAIL_HOSTS],"notice":"A per-TV CA permits only cloudfront.xp-assets.aiv-cdn.net. Its signing key is destroyed after issuing the leaf. The old shared goproxy CA is removed and never restored. No system trust, rootfs, app configuration, DRM or licence changes. Close Prime and stop the old AmazOff service/autostart before enabling."}),
+                json!({"key":key,"on":on,"changes":[prime::CERT_DIR,prime::JAIL_HOSTS],"notice":if on {"Prime Video restarts, and the old AmazOff app, if it is installed, is switched off."} else {"Prime Video restarts and shows its ads again."}}),
             ),
             _ if key.starts_with("consent.") => {
                 let (flags, docs, groups) = self.consent_data()?;
                 let changes = consent::plan(&key[8..], on, &flags, &docs, &groups)?;
                 Ok(
-                    json!({"key":key,"on":on,"changes":changes,"notice":"Changes the named LG consent and any switches sharing its agreements. Voice and platform terms are protected."}),
+                    json!({"key":key,"on":on,"changes":changes,"notice":"LG is told about this change. Consents that share its agreement change too; voice and LG's platform terms never do."}),
                 )
             }
             _ => Err("unknown privacy item".into()),
@@ -309,10 +321,12 @@ impl Privacy {
                 "hosts" => self.set_hosts(on)?,
                 "amazoff" => {
                     if on && state.prime.is_none() {
+                        prime::retire_old(&self.paths, self.platform.as_ref())?;
                         let front = prime::enable(&self.paths, self.platform.as_ref())?;
                         state.prime = Some(front);
                         state.error = None;
                     } else if !on {
+                        let _ = self.platform.close_app(prime::APP);
                         prime::disable(&self.paths)?;
                         state.prime.take();
                         state.error = None;
