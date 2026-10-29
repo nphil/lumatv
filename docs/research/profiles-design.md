@@ -29,18 +29,19 @@ write: the household's keys plus the active profile's. Each profile keeps its ow
 
 - **Switch.** The helper writes the new person's part into the working copy and publishes `profiles`; Home reads the files at once
   (`LumaHome.profilesChanged`; the 2 s look is the fallback) and closes what was open. The intent is written first and cleared last, so a
-  helper that dies half-way finishes the switch at its next start. A host switch of a 19 KB theme takes 8 ms in a debug build.
+  helper that dies half-way finishes the switch at its next start. A working copy that is being written is never switched or migrated over: it is asked again.
 - **Edits.** The helper carries what Home wrote back to the profile it was written in (every 1.5 s and before every switch). Theme.json
   carries `_profile`, so an edit saved by a screen that had not yet seen a switch lands in the person who made it, and the working copy is
   made the new person's again.
 - **Migration** is the first start with no index: the working copy becomes Nitin (his own keys cut out, the rest staying), Isabel is made from
-  his arrangement (cards, dock, quick panel, key choices, popup places; not his look). Deleting `profiles/` is the way back.
+  his arrangement (cards, dock, quick panel, key choices, popup places; not his look). A working copy that cannot be read just then is waited for, not taken
+  for an empty one. Deleting `profiles/` is the way back.
 - **LG's patched surfaces** (generated at `lumatv apply`: LG's own Quick Settings, keyboard, notifications, web apps) take the look of whoever is
   active at that moment; LumaTV's own panels follow the active profile live.
 - **Dock.** `apps.dockOrder` and `apps.dockHide` are the person's; LG's list is not moved or hidden any more.
-- **Speed.** The helper's part is single-digit milliseconds. Home applies a switch in one reload; the veil that hides it, and the picker's
-  150 ms after wake, are the Rust shell's to meet (budget: a switch fully applied under 300 ms). No network is on the path: the gallery and
-  photos are files.
+- **Speed.** Measured on the host (debug build, 19 KB theme): the helper's switch takes 8 ms; Home applies the topic's change 106-117 ms after it
+  is published (offline host, software GL, a loaded machine), which is event, file reads and bindings. The veil that hides the apply, and the picker's
+  150 ms after wake, are the Rust shell's to meet (budget: a switch fully applied under 300 ms). No network is on the path: the gallery and photos are files.
 
 ## Who may do what
 
