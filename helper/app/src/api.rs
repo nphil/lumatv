@@ -142,6 +142,7 @@ pub struct Api {
     pub capture: crate::capture::Capture,
     /// Local profiles: each person's Home and who may change what (`/v1/profiles/...`, the `profiles` topic).
     pub profiles: Arc<crate::profiles::Profiles>,
+    pub privacy: Arc<lumatv_privacy::Privacy>,
     pub receiver_tx: Sender<receiver::Cmd>,
     pub feeds_tx: Sender<homefeeds::Cmd>,
 }
@@ -345,6 +346,7 @@ impl Api {
             .chain(crate::capture::ROUTES.iter())
             .chain(crate::placement::ROUTES.iter())
             .chain(crate::profiles::ROUTES.iter())
+            .chain(crate::privacy::ROUTES.iter())
             .map(|(method, path, what)| json!({"method": method, "path": path, "what": what}))
             .collect();
         let now = now_ms();
@@ -558,6 +560,7 @@ impl Handler for Api {
             ["v1", "capture", rest @ ..] => self.capture.handle(request, rest),
             ["v1", "placement", rest @ ..] => crate::placement::handle(request, rest),
             ["v1", "profiles", rest @ ..] => self.profiles.handle(request, rest),
+            ["v1", "privacy", rest @ ..] => crate::privacy::handle(&self.privacy, request, rest, self.profiles.can_admin()),
             ["v1", "image", root, file] if get => self.images.serve(request, root, file),
             ["v1", "images"] if get => self.ok(self.images.status()),
             ["v1", "cameras"] if get => self.ok(json!({"cameras": self.cameras.status()})),
@@ -671,6 +674,7 @@ mod tests {
                 ),
                 capture: crate::capture::Capture::new(&ctx.config.capture),
                 profiles: crate::profiles::Profiles::open(&ctx),
+                privacy: crate::privacy::new(&ctx),
                 started_at: 1000,
                 data_dir: "/var/lib/test".into(),
                 fetch_backend: json!({"backend": "test"}),

@@ -70,6 +70,7 @@ pub mod log;
 pub mod placement;
 pub mod plugins;
 pub mod preload;
+pub mod privacy;
 pub mod profiles;
 pub mod receiver;
 pub mod receiver_telnet;

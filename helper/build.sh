@@ -12,9 +12,9 @@
 # docs/research/ha-cameras-result.md) next to /data/home/lumaglass. They are never copied or edited.
 # The plugin is LumaShow's own (plugins/home-assistant, by path, unedited): its library built into a program for the TV, and its
 # plugin.json copied as it is, so that the owner approves on the TV exactly what the Show approves.
-# The compiler is the one LumaShow pins (helper/rust-toolchain.toml); rust-lld links the target, no C toolchain is needed for it.
-# Build scripts of the dependencies are compiled for the host and need a C linker: when `cc` is missing (this container has
-# none) a shim that runs `zig cc` through cargo-zigbuild is created under target/ and put first on PATH.
+# The compiler is the one LumaShow pins (helper/rust-toolchain.toml); rust-lld links the target. The one C dependency for the target is `ring`
+# (rustls's crypto): zig cc compiles it (see the shim below). Build scripts of the dependencies are compiled for the host and need a C linker:
+# when `cc` is missing (this container has none) a shim that runs `zig cc` is created under target/ and put first on PATH.
 set -eu
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -29,16 +29,35 @@ die() { say "build.sh: $*"; exit 1; }
   die "the LumaShow checkout is not at $HERE/../../LumaShow/wt/lumatv (the helper depends on its crates by path)"
 command -v cargo >/dev/null 2>&1 || die "cargo is not on PATH (install rustup; the toolchain is pinned in rust-toolchain.toml)"
 
+# `ring` (rustls's crypto, for the Scrypted bridge's pinned HTTPS) has C and assembly to build for the target, so a C compiler for aarch64 musl is
+# needed after all: zig's. The cc crate passes `--target=aarch64-unknown-linux-musl`, which zig does not know ("unable to parse target query"), so
+# the shim drops it and gives zig's own spelling. Nothing else of the helper's code is C.
+if command -v cargo-zigbuild >/dev/null 2>&1; then
+  ZIGCC="cargo-zigbuild zig cc --"
+  ZIGAR="cargo-zigbuild zig ar --"
+elif command -v zig >/dev/null 2>&1; then
+  ZIGCC="zig cc"
+  ZIGAR="zig ar"
+else
+  die "no C compiler for the target: install zig (or cargo-zigbuild); ring needs one for aarch64 musl"
+fi
+shim="$HERE/target/cc-shim"
+mkdir -p "$shim"
+cat > "$shim/aarch64-musl-cc" <<SHIM
+#!/bin/sh
+for a in "\$@"; do
+  shift
+  case "\$a" in --target=*) ;; *) set -- "\$@" "\$a" ;; esac
+done
+exec $ZIGCC -target aarch64-linux-musl "\$@"
+SHIM
+printf '#!/bin/sh\nexec %s "$@"\n' "$ZIGAR" > "$shim/aarch64-musl-ar"
+chmod +x "$shim/aarch64-musl-cc" "$shim/aarch64-musl-ar"
+export CC_aarch64_unknown_linux_musl="$shim/aarch64-musl-cc"
+export AR_aarch64_unknown_linux_musl="$shim/aarch64-musl-ar"
 if ! command -v cc >/dev/null 2>&1; then
-  shim="$HERE/target/cc-shim"
-  mkdir -p "$shim"
-  if command -v cargo-zigbuild >/dev/null 2>&1; then
-    printf '#!/bin/sh\nexec cargo-zigbuild zig cc -- "$@"\n' > "$shim/cc"
-  elif command -v zig >/dev/null 2>&1; then
-    printf '#!/bin/sh\nexec zig cc "$@"\n' > "$shim/cc"
-  else
-    die "no C linker for the build scripts: install gcc, or zig with cargo-zigbuild"
-  fi
+  # the build scripts of the dependencies run on the host and need a C linker (this container has no cc)
+  printf '#!/bin/sh\nexec %s "$@"\n' "$ZIGCC" > "$shim/cc"
   chmod +x "$shim/cc"
   PATH="$shim:$PATH"
   export PATH

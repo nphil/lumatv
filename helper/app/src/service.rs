@@ -234,6 +234,8 @@ impl Service {
         );
         threads.push(("cameras", cameras.spawn(&ctx)?));
 
+        let privacy=crate::privacy::new(&ctx);
+        threads.push(("privacy",crate::privacy::spawn(&ctx,privacy.clone())?));
         let api = Api {
             hub,
             settings,
@@ -243,6 +245,7 @@ impl Service {
             voice,
             images,
             cameras,
+            privacy,
             capture: crate::capture::Capture::new(&config.capture),
             profiles,
             started_at: ctx.hub.boot(),

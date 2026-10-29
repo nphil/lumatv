@@ -48,6 +48,11 @@ assets/extraLargeIcon.png
 assets/splash.png
 tools/$SRC_NAME
 tools/brand.sh
+tools/declutter.sh
+payload/declutter/items.txt
+payload/declutter/groups.txt
+payload/declutter/dc.py
+payload/privacy/NOTICE
 tools/autostart.sh
 tools/bootcap.sh
 tools/keyfilter.py
@@ -307,6 +312,8 @@ cp tools/inputcommon.sh tools/inputcommon_patch.py tools/voice.sh tools/voice_pa
 # LG's Content Store theme (tools/lumatv store): the overlay tool, the builder of the script it mounts (which imports tokens, shipped above)
 # and the probe's receiver and report (`store probe`). The script's sources, payload/store, go out with the rest of payload/ below.
 cp tools/store.sh tools/store_theme.py tools/store_probe.py "$DATA_ROOT/tools/"
+cp tools/declutter.sh "$DATA_ROOT/tools/"
+chmod 755 "$DATA_ROOT/tools/declutter.sh"
 mkdir -p "$DATA_ROOT/payload/helper"
 cp helper/dist/lumatv-helper "$DATA_ROOT/payload/helper/"
 chmod 755 "$DATA_ROOT/payload/helper/lumatv-helper"

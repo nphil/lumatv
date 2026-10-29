@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["app", "feeds", "denon", "plugins/home-assistant"]
+members = ["app", "feeds", "denon", "privacy", "plugins/home-assistant"]
 
 [workspace.package]
 version = "0.1.0"
@@ -30,11 +30,13 @@ sha2 = "0.10"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tempfile = "3"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 
 lumatv-ambient = { path = "../ambient" }
 lumatv-placement = { path = "../placement" }
 lumatv-denon = { path = "denon" }
 lumatv-feeds = { path = "feeds" }
+lumatv-privacy = { path = "privacy" }
 
 [profile.release]
 opt-level = "s"
