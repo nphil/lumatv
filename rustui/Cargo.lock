@@ -406,6 +406,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "lumatv-tokens"
+version = "0.1.0"
+dependencies = [
+ "compositor-protocol",
+ "serde_json",
+ "ui",
+]
+
+[[package]]
+name = "lumatv-ui"
+version = "0.1.0"
+
+[[package]]
 name = "lumatv-wl-protocols"
 version = "0.1.0"
 dependencies = [
