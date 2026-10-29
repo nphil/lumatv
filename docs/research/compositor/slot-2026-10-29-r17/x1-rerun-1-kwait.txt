@@ -1,5 +1,5 @@
 loop thread 31259 (the busiest thread named ld-linux)
-client 422: its next GPU job began after a flip p50 0.35 ms, p90 0.49, p99 0.72, p99.9 2.49, max 5.28 (3594 flips answered, the longest interval between them 16.77 ms); 2 over 3 ms, 2 would leave its frames more than 20 ms apart
+client 422: its next GPU job began after a flip (where its frame callbacks go out) p50 0.35 ms, p90 0.49, p99 0.72, p99.9 2.49, max 5.28 (3594 answered, the flips in that stretch at most 16.77 ms apart); 2 over 3 ms, 2 would leave its jobs more than 20 ms apart
   +13.893 s: flip 12199.612, the client's next GPU job began 5.28 ms after it (the frame before: 0.44 ms), its jobs 21.5 ms apart; CPU 2 also ran captureservice-5484 x5
   +55.097 s: flip 12240.815, the client's next GPU job began 3.64 ms after it (the frame before: 0.29 ms), its jobs 20.0 ms apart; CPU 2 also ran micomservice-2987 x3, tAUDDTV-2741 x1
-kernel waits: no late frame | client 422 reaction after a flip: p50 0.35 ms, p99.9 2.49, max 5.28; 2 over 3 ms, 2 frame gap(s) over 20 ms implied; flips answered 3594, longest interval 16.77 ms
+kernel waits: no late frame | client 422 reaction after a flip: p50 0.35 ms, p99.9 2.49, max 5.28; 2 over 3 ms, 2 frame gap(s) over 20 ms implied; answered 3594, flips at most 16.77 ms apart
