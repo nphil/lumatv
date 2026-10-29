@@ -32,7 +32,10 @@ Done and pushed to `forge/main` (see the commits below):
 
 Next, in this order:
 
-1. Run the whole compositor suite (`cd compositor && cargo test`, then `cargo test --features ui`); only `shell_rust` was run.
+1. Compositor suite: `cargo test --no-fail-fast` ran with these timing tests failing under a loaded machine, none touching the cameras (the
+   only change there is the `KINDS` entry): lib `wake::tests::a_time_shared_probe_measures_a_sleeping_thread_and_stops`, and the
+   integration tests `boxdim`, `livetv` (`a_launch_and_a_leave_of_live_tv...`) and `switcher` (`a_second_press_from_an_app...`). Rerun them
+   on a quiet machine, then `cargo test --features ui`; the `shell_rust` filter passes.
 2. HwPlanes' side of the live claim (see above); the full view needs nothing else when a window is granted or denied.
 3. Peers: the popup (RustSystem) calls `shell.cameras().open_full(id, now)`; Settings (RustSettings) renders the per-camera page with
    `cameras::options` and may give the cameras a page of their own (`CAMERAS_SETTINGS_PAGE`); the quick panel's Cameras tile
