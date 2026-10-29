@@ -156,6 +156,11 @@ impl Planner {
         self.slots.iter().find(|s| s.key == key).map_or(Pic::default(), |s| s.pic)
     }
 
+    /// The key the ask with `tag` was for, while it is in flight: what the host stores a decoded picture under.
+    pub fn key_of(&self, tag: u64) -> Option<&str> {
+        self.slots.iter().find(|s| s.in_flight == Some(tag)).map(|s| s.key.as_str())
+    }
+
     /// Whether a refused picture asked for once has been given up on: its card stays a glyph on a quiet tile.
     pub fn gave_up(&self, key: &str) -> bool {
         self.slots.iter().find(|s| s.key == key).is_some_and(|s| s.done && s.pic.last_at.is_none())

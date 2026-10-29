@@ -139,6 +139,8 @@ fn shape(name: &str) -> Option<Vec<Prim>> {
             v
         }
         "info" => vec![ring(10.0, 1.0), stroke(&[(12.0, 16.0), (12.0, 12.0)]), stroke(&[(12.0, 8.0), (12.0, 8.01)])],
+        // a filled disc half the box wide (the live dot of a "Live" button: 12 px in a 24 px box)
+        "dot" => vec![disc((12.0, 12.0), 6.0)],
         _ => return None,
     })
 }

@@ -10,6 +10,7 @@ pub mod options;
 pub mod pics;
 pub mod sheet;
 pub mod strip;
+pub mod surface;
 pub mod view;
 pub mod words;
 

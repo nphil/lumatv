@@ -63,6 +63,8 @@ pub enum Target {
     HeaderSettings,
     EmptySettings,
     Retry,
+    /// The picture of the full view: a click on it brings the chrome back and does nothing else.
+    Backdrop,
     Strip(SItem),
     /// The bar at this fraction of its width, in thousandths.
     Bar(u32),
@@ -1130,6 +1132,7 @@ impl App {
                 }
             }
             Target::Retry => self.ensure_live(true, &mut fx),
+            Target::Backdrop => {}
             Target::Tile(i) => {
                 if let Screen::Grid(g) = &mut self.screen {
                     g.focus = GFocus::Tile(i);
@@ -1501,6 +1504,11 @@ impl App {
     /// The intents the app raised for the shell since the last call.
     pub fn take_intents(&mut self) -> Vec<Intent> {
         std::mem::take(&mut self.intents)
+    }
+
+    /// The key the picture ask with `tag` is for (the host stores the decoded picture under it).
+    pub fn picture_key(&self, tag: u64) -> Option<String> {
+        self.planner.key_of(tag).map(str::to_string)
     }
 
     /// The picture keys (or key prefixes ending in `:`) the host's store may let go of.

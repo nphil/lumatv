@@ -35,6 +35,8 @@ pub struct Spec {
     pub icon: Option<&'static str>,
     /// The icon's own colour where it is not the label's (the live dot of a "Live" button).
     pub icon_ink: Option<Rgba>,
+    /// The icon follows the label instead of leading it (a "next" chevron).
+    pub icon_after: bool,
     pub tone: Tone,
     pub enabled: bool,
     /// Chosen (the strip's "Live" while live, a sheet's tab): the raised wash and edge, with no lift.
@@ -45,11 +47,18 @@ pub struct Spec {
 
 impl Spec {
     pub fn new(label: &str, tone: Tone) -> Self {
-        Self { label: label.to_string(), icon: None, icon_ink: None, tone, enabled: true, selected: false, radius: None }
+        Self { label: label.to_string(), icon: None, icon_ink: None, icon_after: false, tone, enabled: true, selected: false, radius: None }
     }
 
     pub fn with_icon(mut self, icon: &'static str) -> Self {
         self.icon = Some(icon);
+        self
+    }
+
+    /// An icon after the label.
+    pub fn with_icon_after(mut self, icon: &'static str) -> Self {
+        self.icon = Some(icon);
+        self.icon_after = true;
         self
     }
 
@@ -100,6 +109,20 @@ pub struct Place {
     pub z: i32,
 }
 
+/// A Lucide icon of the module's folder, or one of the kit's own marks (`glyph`, such as the live dot), in `ink`.
+fn icon_layer(kit: &mut Kit, name: &str, side: u32, ink: Rgba, z: i32) -> std::io::Result<Option<ImageLayer>> {
+    if kit.icons.has(name) {
+        return icon::layer(kit, name, side, ink, z, HIDDEN);
+    }
+    if super::glyph::known(name) {
+        let mut layer = kit.ui.scene.image(side, side, z, HIDDEN)?;
+        super::glyph::draw(name, side, ink, layer.pixels_mut());
+        layer.damage(None);
+        return Ok(Some(layer));
+    }
+    Ok(None)
+}
+
 pub struct Button {
     pub id: Id,
     frame: Frame,
@@ -113,6 +136,8 @@ pub struct Button {
     label_at: Props,
     icon_at: Props,
     label_box: Frame,
+    /// Where the icon and the words begin, as a group centred in the button.
+    group_x: f32,
     style: Style,
     shown: bool,
     hovered: bool,
@@ -131,6 +156,10 @@ impl Button {
 
     fn icon_side(kit: &Kit) -> u32 {
         (22.0 * kit.text_scale).round() as u32
+    }
+
+    fn icon_side_of(kit: &Kit) -> u32 {
+        Self::icon_side(kit)
     }
 
     /// The width of a button of this label: the words, the icon and its gap, and `space(7)` at both ends (an even width).
@@ -159,14 +188,17 @@ impl Button {
         let icon_ink = spec.icon_ink.unwrap_or(label_colour);
         let hover_fill = faded(ink, kit.tokens.states.hover_wash);
         let hover_edge = faded(edge_raised, 0.6);
-        let icon_name = spec.icon.filter(|n| kit.icons.has(n));
+        let icon_name = spec.icon.filter(|n| kit.icons.has(n) || super::glyph::known(n));
         let side = Self::icon_side(kit);
         let style = role_style(kit, TypeRole::Label, None, label_colour, Align::Centre);
         let label_w = width_of(kit, style, &spec.label);
         let glyph = if icon_name.is_some() { side as f32 + kit.space(2) } else { 0.0 };
         let line = kit.line(TypeRole::Label);
-        let label_box = Frame::new(glyph, ((h - line) / 2.0).round(), w - glyph, line);
-        let icon_at = Props::at(((w - label_w - glyph) / 2.0).round(), ((h - side as f32) / 2.0).round());
+        let after = spec.icon_after && icon_name.is_some();
+        let label_box = Frame::new(if after { 0.0 } else { glyph }, ((h - line) / 2.0).round(), w - glyph, line);
+        let group_x = ((w - label_w - glyph) / 2.0).round();
+        let icon_x = if after { group_x + label_w + kit.space(2) } else { group_x };
+        let icon_at = Props::at(icon_x, ((h - side as f32) / 2.0).round());
 
         let rest = GroupPose { x: frame.x, y: frame.y, pivot_x: w / 2.0, pivot_y: h / 2.0, ..GroupPose::IDENTITY };
         let other = |e: ui::error::UiError| std::io::Error::other(format!("{e}"));
@@ -179,7 +211,7 @@ impl Button {
             let mut label = Text::new(kit, label_box, z + 3, style, &spec.label)?;
             label.set_props(HIDDEN);
             let icon = match icon_name {
-                Some(n) => icon::layer(kit, n, side, icon_ink, z + 3, HIDDEN)?,
+                Some(n) => icon_layer(kit, n, side, icon_ink, z + 3)?,
                 None => None,
             };
             Ok((base, hover, label, icon))
@@ -200,6 +232,7 @@ impl Button {
             label_at: Props::at(label_box.x, label_box.y),
             icon_at,
             label_box,
+            group_x,
             style,
             shown: false,
             hovered: false,
@@ -352,10 +385,19 @@ impl Button {
         let at = Frame::new(self.frame.x + shift.0, self.frame.y + shift.1, self.frame.w, self.frame.h);
         let panel = lint.panel_on(&format!("button {}", self.spec.label), at, paint, false, under);
         if !self.spec.label.is_empty() {
-            // the icon and the words are one run, centred together: the words alone sit half an icon to the right of the button's centre
-            let half = if self.icon.is_some() { (Self::icon_side(kit) as f32 + kit.space(2)) / 2.0 } else { 0.0 };
-            let at = Frame::new(at.x + self.label_box.x - half, at.y + self.label_box.y, self.label_box.w, self.label_box.h);
-            lint.word(kit, &format!("button {}", self.spec.label), &self.spec.label, at, self.style, Some(panel));
+            let name = format!("button {}", self.spec.label);
+            if self.icon.is_some() {
+                // the icon and the words are one group, centred in the button as a whole: the group is what is held to the centre
+                let words = kit.ui.fonts.measure(&self.spec.label, self.style.ty).width.ceil();
+                let glyph = Self::icon_side_of(kit) as f32 + kit.space(2);
+                let group = Frame::new(at.x + self.group_x, at.y + self.label_box.y, glyph + words, self.label_box.h);
+                // ink that is not the full reading ink (a primary button's) is muted by design, as `Lint::word` has it
+                let muted = self.style.colour != kit.ui.look.ink() || self.style.colour.3 < 230;
+                lint.word_at(&name, group, self.style.colour, self.style.ty.px, muted, Some(panel));
+            } else {
+                let at = Frame::new(at.x + self.label_box.x, at.y + self.label_box.y, self.label_box.w, self.label_box.h);
+                lint.word(kit, &name, &self.spec.label, at, self.style, Some(panel));
+            }
         }
     }
 

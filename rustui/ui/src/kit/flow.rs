@@ -307,6 +307,19 @@ impl Flow {
         Ok(())
     }
 
+    /// Puts `region` at `offset` without motion (a screen that opens already scrolled).
+    pub fn scroll_snap(&mut self, region: Region, offset: f32) -> Result<(), UiError> {
+        if let Some(s) = self.scrollers.iter().find(|s| s.region == region) {
+            s.track.settle(Some(offset), Some(0.0), Settle::Timed(MotionToken { duration_ms: 0, ease: Ease::Linear }))?;
+        }
+        Ok(())
+    }
+
+    /// Gives the scroller of `region` back (its track is freed): the content left the screen.
+    pub fn drop_scroller(&mut self, region: Region) {
+        self.scrollers.retain(|s| s.region != region);
+    }
+
     pub fn scroll_at(&self, region: Region, at_ns: u64) -> Option<f32> {
         self.scrollers.iter().find(|s| s.region == region).map(|s| s.track.value_at(at_ns))
     }
