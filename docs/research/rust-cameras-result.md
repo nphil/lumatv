@@ -6,35 +6,39 @@ The full-screen Cameras app of `docs/research/cameras-ui-spec.md` in `rustui/ui/
 
 ## Resume here
 
-Done (all on `forge/main` unless marked):
+Done and pushed to `forge/main` (see the commits below):
 
-- Model, all host-tested (`cameras/*.rs`, 47 behaviour tests in `app_tests.rs` plus the unit tests of each module): `words` (clock, ages,
+- Model, all host-tested (`cameras/*.rs`, 48 behaviour tests in `app_tests.rs` plus the unit tests of each module): `words` (clock, ages,
   refusal words), `data` (typed `cameras`, `cameras.live`, `cameras.events`, popup, recordings, ticks, clips, settings), `grid` (columns,
-  layout, scroll window, keys), `strip` (span, rate, scrub steps, gaps, events), `sheet`, `options`, `pics` (the picture planner: pacing,
-  tags `0x0CA0_0000..=0x0CAF_FFFF`), `view`, `app` (`App`: `Model` impl, `open_grid`, `open_full`, `open_events`, `close`, `take_intents`).
+  layout, scroll window, keys; the name under a tile grows with the text), `strip` (span, rate, scrub steps, gaps, events), `sheet`,
+  `options`, `pics` (the picture planner: pacing, tags `0x0CA0_0000..=0x0CAF_FFFF`), `view`, `app` (`App`: `Model` impl, `open_grid`,
+  `open_full`, `open_events`, `close`, `take_intents`, `live_claim`).
 - Surfaces (`cameras/surface/`): `grid`, `full` (hole, stills, chrome fade, note), `strip` (painted bar canvas, knob, bubble), `sheet`,
   `options`, `toast`, `pill`, `pic` (picture store, compositor-scaled layers), `root` (`CamerasSurface`), `common`.
 - `cameras/host.rs` (`Cameras`: decodes the stills, joins model and surface) and the wiring in `shell.rs` (`Kinds.cameras`, feed, key,
-  pointer, tick, report, state, geometry, lint, `take_cameras_intents()`, `cameras()`).
-- Kit additions: `z::CAMERAS`, `Flow::scroll_snap` / `drop_scroller`, `Button::icon_after` and glyph-name icons, "dot" glyph, the muted rule
-  in `Button::feed_lint` for ink that is not the reading ink.
+  pointer, tick, report, state, geometry, lint, `cameras_asks`, `cameras()`).
+- The grid's `Settings` button: the app closes and `Shell::cameras_asks` opens Settings at `CAMERAS_SETTINGS_PAGE` (`"look"` until
+  Settings has a Cameras page: change that one const); while Settings is open the app takes no key and no pointer sample.
+- Video windows: `App::live_claim()` is the `camera-full` claim of `compositor/.../vwin.rs` (`LiveClaim::request()` is its
+  `Request::from_json` shape, also at `state.cameras.liveClaim` in the report). Nothing sends it yet: HwPlanes' step 6
+  (`rustui/ui/src/host/vwin.rs`) reads it, makes the claim over `Effect::Channel` and releases it when it is `None`. The picture layer is
+  a hole either way.
+- Kit additions: `z::CAMERAS`, `Flow::scroll_snap` / `drop_scroller`, `Button::icon_after` and glyph-name icons, the "dot" glyph, the
+  muted rule in `Button::feed_lint` for ink that is not the reading ink.
 - Compositor: `"cameras"` in `KINDS` (`compositor/crates/lumatv-compositor/src/shell_rust.rs`).
-- Tests: `tests/test_rust_cameras.py` (13 cases against the fake helper; the lint matrix runs 11 scenes at both sizes and looks),
-  `tests/rust_cameras_scenes.py` (the scenes; `python3 tests/rust_cameras_scenes.py` renders `docs/mocks/host-rust/cameras/*.jpg`), the
-  fake helper's camera routes in `tests/qmlhost/fakehelper.py`.
+- Tests: `tests/test_rust_cameras.py` (14 cases against the fake helper; the lint matrix runs 11 scenes at both sizes and looks),
+  `tests/rust_cameras_scenes.py` (the scenes; `python3 tests/rust_cameras_scenes.py` renders `docs/mocks/host-rust/cameras/*.jpg`, the
+  committed set is `COMMITTED` in that file, 1280 wide), the fake helper's camera routes in `tests/qmlhost/fakehelper.py`.
 
 Next, in this order:
 
-1. **Names under the tiles at 200 % text** overlap the next row's pictures: `NAME_H` (44) is a constant in `cameras/grid.rs`. Make it
-   scale (`(44 * text_scale.max(1.0)).round()`) through `Room`/`Layout` (`layout()`, `Layout::pitch()`, the two `block_h` sums) and
-   `surface/grid.rs` (`total_h`, the name's place); the spec's vectors at 100 % stay as they are. Then re-render.
-2. Re-render the matrix and commit `docs/mocks/host-rust/cameras/` (68 JPEGs, 16 MB, not committed yet: commit them once).
-3. Run the whole compositor suite (`cd compositor && cargo test`, then `cargo test --features ui`); only `shell_rust` was run.
-4. After rebasing, the `KINDS` line of `shell_rust.rs` conflicts with the other slices' kinds: keep every name.
-5. Peers' side: the popup (RustSystem) calls `shell.cameras().open_full(id, now)`; Settings (RustSettings) reads
-   `take_cameras_intents()` (`Intent::OpenSettings`) and renders the per-camera page with `cameras::options`; the quick panel's
-   Cameras tile (RustPanels) calls `shell.cameras().open_grid(now)`. Until then the grid's `Settings` button does nothing.
-6. Delete `Cameras.qml` only after Main says the Rust kind passed the TV gate twice.
+1. Run the whole compositor suite (`cd compositor && cargo test`, then `cargo test --features ui`); only `shell_rust` was run.
+2. HwPlanes' side of the live claim (see above); the full view needs nothing else when a window is granted or denied.
+3. Peers: the popup (RustSystem) calls `shell.cameras().open_full(id, now)`; Settings (RustSettings) renders the per-camera page with
+   `cameras::options` and may give the cameras a page of their own (`CAMERAS_SETTINGS_PAGE`); the quick panel's Cameras tile
+   (RustPanels) calls `shell.cameras().open_grid(now)`.
+4. After a TV round, tune what it finds (the checks below). Delete `Cameras.qml` only after Main says the Rust kind passed the TV
+   gate twice.
 
 Decisions taken (conservative, no question to Nitin needed):
 
@@ -45,6 +49,7 @@ Decisions taken (conservative, no question to Nitin needed):
   stream over Home does not read as an app in front.
 - A refusal is a toast above the strip and its bubble; words come from `words::refusal`; no instruction sentences anywhere (glyph hints).
 - The grid scrolls by whole rows on the shared flowing-focus spring; rows outside the shown block are built but answer no hit.
+- The Settings button closes the app (Settings replaces it; Back in Settings goes to what was under the app).
 
 ## Parity
 

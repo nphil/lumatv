@@ -204,6 +204,21 @@ class RustCameras(unittest.TestCase):
         self.assertEqual((s[1]['screen']['mode'], s[1]['screen']['camera']), ('full', '273'), 'the click opens the camera under it')
         self.assertEqual(live_posts(res), [['/v1/cameras/live', {'camera': '273'}]])
 
+    def test_the_grids_settings_button_closes_the_app_and_opens_settings_at_home_and_look(self):
+        r = sc.Run(kinds='cameras,settings')
+        start(r)
+        r.press(1500, 'up').press(1700, 'right').eval(1900, 'state')       # the header's Settings button
+        r.press(2000, 'ok').eval(2500, 'state')
+        r.press(2600, 'back').press(2900, 'back').eval(3400, 'state')       # the page to the rail, the rail to out
+        res = self.play(r, 3500)
+        docs = [e for e in res['evals'] if isinstance(e, dict) and isinstance(e.get('cameras'), dict) and 'screen' in e['cameras']]
+        self.assertEqual(docs[0]['cameras']['screen']['focus'], 'Settings')
+        self.assertFalse(docs[0]['settings']['open'])
+        self.assertEqual(docs[1]['cameras']['screen']['mode'], '', 'the app makes way')
+        self.assertEqual((docs[1]['settings']['open'], docs[1]['settings']['page']), (True, 'look'), 'Settings, Home & look')
+        self.assertFalse(docs[2]['settings']['open'], 'Back twice closes Settings')
+        self.assertEqual(docs[2]['cameras']['screen']['mode'], '')
+
     def test_a_refusal_is_a_toast_and_the_picture_goes_on(self):
         r = sc.Run()
         r.setup(lambda c, st: st.refusals.update({'/v1/cameras/live': (409, 'busy', 'Scrypted is busy')}))

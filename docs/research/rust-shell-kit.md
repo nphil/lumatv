@@ -201,9 +201,10 @@ stills before it and over an app), the strip with its scrub bubble, the events a
 `app.rs` is the model (`Model`); the words, the helper's `cameras*` data, the grid's layout, the strip's maths, the sheet, the options
 and the picture pacing are modules beside it, each with host tests that state the QML viewer's cases and the spec's vectors.
 `surface/` draws the view; `host.rs` joins the two and decodes the stills the helper answers with, so the model never sees bytes. A
-kind opens it with `shell.cameras().open_grid(now)`, `open_full(id, now)` or `open_events(now)` and reads `take_cameras_intents()`
-(the grid's `Settings` button); `cameras::options` is the model and view of the per-camera page that Settings › Cameras renders from
-its schema. A still is a layer at its own size that the compositor scales (`Props.scale` and a clip): one upload and no resampling
+kind opens it with `shell.cameras().open_grid(now)`, `open_full(id, now)` or `open_events(now)`; the grid's `Settings` button closes
+the app and opens Settings (`Shell::cameras_asks`, the page id is `CAMERAS_SETTINGS_PAGE`); `cameras::options` is the model and view of
+the per-camera page that Settings › Cameras renders from its schema; `App::live_claim()` names the video window the live view wants
+(the shape of a `camera-full` claim of the compositor's video-window allocator). A still is a layer at its own size that the compositor scales (`Props.scale` and a clip): one upload and no resampling
 here. The grid builds the shown rows and one row each side, the strip's bar is one painted canvas, and every tile, card, row and
 button lifts on the shared flowing focus. `tests/rust_cameras_scenes.py` renders the scenes to `docs/mocks/host-rust/cameras/` (dark
 and light, 100 % and 200 % text) with the lint; `tests/test_rust_cameras.py` runs the cases against the fake helper. Status and the

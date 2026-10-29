@@ -62,6 +62,36 @@ impl Default for Config {
     }
 }
 
+/// The live video the full view wants a window for (see [`App::live_claim`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LiveClaim {
+    pub camera: String,
+    /// Where the picture goes in the 1920 by 1080 of the screen and the output: the stream fitted and centred.
+    pub rect: (i32, i32, i32, i32),
+    pub codec: String,
+    pub width: u32,
+    pub height: u32,
+    pub fps: u32,
+}
+
+impl LiveClaim {
+    /// The claim as the compositor's `POST /v1/vwin` takes it (`vwin.rs` `Request::from_json`).
+    pub fn request(&self) -> Value {
+        let (x, y, w, h) = self.rect;
+        json!({"id": "cameras-full", "kind": "camera-full", "rect": {"x": x, "y": y, "w": w, "h": h}, "need": {"codec": self.codec, "w": self.width, "h": self.height, "fps": self.fps}})
+    }
+}
+
+/// A `width` by `height` picture fitted into the screen and centred; the whole screen when the size is not known.
+fn fit(width: u32, height: u32) -> (i32, i32, i32, i32) {
+    if width == 0 || height == 0 {
+        return (0, 0, 1920, 1080);
+    }
+    let scale = (1920.0 / width as f32).min(1080.0 / height as f32);
+    let (w, h) = (((width as f32 * scale).round() as i32).min(1920), ((height as f32 * scale).round() as i32).min(1080));
+    ((1920 - w) / 2, (1080 - h) / 2, w, h)
+}
+
 /// What the app asks the shell for besides effects.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
@@ -250,6 +280,24 @@ impl App {
             Expect::Recording => self.live.is_recording(),
         };
         self.live.camera == c.id && self.live.state == LiveState::Playing && mode_ok && self.asked.as_deref() == Some(&c.id)
+    }
+
+    /// What the full view's live video asks of the display while it is wanted: the stream the helper was asked for and the rectangle it is
+    /// fitted to on the screen. Whoever owns the spare hardware video windows (`compositor/.../vwin.rs`, kind `camera-full`) makes its claim
+    /// from this, and lets it go when this is `None` (the view closed, another camera, an app in front without live over apps).
+    pub fn live_claim(&self) -> Option<LiveClaim> {
+        let Screen::Full(f) = &self.screen else { return None };
+        let c = self.cams.get(&f.camera)?;
+        if self.asked.as_deref() != Some(&c.id) || !self.can_live(c) {
+            return None;
+        }
+        let (codec, width, height, fps) = if self.live.camera == c.id && self.live.width > 0 {
+            (self.live.codec.clone(), self.live.width, self.live.height, self.live.fps)
+        } else {
+            let n = c.native.as_ref()?;
+            (n.codec.clone(), n.width, n.height, n.fps)
+        };
+        Some(LiveClaim { camera: c.id.clone(), rect: fit(width, height), codec, width, height, fps })
     }
 
     fn layout(&self) -> Layout {
@@ -1552,6 +1600,7 @@ impl App {
             "asked": self.asked,
             "expect": format!("{:?}", self.expect),
             "hole": self.hole(),
+            "liveClaim": self.live_claim().map(|c| c.request()),
             "strip": self.strip.is_some(),
             "sheet": self.sheet.is_some(),
             "options": self.options.is_some(),

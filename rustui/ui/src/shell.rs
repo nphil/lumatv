@@ -24,6 +24,9 @@ use crate::system::volume_surface::VolumeSurface;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
+/// The Settings page the Cameras grid's `Settings` button opens (the page of the cameras' settings is in Home & look).
+const CAMERAS_SETTINGS_PAGE: &str = "look";
+
 /// What the shell asks the host to do.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Act {
@@ -129,8 +132,6 @@ pub struct Shell {
     home_surface: HomeSurface,
     /// The Cameras app (the grid, the full view, the strip, the sheet, the options page): a kind of its own over the panels.
     cameras: Cameras,
-    /// What the Cameras app asked of the shell and nobody has taken yet (the grid's `Settings` button).
-    cameras_intents: Vec<crate::cameras::app::Intent>,
     /// Settings, the modal kind over everything but the system layer.
     settings: SettingsHost,
     /// The panels: the quick panel, the input picker and the notification drawer.
@@ -162,7 +163,6 @@ impl Shell {
             home,
             home_surface: HomeSurface::new(system_z),
             cameras: Cameras::new(system_z + crate::kit::z::CAMERAS, CamerasConfig::from_theme(&kit, theme)),
-            cameras_intents: Vec::new(),
             panels: Panels::new(system_z + crate::kit::z::PANELS, theme),
             kit,
             engine,
@@ -336,12 +336,13 @@ impl Shell {
                 }
             }
         }
-        // the Cameras viewer takes the keys unless an alert, a PIN prompt or the keyboard is up over it
-        if self.kinds.cameras && (!matches!(input, Input::Key { .. }) || !self.sys.busy()) && !layer_had {
+        // the Cameras viewer takes the keys unless an alert, a PIN prompt or the keyboard is up over it, or Settings, which its grid opens
+        let over = matches!(input, Input::Key { .. }) && (self.sys.busy() || (self.kinds.settings && self.settings.is_open()));
+        if self.kinds.cameras && !over && !layer_had {
             for e in self.cameras.update(input, now) {
                 self.carry(e, now, acts);
             }
-            self.cameras_intents.extend(self.cameras.take_intents());
+            self.cameras_asks(now, acts);
         }
         if self.kinds.settings && !layer_had {
             for e in self.settings.update(input, now) {
@@ -491,12 +492,11 @@ impl Shell {
                         self.carry(e, now, &mut acts);
                     }
                 }
-                if self.kinds.cameras {
-                    let sample = Sample { x: *x, y: *y, buttons: *buttons, visible: *visible };
+                if self.kinds.cameras && !(self.kinds.settings && self.settings.is_open()) {
                     for e in self.cameras.pointer(&mut self.kit, &mut self.engine, now_ns, now, sample) {
                         self.carry(e, now, &mut acts);
                     }
-                    self.cameras_intents.extend(self.cameras.take_intents());
+                    self.cameras_asks(now, &mut acts);
                 }
                 self.feed(&Input::Pointer { x: *x, y: *y, buttons: *buttons, visible: *visible }, now, &mut acts);
                 let sample = Sample { x: *x, y: *y, buttons: *buttons, visible: *visible };
@@ -749,9 +749,20 @@ impl Shell {
         &self.home
     }
 
-    /// What the Cameras app asked of the shell since the last call: Settings, Home & look, Cameras.
-    pub fn take_cameras_intents(&mut self) -> Vec<crate::cameras::app::Intent> {
-        std::mem::take(&mut self.cameras_intents)
+    /// What the Cameras app asked of the shell: its grid's `Settings` button (the app closes first) opens Settings at Home & look, the page
+    /// that holds the cameras' settings.
+    fn cameras_asks(&mut self, now: u64, acts: &mut Vec<Act>) {
+        for intent in self.cameras.take_intents() {
+            match intent {
+                crate::cameras::app::Intent::OpenSettings if self.kinds.settings => {
+                    for e in self.settings.open(Some(CAMERAS_SETTINGS_PAGE), now) {
+                        self.carry(e, now, acts);
+                    }
+                    self.redraw = true;
+                }
+                crate::cameras::app::Intent::OpenSettings => acts.push(Act::Log("cameras ask for settings".into())),
+            }
+        }
     }
 
     /// The Cameras app, for the screens that open it (the pop-up's OK, the quick panel's tile).

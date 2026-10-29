@@ -303,6 +303,29 @@ fn the_feeders_own_window_in_front_is_the_picture_and_not_an_app_over_it() {
     assert!(r.view().over_app);
 }
 
+#[test]
+fn the_live_view_names_the_window_it_wants_for_whoever_owns_the_video_windows() {
+    let mut r = Rig::new(three());
+    assert!(r.app.live_claim().is_none(), "nothing is open");
+    r.app.open_full("273", T0);
+    r.at(100);
+    let claim = r.app.live_claim().expect("asked for the stream: the window is wanted before it plays");
+    assert_eq!((claim.camera.as_str(), claim.rect), ("273", (0, 0, 1920, 1080)), "a 16 by 9 stream fills the screen");
+    assert_eq!(
+        claim.request(),
+        json!({"id": "cameras-full", "kind": "camera-full", "rect": {"x": 0, "y": 0, "w": 1920, "h": 1080}, "need": {"codec": "h264", "w": 1920, "h": 1080, "fps": 15}})
+    );
+    let mut four_by_three = live_topic("273", "live", "playing");
+    four_by_three["width"] = json!(1440);
+    four_by_three["height"] = json!(1080);
+    r.helper("cameras.live", four_by_three);
+    assert_eq!(r.app.live_claim().unwrap().rect, (240, 0, 1440, 1080), "a narrower stream is centred");
+    r.at(200);
+    r.topic("foreground", json!({"app": "netflix", "home": false}));
+    assert!(r.app.live_claim().is_none(), "over an app live is not asked for: no window");
+    assert_eq!(r.app.debug()["liveClaim"], Value::Null);
+}
+
 // ---------------------------------------------------------------------------- the grid
 
 #[test]
