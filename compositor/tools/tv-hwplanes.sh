@@ -8,8 +8,9 @@
 #   hwplanes.sh alpha                        P0: the OSD's constant alpha against the pages' format (needs --page-alpha on for the PASS)
 #   hwplanes.sh pointer                      P1/P2: 60 moves of the pointer in the frame, then on the cursor plane: frames drawn, the plane's registers
 #   hwplanes.sh afbc                         A1/A2: what the plane and the GPU list, the pages' layout, the registers, a frame time reading
+#   hwplanes.sh layout on|off|alpha-on|alpha-off   A3: the page layout switched while running (afbc on|off, pagealpha on|off), the ring converted one page per frame
 #   hwplanes.sh shot NAME                    LG's DISPLAY and VIDEO captures to out/hwplanes/NAME-display.png and NAME-video.png
-#   hwplanes.sh feeder CLIP SIZE CODEC FPS SECS   the feeder in a video window, in the background (V2 to V6)
+#   hwplanes.sh feeder CLIP SIZE CODEC FPS SECS [APP]   the feeder in a video window, in the background (V2 to V7); one per APP id (default the Cameras app's)
 #   hwplanes.sh vwin                         the claims, the windows, the sinks videooutputd reports
 #   hwplanes.sh sizes                        V6: a claim moved through sizes from 114x64 to full screen, a capture each
 #   hwplanes.sh stop                         kill the feeder, release every claim, vwin off, pointer gpu
@@ -112,6 +113,34 @@ step_afbc() {
     say "A2 capture: out/hwplanes/afbc.png (compare with a linear run: tv_hwplanes.py compare A.png B.png)"
 }
 
+step_layout() {
+    case "$1" in
+    on) w="afbc on" ;;
+    off) w="afbc off" ;;
+    alpha-on) w="pagealpha on" ;;
+    alpha-off) w="pagealpha off" ;;
+    *) say "layout on|off|alpha-on|alpha-off"; exit 1 ;;
+    esac
+    ctl pointer gpu > /dev/null
+    say "A3 before: pages $(pages_of "$(ctl afbc)" | grep -oE '"kinds":\[[^]]*\]'); $(grep -E 'CmaFree' /proc/meminfo | tr -s ' ')"
+    R=$(ctl $w)
+    say "A3 ctl $w: ok=$(echo "$R" | jbool ok) $(echo "$R" | jstr error)"
+    # a still screen draws no frame: the pointer moved in the frame makes composed ones, and the ring is converted one page to a frame
+    i=0
+    while [ $i -lt 20 ]; do
+        ctl pointer $((400 + i * 37)) $((300 + i * 11)) > /dev/null
+        sleep 0.3
+        P=$(pages_of "$(ctl afbc)")
+        [ "$(echo "$P" | jnum converting)" = 0 ] && break
+        i=$((i + 1))
+    done
+    P=$(pages_of "$(ctl afbc)")
+    say "A3 after $i moves: kind=$(echo "$P" | jstr kind) asked=$(echo "$P" | jstr asked) alpha=$(echo "$P" | jbool alpha) converting=$(echo "$P" | jnum converting) $(echo "$P" | grep -oE '"kinds":\[[^]]*\]') fallback=$(echo "$P" | grep -oE '"fallback":(null|"[^"]*")' | head -1)"
+    say "A3 fb0: global_alpha_en=$(fb 0 hdr.global_alpha_en) flips=$(fb 0 status.fb_flip_cnt); $(grep -E 'CmaFree' /proc/meminfo | tr -s ' '); renderUsLast=$(ctl status | jnum renderUsLast)"
+    cap "layout-$1" DISPLAY > /dev/null
+    say "A3 capture out/hwplanes/layout-$1.png"
+}
+
 step_shot() {
     n=$(cap "$1-display" DISPLAY)
     v=$(cap "$1-video" VIDEO)
@@ -119,13 +148,14 @@ step_shot() {
 }
 
 step_feeder() {
-    clip=$1; size=$2; codec=$3; fps=$4; secs=$5
-    [ -x $FEEDER ] || { say "no $FEEDER: upload gfn/feeder/build/arm/lumatv-gfn-feeder"; exit 1; }
-    [ -f "$clip" ] || { say "no clip $clip"; exit 1; }
-    pkill -f lumatv-gfn-feeder 2> /dev/null
+    clip=$1; size=$2; codec=$3; fps=$4; secs=$5; app=${6:-$APP}
+    [ -x $FEEDER ] || { say "no $FEEDER: upload gfn/feeder/build/arm/lumatv-gfn-feeder (tv_hwplanes.py put-feeder)"; exit 1; }
+    [ -f "$clip" ] || { say "no clip $clip (tv_hwplanes.py put-clip)"; exit 1; }
+    # only the feeder of this app id is replaced: V7 runs two, each with an id of its own
+    pkill -f "lumatv-gfn-feeder.* -a $app( |\$)" 2> /dev/null
     sleep 0.5
-    XDG_RUNTIME_DIR=$RT WAYLAND_DISPLAY=wayland-0 $FEEDER --play "$clip" --size "$size" --codec "$codec" --fps "$fps" --seconds "$secs" --loop -w video -a $APP --stats $OUT/feeder-stats.jsonl > $OUT/feeder.log 2>&1 &
-    say "feeder started: pid $! ($clip $size $codec at $fps for $secs s, window type video, app $APP); log out/hwplanes/feeder.log"
+    XDG_RUNTIME_DIR=$RT WAYLAND_DISPLAY=wayland-0 $FEEDER --play "$clip" --size "$size" --codec "$codec" --fps "$fps" --seconds "$secs" --loop -w video -a "$app" --stats $OUT/feeder-$app.jsonl > $OUT/feeder-$app.log 2>&1 &
+    say "feeder started: pid $! ($clip $size $codec at $fps for $secs s, window type video, app $app); log out/hwplanes/feeder-$app.log"
 }
 
 step_vwin() {
@@ -136,7 +166,7 @@ step_vwin() {
     say "vwin windows: $(echo "$V" | grep -oE '"windows":\[[^]]*\]' | head -1)"
     timeout 10 luna-send -n 1 luna://com.webos.service.videooutput/getStatus '{}' > $OUT/videooutput-status.json 2>&1
     say "videooutputd sinks: $(grep -oE '"sink":"[A-Z0-9]*"|"connected":(true|false)|"subScalerOccupied":(true|false)|"zOrder":[0-9]+' $OUT/videooutput-status.json | tr '\n' ' ')"
-    say "feeder: $(tail -c 300 $OUT/feeder-stats.jsonl 2>/dev/null | tr '\n' ' ')"
+    for f in $OUT/feeder-*.jsonl; do [ -f "$f" ] && say "feeder ${f##*/}: $(tail -c 200 $f | tr '\n' ' ')"; done
 }
 
 step_sizes() {
@@ -146,7 +176,7 @@ step_sizes() {
         ctl vwin move t1 $x $y $w $h > /dev/null
         sleep 2
         c=$(cap "size-$r" DISPLAY)
-        say "V6 $r at $x,$y: capture $c bytes; $(ctl vwin | grep -oE '"placed":(true|false)' | head -1); feeder: $(tail -c 160 $OUT/feeder-stats.jsonl 2>/dev/null | tr '\n' ' ')"
+        say "V6 $r at $x,$y: capture $c bytes; $(ctl vwin | grep -oE '"placed":(true|false)' | head -1); feeder: $(tail -c 160 $OUT/feeder-$APP.jsonl 2>/dev/null | tr '\n' ' ')"
     done
 }
 
@@ -154,8 +184,12 @@ step_stop() {
     pkill -f lumatv-gfn-feeder 2> /dev/null
     ctl vwin release all > /dev/null
     ctl vwin off > /dev/null
+    ctl vwin slots 2 > /dev/null
     ctl pointer gpu > /dev/null
-    say "stopped: feeder killed, claims released, vwin off, pointer on the GPU"
+    ctl afbc off > /dev/null
+    # the pages go back to XR24 unless the flags file asked for alpha at start
+    grep -q -- '--page-alpha on' $D/compositor.flags 2> /dev/null || ctl pagealpha off > /dev/null
+    say "stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again (ctl afbc shows the ring while it converts)"
 }
 
 case "${1:-help}" in
@@ -163,10 +197,11 @@ read) step_read ;;
 alpha) step_alpha ;;
 pointer) step_pointer ;;
 afbc) step_afbc ;;
+layout) step_layout "${2:-}" ;;
 shot) step_shot "${2:-shot}" ;;
 feeder) shift; step_feeder "$@" ;;
 vwin) step_vwin ;;
 sizes) step_sizes ;;
 stop) step_stop ;;
-*) sed -n 2,19p $0 ;;
+*) sed -n 2,21p $0 ;;
 esac

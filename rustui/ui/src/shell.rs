@@ -132,6 +132,8 @@ pub struct Shell {
     home_surface: HomeSurface,
     /// The Cameras app (the grid, the full view, the strip, the sheet, the options page): a kind of its own over the panels.
     cameras: Cameras,
+    /// The display's spare video windows the screens' live pictures are asked for (`--vwin` of the compositor): the claims posted and what the topic answered.
+    vwin: crate::host::vwin::Vwin,
     /// Settings, the modal kind over everything but the system layer.
     settings: SettingsHost,
     /// The panels: the quick panel, the input picker and the notification drawer.
@@ -163,6 +165,7 @@ impl Shell {
             home,
             home_surface: HomeSurface::new(system_z),
             cameras: Cameras::new(system_z + crate::kit::z::CAMERAS, CamerasConfig::from_theme(&kit, theme)),
+            vwin: crate::host::vwin::Vwin::new(),
             panels: Panels::new(system_z + crate::kit::z::PANELS, theme),
             kit,
             engine,
@@ -348,6 +351,12 @@ impl Shell {
             for e in self.settings.update(input, now) {
                 self.carry(e, now, acts);
             }
+        }
+        // what the screens want on a video window now, and the answers of the compositor's `vwin` topic
+        let mut fx = self.vwin.update(input, now);
+        fx.extend(self.vwin.want(&self.vwin_wants(), now));
+        for e in fx {
+            self.carry(e, now, acts);
         }
     }
 
@@ -677,7 +686,7 @@ impl Shell {
         }
         let cameras = if self.kinds.cameras { self.cameras.due_at() } else { None };
         let settings = if self.kinds.settings { self.settings.due_at() } else { None };
-        [due, self.sys.due_at(&self.kinds), self.panels.due_at(&self.kinds), cameras, settings].into_iter().flatten().min()
+        [due, self.sys.due_at(&self.kinds), self.panels.due_at(&self.kinds), cameras, settings, self.vwin.due_at()].into_iter().flatten().min()
     }
 
     pub fn is_live(&self) -> bool {

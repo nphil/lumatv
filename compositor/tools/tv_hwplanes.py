@@ -2,7 +2,7 @@
 """Drives the hardware-planes TV round (docs/research/hw-planes-result.md, "TV-round checklist") from the workstation.
 
     tv_hwplanes.py STEP [ARGS...]      puts tv-hwplanes.sh on the set as /tmp/lumatv/hwplanes.sh and runs `hwplanes.sh STEP ARGS` in a PTY
-                                       (luna-send needs one): read, alpha, pointer, afbc, shot NAME, feeder CLIP SIZE CODEC FPS SECS, vwin, sizes, stop
+                                       (luna-send needs one): read, alpha, pointer, afbc, layout on|off|alpha-on|alpha-off, shot NAME, feeder CLIP SIZE CODEC FPS SECS [APP], vwin, sizes, stop
     tv_hwplanes.py ctl WORDS...        one `lumatv-compositor ctl` line against the live compositor ("ctl vwin apps", "ctl afbc on")
     tv_hwplanes.py put-feeder FILE     uploads a feeder build (gfn/feeder/build/arm/lumatv-gfn-feeder) to /tmp/gfn/
     tv_hwplanes.py put-clip FILE       uploads a test clip to /tmp/gfn/clips/
@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "..", "docs", "research", "arch"))
 REMOTE = "/tmp/lumatv/hwplanes.sh"
 OUT = "/tmp/lumatv/out/hwplanes"
 LOCAL_OUT = "/tmp/lumatv-tv-out/hwplanes"
-STEPS = ("read", "alpha", "pointer", "afbc", "shot", "feeder", "vwin", "sizes", "stop")
+STEPS = ("read", "alpha", "pointer", "afbc", "layout", "shot", "feeder", "vwin", "sizes", "stop")
 CTL = ("/tmp/lumatv/lib/ld-linux-aarch64.so.1 --library-path /tmp/lumatv/lib /tmp/lumatv/bin/lumatv-compositor ctl --runtime-dir %s %s")
 
 
