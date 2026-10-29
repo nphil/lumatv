@@ -84,9 +84,9 @@ impl Shell {
         let engine = Engine::new(&kit).map_err(|e| std::io::Error::other(format!("{e}")))?;
         Ok(Self {
             volume: Volume::default(),
-            volume_surface: VolumeSurface::new(system_z, icons, theme, layout),
+            volume_surface: VolumeSurface::new(system_z + crate::kit::z::SYSTEM, icons, theme, layout),
             toasts: Toasts::new(),
-            toast_surface: ToastSurface::new(system_z + 10, theme, layout),
+            toast_surface: ToastSurface::new(system_z + crate::kit::z::SYSTEM + 10, theme, layout),
             kit,
             engine,
             kinds,

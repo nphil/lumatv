@@ -101,6 +101,14 @@ words outside their panel (1 px), crammed against it (8 px at the sides, 4 above
 centre of a button, panels outside the safe area, and ink under 4.5 to 1 (3 to 1 from 48 px and for ink2) on the panel's paint
 over the worst of black, white and mid grey. Host tests run it at 100 % and 200 % text.
 
+## Where a kind draws: z
+
+Everything at the compositor's `system_z` or more is stack 1, over the windows (`compositor/src/ui/mod.rs`). `kit::z` gives each
+kind a band of 200 above it: `PANELS` (+100: the quick panel, the picker, Quick Access, the drawer, menus, confirm, the switcher's
+chrome), `SETTINGS` (+300), `EDITOR` (+500, the overlay layout editor), `KEYBOARD` (+600), `SYSTEM` (+800: the volume display, the
+toasts, the alerts and cards, the capture mark, the saver), so a bar or a toast stays over a panel or Settings. A kind draws at
+`system_z + z::<BAND> + its own offsets` and never outside its band. Home (stack 0) is below `system_z`.
+
 ## The scene's budget
 
 Every kind of one process draws in the one scene the engine gives it, under the compositor's ceilings (`ui::limits`: 256

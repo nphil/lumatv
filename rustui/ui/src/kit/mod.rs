@@ -27,6 +27,20 @@ use ui::lucent::palette::Mode;
 use ui::scene::Scene;
 use ui::text::{Type, Weight};
 
+/// Where each kind draws in the engine's z, as offsets from the compositor's `system_z` (everything at `system_z` or more is
+/// stack 1, over the windows). The system layer (the volume display, the toasts, the alerts and cards) is the topmost band,
+/// so a bar or a toast stays over a panel or Settings; each band is a kind's own, 200 deep.
+pub mod z {
+    /// The quick panel, the input picker, Quick Access, the drawer, the context menu, confirm, the switcher's chrome.
+    pub const PANELS: i32 = 100;
+    pub const SETTINGS: i32 = 300;
+    /// The overlay layout editor.
+    pub const EDITOR: i32 = 500;
+    pub const KEYBOARD: i32 = 600;
+    /// The volume display, the toasts, the alerts, the cards, the capture mark, the saver.
+    pub const SYSTEM: i32 = 800;
+}
+
 pub use flow::{Flow, Lifted, Spec};
 pub use focus::{Dir, Focus, Id, Moved, Region, Scope};
 
