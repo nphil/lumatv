@@ -427,21 +427,23 @@ fn run_host(o: Options) -> io::Result<()> {
     carry(shell.start(), channel.as_ref(), helper.as_ref(), &mut log);
 
     let started = Instant::now();
+    // A scripted step is given its own time (`t0 + ms`), not the clock's: on a loaded host a long frame lets several steps pile up and
+    // run back to back, and a hold (OK down, then up 900 ms later by the script) must still be a hold to the models.
     let t0 = now_ms();
     let elapsed = |t0: u64| now_ms().saturating_sub(t0);
     let mut script: Vec<(u64, Step)> = Vec::new();
     for (ms, topic, doc) in o.pushes.clone() {
-        script.push((ms, Box::new(move |s, _, _| s.channel(&Event::Topic { topic, data: doc }, now_ms()))));
+        script.push((ms, Box::new(move |s, _, _| s.channel(&Event::Topic { topic, data: doc }, t0 + ms))));
     }
     for (ms, tag, doc) in o.lunas.clone() {
-        script.push((ms, Box::new(move |s, _, _| s.channel(&Event::Topic { topic: "luna".into(), data: json!({"tag": tag, "payload": doc}) }, now_ms()))));
+        script.push((ms, Box::new(move |s, _, _| s.channel(&Event::Topic { topic: "luna".into(), data: json!({"tag": tag, "payload": doc}) }, t0 + ms))));
     }
     for (ms, topic, doc) in o.helpers.clone() {
         script.push((
             ms,
             Box::new(move |s, _, _| {
-                let mut acts = s.helper(&Event::Up(true), now_ms());
-                acts.extend(s.helper(&Event::Topic { topic, data: doc }, now_ms()));
+                let mut acts = s.helper(&Event::Up(true), t0 + ms);
+                acts.extend(s.helper(&Event::Topic { topic, data: doc }, t0 + ms));
                 acts
             }),
         ));
@@ -462,7 +464,7 @@ fn run_host(o: Options) -> io::Result<()> {
         })));
     }
     for (ms, event) in o.keys.clone() {
-        script.push((ms, Box::new(move |s, _, _| s.key(&event, now_ms()))));
+        script.push((ms, Box::new(move |s, _, _| s.key(&event, t0 + ms))));
     }
     for (ms, path) in o.snaps.clone() {
         script.push((
