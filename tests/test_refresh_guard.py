@@ -62,6 +62,19 @@ class Parse(unittest.TestCase):
                 self.assertIn(want, str(e.exception))
 
 
+class Payload(unittest.TestCase):
+    def test_the_usage_call_carries_subscribe_false_and_an_empty_payload_is_what_the_tv_refuses(self):
+        fake = Fake([(5, 100, 4, 104)])
+        info = rg.read_info(fake.run)
+        self.assertEqual(info["usage"], 104.0)
+        usage_cmds = [c for c in fake.cmds if "getPanelUsageTime" in c]
+        self.assertEqual(len(usage_cmds), 1)
+        self.assertIn("'{\"subscribe\":false}'", usage_cmds[0])
+        with self.assertRaises(ValueError) as e:
+            rg.read_info(lambda cmd, timeout=20: fake.run(cmd.replace(rg.USAGE_PAYLOAD, "{}"), timeout))
+        self.assertIn("Failed to validate against schema", str(e.exception))
+
+
 class Rule(unittest.TestCase):
     def info(self, count=5, last=100.0, usage=104.0):
         return {"count": count, "last": last, "interval": 4.0, "usage": usage}
@@ -95,6 +108,8 @@ class Fake:
             c, l, i, _ = self.infos[min(self.reads - 1, len(self.infos) - 1)]
             return refresher(c, l, i)
         if "getPanelUsageTime" in cmd:
+            if "'%s'" % rg.USAGE_PAYLOAD not in cmd:    # the TV validates the payload: {} is refused
+                return json.dumps({"returnValue": False, "errorCode": 3, "errorText": "Failed to validate against schema"})
             _, _, _, u = self.infos[min(self.reads - 1, len(self.infos) - 1)]
             return usage(round(u * 6))
         if "18731/v1/state/panel" in cmd:

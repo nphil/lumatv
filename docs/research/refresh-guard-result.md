@@ -4,7 +4,7 @@ Built and host-tested; the helper's guard is off until its TV check passes (`the
 
 ## The fact it protects
 
-When the TV goes to standby and the panel's counter has passed `offrsLastTime + offrsInterval` (panel hours, interval 4 h), LG runs a compensation (off-RS) of about 10 minutes with the screen dark. A wake in that time aborts it and LG retries at the next standby. Of the 86 standbys from 2026-10-25 to 28, 58 were under 15 minutes (test rounds: `tv_gate.wake()` calls `powerOn`). LG's numbers: `luna://com.webos.service.oledepl/getPixelRefresherInfoList` (`offrsCount`, `offrsLastTime`, `offrsInterval`) and `com.webos.service.panelcontroller/getPanelUsageTime` (`panelUsageTime` in ten-minute ticks, 6 to the hour).
+When the TV goes to standby and the panel's counter has passed `offrsLastTime + offrsInterval` (panel hours, interval 4 h), LG runs a compensation (off-RS) of about 10 minutes with the screen dark. A wake in that time aborts it and LG retries at the next standby. Of the 86 standbys from 2026-10-25 to 28, 58 were under 15 minutes (test rounds: `tv_gate.wake()` calls `powerOn`). LG's numbers: `luna://com.webos.service.oledepl/getPixelRefresherInfoList` (`offrsCount`, `offrsLastTime`, `offrsInterval`) and `com.webos.service.panelcontroller/getPanelUsageTime` (`panelUsageTime` in ten-minute ticks, 6 to the hour). The usage call must be sent `{"subscribe":false}`: `{}` fails schema validation (errorCode 3, TV round 16); both the helper and `refresh_guard.py` send it, and their fakes refuse `{}` the same way.
 
 ## The rule
 
@@ -22,7 +22,7 @@ A run may be in progress when the TV has been in standby for under 15 minutes, a
 
 ## TV check (not run)
 
-1. Reply shape: `luna-send -n 1 -f luna://com.webos.service.oledepl/getPixelRefresherInfoList '{}'` and `.../panelcontroller/getPanelUsageTime '{}'`. The parser takes the three `offrs` keys at the top or inside a list, numbers or text; it assumes `offrsLastTime` and `offrsInterval` are panel hours on the same scale as `panelUsageTime / 6`. If the keys or units differ, `curl -s http://127.0.0.1:18731/v1/state/panel` shows `read: false` and an `error` naming the key.
+1. Reply shape: `luna-send -n 1 -f luna://com.webos.service.oledepl/getPixelRefresherInfoList '{}'` and `.../panelcontroller/getPanelUsageTime '{"subscribe":false}'`. The parser takes the three `offrs` keys at the top or inside a list, numbers or text; it assumes `offrsLastTime` and `offrsInterval` are panel hours on the same scale as `panelUsageTime / 6`. If the keys or units differ, `curl -s http://127.0.0.1:18731/v1/state/panel` shows `read: false` and an `error` naming the key.
 2. Screen on: `curl -s http://127.0.0.1:18731/v1/state/panel`: `offrsCount`, `lastRunHours`, `intervalHours` equal LG's, `usageHours` = ticks / 6, `due` agrees with the sum. System › OLED care shows "Panel refresh: last run N h ago, M runs" under the care group.
 3. Standby is tracked: put the TV in standby (`gate.sh standby`), after a minute `curl` the topic from SSH: `standby.since` just now, `dueAtStart` as LG's numbers say, `countAtStart` = `offrsCount`.
 4. The tooling waits: with a run due at standby, `python3 compositor/tools/refresh_guard.py status` says "a wake would wait N more min"; `tv_gate.wake()` (or `tv_next_slot.py`) prints "the set has been in standby ... waiting until 15 minutes of standby have passed". `--force-wake` wakes at once.

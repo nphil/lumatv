@@ -29,6 +29,8 @@ SAFE_STANDBY_S = 15 * 60
 TICKS_PER_HOUR = 6.0
 REFRESHER = "luna://com.webos.service.oledepl/getPixelRefresherInfoList"
 USAGE = "luna://com.webos.service.panelcontroller/getPanelUsageTime"
+# getPanelUsageTime refuses '{}' (errorCode 3, "Failed to validate against schema", TV round 16); subscribe:false asks for the one answer.
+USAGE_PAYLOAD = '{"subscribe":false}'
 HELPER_PANEL = "http://127.0.0.1:18731/v1/state/panel"
 # How often the count is read while waiting.
 POLL_S = 60
@@ -113,7 +115,7 @@ def read_info(run):
     """Reads LG's numbers over `run(command, timeout)` (the set's shell). ValueError when they cannot be had."""
     try:
         a = run("luna-send -n 1 -f %s '{}'" % REFRESHER, 20)
-        b = run("luna-send -n 1 -f %s '{}'" % USAGE, 20)
+        b = run("luna-send -n 1 -f %s '%s'" % (USAGE, USAGE_PAYLOAD), 20)
     except Exception as e:  # a dropped connection is a reading that failed, not a reason to stop the tool
         raise ValueError("no answer from the set: %s" % e)
     return parse_info(a, b)

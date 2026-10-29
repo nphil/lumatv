@@ -44,6 +44,9 @@ use std::time::Duration;
 pub const TOPIC: &str = "panel";
 const REFRESHER_URI: &str = "luna://com.webos.service.oledepl/getPixelRefresherInfoList";
 const USAGE_URI: &str = "luna://com.webos.service.panelcontroller/getPanelUsageTime";
+/// `getPanelUsageTime` refuses `{}` (errorCode 3, "Failed to validate against schema", measured on the TV 2026-10-28); `subscribe`
+/// is its one required field, and false asks for the one answer.
+const USAGE_PAYLOAD: &str = r#"{"subscribe":false}"#;
 /// A run takes about 10 minutes; this is the standby after which none is taken to be in progress.
 pub const SAFE_STANDBY_MS: u64 = 15 * 60_000;
 /// `getPanelUsageTime` counts in ten-minute ticks.
@@ -159,9 +162,9 @@ impl LunaSource {
         }
     }
 
-    fn call(&self, uri: &str) -> Result<String, String> {
+    fn call(&self, uri: &str, payload: &str) -> Result<String, String> {
         let mut child = Command::new(&self.program)
-            .args(["-n", "1", uri, "{}"])
+            .args(["-n", "1", uri, payload])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -197,8 +200,8 @@ impl LunaSource {
 
 impl Source for LunaSource {
     fn read(&self) -> Result<Info, String> {
-        let refresher = self.call(REFRESHER_URI)?;
-        let usage = self.call(USAGE_URI)?;
+        let refresher = self.call(REFRESHER_URI, "{}")?;
+        let usage = self.call(USAGE_URI, USAGE_PAYLOAD)?;
         parse(&refresher, &usage)
     }
 }
@@ -893,6 +896,64 @@ mod tests {
         );
         let e = r.guard.check("open an app").unwrap_err();
         assert!(e.message.contains("standby 5 min"), "{}", e.message);
+    }
+
+    /// A `luna-send` that answers like the TV: the refresher takes `{}`, the usage call refuses anything but `{"subscribe":false}`.
+    fn tv_luna(dir: &std::path::Path) -> String {
+        use std::os::unix::fs::PermissionsExt;
+        let path = dir.join("luna-send");
+        let script = r#"#!/bin/sh
+[ "$1" = probe ] && exit 0
+case "$3" in
+  */getPixelRefresherInfoList)
+    echo '{"returnValue":true,"pixelRefresherInfoList":[{"offrsCount":2,"offrsLastTime":20,"offrsInterval":4}]}' ;;
+  */getPanelUsageTime)
+    if [ "$4" = '{"subscribe":false}' ]; then echo '{"returnValue":true,"panelUsageTime":150}'
+    else echo '{"returnValue":false,"errorCode":3,"errorText":"Failed to validate against schema"}'; fi ;;
+  *) echo '{"returnValue":false,"errorText":"unknown"}' ;;
+esac
+"#;
+        std::fs::write(&path, script).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        // A script another thread's fork still holds open for writing fails to run once ("text file busy").
+        for _ in 0..300 {
+            match Command::new(&path)
+                .arg("probe")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+            {
+                Err(e) if e.raw_os_error() == Some(26) => thread::sleep(Duration::from_millis(10)),
+                _ => break,
+            }
+        }
+        path.display().to_string()
+    }
+
+    #[test]
+    fn the_usage_call_sends_the_payload_the_tv_validates_and_an_empty_one_is_refused_as_it_is_there()
+     {
+        let dir = tempfile::tempdir().unwrap();
+        let program = tv_luna(dir.path());
+        let source = LunaSource::new(&program);
+        let info = source.read().unwrap();
+        assert_eq!(
+            (
+                info.count,
+                info.last_run_hours,
+                info.interval_hours,
+                info.usage_hours
+            ),
+            (2, 20.0, 4.0, 25.0)
+        );
+        assert!(info.due(), "25 h >= 20 + 4");
+        let empty = source.call(USAGE_URI, "{}").unwrap();
+        let refused = parse(r#"{"returnValue":true,"pixelRefresherInfoList":[{"offrsCount":2,"offrsLastTime":20,"offrsInterval":4}]}"#, &empty).unwrap_err();
+        assert!(
+            refused.contains("Failed to validate against schema"),
+            "{refused}"
+        );
     }
 
     #[derive(Default)]
