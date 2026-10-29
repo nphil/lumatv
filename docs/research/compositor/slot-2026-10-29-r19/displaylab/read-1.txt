@@ -1,0 +1,88 @@
+== results
+{"api":1,"now":1793312157598,"ok":true,"results":{"behind":"home","complete":true,"finishedMs":1793312093219,"run":"1793311784978","savedAtMs":1793312093228,"startedMs":1793311784978,"steps":[{"a":"normal","answer":"a","b":"strong","control":"sharpness","group":"Sharpness","held":true,"id":"sharpness-strong","ms":142141,"sawBoth":true,"switches":92,"verdict":"Normal looks better"},{"a":"normal","answer":"b","b":"soft","control":"sharpness","group":"Sharpness","held":true,"id":"sharpness-soft","ms":23921,"sawBoth":true,"switches":9,"verdict":"Soft looks better"},{"a":"normal","answer":"a","b":"off","control":"sharpness","group":"Sharpness","held":true,"id":"sharpness-off","ms":40541,"sawBoth":true,"switches":30,"verdict":"Normal looks better"},{"a":"normal","answer":"same","b":"dimmed","control":"dimming","group":"Dimming","held":false,"id":"dimming-dimmed","ms":28900,"sawBoth":true,"switches":9,"verdict":"Can't tell"},{"a":"normal","answer":"same","b":"grey","control":"dimming","group":"Dimming","held":true,"id":"dimming-grey","ms":33260,"sawBoth":true,"switches":18,"verdict":"Can't tell"},{"a":"off","answer":"yes","b":"on_a","control":"window","group":"Window","held":true,"id":"window-a","ms":19061,"sawBoth":true,"switches":5,"verdict":"OK"}]}}
+
+== door (full)
+{"api":1,"displaylab":{"available":true,"controls":{"dimming":["normal","dimmed","grey"],"sharpness":["normal","strong","soft","off"],"window":["off","on_a","on_b"]},"deadmanMs":6000,"last":{"atMs":1793312093234,"detail":"session 1 after 169 changes","ok":true,"why":"end"},"pending":null,"session":null},"now":1793312157607,"ok":true}
+== watch: lines that differ from the baseline
+watch lines 350
++13s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++14s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++15s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++17s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++19s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++20s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++21s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++22s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++28s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++29s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++35s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++36s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++37s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++41s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++42s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++43s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++44s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++45s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++46s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++47s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++48s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++49s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++50s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++52s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++54s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++56s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++58s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++60s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++61s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++62s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++63s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++64s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++66s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++69s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++71s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++72s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++73s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++74s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++75s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++76s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++77s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++78s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++80s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++81s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++82s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++83s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++84s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++85s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++87s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++88s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++91s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++92s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++93s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++94s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++95s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++97s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++100s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++101s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++102s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++103s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++105s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++109s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++110s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++115s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++116s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++118s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++121s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++122s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++124s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++126s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++127s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++129s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++132s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++134s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++136s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++138s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++139s  osd_sr_gain 0x00000080 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++149s  osd_sr_gain 0x00000000 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++150s  osd_sr_gain 0x00000000 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
++151s  osd_sr_gain 0x00000000 osd_sr 0x1 osd0_vsp 0x02000001 hole0_wx 0x00000000 hole0_hy 0x00000000 hole_sel 0x00000000 
+ 

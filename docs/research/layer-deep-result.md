@@ -234,3 +234,10 @@ which is not known, the property values of the refused state were not logged (ad
 
 Each write step arms a detached dead-man (`sleep N; restore`) before the first write and the dead-man is longer than the whole sequence. At the end:
 `osd_sr_gain` `0x10`, `osd_sr` 1, VSP and hole registers 0, scanout `off`, no probe, Home foreground, LumaTV's compositor live (`gate.sh live` PASS, `failures` 0).
+
+### 8.3 Display lab on the set, round 19 (2026-10-29, Nitin at the set)
+
+The lab (`display-lab-result.md`) wrote the VSP and the hole through the helper's door, each write read back and put back (`compositor/slot-2026-10-29-r19/displaylab/`, registers sampled every second).
+
+- **VSP on OSD0**: `grey` (`0x02000003`) landed and read back, and Nitin saw no difference; `dimmed` (`0x01000001`) never landed in two runs (`drifted ["osd0_vsp"]`, `held false`: the firmware takes the register back at once). So OSD0's video processor does not act on what the Rust shell and the lab's cards draw, and its dimming cannot be judged there.
+- **Window (hole 0 on B.OSD1)**: landed (`hole0_wx 0x10B403C0`, `hole0_hy 0x0032A21C`, select 1) and showed no picture, behind Home (wallpaper `gpu`, no video plane) and over a playing YouTube video (the lab's opaque step screens covered it; the window step showed black). [INFERENCE, not measured] The hole reveals the plane under OSD1, which is OSD0's picture (our own), not the video plane; a window onto the video needs the video plane under the OSD that carries the hole, which this order does not give. Next measure: with the video wallpaper on, read what the hole shows with `ctl capture` of the panel and the plane stack.
