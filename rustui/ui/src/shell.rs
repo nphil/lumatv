@@ -10,10 +10,10 @@ use crate::kit::Kit;
 use crate::kit::screen::{Effect, Input, Model};
 use crate::system::toast::{FEED_TAG, Toasts};
 use crate::system::toast_surface::ToastSurface;
-use crate::system::volume::{CONFIRM_TAG, Volume};
+use crate::system::volume::Volume;
 use crate::system::volume_surface::VolumeSurface;
 use serde_json::{Value, json};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// What the shell asks the host to do.
 #[derive(Clone, Debug, PartialEq)]
@@ -71,6 +71,8 @@ pub struct Shell {
     redraw: bool,
     helper_up: bool,
     started: bool,
+    /// The data directory (`theme/theme.json` is written under it) and the module's (`icons/`, `art/`).
+    data_dir: Option<PathBuf>,
 }
 
 impl Shell {
@@ -88,7 +90,15 @@ impl Shell {
             redraw: false,
             helper_up: false,
             started: false,
+            data_dir: None,
         }
+    }
+
+    /// The module's directory (`<module>/icons/lucide` are the kit's icons) and the data directory (`theme/theme.json` is written
+    /// there by [`Effect::Theme`]).
+    pub fn dirs(&mut self, module: &Path, data: &Path) {
+        self.kit.icons = crate::kit::icon::Icons::new(module);
+        self.data_dir = Some(data.to_path_buf());
     }
 
     /// What goes out at the start: the feeds this process subscribes to, and the first report.
@@ -97,14 +107,14 @@ impl Shell {
         let mut acts = Vec::new();
         if self.kinds.toast {
             for e in self.toasts.subscribe() {
-                self.carry(e, &mut acts);
+                self.carry(e, crate::host::now_ms(), &mut acts);
             }
         }
         acts.push(Act::Channel(Outbound { method: "POST", path: "/v1/ui".into(), body: Some(self.report()), tag: None }));
         acts
     }
 
-    fn carry(&mut self, effect: Effect, acts: &mut Vec<Act>) {
+    fn carry(&mut self, effect: Effect, now: u64, acts: &mut Vec<Act>) {
         match effect {
             Effect::Luna { tag, uri, payload, subscribe } => acts.push(Act::Channel(Outbound {
                 method: "POST",
@@ -117,20 +127,36 @@ impl Shell {
             }
             Effect::Post { path, body } => acts.push(Act::Helper(Outbound { method: "POST", path, body: Some(body), tag: None })),
             Effect::Fetch { tag, path } => acts.push(Act::Helper(Outbound { method: "GET", path, body: None, tag: Some(tag) })),
+            Effect::Theme { tag, patch } => self.write_theme(tag, &patch, now, acts),
             Effect::Log(line) => acts.push(Act::Log(line)),
             Effect::Redraw => self.redraw = true,
         }
     }
 
+    /// Writes a theme patch under the data directory and tells the models how it went, with the merged file.
+    fn write_theme(&mut self, tag: u64, patch: &Value, now: u64, acts: &mut Vec<Act>) {
+        let (status, data) = match &self.data_dir {
+            Some(dir) => match crate::host::theme::persist(dir, patch) {
+                Ok(merged) => (200, merged),
+                Err(e) => {
+                    acts.push(Act::Log(format!("theme: {e}")));
+                    (500, json!({"error": e.to_string()}))
+                }
+            },
+            None => (500, json!({"error": "no data directory"})),
+        };
+        self.feed(&Input::Fetched { tag, status, data }, now, acts);
+    }
+
     fn feed(&mut self, input: &Input, now: u64, acts: &mut Vec<Act>) {
         if self.kinds.osd {
             for e in self.volume.update(input, now) {
-                self.carry(e, acts);
+                self.carry(e, now, acts);
             }
         }
         if self.kinds.toast {
             for e in self.toasts.update(input, now) {
-                self.carry(e, acts);
+                self.carry(e, now, acts);
             }
         }
     }
@@ -160,7 +186,7 @@ impl Shell {
             Event::Topic { topic, data } => {
                 self.feed(&Input::Topic { topic: topic.clone(), data: data.clone() }, now, &mut acts);
             }
-            Event::Answer { .. } => {}
+            Event::Answer { .. } | Event::Bytes { .. } => {}
         }
         self.after(now, &mut acts);
         acts
@@ -182,11 +208,9 @@ impl Shell {
                 }
             }
             Event::Topic { topic, data } => self.feed(&Input::Helper { topic: topic.clone(), data: data.clone() }, now, &mut acts),
-            Event::Answer { tag, status, body } => {
-                if *tag == CONFIRM_TAG {
-                    self.feed(&Input::Fetched { tag: *tag, status: *status, data: body.clone() }, now, &mut acts);
-                }
-            }
+            // an answer goes to every model, each of which takes the tags it asked with and lets the rest go by
+            Event::Answer { tag, status, body } => self.feed(&Input::Fetched { tag: *tag, status: *status, data: body.clone() }, now, &mut acts),
+            Event::Bytes { tag, status, body } => self.feed(&Input::Bytes { tag: *tag, status: *status, bytes: body.clone() }, now, &mut acts),
         }
         self.after(now, &mut acts);
         acts

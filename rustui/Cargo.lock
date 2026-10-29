@@ -427,6 +427,7 @@ name = "lumatv-ui"
 version = "0.1.0"
 dependencies = [
  "compositor-protocol",
+ "jpeg-decoder",
  "libc",
  "lumatv-placement",
  "lumatv-render",

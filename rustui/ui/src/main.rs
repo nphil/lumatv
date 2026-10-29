@@ -6,7 +6,8 @@
 //!
 //!   lumatv-ui [--kinds osd,toast] [--data-dir DIR] [--module-dir DIR] [--shm DIR] [--system-z N] [--text-scale 1..2] [--mode dark|light]
 //!   lumatv-ui --host [--port N --token-file F] [--helper-port N] [--wait MS] [--push MS:topic:JSON] [--luna MS:TAG:JSON]
-//!             [--helper MS:topic:JSON] [--eval MS:state|geometry] [--snap MS:FILE.png] [--frames MS:LABEL] [--backdrop FILE.png]
+//!             [--helper MS:topic:JSON] [--key MS:name[:up|:repeat]] [--pointer MS:x:y[:buttons[:hidden]]]
+//!             [--eval MS:state|geometry|report] [--snap MS:FILE.png] [--frames MS:LABEL] [--backdrop FILE.png]
 //!             [--theme JSON] [--log FILE]
 //!
 //! Host output lines: `[report] <json>` (what went to `POST /v1/ui`), `[luna] <json>`, `[helper] <json>`, `[eval] <json>`,
@@ -33,6 +34,8 @@ use ui::lucent::palette::Mode;
 use ui::scene::{Scene, SceneOptions};
 
 const SHIPPED_LAYOUT: &str = include_str!("../../../payload/theme/layout.json");
+/// The helper's topics the shell follows besides its plugins' (`kit/Helper.qml` `subscribed`, and the sheets of the cameras).
+const HELPER_TOPICS: &str = "screen,weather,news,receiver,ai,ai.prompt,plugins,ha.link,updateblock,openapps,panel,cameras,cameras.popup,cameras.live,cameras.events,profiles";
 
 struct Options {
     host: bool,
@@ -50,6 +53,7 @@ struct Options {
     pushes: Vec<(u64, String, Value)>,
     lunas: Vec<(u64, u64, Value)>,
     helpers: Vec<(u64, String, Value)>,
+    keys: Vec<(u64, KeyEvent)>,
     evals: Vec<(u64, String)>,
     snaps: Vec<(u64, PathBuf)>,
     frames: Vec<(u64, String)>,
@@ -79,6 +83,7 @@ fn parse() -> Result<Options, String> {
         pushes: Vec::new(),
         lunas: Vec::new(),
         helpers: Vec::new(),
+        keys: Vec::new(),
         evals: Vec::new(),
         snaps: Vec::new(),
         frames: Vec::new(),
@@ -122,6 +127,27 @@ fn parse() -> Result<Options, String> {
                 let tag: u64 = parts.next().and_then(|s| s.parse().ok()).ok_or("--luna MS:TAG:JSON")?;
                 let doc: Value = serde_json::from_str(parts.next().unwrap_or("null")).map_err(|e| format!("--luna: {e}"))?;
                 o.lunas.push((ms, tag, doc));
+            }
+            "--key" => {
+                // MS:name, MS:name:up (a release), MS:name:repeat
+                let spec = value(&mut args, "--key")?;
+                let mut parts = spec.splitn(3, ':');
+                let ms: u64 = parts.next().and_then(|s| s.parse().ok()).ok_or("--key MS:name[:up|:repeat]")?;
+                let name = parts.next().filter(|n| !n.is_empty()).ok_or("--key MS:name[:up|:repeat]")?.to_string();
+                let how = parts.next().unwrap_or("");
+                o.keys.push((ms, KeyEvent::Key { name, down: how != "up", repeat: how == "repeat", seat: 0 }));
+            }
+            "--pointer" => {
+                // MS:x:y, MS:x:y:buttons, MS:x:y:buttons:hidden
+                let spec = value(&mut args, "--pointer")?;
+                let mut parts = spec.splitn(5, ':');
+                let bad = || "--pointer MS:x:y[:buttons[:hidden]]";
+                let ms: u64 = parts.next().and_then(|s| s.parse().ok()).ok_or_else(bad)?;
+                let x: f32 = parts.next().and_then(|s| s.parse().ok()).ok_or_else(bad)?;
+                let y: f32 = parts.next().and_then(|s| s.parse().ok()).ok_or_else(bad)?;
+                let buttons: u32 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+                let visible = parts.next() != Some("hidden");
+                o.keys.push((ms, KeyEvent::Pointer { x, y, buttons, visible }));
             }
             "--eval" | "--snap" | "--frames" => {
                 let spec = value(&mut args, &a)?;
@@ -200,7 +226,9 @@ fn make_shell(o: &Options, scene: Scene) -> io::Result<Shell> {
     let (tokens, theme, layout) = theme_and_layout(o);
     let mode = o.mode.unwrap_or_else(|| tokens.mode(None));
     let kit = Kit::new(scene, tokens, mode, MaterialTier::T1, o.text_scale)?;
-    Ok(Shell::new(kit, Kinds::parse(&o.kinds), o.system_z, &o.module_dir.join("icons/audio"), &theme, &layout))
+    let mut shell = Shell::new(kit, Kinds::parse(&o.kinds), o.system_z, &o.module_dir.join("icons/audio"), &theme, &layout);
+    shell.dirs(&o.module_dir, &o.data_dir);
+    Ok(shell)
 }
 
 /// Carries out what the shell asked: the channel's and the helper's requests, the log.
@@ -256,7 +284,7 @@ fn run_set(o: Options) -> io::Result<()> {
     let token = o.token_file.as_ref().and_then(|p| std::fs::read_to_string(p).ok()).map(|t| t.trim().to_string());
     let port = o.port.ok_or_else(|| io::Error::other("LUMATV_SHELL_PORT names the UI channel"))?;
     let (channel, channel_events) = Feed::start("channel", port, token, None)?;
-    let (helper, helper_events) = Feed::start("helper", o.helper_port, None, Some("receiver,screen,cameras.popup".into()))?;
+    let (helper, helper_events) = Feed::start_following("helper", o.helper_port, None, HELPER_TOPICS)?;
     let (tx, rx) = mpsc::channel::<Msg>();
     forward(scene_events, tx.clone(), Msg::Scene);
     forward(channel_events, tx.clone(), Msg::Channel);
@@ -387,7 +415,7 @@ fn run_host(o: Options) -> io::Result<()> {
     };
     let helper = match o.port {
         Some(_) => {
-            let (feed, events) = Feed::start("helper", o.helper_port, None, Some("receiver,screen,cameras.popup".into()))?;
+            let (feed, events) = Feed::start_following("helper", o.helper_port, None, HELPER_TOPICS)?;
             forward(events, tx.clone(), Msg::Helper);
             Some(feed)
         }
@@ -427,6 +455,9 @@ fn run_host(o: Options) -> io::Result<()> {
             log.line(&format!("[eval] {v}"));
             Vec::new()
         })));
+    }
+    for (ms, event) in o.keys.clone() {
+        script.push((ms, Box::new(move |s, _, _| s.key(&event, now_ms()))));
     }
     for (ms, path) in o.snaps.clone() {
         script.push((

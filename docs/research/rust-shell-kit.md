@@ -80,9 +80,26 @@ until Home is a layer stack of the engine (a window's buffer is not a layer; the
 
 **Screen contract** (`kit/screen.rs`): a screen's model is pure, `impl Model { fn update(&mut self, &Input, now_ms) ->
 Vec<Effect>; fn view(&self) -> View; fn due_at(&self) -> Option<u64> }`. `Input::{Topic, Luna, Helper, Fetched, Key, Pointer,
-Tick}`; `Effect::{Luna, Cancel, Post, Fetch, Log, Redraw}`. The surface draws the view with the kit; the host (`shell.rs`) owns
-the feeds and the clock. Models run on wall-clock milliseconds (the helper's stamps), the flow on the engine's monotonic
-nanoseconds.
+Tick}`; `Effect::{Luna, Cancel, Post, Fetch, Theme, Log, Redraw}`. The answer to a `Fetch` is `Input::Fetched` (a JSON body) or
+`Input::Bytes` (a body that is not JSON: a still, a thumbnail); `Effect::Theme { tag, patch }` merges a patch into the owner's
+`theme/theme.json` one level deep (`host/theme.rs`: a section's keys are merged, a map inside it is replaced whole, a file that
+cannot be read is never taken for an empty one) and answers `Input::Fetched` with the tag and the merged file. The surface draws
+the view with the kit; the host (`shell.rs`) owns the feeds and the clock. Models run on wall-clock milliseconds (the helper's
+stamps), the flow on the engine's monotonic nanoseconds.
+
+**Icons** (`kit/icon.rs`): `kit.icons.draw(name, side, colour) -> Option<Vec<u8>>`, a Lucide icon of `<module>/icons/lucide` (64 by
+64 alpha masks) scaled to `side` and tinted into premultiplied pixels, kept per size and colour; a name that is not in the folder
+draws nothing. `icon::layer(kit, name, side, ink, z, at)` makes the image layer, `icon::repaint` paints a new ink or name into one.
+
+**Pictures** (`kit/picture.rs`): `picture::decode(bytes)` reads a JPEG, a BMP (24 or 32 bit, bottom-up or top-down: the set's
+`/frame` answer) or a PNG into a premultiplied `Picture`; `fitted(w, h, Fit::{Cover, Contain})` scales it (area mean down,
+bilinear up), `round_corners(radius)` antialiases the corners, `paint(&mut ImageLayer)` copies it into a layer made at that size.
+
+**Lint** (`kit/lint.rs`): `tests/qmlhost/layoutaudit.py`'s rules as a check on what a surface says it drew. A surface describes
+its view to a `Lint` (`panel(name, rect, paint, safe)`, `word(kit, name, text, frame, style, panel)`) and `findings()` reports
+words outside their panel (1 px), crammed against it (8 px at the sides, 4 above and below), on top of other words, off the
+centre of a button, panels outside the safe area, and ink under 4.5 to 1 (3 to 1 from 48 px and for ink2) on the panel's paint
+over the worst of black, white and mid grey. Host tests run it at 100 % and 200 % text.
 
 ## The scene's budget
 
@@ -110,7 +127,8 @@ over a shell layer, `visible: false` once when it goes.
 damage-only redraw, paced at 60 Hz) and a script or the compositor's stand-in channel:
 
     lumatv-ui --host [--port N --token-file F] [--helper-port N] [--wait MS] [--push MS:topic:JSON] [--luna MS:TAG:JSON]
-              [--helper MS:topic:JSON] [--eval MS:state|geometry|report|atlas] [--snap MS:FILE.png] [--frames MS:LABEL]
+              [--helper MS:topic:JSON] [--key MS:name[:up|:repeat]] [--pointer MS:x:y[:buttons[:hidden]]]
+              [--eval MS:state|geometry|report|atlas] [--snap MS:FILE.png] [--frames MS:LABEL]
               [--backdrop FILE.png] [--theme JSON] [--mode dark|light] [--text-scale 1..2] [--kinds osd,toast] [--log FILE]
 
 It prints `[report]`, `[luna]`, `[helper]`, `[eval]`, `[frames] LABEL N`, `shot FILE` and, with `--log`, a `[frame]` line per frame

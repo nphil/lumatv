@@ -21,6 +21,7 @@ ui = { path = "../../../LumaShow/lumashow/crates/ui" }
 compositor-protocol = { path = "../../../LumaShow/lumashow/crates/compositor-protocol" }
 serde_json = "1"
 png = "0.17"
+jpeg-decoder = { version = "0.3", default-features = false }
 libc = "0.2"
 
 [dev-dependencies]

@@ -22,6 +22,8 @@ pub enum Event {
     Topic { topic: String, data: Value },
     /// The answer to a request made with a tag.
     Answer { tag: u64, status: u16, body: Value },
+    /// The answer to a request made with a tag whose body is not JSON (a still, a thumbnail: `kit::picture::decode`).
+    Bytes { tag: u64, status: u16, body: Vec<u8> },
 }
 
 /// A request the loop asks for.
@@ -36,7 +38,7 @@ pub struct Outbound {
 
 /// One HTTP exchange on `stream`; the status and the body.
 pub fn exchange(stream: &mut TcpStream, host: &str, method: &str, path: &str, token: Option<&str>, body: Option<&[u8]>) -> io::Result<(u16, Vec<u8>)> {
-    let mut req = format!("{method} {path} HTTP/1.1\r\nHost: {host}\r\nConnection: keep-alive\r\nAccept: application/json\r\n");
+    let mut req = format!("{method} {path} HTTP/1.1\r\nHost: {host}\r\nConnection: keep-alive\r\nAccept: application/json, image/*;q=0.9, */*;q=0.1\r\n");
     if let Some(t) = token {
         req.push_str(&format!("X-Luma-Token: {t}\r\n"));
     }
@@ -100,6 +102,31 @@ fn connect(host: &str, port: u16, read_timeout: Duration) -> io::Result<TcpStrea
     Ok(stream)
 }
 
+/// Which topics a poll asks the helper for.
+enum Topics {
+    /// The helper's `topics=` as given, or every topic.
+    Fixed(Option<String>),
+    /// The base list and, for each connected plugin of the `plugins` roster, its cards, tiles, notifications and facts; past the 16
+    /// names a poll may carry, every topic (`kit/Helper.qml` `filter()`).
+    Follow(&'static str),
+}
+
+/// The topic names a poll asks for under the roster as it stands: `None` for every topic.
+pub fn follow_filter(base: &str, roster: &Value) -> Option<String> {
+    let mut names: Vec<String> = base.split(',').map(str::to_string).collect();
+    let plugins = roster.get("plugins").and_then(Value::as_array).into_iter().flatten().chain(roster.get("firstParty").and_then(Value::as_array).into_iter().flatten());
+    for p in plugins {
+        if p.get("state").and_then(Value::as_str) != Some("connected") {
+            continue;
+        }
+        let Some(id) = p.get("id").and_then(Value::as_str) else { continue };
+        for kind in ["cards", "tiles", "notifications", "facts"] {
+            names.push(format!("plugin.{id}.{kind}"));
+        }
+    }
+    if names.len() > 16 { None } else { Some(names.join(",")) }
+}
+
 /// A feed: the requests it makes for the loop; its events come on the receiver [`Feed::start`] returns beside it.
 pub struct Feed {
     requests: Sender<Outbound>,
@@ -109,6 +136,15 @@ impl Feed {
     /// Starts the poller and the requester for `port` (always `127.0.0.1`); `token` goes in `X-Luma-Token`; `topics` narrows the poll to
     /// those topics (the helper's `topics=`), `None` takes them all.
     pub fn start(name: &'static str, port: u16, token: Option<String>, topics: Option<String>) -> io::Result<(Self, Receiver<Event>)> {
+        Self::spawn(name, port, token, Topics::Fixed(topics))
+    }
+
+    /// The helper's feed: `base` (a comma list) and the topics of every connected plugin, as the QML client's poll names them.
+    pub fn start_following(name: &'static str, port: u16, token: Option<String>, base: &'static str) -> io::Result<(Self, Receiver<Event>)> {
+        Self::spawn(name, port, token, Topics::Follow(base))
+    }
+
+    fn spawn(name: &'static str, port: u16, token: Option<String>, topics: Topics) -> io::Result<(Self, Receiver<Event>)> {
         let (etx, events) = channel();
         let (requests, rrx) = channel::<Outbound>();
         let poll_tx = etx.clone();
@@ -132,7 +168,7 @@ impl Feed {
     }
 }
 
-fn poll_loop(port: u16, token: Option<String>, topics: Option<String>, tx: Sender<Event>) {
+fn poll_loop(port: u16, token: Option<String>, topics: Topics, tx: Sender<Event>) {
     let host = "127.0.0.1";
     let mut failures = 0u32;
     'session: loop {
@@ -159,6 +195,8 @@ fn poll_loop(port: u16, token: Option<String>, topics: Option<String>, tx: Sende
         let mut seq = state.get("seq").and_then(Value::as_u64).unwrap_or(0);
         let topics_now: Vec<(String, Value)> =
             state.get("topics").and_then(Value::as_object).map(|o| o.iter().map(|(k, v)| (k.clone(), v.clone())).collect()).unwrap_or_default();
+        // the roster the following poll names plugin topics from: the state's, then every event of `plugins`
+        let mut roster = topics_now.iter().find(|(k, _)| k == "plugins").map_or(Value::Null, |(_, v)| v.clone());
         if tx.send(Event::Up(true)).is_err() || tx.send(Event::State(topics_now)).is_err() {
             return;
         }
@@ -167,7 +205,11 @@ fn poll_loop(port: u16, token: Option<String>, topics: Option<String>, tx: Sende
             if let Some(b) = boot.as_u64() {
                 path.push_str(&format!("&boot={b}"));
             }
-            if let Some(t) = &topics {
+            let names = match &topics {
+                Topics::Fixed(t) => t.clone(),
+                Topics::Follow(base) => follow_filter(base, &roster),
+            };
+            if let Some(t) = &names {
                 path.push_str(&format!("&topics={t}"));
             }
             let began = std::time::Instant::now();
@@ -194,6 +236,9 @@ fn poll_loop(port: u16, token: Option<String>, topics: Option<String>, tx: Sende
             for e in events {
                 let topic = e.get("topic").and_then(Value::as_str).unwrap_or("").to_string();
                 let data = e.get("data").cloned().unwrap_or(Value::Null);
+                if topic == "plugins" {
+                    roster = data.clone();
+                }
                 if tx.send(Event::Topic { topic, data }).is_err() {
                     return;
                 }
@@ -232,10 +277,37 @@ fn send_loop(port: u16, token: Option<String>, rx: Receiver<Outbound>, tx: Sende
             }
         }
         if let Some(tag) = out.tag {
-            let (status, body) = answer.map_or((0, Value::Null), |(s, b)| (s, serde_json::from_slice(&b).unwrap_or(Value::Null)));
-            if tx.send(Event::Answer { tag, status, body }).is_err() {
+            // a body that is JSON is the answer; one that is not (a still, a thumbnail) comes as bytes
+            let event = match answer {
+                None => Event::Answer { tag, status: 0, body: Value::Null },
+                Some((status, bytes)) => match serde_json::from_slice::<Value>(&bytes) {
+                    Ok(body) => Event::Answer { tag, status, body },
+                    Err(_) if !bytes.is_empty() => Event::Bytes { tag, status, body: bytes },
+                    Err(_) => Event::Answer { tag, status, body: Value::Null },
+                },
+            };
+            if tx.send(event).is_err() {
                 return;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn the_poll_names_the_topics_of_the_connected_plugins_and_asks_for_all_past_sixteen() {
+        let roster = json!({"plugins": [{"id": "home-assistant", "state": "connected"}, {"id": "idle", "state": "waiting"}], "firstParty": []});
+        let names = follow_filter("screen,receiver,plugins", &roster).expect("a list");
+        assert_eq!(
+            names,
+            "screen,receiver,plugins,plugin.home-assistant.cards,plugin.home-assistant.tiles,plugin.home-assistant.notifications,plugin.home-assistant.facts"
+        );
+        assert_eq!(follow_filter("screen", &Value::Null).as_deref(), Some("screen"), "no roster yet: the base list");
+        let many = json!({"plugins": [{"id": "a", "state": "connected"}, {"id": "b", "state": "connected"}, {"id": "c", "state": "connected"}, {"id": "d", "state": "connected"}]});
+        assert_eq!(follow_filter("screen,receiver,plugins", &many), None, "past the helper's 16 names: every topic");
     }
 }

@@ -3,6 +3,7 @@
 
 pub mod http;
 pub mod keys;
+pub mod theme;
 
 /// Wall-clock milliseconds, the clock the models run on (the helper stamps its readings with it).
 pub fn now_ms() -> u64 {

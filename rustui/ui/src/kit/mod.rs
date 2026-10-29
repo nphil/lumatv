@@ -8,8 +8,11 @@ pub mod flow;
 pub mod focus;
 pub mod glyph;
 pub mod hint;
+pub mod icon;
+pub mod lint;
 pub mod motion;
 pub mod pane;
+pub mod picture;
 pub mod screen;
 pub mod text;
 
@@ -30,6 +33,8 @@ pub struct Kit {
     pub mode: Mode,
     pub tier: MaterialTier,
     pub text_scale: f32,
+    /// The Lucide icons of the module (`kit/icon.rs`); empty until the shell is given its module directory.
+    pub icons: icon::Icons,
     generation: u64,
 }
 
@@ -40,7 +45,7 @@ impl Kit {
         let look = tokens.look(mode, 1, tier, text_scale);
         let mut ui = Ui::with_look(scene, look);
         ui.enable_glyph_text().map_err(|e| std::io::Error::other(format!("{e}")))?;
-        let mut kit = Self { ui, tokens, mode, tier, text_scale, generation: 1 };
+        let mut kit = Self { ui, tokens, mode, tier, text_scale, icons: icon::Icons::default(), generation: 1 };
         kit.warm();
         Ok(kit)
     }

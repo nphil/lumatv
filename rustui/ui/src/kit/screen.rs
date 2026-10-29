@@ -13,8 +13,10 @@ pub enum Input {
     Luna { tag: u64, payload: Value },
     /// A topic of the helper's API (`receiver`, `cameras`, ...), and `up` (whether the helper answers) as a boolean.
     Helper { topic: String, data: Value },
-    /// The answer to an [`Effect::Fetch`]: the status and the body.
+    /// The answer to an [`Effect::Fetch`] (or an [`Effect::Theme`]): the status and the body as JSON.
     Fetched { tag: u64, status: u16, data: Value },
+    /// The answer to an [`Effect::Fetch`] whose body is not JSON (a still, a thumbnail: JPEG or BMP, `kit::picture::decode`).
+    Bytes { tag: u64, status: u16, bytes: Vec<u8> },
     /// A key of the remote by its name (`up`, `ok`, `back`, `0`..`9`, `volumeup`): pressed (`down`), repeated (`repeat`) or released.
     Key { name: String, down: bool, repeat: bool },
     /// The pointer: a sample while it is over the shell, or gone.
@@ -46,6 +48,9 @@ pub enum Effect {
         tag: u64,
         path: String,
     },
+    /// A patch of the owner's theme (`theme/theme.json`), merged one level deep and written atomically by the host; the merged file
+    /// comes back as [`Input::Fetched`] with the tag (status 200), or status 500 with the reason when it could not be written.
+    Theme { tag: u64, patch: Value },
     /// A line in the host's log (the journal on the set, stdout on the host).
     Log(String),
     /// The model's view changed: the surface is to be drawn again.
