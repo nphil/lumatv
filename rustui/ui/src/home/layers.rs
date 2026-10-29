@@ -929,6 +929,90 @@ impl MenuSurface {
     }
 }
 
+// ---- the question after Uninstall
+/// The question (`docs/mocks/06-confirm-dialog`, `panels/Confirm.qml`): the page behind is hidden by an opaque scrim and a solid card 760 wide holds
+/// the app's icon, "Uninstall <name>?", what happens and the answers, Keep it (the safe one, primary) and Uninstall (danger). It is Home's own, so it
+/// stands whether or not the shell's confirm kind is on. The model decides which answer is in front; the answers' frames go back to it.
+pub struct ConfirmSurface {
+    _scrim: ShapeLayer,
+    _card: ShapeLayer,
+    _icon: Option<ImageLayer>,
+    _title: crate::panels::ui::Words,
+    _body: crate::panels::ui::Words,
+    buttons: Vec<Button>,
+    /// The answers' frames on the screen.
+    pub frames: Vec<Frame>,
+    /// The card, for the tests.
+    pub card: Frame,
+    pub reported: bool,
+}
+
+impl ConfirmSurface {
+    pub fn new(kit: &mut Kit, engine: &mut Engine, home: &Home, z: i32) -> std::io::Result<Self> {
+        use crate::panels::ui::{WordLine, Words as Lines};
+        const CARD_W: f32 = 760.0;
+        const ICON: f32 = 56.0;
+        let c = home.confirm.as_ref().ok_or_else(|| std::io::Error::other("no question"))?;
+        let (s4, s6) = (kit.space(4), kit.space(6));
+        let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
+        let title_text = format!("Uninstall {}?", c.title);
+        let title_style = role_style(kit, TypeRole::Title, Some(Weight::SemiBold), ink, Align::Left);
+        let body_style = role_style(kit, TypeRole::Body, None, ink2, Align::Left);
+        let inner = CARD_W - 2.0 * s6;
+        let title_w = inner - ICON - s4;
+        let title = crate::kit::wrap::lines(kit, title_style, &title_text, title_w, 3);
+        let head_h = ICON.max(title.len() as f32 * kit.line(TypeRole::Title));
+        let body = crate::kit::wrap::lines(kit, body_style, super::model::CONFIRM_BODY, inner, 12);
+        let body_h = body.len() as f32 * kit.line(TypeRole::Body);
+        let (bh, gap) = (Button::height(kit), s4);
+        let widths: Vec<f32> = super::model::CONFIRM_ANSWERS.iter().map(|(label, _)| Button::width_for(kit, label, false)).collect();
+        let body_top = head_h + s4;
+        let buttons_top = body_top + body_h + s4;
+        let h = (s6 + buttons_top + bh + s6).ceil();
+        let card = Frame::new(((1920.0 - CARD_W) / 2.0).round(), ((1080.0 - h) / 2.0).round(), CARD_W, h);
+        let (cx, cy) = (card.x + s6, card.y + s6);
+        let scrim = scrim(kit, z);
+        let sheet = kit.ui.look.colour(PaletteRole::Sheet);
+        let shape = Shape { corner_radius: kit.tokens.radius(Radius::Sheet), fill: Fill::Solid(sheet), border_width: 1.0, border: crate::kit::widgets::edge(kit) };
+        let card_layer = plate::shape(&kit.ui, card, z + 1, shape);
+        let icon_at = Props::at(cx, cy + ((head_h - ICON) / 2.0).round());
+        let icon = match crate::panels::ui::picture_layer(kit, &c.icon, ICON as u32, ICON as u32, z + 2, icon_at) {
+            Ok(Some(l)) => Some(l),
+            _ => Some(crate::kit::widgets::tile(kit, ICON as u32, "circle-help", true).layer(kit, z + 2, icon_at)?),
+        };
+        let title_lines: Vec<WordLine> = title.iter().map(|t| WordLine::new(t, TypeRole::Title, ink).weight(Weight::SemiBold)).collect();
+        let title_t = Lines::new(kit, cx + ICON + s4, cy + ((head_h - title.len() as f32 * kit.line(TypeRole::Title)) / 2.0).round(), title_w, z + 2, &title_lines)?;
+        let body_lines: Vec<WordLine> = body.iter().map(|t| WordLine::new(t, TypeRole::Body, ink2)).collect();
+        let body_t = Lines::new(kit, cx, cy + body_top, inner, z + 2, &body_lines)?;
+        let mut buttons = Vec::new();
+        let mut frames = Vec::new();
+        let mut x = cx;
+        for (i, ((label, danger), w)) in super::model::CONFIRM_ANSWERS.iter().zip(&widths).enumerate() {
+            let tone = if *danger { Tone::Danger } else { Tone::Primary };
+            let frame = Frame::new(x, cy + buttons_top, *w, bh);
+            let place = Place { id: Id(super::model::CONFIRM_ID + i as u32), frame, region: super::model::CONFIRM_REGION, scope: super::model::SCOPE_CONFIRM, z: z + 3 };
+            let mut b = Button::new(kit, engine, place, Spec::new(label, tone))?;
+            b.show(kit, true);
+            buttons.push(b);
+            frames.push(frame);
+            x += w + gap;
+        }
+        Ok(Self { _scrim: scrim, _card: card_layer, _icon: icon, _title: title_t, _body: body_t, buttons, frames, card, reported: false })
+    }
+
+    pub fn update(&mut self, kit: &Kit, home: &Home) {
+        for b in &mut self.buttons {
+            b.set_hover(kit, home.focus.hovered() == Some(b.id));
+        }
+    }
+
+    pub fn destroy(self, engine: &mut Engine) {
+        for b in self.buttons {
+            b.destroy(engine);
+        }
+    }
+}
+
 // ---- the status bar's settings popover
 /// The popover drawn (`StatusBar.qml`'s settings popover): a glass panel under the gear with "Wallpaper" at its head, the keys that work it as glyphs
 /// (Left and Right change the value, Back closes), and a row for each of the wallpaper's settings with its value at the right ("\u{2039} 4 px \u{203a}"

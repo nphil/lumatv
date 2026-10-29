@@ -37,6 +37,7 @@ pub struct App {
     pub on_dock: bool,
     pub plate: String,
     pub unmovable: bool,
+    pub removable: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -103,6 +104,7 @@ impl Apps {
                 params: p.params,
                 plate: p.plate,
                 unmovable: p.unmovable,
+                removable: p.removable,
             })
             .collect();
         // dock order first, then by name
@@ -420,7 +422,7 @@ impl Apps {
 }
 
 pub fn app_json(a: &App) -> Value {
-    serde_json::json!({"id": a.id, "title": a.title, "iconUrl": a.icon, "params": a.params, "hidden": a.hidden, "onDock": a.on_dock, "unmovable": a.unmovable})
+    serde_json::json!({"id": a.id, "title": a.title, "iconUrl": a.icon, "params": a.params, "hidden": a.hidden, "onDock": a.on_dock, "unmovable": a.unmovable, "removable": a.removable})
 }
 
 #[cfg(test)]
@@ -433,7 +435,7 @@ mod tests {
             let mut a = Apps { scale, ..Apps::default() };
             a.apps = ["Netflix", "GeForce", "Browser", "Odd app", "Secret"].iter().enumerate().map(|(i, name)| App {
                 id: i.to_string(), title: (*name).into(), icon: String::new(), params: Value::Null,
-                hidden: i == 4, on_dock: true, plate: String::new(), unmovable: false,
+                hidden: i == 4, on_dock: true, plate: String::new(), unmovable: false, removable: false,
             }).collect();
             a.open();
             let n = a.rail().len();

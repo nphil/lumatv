@@ -102,14 +102,14 @@ fn a_wheel_press_while_the_pointer_is_hidden_is_the_ok_key_and_an_arrow_hides_th
 }
 
 #[test]
-fn the_wheel_press_is_key_1199_and_is_ok_and_the_keep_alive_pulse_is_no_key() {
-    use lumatv_compositor::input::code::{KEY_POINTER_ALIVE, KEY_WHEEL_PRESS};
+fn key_1199_is_the_remotes_cursor_off_it_hides_the_pointer_and_is_no_ok_and_the_keep_alive_pulse_is_no_key() {
+    use lumatv_compositor::input::code::{KEY_CURSOR_OFF, KEY_ENTER, KEY_POINTER_ALIVE};
     use lumatv_compositor::server::seat::SeatId;
-    assert_eq!((KEY_POINTER_ALIVE, KEY_WHEEL_PRESS), (1198, 1199), "what the set recorded on 2026-10-29 (display-hw-2026-10-29/wheel-events.txt)");
+    assert_eq!((KEY_POINTER_ALIVE, KEY_CURSOR_OFF), (1198, 1199), "lginput2's CURSOR_ON and CURSOR_OFF as the set recorded them");
     let mut server = Server::start();
     let (mut client, _keep) = pointed(&mut server);
     let seat = SeatId(0);
-    // The pulse the remote sends every 0.5 s while the pointer moves: down and up, and nothing of it is a key or the person's input.
+    // The pulse the remote sends every 0.5 s while the pointer is active: down and up, and nothing of it is a key or the person's input.
     let before = server.eval(|s| (s.keys.delivered, s.keys.dropped, s.seat.last_input));
     server.eval(move |s| {
         s.key_event(seat, KEY_POINTER_ALIVE, true, false);
@@ -119,24 +119,32 @@ fn the_wheel_press_is_key_1199_and_is_ok_and_the_keep_alive_pulse_is_no_key() {
     assert!(client.state.keys.is_empty(), "no key reached the app");
     assert_eq!(server.eval(|s| (s.keys.delivered, s.keys.dropped, s.seat.last_input)), before, "and it was counted as no input");
 
-    // The press, down and up in one report, while the pointer is hidden: OK to the app, as KEY_ENTER.
+    // The remote laid down (1199, down and up in one report), with the pointer hidden: nothing, and above all no OK.
     server.eval(move |s| {
-        s.key_event(seat, KEY_WHEEL_PRESS, true, false);
-        s.key_event(seat, KEY_WHEEL_PRESS, false, false);
+        s.key_event(seat, KEY_CURSOR_OFF, true, false);
+        s.key_event(seat, KEY_CURSOR_OFF, false, false);
+    });
+    client.roundtrip();
+    assert!(client.state.keys.is_empty() && client.state.buttons.is_empty(), "no key and no click: {:?} {:?}", client.state.keys, client.state.buttons);
+
+    // OK, a real KEY_ENTER, while the pointer is hidden is OK to the app.
+    server.eval(move |s| {
+        s.key_event(seat, KEY_ENTER, true, false);
+        s.key_event(seat, KEY_ENTER, false, false);
     });
     assert!(client.wait_until(WAIT, |s| s.keys.len() >= 2));
     assert_eq!(client.state.keys, vec![(28, 1), (28, 0)]);
     assert!(client.state.buttons.is_empty(), "no pointer, no click");
 
-    // While the pointer shows, the same press is the click on what it points at.
+    // While the pointer shows, OK is the click on what it points at.
     server.eval(|s| {
         remote_motion(s, 20, 25);
         wheel_turn(s)
     });
     assert!(client.wait_until(WAIT, |s| !s.pointer_enters.is_empty()));
     server.eval(move |s| {
-        s.key_event(seat, KEY_WHEEL_PRESS, true, false);
-        s.key_event(seat, KEY_WHEEL_PRESS, false, false);
+        s.key_event(seat, KEY_ENTER, true, false);
+        s.key_event(seat, KEY_ENTER, false, false);
     });
     assert!(client.wait_until(WAIT, |s| s.buttons.len() >= 2));
     assert_eq!(client.state.buttons, vec![(0x110, 1), (0x110, 0)]);
@@ -145,6 +153,16 @@ fn the_wheel_press_is_key_1199_and_is_ok_and_the_keep_alive_pulse_is_no_key() {
     server.eval(move |s| s.key_event(seat, KEY_POINTER_ALIVE, true, false));
     client.roundtrip();
     assert!(server.eval(|s| s.seat.cursor_visible), "the pointer is still up");
+
+    // The remote laid down while the pointer shows: the pointer goes, the app is told it left, and neither an OK nor a click reaches it.
+    let leaves = client.state.pointer_leaves;
+    server.eval(move |s| {
+        s.key_event(seat, KEY_CURSOR_OFF, true, false);
+        s.key_event(seat, KEY_CURSOR_OFF, false, false);
+    });
+    assert!(client.wait_until(WAIT, move |s| s.pointer_leaves > leaves));
+    assert!(!server.eval(|s| s.seat.cursor_visible), "the remote's cursor-off hid the pointer");
+    assert_eq!((client.state.keys.len(), client.state.buttons.len()), (2, 2), "nothing was pressed");
 }
 
 #[test]

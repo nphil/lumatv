@@ -19,6 +19,16 @@ pub struct Point {
     pub forced_plate: bool,
     pub neutral_plate: bool,
     pub unmovable: bool,
+    /// LG says the app can be removed and it is not a system app nor one LumaTV protects ([`removable_app`]): the tile menu offers Uninstall only then.
+    pub removable: bool,
+}
+
+/// Whether a launch point may be uninstalled from Home (`kit/Apps.qml`): LG says `removable`, it is no system app, and its id is not LG's own, LumaTV's
+/// or the Homebrew Channel's.
+pub fn removable_app(p: &Value) -> bool {
+    let id = p.get("id").and_then(Value::as_str).unwrap_or("");
+    let protected = id.starts_with("com.webos.") || id.starts_with("com.palm.") || id.starts_with("com.lge.") || id.starts_with("org.nphil.luma") || id == "org.webosbrew.hbchannel";
+    p.get("removable").and_then(Value::as_bool) == Some(true) && p.get("systemApp").and_then(Value::as_bool) != Some(true) && !protected
 }
 
 pub const APPS_TILE: &str = "com.webos.app.discovery";
@@ -175,6 +185,7 @@ impl Dock {
                     forced_plate: !forced.is_empty(),
                     plate: if forced.is_empty() { raw } else { forced },
                     unmovable: p.get("unmovable").and_then(Value::as_bool).unwrap_or(false),
+                    removable: removable_app(p),
                     id,
                 }
             })

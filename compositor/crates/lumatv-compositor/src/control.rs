@@ -298,16 +298,16 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             json!({"ok": true, "delivered": sent, "visible": state.seat.cursor_visible, "pointer": state.pointer_report()})
         }
         "click" => {
-            // click [press|release|tap]: the wheel press as the Magic Remote sends it (key 1199), which is OK through the key routing; while the
-            // cursor shows, that is BTN_LEFT.
+            // click [press|release|tap]: the remote's OK (KEY_ENTER); while the cursor shows, that is BTN_LEFT.
             let how = words.next().unwrap_or("tap");
             let seat = crate::server::seat::SeatId(0);
+            let ok = crate::input::code::KEY_ENTER;
             match how {
-                "press" => state.key_event(seat, crate::input::code::KEY_WHEEL_PRESS, true, false),
-                "release" => state.key_event(seat, crate::input::code::KEY_WHEEL_PRESS, false, false),
+                "press" => state.key_event(seat, ok, true, false),
+                "release" => state.key_event(seat, ok, false, false),
                 _ => {
-                    state.key_event(seat, crate::input::code::KEY_WHEEL_PRESS, true, false);
-                    state.key_event(seat, crate::input::code::KEY_WHEEL_PRESS, false, false);
+                    state.key_event(seat, ok, true, false);
+                    state.key_event(seat, ok, false, false);
                 }
             }
             json!({"ok": true, "delivered": state.keys.delivered, "visible": state.seat.cursor_visible})

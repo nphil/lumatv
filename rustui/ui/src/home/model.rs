@@ -22,6 +22,12 @@ pub const STATUS: Region = Region(1);
 pub const WIDGETS: Region = Region(2);
 pub const DOCK: Region = Region(3);
 pub const STATUS_ID: u32 = 100;
+/// The question over Home: the two answers' focus ids and region.
+pub const CONFIRM_ID: u32 = 960;
+pub const CONFIRM_REGION: Region = Region(31);
+/// The question's answers, the safe one first, and whether the answer is drawn as danger.
+pub const CONFIRM_ANSWERS: [(&str, bool); 2] = [("Keep it", false), ("Uninstall", true)];
+pub const CONFIRM_BODY: &str = "The app and its data on this TV are removed. It can be installed again from where it came from.";
 pub const WIDGET_ID: u32 = 200;
 pub const DOCK_ID: u32 = 300;
 pub const DOCK_MAX: u32 = 60;
@@ -31,6 +37,7 @@ pub const SCOPE_SEARCH: Scope = Scope(2);
 pub const SCOPE_EDIT: Scope = Scope(3);
 pub const SCOPE_PICKER: Scope = Scope(4);
 pub const SCOPE_MENU: Scope = Scope(6);
+pub const SCOPE_CONFIRM: Scope = Scope(7);
 
 /// The luna tags Home calls with.
 pub const LP_TAG: u64 = 300;
@@ -60,6 +67,8 @@ pub enum Layer {
     Picker,
     /// The options of a tile (`docs/mocks/16-context-menu`): the rows of [`Home::menu_rows`].
     Menu,
+    /// The question that follows Uninstall (`panels/Confirm.qml`): Keep it, the safe answer and the one Back gives, or Uninstall.
+    Confirm,
     /// The status bar's settings popover: the wallpaper's motion in live rows ([`super::popover`]).
     Popover,
 }
@@ -70,6 +79,16 @@ pub struct MenuRow {
     pub id: &'static str,
     pub label: String,
     pub danger: bool,
+}
+
+/// The question over Home that follows Uninstall.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Confirm {
+    pub app_id: String,
+    pub title: String,
+    pub icon: String,
+    /// 0 Keep it, 1 Uninstall.
+    pub index: usize,
 }
 
 /// What Home asks another kind of the shell for (the status bar's gear and bell, the Menu key's quick panel): `shell.rs` routes it to
@@ -122,6 +141,8 @@ pub struct Home {
     pub menu: Vec<MenuRow>,
     pub menu_index: usize,
     pub menu_app: Option<Value>,
+    /// The question over Home while it is up: the app, and which answer has the focus (0 Keep it, 1 Uninstall).
+    pub confirm: Option<Confirm>,
     /// The status bar's settings popover while it is up, and what it changed that is to be written to the theme at the next update.
     pub popover: Option<Popover>,
     /// Where the popover and its rows are (made when it opens and when its focus moves; the surface draws this).
@@ -211,6 +232,7 @@ impl Home {
             menu: Vec::new(),
             menu_index: 0,
             menu_app: None,
+            confirm: None,
             popover: None,
             popover_lay: None,
             persist: None,
@@ -927,6 +949,7 @@ impl Home {
             Layer::Edit => self.edit_key(name, dir, out),
             Layer::Picker => self.picker_key(name, dir, out),
             Layer::Menu => self.menu_key(name, dir, out),
+            Layer::Confirm => self.confirm_key(name, dir, out),
             Layer::Popover => self.popover_key(name, dir, out),
             Layer::None => self.home_key(name, dir, out),
         }
@@ -1348,6 +1371,7 @@ impl Home {
         self.inner = None;
         self.inner_index = None;
         self.menu_app = None;
+        self.confirm = None;
     }
 
     pub fn open_apps(&mut self, out: &mut Vec<Effect>) {
@@ -1618,7 +1642,7 @@ impl Home {
     // ---- the tile menu
     fn open_tile_menu(&mut self, out: &mut Vec<Effect>) {
         if let Some(p) = self.dock.focused().cloned() {
-            let app = json!({"id": p.id, "title": p.title, "iconUrl": p.icon, "params": p.params, "onDock": true, "unmovable": p.unmovable});
+            let app = json!({"id": p.id, "title": p.title, "iconUrl": p.icon, "params": p.params, "onDock": true, "unmovable": p.unmovable, "removable": p.removable});
             self.open_menu(app, "dock", out);
         }
     }
@@ -1636,7 +1660,7 @@ impl Home {
             rows.push(MenuRow { id: if hidden { "show" } else { "hide" }, label: if hidden { "Show".into() } else { "Hide".into() }, danger: false });
         }
         rows.push(MenuRow { id: "rename", label: "Rename".into(), danger: false });
-        if !unmovable && app.get("id").and_then(Value::as_str).is_some_and(|i| !i.starts_with("com.webos.")) {
+        if app.get("removable").and_then(Value::as_bool) == Some(true) {
             rows.push(MenuRow { id: "uninstall", label: "Uninstall".into(), danger: true });
         }
         rows
@@ -1648,6 +1672,48 @@ impl Home {
         self.menu_app = Some(app);
         self.open_layer(Layer::Menu, SCOPE_MENU);
         self.redraw(out);
+    }
+
+    /// The question: Left and Right move between the answers, OK gives the one in front, Back (and Menu) is Keep it. Only Uninstall removes, and
+    /// only from this layer.
+    fn confirm_key(&mut self, name: &str, dir: Option<Dir>, out: &mut Vec<Effect>) {
+        match (name, dir) {
+            (_, Some(Dir::Left | Dir::Right)) => {
+                let i = usize::from(dir == Some(Dir::Right));
+                if let Some(c) = &mut self.confirm {
+                    c.index = i;
+                }
+                self.focus.focus(Id(CONFIRM_ID + i as u32));
+            }
+            ("ok", _) => {
+                let asked = self.confirm.clone();
+                self.end_confirm();
+                if let Some(c) = asked.filter(|c| c.index == 1) {
+                    out.push(Effect::Luna { tag: LAUNCH_TAG, uri: "luna://com.webos.appInstallService/remove".into(), payload: json!({"id": c.app_id}), subscribe: false });
+                }
+            }
+            ("back", _) | ("menu", _) => self.end_confirm(),
+            _ => {}
+        }
+    }
+
+    fn end_confirm(&mut self) {
+        self.confirm = None;
+        for i in 0..CONFIRM_ANSWERS.len() as u32 {
+            self.focus.unregister(Id(CONFIRM_ID + i));
+        }
+        self.close_layer();
+    }
+
+    /// Where the surface put the question's answers: they are focusables of the layer (for the pointer's cue and click), and the one in front has the focus.
+    pub fn set_confirm_frames(&mut self, answers: &[ui::geometry::Frame]) {
+        let Some(index) = self.confirm.as_ref().map(|c| c.index) else { return };
+        for (i, f) in answers.iter().enumerate() {
+            self.focus.register(Id(CONFIRM_ID + i as u32), *f, CONFIRM_REGION, SCOPE_CONFIRM);
+        }
+        if self.focus.current() != Some(Id(CONFIRM_ID + index as u32)) {
+            self.focus.focus(Id(CONFIRM_ID + index as u32));
+        }
     }
 
     fn menu_key(&mut self, name: &str, dir: Option<Dir>, out: &mut Vec<Effect>) {
@@ -1700,8 +1766,14 @@ impl Home {
                         self.search.register(&mut self.focus);
                         return;
                     }
+                    // never removed on one OK: the question comes first, and Keep it has the focus
                     "uninstall" => {
-                        out.push(Effect::Luna { tag: LAUNCH_TAG, uri: "luna://com.webos.appInstallService/remove".into(), payload: json!({"id": app_id}), subscribe: false });
+                        let title = app.get("title").and_then(Value::as_str).unwrap_or("").to_owned();
+                        let icon = app.get("iconUrl").and_then(Value::as_str).unwrap_or("").to_owned();
+                        self.confirm = Some(Confirm { app_id, title, icon, index: 0 });
+                        self.open_layer(Layer::Confirm, SCOPE_CONFIRM);
+                        self.menu_app = None;
+                        return;
                     }
                     _ => {}
                 }
@@ -1772,6 +1844,13 @@ impl Home {
                     let action = self.apps.clicked(id, &mut self.focus);
                     self.apps_out(action, out);
                     self.redraw(out);
+                    return;
+                }
+                if let Some(i) = id.0.checked_sub(CONFIRM_ID).filter(|i| (*i as usize) < CONFIRM_ANSWERS.len()).filter(|_| self.layer == Layer::Confirm) {
+                    if let Some(c) = &mut self.confirm {
+                        c.index = i as usize;
+                    }
+                    self.action("ok", out);
                     return;
                 }
                 if let Some(i) = Self::dock_index_of(id) {
@@ -1852,7 +1931,7 @@ impl Home {
     pub fn state(&self) -> Value {
         json!({
             "home": self.active,
-            "layer": match self.layer { Layer::None => "", Layer::Apps => "apps", Layer::Search => "search", Layer::Edit => "edit", Layer::Picker => "picker", Layer::Menu => "menu", Layer::Popover => "popover" },
+            "layer": match self.layer { Layer::None => "", Layer::Apps => "apps", Layer::Search => "search", Layer::Edit => "edit", Layer::Picker => "picker", Layer::Menu => "menu", Layer::Confirm => "confirm", Layer::Popover => "popover" },
             "focus": self.focus.current().map(|i| i.0),
             "focusLayer": self.focus.current().map(|id| if Self::dock_index_of(id).is_some() { "dock" } else if self.widget_of(id).is_some() { if self.inner.is_some() { "widget" } else { "widgets" } } else { "statusbar" }),
             "widgetFocusId": self.focus.current().and_then(|id| self.widget_of(id)),
@@ -1889,7 +1968,7 @@ mod tests {
         h.update(&Input::Topic { topic: "foreground".into(), data: json!({"app": "com.webos.app.home", "home": true, "covered": false}) }, 1000);
         let mut lps = vec![json!({"id": APPS_TILE, "title": "Apps", "unmovable": true, "icon": "/a.png"})];
         for (id, t) in [("netflix", "Netflix"), ("youtube", "YouTube"), ("plex", "Plex")] {
-            lps.push(json!({"id": id, "title": t, "icon": format!("/{id}.png"), "iconColor": "#101010"}));
+            lps.push(json!({"id": id, "title": t, "icon": format!("/{id}.png"), "iconColor": "#101010", "removable": true}));
         }
         h.update(&Input::Luna { tag: LP_TAG, payload: json!({"launchPoints": lps}) }, 1001);
         h
@@ -2077,6 +2156,96 @@ mod tests {
         let out = press(&mut h, "ok", 4300);
         assert!(out.iter().any(|e| matches!(e, Effect::Write { path, text } if path == "theme/theme.json" && text.contains("dockOrder"))));
         assert!(!h.dock.moving);
+    }
+
+    fn removals(out: &[Effect]) -> usize {
+        out.iter().filter(|e| matches!(e, Effect::Luna { uri, .. } if uri.ends_with("/remove"))).count()
+    }
+
+    /// Home with the tile menu of the second tile (Netflix) up and its Uninstall row in front.
+    fn menu_on_uninstall() -> Home {
+        let mut h = home();
+        press(&mut h, "2", 1500);
+        h.close_all();
+        h.update(&Input::Key { name: "ok".into(), down: true, repeat: false }, 3000);
+        h.update(&Input::Tick, 3800);
+        h.update(&Input::Key { name: "ok".into(), down: false, repeat: false }, 3900);
+        assert_eq!(h.layer, Layer::Menu);
+        for k in 0..4 {
+            press(&mut h, "down", 4000 + k * 100);
+        }
+        assert_eq!(h.menu[h.menu_index].id, "uninstall");
+        h
+    }
+
+    #[test]
+    fn uninstall_asks_first_keep_it_has_the_focus_and_back_or_ok_on_it_removes_nothing() {
+        let mut h = menu_on_uninstall();
+        let out = press(&mut h, "ok", 5000);
+        assert_eq!((h.layer, removals(&out)), (Layer::Confirm, 0), "OK on Uninstall asks, it does not remove");
+        assert_eq!(h.confirm.as_ref().map(|c| (c.app_id.as_str(), c.index)), Some(("netflix", 0)), "Keep it is in front");
+        // the surface reports the answers' places: the safe one has the focus
+        h.set_confirm_frames(&[ui::geometry::Frame::new(700.0, 600.0, 160.0, 64.0), ui::geometry::Frame::new(880.0, 600.0, 200.0, 64.0)]);
+        assert_eq!(h.focus.current(), Some(Id(CONFIRM_ID)));
+        let out = press(&mut h, "ok", 5200);
+        assert_eq!((h.layer, removals(&out)), (Layer::None, 0), "OK on the default is Keep it");
+        assert!(h.confirm.is_none());
+        // Back is Keep it as well
+        let mut h = menu_on_uninstall();
+        press(&mut h, "ok", 5000);
+        let out = press(&mut h, "back", 5200);
+        assert_eq!((h.layer, removals(&out)), (Layer::None, 0));
+    }
+
+    #[test]
+    fn only_ok_on_uninstall_after_moving_to_it_removes_and_once() {
+        let mut h = menu_on_uninstall();
+        press(&mut h, "ok", 5000);
+        h.set_confirm_frames(&[ui::geometry::Frame::new(700.0, 600.0, 160.0, 64.0), ui::geometry::Frame::new(880.0, 600.0, 200.0, 64.0)]);
+        let mut out = press(&mut h, "right", 5100);
+        assert_eq!((h.layer, removals(&out)), (Layer::Confirm, 0), "moving to Uninstall removes nothing");
+        assert_eq!(h.focus.current(), Some(Id(CONFIRM_ID + 1)));
+        // the press and the release of one OK is one answer
+        out = h.update(&Input::Key { name: "ok".into(), down: true, repeat: false }, 5200);
+        assert_eq!(removals(&out), 0, "a press alone answers nothing");
+        out = h.update(&Input::Key { name: "ok".into(), down: false, repeat: false }, 5240);
+        assert_eq!((h.layer, removals(&out)), (Layer::None, 1));
+        assert!(out.iter().any(|e| matches!(e, Effect::Luna { payload, .. } if payload["id"] == "netflix")));
+        let again = h.update(&Input::Key { name: "ok".into(), down: false, repeat: false }, 5300);
+        assert_eq!(removals(&again), 0, "a release with no press is nothing");
+    }
+
+    #[test]
+    fn a_click_on_an_answer_gives_it_and_only_apps_lg_lets_go_that_are_not_protected_have_the_row() {
+        let mut h = menu_on_uninstall();
+        press(&mut h, "ok", 5000);
+        let (keep, remove) = (ui::geometry::Frame::new(700.0, 600.0, 160.0, 64.0), ui::geometry::Frame::new(880.0, 600.0, 200.0, 64.0));
+        h.set_confirm_frames(&[keep, remove]);
+        let at = |f: &ui::geometry::Frame| (f.x + 10.0, f.y + 10.0);
+        let click = |h: &mut Home, (x, y): (f32, f32), t: u64| {
+            let mut all = Vec::new();
+            for (b, dt) in [(0, 0), (1, 20), (0, 40)] {
+                all.extend(h.update(&Input::Pointer { x, y, buttons: b, visible: true }, t + dt));
+            }
+            all
+        };
+        let out = click(&mut h, at(&keep), 5100);
+        assert_eq!((h.layer, removals(&out)), (Layer::None, 0), "a click on Keep it keeps it");
+        let mut h = menu_on_uninstall();
+        press(&mut h, "ok", 5000);
+        h.set_confirm_frames(&[keep, remove]);
+        let out = click(&mut h, at(&remove), 5100);
+        assert_eq!((h.layer, removals(&out)), (Layer::None, 1));
+        // the row is only for what LG lets go and is not LG's, LumaTV's or the Homebrew Channel's
+        let rows = |lp: Value| Home::menu_rows(&json!({"id": lp["id"], "removable": super::super::dock::removable_app(&lp), "onDock": true}), "dock").iter().any(|r| r.id == "uninstall");
+        assert!(rows(json!({"id": "org.webosbrew.hyperhdr.loader", "removable": true})));
+        assert!(!rows(json!({"id": "org.nphil.lumatv", "removable": true})));
+        assert!(!rows(json!({"id": "org.nphil.lumatv.card", "removable": true})));
+        assert!(!rows(json!({"id": "org.webosbrew.hbchannel", "removable": true})));
+        assert!(!rows(json!({"id": "com.webos.app.browser", "removable": true})));
+        assert!(!rows(json!({"id": "netflix", "removable": true, "systemApp": true})));
+        assert!(!rows(json!({"id": "netflix", "removable": false})));
+        assert!(!rows(json!({"id": "netflix"})));
     }
 
     #[test]

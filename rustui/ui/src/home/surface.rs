@@ -7,7 +7,7 @@
 //! 1.04), and the lit glass that comes up with it; a hover cue is one ring moved to what the pointer is over. The layers over Home
 //! (`layers.rs`) are made when they open and dropped when they close.
 
-use super::layers::{AppsSurface, EditorSurface, MenuSurface, PickerSurface, PopoverSurface, SearchSurface};
+use super::layers::{AppsSurface, ConfirmSurface, EditorSurface, MenuSurface, PickerSurface, PopoverSurface, SearchSurface};
 use super::model::{self, Home, Layer, STATUS_ID, WIDGET_ID};
 use super::wallpaper::{self, WallpaperSurface};
 use super::widgets::{Content, PAD_SIDE, PAD_TOP, Pictures};
@@ -186,6 +186,7 @@ pub struct HomeSurface {
     editor: Option<EditorSurface>,
     picker: Option<PickerSurface>,
     menu: Option<MenuSurface>,
+    confirm: Option<ConfirmSurface>,
     popover: Option<PopoverSurface>,
     veil: Option<ShapeLayer>,
     generation: u64,
@@ -220,6 +221,7 @@ impl HomeSurface {
             editor: None,
             picker: None,
             menu: None,
+            confirm: None,
             popover: None,
             veil: None,
             generation: 0,
@@ -320,6 +322,11 @@ impl HomeSurface {
         self.update_dock(kit, engine, home, now_ns);
         self.update_focus(kit, engine, home, now_ns);
         self.update_layers(kit, engine, home, now)?;
+        // the question's answers are focusables of Home's model once it is drawn
+        if let Some(c) = self.confirm.as_mut().filter(|c| !c.reported) {
+            home.set_confirm_frames(&c.frames);
+            c.reported = true;
+        }
         self.update_veil(kit, home, now);
         self.live = home.active;
         Ok(home.active)
@@ -353,6 +360,9 @@ impl HomeSurface {
             p.destroy(engine);
         }
         self.menu = None;
+        if let Some(c) = self.confirm.take() {
+            c.destroy(engine);
+        }
         self.popover = None;
         self.hover = None;
         self.veil = None;
@@ -914,6 +924,19 @@ impl HomeSurface {
         if let Some(m) = &mut self.menu {
             m.update(kit, home)?;
         }
+        let confirm_up = home.layer == Layer::Confirm && home.confirm.is_some();
+        match (confirm_up, &mut self.confirm) {
+            (true, None) => self.confirm = Some(ConfirmSurface::new(kit, engine, home, Z_LAYERS + 95)?),
+            (false, Some(_)) => {
+                if let Some(c) = self.confirm.take() {
+                    c.destroy(engine);
+                }
+            }
+            _ => {}
+        }
+        if let Some(c) = &mut self.confirm {
+            c.update(kit, home);
+        }
         // the status bar's settings popover: made when it opens and when its rows scroll; the wallpaper behind is the preview, so the page steps back
         let popover_up = home.layer == Layer::Popover && home.popover_lay.is_some();
         if self.popover.as_ref().is_some_and(|p| !popover_up || !p.is_for(home)) {
@@ -1111,6 +1134,49 @@ mod tests {
                 assert!(words >= 12, "{mode:?} {scale}: only {words} words were drawn");
                 let bad: Vec<String> = findings.iter().map(|f| format!("{f:?}")).collect();
                 assert!(bad.is_empty(), "{mode:?} at {scale}: {}", bad.join("\n"));
+            }
+        }
+    }
+
+    #[test]
+    fn the_uninstall_question_is_drawn_on_the_screen_with_both_answers_in_the_card_and_keep_it_in_front_at_both_sizes_and_looks() {
+        for mode in [Mode::Dark, Mode::Light] {
+            for scale in [1.0, 2.0] {
+                let (h, mut kit) = testkit::kit_in(mode, scale);
+                let mut engine = Engine::new(&kit).expect("an engine");
+                let mut home = Home::new(lumatv_tokens::Tokens::shipped().json().clone(), super::super::grid::shipped(), json!({}));
+                fixtures(&mut home);
+                let lp = json!({"id": "org.webosbrew.hyperhdr.loader", "title": "HyperHDR with a rather long name", "icon": "", "iconColor": "#101010", "removable": true});
+                home.update(&Input::Luna { tag: model::LP_TAG, payload: json!({"launchPoints": [lp]}) }, 1500);
+                for (i, k) in ["down", "down", "down"].into_iter().enumerate() {
+                    press(&mut home, k, 1600 + i as u64 * 100);
+                }
+                home.update(&Input::Key { name: "ok".into(), down: true, repeat: false }, 2000);
+                home.update(&Input::Tick, 2900);
+                home.update(&Input::Key { name: "ok".into(), down: false, repeat: false }, 2950);
+                let mut s = HomeSurface::new(1000);
+                s.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
+                s.apply(&mut kit, &mut engine, &mut home, 2400).expect("Home drawn");
+                assert_eq!(home.layer, Layer::Menu);
+                while home.menu[home.menu_index].id != "uninstall" {
+                    press(&mut home, "down", 2500);
+                }
+                press(&mut home, "ok", 2600);
+                assert_eq!(home.layer, Layer::Confirm, "{mode:?} {scale}");
+                s.apply(&mut kit, &mut engine, &mut home, 2700).expect("the question drawn");
+                let c = s.confirm.as_ref().expect("the question");
+                assert_eq!(c.frames.len(), 2);
+                assert!(c.card.x >= 0.0 && c.card.y >= 0.0 && c.card.right() <= 1920.0 && c.card.bottom() <= 1080.0, "{mode:?} {scale}: {:?}", c.card);
+                for f in &c.frames {
+                    assert!(f.x >= c.card.x && f.right() <= c.card.right() && f.y >= c.card.y && f.bottom() <= c.card.bottom(), "{mode:?} {scale}: answer {f:?} in {:?}", c.card);
+                }
+                assert!(c.frames[0].right() <= c.frames[1].x, "the answers do not overlap");
+                assert_eq!(home.focus.current(), Some(Id(model::CONFIRM_ID)), "Keep it has the focus");
+                // away from the question, the layer and its layers go
+                press(&mut home, "back", 2800);
+                s.apply(&mut kit, &mut engine, &mut home, 2900).expect("Home drawn");
+                assert!(s.confirm.is_none());
+                std::mem::forget(h);
             }
         }
     }
