@@ -81,10 +81,29 @@ impl Kit {
         self.generation
     }
 
+    /// What the one scene every kind shares has left of the compositor's ceilings: layers, groups and motion tracks
+    /// (`ui::limits`: 256, 96, 32). A modal kind asserts its budget against this when it opens.
+    pub fn room(&self) -> Room {
+        let scene = &self.ui.scene;
+        Room {
+            layers: scene.layer_room(),
+            groups: ui::limits::MAX_GROUP_NODES.saturating_sub(scene.groups_alive()),
+            tracks: ui::limits::MAX_MOTION_TRACKS.saturating_sub(scene.motions_alive()),
+        }
+    }
+
     /// The flowing-focus spring as the theme sets it: the reduced-motion crossfade when the theme asks for it.
     pub fn flow_spec(&self) -> Spec {
         Spec { reduced: self.ui.look.reduced_motion, ..Spec::default() }
     }
+}
+
+/// What is left of the scene's ceilings ([`Kit::room`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Room {
+    pub layers: usize,
+    pub groups: usize,
+    pub tracks: usize,
 }
 
 /// The focus engine every screen gets: the registry and its rules ([`Focus`]) with the flowing motion ([`Flow`]) that shows every

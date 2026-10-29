@@ -84,6 +84,15 @@ Tick}`; `Effect::{Luna, Cancel, Post, Fetch, Log, Redraw}`. The surface draws th
 the feeds and the clock. Models run on wall-clock milliseconds (the helper's stamps), the flow on the engine's monotonic
 nanoseconds.
 
+## The scene's budget
+
+Every kind of one process draws in the one scene the engine gives it, under the compositor's ceilings (`ui::limits`: 256
+layers, 96 groups, 32 motion tracks). The rule: a modal kind (a panel, Settings, the keyboard) builds its layers when it opens
+and drops them when it closes; nothing keeps hidden layers alive while another kind is up; the system layer (the volume display
+and the toasts) holds at most 16 layers and no groups; the shared `Engine`'s `Flow` holds `POOL` tracks plus one per scroller,
+so a kind that needs more room lowers the pool it makes the `Flow` with. `Kit::room()` answers what is left (layers, groups,
+tracks) for a kind to assert its budget against when it opens.
+
 ## The channel
 
 Topics and events as `shell.rs` serves them (`GET /v1/state`, `GET /v1/events?after=`, `POST /v1/ui`, `/v1/luna`, `/v1/cancel`),
