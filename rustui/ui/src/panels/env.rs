@@ -105,6 +105,11 @@ impl Env {
         self.theme.pointer(&format!("/remote/{name}")).and_then(Value::as_bool) != Some(false)
     }
 
+    /// A switch that is off until the owner turns it on (`remote.appSwitcher`, `remote.recents`: off until the TV check).
+    pub fn switch_set(&self, name: &str) -> bool {
+        self.theme.pointer(&format!("/remote/{name}")).and_then(Value::as_bool) == Some(true)
+    }
+
     /// The tile editor and the value cards are the owner's to switch on (`remote.quickPanelEdit`, off until the TV check).
     pub fn popups_on(&self) -> bool {
         self.theme.pointer("/remote/quickPanelEdit").and_then(Value::as_bool) == Some(true)

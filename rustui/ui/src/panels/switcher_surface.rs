@@ -20,7 +20,7 @@ use crate::kit::lint::Lint;
 use crate::kit::motion::Beat;
 use crate::kit::pointer::Sample;
 use crate::kit::text::{role_style, width_of};
-use crate::kit::widgets::{Plate, edge, lit_edge};
+use crate::kit::widgets::edge;
 use crate::kit::wrap;
 use crate::kit::{Engine, Kit};
 use compositor_protocol::{Fill, GroupPose, Props, Rgba, Shape};
@@ -654,6 +654,16 @@ impl SwitcherSurface {
     /// Describes what is on the screen to a lint: the dim the compositor draws behind the chrome, the words on it, the buttons and the question.
     pub fn feed_lint(&self, kit: &mut Kit, lint: &mut Lint) {
         let Some(b) = &self.built else { return };
+        // the question's veil hides everything under it, the pictures too: only it is read
+        if let Some(a) = &self.ask {
+            let ask_dim = lint.panel("switcher question dim", Frame::new(0.0, 0.0, 1920.0, 1080.0), kit.tokens.extra(kit.mode).scrim_hide, false);
+            let card = lint.panel_on("switcher question", a.lay.card, kit.ui.look.colour(PaletteRole::Sheet), false, ask_dim);
+            a.title.feed_lint(kit, lint, "question title", Some(card), (0.0, 0.0));
+            a.body.feed_lint(kit, lint, "question body", Some(card), (0.0, 0.0));
+            a.cancel.feed_lint(kit, lint, card);
+            a.quit_all.feed_lint(kit, lint, card);
+            return;
+        }
         let dim = lint.panel("switcher dim", Frame::new(0.0, 0.0, 1920.0, 1080.0), kit.tokens.extra(kit.mode).scrim_hide, false);
         b._title.feed_lint(kit, lint, "switcher title", Some(dim), (0.0, 0.0));
         if let Some((w, _)) = &b.count {
@@ -679,14 +689,223 @@ impl SwitcherSurface {
                 c.quit.feed_lint_at(kit, lint, dim, (-shift, 0.0));
             }
         }
-        if let Some(a) = &self.ask {
-            let ask_dim = lint.panel("switcher question dim", Frame::new(0.0, 0.0, 1920.0, 1080.0), kit.tokens.extra(kit.mode).scrim_hide, false);
-            let card = lint.panel_on("switcher question", a.lay.card, kit.ui.look.colour(PaletteRole::Sheet), false, ask_dim);
-            a.title.feed_lint(kit, lint, "question title", Some(card), (0.0, 0.0));
-            a.body.feed_lint(kit, lint, "question body", Some(card), (0.0, 0.0));
-            a.cancel.feed_lint(kit, lint, card);
-            a.quit_all.feed_lint(kit, lint, card);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kit::testkit;
+    use crate::panels::K;
+    use crate::panels::switcher::Switcher;
+    use ui::lucent::palette::Mode;
+
+    struct Up {
+        _h: ui::testing::Harness,
+        kit: Kit,
+        engine: Engine,
+        s: SwitcherSurface,
+        m: Switcher,
+        t: u64,
+    }
+
+    fn app(id: &str, title: &str, picture: &str, state: &str) -> Value {
+        json!({"id": id, "title": title, "picture": picture, "w": 1920, "h": 1080, "state": state})
+    }
+
+    fn three() -> Value {
+        json!([app("plex", "Plex", "live", ""), app("youtube.leanback.v4", "YouTube", "live", ""), app("com.webos.app.hdmi2", "HDMI 2", "video", "")])
+    }
+
+    fn six() -> Value {
+        json!([
+            app("a", "Plex", "live", ""),
+            app("b", "YouTube", "live", ""),
+            app("c", "Netflix", "live", ""),
+            app("d", "Disney+ with a long name that wraps onto lines", "live", ""),
+            app("e", "Prime Video", "live", ""),
+            app("f", "Spotify", "live", "")
+        ])
+    }
+
+    impl Up {
+        fn new(mode: Mode, scale: f32, list: Value) -> Self {
+            let (h, kit) = testkit::kit_in(mode, scale);
+            let engine = Engine::new(&kit).expect("an engine");
+            let mut m = Switcher::new();
+            m.topic("apps", &list, 0);
+            m.topic("switcher", &json!({"open": true, "from": "", "n": 1}), 0);
+            let mut me = Self { _h: h, kit, engine, s: SwitcherSurface::new(crate::kit::z::PANELS + 40), m, t: 1000 };
+            me.apply(Phase::Open);
+            me
         }
-        let _ = (lit_edge(kit), Plate::layers as fn(&Plate) -> usize);
+
+        fn apply(&mut self, phase: Phase) {
+            let v = self.m.view(self.t);
+            self.s.apply(&mut self.kit, &mut self.engine, &v, phase, self.t * 1_000_000).expect("the chrome is drawn");
+        }
+
+        fn key(&mut self, k: K) {
+            self.m.key(k, self.t);
+            self.t += 40;
+            self.apply(Phase::Open);
+        }
+
+        fn lint(&mut self) -> Vec<String> {
+            let mut lint = Lint::new();
+            self.s.feed_lint(&mut self.kit, &mut lint);
+            lint.findings().iter().map(ToString::to_string).collect()
+        }
+
+        fn geo(&self) -> Value {
+            self.s.geometry(&self.engine)
+        }
+    }
+
+    fn at(x: f32, y: f32, b: u32) -> Sample {
+        Sample { x, y, buttons: b, visible: true }
+    }
+
+    #[test]
+    fn each_card_is_where_the_compositor_draws_its_picture_and_the_first_has_the_focus() {
+        let u = Up::new(Mode::Dark, 1.0, three());
+        let g = u.geo();
+        let cards = g["cards"].as_array().unwrap();
+        assert_eq!(cards.len(), 3);
+        for (i, c) in cards.iter().enumerate() {
+            let (x, y, w, h, _) = geo::card(i, 3, 0);
+            let f = &c["frame"];
+            assert_eq!((f["x"].as_f64().unwrap() as f32, f["y"].as_f64().unwrap() as f32, f["w"].as_f64().unwrap() as f32, f["h"].as_f64().unwrap() as f32), (x, y, w, h), "card {i}");
+        }
+        assert_eq!(g["focus"], json!({"card": 0}));
+        assert_eq!(cards[2]["picture"], "video", "the HDMI app's picture is on the video plane: its card is an icon on a tile");
+        assert!(g["all"]["w"].as_f64().unwrap() > 0.0, "Quit all is in the header");
+    }
+
+    #[test]
+    fn the_focus_flies_to_the_next_card_its_own_quit_and_the_headers_quit_all_without_making_a_layer() {
+        let mut u = Up::new(Mode::Dark, 1.0, three());
+        let layers = u.kit.room().layers;
+        u.key(K::Right);
+        assert_eq!(u.geo()["focus"], json!({"card": 1}));
+        assert!(u.engine.flow.settling_at(u.t * 1_000_000), "the ring flows between the cards");
+        u.key(K::Down);
+        assert_eq!(u.geo()["focus"], json!({"quit": 1}));
+        assert_eq!(u.geo()["cards"][1]["current"], true);
+        assert_eq!(u.geo()["cards"][0]["current"], false);
+        u.key(K::Up);
+        u.key(K::Up);
+        assert_eq!(u.geo()["focus"], json!("all"));
+        assert_eq!(u.kit.room().layers, layers, "nothing is made or dropped by a move of the focus");
+    }
+
+    #[test]
+    fn more_than_four_apps_are_a_row_that_moves_a_card_when_the_focus_leaves_the_window() {
+        let mut u = Up::new(Mode::Dark, 1.0, six());
+        assert_eq!(u.geo()["first"], 0);
+        for _ in 0..4 {
+            u.key(K::Right);
+        }
+        assert_eq!(u.geo()["focus"], json!({"card": 4}));
+        assert_eq!(u.geo()["first"], 1, "the window followed the focus");
+        let first = u.engine.focus.frame(Target::Card(1).id()).expect("a ring");
+        let hidden = u.engine.focus.frame(Target::Card(0).id()).expect("a ring");
+        assert!(first.w > 0.0 && hidden.w == 0.0, "a card out of the window cannot be pointed at: {first:?} {hidden:?}");
+    }
+
+    #[test]
+    fn quit_all_asks_first_in_a_card_of_its_own_whose_safe_answer_has_the_focus() {
+        let mut u = Up::new(Mode::Dark, 1.0, three());
+        u.key(K::Up);
+        u.key(K::Ok);
+        let g = u.geo();
+        assert_eq!(g["asking"], true);
+        assert_eq!(g["focus"], json!("cancel"));
+        assert_eq!(u.engine.focus.modal(), Some(ASK_SCOPE));
+        u.key(K::Right);
+        assert_eq!(u.geo()["focus"], json!("quitall"));
+        u.key(K::Back);
+        assert_eq!(u.geo()["asking"], false);
+        assert_eq!(u.engine.focus.modal(), Some(SCOPE), "the question gave the keys back to the cards");
+        assert_eq!(u.geo()["focus"], json!("all"), "the focus returns to the button that asked");
+    }
+
+    #[test]
+    fn a_click_on_a_picture_its_quit_the_header_and_the_dim_name_what_was_hit() {
+        let mut u = Up::new(Mode::Dark, 1.0, three());
+        let t = |n: u64| (3000 + n) * 1_000_000;
+        let (px, py, w, h, _) = geo::card(1, 3, 0);
+        let (x, y) = (px + w / 2.0, py + h / 2.0);
+        u.s.pointer(&u.kit, &mut u.engine, t(0), at(x, y, 0));
+        u.s.pointer(&u.kit, &mut u.engine, t(10), at(x, y, 1));
+        assert_eq!(u.s.pointer(&u.kit, &mut u.engine, t(20), at(x, y, 0)), Some(Target::Card(1)));
+        u.key(K::Down);
+        let q = u.engine.focus.frame(Target::Quit(0).id()).expect("a button");
+        let q = (q.x + 8.0, q.y + 8.0);
+        u.s.pointer(&u.kit, &mut u.engine, t(30), at(q.0, q.1, 0));
+        u.s.pointer(&u.kit, &mut u.engine, t(40), at(q.0, q.1, 1));
+        let hit = u.s.pointer(&u.kit, &mut u.engine, t(50), at(q.0, q.1, 0));
+        assert!(matches!(hit, Some(Target::Quit(_))), "{hit:?}");
+        u.s.pointer(&u.kit, &mut u.engine, t(60), at(30.0, 1000.0, 0));
+        u.s.pointer(&u.kit, &mut u.engine, t(70), at(30.0, 1000.0, 1));
+        assert_eq!(u.s.pointer(&u.kit, &mut u.engine, t(80), at(30.0, 1000.0, 0)), Some(Target::Backdrop));
+    }
+
+    #[test]
+    fn what_happens_to_an_app_is_said_under_it_and_a_stuck_app_offers_another_try() {
+        let list = json!([app("a", "Plex", "live", "quitting"), app("b", "YouTube", "live", "stuck"), app("c", "HDMI 2", "video", "")]);
+        let mut u = Up::new(Mode::Dark, 1.0, list);
+        let g = u.geo();
+        assert_eq!(g["cards"][0]["state"], "quitting");
+        assert_eq!(g["cards"][1]["state"], "stuck");
+        u.key(K::Right);
+        u.key(K::Down);
+        assert_eq!(u.s.built.as_ref().unwrap().cards[1].lay.quit_label, "Try again");
+        assert_eq!(u.s.built.as_ref().unwrap().cards[2].lay.state, vec!["No preview".to_string()], "a card with no picture says so");
+    }
+
+    #[test]
+    fn it_reads_clean_in_both_materials_at_100_and_200_percent_with_three_apps_many_and_the_question() {
+        for mode in [Mode::Dark, Mode::Light] {
+            for scale in [1.0, 2.0] {
+                for (name, list) in [("three", three()), ("six", six())] {
+                    let mut u = Up::new(mode, scale, list);
+                    let f = u.lint();
+                    assert!(f.is_empty(), "{name} {mode:?} {scale}: {f:#?}");
+                    u.key(K::Down);
+                    let f = u.lint();
+                    assert!(f.is_empty(), "{name} with Quit {mode:?} {scale}: {f:#?}");
+                    u.key(K::Up);
+                    u.key(K::Up);
+                    u.key(K::Ok);
+                    let f = u.lint();
+                    assert!(f.is_empty(), "{name} asking {mode:?} {scale}: {f:#?}");
+                }
+                let mut none = Up::new(mode, scale, json!([]));
+                let f = none.lint();
+                assert!(f.is_empty(), "no apps {mode:?} {scale}: {f:#?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_change_of_the_list_makes_the_cards_again_and_leaving_frees_the_keys_and_the_layers() {
+        let mut u = Up::new(Mode::Dark, 1.0, three());
+        let with = u.kit.room().layers;
+        u.m.topic("apps", &json!([app("plex", "Plex", "live", "")]), 5000);
+        u.t = 5000;
+        u.apply(Phase::Open);
+        assert_eq!(u.geo()["cards"].as_array().unwrap().len(), 1);
+        u.apply(Phase::Gone);
+        assert!(!u.s.is_up() && u.engine.focus.modal().is_none());
+        assert!(u.kit.room().layers >= with, "everything it made is given back");
+    }
+
+    #[test]
+    fn ids_name_what_the_pointer_lands_on() {
+        for t in [Target::Card(0), Target::Card(23), Target::Quit(2), Target::All, Target::Cancel, Target::QuitAll, Target::Backdrop] {
+            assert_eq!(Target::from_id(t.id()), Some(t));
+        }
+        assert_eq!(Target::from_id(Id(1)), None);
     }
 }

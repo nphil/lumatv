@@ -34,7 +34,7 @@ use crate::shell::{
 
 /// The kinds the Rust shell may answer, in the order `ctl shell` lists them. `quick`, `picker` and `drawer` are the panels LumaTV opens
 /// itself (`State::shell_show`): while the Rust shell answers one, its `show` goes to it and the QML client's panel stays shut.
-pub const KINDS: &[&str] = &["home", "osd", "settings", "toast", "cameras", "quick", "picker", "drawer", "alert", "saver", "capture"];
+pub const KINDS: &[&str] = &["home", "osd", "settings", "toast", "cameras", "quick", "picker", "drawer", "menu", "confirm", "switcher", "alert", "saver", "capture"];
 /// Where the system layer's layers begin in the engine's z: everything the Rust shell draws over the windows is at this or more.
 pub const SYSTEM_Z: i32 = 1000;
 const TOKEN_FILE: &str = "lumatv-ui.token";
@@ -513,6 +513,9 @@ impl State {
                 self.shell_rust.luna_tags.iter().filter(|t| t.subscribe).count()
             ));
         }
+        if self.shell_rust.answers("switcher") {
+            self.switcher_reset();
+        }
         self.shell_rust.connected = false;
         self.shell_rust.engine_connected = false;
         self.shell_rust_sync_home();
@@ -595,6 +598,9 @@ impl State {
         {
             self.shell.push("audio", audio);
         }
+        // the switcher's topics go to whichever client answers it now
+        self.switcher.topics_sig = 0;
+        self.shell_sync_topics();
         Ok(())
     }
 
@@ -623,6 +629,7 @@ impl State {
                     self.journal("shell-rust: client connected".into());
                 }
                 self.shell_rust.pushed.clear();
+                self.switcher.topics_sig = 0;
                 self.shell_rust_sync_topics();
             }
             Msg::Seen => self.shell_rust.note_seen(now),
@@ -698,9 +705,17 @@ impl State {
                     self.shell_rust.cancelled_early.push(tag);
                 }
             }
-            Msg::Ime(_) | Msg::Switcher(_) => {
-                // the keyboard and the switcher are the QML client's until their kinds move
+            Msg::Ime(_) => {
+                // the keyboard is the QML client's until its kind moves
                 self.shell_rust.note_seen(now);
+            }
+            Msg::Switcher(body) => {
+                self.shell_rust.note_seen(now);
+                // the pictures move on the compositor's clock: a still screen shows the change at once, a running one at the tick
+                if self.shell_rust.answers("switcher") && self.switcher_op(&body, now) && self.output.draws_on_damage(now) {
+                    self.tick();
+                    return true;
+                }
             }
             Msg::Vwin(body) => {
                 self.shell_rust.note_seen(now);
@@ -752,6 +767,9 @@ impl State {
         }
         for (topic, value) in self.shell_topic_values() {
             self.shell_rust.push_if_changed(&topic, value);
+        }
+        if self.shell_rust.answers("switcher") {
+            self.switcher_sync_topics();
         }
     }
 
@@ -1037,6 +1055,29 @@ mod tests {
         assert_eq!(report["rust"]["kinds"], json!(["osd"]));
         assert_eq!(report["rust"]["connected"], true);
         assert_eq!(report["rust"]["ui"]["osd"], false);
+    }
+
+    #[test]
+    fn the_switcher_is_drawn_by_the_client_that_answers_it_and_only_that_one_hears_of_it() {
+        let (mut state, _dir) = state_with("switcher");
+        state.shell_handle(Msg::Connected);
+        state.shell_rust_handle(Msg::Connected);
+        state.shell_handle(Msg::Ui { can: Some(vec!["switcher".into()]), wants: None, live: None, state: None });
+        assert!(!state.shell_can("switcher"), "the Rust shell answers it: the QML client's word does not count");
+        state.shell_rust_handle(Msg::Ui { can: Some(vec!["switcher".into()]), wants: Some(false), live: Some(false), state: None });
+        assert!(state.shell_can("switcher"));
+        state.shell_sync_topics();
+        assert_eq!(state.shell_rust.topic("switcher").unwrap()["open"], false);
+        assert_eq!(state.shell_rust.topic("apps"), Some(&json!([])));
+        assert!(state.shell.topic("switcher").is_none() && state.shell.topic("apps").is_none(), "the QML client is not told");
+        // its request to open one is the compositor's to judge: with no app running nothing opens
+        assert!(!state.shell_rust_handle(Msg::Switcher(json!({"op": "open"}))));
+        assert_eq!(state.switcher_report()["open"], false);
+        // and a client that does not answer the kind cannot drive it
+        let (mut qml, _dir2) = state_with("osd");
+        qml.shell_rust_handle(Msg::Connected);
+        qml.shell_sync_topics();
+        assert!(qml.shell_rust.topic("switcher").is_none(), "a kind that is not its own gets no topics");
     }
 
     #[test]

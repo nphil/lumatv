@@ -333,6 +333,13 @@ impl Shell {
                                 self.carry(e, now, acts);
                             }
                         }
+                        // the app switcher: the second press of Home with nothing open on Home, and Back from the top of Home when the owner wants it
+                        crate::home::model::Request::Switcher => {
+                            let wanted = self.panels.recents_on() || matches!(input, Input::Topic { topic, .. } if topic == "homekey");
+                            if wanted && let Some(e) = self.panels.open_switcher(&self.kinds) {
+                                self.carry(e, now, acts);
+                            }
+                        }
                         crate::home::model::Request::Settings => acts.push(Act::Log("home asks for settings".into())),
                         crate::home::model::Request::Notifications => acts.push(Act::Log("home asks for notifications".into())),
                     }
@@ -590,6 +597,10 @@ impl Shell {
             match self.panels.apply(&self.kinds, &mut self.kit, &mut self.engine, now, now_ns) {
                 Ok(on) => live |= on,
                 Err(e) => acts.push(Act::Log(e)),
+            }
+            // the places of the switcher's cards, for the compositor to move its pictures to
+            for e in self.panels.take_drawn() {
+                self.carry(e, now, acts);
             }
             if self.kinds.home {
                 match self.home_surface.apply(&mut self.kit, &mut self.engine, &mut self.home, now) {

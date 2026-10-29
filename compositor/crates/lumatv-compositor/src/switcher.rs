@@ -762,10 +762,17 @@ impl State {
             .iter()
             .map(|a| json!({"id": a.id, "title": a.title, "picture": a.picture.word(), "w": a.size.0, "h": a.size.1, "state": state(&a.id)}))
             .collect();
-        self.shell.push_if_changed("apps", Value::Array(list));
         let open = self.switcher.accepting();
         let from = if open { self.switcher.from.clone().unwrap_or_default() } else { String::new() };
-        self.shell.push_if_changed("switcher", json!({"open": open, "from": from, "n": self.switcher.seq}));
+        let state = json!({"open": open, "from": from, "n": self.switcher.seq});
+        // one client draws the switcher's chrome: the Rust shell when it answers the kind (the QML client hears no more of it), else the QML one
+        if self.shell_rust.answers("switcher") {
+            self.shell_rust.push_if_changed("apps", Value::Array(list));
+            self.shell_rust.push_if_changed("switcher", state);
+        } else {
+            self.shell.push_if_changed("apps", Value::Array(list));
+            self.shell.push_if_changed("switcher", state);
+        }
     }
 
     /// `ctl switcher`.

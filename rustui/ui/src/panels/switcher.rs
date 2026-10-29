@@ -326,6 +326,11 @@ impl Switcher {
         self.post(json!({"op": "close"}))
     }
 
+    /// Asks the compositor to open it (it answers by opening, and the `switcher` topic says so).
+    pub fn open_effect(&self) -> Effect {
+        self.post(json!({"op": "open"}))
+    }
+
     /// A key of the remote while it is up.
     pub fn key(&mut self, k: K, now: u64) -> Out {
         self.touch(now);

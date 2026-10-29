@@ -66,6 +66,8 @@ pub struct MenuRow {
 /// the kind that owns the surface when that kind is in the list, and logs it otherwise.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Request {
+    /// The app switcher: Back from the top of Home (when the owner wants it) and a press of Home with nothing open on Home.
+    Switcher,
     Settings,
     Notifications,
 }
@@ -556,6 +558,12 @@ impl Home {
                 }
                 self.screen_on = on;
             }
+            // the Home key while Home is in front: with nothing open on Home and the switcher on offer (the compositor says so), the app switcher
+            "homekey" => {
+                if data.get("switcher").and_then(Value::as_bool) == Some(true) && self.at_rest() {
+                    self.requests.push(Request::Switcher);
+                }
+            }
             // the keyboard hook: text typed by another keyboard (the Panels' own, a phone) lands in the search field while it is up;
             // a trailing newline is Done
             "keyboard.text" => {
@@ -869,7 +877,7 @@ impl Home {
                         self.activate_card(&wid, out);
                     }
                 }
-                ("back", _) => {}
+                ("back", _) => self.requests.push(Request::Switcher),
                 (_, Some(d)) => {
                     if let Moved::To(_, to) = self.focus.step(d)
                         && let Some(i) = Self::dock_index_of(to)
@@ -895,7 +903,7 @@ impl Home {
                     _ => {}
                 }
             }
-            ("back", _) => {}
+            ("back", _) => self.requests.push(Request::Switcher),
             (_, Some(d)) => {
                 if let Moved::To(_, to) = self.focus.step(d)
                     && let Some(i) = Self::dock_index_of(to)
@@ -1396,6 +1404,11 @@ impl Home {
                 }
             }
         }
+    }
+
+    /// Home is in front with nothing open on it: no layer, no layout editor, no card's inner focus, no tile being moved.
+    pub fn at_rest(&self) -> bool {
+        self.active && self.screen_on && self.layer == Layer::None && self.editor.is_none() && self.inner.is_none() && !self.dock.moving
     }
 
     /// What Home asked other kinds for since the last take.
