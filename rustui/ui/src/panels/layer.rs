@@ -20,6 +20,8 @@ use super::drawer_surface::{DrawerSurface, Target as DrawerTarget};
 use super::entry::Entry;
 use super::entry_surface::{EntrySurface, Target as EntryTarget};
 use super::env::Env;
+use super::ime::{Ime, tags as ime_tags};
+use super::ime_surface::ImeSurface;
 use super::hold::Released;
 use super::life::{Change, Life};
 use super::menu::{Menu, Spec as MenuSpec};
@@ -120,6 +122,10 @@ pub struct Panels {
     entry_s: EntrySurface,
     /// What was typed on the entry sheet, for the one screen that asked (taken by the shell; never an event, never printed).
     typed: Vec<Typed>,
+    /// The keyboard of the apps' text fields (the kind `keyboard`): not one of the panels, it is up beside whatever is, and its keys come as the
+    /// compositor's `imekey` events, never as the layer's own.
+    ime: Ime,
+    ime_s: ImeSurface,
     redraw: bool,
     idle_due: Option<u64>,
     /// The number of the last `show` taken (the compositor counts them; a replayed one is not a new press).
@@ -153,6 +159,8 @@ impl Panels {
             // over Settings and the Cameras app, which are the screens that ask for text: the keyboard's own band
             entry_s: EntrySurface::new(base + crate::kit::z::KEYBOARD - crate::kit::z::PANELS),
             typed: Vec::new(),
+            ime: Ime::new(),
+            ime_s: ImeSurface::new(base + crate::kit::z::KEYBOARD - crate::kit::z::PANELS),
             redraw: false,
             idle_due: None,
             last_show: 0,
@@ -202,6 +210,9 @@ impl Panels {
         if kinds.switcher {
             out.extend(self.switcher.subscribe());
         }
+        if kinds.keyboard {
+            out.extend(self.ime.start());
+        }
         out
     }
 
@@ -209,6 +220,25 @@ impl Panels {
     /// the services' answers.
     pub fn update(&mut self, kinds: &Kinds, input: &Input, now: u64) -> Vec<Effect> {
         let mut out = Vec::new();
+        if kinds.keyboard {
+            match input {
+                Input::Topic { topic, data } if topic == "ime" => {
+                    out.extend(self.ime.field_is(data, now));
+                    self.redraw = true;
+                }
+                Input::Topic { topic, data } if topic == "imekey" => {
+                    let name = data.get("k").and_then(Value::as_str).unwrap_or("");
+                    let flag = |k: &str| data.get(k).and_then(Value::as_bool) == Some(true);
+                    out.extend(self.ime.imekey(name, flag("d"), flag("r"), now));
+                    self.redraw = true;
+                }
+                Input::Luna { tag, payload } if (ime_tags::PROBE..=ime_tags::CANCEL).contains(tag) => {
+                    out.extend(self.ime.luna(*tag, payload, now));
+                    self.redraw = true;
+                }
+                _ => {}
+            }
+        }
         if let Input::Topic { topic, data } = input {
             match topic.as_str() {
                 "show" => {
@@ -503,6 +533,19 @@ impl Panels {
     /// A sample of the pointer: the cue follows it and a click acts. Any sample keeps the panel up.
     pub fn pointer(&mut self, kinds: &Kinds, kit: &Kit, engine: &mut Engine, now_ns: u64, s: Sample, now: u64) -> Vec<Effect> {
         let mut out = Vec::new();
+        // the apps' keyboard is under the pointer on its own: it is no panel's (its sheet is where the compositor gives the pointer to this
+        // process while a field is asking)
+        if kinds.keyboard && self.ime.life.visible() {
+            let p = self.ime_s.pointer(kit, engine, now_ns, s);
+            if let Some(i) = p.down {
+                self.ime.pointer_down(i);
+                self.redraw = true;
+            }
+            if let Some(i) = p.click {
+                out.extend(self.ime.click(i, now));
+                self.redraw = true;
+            }
+        }
         let Some(w) = self.up(kinds) else { return out };
         if s.visible {
             self.idle_due = Some(now + IDLE_MS);
@@ -584,6 +627,10 @@ impl Panels {
         if kinds.entry && self.entry_s.tick(crate::host::now_ms()) {
             self.redraw = true;
         }
+        if kinds.keyboard {
+            out.extend(self.ime.tick(now));
+            self.redraw |= self.ime.take_redraw();
+        }
         let (effects, _) = self.env.update(&Input::Tick, now);
         out.extend(effects);
         if self.idle_due.is_some_and(|d| now >= d) {
@@ -614,6 +661,11 @@ impl Panels {
         }
         if kinds.entry
             && let Some(d) = self.entry_s.due_at(crate::host::now_ms())
+        {
+            due = Some(due.map_or(d, |x| x.min(d)));
+        }
+        if kinds.keyboard
+            && let Some(d) = self.ime.due_at()
         {
             due = Some(due.map_or(d, |x| x.min(d)));
         }
@@ -682,6 +734,22 @@ impl Panels {
                 Err(e) => return Err(format!("text entry: {e}")),
             }
         }
+        if kinds.keyboard {
+            if self.ime.take_key_taken() {
+                self.ime_s.on_key(engine);
+            }
+            let view = self.ime.view();
+            match self.ime_s.apply(kit, engine, &view, self.ime.life.phase(), now_ns) {
+                Ok(on) => live |= on && self.ime.life.visible(),
+                Err(e) => return Err(format!("apps' keyboard: {e}")),
+            }
+            // where the sheet is, for the compositor to keep the field clear of it (once for each place)
+            if let Some((x, y, w, h)) = self.ime_s.sheet()
+                && let Some(e) = self.ime.announce(x, y, w, h)
+            {
+                self.drawn.push(e);
+            }
+        }
         Ok(live)
     }
 
@@ -725,6 +793,10 @@ impl Panels {
     /// The panels this process can show now: the owner's switch for it is not off and the screen is on.
     pub fn can(&self, kinds: &Kinds) -> Vec<&'static str> {
         let mut can = Vec::new();
+        // the apps' keyboard is not the owner's to switch off, and a field asks for it whether or not the screen is on
+        if kinds.keyboard {
+            can.push("keyboard");
+        }
         if !self.env.screen_on {
             return can;
         }
@@ -748,6 +820,9 @@ impl Panels {
         let mut s = json!({});
         for w in Which::ALL.into_iter().filter(|w| w.on(kinds)) {
             s[w.name()] = json!(format!("{:?}", self.life(w).phase()).to_lowercase());
+        }
+        if kinds.keyboard {
+            s["keyboard"] = self.ime.state();
         }
         s
     }
@@ -776,6 +851,9 @@ impl Panels {
         if kinds.entry {
             g["entry"] = self.entry_s.geometry(engine);
         }
+        if kinds.keyboard {
+            g["keyboard"] = self.ime_s.geometry(engine);
+        }
         g
     }
 
@@ -802,6 +880,9 @@ impl Panels {
         if kinds.entry {
             self.entry_s.feed_lint(kit, lint);
         }
+        if kinds.keyboard {
+            self.ime_s.feed_lint(kit, lint);
+        }
     }
 
     /// The look changed: the surfaces are made again at the next draw.
@@ -813,6 +894,7 @@ impl Panels {
         self.confirm_s.restyle(engine);
         self.switcher_s.restyle(engine);
         self.entry_s.restyle(engine);
+        self.ime_s.restyle(engine);
         self.redraw = true;
     }
 

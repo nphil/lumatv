@@ -61,6 +61,7 @@ pub struct Kinds {
     pub entry: bool,
     /// The AI access prompt: the question the helper asks on the TV, shown over everything with no way to answer it.
     pub ai: bool,
+    pub keyboard: bool,
 }
 
 impl Kinds {
@@ -88,6 +89,7 @@ impl Kinds {
                 "switcher" => k.switcher = true,
                 "entry" => k.entry = true,
                 "ai" => k.ai = true,
+                "keyboard" => k.keyboard = true,
                 _ => {}
             }
         }
@@ -115,6 +117,7 @@ impl Kinds {
             (self.switcher, "switcher"),
             (self.entry, "entry"),
             (self.ai, "ai"),
+            (self.keyboard, "keyboard"),
         ]
         .into_iter()
         .filter_map(|(on, name)| on.then_some(name))

@@ -16,6 +16,8 @@ pub mod entry_surface;
 pub mod env;
 pub mod hold;
 pub mod hub;
+pub mod ime;
+pub mod ime_surface;
 pub mod layer;
 pub mod life;
 pub mod menu;
