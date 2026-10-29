@@ -929,9 +929,14 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("lumatv-shell-rust-{}-{}", std::process::id(), kinds.len()));
         std::fs::create_dir_all(&dir).unwrap();
         let display: wayland_server::Display<State> = wayland_server::Display::new().unwrap();
-        let port = {
-            let l = TcpListener::bind("127.0.0.1:0").unwrap();
-            l.local_addr().unwrap().port()
+        // two ports in a row (the QML client's and the Rust client's), free at this moment: another test may take one in between, so each is
+        // bound at once and the pair is tried again when the second is not there
+        let (port, listener, rust_listener) = loop {
+            let first = TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = first.local_addr().unwrap().port();
+            if let Ok(second) = TcpListener::bind(("127.0.0.1", port + 1)) {
+                break (port, first, second);
+            }
         };
         let config = crate::config::Config {
             data_dir: dir.clone(),
@@ -942,9 +947,7 @@ mod tests {
         };
         let mut state = State::new(display.handle(), config, Box::new(crate::render::software::Software::new(64, 64)), Box::new(crate::luna::Null::default()));
         // the QML client's side as `shell_start` would leave it, without its runner
-        let listener = TcpListener::bind(("127.0.0.1", port)).unwrap();
         state.shell.link = Some(spawn_server(listener, "qml".into()).unwrap());
-        let rust_listener = TcpListener::bind(("127.0.0.1", port + 1)).unwrap();
         state.shell_rust.link = Some(spawn_server(rust_listener, "rust".into()).unwrap());
         state.shell_rust.kinds = parse_kinds(kinds);
         state.shell.marker = dir.join("marker");
