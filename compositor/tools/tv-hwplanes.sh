@@ -104,6 +104,7 @@ step_afbc() {
     A=$(cat $OUT/afbc.json)
     P=$(pages_of "$A")
     say "A1 pages: kind=$(echo "$P" | jstr kind) asked=$(echo "$P" | jstr asked) format=$(echo "$P" | jstr format) modifier=$(echo "$P" | jstr modifier) bytesEach=$(echo "$P" | jnum bytesEach) count=$(echo "$P" | jnum count) fallback=$(echo "$P" | grep -oE '"fallback":(null|"[^"]*")' | head -1)"
+    say "A1 probe: planeTakes=$(echo "$A" | jbool planeTakes) gpuDraws=$(echo "$A" | grep -oE '"gpuDraws":(true|false|null)' | head -1 | cut -d: -f2) verdict: $(echo "$A" | jstr verdict)"
     say "A1 the plane and the GPU driver as listed: out/hwplanes/afbc.json (probe)"
     sed -n '1,200p' /proc/lg/fbdev/fb0/status > $OUT/fb0-status.txt 2>/dev/null
     say "A1 fb0: global_alpha_en=$(fb 0 hdr.global_alpha_en) w_mem=$(fb 0 hdr.w_mem) h_mem=$(fb 0 hdr.h_mem) flips=$(fb 0 status.fb_flip_cnt) (the whole status is out/hwplanes/fb0-status.txt: look for an AFBC field)"

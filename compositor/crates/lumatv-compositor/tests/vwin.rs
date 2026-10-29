@@ -329,7 +329,7 @@ fn ctl_vwin_reads_switches_claims_and_releases() {
 
 #[test]
 fn ctl_page_layout_is_refused_where_there_are_no_pages_or_the_holes_would_lose_their_alpha() {
-    let mut server = Server::start();
+    let server = Server::start();
     let ctl = |server: &Server, line: &'static str| -> Value { serde_json::from_str(&server.eval(move |s| control::handle(s, line).text())).unwrap() };
     let r = ctl(&server, "afbc on");
     assert_eq!(r["ok"], false, "the host output has no scan-out pages to convert: {r}");
