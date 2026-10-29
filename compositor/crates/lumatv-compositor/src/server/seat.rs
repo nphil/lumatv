@@ -73,13 +73,16 @@ impl SeatState {
     }
 }
 
-/// What shows the Magic Remote's pointer (the theme's `remote.pointerShow`, Settings > Remote & pointer > Show pointer).
+/// What shows the Magic Remote's pointer (the theme's `remote.pointerShow`, Settings > Remote & pointer > Show pointer). Either way the pointer
+/// hides on an arrow key, on the remote's cursor-off report (1199, sent as it is laid down) and when it has been idle for [`CURSOR_TIMEOUT`]; and
+/// the remote's own motion only moves a pointer that shows, it never shows one (a resting remote reports one-pixel jitter).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PointerShow {
-    /// A turn of the wheel shows it; picking the remote up or moving it never does. The default.
+    /// A turn of the wheel shows it, where the remote points. The default.
     #[default]
     Wheel,
-    /// Any motion shows it: LG's behaviour.
+    /// LG's behaviour: the pointer shows when the remote's input service says it is moved on purpose (its cursor-on report, 1198, which it repeats
+    /// every half second while the remote is in the hand), and a wheel turn alone does not show it.
     Movement,
 }
 
@@ -352,15 +355,30 @@ pub fn send_key(state: &mut State, seat: SeatId, code: u32, pressed: bool) -> bo
     sent
 }
 
-/// The Magic Remote's pointer axes reported `(x, y)`: [`pointer_motion`] where the pointer shows or where any motion shows it
-/// ([`PointerShow::Movement`]); otherwise only where the remote points is kept, so that a turn of the wheel shows the pointer there.
-/// A hidden pointer is nobody's: no client hears of the motion, and it is no input to the screen's care or to `getLastInputType`.
+/// The Magic Remote's pointer axes reported `(x, y)`: [`pointer_motion`] where the pointer shows; otherwise only where the remote points is kept,
+/// so that a turn of the wheel ([`PointerShow::Wheel`]) or the remote's cursor-on report ([`PointerShow::Movement`]) shows the pointer there. A hidden
+/// pointer is nobody's: no client hears of the motion, and it is no input to the screen's care or to `getLastInputType`.
 pub fn remote_motion(state: &mut State, x: i32, y: i32) -> bool {
-    if state.keys.pointer_show == PointerShow::Movement || state.seat.cursor_visible {
+    if state.seat.cursor_visible {
         return pointer_motion(state, x, y);
     }
     state.seat.pointer_position = (x.clamp(0, crate::OUTPUT_WIDTH as i32 - 1), y.clamp(0, crate::OUTPUT_HEIGHT as i32 - 1));
     false
+}
+
+/// The remote's cursor-on report (key 1198, down and up; every half second while its pointer is active): under [`PointerShow::Movement`] it shows
+/// the pointer where the remote points and, while the pointer shows, keeps it up. It is no key and no input of the person's otherwise.
+/// Returns whether a client heard the pointer appear.
+pub fn cursor_on(state: &mut State) -> bool {
+    if state.keys.pointer_show != PointerShow::Movement {
+        return false;
+    }
+    if state.seat.cursor_visible {
+        state.seat.cursor_shown_at = Some(std::time::Instant::now());
+        return false;
+    }
+    let (x, y) = state.seat.pointer_position;
+    pointer_motion(state, x, y)
 }
 
 /// A notch of the Magic Remote's wheel: under [`PointerShow::Wheel`] it shows the pointer where the remote points, and while the pointer

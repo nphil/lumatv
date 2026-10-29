@@ -427,10 +427,16 @@ impl State {
 
     /// [`State::key_event`] at a given time, which is what the holds are measured against (the host tests move it by hand).
     pub fn key_event_at(&mut self, seat: seat::SeatId, code: u32, pressed: bool, from_network: bool, now: Instant) {
-        // The Magic Remote's pointer keep-alive is no key (it pulses every 0.5 s while the pointer moves and must not count as the person's input).
+        // The Magic Remote's cursor-on pulse (1198, every 0.5 s while its pointer is active) is no key and no input of the person's: under
+        // `remote.pointerShow` `movement` it shows the pointer (LG's behaviour), otherwise nothing.
         // Its cursor-off report (1199, sent as the remote is laid down) is the pointer going away: the cursor is hidden and no client hears a key.
         match code {
-            code::KEY_POINTER_ALIVE => return,
+            code::KEY_POINTER_ALIVE => {
+                if pressed {
+                    seat::cursor_on(self);
+                }
+                return;
+            }
             code::KEY_CURSOR_OFF => {
                 if pressed {
                     seat::hide_cursor(self);

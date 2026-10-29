@@ -73,6 +73,10 @@ PageList {
     rows: [
         R.toggle(Sio, { ds: "general.remotePointer", tab: 0, icon: "mouse-pointer-2", label: "Magic Remote pointer",
                         help: "Use the pointer on screen. Turn off if you only use a button remote." }),
+        { kind: "seg", tab: 0, icon: "mouse-pointer-2", label: "Show pointer", options: ["Wheel only", "Like LG"],
+          help: "Wheel only: the pointer shows when the wheel is turned. Like LG: it shows when the remote is moved on purpose. A direction key hides it, and so does laying the remote down.",
+          index: function() { return page.theme.remote && page.theme.remote.pointerShow === "movement" ? 1 : 0 },
+          act: function(i) { if (page.host) page.host.patch({ remote: { pointerShow: i === 1 ? "movement" : "wheel" } }) } },
         R.seg(Sio, { ds: "option.pointerSpeed", tab: 0, icon: "gauge", label: "Pointer speed",
                      options: ["Slow", "Normal", "Fast"], values: ["slow", "normal", "fast"] }),
         R.seg(Sio, { ds: "option.pointerSize", tab: 0, icon: "scan-eye", label: "Pointer size",

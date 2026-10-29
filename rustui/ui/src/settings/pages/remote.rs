@@ -174,11 +174,11 @@ fn voice_status(c: &Ctx) -> &'static str {
 fn rows(c: &Ctx) -> Vec<Row> {
     let mut rows = vec![
         c.toggle(Spec::new("general.remotePointer").tab(0).icon("mouse-pointer-2").label("Magic Remote pointer").help("Use the pointer on screen. Turn off if you only use a button remote.")),
-        Row::seg("pointershow", &["Wheel turn", "Movement"])
+        Row::seg("pointershow", &["Wheel only", "Like LG"])
             .tab(0)
             .icon("mouse-pointer-2")
             .label("Show pointer")
-            .help("Wheel turn: the pointer appears when the wheel is turned, and moving the remote never shows it. Movement: any movement shows it, as on LG's own. A direction key hides it either way.")
+            .help("Wheel only: the pointer shows when the wheel is turned. Like LG: it shows when the remote is moved on purpose. A direction key hides it, and so does laying the remote down.")
             .index(Some(pointer_show_index(c)))
             .act(|a| match a {
                 Arg::Index(i) => POINTER_SHOW.get(i).map(|v| vec![Op::Patch(patch_of("remote.pointerShow", json!(v)))]).unwrap_or_default(),
