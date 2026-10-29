@@ -1,0 +1,39 @@
+window 36 created on surface 285 by pid 27857
+webOS shell surface on window 36 (surface 285) by pid 27857
+window 36 committed without a buffer (Card app '' state Default)
+window 36: appId = com.webos.app.lgchannels (Card)
+window 36: title = LG Channels (Card)
+foreign: surface 285 exported as _Window_Id_10 (type 0)
+window 36 mapped (Card app 'com.webos.app.lgchannels' title 'LG Channels' size Some((1920, 1080)))
+window 5: minimized (covered by a newer card)
+window 36: fullscreen (the front card)
+window 5: exposed nothing (covered)
+window 36: exposed 1920x1080
+focus -> surface 285
+luna: foreground ['com.webos.app.lgchannels'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+transitions: frame 21 ms after the last in a launch (tick before 1.5 ms, this 1.1 ms, last render 0.4 ms, held ticks 1, buffers prepared 102, imported in a frame 0)
+foreign: surface 285 exported as _Window_Id_11 (type 0)
+client connected: pid 25929 uid 505 cmd '/usr/bin/WebAppMgr --type=renderer --disable-quic --use-viz-fmp-with-timeout=0 --v8-snapshot-blob-path --js-flags=     --configure_heap_details     --heap_growi'
+foreign: _Window_Id_10 imported (type 0)
+foreign: punch-through _fEZm59374o5Wbb attached to _Window_Id_10
+videooutput: setDisplayWindowProperty for '_fEZm59374o5Wbb' answered {'returnValue':true}
+videooutput: setDisplayWindowProperty for '_fEZm59374o5Wbb' answered {'returnValue':true}
+videooutput: setDisplayWindowProperty for '_fEZm59374o5Wbb' answered {'returnValue':true}
+videooutput: setDisplayWindowProperty for '_fEZm59374o5Wbb' answered {'returnValue':true}
+foreign: punch-through _fEZm59374o5Wbb attached to _Window_Id_10
+videooutput: setDisplayWindowProperty for '_fEZm59374o5Wbb' answered {'returnValue':true}
+videooutput: setDisplayWindowProperty for '_fEZm59374o5Wbb' answered {'returnValue':true}
+videooutput: setDisplayWindowProperty for '_fEZm59374o5Wbb' answered {'returnValue':true}
+videooutput: setDisplayWindowProperty for '_fEZm59374o5Wbb' answered {'returnValue':true}
+luna: setDisplayWindow {'context':'_fEZm59374o5Wbb','displayOutput':{'height':2160,'width':3840,'x':0,'y':0},'fullScreen':true,'originalInput':{'height':1080,'width':1920,'x':0,'y':0},'sourceInput':{'height':1080,'width':1920,'x':0,'y':0}}
+videooutput: setDisplayWindow for '_fEZm59374o5Wbb' answered {'returnValue':true}
+luna: setDisplayWindow {'context':'_fEZm59374o5Wbb','displayOutput':{'height':0,'width':0,'x':0,'y':0},'fullScreen':false}
+videooutput: setDisplayWindow for '_fEZm59374o5Wbb' answered {'message':'sink has no client','returnValue':true}
+client disconnected: pid 25929 uid 505 after 5129 ms (ConnectionClosed); bound ['wl_compositor', 'wl_shell', 'wl_webos_shell', 'wl_webos_foreign']; cmd '/usr/bin/WebAppMgr --type=renderer --disable-quic --use-viz-fmp-with-timeout=0 --v8-snapshot-blob-path --js-flags=     --configure_heap_details     --heap_growi'
+window 5: fullscreen (the front card)
+window 5: exposed 1920x1080
+focus -> surface 106
+luna: foreground ['com.webos.app.home'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+transitions: frame 32 ms after the last in a leave (tick before 1.1 ms, this 1.1 ms, last render 0.5 ms, held ticks 1, buffers prepared 103, imported in a frame 0)
+shell: can show switcher, keyboard
+shell: can show quick, picker, drawer, switcher, keyboard

@@ -1,0 +1,600 @@
+11533.727 F flip 11533.727 reached +25 us
+11533.813 D frame 16405 render 287 us (clients draw-now)
+11533.827 F flip 11533.827 reached +23 us
+11533.913 D frame 16406 render 288 us (clients draw-now)
+11533.914 S ticks 80651 drawn 16406 held 1 releases 16420 rss 53320 KiB passes 102 (clients tick flip luna draw-now); flips 16405 late 7 lost 2110 reached late 1 (over 1 ms 5, worst 7.9 ms) direct 0 
+11533.927 F flip 11533.927 reached +24 us
+11534.012 D frame 16407 render 308 us (clients draw-now)
+11534.027 F flip 11534.027 reached +28 us
+11534.112 D frame 16408 render 294 us (clients draw-now)
+11534.127 F flip 11534.127 reached +23 us
+11534.213 D frame 16409 render 305 us (clients draw-now)
+11534.227 F flip 11534.227 reached +23 us
+11534.312 D frame 16410 render 291 us (clients draw-now)
+11534.328 F flip 11534.327 reached +16 us
+11534.412 D frame 16411 render 303 us (clients draw-now)
+11534.428 F flip 11534.428 reached +16 us
+11534.513 D frame 16412 render 294 us (clients draw-now)
+11534.528 F flip 11534.528 reached +14 us
+11534.613 D frame 16413 render 318 us (clients draw-now)
+11534.628 F flip 11534.628 reached +20 us
+11534.713 D frame 16414 render 306 us (clients draw-now)
+11534.728 F flip 11534.728 reached +22 us
+11534.814 D frame 16415 render 305 us (clients draw-now)
+11534.828 F flip 11534.828 reached +25 us
+11534.913 D frame 16416 render 327 us (clients draw-now)
+11534.914 S ticks 80721 drawn 16416 held 1 releases 16430 rss 53320 KiB passes 108 (clients tick control flip luna control-client draw-now); flips 16415 late 7 lost 2110 reached late 1 (over 1 ms 5, 
+11534.928 F flip 11534.928 reached +23 us
+11535.013 D frame 16417 render 299 us (clients draw-now)
+11535.028 F flip 11535.028 reached +21 us
+11535.113 D frame 16418 render 294 us (clients draw-now)
+11535.128 F flip 11535.128 reached +16 us
+11535.213 D frame 16419 render 296 us (clients draw-now)
+11535.228 F flip 11535.228 reached +21 us
+11535.313 D frame 16420 render 367 us (clients draw-now)
+11535.328 F flip 11535.328 reached +34 us
+11535.414 D frame 16421 render 319 us (clients draw-now)
+11535.429 F flip 11535.428 reached +40 us
+11535.514 D frame 16422 render 315 us (clients draw-now)
+11535.529 F flip 11535.529 reached +39 us
+11535.613 D frame 16423 render 307 us (clients draw-now)
+11535.629 F flip 11535.629 reached +18 us
+11535.713 D frame 16424 render 308 us (clients draw-now)
+11535.729 F flip 11535.729 reached +26 us
+11535.813 D frame 16425 render 307 us (clients draw-now)
+11535.829 F flip 11535.829 reached +15 us
+11535.913 D frame 16426 render 310 us (clients draw-now)
+11535.915 S ticks 80791 drawn 16426 held 1 releases 16440 rss 53320 KiB passes 102 (clients tick flip luna draw-now); flips 16425 late 7 lost 2110 reached late 1 (over 1 ms 5, worst 7.9 ms) direct 0 
+11535.929 F flip 11535.929 reached +15 us
+11536.013 D frame 16427 render 295 us (clients draw-now)
+11536.029 F flip 11536.029 reached +14 us
+11536.113 D frame 16428 render 289 us (clients draw-now)
+11536.129 F flip 11536.129 reached +16 us
+11536.213 D frame 16429 render 283 us (clients draw-now)
+11536.229 F flip 11536.229 reached +32 us
+11536.313 D frame 16430 render 293 us (clients draw-now)
+11536.329 F flip 11536.329 reached +13 us
+11536.414 D frame 16431 render 300 us (clients draw-now)
+11536.429 F flip 11536.429 reached +14 us
+11536.515 D frame 16432 render 350 us (clients draw-now)
+11536.530 F flip 11536.529 reached +22 us
+11536.614 D frame 16433 render 314 us (clients draw-now)
+11536.630 F flip 11536.630 reached +18 us
+11536.714 D frame 16434 render 309 us (clients draw-now)
+11536.730 F flip 11536.730 reached +29 us
+11536.814 D frame 16435 render 293 us (clients draw-now)
+11536.830 F flip 11536.830 reached +19 us
+11536.847 D frame 16436 render 292 us (clients draw-now)
+11536.863 F flip 11536.863 reached +15 us
+11536.869 D frame 16437 render 325 us (tick)
+11536.880 F flip 11536.880 reached +12 us
+11536.885 D frame 16438 render 312 us (tick)
+11536.897 F flip 11536.896 reached +15 us
+11536.902 D frame 16439 render 351 us (tick)
+11536.913 F flip 11536.913 reached +22 us
+11536.917 S ticks 80860 drawn 16439 held 1 releases 16454 rss 53060 KiB passes 124 (clients tick control flip luna control-client draw-now); flips 16439 late 7 lost 2110 reached late 1 (over 1 ms 5, 
+11536.919 D frame 16440 render 285 us (tick)
+11536.930 F flip 11536.930 reached +27 us
+11536.936 D frame 16441 render 352 us (tick)
+11536.947 F flip 11536.946 reached +17 us
+11536.952 D frame 16442 render 320 us (tick)
+11536.963 F flip 11536.963 reached +15 us
+11536.969 D frame 16443 render 353 us (tick)
+11536.980 F flip 11536.980 reached +28 us
+11536.986 D frame 16444 render 379 us (tick)
+11536.997 F flip 11536.997 reached +18 us
+11537.002 D frame 16445 render 365 us (tick)
+11537.013 F flip 11537.013 reached +27 us
+11537.019 D frame 16446 render 343 us (tick)
+11537.030 F flip 11537.030 reached +18 us
+11537.115 D frame 16447 render 313 us (clients draw-now)
+11537.130 F flip 11537.130 reached +20 us
+11537.209 D frame 16448 render 339 us (clients draw-now)
+11537.231 F flip 11537.230 reached +22 us
+11537.231 D frame 16449 render 331 us (flip draw-now)
+11537.247 F flip 11537.247 reached +26 us
+11537.315 D frame 16450 render 309 us (clients draw-now)
+11537.330 F flip 11537.330 reached +18 us
+11537.381 D frame 16451 render 287 us (clients draw-now)
+11537.397 F flip 11537.397 reached +26 us
+11537.399 D frame 16452 render 282 us (clients draw-now)
+11537.414 F flip 11537.414 reached +20 us
+11537.419 D frame 16453 render 288 us (tick)
+11537.430 F flip 11537.430 reached +14 us
+11537.436 D frame 16454 render 309 us (tick)
+11537.447 F flip 11537.447 reached +18 us
+11537.453 D frame 16455 render 317 us (tick)
+11537.464 F flip 11537.464 reached +17 us
+11537.470 D frame 16456 render 325 us (tick)
+11537.480 F flip 11537.480 reached +17 us
+11537.486 D frame 16457 render 324 us (tick)
+11537.497 F flip 11537.497 reached +19 us
+11537.503 D frame 16458 render 325 us (tick)
+11537.514 F flip 11537.514 reached +21 us
+11537.520 D frame 16459 render 326 us (tick)
+11537.530 F flip 11537.530 reached +17 us
+11537.536 D frame 16460 render 323 us (tick)
+11537.547 F flip 11537.547 reached +17 us
+11537.553 D frame 16461 render 413 us (tick)
+11537.564 F flip 11537.564 reached +16 us
+11537.614 D frame 16462 render 358 us (clients draw-now)
+11537.631 F flip 11537.630 reached +27 us
+11537.714 D frame 16463 render 293 us (clients draw-now)
+11537.731 F flip 11537.731 reached +26 us
+11537.813 D frame 16464 render 294 us (clients draw-now)
+11537.831 F flip 11537.831 reached +21 us
+11537.913 D frame 16465 render 304 us (clients draw-now)
+11537.918 S ticks 80931 drawn 16465 held 1 releases 16483 rss 53060 KiB passes 169 (clients tick flip luna draw-now); flips 16464 late 7 lost 2110 reached late 1 (over 1 ms 5, worst 7.9 ms) direct 0 
+11537.931 F flip 11537.931 reached +20 us
+11538.014 D frame 16466 render 294 us (clients draw-now)
+11538.031 F flip 11538.031 reached +22 us
+11538.113 D frame 16467 render 309 us (clients draw-now)
+11538.131 F flip 11538.131 reached +24 us
+11538.214 D frame 16468 render 295 us (clients draw-now)
+11538.231 F flip 11538.231 reached +26 us
+11538.313 D frame 16469 render 292 us (clients draw-now)
+11538.331 F flip 11538.331 reached +16 us
+11538.413 D frame 16470 render 292 us (clients draw-now)
+11538.431 F flip 11538.431 reached +17 us
+11538.514 D frame 16471 render 291 us (clients draw-now)
+11538.531 F flip 11538.531 reached +15 us
+11538.613 D frame 16472 render 293 us (clients draw-now)
+11538.631 F flip 11538.631 reached +17 us
+11538.713 D frame 16473 render 300 us (clients draw-now)
+11538.732 F flip 11538.731 reached +32 us
+11538.813 D frame 16474 render 414 us (clients draw-now)
+11538.832 F flip 11538.832 reached +17 us
+11538.913 D frame 16475 render 313 us (clients draw-now)
+11538.919 S ticks 81001 drawn 16475 held 1 releases 16493 rss 53060 KiB passes 108 (clients tick control flip luna control-client draw-now); flips 16474 late 7 lost 2110 reached late 1 (over 1 ms 5, 
+11538.932 F flip 11538.932 reached +16 us
+11539.013 D frame 16476 render 298 us (clients draw-now)
+11539.032 F flip 11539.032 reached +16 us
+11539.114 D frame 16477 render 299 us (clients draw-now)
+11539.132 F flip 11539.132 reached +18 us
+11539.214 D frame 16478 render 324 us (clients draw-now)
+11539.232 F flip 11539.232 reached +40 us
+11539.313 D frame 16479 render 354 us (clients draw-now)
+11539.332 F flip 11539.332 reached +24 us
+11539.415 D frame 16480 render 315 us (clients draw-now)
+11539.432 F flip 11539.432 reached +18 us
+11539.514 D frame 16481 render 387 us (clients draw-now)
+11539.532 F flip 11539.532 reached +21 us
+11539.613 D frame 16482 render 302 us (clients draw-now)
+11539.632 F flip 11539.632 reached +20 us
+11539.713 D frame 16483 render 337 us (clients draw-now)
+11539.732 F flip 11539.732 reached +28 us
+11539.812 D frame 16484 render 305 us (clients draw-now)
+11539.832 F flip 11539.832 reached +18 us
+11539.912 D frame 16485 render 293 us (clients draw-now)
+11539.920 S ticks 81071 drawn 16485 held 1 releases 16503 rss 53060 KiB passes 102 (clients tick flip luna draw-now); flips 16484 late 7 lost 2110 reached late 1 (over 1 ms 5, worst 7.9 ms) direct 0 
+11539.933 F flip 11539.932 reached +18 us
+11540.013 D frame 16486 render 298 us (clients draw-now)
+11540.033 F flip 11540.033 reached +18 us
+11540.113 D frame 16487 render 291 us (clients draw-now)
+11540.133 F flip 11540.133 reached +19 us
+11540.215 D frame 16488 render 295 us (clients draw-now)
+11540.233 F flip 11540.233 reached +29 us
+11540.314 D frame 16489 render 286 us (clients draw-now)
+11540.333 F flip 11540.333 reached +24 us
+11540.413 D frame 16490 render 283 us (clients draw-now)
+11540.433 F flip 11540.433 reached +21 us
+11540.514 D frame 16491 render 292 us (clients draw-now)
+11540.533 F flip 11540.533 reached +19 us
+11540.613 D frame 16492 render 304 us (clients draw-now)
+11540.633 F flip 11540.633 reached +19 us
+11540.712 D frame 16493 render 289 us (clients draw-now)
+11540.717 F flip 11540.717 reached +15 us
+11540.813 D frame 16494 render 282 us (clients draw-now)
+11540.833 F flip 11540.833 reached +16 us
+11540.913 D frame 16495 render 294 us (clients draw-now)
+11540.920 S ticks 81142 drawn 16495 held 1 releases 16513 rss 53060 KiB passes 109 (clients tick control flip luna control-client draw-now); flips 16494 late 7 lost 2110 reached late 1 (over 1 ms 5, 
+11540.933 F flip 11540.933 reached +19 us
+11541.015 D frame 16496 render 285 us (clients draw-now)
+11541.034 F flip 11541.033 reached +23 us
+11541.115 D frame 16497 render 282 us (clients draw-now)
+11541.134 F flip 11541.134 reached +19 us
+11541.214 D frame 16498 render 307 us (clients draw-now)
+11541.234 F flip 11541.234 reached +25 us
+11541.313 D frame 16499 render 305 us (clients draw-now)
+11541.317 F flip 11541.317 reached +16 us
+11541.415 D frame 16500 render 367 us (clients draw-now)
+11541.434 F flip 11541.434 reached +26 us
+11541.516 D frame 16501 render 308 us (clients draw-now)
+11541.534 F flip 11541.534 reached +20 us
+11541.614 D frame 16502 render 276 us (clients draw-now)
+11541.634 F flip 11541.634 reached +23 us
+11541.713 D frame 16503 render 285 us (clients draw-now)
+11541.718 F flip 11541.717 reached +15 us
+11541.813 D frame 16504 render 309 us (clients draw-now)
+11541.834 F flip 11541.834 reached +23 us
+11541.912 D frame 16505 render 295 us (clients draw-now)
+11541.918 F flip 11541.918 reached +13 us
+11541.921 S ticks 81215 drawn 16505 held 1 releases 16524 rss 53060 KiB passes 105 (clients tick flip luna draw-now); flips 16505 late 7 lost 2110 reached late 1 (over 1 ms 5, worst 7.9 ms) direct 0 
+11542.012 D frame 16506 render 291 us (clients draw-now)
+11542.018 F flip 11542.018 reached +13 us
+11542.113 D frame 16507 render 305 us (clients draw-now)
+11542.118 F flip 11542.118 reached +14 us
+11542.216 D frame 16508 render 291 us (clients draw-now)
+11542.235 F flip 11542.235 reached +32 us
+11542.314 D frame 16509 render 283 us (clients draw-now)
+11542.335 F flip 11542.335 reached +19 us
+11542.412 D frame 16510 render 291 us (clients draw-now)
+11542.418 F flip 11542.418 reached +14 us
+11542.515 D frame 16511 render 372 us (clients draw-now)
+11542.535 F flip 11542.535 reached +23 us
+11542.613 D frame 16512 render 314 us (clients draw-now)
+11542.618 F flip 11542.618 reached +15 us
+11542.713 D frame 16513 render 291 us (clients draw-now)
+11542.718 F flip 11542.718 reached +23 us
+11542.815 D frame 16514 render 327 us (clients draw-now)
+11542.835 F flip 11542.835 reached +37 us
+11542.913 D frame 16515 render 283 us (clients draw-now)
+11542.919 F flip 11542.919 reached +12 us
+11542.923 S ticks 81290 drawn 16515 held 1 releases 16534 rss 53060 KiB passes 113 (clients tick control flip luna control-client draw-now); flips 16515 late 7 lost 2110 reached late 1 (over 1 ms 5, 
+11543.014 D frame 16516 render 295 us (clients draw-now)
+11543.019 F flip 11543.019 reached +15 us
+11543.113 D frame 16517 render 312 us (clients draw-now)
+11543.119 F flip 11543.119 reached +14 us
+11543.197 D frame 16518 render 318 us (clients draw-now)
+11543.202 F flip 11543.202 reached +10 us
+11543.207 D frame 16519 render 310 us (tick)
+11543.219 F flip 11543.219 reached +16 us
+11543.224 D frame 16520 render 307 us (tick)
+11543.236 F flip 11543.235 reached +106 us
+11543.318 D frame 16521 render 292 us (clients draw-now)
+11543.336 F flip 11543.336 reached +18 us
+11543.413 D frame 16522 render 307 us (clients draw-now)
+11543.419 F flip 11543.419 reached +16 us
+11543.516 D frame 16523 render 344 us (clients draw-now)
+11543.536 F flip 11543.536 reached +33 us
+11543.614 D frame 16524 render 336 us (clients draw-now)
+11543.619 F flip 11543.619 reached +18 us
+11543.713 D frame 16525 render 333 us (clients draw-now)
+11543.719 F flip 11543.719 reached +18 us
+11543.814 D frame 16526 render 309 us (clients draw-now)
+11543.819 F flip 11543.819 reached +15 us
+11543.913 D frame 16527 render 298 us (clients draw-now)
+11543.919 F flip 11543.919 reached +14 us
+11543.923 S ticks 81368 drawn 16527 held 1 releases 16546 rss 53060 KiB passes 118 (clients tick flip luna draw-now); flips 16527 late 7 lost 2110 reached late 1 (over 1 ms 5, worst 7.9 ms) direct 0 
+11544.012 D frame 16528 render 297 us (clients draw-now)
+11544.020 F flip 11544.020 reached +14 us
+11544.113 D frame 16529 render 309 us (clients draw-now)
+11544.120 F flip 11544.120 reached +13 us
+11544.215 D frame 16530 render 305 us (clients draw-now)
+11544.220 F flip 11544.220 reached +17 us
+11544.314 D frame 16531 render 305 us (clients draw-now)
+11544.320 F flip 11544.320 reached +16 us
+11544.414 D frame 16532 render 310 us (clients draw-now)
+11544.420 F flip 11544.420 reached +16 us
+11544.513 D frame 16533 render 308 us (clients draw-now)
+11544.520 F flip 11544.520 reached +16 us
+11544.616 P 2.7 ms in one pass (clients draw-now)
+11544.616 D frame 16534 render 2209 us (clients draw-now)
+11544.620 F flip 11544.620 reached +16 us
+11544.713 D frame 16535 render 313 us (clients draw-now)
+11544.720 F flip 11544.720 reached +14 us
+11544.813 D frame 16536 render 285 us (clients draw-now)
+11544.820 F flip 11544.820 reached +13 us
+11544.913 D frame 16537 render 322 us (clients draw-now)
+11544.920 F flip 11544.920 reached +22 us
+11544.925 S ticks 81449 drawn 16537 held 1 releases 16556 rss 53060 KiB passes 121 (clients tick control flip luna control-client draw-now shell); flips 16537 late 7 lost 2110 reached late 1 (over 1 
+11545.013 D frame 16538 render 311 us (clients draw-now)
+11545.020 F flip 11545.020 reached +16 us
+11545.114 D frame 16539 render 310 us (clients draw-now)
+11545.121 F flip 11545.121 reached +15 us
+11545.212 D frame 16540 render 294 us (clients draw-now)
+11545.221 F flip 11545.221 reached +26 us
+11545.314 D frame 16541 render 309 us (clients draw-now)
+11545.321 F flip 11545.321 reached +19 us
+11545.412 D frame 16542 render 298 us (clients draw-now)
+11545.421 F flip 11545.421 reached +18 us
+11545.513 D frame 16543 render 297 us (clients draw-now)
+11545.521 F flip 11545.521 reached +15 us
+11545.613 D frame 16544 render 301 us (clients draw-now)
+11545.621 F flip 11545.621 reached +14 us
+11545.714 D frame 16545 render 319 us (clients draw-now)
+11545.721 F flip 11545.721 reached +19 us
+11545.815 D frame 16546 render 324 us (clients draw-now)
+11545.821 F flip 11545.821 reached +18 us
+11545.914 D frame 16547 render 291 us (clients draw-now)
+11545.921 F flip 11545.921 reached +17 us
+11545.926 S ticks 81529 drawn 16547 held 1 releases 16566 rss 53060 KiB passes 111 (clients tick flip luna draw-now); flips 16547 late 7 lost 2110 reached late 1 (over 1 ms 5, worst 7.9 ms) direct 0 
+11546.013 D frame 16548 render 287 us (clients draw-now)
+11546.021 F flip 11546.021 reached +14 us
+11546.114 D frame 16549 render 298 us (clients draw-now)
+11546.121 F flip 11546.121 reached +17 us
+11546.214 D frame 16550 render 279 us (clients draw-now)
+11546.222 F flip 11546.222 reached +18 us
+11546.313 D frame 16551 render 284 us (clients draw-now)
+11546.322 F flip 11546.322 reached +16 us
+11546.413 D frame 16552 render 295 us (clients draw-now)
+11546.422 F flip 11546.422 reached +31 us
+11546.514 D frame 16553 render 305 us (clients draw-now)
+11546.522 F flip 11546.522 reached +21 us
+11546.614 D frame 16554 render 287 us (clients draw-now)
+11546.622 F flip 11546.622 reached +17 us
+11546.715 D frame 16555 render 289 us (clients draw-now)
+11546.722 F flip 11546.722 reached +17 us
+11546.813 D frame 16556 render 290 us (clients draw-now)
+11546.822 F flip 11546.822 reached +19 us
+11546.846 D frame 16557 render 292 us (clients draw-now)
+11546.855 F flip 11546.855 reached +17 us
+11546.862 D frame 16558 render 284 us (clients draw-now)
+11546.872 F flip 11546.872 reached +21 us
+11546.879 D frame 16559 render 289 us (clients draw-now)
+11546.889 F flip 11546.889 reached +18 us
+11546.895 D frame 16560 render 282 us (clients draw-now)
+11546.906 F flip 11546.905 reached +19 us
+11546.911 D frame 16561 render 292 us (clients draw-now)
+11546.922 F flip 11546.922 reached +21 us
+11546.926 S ticks 81614 drawn 16561 held 1 releases 16580 rss 53060 KiB passes 137 (clients tick control flip luna control-client draw-now); flips 16561 late 7 lost 2110 reached late 1 (over 1 ms 5, 
+11546.928 D frame 16562 render 320 us (tick)
+11546.939 F flip 11546.939 reached +24 us
+11546.944 D frame 16563 render 320 us (tick)
+11546.956 F flip 11546.955 reached +16 us
+11546.961 D frame 16564 render 357 us (tick)
+11546.972 F flip 11546.972 reached +22 us
+11546.978 D frame 16565 render 323 us (tick)
+11546.989 F flip 11546.989 reached +30 us
+11546.995 D frame 16566 render 322 us (tick)
+11547.006 F flip 11547.006 reached +21 us
+11547.014 D frame 16567 render 326 us (clients draw-now)
+11547.022 F flip 11547.022 reached +31 us
+11547.113 D frame 16568 render 286 us (clients draw-now)
+11547.122 F flip 11547.122 reached +19 us
+11547.213 D frame 16569 render 304 us (clients draw-now)
+11547.222 F flip 11547.222 reached +19 us
+11547.313 D frame 16570 render 295 us (clients draw-now)
+11547.323 F flip 11547.322 reached +20 us
+11547.381 D frame 16571 render 281 us (clients draw-now)
+11547.389 F flip 11547.389 reached +18 us
+11547.397 D frame 16572 render 285 us (clients draw-now)
+11547.406 F flip 11547.406 reached +15 us
+11547.414 D frame 16573 render 294 us (clients draw-now)
+11547.423 F flip 11547.423 reached +24 us
+11547.429 D frame 16574 render 341 us (tick)
+11547.439 F flip 11547.439 reached +17 us
+11547.445 D frame 16575 render 309 us (tick)
+11547.456 F flip 11547.456 reached +16 us
+11547.462 D frame 16576 render 309 us (tick)
+11547.473 F flip 11547.473 reached +18 us
+11547.479 D frame 16577 render 346 us (tick)
+11547.489 F flip 11547.489 reached +17 us
+11547.495 D frame 16578 render 305 us (tick)
+11547.506 F flip 11547.506 reached +18 us
+11547.512 D frame 16579 render 262 us (tick)
+11547.523 F flip 11547.523 reached +16 us
+11547.529 D frame 16580 render 308 us (tick)
+11547.539 F flip 11547.539 reached +16 us
+11547.545 D frame 16581 render 336 us (tick)
+11547.556 F flip 11547.556 reached +18 us
+11547.562 D frame 16582 render 340 us (tick)
+11547.573 F flip 11547.573 reached +23 us
+11547.614 D frame 16583 render 280 us (clients draw-now)
+11547.623 F flip 11547.623 reached +20 us
+11547.713 D frame 16584 render 302 us (clients draw-now)
+11547.723 F flip 11547.723 reached +17 us
+11547.813 D frame 16585 render 298 us (clients draw-now)
+11547.823 F flip 11547.823 reached +16 us
+11547.916 D frame 16586 render 334 us (clients draw-now)
+11547.923 F flip 11547.923 reached +23 us
+11547.927 S ticks 81694 drawn 16586 held 1 releases 16607 rss 53060 KiB passes 173 (clients tick flip luna draw-now); flips 16586 late 7 lost 2110 reached late 1 (over 1 ms 5, worst 7.9 ms) direct 0 
+11548.013 D frame 16587 render 312 us (clients draw-now)
+11548.023 F flip 11548.023 reached +30 us
+11548.112 D frame 16588 render 313 us (clients draw-now)
+11548.123 F flip 11548.123 reached +19 us
+11548.214 D frame 16589 render 313 us (clients draw-now)
+11548.223 F flip 11548.223 reached +27 us
+11548.314 D frame 16590 render 307 us (clients draw-now)
+11548.323 F flip 11548.323 reached +16 us
+11548.414 D frame 16591 render 325 us (clients draw-now)
+11548.424 F flip 11548.423 reached +20 us
+11548.516 D frame 16592 render 348 us (clients draw-now)
+11548.524 F flip 11548.524 reached +22 us
+11548.614 D frame 16593 render 285 us (clients draw-now)
+11548.624 F flip 11548.624 reached +17 us
+11548.713 D frame 16594 render 318 us (clients draw-now)
+11548.724 F flip 11548.724 reached +21 us
+11548.813 D frame 16595 render 307 us (clients draw-now)
+11548.824 F flip 11548.824 reached +23 us
+11548.913 D frame 16596 render 298 us (clients draw-now)
+11548.924 F flip 11548.924 reached +19 us
+11548.929 S ticks 81770 drawn 16596 held 1 releases 16617 rss 53060 KiB passes 114 (clients tick control flip luna control-client draw-now); flips 16596 late 7 lost 2110 reached late 1 (over 1 ms 5, 
+11549.014 D frame 16597 render 286 us (clients draw-now)
+11549.024 F flip 11549.024 reached +21 us
+11549.113 D frame 16598 render 353 us (clients draw-now)
+11549.124 F flip 11549.124 reached +28 us
+11549.183 D frame 16599 render 324 us (clients draw-now)
+11549.191 F flip 11549.191 reached +18 us
+11549.197 D frame 16600 render 344 us (tick)
+11549.208 F flip 11549.208 reached +18 us
+11549.225 D frame 16601 render 342 us (clients draw-now)
+11549.241 F flip 11549.241 reached +29 us
+11549.321 D frame 16602 render 294 us (clients draw-now)
+11549.341 F flip 11549.341 reached +20 us
+11549.414 D frame 16603 render 295 us (clients draw-now)
+11549.424 F flip 11549.424 reached +18 us
+11549.514 D frame 16604 render 285 us (clients draw-now)
+11549.525 F flip 11549.524 reached +18 us
+11549.612 D frame 16605 render 297 us (clients draw-now)
+11549.625 F flip 11549.625 reached +20 us
+11549.712 D frame 16606 render 294 us (clients draw-now)
+11549.725 F flip 11549.725 reached +19 us
+11549.813 D frame 16607 render 306 us (clients draw-now)
+11549.825 F flip 11549.825 reached +18 us
+11549.913 D frame 16608 render 303 us (clients draw-now)
+11549.925 F flip 11549.925 reached +19 us
+11549.929 S ticks 81842 drawn 16608 held 1 releases 16629 rss 53060 KiB passes 111 (clients tick flip luna draw-now); flips 16608 late 7 lost 2110 reached late 1 (over 1 ms 5, worst 7.9 ms) direct 0 
+11550.013 D frame 16609 render 296 us (clients draw-now)
+11550.025 F flip 11550.025 reached +20 us
+11550.113 D frame 16610 render 299 us (clients draw-now)
+11550.125 F flip 11550.125 reached +40 us
+11550.215 D frame 16611 render 302 us (clients draw-now)
+11550.225 F flip 11550.225 reached +21 us
+11550.313 D frame 16612 render 297 us (clients draw-now)
+11550.325 F flip 11550.325 reached +31 us
+11550.415 D frame 16613 render 338 us (clients draw-now)
+11550.425 F flip 11550.425 reached +18 us
+11550.513 D frame 16614 render 287 us (clients draw-now)
+11550.525 F flip 11550.525 reached +19 us
+11550.612 D frame 16615 render 293 us (clients draw-now)
+11550.626 F flip 11550.625 reached +17 us
+11550.713 D frame 16616 render 309 us (clients draw-now)
+11550.726 F flip 11550.726 reached +22 us
+11550.814 D frame 16617 render 292 us (clients draw-now)
+11550.826 F flip 11550.826 reached +21 us
+11550.913 D frame 16618 render 293 us (clients draw-now)
+11550.926 F flip 11550.926 reached +20 us
+11550.930 S ticks 81912 drawn 16618 held 1 releases 16639 rss 53060 KiB passes 108 (clients tick control flip luna control-client draw-now); flips 16618 late 7 lost 2110 reached late 1 (over 1 ms 5, 
+11551.013 D frame 16619 render 303 us (clients draw-now)
+11551.026 F flip 11551.026 reached +18 us
+11551.113 D frame 16620 render 302 us (clients draw-now)
+11551.126 F flip 11551.126 reached +22 us
+11551.216 D frame 16621 render 394 us (clients draw-now)
+11551.226 F flip 11551.226 reached +29 us
+11551.313 D frame 16622 render 294 us (clients draw-now)
+11551.326 F flip 11551.326 reached +20 us
+11551.414 D frame 16623 render 281 us (clients draw-now)
+11551.426 F flip 11551.426 reached +20 us
+11551.514 D frame 16624 render 298 us (clients draw-now)
+11551.526 F flip 11551.526 reached +20 us
+11551.614 D frame 16625 render 284 us (clients draw-now)
+11551.626 F flip 11551.626 reached +19 us
+11551.714 D frame 16626 render 289 us (clients draw-now)
+11551.727 F flip 11551.726 reached +20 us
+11551.812 D frame 16627 render 293 us (clients draw-now)
+11551.827 F flip 11551.827 reached +15 us
+11551.915 D frame 16628 render 291 us (clients draw-now)
+11551.927 F flip 11551.927 reached +22 us
+11551.931 S ticks 81982 drawn 16628 held 1 releases 16649 rss 53060 KiB passes 102 (clients tick flip luna draw-now); flips 16628 late 7 lost 2110 reached late 1 (over 1 ms 5, worst 7.9 ms) direct 0 
+11552.014 D frame 16629 render 292 us (clients draw-now)
+11552.027 F flip 11552.027 reached +26 us
+11552.114 D frame 16630 render 333 us (clients draw-now)
+11552.127 F flip 11552.127 reached +21 us
+11552.215 D frame 16631 render 300 us (clients draw-now)
+11552.227 F flip 11552.227 reached +34 us
+11552.314 D frame 16632 render 337 us (clients draw-now)
+11552.327 F flip 11552.327 reached +30 us
+11552.413 D frame 16633 render 314 us (clients draw-now)
+11552.427 F flip 11552.427 reached +20 us
+11552.516 D frame 16634 render 290 us (clients draw-now)
+11552.527 F flip 11552.527 reached +16 us
+11552.613 D frame 16635 render 306 us (clients draw-now)
+11552.627 F flip 11552.627 reached +19 us
+11552.713 D frame 16636 render 330 us (clients draw-now)
+11552.727 F flip 11552.727 reached +19 us
+11552.813 D frame 16637 render 296 us (clients draw-now)
+11552.828 F flip 11552.827 reached +21 us
+11552.913 D frame 16638 render 292 us (clients draw-now)
+11552.928 F flip 11552.928 reached +22 us
+11552.932 S ticks 82052 drawn 16638 held 1 releases 16659 rss 53060 KiB passes 108 (clients tick control flip luna control-client draw-now); flips 16638 late 7 lost 2110 reached late 1 (over 1 ms 5, 
+11553.013 D frame 16639 render 299 us (clients draw-now)
+11553.028 F flip 11553.028 reached +21 us
+11553.113 D frame 16640 render 299 us (clients draw-now)
+11553.128 F flip 11553.128 reached +21 us
+11553.213 D frame 16641 render 299 us (clients draw-now)
+11553.228 F flip 11553.228 reached +21 us
+11553.314 D frame 16642 render 318 us (clients draw-now)
+11553.328 F flip 11553.328 reached +22 us
+11553.413 D frame 16643 render 302 us (clients draw-now)
+11553.428 F flip 11553.428 reached +16 us
+11553.513 D frame 16644 render 299 us (clients draw-now)
+11553.528 F flip 11553.528 reached +15 us
+11553.613 D frame 16645 render 296 us (clients draw-now)
+11553.628 F flip 11553.628 reached +21 us
+11553.712 D frame 16646 render 296 us (clients draw-now)
+11553.728 F flip 11553.728 reached +17 us
+11553.812 D frame 16647 render 291 us (clients draw-now)
+11553.828 F flip 11553.828 reached +28 us
+11553.912 D frame 16648 render 289 us (clients draw-now)
+11553.929 F flip 11553.928 reached +16 us
+11553.933 S ticks 82122 drawn 16648 held 1 releases 16669 rss 53060 KiB passes 102 (clients tick flip luna draw-now); flips 16648 late 7 lost 2110 reached late 1 (over 1 ms 5, worst 7.9 ms) direct 0 
+11554.013 D frame 16649 render 299 us (clients draw-now)
+11554.029 F flip 11554.029 reached +27 us
+11554.114 D frame 16650 render 311 us (clients draw-now)
+11554.129 F flip 11554.129 reached +15 us
+11554.214 D frame 16651 render 283 us (clients draw-now)
+11554.229 F flip 11554.229 reached +31 us
+11554.313 D frame 16652 render 289 us (clients draw-now)
+11554.329 F flip 11554.329 reached +27 us
+11554.413 D frame 16653 render 334 us (clients draw-now)
+11554.429 F flip 11554.429 reached +23 us
+11554.515 D frame 16654 render 326 us (clients draw-now)
+11554.529 F flip 11554.529 reached +47 us
+11554.613 D frame 16655 render 334 us (clients draw-now)
+11554.629 F flip 11554.629 reached +17 us
+11554.713 D frame 16656 render 300 us (clients draw-now)
+11554.729 F flip 11554.729 reached +17 us
+11554.812 D frame 16657 render 307 us (clients draw-now)
+11554.829 F flip 11554.829 reached +17 us
+11554.912 D frame 16658 render 309 us (clients draw-now)
+11554.929 F flip 11554.929 reached +18 us
+11554.934 S ticks 82192 drawn 16658 held 1 releases 16679 rss 53060 KiB passes 108 (clients tick control flip luna control-client draw-now); flips 16658 late 7 lost 2110 reached late 1 (over 1 ms 5, 
+11555.013 D frame 16659 render 304 us (clients draw-now)
+11555.030 F flip 11555.029 reached +13 us
+11555.112 D frame 16660 render 305 us (clients draw-now)
+11555.130 F flip 11555.130 reached +23 us
+11555.181 D frame 16661 render 329 us (clients draw-now)
+11555.197 F flip 11555.196 reached +26 us
+11555.197 D frame 16662 render 329 us (flip draw-now)
+11555.213 F flip 11555.213 reached +44 us
+11555.223 D frame 16663 render 282 us (clients draw-now)
+11555.230 F flip 11555.230 reached +19 us
+11555.319 D frame 16664 render 365 us (clients draw-now)
+11555.330 F flip 11555.330 reached +17 us
+11555.421 D frame 16665 render 320 us (clients draw-now)
+11555.430 F flip 11555.430 reached +37 us
+11555.519 D frame 16666 render 365 us (clients draw-now)
+11555.530 F flip 11555.530 reached +36 us
+11555.614 D frame 16667 render 362 us (clients draw-now)
+11555.630 F flip 11555.630 reached +46 us
+11555.713 D frame 16668 render 291 us (clients draw-now)
+11555.730 F flip 11555.730 reached +17 us
+11555.813 D frame 16669 render 280 us (clients draw-now)
+11555.830 F flip 11555.830 reached +23 us
+11555.912 D frame 16670 render 279 us (clients draw-now)
+11555.930 F flip 11555.930 reached +16 us
+11555.935 S ticks 82266 drawn 16670 held 1 releases 16691 rss 53060 KiB passes 112 (clients tick flip luna draw-now); flips 16670 late 7 lost 2110 reached late 1 (over 1 ms 5, worst 7.9 ms) direct 0 
+11556.012 D frame 16671 render 291 us (clients draw-now)
+11556.030 F flip 11556.030 reached +17 us
+11556.113 D frame 16672 render 286 us (clients draw-now)
+11556.131 F flip 11556.130 reached +28 us
+11556.215 D frame 16673 render 294 us (clients draw-now)
+11556.231 F flip 11556.231 reached +18 us
+11556.313 D frame 16674 render 309 us (clients draw-now)
+11556.331 F flip 11556.331 reached +17 us
+11556.414 D frame 16675 render 320 us (clients draw-now)
+11556.431 F flip 11556.431 reached +32 us
+11556.514 D frame 16676 render 300 us (clients draw-now)
+11556.531 F flip 11556.531 reached +24 us
+11556.614 D frame 16677 render 315 us (clients draw-now)
+11556.631 F flip 11556.631 reached +25 us
+11556.715 D frame 16678 render 364 us (clients draw-now)
+11556.731 F flip 11556.731 reached +30 us
+11556.812 D frame 16679 render 307 us (clients draw-now)
+11556.831 F flip 11556.831 reached +27 us
+11556.846 D frame 16680 render 356 us (clients draw-now)
+11556.865 F flip 11556.864 reached +19 us
+11556.870 D frame 16681 render 318 us (tick)
+11556.881 F flip 11556.881 reached +30 us
+11556.887 D frame 16682 render 334 us (tick)
+11556.898 F flip 11556.898 reached +20 us
+11556.903 D frame 16683 render 329 us (tick)
+11556.915 F flip 11556.914 reached +14 us
+11556.920 D frame 16684 render 316 us (tick)
+11556.931 F flip 11556.931 reached +20 us
+11556.936 S ticks 82335 drawn 16684 held 1 releases 16706 rss 53060 KiB passes 127 (clients tick control flip luna control-client draw-now); flips 16684 late 7 lost 2110 reached late 1 (over 1 ms 5, 
+11556.937 D frame 16685 render 354 us (tick)
+11556.948 F flip 11556.948 reached +13 us
+11556.954 D frame 16686 render 319 us (tick)
+11556.965 F flip 11556.965 reached +15 us
+11556.970 D frame 16687 render 327 us (tick)
+11556.981 F flip 11556.981 reached +16 us
+11556.987 D frame 16688 render 318 us (tick)
+11556.998 F flip 11556.998 reached +15 us
+11557.004 D frame 16689 render 353 us (tick)
+11557.015 F flip 11557.015 reached +16 us
+11557.020 D frame 16690 render 311 us (tick)
+11557.031 F flip 11557.031 reached +23 us
+11557.113 D frame 16691 render 304 us (clients draw-now)
+11557.131 F flip 11557.131 reached +33 us

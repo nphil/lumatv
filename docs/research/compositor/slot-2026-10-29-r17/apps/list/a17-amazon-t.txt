@@ -1,0 +1,20 @@
+client connected: pid 24390 uid 6367 cmd '/media/cryptofs/apps/usr/palm/applications/amazon/bin/ignition {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'amazon\\',\\'parameters\\':{},\\'interfaceVersion\\':2,\\'int'
+window 34 created on surface 283 by pid 24390
+webOS shell surface on window 34 (surface 283) by pid 24390
+window 34: appId = amazon (Card)
+window 34 committed without a buffer (Card app 'amazon' state Default)
+window 34: title = Prime Video (Card)
+window 34 mapped (Card app 'amazon' title 'Prime Video' size Some((1920, 1080)))
+window 5: minimized (covered by a newer card)
+window 34: fullscreen (the front card)
+window 5: exposed nothing (covered)
+window 34: exposed 1920x1080
+focus -> surface 283
+luna: foreground ['amazon'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+window 5: fullscreen (the front card)
+window 5: exposed 1920x1080
+focus -> surface 106
+client disconnected: pid 24390 uid 6367 after 11340 ms (ConnectionClosed); bound ['wl_compositor', 'wl_shm', 'wl_shell', 'wl_seat', 'wl_output', 'wl_webos_shell', 'wl_webos_surface_group_compositor', 'wl_webos_foreign', 'wl_webos_input_manager', 'wl_starfish_pointer', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat']; cmd '/media/cryptofs/apps/usr/palm/applications/amazon/bin/ignition {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'amazon\\',\\'parameters\\':{},\\'interfaceVersion\\':2,\\'int'
+luna: foreground ['com.webos.app.home'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+shell: can show switcher, keyboard
+shell: can show quick, picker, drawer, switcher, keyboard

@@ -1,0 +1,1 @@
+netflix windows 1 video "video":[{"context":"_LNu3282ij9Aj0X","displayOutput":{"height":1080,"width":1920,"x":0,"y":0},"fullScreen":true,"windowId":"_Window_Id_3"}] placements 11 protocol errors 0 pictureMode playing dolbyHdrCinema after filmMaker fg playing netflix now com.webos.app.home panel 68625 bytes stale-instance-closed 0 audio-port-held-before none

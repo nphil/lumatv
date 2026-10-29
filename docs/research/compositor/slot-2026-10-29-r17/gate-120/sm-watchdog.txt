@@ -1,0 +1,2 @@
+[01:23:32] watchdog: progress rules on (frozen output watched, empty panel watched)
+[01:23:32] watchdog: the set is ACTIVE

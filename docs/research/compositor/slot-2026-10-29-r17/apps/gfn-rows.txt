@@ -1,0 +1,3 @@
+GFNROW run 1 browser-in-front yes front-6s-after-home com.webos.app.home
+GFNROW run 2 browser-in-front yes front-6s-after-home com.webos.app.home
+GFNROW run 3 browser-in-front yes front-6s-after-home com.webos.app.home

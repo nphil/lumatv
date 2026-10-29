@@ -1,0 +1,25 @@
+client connected: pid 26565 uid 6546 cmd '/mnt/otncabi/usr/palm/applications/com.webos.app.browser/chrome {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'com.webos.app.browser\\',\\'parameters\\':{},\\'interfac'
+client connected: pid 26565 uid 6546 cmd '/mnt/otncabi/usr/palm/applications/com.webos.app.browser/chrome {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'com.webos.app.browser\\',\\'parameters\\':{},\\'interfac'
+client disconnected: pid 26565 uid 6546 after 0 ms (ConnectionClosed); bound ['wl_output']; cmd '/mnt/otncabi/usr/palm/applications/com.webos.app.browser/chrome {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'com.webos.app.browser\\',\\'parameters\\':{},\\'interfac'
+window 37 created on surface 300 by pid 26565
+webOS shell surface on window 37 (surface 300) by pid 26565
+window 37: appId = com.webos.app.1 (Card)
+window 37: appId = com.webos.app.browser (Card)
+luna: com.webos.app.browser subscribed to com.webos.surfacemanager/getFocusedWindowInfo
+window 37 mapped (Card app 'com.webos.app.browser' title '' size Some((1920, 1080)))
+window 5: minimized (covered by a newer card)
+window 37: fullscreen (the front card)
+window 5: exposed nothing (covered)
+window 37: exposed 1920x1080
+focus -> surface 300
+luna: foreground ['com.webos.app.browser'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+window 37: title = Web Browser (Card)
+foreign: surface 300 exported as _Window_Id_12 (type 0)
+luna: com.webos.app.browser cancelled com.webos.surfacemanager/getFocusedWindowInfo
+window 5: fullscreen (the front card)
+window 5: exposed 1920x1080
+focus -> surface 106
+client disconnected: pid 26565 uid 6546 after 11084 ms (ConnectionClosed); bound ['wl_compositor', 'wl_shm', 'wl_shell', 'wl_seat', 'wl_output', 'wl_webos_shell', 'wl_webos_surface_group_compositor', 'wl_webos_foreign', 'wl_webos_input_manager', 'wl_webos_xinput_extension', 'text_model_factory', 'wl_starfish_pointer', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat']; cmd '/mnt/otncabi/usr/palm/applications/com.webos.app.browser/chrome {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'com.webos.app.browser\\',\\'parameters\\':{},\\'interfac'
+luna: foreground ['com.webos.app.home'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+shell: can show switcher, keyboard
+shell: can show quick, picker, drawer, switcher, keyboard

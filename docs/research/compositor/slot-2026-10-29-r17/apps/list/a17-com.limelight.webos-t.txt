@@ -1,0 +1,32 @@
+client connected: pid 27224 uid 6652 cmd '/media/developer/apps/usr/palm/applications/com.limelight.webos/bin/moonlight {\\'@system_native_app\\':true,\\'nid\\':\\'com.limelight.webos\\'}'
+window 38 created on surface 305 by pid 27224
+webOS shell surface on window 38 (surface 305) by pid 27224
+window 38: appId = com.limelight.webos (Card)
+window 38: title = Moonlight (Card)
+window 38: title = Moonlight (Card)
+window 38 committed without a buffer (Card app 'com.limelight.webos' state Default)
+window 39 created on surface 306 by pid 27224
+webOS shell surface on window 39 (surface 306) by pid 27224
+window 39: appId = com.limelight.webos (Card)
+window 39: title = Moonlight (Card)
+window 39: title = Moonlight (Card)
+foreign: surface 306 exported as _Window_Id_13 (type 0)
+foreign: _Window_Id_13 property aspectRatio = original (0 contexts)
+foreign: _Window_Id_13 property justScan = on (0 contexts)
+window 39 mapped (Card app 'com.limelight.webos' title 'Moonlight' size Some((1920, 1080)))
+window 5: minimized (covered by a newer card)
+window 39: fullscreen (the front card)
+window 5: exposed nothing (covered)
+window 39: exposed 1920x1080
+focus -> surface 306
+luna: foreground ['com.limelight.webos'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+window 39 unmapped (Card app 'com.limelight.webos' title 'Moonlight' size None)
+window 5: fullscreen (the front card)
+window 5: exposed 1920x1080
+window 39: exposed nothing (covered)
+focus -> surface 106
+window 39 committed without a buffer (Card app 'com.limelight.webos' state Fullscreen)
+luna: foreground ['com.webos.app.home'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+shell: can show switcher, keyboard
+client disconnected: pid 27224 uid 6652 after 11068 ms (ConnectionClosed); bound ['wl_compositor', 'wl_shm', 'wl_shell', 'wl_seat', 'wl_output', 'wl_data_device_manager', 'wl_webos_shell', 'wl_webos_foreign', 'wl_webos_input_manager', 'text_model_factory', 'wl_starfish_pointer', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat']; cmd '/media/developer/apps/usr/palm/applications/com.limelight.webos/bin/moonlight {\\'@system_native_app\\':true,\\'nid\\':\\'com.limelight.webos\\'}'
+shell: can show quick, picker, drawer, switcher, keyboard

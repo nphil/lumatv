@@ -1,0 +1,11 @@
+[00:00:19] start (the gate's first session)
+[00:42:41] fallback: hold Home 650 ms (supervisor)   (homekey check)
+[00:43:04] start
+[00:43:38] fallback: heartbeat: two beats missed   (wd-hang check)
+[00:44:02] start
+[00:44:34] fallback: compositor killed by signal 9   (wd-crash check)
+[00:44:57] start
+[00:45:29] fallback: hold Home 650 ms   (escape check)
+[00:46:53] start (my session: the app loops)  ... ended by `cutover.sh disable` 01:16
+[01:16:31] start (x1 rerun 1), [01:18:47] start (rerun 2), [01:20:58] start (rerun 3), each ended by `cutover.sh disable` after its check
+[01:23:29] start (120 Hz run), ended 01:56; [01:57:31] start (120 Hz run with direct scan-out), interrupted and ended by `cutover.sh disable` at 02:23

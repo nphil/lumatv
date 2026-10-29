@@ -1,0 +1,50 @@
+{
+ "ok": true,
+ "scanout": {
+  "acquire": "sample",
+  "descriptors": {
+   "allocDevices": [],
+   "created": 43,
+   "destroyed": 33,
+   "retained": 6,
+   "undecoded": 0,
+   "withClient": 4
+  },
+  "framebuffers": {
+   "importFailures": 0,
+   "imports": 0,
+   "made": 0,
+   "waiting": 0
+  },
+  "frames": {
+   "composed": 22946,
+   "direct": 0
+  },
+  "held": {
+   "pending": false,
+   "shown": false,
+   "waiting": false
+  },
+  "last": {
+   "reason": "layers",
+   "state": "composed",
+   "text": "2 pictures on the screen (a system layer, keyboard or member over the window)"
+  },
+  "lastBufferRefusal": null,
+  "mode": "direct",
+  "refused": {
+   "geometry": 327,
+   "layers": 22606,
+   "transition": 12,
+   "video": 1
+  },
+  "shellEnv": [
+   "WAYLAND_AFBC=0"
+  ],
+  "tap": {
+   "state": "active"
+  },
+  "transitions": 0,
+  "trust": []
+ }
+}

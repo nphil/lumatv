@@ -1,0 +1,1 @@
+connected ok; home-loaded ok; idle-home(10/s,4%) ok; dpad ok; quick-home ok; picker-home ok; osd ok; toast ok; quick-app ok; idle-covered(0%) ok; saver ok; (shell pid 19857, starts 1, exits 0, luna calls 241, refused 0; foreground com.webos.app.home, windows mapped: com.webos.app.home org.nphil.lumatv.shell org.nphil.lumatv.shell)

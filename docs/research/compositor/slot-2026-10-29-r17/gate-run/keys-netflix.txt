@@ -1,0 +1,16 @@
+input: app button: netflix, launching netflix
+client connected: pid 10485 uid 6579 cmd '/media/cryptofs/apps/usr/palm/applications/netflix/bin/netflix.bin {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'netflix\\',\\'parameters\\':{},\\'interfaceVersion\\':2'
+window 13 created on surface 241 by pid 10485
+webOS shell surface on window 13 (surface 241) by pid 10485
+window 13: appId = netflix (Card)
+window 13: title = Netflix (Card)
+window 13: raised to the front (set_state fullscreen)
+window 2: minimized (covered by a newer card)
+window 2: exposed nothing (covered)
+window 13: exposed 1920x1080
+luna: foreground ['netflix'] pushed to 15 subscriber(s) (com.webos.service.activitymanager, com.webos.applicationManager)
+window 13 mapped (Card app 'netflix' title 'Netflix' size Some((1920, 1080)))
+focus -> surface 241
+transitions: frame 23 ms after the last in a launch (tick before 1.1 ms, this 1.3 ms, last render 0.4 ms, held ticks 1, buffers prepared 36, imported in a frame 0)
+shell: can show switcher, keyboard
+shell: can show quick, picker, drawer, switcher, keyboard

@@ -1,0 +1,228 @@
+power state: active
+home stub before the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+avr: left to the agent (True)
+firmware: verified 10.2.1-5202
+safety timer: this session ends by itself after 78 min if it is still live ('cutover.sh disable' cancels the timer)
+mounted; restarting the unit
+t=5s unit=active exe=/usr/bin/surface-manager compositor=24870 mounted=yes wam=active
+   01:23:34 recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+   01:23:34 recover: WebAppMgr answering after 0s (active)
+t=10s unit=active exe=/usr/bin/surface-manager compositor=24870 mounted=yes wam=active
+   01:23:34 recover: WebAppMgr answering after 0s (active)
+   01:23:36 recover: Home running under LumaTV's compositor after 0s
+t=15s unit=active exe=/usr/bin/surface-manager compositor=24870 mounted=yes wam=active
+   01:23:34 recover: WebAppMgr answering after 0s (active)
+   01:23:36 recover: Home running under LumaTV's compositor after 0s
+t=20s unit=active exe=/usr/bin/surface-manager compositor=24870 mounted=yes wam=active
+   01:23:36 recover: Home running under LumaTV's compositor after 0s
+   01:23:46 recover: librdx reports swept; remaining 0
+t=25s unit=active exe=/usr/bin/surface-manager compositor=24870 mounted=yes wam=active
+   01:23:36 recover: Home running under LumaTV's compositor after 0s
+   01:23:46 recover: librdx reports swept; remaining 0
+t=30s unit=active exe=/usr/bin/surface-manager compositor=24870 mounted=yes wam=active
+   01:23:36 recover: Home running under LumaTV's compositor after 0s
+   01:23:46 recover: librdx reports swept; remaining 0
+enabled (session): LumaTV's compositor stays live (recovery done after 0s more); 'cutover.sh disable' restores LG's
+
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 390199 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+evidence: 2 subscription(s) from SAM, 5 client lines, 4 loop stalls, 2 watchdog lines
+
+already mounted; 'cutover.sh status' says what runs
+
+GATE live-frames: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 391462 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+GATE refresh: measured hz 120 divider 1 shell 120 over 10 s: OSD flips/s 12.5, DE2VSYNC/s 120.7, osd_irq/s 120.1; compositor: "intervals":{"more":119,"one":11,"three":2,"two":13,"worst_ms":108.433} "frames":{"late":0,"lost":0,"missed":0,"n":145} "pipeline_ms":{"max":4.9401,"p50":4.75,"p99":4.9401} flips/s 12.106902944087716; mali busy 13.3 %; temperature 59; slides (steps/ms/for): none
+
+GATE wake: reset
+
+r more; kernel 0.0 ms)
+    switcher-open +0.915 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    ... 273 more late frames
+PASS  transitions-netflix launch_path           none  ()  netflix: the dock's tile 2, number key (evdev 3)
+PASS  transitions-netflix windows                6/6  (== 6)
+PASS  transitions-netflix p90_render_ms         0.39  (< 3)  10 frames
+PASS  transitions-netflix p90_window_ms         0.39  (< 4)  worst single window
+PASS  transitions-netflix dropped                  0  (<= 0)
+PASS  transitions-netflix burst_over20             0  (<= 0)
+PASS  transitions-netflix transitions_ran          3  (>= 3)  3 launches, 3 leaves, 0 changes of the front left alone; transitions are on
+PASS  transitions-netflix transitions_late_gaps          0  (== 0)  worst gap so far 17 ms
+PASS  transitions-netflix rss_growth_mb         0.00  (<= 1.01)  454 -> 454 pages over 1 cycles
+PASS  transitions-netflix switches_restored number-keys, quick-access, transitions  (as found)
+PASS  transitions-netflix log_errors               0  (== 0)
+PASS  transitions-netflix compositor_pid       24597  (== 24597)
+transitions-netflix: kernel waits: 35 late frame(s): 2 kernel-caused (kbase? 2), 0 waiting for a CPU, 33 unexplained
+    transitions-netflix-open +0.367 s: 33.4 ms (overrun 16.7): kernel wait 27.25 ms = 100 % of it: kbase? 11.81 ms; other 10.03 ms; io? 5.41 ms [io? on surface-manager-24597, other on surface-manager-24597, other on surface-manager-24597, kbase? on surface-manager-24597]
+    transitions-netflix-open +0.351 s: 16.7 ms (overrun 1.0): kernel wait 16.57 ms = 100 % of it: kbase? 12.51 ms; io? 4.06 ms [kbase? on surface-manager-24597, kbase? on surface-manager-24597, io? on surface-manager-24597]
+    transitions-netflix-open +0.317 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 3.17 ms)
+    transitions-netflix-open +1.535 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    transitions-netflix-open +1.602 s: 25.0 ms (overrun 8.4): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    transitions-netflix-close +0.258 s: 91.8 ms (overrun 75.1): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    transitions-netflix-close +0.35 s: 200.2 ms (overrun 183.5): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    transitions-netflix-close +0.55 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    transitions-netflix-close +0.566 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    transitions-netflix-close +0.583 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    transitions-netflix-close +0.6 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    transitions-netflix-close +0.616 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    ... 23 more late frames
+PASS  transitions-settings windows                6/6  (== 6)
+PASS  transitions-settings p90_render_ms         none  (< 3)  no animated frames
+PASS  transitions-settings p90_window_ms         none  (< 4)  worst single window
+PASS  transitions-settings dropped                  0  (<= 0)
+PASS  transitions-settings burst_over20             0  (<= 0)
+FAIL  transitions-settings transitions_ran          2  (>= 3)  2 launches, 2 leaves, 0 changes of the front left alone; transitions are on
+PASS  transitions-settings transitions_late_gaps          0  (== 0)  worst gap so far 17 ms
+PASS  transitions-settings rss_growth_mb         0.00  (<= 1.01)  454 -> 454 pages over 1 cycles
+PASS  transitions-settings switches_restored transitions  (as found)
+FAIL  transitions-settings log_errors               2  (== 0)  20 known stock lines ignored
+PASS  transitions-settings compositor_pid       24597  (== 24597)
+      log: 2026-10-29T05:48:54.936067Z [14096.347253060] user.warning MaliitServer [] IME default {"func":"Maliit::WaylandPlatformPrivate::setupInputSurface"} Creating surface to avoid crash in QtWayland
+      log: 2026-10-29T05:48:54.936149Z [14096.347327660] user.warning MaliitServer [] IME default {"func":"Maliit::WaylandPlatformPrivate::setupInputSurface"} Creating surface to avoid crash in QtWayland
+      slides: 5 slide(s), fewest steps 6: 15 steps in 115 ms for 110; 15 steps in 114 ms for 110; 15 steps in 116 ms for 110; 6 steps in 121 ms for 110; 15 steps in 117 ms for 110
+transitions-settings: kernel waits: 17 late frame(s): 0 kernel-caused, 0 waiting for a CPU, 17 unexplained
+    transitions-settings-open +0.567 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    transitions-settings-open +0.583 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    transitions-settings-open +0.6 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    transitions-settings-open +0.617 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    transitions-settings-open +0.633 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    transitions-settings-open +0.65 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    transitions-settings-open +0.667 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    transitions-settings-open +0.684 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    transitions-settings-open +1.092 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    transitions-settings-open +1.109 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    transitions-settings-open +1.126 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    transitions-settings-open +1.151 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    ... 5 more late frames
+PASS  keyboard-luma   windows                3/3  (== 3)
+PASS  keyboard-luma   first_frame_ms        8.60  (<= 50)
+PASS  keyboard-luma   p90_render_ms         0.14  (< 3)  26 frames
+PASS  keyboard-luma   p90_window_ms         0.14  (< 4)  worst single window
+FAIL  keyboard-luma   dropped                  8  (<= 0)
+FAIL  keyboard-luma   burst_over20           845  (<= 0)
+PASS  keyboard-luma   rss_growth_mb         0.00  (<= 1.01)  454 -> 454 pages over 1 cycles
+PASS  keyboard-luma   switches_restored   keyboard  (as found)
+PASS  keyboard-luma   log_errors               0  (== 0)  1 known stock lines ignored
+PASS  keyboard-luma   compositor_pid       24597  (== 24597)
+keyboard-luma: kernel waits: 942 late frame(s): 9 kernel-caused (kbase? 9), 0 waiting for a CPU, 933 unexplained
+    keyboard-luma-open +4.31 s: 16.7 ms (overrun 1.0): kernel wait 16.39 ms = 100 % of it: kbase? 16.39 ms [kbase? on surface-manager-24597]
+    keyboard-luma-open +4.293 s: 16.7 ms (overrun 1.0): kernel wait 16.21 ms = 100 % of it: kbase? 16.21 ms [kbase? on surface-manager-24597]
+    keyboard-luma-open +1.727 s: 16.7 ms (overrun 1.0): kernel wait 9.87 ms = 100 % of it: kbase? 9.87 ms [kbase? on surface-manager-24597]
+    keyboard-luma-open +4.257 s: 16.7 ms (overrun 1.0): kernel wait 6.39 ms = 100 % of it: kbase? 6.39 ms [kbase? on surface-manager-24597, kbase? on surface-manager-24597]
+    keyboard-luma-open +4.273 s: 16.7 ms (overrun 1.0): kernel wait 4.53 ms = 100 % of it: kbase? 4.53 ms [kbase? on surface-manager-24597]
+    keyboard-luma-open +1.627 s: 16.7 ms (overrun 1.0): kernel wait 3.68 ms = 100 % of it: kbase? 3.68 ms [kbase? on surface-manager-24597]
+    keyboard-luma-open +4.326 s: 16.7 ms (overrun 1.0): kernel wait 3.51 ms = 100 % of it: kbase? 3.51 ms [kbase? on surface-manager-24597]
+    keyboard-luma-open +1.66 s: 16.7 ms (overrun 1.0): kernel wait 3.04 ms = 100 % of it: kbase? 3.04 ms [kbase? on surface-manager-24597]
+    keyboard-luma-open +4.226 s: 16.7 ms (overrun 1.0): kernel wait 3.0 ms = 100 % of it: kbase? 3.0 ms [kbase? on surface-manager-24597]
+    keyboard-luma-open +0.019 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    keyboard-luma-open +0.036 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    keyboard-luma-open +0.053 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    ... 930 more late frames
+PASS  keyboard-lg     windows                3/3  (== 3)
+PASS  keyboard-lg     first_frame_ms        6.86  (<= 50)
+PASS  keyboard-lg     p90_render_ms         0.27  (< 3)  39 frames
+PASS  keyboard-lg     p90_window_ms         0.27  (< 4)  worst single window
+FAIL  keyboard-lg     dropped                 17  (<= 0)
+FAIL  keyboard-lg     burst_over20          1134  (<= 0)
+PASS  keyboard-lg     rss_growth_mb         0.00  (<= 1.01)  454 -> 454 pages over 1 cycles
+PASS  keyboard-lg     switches_restored   keyboard  (as found)
+PASS  keyboard-lg     log_errors               0  (== 0)
+PASS  keyboard-lg     compositor_pid       24597  (== 24597)
+keyboard-lg: kernel waits: 1226 late frame(s): 21 kernel-caused (kbase? 19, other 2), 1 waiting for a CPU, 1204 unexplained
+    keyboard-lg-open +6.112 s: 16.7 ms (overrun 1.0): kernel wait 16.69 ms = 100 % of it: kbase? 16.69 ms [kbase? on surface-manager-24597]
+    keyboard-lg-open +3.192 s: 16.7 ms (overrun 1.0): kernel wait 16.55 ms = 100 % of it: kbase? 16.55 ms [kbase? on surface-manager-24597, kbase? on surface-manager-24597]
+    keyboard-lg-open +3.772 s: 16.7 ms (overrun 1.0): kernel wait 16.51 ms = 100 % of it: kbase? 16.51 ms [kbase? on surface-manager-24597, kbase? on surface-manager-24597]
+    keyboard-lg-open +6.096 s: 16.7 ms (overrun 1.0): kernel wait 15.43 ms = 100 % of it: kbase? 15.43 ms [kbase? on surface-manager-24597, kbase? on surface-manager-24597]
+    keyboard-lg-open +0.09 s: 16.7 ms (overrun 1.0): kernel wait 14.84 ms = 100 % of it: kbase? 14.84 ms [kbase? on surface-manager-24597]
+    keyboard-lg-open +0.107 s: 16.7 ms (overrun 1.0): kernel wait 14.16 ms = 100 % of it: kbase? 14.16 ms [kbase? on surface-manager-24597]
+    keyboard-lg-open +3.789 s: 16.7 ms (overrun 1.0): kernel wait 11.55 ms = 100 % of it: kbase? 11.55 ms [kbase? on surface-manager-24597]
+    keyboard-lg-open +3.756 s: 16.7 ms (overrun 1.0): kernel wait 10.27 ms = 100 % of it: kbase? 10.27 ms [kbase? on surface-manager-24597, kbase? on surface-manager-24597]
+    keyboard-lg-open +3.209 s: 16.7 ms (overrun 1.0): kernel wait 9.86 ms = 100 % of it: kbase? 9.86 ms [kbase? on surface-manager-24597]
+    keyboard-lg-open +6.046 s: 16.7 ms (overrun 1.0): kernel wait 9.56 ms = 100 % of it: kbase? 9.56 ms [kbase? on surface-manager-24597, kbase? on surface-manager-24597]
+    keyboard-lg-open +3.176 s: 16.7 ms (overrun 1.0): kernel wait 8.05 ms = 100 % of it: kbase? 8.05 ms [kbase? on surface-manager-24597]
+    keyboard-lg-open +6.129 s: 16.7 ms (overrun 1.0): kernel wait 7.28 ms = 100 % of it: kbase? 7.28 ms [kbase? on surface-manager-24597, kbase? on surface-manager-24597]
+    ... 1214 more late frames
+VERDICT FAIL
+ssh retry Key-exchange timed out waiting for key negotiation
+Exception (client): Key-exchange timed out waiting for key negotiation
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/dist-packages/paramiko/transport.py", line 2099, in run
+    self._channel_handler_table[ptype](chan, m)
+  File "/usr/local/lib/python3.11/dist-packages/paramiko/channel.py", line 1185, in _handle_close
+    self.transport._send_user_message(m)
+  File "/usr/local/lib/python3.11/dist-packages/paramiko/transport.py", line 1831, in _send_user_message
+    raise SSHException(
+paramiko.ssh_exception.SSHException: Key-exchange timed out waiting for key negotiation
+
+
+GATE refresh: measured hz 120 divider 1 shell 120 over 10 s: OSD flips/s 12.6, DE2VSYNC/s 120.8, osd_irq/s 120.2; compositor: "intervals":{"more":3522,"one":13660,"three":478,"two":25574,"worst_ms":5463.254} "frames":{"late":105,"lost":2041,"missed":11,"n":43234} "pipeline_ms":{"max":341.30394,"p50":4.75,"p99":5.25} flips/s 22.794885347813878; mali busy 13.4 %; temperature 58; slides (steps/ms/for): 15/115/110 15/114/110 15/116/110 6/121/110 15/114/110 5/110/110 15/114/110 15/117/110 
+
+GATE refresh: measured hz 60 divider 2 shell 60 over 5 s: OSD flips/s 12.4, DE2VSYNC/s 121.6, osd_irq/s 120.2; compositor: "intervals":{"more":68,"one":14,"three":0,"two":0,"worst_ms":116.771} "frames":{"late":0,"lost":0,"missed":0,"n":82} "pipeline_ms":{"max":4.89688,"p50":4.75,"p99":4.89688} flips/s 11.756946468445516; mali busy 13.2 %; temperature 58; slides (steps/ms/for): 15/115/110 15/114/110 15/116/110 6/121/110 15/114/110 5/110/110 15/114/110 15/117/110 
+
+GATE wake (frames): measured tick p50 0.01 p99 0.04 max 4.72 ms (n 237951); flip p50 0.02 p99 0.06 max 5.63 ms (n 43171); input p50 0.02 p99 0.04 max 0.22 ms (n 5197); tick waited on a busy loop p50 0.04 p99 0.77 max 0.82 ms (n 917)
+
+GATE mem: measured rss 72216 KiB, locked 548240 KiB, swapped 0 KiB, malloc mmapped blocks 0; lock: locked what is touched (MCL_CURRENT|MCL_FUTURE|MCL_ONFAULT) in 4.9 ms; VmRSS 16 MiB, MemAvailable 1092 MiB, RLIMIT_MEMLOCK 64 KiB, CAP_IPC_LOCK yes; the process's limit on locked memory: 65536 65536 bytes ; set: MemAvailable 570 MiB, CmaFree 3 MiB, swap in use 406 MiB
+
+lpc-probe irq: 10 s, home; CPUs online 0-2; default affinity f
+(* named in IRQ_NAMES)  IRQ  rate/s  per-CPU counts over the run  affinity  name
+ 10    4434.6   20479  15790   8077  0-3       GICv2 30 Level arch_timer
+ IPI0   616.0    1205   2263   2692  ?         Rescheduling interrupts
+*175    128.9    1289      0      0  0-3       GICv2 175 Edge DE2VSYNC
+*104    128.2    1282      0      0  0-3       GICv2 104 Edge osd_irq
+*176     73.8     738      0      0  0-3       GICv2 176 Level c4250000.gpu
+*128     67.2     672      0      0  0-3       GICv2 128 Level ohci_hcd:usb8
+*178     56.1     561      0      0  0-3       GICv2 178 Level c4250000.gpu
+*124     37.3     373      0      0  0-3       GICv2 124 Level eth0
+*130      9.8      98      0      0  0-3       GICv2 130 Level xhci-hcd:usb1
+ 60       2.0      20      0      0  0-3       GICv2 60 Level fe500000.i2c
+ 135      1.0      10      0      0  0-3       GICv2 135 Edge hdmicec
+ 113      1.0      10      0      0  0-3       GICv2 113 Edge TE_MCU[1]
+ 112      1.0      10      0      0  0-3       GICv2 112 Edge TE_MCU[0]
+*120      0.6       6      0      0  0-3       GICv2 120 Edge gfx_irq
+ IPI5     0.4       4      0      0  ?         IRQ work interrupts
+ 183      0.4       4      0      0  0-3       GICv2 183 Level aud1
+ IPI1     0.3       3      0      0  ?         Function call interrupts
+ 201      0.3       3      0      0  0-3       GICv2 201 Edge ipc_vdec
+*177      0.0       0      0      0  0-3       GICv2 177 Level c4250000.gpu
+*174      0.0       0      0      0  0-3       GICv2 174 Edge DE2IPC
+*132      0.0       0      0      0  0-3       GICv2 132 Level xhci-hcd:usb5
+*131      0.0       0      0      0  0-3       GICv2 131 Level xhci-hcd:usb3
+*129      0.0       0      0      0  0-3       GICv2 129 Level ehci_hcd:usb7
+softirq TIMER      2301   2669   2578    665
+softirq NET_RX      461     26     38      5
+softirq TASKLET    1291      0      0      0
+softirq SCHED      1316   1528   1571    413
+loop thread (pid 24870) ran on: CPU1 4 %, CPU2 96 %, over 100 samples
+
+lpc-probe wakeups: 10 s, home
+pid 15098: 30.3 runs/s, 0.0 % CPU: receiver-telnet[15104] 13.0, mdns[15126] 5.2, mdns[15135] 4.8, receiver[15101] 4.1, ble[15118] 2.4,
+pid 24870: 199.8 runs/s, 2.3 % CPU: ld-linux-aarch6[24870] 126.7 (2.0 % CPU), mali-cmar-backe[24893] 69.5, luna-writer[24932] 2.1, lumatv-shell-ht[24933] 1.5,
+pid 25302: 151.1 runs/s, 5.2 % CPU: qml-runner[25302] 92.7 (4.4 % CPU), mali-cmar-backe[25336] 45.7, mali-mem-purge[25331] 10.6, QNetworkAccessM[25353] 1.5,
+system: 5655 interrupts/s, 9894 context switches/s
+
+shell callbacks: 21985 of 44029 sent ahead of their flip
+
+safety timer cancelled
+umount: /usr/bin/surface-manager: target is busy.
+revert: active; mounted: no; exe: /usr/bin/surface-manager
+recover: surface-manager-daemon.service active after 0s; exe /usr/bin/surface-manager
+recover: compositor answering on the bus after 0s
+recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+recover: WebAppMgr answering after 0s (active)
+recover: Home on the panel after 0s (capture 60361 bytes)
+recover: librdx reports swept; remaining 0
+
+divider after: 2
+avr: left to the agent (False)
+{"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+
+home stub after the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 390199 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE live-frames: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 391462 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE refresh: measured hz 120 divider 1 shell 120 over 10 s: OSD flips/s 12.5, DE2VSYNC/s 120.7, osd_irq/s 120.1; compositor: "intervals":{"more":119,"one":11,"three":2,"two":13,"worst_ms":108.433} "frames":{"late":0,"lost":0,"missed":0,"n":145} "pipeline_ms":{"max":4.9401,"p50":4.75,"p99":4.9401} flips/s 12.106902944087716; mali busy 13.3 %; temperature 59; slides (steps/ms/for): none
+GATE frames at 120 Hz: FAIL home-dpad NOT burst_over20=1 [first_frame 21.29 p90_render 0.12]; quick NOT burst_end_ms=193.4,burst_over20=2 [first_frame 19.22 burst_end 193.4 p90_render None slides 24 fewest-steps 13]; picker NOT first_frame_ms=89.59,burst_end_ms=None [first_frame 89.59 burst_end None p90_render None slides 24 fewest-steps 6]; toast NOT burst_end_ms=278.51,burst_over20=23 [first_frame 31.76 burst_end 278.51 p90_render None]; settings-scroll NOT dropped=3,burst_over20=32 [first_frame 26.09 p90_render 0.33 slides 16 fewest-steps 7]; apps-grid NOT dropped=1,burst_over20=36 [first_frame 29.35 p90_render 0.06]; home-widgets NOT dropped=3 [first_frame 21.93 p90_render 0.09]; switcher NOT first_frame_ms=64.19 [first_frame 64.19 p90_render None]; transitions-netflix ok [p90_render 0.39]; transitions-settings NOT transitions_ran=2,log_errors=2 [p90_render None slides 5 fewest-steps 6]; keyboard-luma NOT dropped=8,burst_over20=845 [first_frame 8.6 p90_render 0.14]; keyboard-lg NOT dropped=17,burst_over20=1134 [first_frame 6.86 p90_render 0.27] (surfaces home-dpad,quick,picker,toast,settings-scroll,apps-grid,home-widgets,switcher,transitions-netflix,transitions-settings,keyboard-luma,keyboard-lg, 3 cycles; /tmp/lumatv-tv-out/frames-120.json)
+GATE refresh: measured hz 120 divider 1 shell 120 over 10 s: OSD flips/s 12.6, DE2VSYNC/s 120.8, osd_irq/s 120.2; compositor: "intervals":{"more":3522,"one":13660,"three":478,"two":25574,"worst_ms":5463.254} "frames":{"late":105,"lost":2041,"missed":11,"n":43234} "pipeline_ms":{"max":341.30394,"p50":4.75,"p99":5.25} flips/s 22.794885347813878; mali busy 13.4 %; temperature 58; slides (steps/ms/for): 15/115/110 15/114/110 15/116/110 6/121/110 15/114/110 5/110/110 15/114/110 15/117/110 
+GATE refresh: measured hz 60 divider 2 shell 60 over 5 s: OSD flips/s 12.4, DE2VSYNC/s 121.6, osd_irq/s 120.2; compositor: "intervals":{"more":68,"one":14,"three":0,"two":0,"worst_ms":116.771} "frames":{"late":0,"lost":0,"missed":0,"n":82} "pipeline_ms":{"max":4.89688,"p50":4.75,"p99":4.89688} flips/s 11.756946468445516; mali busy 13.2 %; temperature 58; slides (steps/ms/for): 15/115/110 15/114/110 15/116/110 6/121/110 15/114/110 5/110/110 15/114/110 15/117/110 
+GATE wake (frames): measured tick p50 0.01 p99 0.04 max 4.72 ms (n 237951); flip p50 0.02 p99 0.06 max 5.63 ms (n 43171); input p50 0.02 p99 0.04 max 0.22 ms (n 5197); tick waited on a busy loop p50 0.04 p99 0.77 max 0.82 ms (n 917)
+GATE mem: measured rss 72216 KiB, locked 548240 KiB, swapped 0 KiB, malloc mmapped blocks 0; lock: locked what is touched (MCL_CURRENT|MCL_FUTURE|MCL_ONFAULT) in 4.9 ms; VmRSS 16 MiB, MemAvailable 1092 MiB, RLIMIT_MEMLOCK 64 KiB, CAP_IPC_LOCK yes; the process's limit on locked memory: 65536 65536 bytes ; set: MemAvailable 570 MiB, CmaFree 3 MiB, swap in use 406 MiB
+GATE: FAIL
+wrote ../r17-wt/docs/research/compositor/gate-2026-10-29.txt

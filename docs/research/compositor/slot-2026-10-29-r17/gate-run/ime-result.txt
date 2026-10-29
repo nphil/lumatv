@@ -1,0 +1,1 @@
+before: maliit-server.service inactive, MaliitServer not running; after the keyboard came up: unit active, MaliitServer pid 11586; input methods bound 1; asked for one 1 time(s); OK pressed 0 time(s); keyboard up yes (panel y 642 h 438, capture 138196 bytes); context yes; typed 3; closed by Back

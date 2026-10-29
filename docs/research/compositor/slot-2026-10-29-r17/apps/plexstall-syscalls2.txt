@@ -1,0 +1,221 @@
+=== run 1
+pid 13344
+--- 0.35 s after the close request
+13344 plxnative state S wchan futex_wait_queue_me syscall 240 0x2370d50 0x189 0x1 0x0 0x0 0xffffffff 0xffa84510 0xf7311ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+13392 storage-diag state S wchan futex_wait_queue_me syscall 240 0x235ece8 0x89 0x3 0x0 0x0 0xffffffff 0xf091c190 0xf739c372
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+13394 plxnative state S wchan do_sys_poll syscall 168 0xef808e00 0x6 0xffffffff 0x0 0xffffffff 0x6 0xf01fd508 0xf7311ca6
+    poll: nfds 6 timeout -1 ms: fd 9 events 0x1 -> socket:[1183706]; fd 10 events 0x1 -> anon_inode:[eventfd]; fd 12 events 0x1 -> socket:[1193054]; fd 13 events 0x1 -> socket:[1193052]; fd 14 events 0x1 -> socket:[1193056]; fd 21 events 0x1 -> socket:[1193058]
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] do_sys_poll+0x374/0x540 | [<0>] __arm64_sys_poll+0x2c/0x130 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat_handler+0x1c/0x30 | [<0>] el0_svc_compat+0x8/0x10
+13396 mali-mem-purge state S wchan futex_wait_queue_me syscall 240 0x23a1e48 0x89 0x0 0xef7fd448 0x0 0xffffffff 0xef7fd438 0xf7311ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+13397 mali-utility-wo state S wchan futex_wait_queue_me syscall 240 0x2370ea8 0x189 0x1 0x0 0x0 0xffffffff 0xeeffc4b8 0xf7311ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+13398 mali-utility-wo state S wchan futex_wait_queue_me syscall 240 0x2370f10 0x189 0x1 0x0 0x0 0xffffffff 0xee7fb4b8 0xf7311ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+13399 mali-utility-wo state S wchan futex_wait_queue_me syscall 240 0x2370f78 0x189 0x1 0x0 0x0 0xffffffff 0xedffa4b8 0xf7311ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+13400 mali-utility-wo state S wchan futex_wait_queue_me syscall 240 0x2370fe0 0x189 0x1 0x0 0x0 0xffffffff 0xed7f94b8 0xf7311ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+13401 mali-cmar-backe state S wchan do_sys_poll syscall 168 0xecff82f4 0x1 0x3e8 0x0 0x3e8 0x1 0xecff82d0 0xf7311ca6
+    poll: nfds 1 timeout 1000 ms: fd 7 events 0x1 -> socket:[1183708]
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] do_sys_poll+0x374/0x540 | [<0>] __arm64_sys_poll+0x98/0x130 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat_handler+0x1c/0x30 | [<0>] el0_svc_compat+0x8/0x10
+13402 mali-compiler state S wchan futex_wait_queue_me syscall 240 0xf7205470 0x189 0x0 0x0 0x0 0xffffffff 0xec7f7498 0xf7311ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+13426 main-thread wat state S wchan hrtimer_nanosleep syscall 265 0x1 0x0 0xeb1ed2f8 0xeb1ed2f0 0x1 0xeb1ed2f0 0xeb1ed2e8 0xf7311ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] hrtimer_nanosleep+0xc8/0x200 | [<0>] common_nsleep+0x20/0x30 | [<0>] __arm64_sys_clock_nanosleep_time32+0xb8/0x150 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat_handler+0x1c/0x30 
+13467 notify state S wchan do_sys_poll syscall 168 0xeb979d28 0x2 0x3e8 0x0 0x3e8 0x2 0xeb979c80 0xf7311ca6
+    poll: nfds 2 timeout 1000 ms: fd 48 events 0x1 -> socket:[1191497]; fd 39 events 0x1 -> socket:[1191495]
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] do_sys_poll+0x374/0x540 | [<0>] __arm64_sys_poll+0x98/0x130 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat_handler+0x1c/0x30 | [<0>] el0_svc_compat+0x8/0x10
+13593 SDLTimer state S wchan futex_wait_queue_me syscall 240 0xef809488 0x189 0x1 0xe9a79490 0x0 0xffffffff 0xe9a79480 0xf7311ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+  fd 0 -> /dev/null
+  fd 1 -> /dev/null
+  fd 2 -> /var/palm/jail/com.beb.plxnative/tmp/plxnative-stderr.log
+  fd 3 -> /var/palm/jail/com.beb.plxnative/dev/shm/pmloglib.lock
+  fd 4 -> /var/palm/jail/com.beb.plxnative/tmp/plxnative-events.log
+  fd 5 -> /var/palm/jail/com.beb.plxnative/tmp/plxnative-events.log
+  fd 6 -> /var/palm/jail/com.beb.plxnative/tmp/plxnative-crash.log
+  fd 7 -> socket:[1183708]
+  fd 8 -> /var/palm/jail/com.beb.plxnative/dev/mali0
+  fd 9 -> socket:[1183706]
+  fd 10 -> anon_inode:[eventfd]
+  fd 11 -> socket:[1191299]
+  fd 12 -> socket:[1193054]
+  fd 13 -> socket:[1193052]
+  fd 14 -> socket:[1193056]
+  fd 15 -> anon_inode:[eventfd]
+  fd 16 -> anon_inode:[eventfd]
+  fd 17 -> anon_inode:[eventfd]
+  fd 18 -> /var/palm/jail/com.beb.plxnative/dev/lg/logm0
+  fd 19 -> /var/palm/jail/com.beb.plxnative/dev/dma_buf_unified
+  fd 20 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont.ttf
+  fd 21 -> socket:[1193058]
+  fd 22 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont-bold.ttf
+  fd 23 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont.ttf
+  fd 24 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont-bold.ttf
+  fd 25 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont.ttf
+  fd 26 -> anon_inode:malitl_13344_0x2370cb8
+  fd 27 -> anon_inode:malitl_13344_0x2397be8
+  fd 28 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont-bold.ttf
+  fd 29 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont.ttf
+  fd 30 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont-bold.ttf
+  fd 31 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont-bold.ttf
+  fd 32 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont.ttf
+  fd 33 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont-bold.ttf
+  fd 34 -> /var/palm/jail/com.beb.plxnative/dev/urandom
+  fd 35 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont.ttf
+  fd 36 -> /var/palm/jail/com.beb.plxnative/dev/urandom
+  fd 37 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont-bold.ttf
+  fd 39 -> socket:[1191495]
+  fd 40 -> socket:[1191496]
+  fd 45 -> /var/palm/jail/com.beb.plxnative/dev/urandom
+  fd 48 -> socket:[1191497]
+  fd 50 -> anon_inode:[eventfd]
+  fd 51 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont-bold.ttf
+  fd 56 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont.ttf
+  fd 70 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont.ttf
+  fd 71 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont-bold.ttf
+  fd 89 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont.ttf
+--- 0.80 s after the close request
+13344 plxnative state S wchan futex_wait_queue_me syscall 240 0x2370d50 0x189 0x1 0x0 0x0 0xffffffff 0xffa84510 0xf7311ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+13392 storage-diag state S wchan futex_wait_queue_me syscall 240 0x235ece8 0x89 0x3 0x0 0x0 0xffffffff 0xf091c190 0xf739c372
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+13394 plxnative state S wchan do_sys_poll syscall 168 0xef808e00 0x6 0xffffffff 0x0 0xffffffff 0x6 0xf01fd508 0xf7311ca6
+    poll: nfds 6 timeout -1 ms: fd 9 events 0x1 -> socket:[1183706]; fd 10 events 0x1 -> anon_inode:[eventfd]; fd 12 events 0x1 -> socket:[1193054]; fd 13 events 0x1 -> socket:[1193052]; fd 14 events 0x1 -> socket:[1193056]; fd 21 events 0x1 -> socket:[1193058]
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] do_sys_poll+0x374/0x540 | [<0>] __arm64_sys_poll+0x2c/0x130 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat_handler+0x1c/0x30 | [<0>] el0_svc_compat+0x8/0x10
+13396 mali-mem-purge state S wchan futex_wait_queue_me syscall 240 0x23a1e48 0x89 0x0 0xef7fd448 0x0 0xffffffff 0xef7fd438 0xf7311ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+13397 mali-utility-wo state S wchan futex_wait_queue_me syscall 240 0x2370ea8 0x189 0x1 0x0 0x0 0xffffffff 0xeeffc4b8 0xf7311ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+13398 mali-utility-wo state S wchan futex_wait_queue_me syscall 240 0x2370f10 0x189 0x1 0x0 0x0 0xffffffff 0xee7fb4b8 0xf7311ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+13399 mali-utility-wo state S wchan futex_wait_queue_me syscall 240 0x2370f78 0x189 0x1 0x0 0x0 0xffffffff 0xedffa4b8 0xf7311ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+13400 mali-utility-wo state S wchan futex_wait_queue_me syscall 240 0x2370fe0 0x189 0x1 0x0 0x0 0xffffffff 0xed7f94b8 0xf7311ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+13401 mali-cmar-backe state S wchan do_sys_poll syscall 168 0xecff82f4 0x1 0x3e8 0x0 0x3e8 0x1 0xecff82d0 0xf7311ca6
+    poll: nfds 1 timeout 1000 ms: fd 7 events 0x1 -> socket:[1183708]
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] do_sys_poll+0x374/0x540 | [<0>] __arm64_sys_poll+0x98/0x130 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat_handler+0x1c/0x30 | [<0>] el0_svc_compat+0x8/0x10
+13402 mali-compiler state S wchan futex_wait_queue_me syscall 240 0xf7205470 0x189 0x0 0x0 0x0 0xffffffff 0xec7f7498 0xf7311ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+13426 main-thread wat state S wchan hrtimer_nanosleep syscall 265 0x1 0x0 0xeb1ed2f8 0xeb1ed2f0 0x1 0xeb1ed2f0 0xeb1ed2e8 0xf7311ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] hrtimer_nanosleep+0xc8/0x200 | [<0>] common_nsleep+0x20/0x30 | [<0>] __arm64_sys_clock_nanosleep_time32+0xb8/0x150 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat_handler+0x1c/0x30 
+13467 notify state S wchan do_sys_poll syscall 168 0xeb979d28 0x2 0x3e8 0x0 0x3e8 0x2 0xeb979c80 0xf7311ca6
+    poll: nfds 2 timeout 1000 ms: fd 48 events 0x1 -> socket:[1191497]; fd 39 events 0x1 -> socket:[1191495]
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] do_sys_poll+0x374/0x540 | [<0>] __arm64_sys_poll+0x98/0x130 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat_handler+0x1c/0x30 | [<0>] el0_svc_compat+0x8/0x10
+13593 SDLTimer state S wchan futex_wait_queue_me syscall 240 0xef809488 0x189 0x1 0xe9a79490 0x0 0xffffffff 0xe9a79480 0xf7311ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+
+=== run 2
+pid 13788
+--- 0.35 s after the close request
+13788 plxnative state S wchan futex_wait_queue_me syscall 240 0x188fdb0 0x189 0x1 0x0 0x0 0xffffffff 0xffb53070 0xf7291ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+13795 storage-diag state S wchan futex_wait_queue_me syscall 240 0x18622d8 0x89 0x2 0x0 0x0 0xffffffff 0xf089c190 0xf731c372
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+13797 plxnative state S wchan do_sys_poll syscall 168 0xef70b558 0x6 0xffffffff 0x0 0xffffffff 0x6 0xf00fd508 0xf7291ca6
+    poll: nfds 6 timeout -1 ms: fd 9 events 0x1 -> socket:[1196241]; fd 10 events 0x1 -> anon_inode:[eventfd]; fd 12 events 0x1 -> socket:[1197289]; fd 15 events 0x1 -> socket:[1197297]; fd 17 events 0x1 -> socket:[1197295]; fd 21 events 0x1 -> socket:[1197305]
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] do_sys_poll+0x374/0x540 | [<0>] __arm64_sys_poll+0x2c/0x130 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat_handler+0x1c/0x30 | [<0>] el0_svc_compat+0x8/0x10
+13799 mali-mem-purge state S wchan futex_wait_queue_me syscall 240 0x18aa8b0 0x89 0x0 0xef6fd448 0x0 0xffffffff 0xef6fd438 0xf7291ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+13800 mali-utility-wo state S wchan futex_wait_queue_me syscall 240 0x1894000 0x189 0x1 0x0 0x0 0xffffffff 0xeeefc4b8 0xf7291ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+13801 mali-utility-wo state S wchan futex_wait_queue_me syscall 240 0x1894068 0x189 0x1 0x0 0x0 0xffffffff 0xee6fb4b8 0xf7291ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+13802 mali-utility-wo state S wchan futex_wait_queue_me syscall 240 0x18940d0 0x189 0x1 0x0 0x0 0xffffffff 0xedefa4b8 0xf7291ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+13803 mali-utility-wo state S wchan futex_wait_queue_me syscall 240 0x1894138 0x189 0x1 0x0 0x0 0xffffffff 0xed6f94b8 0xf7291ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+13804 mali-cmar-backe state S wchan do_sys_poll syscall 168 0xecef82f4 0x1 0x3e8 0x0 0x3e8 0x1 0xecef82d0 0xf7291ca6
+    poll: nfds 1 timeout 1000 ms: fd 13 events 0x1 -> socket:[1196242]
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] do_sys_poll+0x374/0x540 | [<0>] __arm64_sys_poll+0x98/0x130 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat_handler+0x1c/0x30 | [<0>] el0_svc_compat+0x8/0x10
+13805 mali-compiler state S wchan futex_wait_queue_me syscall 240 0xf7185470 0x189 0x0 0x0 0x0 0xffffffff 0xec6f7498 0xf7291ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+13816 main-thread wat state S wchan hrtimer_nanosleep syscall 265 0x1 0x0 0xeb16d2f8 0xeb16d2f0 0x1 0xeb16d2f0 0xeb16d2e8 0xf7291ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] hrtimer_nanosleep+0xc8/0x200 | [<0>] common_nsleep+0x20/0x30 | [<0>] __arm64_sys_clock_nanosleep_time32+0xb8/0x150 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat_handler+0x1c/0x30 
+13870 notify state S wchan do_sys_poll syscall 168 0xef8bbd28 0x2 0x3e8 0x0 0x3e8 0x2 0xef8bbc80 0xf7291ca6
+    poll: nfds 2 timeout 1000 ms: fd 49 events 0x1 -> socket:[1196300]; fd 47 events 0x1 -> socket:[1196298]
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] do_sys_poll+0x374/0x540 | [<0>] __arm64_sys_poll+0x98/0x130 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat_handler+0x1c/0x30 | [<0>] el0_svc_compat+0x8/0x10
+14048 SDLTimer state S wchan futex_wait_queue_me syscall 240 0x194aae8 0x189 0x1 0xe9bf4490 0x0 0xffffffff 0xe9bf4480 0xf7291ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+  fd 0 -> /dev/null
+  fd 1 -> /dev/null
+  fd 2 -> /var/palm/jail/com.beb.plxnative/tmp/plxnative-stderr.log
+  fd 3 -> /var/palm/jail/com.beb.plxnative/dev/shm/pmloglib.lock
+  fd 4 -> /var/palm/jail/com.beb.plxnative/tmp/plxnative-events.log
+  fd 5 -> /var/palm/jail/com.beb.plxnative/tmp/plxnative-events.log
+  fd 6 -> /var/palm/jail/com.beb.plxnative/tmp/plxnative-crash.log
+  fd 7 -> /var/palm/jail/com.beb.plxnative/dev/mali0
+  fd 8 -> anon_inode:[eventfd]
+  fd 9 -> socket:[1196241]
+  fd 10 -> anon_inode:[eventfd]
+  fd 11 -> socket:[1195405]
+  fd 12 -> socket:[1197289]
+  fd 13 -> socket:[1196242]
+  fd 14 -> anon_inode:[eventfd]
+  fd 15 -> socket:[1197297]
+  fd 16 -> anon_inode:[eventfd]
+  fd 17 -> socket:[1197295]
+  fd 18 -> /var/palm/jail/com.beb.plxnative/dev/lg/logm0
+  fd 19 -> /var/palm/jail/com.beb.plxnative/dev/dma_buf_unified
+  fd 20 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont.ttf
+  fd 21 -> socket:[1197305]
+  fd 22 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont-bold.ttf
+  fd 23 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont.ttf
+  fd 24 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont.ttf
+  fd 25 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont-bold.ttf
+  fd 26 -> anon_inode:malitl_13788_0x188fd18
+  fd 27 -> anon_inode:malitl_13788_0x1892218
+  fd 28 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont.ttf
+  fd 29 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont-bold.ttf
+  fd 30 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont.ttf
+  fd 31 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont-bold.ttf
+  fd 32 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont-bold.ttf
+  fd 33 -> /var/palm/jail/com.beb.plxnative/dev/urandom
+  fd 34 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont.ttf
+  fd 35 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont-bold.ttf
+  fd 36 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont.ttf
+  fd 37 -> /var/palm/jail/com.beb.plxnative/dev/urandom
+  fd 38 -> /var/palm/jail/com.beb.plxnative/dev/urandom
+  fd 39 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont-bold.ttf
+  fd 45 -> anon_inode:[eventfd]
+  fd 46 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont-bold.ttf
+  fd 47 -> socket:[1196298]
+  fd 48 -> socket:[1196299]
+  fd 49 -> socket:[1196300]
+  fd 55 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont.ttf
+  fd 69 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont.ttf
+  fd 71 -> /var/palm/jail/com.beb.plxnative/media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont-bold.ttf
+--- 0.80 s after the close request
+13788 plxnative state S wchan futex_wait_queue_me syscall 240 0x188fdb0 0x189 0x1 0x0 0x0 0xffffffff 0xffb53070 0xf7291ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+13795 storage-diag state S wchan futex_wait_queue_me syscall 240 0x18622d8 0x89 0x2 0x0 0x0 0xffffffff 0xf089c190 0xf731c372
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+13797 plxnative state S wchan do_sys_poll syscall 168 0xef70b558 0x6 0xffffffff 0x0 0xffffffff 0x6 0xf00fd508 0xf7291ca6
+    poll: nfds 6 timeout -1 ms: fd 9 events 0x1 -> socket:[1196241]; fd 10 events 0x1 -> anon_inode:[eventfd]; fd 12 events 0x1 -> socket:[1197289]; fd 15 events 0x1 -> socket:[1197297]; fd 17 events 0x1 -> socket:[1197295]; fd 21 events 0x1 -> socket:[1197305]
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] do_sys_poll+0x374/0x540 | [<0>] __arm64_sys_poll+0x2c/0x130 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat_handler+0x1c/0x30 | [<0>] el0_svc_compat+0x8/0x10
+13799 mali-mem-purge state S wchan futex_wait_queue_me syscall 240 0x18aa8b0 0x89 0x0 0xef6fd448 0x0 0xffffffff 0xef6fd438 0xf7291ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+13800 mali-utility-wo state S wchan futex_wait_queue_me syscall 240 0x1894000 0x189 0x1 0x0 0x0 0xffffffff 0xeeefc4b8 0xf7291ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+13801 mali-utility-wo state S wchan futex_wait_queue_me syscall 240 0x1894068 0x189 0x1 0x0 0x0 0xffffffff 0xee6fb4b8 0xf7291ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+13802 mali-utility-wo state S wchan futex_wait_queue_me syscall 240 0x18940d0 0x189 0x1 0x0 0x0 0xffffffff 0xedefa4b8 0xf7291ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+13803 mali-utility-wo state S wchan futex_wait_queue_me syscall 240 0x1894138 0x189 0x1 0x0 0x0 0xffffffff 0xed6f94b8 0xf7291ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+13804 mali-cmar-backe state S wchan do_sys_poll syscall 168 0xecef82f4 0x1 0x3e8 0x0 0x3e8 0x1 0xecef82d0 0xf7291ca6
+    poll: nfds 1 timeout 1000 ms: fd 13 events 0x1 -> socket:[1196242]
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] do_sys_poll+0x374/0x540 | [<0>] __arm64_sys_poll+0x98/0x130 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat_handler+0x1c/0x30 | [<0>] el0_svc_compat+0x8/0x10
+13805 mali-compiler state S wchan futex_wait_queue_me syscall 240 0xf7185470 0x189 0x0 0x0 0x0 0xffffffff 0xec6f7498 0xf7291ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat
+13816 main-thread wat state S wchan hrtimer_nanosleep syscall 265 0x1 0x0 0xeb16d2f8 0xeb16d2f0 0x1 0xeb16d2f0 0xeb16d2e8 0xf7291ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] hrtimer_nanosleep+0xc8/0x200 | [<0>] common_nsleep+0x20/0x30 | [<0>] __arm64_sys_clock_nanosleep_time32+0xb8/0x150 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat_handler+0x1c/0x30 
+13870 notify state S wchan do_sys_poll syscall 168 0xef8bbd28 0x2 0x3e8 0x0 0x3e8 0x2 0xef8bbc80 0xf7291ca6
+    poll: nfds 2 timeout 1000 ms: fd 49 events 0x1 -> socket:[1196300]; fd 47 events 0x1 -> socket:[1196298]
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] do_sys_poll+0x374/0x540 | [<0>] __arm64_sys_poll+0x98/0x130 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat_handler+0x1c/0x30 | [<0>] el0_svc_compat+0x8/0x10
+14048 SDLTimer state S wchan futex_wait_queue_me syscall 240 0x194aae8 0x189 0x1 0xe9bf4490 0x0 0xffffffff 0xe9bf4480 0xf7291ca6
+    stack [<0>] __switch_to+0x114/0x170 | [<0>] futex_wait_queue_me+0xac/0x130 | [<0>] futex_wait+0xb4/0x1d0 | [<0>] do_futex+0x194/0xcec | [<0>] __arm64_sys_futex_time32+0x6c/0x1f0 | [<0>] el0_svc_common.constprop.0+0x6c/0x1a0 | [<0>] el0_svc_compat

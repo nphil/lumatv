@@ -1,0 +1,47 @@
+GATE firmware: PASS Rockhopper release 10.2.1-5202 (ponytail-paparoa); fingerprint e34f8de94ef657a4; 10 files hashed in 1 s, unreadable: none; this set's entry: verified 10.2.1-5202; a flipped digit: 5; another release: 5; an empt
+GATE homeheld: PASS while held: exit 0 (0 = held); after the release: exit 1 (1 = not held); injector exit 0
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 391424 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE x1: FAIL 1 gap(s) over 20 ms in the client's swaps (worst 20.6 ms) | [x1] RESULT frames=3598 in 60.01 s = 59.95 fps; gaps: <=17.5 ms 3561, 17.5-20 35, 20-33.5 1, >33.5 0; worst 20.6 ms; ended at monotonic 7673.560 | pacer bef
+GATE netflix: PASS netflix windows 1 video "video":[{"context":"_LNu3282ij9Aj0X","displayOutput":{"height":1080,"width":1920,"x":0,"y":0},"fullScreen":true,"windowId":"_Window_Id_3"}] placements 11 protocol errors 0 pictureMode pl
+GATE hdmi: PASS hdmi2 windows 1 mapped 1 bufferless commits 0 fg while open com.webos.app.hdmi2 now com.webos.app.home panel 8408 bytes audio-port-held-after-close none
+GATE apps: PASS ok: youtube.leanback.v4 pid 8446 foreground-in-ms 1500 alive-at-10s yes connection-lost 0 closed-in-15s yes; com.beb.plxnative pid 9181 foreground-in-ms 1500 alive-at-10s yes connection-lost 0 closed-in-15s yes; co
+GATE keys: PASS gear-shell ok; input-shell ok; netflix-button ok; digit-tap ok; digit-hold ok; exit ok; (key table: gear=139 input=241 netflix=1037 amazon=1038; unnamed keys seen: [])
+GATE ime: PASS before: maliit-server.service inactive, MaliitServer not running; after the keyboard came up: unit active, MaliitServer pid 11586; input methods bound 1; asked for one 1 time(s); OK pressed 0 time(s); keyboard up ye
+GATE shell: PASS connected ok; home-loaded ok; idle-home(10/s,4%) ok; dpad ok; quick-home ok; picker-home ok; osd ok; toast ok; quick-app ok; idle-covered(0%) ok; saver ok; (shell pid 19857, starts 1, exits 0, luna calls 241, refu
+GATE live-frames: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 388360 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE wake: reset
+GATE wake (frames): measured tick p50 0.02 p99 0.04 max 10.47 ms (n 102409); flip p50 0.03 p99 0.05 max 0.23 ms (n 30042); input p50 0.02 p99 0.04 max 0.12 ms (n 5057); tick waited on a busy loop p50 0.06 p99 0.90 max 66.52 ms (n 
+GATE mem: measured rss 61384 KiB, locked 548240 KiB, swapped 0 KiB, malloc mmapped blocks 0; lock: locked what is touched (MCL_CURRENT|MCL_FUTURE|MCL_ONFAULT) in 6.8 ms; VmRSS 16 MiB, MemAvailable 1092 MiB, RLIMIT_MEMLOCK 64 KiB, 
+GATE standby: requested ({
+GATE standby: PASS rounds: PreparePowerOff 1 PreparePowerOn 1; fallbacks 0; state active; uptime before 9621.60 now 10112.61; mounted yes; panel 387854 bytes
+GATE homekey: PASS unmounted after 10s; [00:42:41] fallback: hold Home 650 ms (supervisor); escaped yes; failures 0 -> 0; panel 378036 bytes; injector exit 0; sam unchanged
+GATE live-after-homekey: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 390131 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE wd-hang: PASS unmounted after 3.5 s; reason: heartbeat: two beats missed; failures 0 -> 1; escaped no; compositor left: none; panel 378596 bytes; wam active; sam unchanged; crash bundle 20261029-004339-001 (pending yes; 200 l
+GATE live-after-wd-hang: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 390083 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE wd-crash: PASS unmounted after 0.5 s; reason: compositor killed by signal 9; failures 0 -> 1; escaped no; compositor left: none; panel 378212 bytes; wam active; sam unchanged; crash bundle 20261029-004434-001 (pending yes; 20
+GATE live-after-wd-crash: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 390040 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE escape: PASS unmounted after 0s; [00:45:29] fallback: hold Home 650 ms; escaped yes; exe /usr/bin/surface-manager; recovery 15s; panel 378513 bytes; wam active; sam unchanged
+GATE firmware: PASS Rockhopper release 10.2.1-5202 (ponytail-paparoa); fingerprint e34f8de94ef657a4; 10 files hashed in 1 s, unreadable: none; this set's entry: verified 10.2.1-5202; a flipped digit: 5; another release: 5; an empt
+GATE homeheld: PASS while held: exit 0 (0 = held); after the release: exit 1 (1 = not held); injector exit 0
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 391424 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE x1: FAIL 1 gap(s) over 20 ms in the client's swaps (worst 20.6 ms) | [x1] RESULT frames=3598 in 60.01 s = 59.95 fps; gaps: <=17.5 ms 3561, 17.5-20 35, 20-33.5 1, >33.5 0; worst 20.6 ms; ended at monotonic 7673.560 | pacer bef
+GATE netflix: PASS netflix windows 1 video "video":[{"context":"_LNu3282ij9Aj0X","displayOutput":{"height":1080,"width":1920,"x":0,"y":0},"fullScreen":true,"windowId":"_Window_Id_3"}] placements 11 protocol errors 0 pictureMode pl
+GATE hdmi: PASS hdmi2 windows 1 mapped 1 bufferless commits 0 fg while open com.webos.app.hdmi2 now com.webos.app.home panel 8408 bytes audio-port-held-after-close none
+GATE apps: PASS ok: youtube.leanback.v4 pid 8446 foreground-in-ms 1500 alive-at-10s yes connection-lost 0 closed-in-15s yes; com.beb.plxnative pid 9181 foreground-in-ms 1500 alive-at-10s yes connection-lost 0 closed-in-15s yes; co
+GATE keys: PASS gear-shell ok; input-shell ok; netflix-button ok; digit-tap ok; digit-hold ok; exit ok; (key table: gear=139 input=241 netflix=1037 amazon=1038; unnamed keys seen: [])
+GATE ime: PASS before: maliit-server.service inactive, MaliitServer not running; after the keyboard came up: unit active, MaliitServer pid 11586; input methods bound 1; asked for one 1 time(s); OK pressed 0 time(s); keyboard up ye
+GATE shell: PASS connected ok; home-loaded ok; idle-home(10/s,4%) ok; dpad ok; quick-home ok; picker-home ok; osd ok; toast ok; quick-app ok; idle-covered(0%) ok; saver ok; (shell pid 19857, starts 1, exits 0, luna calls 241, refu
+GATE live-frames: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 388360 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE frames: FAIL home-dpad ok [first_frame 28.19 p90_render None]; quick ok [first_frame 36.68 burst_end 153.44 p90_render 0.14]; picker ok [first_frame 27.74 burst_end 160.79 p90_render None]; toast NOT first_frame_ms=86.62,burs
+GATE wake (frames): measured tick p50 0.02 p99 0.04 max 10.47 ms (n 102409); flip p50 0.03 p99 0.05 max 0.23 ms (n 30042); input p50 0.02 p99 0.04 max 0.12 ms (n 5057); tick waited on a busy loop p50 0.06 p99 0.90 max 66.52 ms (n 
+GATE mem: measured rss 61384 KiB, locked 548240 KiB, swapped 0 KiB, malloc mmapped blocks 0; lock: locked what is touched (MCL_CURRENT|MCL_FUTURE|MCL_ONFAULT) in 6.8 ms; VmRSS 16 MiB, MemAvailable 1092 MiB, RLIMIT_MEMLOCK 64 KiB, 
+GATE standby: requested ({
+GATE standby: PASS rounds: PreparePowerOff 1 PreparePowerOn 1; fallbacks 0; state active; uptime before 9621.60 now 10112.61; mounted yes; panel 387854 bytes
+GATE homekey: PASS unmounted after 10s; [00:42:41] fallback: hold Home 650 ms (supervisor); escaped yes; failures 0 -> 0; panel 378036 bytes; injector exit 0; sam unchanged
+GATE live-after-homekey: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 390131 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE wd-hang: PASS unmounted after 3.5 s; reason: heartbeat: two beats missed; failures 0 -> 1; escaped no; compositor left: none; panel 378596 bytes; wam active; sam unchanged; crash bundle 20261029-004339-001 (pending yes; 200 l
+GATE live-after-wd-hang: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 390083 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE wd-crash: PASS unmounted after 0.5 s; reason: compositor killed by signal 9; failures 0 -> 1; escaped no; compositor left: none; panel 378212 bytes; wam active; sam unchanged; crash bundle 20261029-004434-001 (pending yes; 20
+GATE live-after-wd-crash: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 390040 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE escape: PASS unmounted after 0s; [00:45:29] fallback: hold Home 650 ms; escaped yes; exe /usr/bin/surface-manager; recovery 15s; panel 378513 bytes; wam active; sam unchanged
+GATE: FAIL

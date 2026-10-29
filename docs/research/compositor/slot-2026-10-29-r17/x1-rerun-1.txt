@@ -1,0 +1,50 @@
+power state: active
+home stub before the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+avr: left to the agent (True)
+firmware: verified 10.2.1-5202
+safety timer: this session ends by itself after 18 min if it is still live ('cutover.sh disable' cancels the timer)
+mounted; restarting the unit
+t=5s unit=active exe=/usr/bin/surface-manager compositor=31259 mounted=yes wam=active
+   01:16:36 recover: WebAppMgr answering after 0s (active)
+   01:16:37 recover: Home running under LumaTV's compositor after 0s
+t=10s unit=active exe=/usr/bin/surface-manager compositor=31259 mounted=yes wam=active
+   01:16:36 recover: WebAppMgr answering after 0s (active)
+   01:16:37 recover: Home running under LumaTV's compositor after 0s
+t=15s unit=active exe=/usr/bin/surface-manager compositor=31259 mounted=yes wam=active
+   01:16:37 recover: Home running under LumaTV's compositor after 0s
+   01:16:47 recover: librdx reports swept; remaining 0
+t=20s unit=active exe=/usr/bin/surface-manager compositor=31259 mounted=yes wam=active
+   01:16:37 recover: Home running under LumaTV's compositor after 0s
+   01:16:47 recover: librdx reports swept; remaining 0
+t=25s unit=active exe=/usr/bin/surface-manager compositor=31259 mounted=yes wam=active
+   01:16:37 recover: Home running under LumaTV's compositor after 0s
+   01:16:47 recover: librdx reports swept; remaining 0
+t=30s unit=active exe=/usr/bin/surface-manager compositor=31259 mounted=yes wam=active
+   01:16:37 recover: Home running under LumaTV's compositor after 0s
+   01:16:47 recover: librdx reports swept; remaining 0
+enabled (session): LumaTV's compositor stays live (recovery done after 0s more); 'cutover.sh disable' restores LG's
+
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 389778 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+GATE x1: FAIL 1 gap(s) over 20 ms in the client's swaps (worst 21.1 ms); the compositor logged 1 loop pass(es), client frame gap(s) or page-flip interval(s) over 20 ms during the run | [x1] RESULT frames=3596 in 60.00 s = 59.93 fps; gaps: <=17.5 ms 3559, 17.5-20 35, 20-33.5 1, >33.5 0; worst 21.1 ms; ended at monotonic 12246.109 | pacer before: flips 569 late 1 lost 22 after: flips 4188 late 1 lost 22 | compositor: loop stalls 0, frame gaps 1, clients connected 0, over 20 ms 1; major faults +0, run-queue wait +4.1 ms, loop thread SCHED_FIFO prio -21, mali-cmar-backe run-queue wait +4.5 ms SCHED_FIFO | wake-up latency: tick p50 0.01 p99 0.04 max 0.16 ms (n 3659); flip p50 0.02 p99 0.05 max 0.11 ms (n 3615); input no samples; tick waited on a busy loop p50 0.05 p99 0.19 max 0.19 ms (n 9) | waits: loop: run-queue wait 0 us a wake-up on average, no per-wait statistics; mali-cmar-backe: run-queue wait 0 us a wake-up on average, no per-wait statistics | the loop thread is not in the trace: pass --tid
+
+evidence: 2 subscription(s) from SAM, 7 client lines, 5 loop stalls, 2 watchdog lines
+
+safety timer cancelled
+umount: /usr/bin/surface-manager: target is busy.
+revert: active; mounted: no; exe: /usr/bin/surface-manager
+recover: surface-manager-daemon.service active after 0s; exe /usr/bin/surface-manager
+recover: compositor answering on the bus after 0s
+recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+recover: WebAppMgr answering after 0s (active)
+recover: Home on the panel after 0s (capture 60400 bytes)
+recover: librdx reports swept; remaining 0
+
+avr: left to the agent (False)
+{"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+
+home stub after the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 389778 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE x1: FAIL 1 gap(s) over 20 ms in the client's swaps (worst 21.1 ms); the compositor logged 1 loop pass(es), client frame gap(s) or page-flip interval(s) over 20 ms during the run | [x1] RESULT frames=3596 in 60.00 s = 59.93 fps; gaps: <=17.5 ms 3559, 17.5-20 35, 20-33.5 1, >33.5 0; worst 21.1 ms; ended at monotonic 12246.109 | pacer before: flips 569 late 1 lost 22 after: flips 4188 late 1 lost 22 | compositor: loop stalls 0, frame gaps 1, clients connected 0, over 20 ms 1; major faults +0, run-queue wait +4.1 ms, loop thread SCHED_FIFO prio -21, mali-cmar-backe run-queue wait +4.5 ms SCHED_FIFO | wake-up latency: tick p50 0.01 p99 0.04 max 0.16 ms (n 3659); flip p50 0.02 p99 0.05 max 0.11 ms (n 3615); input no samples; tick waited on a busy loop p50 0.05 p99 0.19 max 0.19 ms (n 9) | waits: loop: run-queue wait 0 us a wake-up on average, no per-wait statistics; mali-cmar-backe: run-queue wait 0 us a wake-up on average, no per-wait statistics | the loop thread is not in the trace: pass --tid
+GATE: FAIL
+wrote ../r17-wt/docs/research/compositor/gate-2026-10-29.txt

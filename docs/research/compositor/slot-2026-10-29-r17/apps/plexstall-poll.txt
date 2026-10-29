@@ -1,0 +1,67 @@
+STALL run 1
+before: {"cadence": 4, "displayHeld": 0, "exported": 1, "framesInFlight": 1, "groups": 0, "holes": 0, "imported": 0, "lunaSubscriptions": 8, "owedBuffers": 0, "owedCallbacks": 1, "releaseAfterPresent": 0, "seat": {"inputManagers": 3, "keyboards": 32, "pointers": 32, "pressed": 0, "surfaces": 31, "touches": 32}, "surfaces": 31, "webosShells": 10, "windows": 4} clients [(2792, '/media/developer/apps/usr/palm/applications/com.beb.plxnativ'), (27727, '/usr/bin/qml-runner {"appId":"org.nphil.lumatv.shell","event'), (27857, '/usr/bin/WebAppMgr --accelerated-plugin-rendering-blacklist=')]
+11 held={"cadence":4,"displayHeld":0,"exported":1,"framesInFlight":1,"groups":0,"holes":0,"imported":0,"lunaSubscriptions":8,"owedBuffers":0,"owedCallbacks":1,"releaseAfterPresent":0,"seat":{"inputManagers":3,"keyboards":32,"pointers":32,"pressed":0,"surfaces":31,"touches":32},"surfaces":31,"webosShells":10,"windows":4} clients=[2792] (polls so far 0)
+98 held={"cadence":3,"displayHeld":0,"exported":1,"framesInFlight":1,"groups":0,"holes":0,"imported":0,"lunaSubscriptions":8,"owedBuffers":0,"owedCallbacks":0,"releaseAfterPresent":1,"seat":{"inputManagers":3,"keyboards":32,"pointers":32,"pressed":0,"surfaces":29,"touches":32},"surfaces":29,"webosShells":10,"windows":3} clients=[2792] (polls so far 11)
+109 held={"cadence":3,"displayHeld":0,"exported":1,"framesInFlight":1,"groups":0,"holes":0,"imported":0,"lunaSubscriptions":8,"owedBuffers":0,"owedCallbacks":1,"releaseAfterPresent":0,"seat":{"inputManagers":3,"keyboards":32,"pointers":32,"pressed":0,"surfaces":29,"touches":32},"surfaces":29,"webosShells":10,"windows":3} clients=[2792] (polls so far 12)
+1102 held={"cadence":3,"displayHeld":0,"exported":1,"framesInFlight":0,"groups":0,"holes":0,"imported":0,"lunaSubscriptions":8,"owedBuffers":0,"owedCallbacks":0,"releaseAfterPresent":0,"seat":{"inputManagers":2,"keyboards":26,"pointers":26,"pressed":0,"surfaces":29,"touches":26},"surfaces":29,"webosShells":9,"windows":3} clients=[] (polls so far 198)
+STALL run 1: new crash reports +1; SDL lines of the close:
+2026-10-29T05:07:47.060985Z [1native [] SDL2 INFO {} [INFO:VIDEO:11077] [WebOS_EGL_UnloadLibrary] unload
+2026-10-29T05:07:47.069759Z [1native [] SDL2 INFO {} [INFO:SYSTEM:0] UnloadWEBOSBASELibrary start
+2026-10-29T05:08:27.663613Z [1native [] SDL2 INFO {} [INFO:VIDEO:66] [WebOS_EGL_UnloadLibrary] called this:1898210
+2026-10-29T05:08:38.427299Z [1native [] SDL2 INFO {} [INFO:SYSTEM:10830] cb_RegistNativeApp - {"event":"close","reason":"undefined","returnValue":true}
+2026-10-29T05:08:38.459494Z [1native [] SDL2 INFO {} [INFO:SYSTEM:10863] SDL_Quit start
+2026-10-29T05:08:38.471807Z [1native [] SDL2 INFO {} [INFO:SYSTEM:10875] [Wayland_DestroyWindow] Destroy wayland window
+2026-10-29T05:08:38.473752Z [1native [] SDL2 INFO {} [INFO:VIDEO:10877] [WebOS_EGL_UnloadLibrary] called this:1898210
+2026-10-29T05:08:38.473824Z [1native [] SDL2 INFO {} [INFO:VIDEO:10877] [WebOS_EGL_UnloadLibrary] unload
+2026-10-29T05:08:39.427896Z [1native [] SDL2 INFO {} [INFO:SYSTEM:11831] [callback_forceQuit] Quit SDL
+2026-10-29T05:08:39.427991Z [1native [] SDL2 INFO {} [INFO:SYSTEM:11831] SDL_Quit start
+STALL run 2
+before: {"cadence": 4, "displayHeld": 0, "exported": 1, "framesInFlight": 1, "groups": 0, "holes": 0, "imported": 0, "lunaSubscriptions": 8, "owedBuffers": 0, "owedCallbacks": 1, "releaseAfterPresent": 0, "seat": {"inputManagers": 3, "keyboards": 32, "pointers": 32, "pressed": 0, "surfaces": 31, "touches": 32}, "surfaces": 31, "webosShells": 10, "windows": 4} clients [(4275, '/media/developer/apps/usr/palm/applications/com.beb.plxnativ'), (27727, '/usr/bin/qml-runner {"appId":"org.nphil.lumatv.shell","event'), (27857, '/usr/bin/WebAppMgr --accelerated-plugin-rendering-blacklist=')]
+5 held={"cadence":4,"displayHeld":0,"exported":1,"framesInFlight":1,"groups":0,"holes":0,"imported":0,"lunaSubscriptions":8,"owedBuffers":0,"owedCallbacks":1,"releaseAfterPresent":0,"seat":{"inputManagers":3,"keyboards":32,"pointers":32,"pressed":0,"surfaces":31,"touches":32},"surfaces":31,"webosShells":10,"windows":4} clients=[4275] (polls so far 0)
+79 held={"cadence":3,"displayHeld":0,"exported":1,"framesInFlight":0,"groups":0,"holes":0,"imported":0,"lunaSubscriptions":8,"owedBuffers":0,"owedCallbacks":0,"releaseAfterPresent":2,"seat":{"inputManagers":3,"keyboards":32,"pointers":32,"pressed":0,"surfaces":29,"touches":32},"surfaces":29,"webosShells":10,"windows":3} clients=[4275] (polls so far 9)
+88 held={"cadence":3,"displayHeld":0,"exported":1,"framesInFlight":1,"groups":0,"holes":0,"imported":0,"lunaSubscriptions":8,"owedBuffers":0,"owedCallbacks":0,"releaseAfterPresent":0,"seat":{"inputManagers":3,"keyboards":32,"pointers":32,"pressed":0,"surfaces":29,"touches":32},"surfaces":29,"webosShells":10,"windows":3} clients=[4275] (polls so far 10)
+1099 held={"cadence":3,"displayHeld":0,"exported":1,"framesInFlight":0,"groups":0,"holes":0,"imported":0,"lunaSubscriptions":8,"owedBuffers":0,"owedCallbacks":0,"releaseAfterPresent":0,"seat":{"inputManagers":2,"keyboards":26,"pointers":26,"pressed":0,"surfaces":29,"touches":26},"surfaces":29,"webosShells":9,"windows":3} clients=[] (polls so far 204)
+STALL run 2: new crash reports +1; SDL lines of the close:
+2026-10-29T05:08:39.427896Z [1native [] SDL2 INFO {} [INFO:SYSTEM:11831] [callback_forceQuit] Quit SDL
+2026-10-29T05:08:39.427991Z [1native [] SDL2 INFO {} [INFO:SYSTEM:11831] SDL_Quit start
+2026-10-29T05:08:50.016457Z [1native [] SDL2 INFO {} [INFO:VIDEO:69] [WebOS_EGL_UnloadLibrary] called this:19706e0
+2026-10-29T05:09:00.987865Z [1native [] SDL2 INFO {} [INFO:SYSTEM:11039] cb_RegistNativeApp - {"event":"close","reason":"undefined","returnValue":true}
+2026-10-29T05:09:01.010463Z [1native [] SDL2 INFO {} [INFO:SYSTEM:11062] SDL_Quit start
+2026-10-29T05:09:01.022338Z [1native [] SDL2 INFO {} [INFO:SYSTEM:11073] [Wayland_DestroyWindow] Destroy wayland window
+2026-10-29T05:09:01.022415Z [1native [] SDL2 INFO {} [INFO:VIDEO:11073] [WebOS_EGL_UnloadLibrary] called this:19706e0
+2026-10-29T05:09:01.022447Z [1native [] SDL2 INFO {} [INFO:VIDEO:11073] [WebOS_EGL_UnloadLibrary] unload
+2026-10-29T05:09:01.988529Z [1native [] SDL2 INFO {} [INFO:SYSTEM:12040] [callback_forceQuit] Quit SDL
+2026-10-29T05:09:01.988612Z [1native [] SDL2 INFO {} [INFO:SYSTEM:12040] SDL_Quit start
+STALL run 3
+before: {"cadence": 4, "displayHeld": 0, "exported": 1, "framesInFlight": 0, "groups": 0, "holes": 0, "imported": 0, "lunaSubscriptions": 8, "owedBuffers": 0, "owedCallbacks": 0, "releaseAfterPresent": 0, "seat": {"inputManagers": 3, "keyboards": 32, "pointers": 32, "pressed": 0, "surfaces": 31, "touches": 32}, "surfaces": 31, "webosShells": 10, "windows": 4} clients [(5643, '/media/developer/apps/usr/palm/applications/com.beb.plxnativ'), (27727, '/usr/bin/qml-runner {"appId":"org.nphil.lumatv.shell","event'), (27857, '/usr/bin/WebAppMgr --accelerated-plugin-rendering-blacklist=')]
+8 held={"cadence":4,"displayHeld":0,"exported":1,"framesInFlight":1,"groups":0,"holes":0,"imported":0,"lunaSubscriptions":8,"owedBuffers":0,"owedCallbacks":1,"releaseAfterPresent":0,"seat":{"inputManagers":3,"keyboards":32,"pointers":32,"pressed":0,"surfaces":31,"touches":32},"surfaces":31,"webosShells":10,"windows":4} clients=[5643] (polls so far 0)
+88 held={"cadence":3,"displayHeld":0,"exported":1,"framesInFlight":0,"groups":0,"holes":0,"imported":0,"lunaSubscriptions":8,"owedBuffers":0,"owedCallbacks":0,"releaseAfterPresent":2,"seat":{"inputManagers":3,"keyboards":32,"pointers":32,"pressed":0,"surfaces":29,"touches":32},"surfaces":29,"webosShells":10,"windows":3} clients=[5643] (polls so far 13)
+95 held={"cadence":3,"displayHeld":0,"exported":1,"framesInFlight":0,"groups":0,"holes":0,"imported":0,"lunaSubscriptions":8,"owedBuffers":0,"owedCallbacks":0,"releaseAfterPresent":0,"seat":{"inputManagers":3,"keyboards":32,"pointers":32,"pressed":0,"surfaces":29,"touches":32},"surfaces":29,"webosShells":10,"windows":3} clients=[5643] (polls so far 14)
+1094 held={"cadence":3,"displayHeld":0,"exported":1,"framesInFlight":0,"groups":0,"holes":0,"imported":0,"lunaSubscriptions":8,"owedBuffers":0,"owedCallbacks":0,"releaseAfterPresent":0,"seat":{"inputManagers":2,"keyboards":26,"pointers":26,"pressed":0,"surfaces":29,"touches":26},"surfaces":29,"webosShells":9,"windows":3} clients=[] (polls so far 205)
+STALL run 3: new crash reports +1; SDL lines of the close:
+2026-10-29T05:09:01.988529Z [1native [] SDL2 INFO {} [INFO:SYSTEM:12040] [callback_forceQuit] Quit SDL
+2026-10-29T05:09:01.988612Z [1native [] SDL2 INFO {} [INFO:SYSTEM:12040] SDL_Quit start
+2026-10-29T05:09:12.588564Z [1native [] SDL2 INFO {} [INFO:VIDEO:65] [WebOS_EGL_UnloadLibrary] called this:13126e0
+2026-10-29T05:09:23.532201Z [1native [] SDL2 INFO {} [INFO:SYSTEM:11008] cb_RegistNativeApp - {"event":"close","reason":"undefined","returnValue":true}
+2026-10-29T05:09:23.564594Z [1native [] SDL2 INFO {} [INFO:SYSTEM:11041] SDL_Quit start
+2026-10-29T05:09:23.575183Z [1native [] SDL2 INFO {} [INFO:SYSTEM:11051] [Wayland_DestroyWindow] Destroy wayland window
+2026-10-29T05:09:23.575221Z [1native [] SDL2 INFO {} [INFO:VIDEO:11051] [WebOS_EGL_UnloadLibrary] called this:13126e0
+2026-10-29T05:09:23.575245Z [1native [] SDL2 INFO {} [INFO:VIDEO:11051] [WebOS_EGL_UnloadLibrary] unload
+2026-10-29T05:09:24.532350Z [1native [] SDL2 INFO {} [INFO:SYSTEM:12008] [callback_forceQuit] Quit SDL
+2026-10-29T05:09:24.532425Z [1native [] SDL2 INFO {} [INFO:SYSTEM:12008] SDL_Quit start
+STALL run 4
+before: {"cadence": 4, "displayHeld": 0, "exported": 1, "framesInFlight": 0, "groups": 0, "holes": 0, "imported": 0, "lunaSubscriptions": 8, "owedBuffers": 0, "owedCallbacks": 0, "releaseAfterPresent": 0, "seat": {"inputManagers": 3, "keyboards": 32, "pointers": 32, "pressed": 0, "surfaces": 31, "touches": 32}, "surfaces": 31, "webosShells": 10, "windows": 4} clients [(27727, '/usr/bin/qml-runner {"appId":"org.nphil.lumatv.shell","event'), (6829, '/media/developer/apps/usr/palm/applications/com.beb.plxnativ'), (27857, '/usr/bin/WebAppMgr --accelerated-plugin-rendering-blacklist=')]
+8 held={"cadence":4,"displayHeld":0,"exported":1,"framesInFlight":1,"groups":0,"holes":0,"imported":0,"lunaSubscriptions":8,"owedBuffers":1,"owedCallbacks":1,"releaseAfterPresent":0,"seat":{"inputManagers":3,"keyboards":32,"pointers":32,"pressed":0,"surfaces":31,"touches":32},"surfaces":31,"webosShells":10,"windows":4} clients=[6829] (polls so far 0)
+86 held={"cadence":3,"displayHeld":0,"exported":1,"framesInFlight":1,"groups":0,"holes":0,"imported":0,"lunaSubscriptions":8,"owedBuffers":1,"owedCallbacks":0,"releaseAfterPresent":0,"seat":{"inputManagers":3,"keyboards":32,"pointers":32,"pressed":0,"surfaces":29,"touches":32},"surfaces":29,"webosShells":10,"windows":3} clients=[6829] (polls so far 10)
+1092 held={"cadence":3,"displayHeld":0,"exported":1,"framesInFlight":0,"groups":0,"holes":0,"imported":0,"lunaSubscriptions":8,"owedBuffers":0,"owedCallbacks":0,"releaseAfterPresent":0,"seat":{"inputManagers":2,"keyboards":26,"pointers":26,"pressed":0,"surfaces":29,"touches":26},"surfaces":29,"webosShells":9,"windows":3} clients=[] (polls so far 205)
+STALL run 4: new crash reports +1; SDL lines of the close:
+2026-10-29T05:09:24.532350Z [1native [] SDL2 INFO {} [INFO:SYSTEM:12008] [callback_forceQuit] Quit SDL
+2026-10-29T05:09:24.532425Z [1native [] SDL2 INFO {} [INFO:SYSTEM:12008] SDL_Quit start
+2026-10-29T05:09:35.104381Z [1native [] SDL2 INFO {} [INFO:VIDEO:67] [WebOS_EGL_UnloadLibrary] called this:12b0c50
+2026-10-29T05:09:46.087831Z [1native [] SDL2 INFO {} [INFO:SYSTEM:11050] cb_RegistNativeApp - {"event":"close","reason":"undefined","returnValue":true}
+2026-10-29T05:09:46.119171Z [1native [] SDL2 INFO {} [INFO:SYSTEM:11082] SDL_Quit start
+2026-10-29T05:09:46.129798Z [1native [] SDL2 INFO {} [INFO:SYSTEM:11092] [Wayland_DestroyWindow] Destroy wayland window
+2026-10-29T05:09:46.135248Z [1native [] SDL2 INFO {} [INFO:VIDEO:11096] [WebOS_EGL_UnloadLibrary] called this:12b0c50
+2026-10-29T05:09:46.135270Z [1native [] SDL2 INFO {} [INFO:VIDEO:11096] [WebOS_EGL_UnloadLibrary] unload
+2026-10-29T05:09:47.088312Z [1native [] SDL2 INFO {} [INFO:SYSTEM:12051] [callback_forceQuit] Quit SDL
+2026-10-29T05:09:47.088391Z [1native [] SDL2 INFO {} [INFO:SYSTEM:12051] SDL_Quit start

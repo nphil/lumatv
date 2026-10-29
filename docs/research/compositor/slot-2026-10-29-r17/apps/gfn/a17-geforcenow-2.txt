@@ -1,0 +1,45 @@
+window 28 created on surface 248 by pid 27857
+webOS shell surface on window 28 (surface 248) by pid 27857
+window 28 committed without a buffer (Card app '' state Default)
+window 28: appId = com.geforcenow.play (Card)
+window 28: title = GeForce NOW (Card)
+foreign: surface 248 exported as _Window_Id_5 (type 0)
+window 28 mapped (Card app 'com.geforcenow.play' title 'GeForce NOW' size Some((1280, 720)))
+window 5: minimized (covered by a newer card)
+window 28: fullscreen (the front card)
+window 5: exposed nothing (covered)
+window 28: exposed 1280x720
+focus -> surface 248
+luna: foreground ['com.geforcenow.play'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+window 5: fullscreen (the front card)
+window 5: exposed 1920x1080
+focus -> surface 106
+luna: foreground ['com.webos.app.home'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+shell: can show switcher, keyboard
+shell: can show quick, picker, drawer, switcher, keyboard
+client connected: pid 21387 uid 6546 cmd '/mnt/otncabi/usr/palm/applications/com.webos.app.browser/chrome {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'com.webos.app.browser\\',\\'parameters\\':{\\'enableGame'
+client connected: pid 21387 uid 6546 cmd '/mnt/otncabi/usr/palm/applications/com.webos.app.browser/chrome {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'com.webos.app.browser\\',\\'parameters\\':{\\'enableGame'
+client disconnected: pid 21387 uid 6546 after 4 ms (ConnectionClosed); bound ['wl_output']; cmd '/mnt/otncabi/usr/palm/applications/com.webos.app.browser/chrome {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'com.webos.app.browser\\',\\'parameters\\':{\\'enableGame'
+window 29 created on surface 262 by pid 21387
+webOS shell surface on window 29 (surface 262) by pid 21387
+window 29: appId = com.webos.app.1 (Card)
+window 29: appId = com.webos.app.browser (Card)
+luna: com.webos.app.browser subscribed to com.webos.surfacemanager/getFocusedWindowInfo
+window 29 mapped (Card app 'com.webos.app.browser' title '' size Some((1920, 1080)))
+window 5: minimized (covered by a newer card)
+window 29: fullscreen (the front card)
+window 5: exposed nothing (covered)
+window 29: exposed 1920x1080
+focus -> surface 262
+luna: foreground ['com.webos.app.browser'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+transitions: frame 31 ms after the last in a launch (tick before 1.0 ms, this 1.2 ms, last render 0.4 ms, held ticks 1, buffers prepared 83, imported in a frame 0)
+window 29: title = Web Browser (Card)
+foreign: surface 262 exported as _Window_Id_6 (type 0)
+window 5: raised to the front (set_state fullscreen)
+window 29: minimized (covered by a newer card)
+window 5: exposed 1920x1080
+window 29: exposed nothing (covered)
+luna: foreground ['com.webos.app.home'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+focus -> surface 106
+shell: can show switcher, keyboard
+shell: can show quick, picker, drawer, switcher, keyboard
