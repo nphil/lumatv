@@ -46,6 +46,8 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             "lastCapture": state.last_capture,
             "oledcare": oledcare,
             "scanout": state.scanout_report(),
+            "pageFormat": state.output.page_kind().map(|k| crate::buffer::fourcc::name(k.fourcc())),
+            "videoHolesOpaque": state.output.page_kind().map(|k| k.video_holes_opaque()),
             "pointerPlane": state.pointer_report(),
             "im": state.im.as_ref().map(|im| im.report()),
             "vwin": state.vwin_report(),

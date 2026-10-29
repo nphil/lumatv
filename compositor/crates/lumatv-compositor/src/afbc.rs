@@ -90,6 +90,50 @@ impl PageKind {
     pub fn linear(page_alpha: bool) -> PageKind {
         if page_alpha { PageKind::Argb } else { PageKind::Xrgb }
     }
+
+    /// Whether a video hole on pages of this kind is opaque black on the panel (the display driver reads an XR24 layer with a constant alpha).
+    pub fn video_holes_opaque(self) -> bool {
+        !self.has_alpha()
+    }
+
+    /// The kinds a ring is tried in when `self` is asked for: each one down to the original XR24, which every plane takes. A ring that cannot be
+    /// made with alpha must still start (the screen comes up), with its video holes opaque, and the report says so.
+    pub fn fallbacks(self, page_alpha: bool) -> Vec<PageKind> {
+        let mut chain = vec![self];
+        if self == PageKind::Afbc {
+            chain.push(PageKind::linear(page_alpha));
+        }
+        if chain.last() != Some(&PageKind::Xrgb) {
+            chain.push(PageKind::Xrgb);
+        }
+        chain.dedup();
+        chain
+    }
+}
+
+/// What [`first_ring`] made, and what it passed over.
+#[derive(Debug)]
+pub struct RingMade<T> {
+    pub ring: T,
+    pub kind: PageKind,
+    /// The kinds tried first and why each failed, in order.
+    pub failed: Vec<(PageKind, String)>,
+}
+
+/// Makes a ring of the first of `chain` that `make` can: one that fails is logged and the next is tried; the last failure is the error when none can.
+pub fn first_ring<T>(chain: &[PageKind], mut make: impl FnMut(PageKind) -> std::io::Result<T>) -> std::io::Result<RingMade<T>> {
+    let mut failed = Vec::new();
+    let mut last = None;
+    for &kind in chain {
+        match make(kind) {
+            Ok(ring) => return Ok(RingMade { ring, kind, failed }),
+            Err(e) => {
+                failed.push((kind, e.to_string()));
+                last = Some(e);
+            }
+        }
+    }
+    Err(last.unwrap_or_else(|| std::io::Error::other("no page kind to try")))
 }
 
 /// A superblock of this modifier is 32x8 pixels. Each has a header of [`HEADER_BYTES`] and a body of [`BODY_BYTES`]; `sparse` places each body at its
@@ -315,12 +359,38 @@ mod tests {
         assert_eq!(PageKind::Argb.fourcc(), fourcc::ARGB8888);
         assert_eq!((PageKind::Afbc.fourcc(), PageKind::Afbc.modifier()), (fourcc::ABGR8888, 0x0800_0000_0000_0062));
         assert!(!PageKind::Xrgb.has_alpha() && PageKind::Argb.has_alpha() && PageKind::Afbc.has_alpha());
-        assert_eq!(PageKind::wanted(Mode::Off, false), PageKind::Xrgb, "as it has always been");
+        assert_eq!(PageKind::wanted(Mode::Off, false), PageKind::Xrgb, "the opt-out: as it has always been");
         assert_eq!(PageKind::wanted(Mode::Off, true), PageKind::Argb);
         assert_eq!(PageKind::wanted(Mode::Probe, false), PageKind::Xrgb, "a probe changes nothing");
         assert_eq!(PageKind::wanted(Mode::On, false), PageKind::Afbc);
         assert_eq!(PageKind::wanted(Mode::On, true), PageKind::Afbc);
         assert_eq!((PageKind::linear(true), PageKind::linear(false)), (PageKind::Argb, PageKind::Xrgb));
+    }
+
+    #[test]
+    fn a_ring_that_cannot_have_alpha_falls_back_to_xr24_and_says_its_holes_are_opaque() {
+        use PageKind::*;
+        assert_eq!(Argb.fallbacks(true), [Argb, Xrgb]);
+        assert_eq!(Xrgb.fallbacks(false), [Xrgb]);
+        assert_eq!(Afbc.fallbacks(true), [Afbc, Argb, Xrgb]);
+        assert_eq!(Afbc.fallbacks(false), [Afbc, Xrgb]);
+        assert!(Xrgb.video_holes_opaque() && !Argb.video_holes_opaque() && !Afbc.video_holes_opaque());
+        // the memory for AR24 pages is not there (CMA short): the screen still comes up on XR24
+        let mut tried = Vec::new();
+        let made = first_ring(&Argb.fallbacks(true), |k| {
+            tried.push(k);
+            if k == Argb { Err(std::io::Error::other("out of CMA")) } else { Ok(3usize) }
+        })
+        .unwrap();
+        assert_eq!((made.kind, made.ring, tried), (Xrgb, 3, vec![Argb, Xrgb]));
+        assert_eq!(made.failed.len(), 1);
+        assert!(made.failed[0].1.contains("out of CMA") && made.kind.video_holes_opaque());
+        // the first that works is the one taken
+        let made = first_ring(&Afbc.fallbacks(true), |k| if k == Afbc { Err(std::io::Error::other("refused")) } else { Ok(()) }).unwrap();
+        assert_eq!(made.kind, Argb);
+        // nothing works: the last error
+        let e = first_ring::<()>(&Argb.fallbacks(true), |k| Err(std::io::Error::other(format!("no {}", k.name())))).unwrap_err();
+        assert!(e.to_string().contains("XR24"), "{e}");
     }
 
     #[test]

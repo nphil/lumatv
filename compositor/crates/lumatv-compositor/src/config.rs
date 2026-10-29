@@ -92,9 +92,9 @@ pub struct Config {
     pub pointer: crate::pointer::Mode,
     /// How the cursor plane reads its image's alpha (`--pointer-alpha`).
     pub pointer_alpha: crate::pointer::Alpha,
-    /// The primary plane's pages carry alpha (AR24) instead of ignoring it (XR24), which the display driver reads as a constant alpha of 0xff:
-    /// a hole cleared to transparent is opaque black on the panel with XR24 (`hw-planes-result.md`, "The holes"). Implied by `--vwin` and
-    /// `--afbc on`.
+    /// The primary plane's pages carry alpha (AR24, the default) instead of ignoring it (XR24), which the display driver reads as a constant
+    /// alpha of 0xff: a hole cleared to transparent is opaque black on the panel with XR24, a video app with sound and no picture
+    /// (`hw-planes-result.md`, "The holes"). `--page-alpha off` is the opt-out. Implied by `--vwin` and `--afbc on`.
     pub page_alpha: bool,
     /// The scan-out pages as AFBC (`afbc`): `off`, `probe` (query only) or `on`.
     pub afbc: crate::afbc::Mode,
@@ -158,7 +158,7 @@ impl Default for Config {
             scanout_shell_env: Vec::new(),
             pointer: crate::pointer::Mode::default(),
             pointer_alpha: crate::pointer::Alpha::default(),
-            page_alpha: false,
+            page_alpha: true,
             afbc: crate::afbc::Mode::default(),
             vwin: crate::vwin::Policy::default(),
         }
@@ -222,8 +222,8 @@ pub const USAGE: &str = "lumatv-compositor [options]
   --pointer gpu|plane    where the Magic Remote's pointer is drawn (default gpu: a sprite in the frame; plane: the cursor plane, which moves it with no frame
                          drawn; needs --renderer kms). `ctl pointer [plane|gpu|X Y]` reads the counters, switches it or moves it (docs/research/hw-planes-result.md)
   --pointer-alpha premultiplied|straight  how the cursor plane reads its image's alpha (default premultiplied, as the frame is)
-  --page-alpha on|off    the primary plane's pages carry alpha (AR24, default off: XR24, whose holes the display driver shows opaque black); implied by --vwin and
-                         --afbc on. Starts with the compositor: the pages are made once
+  --page-alpha on|off    the primary plane's pages carry alpha (AR24, default on); off makes them XR24, whose video holes the display driver shows opaque black
+                         (no picture under a video app); on is implied by --vwin and --afbc on. The pages are made at start; `ctl pagealpha on|off` switches
   --afbc off|probe|on    the scan-out pages as ARM AFBC (modifier 0x0800000000000062, AB24; default off; needs --renderer kms): probe only asks the GPU driver and
                          the plane what they list (`ctl afbc`), on makes the pages AFBC and falls back to linear ones with the reason when the driver refuses
   --vwin off|idle|apps   the display's spare video windows for LumaTV's own video (default off): idle gives the camera pop-up, the Cameras live view and a
@@ -517,5 +517,19 @@ mod tests {
         let probe = Config::parse(["--renderer", "gl", "--driver", "/x/libmali.so", "--buffers", "driver", "--scanout-probe"].map(String::from)).unwrap();
         assert!(probe.scanout_probe && probe.scanout.mode == crate::scanout::Mode::Off, "the proof shows nothing: the switch stays off");
         assert!(Config::parse(["--scanout-probe"].map(String::from)).is_err(), "no renderer, no driver buffers to record");
+    }
+
+    #[test]
+    fn the_pages_carry_alpha_unless_switched_off() {
+        let alpha = |args: &[&str]| Config::parse(args.iter().map(|a| a.to_string())).unwrap().page_alpha;
+        assert!(alpha(&[]), "AR24 by default: a video hole is transparent, not opaque black");
+        assert!(!alpha(&["--page-alpha", "off"]), "the opt-out");
+        assert!(alpha(&["--page-alpha", "on"]));
+        assert!(Config::parse(["--page-alpha", "maybe"].map(String::from)).is_err());
+        assert!(
+            Config::parse(["--page-alpha", "off", "--afbc", "on", "--renderer", "kms", "--driver", "/x"].map(String::from)).is_err(),
+            "AFBC pages need alpha"
+        );
+        assert!(Config::parse(["--page-alpha", "off", "--vwin", "idle"].map(String::from)).is_err(), "a video window's hole needs alpha");
     }
 }

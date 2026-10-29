@@ -75,8 +75,8 @@ pub struct Options {
 impl Default for Options {
     fn default() -> Self {
         Options {
-            pages: PageKind::Xrgb,
-            page_alpha: false,
+            pages: PageKind::Argb,
+            page_alpha: true,
             afbc: afbc::Mode::Off,
             pointer: crate::pointer::Mode::Gpu,
             pointer_alpha: crate::pointer::Alpha::Premultiplied,
@@ -354,6 +354,7 @@ fn make_ring(card: &Card, gl: &mut Gl, width: u32, height: u32, kind: PageKind) 
             Ok(p) => pages.push(p),
             Err(e) => {
                 for p in pages {
+                    gl.free_target(p.target);
                     let _ = card.destroy_framebuffer(p.fb);
                     drop(p.fd);
                     let _ = card.destroy_dumb_buffer(p.dumb);
@@ -470,16 +471,27 @@ impl Kms {
             fallback = Some("the primary plane does not list AB24 with the AFBC modifier".to_string());
             kind = PageKind::linear(opts.page_alpha);
         }
-        let pages = match make_ring(&card, &mut gl, width, height, kind) {
-            Ok(p) => p,
-            Err(e) if kind == PageKind::Afbc => {
-                log::warn!("kms: AFBC pages refused ({e}); linear pages instead");
-                fallback = Some(format!("the AFBC pages could not be made: {e}"));
-                kind = PageKind::linear(opts.page_alpha);
-                make_ring(&card, &mut gl, width, height, kind)?
+        if kind == PageKind::Argb && !primary.formats.is_empty() && !primary.takes(crate::buffer::fourcc::ARGB8888, crate::buffer::modifier::LINEAR) {
+            fallback = Some("the primary plane does not list AR24".to_string());
+            kind = PageKind::Xrgb;
+        }
+        // AFBC, then AR24, then the XR24 every plane takes: the screen comes up whatever the memory says, and an XR24 ring says its holes are opaque.
+        let made = afbc::first_ring(&kind.fallbacks(opts.page_alpha), |k| make_ring(&card, &mut gl, width, height, k))?;
+        for (k, why) in &made.failed {
+            if *k == PageKind::Argb {
+                log::error!(
+                    "kms: AR24 pages could not be made ({why}): XR24 pages instead, VIDEO HOLES ARE OPAQUE BLACK (a video app has sound and no picture)"
+                );
+            } else {
+                log::warn!("kms: {} pages refused ({why})", k.name());
             }
-            Err(e) => return Err(e),
-        };
+            fallback = Some(format!("the {} pages could not be made: {why}", k.name()));
+        }
+        if made.kind.video_holes_opaque() {
+            log::warn!("kms: scan-out pages are {}: video holes are opaque black (`ctl status` videoHolesOpaque)", made.kind.name());
+        }
+        kind = made.kind;
+        let pages = made.ring;
         log::info!(
             "kms: scan-out pages {} ({} bytes each){}",
             kind.name(),
@@ -1483,6 +1495,10 @@ impl Output for Kms {
         Some(r)
     }
 
+    fn page_kind(&self) -> Option<PageKind> {
+        Some(self.page_report.kind)
+    }
+
     fn afbc_report(&self) -> Option<serde_json::Value> {
         let r = &self.page_report;
         let bytes_of = |k: PageKind| if k == PageKind::Afbc { afbc::buffer_size(self.width, self.height) } else { self.width as usize * self.height as usize * 4 };
@@ -1495,6 +1511,7 @@ impl Output for Kms {
                 "format": crate::buffer::fourcc::name(r.kind.fourcc()),
                 "modifier": format!("{:#018x}", r.kind.modifier()),
                 "alpha": r.kind.has_alpha(),
+                "videoHolesOpaque": r.kind.video_holes_opaque(),
                 "count": self.pages.len(),
                 "kinds": self.pages.iter().map(|p| p.kind.name()).collect::<Vec<_>>(),
                 "converting": if self.convert_stopped { 0 } else { self.pages_to_convert() },

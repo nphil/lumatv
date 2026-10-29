@@ -5,7 +5,7 @@
 # HWPLANES_RT=/tmp/lumatv points the steps at a maintenance window's (tv-kms-window.sh).
 #
 #   hwplanes.sh read                         the switches, the planes and the memory as they are now
-#   hwplanes.sh alpha                        P0: the OSD's constant alpha against the pages' format (needs --page-alpha on for the PASS)
+#   hwplanes.sh alpha                        P0: the OSD's constant alpha against the pages' format (AR24 pages, the default, for the PASS; --page-alpha off is the XR24 baseline)
 #   hwplanes.sh pointer                      P1/P2: 60 moves of the pointer in the frame, then on the cursor plane: frames drawn, the plane's registers
 #   hwplanes.sh afbc                         A1/A2: what the plane and the GPU list, the pages' layout, the registers, a frame time reading
 #   hwplanes.sh layout on|off|alpha-on|alpha-off   A3: the page layout switched while running (afbc on|off, pagealpha on|off), the ring converted one page per frame
@@ -188,9 +188,9 @@ step_stop() {
     ctl vwin slots 2 > /dev/null
     ctl pointer gpu > /dev/null
     ctl afbc off > /dev/null
-    # the pages go back to XR24 unless the flags file asked for alpha at start
-    grep -q -- '--page-alpha on' $D/compositor.flags 2> /dev/null || ctl pagealpha off > /dev/null
-    say "stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again (ctl afbc shows the ring while it converts)"
+    # the pages go back to AR24, the default, unless the flags file asked for XR24 at start
+    if grep -q -- '--page-alpha off' $D/compositor.flags 2> /dev/null; then ctl pagealpha off > /dev/null; else ctl pagealpha on > /dev/null; fi
+    say "stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)"
 }
 
 case "${1:-help}" in

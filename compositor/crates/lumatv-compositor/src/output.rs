@@ -176,6 +176,12 @@ pub trait Output {
         None
     }
 
+    /// The layout the primary plane's pages have now; `None` for an output without scan-out pages. With XR24 pages a video hole is opaque black on
+    /// the panel (`ctl status` says so).
+    fn page_kind(&self) -> Option<crate::afbc::PageKind> {
+        None
+    }
+
     /// What the scan-out pages are (linear without alpha, linear with alpha, AFBC), what the display and the GPU driver list, and the bandwidth
     /// the layout costs and saves (`ctl afbc`, `afbc`); `None` for an output without scan-out pages.
     fn afbc_report(&self) -> Option<serde_json::Value> {
