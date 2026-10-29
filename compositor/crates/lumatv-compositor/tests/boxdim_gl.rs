@@ -68,6 +68,15 @@ fn run(s: &mut State, t: u64, for_ns: u64, step: u64) -> u64 {
     while t < end {
         t += step;
         s.tick_at(t);
+        // The sample's GPU work takes real time, which the stepped clock does not: a sample still in flight at the next step would be read
+        // only after the ticks are all spent, and the dim never engages. Poll it in on this step's own time instead.
+        let mut polls = 0;
+        while s.scene.boxdim.in_flight() {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+            s.tick_at(t);
+            polls += 1;
+            assert!(polls < 5000, "a sample the GPU did not finish");
+        }
     }
     t
 }
