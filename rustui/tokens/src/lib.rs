@@ -201,10 +201,7 @@ fn ms(v: Option<&Value>, default: u32) -> u32 {
 /// `glassRaised` to the focused glass, `edge` to the glass edge, `edgeRaised` to the focused glass edge.
 fn roles(block: &Map<String, Value>) -> Roles {
     let get = |names: &[&str]| -> Straight {
-        names
-            .iter()
-            .find_map(|n| block.get(*n).and_then(Value::as_str).and_then(colour))
-            .unwrap_or(Straight::new(255, 0, 255, 255))
+        names.iter().find_map(|n| block.get(*n).and_then(Value::as_str).and_then(colour)).unwrap_or(Straight::new(255, 0, 255, 255))
     };
     let mut out = [Straight::new(0, 0, 0, 255); 20];
     for (i, role) in PaletteRole::ALL.iter().enumerate() {

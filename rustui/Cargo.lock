@@ -372,6 +372,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "lumatv-placement"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "lumatv-render"
 version = "0.1.0"
 dependencies = [
@@ -417,6 +425,16 @@ dependencies = [
 [[package]]
 name = "lumatv-ui"
 version = "0.1.0"
+dependencies = [
+ "compositor-protocol",
+ "libc",
+ "lumatv-placement",
+ "lumatv-render",
+ "lumatv-tokens",
+ "png 0.17.16",
+ "serde_json",
+ "ui",
+]
 
 [[package]]
 name = "lumatv-wl-protocols"
