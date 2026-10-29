@@ -377,8 +377,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Compositor: app frame callbacks are delivered at draw time rather than the later display flip,
-  avoiding a pending final frame during LG SDL's window teardown.
+- Compositor: an app's frame callbacks go out with the commit that carried them (`ctl callbacks
+  clients commit|early|landing`, default `commit`), so LG SDL's present never waits at window
+  teardown. PlxNative closes cleanly 15 of 15 on the set (12 of 15 crashed with the callbacks at
+  the draw); the focus plate of a focused row keeps its rounded ends in Rust Settings and the
+  quick panel.
 - Screensaver: a dimmer clock and no automatic camera video popup over an active saver.
 - Gate: new PlxNative crash reports fail app-close checks even when SAM reports a clean exit;
   X1 traces distinguish display timing from the test client's scheduling delay.

@@ -1,0 +1,17 @@
+loop thread 4093 (the loop marker in the trace)
+client 5791: its next GPU job began after the compositor's draw (where its frame callbacks go out) p50 0.83 ms, p90 1.01, p99 1.66, p99.9 3.82, max 6.76 (3602 answered, the flips in that stretch at most 16.7 ms apart); 6 over 3 ms, 2 would leave its jobs more than 20 ms apart
+  +5.146 s: draw 53153.535, the client's next GPU job began 3.97 ms after it (the frame before: 0.91 ms), its jobs 19.8 ms apart; CPU 2 also ran ls-hubd-1865 x3, <...>-1865 x2, tAiSceneService-19503 x1
+  +5.213 s: draw 53153.602, the client's next GPU job began 4.97 ms after it (the frame before: 1.27 ms), its jobs 20.2 ms apart; CPU 2 also ran rcu_preempt-10 x2, <...>-1865 x2, ls-hubd-1865 x2
+  +7.665 s: draw 53156.054, the client's next GPU job began 3.82 ms after it (the frame before: 0.82 ms), its jobs 19.7 ms apart; CPU 2 ran nothing else the trace shows
+  +10.668 s: draw 53159.057, the client's next GPU job began 3.4 ms after it (the frame before: 0.79 ms), its jobs 19.3 ms apart; CPU 2 also ran pool-4878 x2, sdx-3180 x1, rcu_preempt-10 x1
+  +25.198 s: draw 53173.587, the client's next GPU job began 3.04 ms after it (the frame before: 0.84 ms), its jobs 18.9 ms apart; CPU 1 ran nothing else the trace shows
+  +55.158 s: draw 53203.547, the client's next GPU job began 6.76 ms after it (the frame before: 1.03 ms), its jobs 22.5 ms apart; CPU 2 also ran servicemanager-2990 x4, surface-manager-3794 x4, luna-writer-4162 x2
+x1 log: 2 gap(s) over 20 ms (20.8 ms, 21.8 ms); the trace implies 2 (20.2 ms, 22.5 ms)
+  gap 20.8 ms before swap 1892 = +5.213 s: draw 53153.602, the client's next GPU job began 4.97 ms after it (the frame before: 1.27 ms), its jobs 20.2 ms apart; CPU 2 also ran rcu_preempt-10 x2, <...>-1865 x2, ls-hubd-1865 x2
+  gap 21.8 ms before swap 3300 = +55.158 s: draw 53203.547, the client's next GPU job began 6.76 ms after it (the frame before: 1.03 ms), its jobs 22.5 ms apart; CPU 2 also ran servicemanager-2990 x4, surface-manager-3794 x4, luna-writer-4162 x2
+x1 raw swaps: 3597 frames in 60.0 s; 2 gap(s) over 20 ms, worst 21.8 ms
+x1 attribution: COMPLETE
+x1 gaps: 2 over 20 ms in the client's log; compositor-attributable 0 (late flips 0), client-only 2, unexplained 0
+  +5.213 s, jobs 20.2 ms apart (reaction 4.97 ms): client (callbacks on time, the loop never waited)
+  +55.158 s, jobs 22.5 ms apart (reaction 6.76 ms): client (callbacks on time, the loop never waited)
+kernel waits: no late frame | client 5791 reaction after the compositor's draw: p50 0.83 ms, p99.9 3.82, max 6.76; 6 over 3 ms, 2 frame gap(s) over 20 ms implied; answered 3602, flips at most 16.7 ms apart | x1 gaps compositor-attributable 0, client-only 2, unexplained 0 | x1 attribution COMPLETE

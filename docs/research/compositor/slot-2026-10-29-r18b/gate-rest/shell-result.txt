@@ -1,0 +1,5 @@
+connected ok; home-loaded ok; idle-home(10/s,3%) ok; dpad ok; quick-home ok; picker-home ok; osd ok; toast ok; idle-covered(0%) ok; saver ok; NOT: quick-app (overlay 'quick', wants false, system mapped true, home drawn false); (shell pid 20519, starts 0
+1, exits 0
+0, luna calls 0
+171, refused 0
+0; foreground com.webos.app.home, windows mapped: org.nphil.lumatv.shell org.nphil.lumatv.shell com.webos.app.home)

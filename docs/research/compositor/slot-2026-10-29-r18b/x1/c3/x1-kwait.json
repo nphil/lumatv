@@ -1,0 +1,207 @@
+{
+ "tid": 4093,
+ "how": "the loop marker in the trace",
+ "frames": [],
+ "summary": {
+  "late": 0,
+  "kernel": 0,
+  "sched": 0,
+  "unexplained": 0,
+  "by_class": {}
+ },
+ "client": {
+  "client": 5791,
+  "trigger": "draw",
+  "frames": 3602,
+  "p50": 0.83,
+  "p90": 1.01,
+  "p99": 1.66,
+  "p999": 3.82,
+  "max": 6.76,
+  "over2": 23,
+  "over3": 6,
+  "flips": 3594,
+  "flip_max_ms": 16.7,
+  "slow": [
+   {
+    "at": 5.146,
+    "t": 53153.535,
+    "trigger": "draw",
+    "ms": 3.97,
+    "prev_ms": 0.91,
+    "gap_ms": 19.8,
+    "prev_t": 53153.518778,
+    "job_t": 53153.539446,
+    "late_ms": 0.02,
+    "cpu": 2,
+    "held_by": [
+     "ls-hubd-1865 x3",
+     "<...>-1865 x2",
+     "tAiSceneService-19503 x1"
+    ]
+   },
+   {
+    "at": 5.213,
+    "t": 53153.602,
+    "trigger": "draw",
+    "ms": 4.97,
+    "prev_ms": 1.27,
+    "gap_ms": 20.2,
+    "prev_t": 53153.585541,
+    "job_t": 53153.607063,
+    "late_ms": -0.13,
+    "cpu": 2,
+    "held_by": [
+     "rcu_preempt-10 x2",
+     "<...>-1865 x2",
+     "ls-hubd-1865 x2"
+    ]
+   },
+   {
+    "at": 7.665,
+    "t": 53156.054,
+    "trigger": "draw",
+    "ms": 3.82,
+    "prev_ms": 0.82,
+    "gap_ms": 19.7,
+    "prev_t": 53156.037767,
+    "job_t": 53156.0583,
+    "late_ms": 0.04,
+    "cpu": 2,
+    "held_by": []
+   },
+   {
+    "at": 10.668,
+    "t": 53159.057,
+    "trigger": "draw",
+    "ms": 3.4,
+    "prev_ms": 0.79,
+    "gap_ms": 19.3,
+    "prev_t": 53159.040166,
+    "job_t": 53159.0603,
+    "late_ms": 0.05,
+    "cpu": 2,
+    "held_by": [
+     "pool-4878 x2",
+     "sdx-3180 x1",
+     "rcu_preempt-10 x1"
+    ]
+   },
+   {
+    "at": 25.198,
+    "t": 53173.587,
+    "trigger": "draw",
+    "ms": 3.04,
+    "prev_ms": 0.84,
+    "gap_ms": 18.9,
+    "prev_t": 53173.57008,
+    "job_t": 53173.589843,
+    "late_ms": 0.04,
+    "cpu": 1,
+    "held_by": []
+   },
+   {
+    "at": 55.158,
+    "t": 53203.547,
+    "trigger": "draw",
+    "ms": 6.76,
+    "prev_ms": 1.03,
+    "gap_ms": 22.5,
+    "prev_t": 53203.530458,
+    "job_t": 53203.55396,
+    "late_ms": 0.06,
+    "cpu": 2,
+    "held_by": [
+     "servicemanager-2990 x4",
+     "surface-manager-3794 x4",
+     "luna-writer-4162 x2"
+    ]
+   }
+  ],
+  "implied": [
+   {
+    "at": 5.213,
+    "t": 53153.602,
+    "trigger": "draw",
+    "ms": 4.97,
+    "prev_ms": 1.27,
+    "gap_ms": 20.2,
+    "prev_t": 53153.585541,
+    "job_t": 53153.607063,
+    "late_ms": -0.13,
+    "cpu": 2,
+    "held_by": [
+     "rcu_preempt-10 x2",
+     "<...>-1865 x2",
+     "ls-hubd-1865 x2"
+    ]
+   },
+   {
+    "at": 55.158,
+    "t": 53203.547,
+    "trigger": "draw",
+    "ms": 6.76,
+    "prev_ms": 1.03,
+    "gap_ms": 22.5,
+    "prev_t": 53203.530458,
+    "job_t": 53203.55396,
+    "late_ms": 0.06,
+    "cpu": 2,
+    "held_by": [
+     "servicemanager-2990 x4",
+     "surface-manager-3794 x4",
+     "luna-writer-4162 x2"
+    ]
+   }
+  ],
+  "span": [
+   53148.54684,
+   53208.501518
+  ]
+ },
+ "attribution": {
+  "counted": 2,
+  "late_flips": 0,
+  "compositor": 0,
+  "client_only": 2,
+  "unexplained": 0,
+  "gaps": [
+   {
+    "at": 5.213,
+    "gap_ms": 20.2,
+    "ms": 4.97,
+    "who": "client",
+    "why": []
+   },
+   {
+    "at": 55.158,
+    "gap_ms": 22.5,
+    "ms": 6.76,
+    "who": "client",
+    "why": []
+   }
+  ]
+ },
+ "coverage": {
+  "complete": true,
+  "reasons": [],
+  "raw": {
+   "frames": 3597,
+   "seconds": 60.0,
+   "gaps": 2,
+   "worst_ms": 21.8
+  }
+ },
+ "x1": [
+  {
+   "ms": 20.8,
+   "swap": 1892,
+   "at": 53180.063
+  },
+  {
+   "ms": 21.8,
+   "swap": 3300,
+   "at": 53203.552
+  }
+ ]
+}

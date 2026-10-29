@@ -1,0 +1,1 @@
+FAIL 2 gap(s) over 20 ms in the client's swaps (worst 21.8 ms); the compositor logged 2 loop pass(es), client frame gap(s) or page-flip interval(s) over 20 ms during the run

@@ -1,0 +1,10 @@
+loop thread 13580 (the loop marker in the trace)
+client 21798: its next GPU job began after the compositor's draw (where its frame callbacks go out) p50 0.89 ms, p90 1.07, p99 1.6, p99.9 2.69, max 3.74 (3602 answered, the flips in that stretch at most 16.7 ms apart); 3 over 3 ms, 0 would leave its jobs more than 20 ms apart
+  +6.972 s: draw 52870.180, the client's next GPU job began 3.02 ms after it (the frame before: 0.97 ms), its jobs 18.8 ms apart; CPU 2 also ran rcu_preempt-10 x3, kadpd-1986 x3, tAiSceneService-19503 x2, tDnnService-19500 x1
+  +13.495 s: draw 52876.703, the client's next GPU job began 3.2 ms after it (the frame before: 0.74 ms), its jobs 19.2 ms apart; CPU 2 also ran emmcd-2956 x3, <...>-2956 x2
+  +41.32 s: draw 52904.528, the client's next GPU job began 3.74 ms after it (the frame before: 0.79 ms), its jobs 19.6 ms apart; CPU 2 also ran openapps-28935 x6
+x1 log: 0 gap(s) over 20 ms; the trace implies 0
+x1 raw swaps: 3597 frames in 60.0 s; 0 gap(s) over 20 ms, worst 19.6 ms
+x1 attribution: COMPLETE
+x1 gaps: 0 over 20 ms in the client's log; compositor-attributable 0 (late flips 0), client-only 0, unexplained 0
+kernel waits: no late frame | client 21798 reaction after the compositor's draw: p50 0.89 ms, p99.9 2.69, max 3.74; 3 over 3 ms, 0 frame gap(s) over 20 ms implied; answered 3602, flips at most 16.7 ms apart | x1 gaps compositor-attributable 0, client-only 0, unexplained 0 | x1 attribution COMPLETE

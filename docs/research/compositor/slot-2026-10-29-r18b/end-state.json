@@ -1,0 +1,146 @@
+{
+ "when": "2026-10-29 13:07:10 EDT",
+ "power": "Active Standby",
+ "foreground": "",
+ "pictureMode": "filmMaker",
+ "inputs": {
+  "ok": true,
+  "inputs": {
+   "ports": [
+    {
+     "port": 0,
+     "open": false,
+     "connect": "UNKNOWN"
+    },
+    {
+     "port": 1,
+     "open": false,
+     "connect": "UNKNOWN"
+    }
+   ],
+   "running": [],
+   "held": ""
+  }
+ },
+ "md5": {
+  "theme.json": "07242387560c27a98f24641921ea4665",
+  "layout.json": "f5954cd081e327426bab31ae456eef9b",
+  "helper.json": "48b5aabe4f840a071f221552d21f9b00",
+  "Tokens.js": "ee51e2db1fe737b763b2886f61f5f269"
+ },
+ "keyboard": {
+  "ok": true,
+  "on": false,
+  "patched": false,
+  "keyboard": "lg"
+ },
+ "transitions": {
+  "ok": true,
+  "transitions": {
+   "on": true,
+   "compositor": "lg"
+  }
+ },
+ "wallpaper": {
+  "ok": true,
+  "wallpaper": {
+   "source": "gpu",
+   "ready": false,
+   "missing": [
+    "LumaTV's compositor is not the live one"
+   ],
+   "compositor": "lg",
+   "vplane": {
+    "installed": true,
+    "role": true,
+    "clips": 6,
+    "walls": 2,
+    "running": true,
+    "pid": 15504
+   },
+   "player": {
+    "state": "idle",
+    "role": ""
+   }
+  }
+ },
+ "compositor": {
+  "bundle": true,
+  "enabled": false,
+  "flag": "off",
+  "mounted": false,
+  "live": false,
+  "lgBinary": "same",
+  "firmware": "verified",
+  "escaped": false,
+  "unsettled": false,
+  "failures": 0,
+  "lastFallback": "",
+  "smLog": "13:06:28 recover: librdx reports swept; remaining 0"
+ },
+ "ctl_shell": "ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.\nctl: Connection refused (os error 111)",
+ "pixelRefresher": {
+  "jbLastTime": 4142,
+  "offrsLastTime": 4339,
+  "jbCount": 11,
+  "jbInterval": 500,
+  "subscribed": false,
+  "pnwashKeyLock": true,
+  "returnValue": true,
+  "offrsInterval": 4,
+  "offrsCount": 611
+ },
+ "panelUsage": {
+  "returnValue": true,
+  "panelUsageTimeStore": 0,
+  "panelUsageTime": 26053
+ },
+ "panelTopic": {
+  "api": 1,
+  "boot": 1793280812999,
+  "now": 1793293633499,
+  "ok": true,
+  "seq": 723,
+  "topic": "panel",
+  "value": {
+   "due": false,
+   "error": null,
+   "guard": {
+    "deferrals": 0,
+    "enabled": false,
+    "last": null
+   },
+   "intervalHours": 4.0,
+   "lastRunHours": 4339.0,
+   "lastStandbyMinutes": 0,
+   "offrsCount": 611,
+   "read": true,
+   "readAt": 1793293610051,
+   "standby": {
+    "countAtStart": 611,
+    "dueAtStart": false,
+    "since": 1793293609930
+   },
+   "usageHours": 4342.166666666667
+  }
+ },
+ "oledcare": "",
+ "theme_switches": {
+  "appDim": "",
+  "appShift": "",
+  "boxDim": "",
+  "overlays": "",
+  "capture": "",
+  "cameras": "",
+  "refreshGuard": ""
+ },
+ "helper_json": "{\"cameras\":{\"enabled\":true}}",
+ "always_ready": {
+  "ok": true,
+  "on": false,
+  "mode": "alwaysReady",
+  "prev": ""
+ },
+ "uptime": "13:07:14 up 15:13,  0 users,  load average: 14.08, 14.17, 14.04\nMemAvailable:     655708 kB\nCmaFree:           17232 kB",
+ "lumatv_procs": "10307 ?        00:00:00 lumatv\n15454 ?        00:00:04 lumatv-capture\n15504 ?        00:00:00 lumatv-vplane\n28916 ?        00:00:37 lumatv-helper"
+}

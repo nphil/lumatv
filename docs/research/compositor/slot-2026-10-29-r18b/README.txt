@@ -1,0 +1,5 @@
+Round 18b, 2026-10-29 (the set's clock EDT 12:11 to 13:10), forge/main f2e4b5d (the PlxNative close fix, commit-time frame callbacks, and the focus-plate clip fix), LumaTV's compositor live as sessions, receiver muted through Home Assistant's MCP.
+install/log.txt: build and install. Built in worktree /tmp/lumatv-r18b (compositor bundle 2 min 31 s, ipk 11 s more, seeded target directories); compositor md5 fe01e3b8..., lumatv-ui b1e7f83e..., ipk sha256 c1122dde.... Installed twice under grant 0073bf55 (use 7 by Round18 at 12:10, use 8 at 12:12), read back by md5 on the set.
+apps/legA: step 7 on `commit`, `--only apps --apps-repeat 15`: PASS 15 of 15. apps/legB: `ctl callbacks clients early`, `gate.sh apps` x5 on the set: FAIL, passes 2 to 5 crashed.
+x1/c1..c4: `--only x1` on `commit`, four runs. gate-rest/: `--only shell,frames,standby --frames-quick` (frames.json, per-check files). clip/: the Rust quick panel and Settings with a focused row, full-frame JPEGs, 1280-wide views, full-res row crops, 4x crops of both plate ends.
+end-state.json: after the last session (LG's compositor live, Active Standby).

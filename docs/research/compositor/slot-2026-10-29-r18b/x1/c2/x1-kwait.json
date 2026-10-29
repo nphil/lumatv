@@ -1,0 +1,141 @@
+{
+ "tid": 28307,
+ "how": "the loop marker in the trace",
+ "frames": [],
+ "summary": {
+  "late": 0,
+  "kernel": 0,
+  "sched": 0,
+  "unexplained": 0,
+  "by_class": {}
+ },
+ "client": {
+  "client": 29798,
+  "trigger": "draw",
+  "frames": 3602,
+  "p50": 0.86,
+  "p90": 1.04,
+  "p99": 1.56,
+  "p999": 3.19,
+  "max": 4.51,
+  "over2": 12,
+  "over3": 4,
+  "flips": 3594,
+  "flip_max_ms": 16.72,
+  "slow": [
+   {
+    "at": 16.616,
+    "t": 53023.585,
+    "trigger": "draw",
+    "ms": 4.51,
+    "prev_ms": 1.11,
+    "gap_ms": 20.1,
+    "prev_t": 53023.568281,
+    "job_t": 53023.589476,
+    "late_ms": 0.01,
+    "cpu": 2,
+    "held_by": [
+     "kadpd-1986 x3",
+     "SettingsService-4561 x1",
+     "kworker/u8:2-22789 x1"
+    ]
+   },
+   {
+    "at": 26.458,
+    "t": 53033.427,
+    "trigger": "draw",
+    "ms": 3.76,
+    "prev_ms": 0.91,
+    "gap_ms": 19.5,
+    "prev_t": 53033.410599,
+    "job_t": 53033.431002,
+    "late_ms": -0.04,
+    "cpu": 2,
+    "held_by": [
+     "node-11026 x5",
+     "PmLogDaemon-1945 x1"
+    ]
+   },
+   {
+    "at": 28.077,
+    "t": 53035.045,
+    "trigger": "draw",
+    "ms": 3.19,
+    "prev_ms": 0.99,
+    "gap_ms": 18.9,
+    "prev_t": 53035.028652,
+    "job_t": 53035.048499,
+    "late_ms": -0.02,
+    "cpu": 2,
+    "held_by": [
+     "tDnnService-19500 x4"
+    ]
+   },
+   {
+    "at": 36.568,
+    "t": 53043.536,
+    "trigger": "draw",
+    "ms": 3.44,
+    "prev_ms": 1.03,
+    "gap_ms": 19.1,
+    "prev_t": 53043.519616,
+    "job_t": 53043.539718,
+    "late_ms": -0.02,
+    "cpu": 2,
+    "held_by": []
+   }
+  ],
+  "implied": [
+   {
+    "at": 16.616,
+    "t": 53023.585,
+    "trigger": "draw",
+    "ms": 4.51,
+    "prev_ms": 1.11,
+    "gap_ms": 20.1,
+    "prev_t": 53023.568281,
+    "job_t": 53023.589476,
+    "late_ms": 0.01,
+    "cpu": 2,
+    "held_by": [
+     "kadpd-1986 x3",
+     "SettingsService-4561 x1",
+     "kworker/u8:2-22789 x1"
+    ]
+   }
+  ],
+  "span": [
+   53007.135122,
+   53067.090724
+  ]
+ },
+ "attribution": {
+  "counted": 0,
+  "late_flips": 0,
+  "compositor": 0,
+  "client_only": 0,
+  "unexplained": 0,
+  "gaps": [
+   {
+    "at": 16.616,
+    "gap_ms": 20.1,
+    "ms": 4.51,
+    "who": "client",
+    "why": []
+   }
+  ]
+ },
+ "coverage": {
+  "complete": false,
+  "reasons": [
+   "trace implies 1 gaps but raw log counted 0"
+  ],
+  "raw": {
+   "frames": 3597,
+   "seconds": 60.01,
+   "gaps": 0,
+   "worst_ms": 19.2
+  }
+ },
+ "x1": []
+}

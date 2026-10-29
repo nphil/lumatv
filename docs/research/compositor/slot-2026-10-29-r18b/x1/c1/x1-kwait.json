@@ -1,0 +1,101 @@
+{
+ "tid": 13580,
+ "how": "the loop marker in the trace",
+ "frames": [],
+ "summary": {
+  "late": 0,
+  "kernel": 0,
+  "sched": 0,
+  "unexplained": 0,
+  "by_class": {}
+ },
+ "client": {
+  "client": 21798,
+  "trigger": "draw",
+  "frames": 3602,
+  "p50": 0.89,
+  "p90": 1.07,
+  "p99": 1.6,
+  "p999": 2.69,
+  "max": 3.74,
+  "over2": 15,
+  "over3": 3,
+  "flips": 3594,
+  "flip_max_ms": 16.7,
+  "slow": [
+   {
+    "at": 6.972,
+    "t": 52870.18,
+    "trigger": "draw",
+    "ms": 3.02,
+    "prev_ms": 0.97,
+    "gap_ms": 18.8,
+    "prev_t": 52870.163211,
+    "job_t": 52870.183015,
+    "late_ms": 0.11,
+    "cpu": 2,
+    "held_by": [
+     "rcu_preempt-10 x3",
+     "kadpd-1986 x3",
+     "tAiSceneService-19503 x2",
+     "tDnnService-19500 x1"
+    ]
+   },
+   {
+    "at": 13.495,
+    "t": 52876.703,
+    "trigger": "draw",
+    "ms": 3.2,
+    "prev_ms": 0.74,
+    "gap_ms": 19.2,
+    "prev_t": 52876.685811,
+    "job_t": 52876.705704,
+    "late_ms": 0.01,
+    "cpu": 2,
+    "held_by": [
+     "emmcd-2956 x3",
+     "<...>-2956 x2"
+    ]
+   },
+   {
+    "at": 41.32,
+    "t": 52904.528,
+    "trigger": "draw",
+    "ms": 3.74,
+    "prev_ms": 0.79,
+    "gap_ms": 19.6,
+    "prev_t": 52904.510937,
+    "job_t": 52904.531373,
+    "late_ms": 0.01,
+    "cpu": 2,
+    "held_by": [
+     "openapps-28935 x6"
+    ]
+   }
+  ],
+  "implied": [],
+  "span": [
+   52863.640005,
+   52923.594731
+  ]
+ },
+ "attribution": {
+  "counted": 0,
+  "late_flips": 0,
+  "compositor": 0,
+  "client_only": 0,
+  "unexplained": 0,
+  "gaps": []
+ },
+ "coverage": {
+  "complete": true,
+  "reasons": [],
+  "raw": {
+   "frames": 3597,
+   "seconds": 60.0,
+   "gaps": 0,
+   "worst_ms": 19.6
+  }
+ },
+ "x1": []
+}

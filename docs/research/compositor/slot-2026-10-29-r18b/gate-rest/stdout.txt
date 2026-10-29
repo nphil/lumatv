@@ -1,0 +1,242 @@
+start 12:44:11 --only shell,frames,standby --frames-quick
+power state: active
+home stub before the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+avr: left to the agent (True)
+firmware: verified 10.2.1-5202
+safety timer: this session ends by itself after 63 min if it is still live ('cutover.sh disable' cancels the timer)
+mounted; restarting the unit
+t=5s unit=active exe=/usr/bin/surface-manager compositor=20085 mounted=yes wam=active
+   12:44:20 recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+   12:44:20 recover: WebAppMgr answering after 0s (active)
+t=10s unit=active exe=/usr/bin/surface-manager compositor=20085 mounted=yes wam=active
+   12:44:20 recover: WebAppMgr answering after 0s (active)
+   12:44:21 recover: Home running under LumaTV's compositor after 0s
+t=15s unit=active exe=/usr/bin/surface-manager compositor=20085 mounted=yes wam=active
+   12:44:21 recover: Home running under LumaTV's compositor after 0s
+   12:44:31 recover: librdx reports swept; remaining 0
+t=20s unit=active exe=/usr/bin/surface-manager compositor=20085 mounted=yes wam=active
+   12:44:21 recover: Home running under LumaTV's compositor after 0s
+   12:44:31 recover: librdx reports swept; remaining 0
+t=25s unit=active exe=/usr/bin/surface-manager compositor=20085 mounted=yes wam=active
+   12:44:21 recover: Home running under LumaTV's compositor after 0s
+   12:44:31 recover: librdx reports swept; remaining 0
+t=30s unit=active exe=/usr/bin/surface-manager compositor=20085 mounted=yes wam=active
+   12:44:21 recover: Home running under LumaTV's compositor after 0s
+   12:44:31 recover: librdx reports swept; remaining 0
+enabled (session): LumaTV's compositor stays live (recovery done after 0s more); 'cutover.sh disable' restores LG's
+
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 395211 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+GATE shell: FAIL connected ok; home-loaded ok; idle-home(10/s,3%) ok; dpad ok; quick-home ok; picker-home ok; osd ok; toast ok; idle-covered(0%) ok; saver ok; NOT: quick-app (overlay 'quick', wants false, system mapped true, home drawn false); (shell pid 20519, starts 0
+1, exits 0
+0, luna calls 0
+171, refused 0
+0; foreground com.webos.app.home, windows mapped: org.nphil.lumatv.shell org.nphil.lumatv.shell com.webos.app.home)
+
+avr: left to the agent (True)
+evidence: 2 subscription(s) from SAM, 7 client lines, 5 loop stalls, 2 watchdog lines
+
+already mounted; 'cutover.sh status' says what runs
+
+GATE live-frames: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 396035 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+GATE wake: reset
+
+PASS  home-dpad       windows                3/3  (== 3)
+PASS  home-dpad       first_frame_ms       30.46  (<= 50)
+PASS  home-dpad       p90_render_ms         0.39  (< 3)  1 frames
+PASS  home-dpad       p90_window_ms         0.39  (< 4)  worst single window
+PASS  home-dpad       dropped                  0  (<= 0)
+PASS  home-dpad       burst_over20             0  (<= 0)
+PASS  home-dpad       rss_growth_mb         0.00  (<= 1.01)  452 -> 452 pages over 1 cycles
+PASS  home-dpad       log_errors               0  (== 0)
+PASS  home-dpad       compositor_pid       19812  (== 19812)
+home-dpad: kernel waits: 6 late frame(s): 0 kernel-caused, 0 waiting for a CPU, 6 unexplained
+    home-dpad-open +3.584 s: 66.7 ms (overrun 50.1): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    home-dpad-open +6.787 s: 200.2 ms (overrun 183.5): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    home-dpad-open +3.581 s: 133.5 ms (overrun 116.8): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    home-dpad-open +6.784 s: 200.2 ms (overrun 183.5): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    home-dpad-open +3.571 s: 216.9 ms (overrun 200.2): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    home-dpad-open +6.791 s: 200.2 ms (overrun 183.5): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+PASS  quick           windows                6/6  (== 6)
+FAIL  quick           first_frame_ms      120.10  (<= 50)  the compositor asked the shell 0.15 ms after the key at worst
+FAIL  quick           burst_end_ms          none  (<= 180)  no burst at the key
+PASS  quick           p90_render_ms         0.05  (< 3)  4 frames
+PASS  quick           p90_window_ms         0.05  (< 4)  worst single window
+PASS  quick           dropped                  0  (<= 0)
+FAIL  quick           burst_over20             1  (<= 0)
+PASS  quick           rss_growth_mb         0.00  (<= 1.01)  452 -> 452 pages over 1 cycles
+PASS  quick           log_errors               0  (== 0)
+PASS  quick           compositor_pid       19812  (== 19812)
+quick: kernel waits: 4 late frame(s): 0 kernel-caused, 0 waiting for a CPU, 4 unexplained
+    quick-open +0.004 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    quick-close +0.138 s: 166.8 ms (overrun 150.1): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    quick-close +0.138 s: 66.7 ms (overrun 50.1): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    quick-close +1.005 s: 200.2 ms (overrun 183.5): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+PASS  picker          windows                6/6  (== 6)
+PASS  picker          first_frame_ms       36.41  (<= 50)  the compositor asked the shell 0.17 ms after the key at worst
+PASS  picker          burst_end_ms        153.18  (<= 180)
+PASS  picker          p90_render_ms         none  (< 3)  no animated frames
+PASS  picker          p90_window_ms         none  (< 4)  worst single window
+PASS  picker          dropped                  0  (<= 0)
+FAIL  picker          burst_over20             1  (<= 0)
+PASS  picker          rss_growth_mb         0.00  (<= 1.01)  452 -> 452 pages over 1 cycles
+PASS  picker          log_errors               0  (== 0)
+PASS  picker          compositor_pid       19812  (== 19812)
+picker: kernel waits: 3 late frame(s): 0 kernel-caused, 0 waiting for a CPU, 3 unexplained
+    picker-open +0.019 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    picker-open +0.152 s: 200.2 ms (overrun 183.5): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    picker-open +0.152 s: 83.4 ms (overrun 66.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+PASS  toast           windows                3/3  (== 3)
+FAIL  toast           first_frame_ms       60.02  (<= 50)
+FAIL  toast           burst_end_ms          none  (<= 180)  no burst at the key
+PASS  toast           p90_render_ms         none  (< 3)  no animated frames
+PASS  toast           p90_window_ms         none  (< 4)  worst single window
+PASS  toast           dropped                  0  (<= 0)
+PASS  toast           burst_over20             0  (<= 0)
+PASS  toast           rss_growth_mb         0.00  (<= 1.01)  452 -> 452 pages over 1 cycles
+PASS  toast           log_errors               0  (== 0)
+PASS  toast           compositor_pid       19812  (== 19812)
+toast: kernel waits: 6 late frame(s): 0 kernel-caused, 0 waiting for a CPU, 6 unexplained
+    toast-open +0.213 s: 133.5 ms (overrun 116.8): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    toast-open +4.267 s: 83.4 ms (overrun 66.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    toast-open +5.168 s: 183.5 ms (overrun 166.8): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    toast-open +5.064 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    toast-open +0.121 s: 50.0 ms (overrun 33.4): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    toast-open +5.142 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+PASS  settings-scroll windows                3/3  (== 3)
+FAIL  settings-scroll first_frame_ms       51.43  (<= 50)
+PASS  settings-scroll p90_render_ms         0.27  (< 3)  23 frames
+PASS  settings-scroll p90_window_ms         0.53  (< 4)  worst single window
+PASS  settings-scroll dropped                  0  (<= 0)
+FAIL  settings-scroll burst_over20             4  (<= 0)
+PASS  settings-scroll rss_growth_mb         0.00  (<= 1.01)  452 -> 452 pages over 1 cycles
+PASS  settings-scroll log_errors               0  (== 0)
+PASS  settings-scroll compositor_pid       19812  (== 19812)
+settings-scroll: kernel waits: 49 late frame(s): 0 kernel-caused, 0 waiting for a CPU, 49 unexplained
+    settings-scroll-open +5.588 s: 133.4 ms (overrun 116.8): not the kernel (no kernel wait of 3 ms or more; kernel 42.05 ms)
+    settings-scroll-open +0.068 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    settings-scroll-open +0.702 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    settings-scroll-open +0.802 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    settings-scroll-open +0.986 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    settings-scroll-open +1.052 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    settings-scroll-open +1.102 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    settings-scroll-open +2.504 s: 133.5 ms (overrun 116.8): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    settings-scroll-open +3.771 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    settings-scroll-open +3.922 s: 100.1 ms (overrun 83.4): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    settings-scroll-open +4.022 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    settings-scroll-open +4.105 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    ... 37 more late frames
+PASS  apps-grid       launch_path           none  ()  com.webos.app.discovery: the dock's tile 1, number key (evdev 2)
+PASS  apps-grid       windows                3/3  (== 3)
+PASS  apps-grid       first_frame_ms       37.02  (<= 50)
+PASS  apps-grid       p90_render_ms         0.24  (< 3)  12 frames
+PASS  apps-grid       p90_window_ms         0.24  (< 4)  worst single window
+PASS  apps-grid       dropped                  0  (<= 0)
+PASS  apps-grid       burst_over20             0  (<= 0)
+PASS  apps-grid       rss_growth_mb         0.00  (<= 1.01)  452 -> 452 pages over 1 cycles
+PASS  apps-grid       switches_restored number-keys, quick-access  (as found)
+PASS  apps-grid       log_errors               0  (== 0)
+PASS  apps-grid       compositor_pid       19812  (== 19812)
+apps-grid: kernel waits: 4 late frame(s): 0 kernel-caused, 0 waiting for a CPU, 4 unexplained
+    apps-grid-open +4.658 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    apps-grid-open +5.175 s: 66.7 ms (overrun 50.1): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    apps-grid-open +0.764 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    apps-grid-open +4.658 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+PASS  home-widgets    windows                3/3  (== 3)
+PASS  home-widgets    first_frame_ms       32.17  (<= 50)
+PASS  home-widgets    p90_render_ms         0.15  (< 3)  20 frames
+PASS  home-widgets    p90_window_ms         0.41  (< 4)  worst single window
+PASS  home-widgets    dropped                  0  (<= 0)
+FAIL  home-widgets    burst_over20             2  (<= 0)
+PASS  home-widgets    rss_growth_mb         0.00  (<= 1.01)  452 -> 452 pages over 1 cycles
+PASS  home-widgets    log_errors               0  (== 0)
+PASS  home-widgets    compositor_pid       19812  (== 19812)
+home-widgets: kernel waits: 8 late frame(s): 0 kernel-caused, 0 waiting for a CPU, 8 unexplained
+    home-widgets-open +0.019 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    home-widgets-open +1.787 s: 66.7 ms (overrun 50.1): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    home-widgets-open +4.606 s: 50.0 ms (overrun 33.4): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    home-widgets-open +1.8 s: 50.0 ms (overrun 33.4): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    home-widgets-open +4.603 s: 66.7 ms (overrun 50.1): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    home-widgets-open +0.019 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    home-widgets-open +1.787 s: 66.7 ms (overrun 50.1): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    home-widgets-open +4.606 s: 50.0 ms (overrun 33.4): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+VERDICT FAIL
+
+GATE wake (frames): measured tick p50 0.02 p99 0.04 max 0.55 ms (n 60567); flip p50 0.02 p99 0.05 max 0.12 ms (n 13914); input p50 0.02 p99 0.04 max 0.22 ms (n 3274); tick waited on a busy loop p50 0.05 p99 0.77 max 0.79 ms (n 310)
+
+GATE mem: measured rss 56296 KiB, locked 547720 KiB, swapped 0 KiB, malloc mmapped blocks 0; lock: locked what is touched (MCL_CURRENT|MCL_FUTURE|MCL_ONFAULT) in 8.5 ms; VmRSS 17 MiB, MemAvailable 936 MiB, RLIMIT_MEMLOCK 64 KiB, CAP_IPC_LOCK yes; the process's limit on locked memory: 65536 65536 bytes ; set: MemAvailable 529 MiB, CmaFree 30 MiB, swap in use 599 MiB
+
+lpc-probe irq: 10 s, home; CPUs online 0-2; default affinity f
+(* named in IRQ_NAMES)  IRQ  rate/s  per-CPU counts over the run  affinity  name
+ 10    4361.6   18743  15831   9042  0-3       GICv2 30 Level arch_timer
+ IPI0   469.7     948   1275   2474  ?         Rescheduling interrupts
+*175    129.0    1290      0      0  0-3       GICv2 175 Edge DE2VSYNC
+*104    128.4    1284      0      0  0-3       GICv2 104 Edge osd_irq
+*128     70.4     704      0      0  0-3       GICv2 128 Level ohci_hcd:usb8
+*176     63.3     633      0      0  0-3       GICv2 176 Level c4250000.gpu
+*178     48.6     486      0      0  0-3       GICv2 178 Level c4250000.gpu
+*124     45.9     459      0      0  0-3       GICv2 124 Level eth0
+ 127      2.3      23      0      0  0-3       GICv2 127 Level mmc0
+ IPI1     1.6       2     14      0  ?         Function call interrupts
+ 135      1.1      11      0      0  0-3       GICv2 135 Edge hdmicec
+ 113      1.0      10      0      0  0-3       GICv2 113 Edge TE_MCU[1]
+ 112      1.0      10      0      0  0-3       GICv2 112 Edge TE_MCU[0]
+*120      0.8       8      0      0  0-3       GICv2 120 Edge gfx_irq
+ 183      0.4       4      0      0  0-3       GICv2 183 Level aud1
+ 201      0.3       3      0      0  0-3       GICv2 201 Edge ipc_vdec
+ 140      0.2       2      0      0  0-3       GICv2 140 Edge HDMI21_LINK
+*177      0.0       0      0      0  0-3       GICv2 177 Level c4250000.gpu
+*174      0.0       0      0      0  0-3       GICv2 174 Edge DE2IPC
+*132      0.0       0      0      0  0-3       GICv2 132 Level xhci-hcd:usb5
+*131      0.0       0      0      0  0-3       GICv2 131 Level xhci-hcd:usb3
+*130      0.0       0      0      0  0-3       GICv2 130 Level xhci-hcd:usb1
+*129      0.0       0      0      0  0-3       GICv2 129 Level ehci_hcd:usb7
+softirq TIMER      2392   2125   2582    455
+softirq NET_RX      544     11     15      1
+softirq TASKLET    1292      0      0      0
+softirq SCHED      1389   1238   1530    298
+loop thread (pid 20085) ran on: CPU0 7 %, CPU1 48 %, CPU2 45 %, over 100 samples
+
+lpc-probe wakeups: 10 s, home
+pid 20085: 175.3 runs/s, 1.9 % CPU: ld-linux-aarch6[20085] 117.2 (1.8 % CPU), mali-cmar-backe[20115] 54.7, luna-writer[20146] 2.1, lumatv-shell-ht[20147] 1.3,
+pid 20519: 125.3 runs/s, 3.9 % CPU: qml-runner[20519] 77.6 (3.6 % CPU), mali-cmar-backe[20556] 36.4, mali-mem-purge[20551] 10.6,
+pid 28916: 23.0 runs/s, 0.4 % CPU: receiver-telnet[28924] 14.5, receiver[28919] 4.8, mdns[28954] 1.0, profiles[28936] 0.7, openapps[28935] 0.5,
+system: 5063 interrupts/s, 9196 context switches/s
+
+callbacks: 15682 of 16657 sent ahead of their flip
+
+GATE standby: requested ({
+    "returnValue": true,
+    "state": "Active Standby"
+})
+
+power state: active standby
+power state after wake: active
+GATE standby: PASS rounds: PreparePowerOff 1 PreparePowerOn 1; fallbacks 0; state active; uptime before 54520.51 now 54590.83; mounted yes; panel 395475 bytes
+
+safety timer cancelled
+umount: /usr/bin/surface-manager: target is busy.
+revert: active; mounted: no; exe: /usr/bin/surface-manager
+recover: surface-manager-daemon.service active after 0s; exe /usr/bin/surface-manager
+recover: compositor answering on the bus after 0s
+recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+recover: WebAppMgr answering after 0s (active)
+recover: Home on the panel after 0s (capture 60657 bytes)
+recover: librdx reports swept; remaining 0
+
+avr: left to the agent (False)
+{"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+
+home stub after the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 395211 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE shell: FAIL connected ok; home-loaded ok; idle-home(10/s,3%) ok; dpad ok; quick-home ok; picker-home ok; osd ok; toast ok; idle-covered(0%) ok; saver ok; NOT: quick-app (overlay 'quick', wants false, system mapped true, home drawn false); (shell pid 20519, starts 0
+GATE live-frames: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 396035 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE frames: FAIL home-dpad ok [first_frame 30.46 p90_render 0.39]; quick NOT first_frame_ms=120.1,burst_end_ms=None,burst_over20=1 [first_frame 120.1 burst_end None p90_render 0.05]; picker NOT burst_over20=1 [first_frame 36.41 burst_end 153.18 p90_render None]; toast NOT first_frame_ms=60.02,burst_end_ms=None [first_frame 60.02 burst_end None p90_render None]; settings-scroll NOT first_frame_ms=51.43,burst_over20=4 [first_frame 51.43 p90_render 0.27]; apps-grid ok [first_frame 37.02 p90_render 0.24]; home-widgets NOT burst_over20=2 [first_frame 32.17 p90_render 0.15] (surfaces home-dpad,quick,picker,toast,settings-scroll,apps-grid,home-widgets, 3 cycles; /tmp/lumatv-tv-out/frames.json)
+GATE wake (frames): measured tick p50 0.02 p99 0.04 max 0.55 ms (n 60567); flip p50 0.02 p99 0.05 max 0.12 ms (n 13914); input p50 0.02 p99 0.04 max 0.22 ms (n 3274); tick waited on a busy loop p50 0.05 p99 0.77 max 0.79 ms (n 310)
+GATE mem: measured rss 56296 KiB, locked 547720 KiB, swapped 0 KiB, malloc mmapped blocks 0; lock: locked what is touched (MCL_CURRENT|MCL_FUTURE|MCL_ONFAULT) in 8.5 ms; VmRSS 17 MiB, MemAvailable 936 MiB, RLIMIT_MEMLOCK 64 KiB, CAP_IPC_LOCK yes; the process's limit on locked memory: 65536 65536 bytes ; set: MemAvailable 529 MiB, CmaFree 30 MiB, swap in use 599 MiB
+GATE standby: requested ({
+GATE standby: PASS rounds: PreparePowerOff 1 PreparePowerOn 1; fallbacks 0; state active; uptime before 54520.51 now 54590.83; mounted yes; panel 395475 bytes
+GATE: FAIL
+wrote ../lumatv-r18b/docs/research/compositor/gate-2026-10-29.txt
+EXIT 1 13:04:22

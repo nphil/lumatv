@@ -1,0 +1,22 @@
+client connected: pid 23500 uid 5272 cmd '/media/cryptofs/apps/usr/palm/applications/youtube.leanback.v4/cobalt {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'youtube.leanback.v4\\',\\'parameters\\':{},\\'inte'
+luna: youtube.leanback.v4 subscribed to com.webos.surfacemanager/getLastInputType
+window 8 created on surface 206 by pid 23500
+webOS shell surface on window 8 (surface 206) by pid 23500
+window 8: appId = youtube.leanback.v4 (Card)
+window 8: title = YouTube (Card)
+window 8 mapped (Card app 'youtube.leanback.v4' title 'YouTube' size Some((1920, 1080)))
+window 5: minimized (covered by a newer card)
+window 8: fullscreen (the front card)
+window 5: exposed nothing (covered)
+window 8: exposed 1920x1080
+focus -> surface 206
+luna: foreground ['youtube.leanback.v4'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+transitions: frame 31 ms after the last in a launch (tick before 0.9 ms, this 1.1 ms, last render 0.4 ms, held ticks 1, buffers prepared 19, imported in a frame 0)
+luna: youtube.leanback.v4 cancelled com.webos.surfacemanager/getLastInputType
+window 5: fullscreen (the front card)
+window 5: exposed 1920x1080
+focus -> surface 106
+client disconnected: pid 23500 uid 5272 after 11328 ms (ConnectionClosed); bound ['wl_compositor', 'wl_shell', 'wl_seat', 'wl_webos_shell', 'wl_webos_foreign', 'wl_webos_input_manager', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat']; cmd '/media/cryptofs/apps/usr/palm/applications/youtube.leanback.v4/cobalt {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'youtube.leanback.v4\\',\\'parameters\\':{},\\'inte'
+luna: foreground ['com.webos.app.home'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+shell: can show switcher, keyboard
+shell: can show quick, picker, drawer, switcher, keyboard

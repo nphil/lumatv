@@ -1,0 +1,133 @@
+{
+ "tid": 12353,
+ "how": "the loop marker in the trace",
+ "frames": [],
+ "summary": {
+  "late": 0,
+  "kernel": 0,
+  "sched": 0,
+  "unexplained": 0,
+  "by_class": {}
+ },
+ "client": {
+  "client": 13818,
+  "trigger": "draw",
+  "frames": 3602,
+  "p50": 0.86,
+  "p90": 1.06,
+  "p99": 1.65,
+  "p999": 3.37,
+  "max": 4.06,
+  "over2": 17,
+  "over3": 5,
+  "flips": 3594,
+  "flip_max_ms": 16.7,
+  "slow": [
+   {
+    "at": 25.073,
+    "t": 53333.314,
+    "trigger": "draw",
+    "ms": 3.53,
+    "prev_ms": 0.95,
+    "gap_ms": 19.3,
+    "prev_t": 53333.297388,
+    "job_t": 53333.317669,
+    "late_ms": 0.07,
+    "cpu": 2,
+    "held_by": [
+     "tAiToneService-19502 x3",
+     "hdmi21_earc_eng-2566 x1"
+    ]
+   },
+   {
+    "at": 37.201,
+    "t": 53345.442,
+    "trigger": "draw",
+    "ms": 3.21,
+    "prev_ms": 0.82,
+    "gap_ms": 19.2,
+    "prev_t": 53345.425063,
+    "job_t": 53345.445037,
+    "late_ms": 0.08,
+    "cpu": 2,
+    "held_by": [
+     "ble-28938 x2",
+     "n000001b-2782 x1",
+     "<...>-28938 x1"
+    ]
+   },
+   {
+    "at": 37.718,
+    "t": 53345.959,
+    "trigger": "draw",
+    "ms": 4.06,
+    "prev_ms": 1.0,
+    "gap_ms": 19.9,
+    "prev_t": 53345.942148,
+    "job_t": 53345.962999,
+    "late_ms": 0.11,
+    "cpu": 2,
+    "held_by": [
+     "python3-6928 x2",
+     "DSPTM00-2806 x1",
+     "pqcontroller-2916 x1"
+    ]
+   },
+   {
+    "at": 45.575,
+    "t": 53353.816,
+    "trigger": "draw",
+    "ms": 3.37,
+    "prev_ms": 1.1,
+    "gap_ms": 19.0,
+    "prev_t": 53353.799238,
+    "job_t": 53353.819378,
+    "late_ms": 0.09,
+    "cpu": 2,
+    "held_by": [
+     "DSPTM00-2806 x1",
+     "pqcontroller-2916 x1"
+    ]
+   },
+   {
+    "at": 55.233,
+    "t": 53363.475,
+    "trigger": "draw",
+    "ms": 3.83,
+    "prev_ms": 1.14,
+    "gap_ms": 19.4,
+    "prev_t": 53363.457824,
+    "job_t": 53363.478332,
+    "late_ms": -0.0,
+    "cpu": 2,
+    "held_by": [
+     "ServiceSender-4539 x1"
+    ]
+   }
+  ],
+  "implied": [],
+  "span": [
+   53308.440715,
+   53368.395861
+  ]
+ },
+ "attribution": {
+  "counted": 0,
+  "late_flips": 0,
+  "compositor": 0,
+  "client_only": 0,
+  "unexplained": 0,
+  "gaps": []
+ },
+ "coverage": {
+  "complete": true,
+  "reasons": [],
+  "raw": {
+   "frames": 3597,
+   "seconds": 60.0,
+   "gaps": 0,
+   "worst_ms": 20.0
+  }
+ },
+ "x1": []
+}

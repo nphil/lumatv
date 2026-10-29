@@ -1,0 +1,12 @@
+loop thread 12353 (the loop marker in the trace)
+client 13818: its next GPU job began after the compositor's draw (where its frame callbacks go out) p50 0.86 ms, p90 1.06, p99 1.65, p99.9 3.37, max 4.06 (3602 answered, the flips in that stretch at most 16.7 ms apart); 5 over 3 ms, 0 would leave its jobs more than 20 ms apart
+  +25.073 s: draw 53333.314, the client's next GPU job began 3.53 ms after it (the frame before: 0.95 ms), its jobs 19.3 ms apart; CPU 2 also ran tAiToneService-19502 x3, hdmi21_earc_eng-2566 x1
+  +37.201 s: draw 53345.442, the client's next GPU job began 3.21 ms after it (the frame before: 0.82 ms), its jobs 19.2 ms apart; CPU 2 also ran ble-28938 x2, n000001b-2782 x1, <...>-28938 x1
+  +37.718 s: draw 53345.959, the client's next GPU job began 4.06 ms after it (the frame before: 1.0 ms), its jobs 19.9 ms apart; CPU 2 also ran python3-6928 x2, DSPTM00-2806 x1, pqcontroller-2916 x1
+  +45.575 s: draw 53353.816, the client's next GPU job began 3.37 ms after it (the frame before: 1.1 ms), its jobs 19.0 ms apart; CPU 2 also ran DSPTM00-2806 x1, pqcontroller-2916 x1
+  +55.233 s: draw 53363.475, the client's next GPU job began 3.83 ms after it (the frame before: 1.14 ms), its jobs 19.4 ms apart; CPU 2 also ran ServiceSender-4539 x1
+x1 log: 0 gap(s) over 20 ms; the trace implies 0
+x1 raw swaps: 3597 frames in 60.0 s; 0 gap(s) over 20 ms, worst 20.0 ms
+x1 attribution: COMPLETE
+x1 gaps: 0 over 20 ms in the client's log; compositor-attributable 0 (late flips 0), client-only 0, unexplained 0
+kernel waits: no late frame | client 13818 reaction after the compositor's draw: p50 0.86 ms, p99.9 3.37, max 4.06; 5 over 3 ms, 0 frame gap(s) over 20 ms implied; answered 3602, flips at most 16.7 ms apart | x1 gaps compositor-attributable 0, client-only 0, unexplained 0 | x1 attribution COMPLETE
