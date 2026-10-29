@@ -12,7 +12,7 @@ use super::pic::{Fill, PicLayer};
 use super::pill;
 use super::{Cx, REGION_HEADER, REGION_TILES, SCOPE_BASE, depth, ids};
 use crate::cameras::app::Target;
-use crate::cameras::grid::{self as model, Focus as GFocus, GAP, NAME_H};
+use crate::cameras::grid::{self as model, Focus as GFocus, GAP};
 use crate::cameras::view::{Empty, GridView, HintView};
 use crate::kit::button::{Button, Place, Spec, Tone, faded};
 use crate::kit::flow::Lifted;
@@ -376,7 +376,7 @@ impl GridUi {
         let l = &view.layout;
         let (x, y) = l.tile_at(i);
         let (w, h) = (l.tile_w as f32, l.tile_h as f32);
-        let total_h = h + NAME_H as f32;
+        let total_h = h + l.name_h as f32;
         let radius = cx.kit.tokens.radius(Radius::Tile);
         let z = cx.at(depth::CONTENT);
         let scene = cx.kit.ui.scene.clone();

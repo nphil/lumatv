@@ -11,7 +11,7 @@ use super::words;
 
 /// The gap between tiles.
 pub const GAP: i32 = 24;
-/// The name under a tile.
+/// The name under a tile at 100 % text (it grows with the text: [`name_height`]).
 pub const NAME_H: i32 = 44;
 /// The most rows that show at once.
 pub const ROWS_SHOWN: usize = 2;
@@ -23,6 +23,13 @@ pub struct Room {
     pub y: i32,
     pub w: i32,
     pub h: i32,
+    /// The height of the name under a tile at this text size.
+    pub name_h: i32,
+}
+
+/// The name under a tile at a text size: its line plus the space above it, so a name never reaches the row below.
+pub fn name_height(text_scale: f32) -> i32 {
+    (NAME_H as f32 * text_scale.max(1.0)).round() as i32
 }
 
 /// The header's height at a text size: the title's line, never under the target.
@@ -45,7 +52,8 @@ pub fn banner_height(text_scale: f32) -> i32 {
 pub fn room(text_scale: f32, banner: bool) -> Room {
     let top = 54 + header_height(text_scale) + 32 + if banner { banner_height(text_scale) } else { 0 };
     let bottom = 1026 - foot_height(text_scale) - 20;
-    Room { x: 96, y: top, w: 1728, h: (bottom - top).max(NAME_H + 2) }
+    let name_h = name_height(text_scale);
+    Room { x: 96, y: top, w: 1728, h: (bottom - top).max(name_h + 2), name_h }
 }
 
 /// Columns by count: 1, 2, 2, 2, 3, 3, then 4.
@@ -67,6 +75,8 @@ pub struct Layout {
     pub rows_shown: usize,
     pub tile_w: i32,
     pub tile_h: i32,
+    /// The height of the name under a tile.
+    pub name_h: i32,
     /// The left of the first column and the top of the first shown row.
     pub x0: i32,
     pub y0: i32,
@@ -87,12 +97,12 @@ pub fn layout(n: usize, room: Room) -> Layout {
     let rows_total = n.div_ceil(cols).max(1);
     let rows_shown = rows_total.min(ROWS_SHOWN);
     let by_width = (room.w - (cols as i32 - 1) * GAP) / cols as i32;
-    let row_h = (room.h - (rows_shown as i32 - 1) * GAP) / rows_shown as i32 - NAME_H;
+    let row_h = (room.h - (rows_shown as i32 - 1) * GAP) / rows_shown as i32 - room.name_h;
     let by_height = (row_h as f32 * 16.0 / 9.0).floor() as i32;
     let tile_w = even_down(by_width.min(by_height)).max(2);
     let tile_h = round_half_up(tile_w as f32 * 9.0 / 16.0 / 2.0) * 2;
     let block_w = cols as i32 * tile_w + (cols as i32 - 1) * GAP;
-    let block_h = rows_shown as i32 * (tile_h + NAME_H) + (rows_shown as i32 - 1) * GAP;
+    let block_h = rows_shown as i32 * (tile_h + room.name_h) + (rows_shown as i32 - 1) * GAP;
     Layout {
         count: n,
         cols,
@@ -100,6 +110,7 @@ pub fn layout(n: usize, room: Room) -> Layout {
         rows_shown,
         tile_w,
         tile_h,
+        name_h: room.name_h,
         x0: room.x + round_half_up((room.w - block_w) as f32 / 2.0),
         y0: room.y + round_half_up((room.h - block_h) as f32 / 2.0),
     }
@@ -108,7 +119,7 @@ pub fn layout(n: usize, room: Room) -> Layout {
 impl Layout {
     /// The vertical distance between the tops of two rows.
     pub fn pitch(&self) -> i32 {
-        self.tile_h + NAME_H + GAP
+        self.tile_h + self.name_h + GAP
     }
 
     pub fn row_of(&self, i: usize) -> usize {
@@ -260,7 +271,7 @@ mod tests {
     use super::*;
 
     /// The room of the spec's test vectors: x 96 to 1824, y 150 to 966 at 100 % text.
-    const ROOM: Room = Room { x: 96, y: 150, w: 1728, h: 816 };
+    const ROOM: Room = Room { x: 96, y: 150, w: 1728, h: 816, name_h: NAME_H };
 
     fn dims(n: usize) -> (usize, usize, i32, i32, i32, i32) {
         let l = layout(n, ROOM);
@@ -307,7 +318,7 @@ mod tests {
             let r = l.tile_w as f32 / l.tile_h as f32;
             assert!((r - 16.0 / 9.0).abs() < 0.03, "{n}: {r}");
             let block_w = l.cols as i32 * l.tile_w + (l.cols as i32 - 1) * GAP;
-            let block_h = l.rows_shown as i32 * (l.tile_h + NAME_H) + (l.rows_shown as i32 - 1) * GAP;
+            let block_h = l.rows_shown as i32 * (l.tile_h + l.name_h) + (l.rows_shown as i32 - 1) * GAP;
             assert!(l.x0 >= ROOM.x && l.x0 + block_w <= ROOM.x + ROOM.w, "{n}: across");
             assert!(l.y0 >= ROOM.y && l.y0 + block_h <= ROOM.y + ROOM.h, "{n}: down");
         }
@@ -315,9 +326,21 @@ mod tests {
 
     #[test]
     fn a_larger_header_and_foot_shrink_the_room_and_the_tiles_with_it() {
-        let big = Room { x: 96, y: 186, w: 1728, h: 740 };
+        let big = Room { x: 96, y: 186, w: 1728, h: 740, name_h: NAME_H };
         let l = layout(4, big);
-        assert!(l.tile_w < 624 && l.y0 >= big.y && l.y0 + 2 * (l.tile_h + NAME_H) + GAP <= big.y + big.h);
+        assert!(l.tile_w < 624 && l.y0 >= big.y && l.y0 + 2 * (l.tile_h + l.name_h) + GAP <= big.y + big.h);
+    }
+
+    #[test]
+    fn the_name_grows_with_the_text_and_the_row_pitch_with_it() {
+        assert_eq!(name_height(1.0), 44);
+        assert_eq!(name_height(2.0), 88);
+        let (small, large) = (layout(8, room(1.0, false)), layout(8, room(2.0, false)));
+        assert_eq!((small.name_h, large.name_h), (44, 88));
+        assert_eq!(large.pitch(), large.tile_h + 88 + GAP, "a name never reaches the row below");
+        let block = |l: &Layout| l.rows_shown as i32 * (l.tile_h + l.name_h) + (l.rows_shown as i32 - 1) * GAP;
+        let r = room(2.0, false);
+        assert!(large.y0 >= r.y && large.y0 + block(&large) <= r.y + r.h);
     }
 
     #[test]
