@@ -57,6 +57,14 @@ pub fn glass_of(kit: &Kit, kind: PaneKind, h: f32, lit: bool, over_video: bool) 
     Glass { corner_radius: base.corner_radius, tint: if over_video { base.tint } else { tint }, edge, backdrop, saturation: kit.tokens.saturation, ..pair.rest }
 }
 
+/// The side of the texture a tile's icon is kept at: the picture's own side, held between the box it is drawn in and that box at
+/// full lift (`lift`, the focus tile scale). A store icon (192 px) is shrunk once, to the lifted box, and is read 1:1 when the
+/// tile is focused and at 1/lift at rest; a homebrew icon (130) is kept as it is; a small one (80) is grown once, to the box. The
+/// box-sized copy grown by the lift was the softest picture on Home (`docs/research/ui-sharpness-result.md`).
+pub fn icon_texture_side(picture: u32, box_side: u32, lift: f32) -> u32 {
+    picture.clamp(box_side, (box_side as f32 * lift.max(1.0)).ceil() as u32)
+}
+
 /// A focusable glass pane with its lift: the group at its rest pose (the pivot at its centre), the pane and, under a group whose
 /// opacity the lift drives, the lit glass. The contents hang under the group too, so they lift with it.
 pub struct Lift {
@@ -499,7 +507,8 @@ impl HomeSurface {
     }
 
     /// The icon of a tile: edge to edge when the picture fills its canvas (the plate then is its own colour), inset on the plate when
-    /// its edges are clear.
+    /// its edges are clear. The layer holds the picture at [`icon_texture_side`] and shows it at the box's size, so the focused tile
+    /// (the box at full lift) reads a store icon nearly 1:1 instead of a box-sized copy grown by the lift.
     fn tile_icon(kit: &mut Kit, path: &str, data: Option<&Path>, tile: u32, inset: u32, radius: f32, z: i32) -> std::io::Result<Option<ImageLayer>> {
         let Some(pic) = picture::load_icon(path, data) else { return Ok(None) };
         let s = wallpaper::sample(&pic.rgba);
@@ -517,11 +526,15 @@ impl HomeSurface {
         let full = n > 0 && sum as f32 / n as f32 / 255.0 >= 0.9;
         let _ = s;
         let side = if full { tile } else { tile - 2 * inset };
-        let mut fitted = pic.fitted(side, side, Fit::Contain);
+        let tex = icon_texture_side(pic.width.max(pic.height), side, kit.tokens.focus.tile_scale);
+        let mut fitted = pic.fitted(tex, tex, Fit::Contain);
         if full {
-            fitted.round_corners(radius);
+            fitted.round_corners(radius * tex as f32 / side as f32);
         }
-        let mut layer = kit.ui.scene.image(side, side, z, Props::at(if full { 0.0 } else { inset as f32 }, if full { 0.0 } else { inset as f32 }))?;
+        // the layer is scaled about its centre: placed so the drawn box is the tile's (or the inset one)
+        let off = if full { 0.0 } else { inset as f32 };
+        let at = off + (side as f32 - tex as f32) / 2.0;
+        let mut layer = kit.ui.scene.image(tex, tex, z, Props { scale: side as f32 / tex as f32, ..Props::at(at, at) })?;
         fitted.paint(&mut layer);
         layer.damage(None);
         Ok(Some(layer))
@@ -1055,6 +1068,15 @@ mod tests {
         let profiles = json!({"ready": true, "active": "nitin", "owner": "nitin", "canAdmin": true, "switchedAt": 1, "profiles": [
             {"id": "nitin", "name": "Nitin", "initial": "N", "color": "#A79BF5", "active": true, "locked": false}, {"id": "isabel", "name": "Isabel", "initial": "I", "color": "#EB6F92", "active": false, "locked": false}]});
         h.update(&Input::Helper { topic: "profiles".into(), data: profiles }, 1005);
+    }
+
+    #[test]
+    fn an_icon_is_kept_between_the_box_and_the_lifted_box() {
+        assert_eq!(icon_texture_side(192, 120, 1.12), 135, "a store icon is shrunk to the lifted box");
+        assert_eq!(icon_texture_side(130, 120, 1.12), 130, "a homebrew icon is kept as it is");
+        assert_eq!(icon_texture_side(80, 120, 1.12), 120, "a small icon is grown to the box");
+        assert_eq!(icon_texture_side(192, 82, 1.12), 92, "an inset icon's box is the inset one");
+        assert_eq!(icon_texture_side(192, 120, 1.0), 120, "no lift: the box");
     }
 
     fn press(h: &mut Home, name: &str, at: u64) {
