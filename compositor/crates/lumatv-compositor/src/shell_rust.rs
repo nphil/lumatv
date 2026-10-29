@@ -34,7 +34,7 @@ use crate::shell::{
 
 /// The kinds the Rust shell may answer, in the order `ctl shell` lists them. `quick`, `picker` and `drawer` are the panels LumaTV opens
 /// itself (`State::shell_show`): while the Rust shell answers one, its `show` goes to it and the QML client's panel stays shut.
-pub const KINDS: &[&str] = &["home", "osd", "settings", "toast", "cameras", "quick", "picker", "drawer", "alert", "saver"];
+pub const KINDS: &[&str] = &["home", "osd", "settings", "toast", "cameras", "quick", "picker", "drawer", "alert", "saver", "capture"];
 /// Where the system layer's layers begin in the engine's z: everything the Rust shell draws over the windows is at this or more.
 pub const SYSTEM_Z: i32 = 1000;
 const TOKEN_FILE: &str = "lumatv-ui.token";
@@ -972,6 +972,29 @@ mod tests {
             is_saver_vote("luna://com.webos.service.tvpower/power/registerScreenSaverRequest")
                 && !is_saver_vote("luna://com.webos.service.tvpower/power/getPowerState")
         );
+    }
+
+    #[test]
+    fn with_the_capture_mark_the_rust_shells_the_topic_and_the_dot_are_its_own_and_the_qml_client_is_not_told() {
+        let (mut state, _dir) = state_with("capture");
+        state.shell_handle(Msg::Connected);
+        state.shell_rust_handle(Msg::Connected);
+        state.screencap_publish();
+        assert!(state.shell_rust.topic("capture").is_some(), "the Rust client is told");
+        assert!(state.shell.topic("capture").is_none(), "the QML client is not");
+        assert!(!state.screencap_dot_up());
+        // the QML client's dot is not the dot: nothing of the Rust client's is on the screen
+        state.shell_handle(Msg::Ui { can: None, wants: None, live: None, state: Some(json!({"capture": {"dot": true}})) });
+        assert!(!state.screencap_dot_up(), "a dot the QML client draws does not count while the Rust shell answers capture");
+        state.shell_rust_handle(Msg::Ui { can: None, wants: None, live: None, state: Some(json!({"capture": {"dot": true}})) });
+        assert!(state.screencap_dot_up());
+        // without the kind it is the QML client's as before
+        let (mut qml, _d2) = state_with("toast");
+        qml.shell_handle(Msg::Connected);
+        qml.screencap_publish();
+        assert!(qml.shell.topic("capture").is_some());
+        qml.shell_handle(Msg::Ui { can: None, wants: None, live: None, state: Some(json!({"capture": {"dot": true}})) });
+        assert!(qml.screencap_dot_up());
     }
 
     #[test]
