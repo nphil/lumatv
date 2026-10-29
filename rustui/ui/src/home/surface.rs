@@ -2,7 +2,7 @@
 //! windows. The wallpaper and its scrim at the bottom; the cards as glass panes of the Lucent card material over the wallpaper's cached
 //! blur with their contents (`widgets.rs`); the dock as a card with its tiles (a plate in the icon's colour, the icon, the name in a pill
 //! under the focused tile), the accent glow behind the focused tile and the fade over the rows that overflow, the rows scrolled on the
-//! focus spring; the status bar as a pill with its buttons and the profile chip (the avatar as a rounded square and the name). Every
+//! focus spring; the status bar as a pill with its buttons and the profile chip (the avatar as a disc in the pill's left cap, and the name). Every
 //! focusable has its lift from the shared [`Engine`]'s flow (the card scale 1.03 with its 4 px rise, the tile 1.12, the status button
 //! 1.04), and the lit glass that comes up with it; a hover cue is one ring moved to what the pointer is over. The layers over Home
 //! (`layers.rs`) are made when they open and dropped when they close.
@@ -280,6 +280,11 @@ impl HomeSurface {
         self.wall.sync_backdrop(kit, &home.theme, self.data.as_deref(), self.module.as_deref());
         let rebuild = self.generation != kit.generation() || self.text_scale != kit.text_scale || self.backdrop != kit.wall_backdrop;
         home.set_text_scale(kit.text_scale);
+        if let Some(name) = home.name_to_measure() {
+            let style = role_style(kit, TypeRole::Label, Some(Weight::SemiBold), kit.ui.look.ink(), Align::Left);
+            let width = width_of(kit, style, &name);
+            home.set_name_width(name, width);
+        }
         if rebuild {
             self.teardown(engine);
             self.generation = kit.generation();
@@ -567,7 +572,7 @@ impl HomeSurface {
         let (sx, sy) = home.safe();
         let frame = Frame::new(sx, sy, 1920.0 - 2.0 * sx, home.status_height());
         let profile = home.profile().cloned().unwrap_or(Value::Null);
-        let profile_key = format!("{}|{}", profile, home.status_items().len());
+        let profile_key = format!("{}|{}|{:?}", profile, home.status_items().len(), home.chip());
         if self.status.as_ref().is_some_and(|s| s.profile_key == profile_key && s.frame == frame) {
             return Ok(());
         }
@@ -596,15 +601,16 @@ impl HomeSurface {
                     badge = Some(kit.ui.scene.image(bw as u32, bh as u32, Z_STATUS + 4, Props { opacity: 0.0, visible: false, ..Props::at(w - bw, 2.0) })?);
                 }
                 if kind == "profile" {
-                    let side = (h - 8.0) as u32;
-                    let mut av = kit.ui.scene.image(side, side, Z_STATUS + 3, Props::at(4.0, 4.0))?;
-                    Self::paint_avatar(kit, &mut av, &profile, side);
+                    let chip = home.chip();
+                    let side = chip.avatar as u32;
+                    let mut av = kit.ui.scene.image(side, side, Z_STATUS + 3, Props::at(chip.inset, chip.inset))?;
+                    Self::paint_avatar(kit, &mut av, &profile, side, side as f32 / 2.0);
                     avatar = Some(av);
                     let n = home.profile_name();
                     if !n.is_empty() {
                         let style = role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Left);
                         let tw = width_of(kit, style, &n);
-                        name = Some(Text::line_at(kit, h + 8.0, h / 2.0, tw.max(10.0), Z_STATUS + 3, style, &n)?);
+                        name = Some(Text::line_at(kit, chip.name_x, h / 2.0, tw.max(10.0), Z_STATUS + 3, style, &n)?);
                     }
                 } else {
                     let glyph = match kind.as_str() {
@@ -675,10 +681,10 @@ impl HomeSurface {
         layer.set(Props { opacity: 1.0, visible: true, ..at });
     }
 
-    /// The avatar as a rounded square: the person's picture, or their colour and letter.
-    pub fn paint_avatar(kit: &mut Kit, layer: &mut ImageLayer, profile: &Value, side: u32) {
+    /// The avatar with corners of `radius` (the picker's tile a fifth of the side, the status chip half of it, a circle): the person's
+    /// picture, or their colour and letter in the ink that reads on it, centred by the letter's own ink.
+    pub fn paint_avatar(kit: &mut Kit, layer: &mut ImageLayer, profile: &Value, side: u32, radius: f32) {
         let colour = profile.get("color").and_then(Value::as_str).and_then(lumatv_tokens::colour).map(|c| c.premultiply(0.0)).unwrap_or(Rgba(115, 96, 231, 255));
-        let radius = side as f32 / 5.0;
         let file = profile.get("avatarFile").and_then(Value::as_str).unwrap_or("");
         let painted = !file.is_empty()
             && std::fs::read(file).ok().and_then(|b| picture::decode(&b).ok()).map(|p| {
@@ -692,15 +698,26 @@ impl HomeSurface {
             let mut canvas = super::widgets::Canvas { px: layer.pixels_mut(), w, h };
             canvas.rounded(Frame::new(0.0, 0.0, side as f32, side as f32), radius, colour);
             let initial = profile.get("initial").and_then(Value::as_str).unwrap_or("?");
-            let ink = if kit.mode == Mode::Light { Rgba(255, 255, 255, 255) } else { Rgba(23, 19, 31, 255) };
             let mut ty = kit.ty(TypeRole::Label);
             ty.px = (side as f32 * 0.5).round() as u32;
             ty.weight = Weight::SemiBold;
             let extent = kit.ui.fonts.measure(initial, ty);
-            let x = ((side as f32 - extent.width) / 2.0).round();
-            let baseline = ((side as f32 - extent.height()) / 2.0 + extent.ascent).round();
-            let mut canvas2 = ui::text::Canvas { pixels: layer.pixels_mut(), width: side as usize };
-            kit.ui.fonts.draw(&mut canvas2, initial, ty, (x, baseline), ink);
+            let (x, baseline) = (((side as f32 - extent.width) / 2.0).round(), ((side as f32 - extent.height()) / 2.0 + extent.ascent).round());
+            // the letter drawn once on nothing to find where its ink is, then again moved so that the ink's centre is the disc's
+            let n = side as usize;
+            let mut probe = vec![0u8; n * n * 4];
+            kit.ui.fonts.draw(&mut ui::text::Canvas { pixels: &mut probe, width: n }, initial, ty, (x, baseline), Rgba(255, 255, 255, 255));
+            let (mut lo, mut hi) = ((n, n), (0usize, 0usize));
+            for (i, px) in probe.chunks_exact(4).enumerate() {
+                if px[3] > 0 {
+                    let (px_x, px_y) = (i % n, i / n);
+                    lo = (lo.0.min(px_x), lo.1.min(px_y));
+                    hi = (hi.0.max(px_x + 1), hi.1.max(px_y + 1));
+                }
+            }
+            let (dx, dy) = if hi.0 > lo.0 { (((side as f32 - (lo.0 + hi.0) as f32) / 2.0).round(), ((side as f32 - (lo.1 + hi.1) as f32) / 2.0).round()) } else { (0.0, 0.0) };
+            let mut canvas2 = ui::text::Canvas { pixels: layer.pixels_mut(), width: n };
+            kit.ui.fonts.draw(&mut canvas2, initial, ty, (x + dx, baseline + dy), crate::kit::avatar::ink_on(colour));
         }
         layer.damage(None);
     }
@@ -1447,6 +1464,47 @@ mod tests {
                 assert_eq!(g["head"], "Wallpaper");
                 // the page is stepped back for the preview, the bar stays
                 assert!(surface.geometry(&home)["status"].is_array());
+                std::mem::forget(h);
+            }
+        }
+    }
+
+    #[test]
+    fn the_profile_chip_is_one_pill_with_a_round_avatar_in_its_left_cap_and_its_name_in_the_middle_of_the_rest_at_both_sizes_and_looks() {
+        for mode in [Mode::Dark, Mode::Light] {
+            for scale in [1.0, 2.0] {
+                let (h, mut kit) = testkit::kit_in(mode, scale);
+                let mut engine = Engine::new(&kit).expect("an engine");
+                let theme = lumatv_tokens::Tokens::shipped().json().clone();
+                let mut home = Home::new(theme, super::super::grid::shipped(), json!({}));
+                fixtures(&mut home);
+                let mut s = HomeSurface::new(1000);
+                s.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
+                s.apply(&mut kit, &mut engine, &mut home, 2300).expect("Home drawn");
+                let chip = home.chip();
+                let item = s.status.as_ref().unwrap().items.iter().find(|i| i.kind == "profile").expect("the chip");
+                let (cw, ch) = (item.lift.frame.w, item.lift.frame.h);
+                assert_eq!(cw, chip.width, "the chip is as wide as its parts: {mode:?} at {scale}");
+                // the avatar is a disc, concentric with the pill's left cap: the same gap above, below and at the left
+                let av = item.avatar.as_ref().expect("the avatar");
+                let side = av.width() as f32;
+                assert_eq!(side, ch - 2.0 * chip.inset, "{mode:?} at {scale}");
+                let at = |x: u32, y: u32| av.pixels()[((y * av.width() + x) * 4 + 3) as usize];
+                let mid = av.width() / 2;
+                assert_eq!(at(0, 0), 0, "a disc has no corner");
+                assert_eq!(at(av.width() - 1, av.height() - 1), 0);
+                assert_eq!(at(mid, 0).max(at(mid, 1)), 255, "and its top is whole");
+                assert_eq!(at(0, mid).max(at(1, mid)), 255, "and its left");
+                let cap = (ch / 2.0).floor();
+                assert_eq!(chip.inset + side / 2.0, ch / 2.0, "the disc's centre is the cap's");
+                assert!((chip.inset + side / 2.0 - cap).abs() <= 0.5);
+                // the name: centred on the pill's height, the avatar's gap before it and the cap's padding after it
+                let name = item.name.as_ref().expect("the name").frame();
+                assert_eq!(name.x, chip.name_x);
+                let gap = chip.name_x - (chip.inset + side);
+                let trailing = cw - (name.x + name.w);
+                assert!(trailing >= gap && trailing <= 2.0 * gap, "padding after the name {trailing} against the gap before it {gap}: {mode:?} at {scale}");
+                assert!((name.y + name.h / 2.0 - ch / 2.0).abs() <= 0.5, "the name is on the pill's middle: {name:?}");
                 std::mem::forget(h);
             }
         }

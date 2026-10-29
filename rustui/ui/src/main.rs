@@ -8,7 +8,7 @@
 //!   lumatv-ui --host [--port N --token-file F] [--helper-port N] [--wait MS] [--push MS:topic:JSON] [--luna MS:TAG:JSON]
 //!             [--helper MS:topic:JSON] [--key MS:name[:up|:repeat]] [--pointer MS:x:y[:buttons[:hidden]]]
 //!             [--eval MS:state|geometry|report] [--snap MS:FILE.png] [--frames MS:LABEL] [--backdrop FILE.png]
-//!             [--theme JSON] [--log FILE]
+//!             [--theme JSON] [--log FILE] [--reference]
 //!
 //! Host output lines: `[report] <json>` (what went to `POST /v1/ui`), `[luna] <json>`, `[helper] <json>`, `[eval] <json>`,
 //! `[frames] LABEL N`, `shot FILE`, `[frame] ...` per frame with `--log`, and `RESULT frames N gpu mean/max us ...` at the end.
@@ -62,6 +62,8 @@ struct Options {
     theme: Option<Value>,
     log: Option<PathBuf>,
     clock: Option<u64>,
+    /// Every frame drawn whole as well and compared with the one drawn into the ring (`--reference`).
+    reference: bool,
 }
 
 fn env_path(name: &str) -> Option<PathBuf> {
@@ -93,12 +95,14 @@ fn parse() -> Result<Options, String> {
         theme: None,
         log: None,
         clock: None,
+        reference: false,
     };
     let mut args = std::env::args().skip(1);
     let value = |args: &mut std::iter::Skip<std::env::Args>, flag: &str| args.next().ok_or_else(|| format!("{flag} needs a value"));
     while let Some(a) = args.next() {
         match a.as_str() {
             "--host" => o.host = true,
+            "--reference" => o.reference = true,
             "--kinds" => o.kinds = value(&mut args, "--kinds")?,
             "--data-dir" => o.data_dir = PathBuf::from(value(&mut args, "--data-dir")?),
             "--module-dir" => o.module_dir = PathBuf::from(value(&mut args, "--module-dir")?),
@@ -389,7 +393,7 @@ fn run_host(o: Options) -> io::Result<()> {
             gpu_sync: false,
             idle_trim: false,
             pages: 3,
-            reference: false,
+            reference: o.reference,
             blit: true,
             external: false,
             system_z: i32::MAX,
@@ -498,6 +502,7 @@ fn run_host(o: Options) -> io::Result<()> {
     let mut gpu_total: u64 = 0;
     let mut gpu_max: u32 = 0;
     let mut px_total: u64 = 0;
+    let mut mismatched: u64 = 0;
     let mut cpu_total: u64 = 0;
     let mut first_frame_ms: Option<u64> = None;
     let mut last_present_ns: u64 = 0;
@@ -567,6 +572,10 @@ fn run_host(o: Options) -> io::Result<()> {
             cpu_total += u64::from(cost.cpu_us);
             gpu_max = gpu_max.max(cost.gpu_us);
             px_total += cost.region_px;
+            if cost.mismatch_px > 0 {
+                mismatched += 1;
+                log.line(&format!("[mismatch] frame {drawn} at {} ms: {} px differ from the frame drawn whole", elapsed(t0), cost.mismatch_px));
+            }
             if first_frame_ms.is_none() && drawn > 1 {
                 first_frame_ms = Some(elapsed(t0));
             }
@@ -598,7 +607,7 @@ fn run_host(o: Options) -> io::Result<()> {
         }
     }
     log.line(&format!(
-        "RESULT frames {drawn} in {:.1} s, gpu mean {} us max {} us, cpu mean {} us, drew {:.1} % of the panel per frame, text pictures {}, glyph fallbacks {}",
+        "RESULT frames {drawn} in {:.1} s, gpu mean {} us max {} us, cpu mean {} us, drew {:.1} % of the panel per frame, text pictures {}, glyph fallbacks {}, frames differing from whole {mismatched}",
         started.elapsed().as_secs_f64(),
         gpu_total.checked_div(drawn).unwrap_or(0),
         gpu_max,

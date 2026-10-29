@@ -111,6 +111,32 @@ pub struct FocusView {
     pub hover: Option<Id>,
 }
 
+/// The profile chip on the status bar, for a button height `h`: a circular avatar set in the pill's left cap with an even `inset` all
+/// round (the avatar and the cap share a centre), then the name, then the cap's end. The measures follow the height, so they grow with
+/// the text size.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Chip {
+    pub inset: f32,
+    /// The avatar's diameter.
+    pub avatar: f32,
+    /// Where the name's box begins, from the chip's left edge.
+    pub name_x: f32,
+    pub width: f32,
+}
+
+impl Chip {
+    /// With the name's measured width, or none (the avatar alone, a round button).
+    pub fn new(h: f32, name_width: Option<f32>) -> Self {
+        let inset = (h / 12.0).round();
+        let avatar = h - 2.0 * inset;
+        let name_x = inset + avatar + (h * 0.2).round();
+        match name_width {
+            Some(w) => Self { inset, avatar, name_x, width: name_x + w + (h * 0.35).round() },
+            None => Self { inset, avatar, name_x, width: h },
+        }
+    }
+}
+
 pub struct Home {
     pub theme: Value,
     pub layout: Value,
@@ -184,6 +210,9 @@ pub struct Home {
     switched_at: Option<u64>,
     dirty: bool,
     text_scale: f32,
+    /// The width the chip's name takes in its type, measured by the surface (the model has no fonts): the name and text size it was
+    /// measured for, and the width. Until then the chip is laid out on an estimate.
+    name_width: Option<(String, f32, f32)>,
     requests: Vec<Request>,
     /// What the extras Home draws around itself are told (an app opens, a digit did something, the remote key, a story opens).
     notes: Vec<Note>,
@@ -261,6 +290,7 @@ impl Home {
             switched_at: None,
             dirty: true,
             text_scale: 1.0,
+            name_width: None,
             requests: Vec::new(),
             notes: Vec::new(),
             search_pages: Vec::new(),
@@ -420,12 +450,37 @@ impl Home {
     /// A button is a square of the pill's inner height; the profile chip adds its name.
     pub fn status_item_width(&self, item: &Value) -> f32 {
         let h = self.status_height() - 12.0;
-        if item.get("type").and_then(Value::as_str) == Some("profile") {
-            let name = self.profile_name();
-            if name.is_empty() { h } else { h + 12.0 + 15.0 * self.text_scale.max(1.0) * name.chars().count() as f32 + 16.0 }
-        } else {
-            h
+        if item.get("type").and_then(Value::as_str) == Some("profile") { self.chip().width } else { h }
+    }
+
+    /// The profile chip's measures at the status bar's button height.
+    pub fn chip(&self) -> Chip {
+        let name = self.profile_name();
+        let h = self.status_height() - 12.0;
+        if name.is_empty() {
+            return Chip::new(h, None);
         }
+        let scale = self.text_scale.max(1.0);
+        let w = match &self.name_width {
+            Some((n, s, w)) if *n == name && (*s - scale).abs() < 0.001 => *w,
+            _ => 9.0 * scale * name.chars().count() as f32,
+        };
+        Chip::new(h, Some(w))
+    }
+
+    /// The name the surface has to measure (it has the fonts): the chip's, when no width for it at this text size is held yet.
+    pub fn name_to_measure(&self) -> Option<String> {
+        let name = self.profile_name();
+        let scale = self.text_scale.max(1.0);
+        let held = matches!(&self.name_width, Some((n, s, _)) if *n == name && (*s - scale).abs() < 0.001);
+        (!name.is_empty() && !held).then_some(name)
+    }
+
+    /// The measured width of `name` at this text size: the chip, and the buttons after it, move to it.
+    pub fn set_name_width(&mut self, name: String, width: f32) {
+        self.name_width = Some((name, self.text_scale.max(1.0), width));
+        self.register();
+        self.dirty = true;
     }
 
     /// Where the bell is on the status bar (`[x, y, w, h]`), the notification drawer's way in and out. With no bell in the layout, or Home
@@ -2271,6 +2326,26 @@ mod tests {
         assert!(out.contains(&Effect::Redraw));
         assert_eq!(h.cards().len(), 1, "the owner's list of cards replaces the shipped one whole");
         assert_eq!(h.cards()[0].span, 6);
+    }
+
+    #[test]
+    fn the_chip_is_laid_out_on_the_names_measured_width_and_its_avatar_is_set_in_the_left_cap() {
+        let c = Chip::new(48.0, Some(50.0));
+        assert_eq!((c.inset, c.avatar, c.name_x, c.width), (4.0, 40.0, 54.0, 54.0 + 50.0 + 17.0), "an even 4 px round a 40 px disc in a 48 px pill");
+        assert_eq!(c.inset * 2.0 + c.avatar, 48.0);
+        let big = Chip::new(108.0, Some(110.0));
+        assert_eq!((big.inset, big.avatar), (9.0, 90.0), "the inset follows the pill's height");
+        assert_eq!(Chip::new(48.0, None).width, 48.0, "no name: the avatar alone, a round button");
+        let mut h = home();
+        h.update(&Input::Helper { topic: "profiles".into(), data: json!({"ready": true, "active": "nitin", "owner": "nitin", "canAdmin": true, "switchedAt": 1,
+            "profiles": [{"id": "nitin", "name": "Nitin", "initial": "N", "color": "#A79BF5", "active": true, "locked": false}]}) }, 1500);
+        assert_eq!(h.name_to_measure().as_deref(), Some("Nitin"), "the surface is asked for the width");
+        h.set_name_width("Nitin".into(), 50.0);
+        assert_eq!(h.name_to_measure(), None);
+        let widths: Vec<f32> = h.status_frames().iter().map(|f| f.2).collect();
+        assert_eq!(widths[0], Chip::new(48.0, Some(50.0)).width, "the chip is the first button, as wide as its parts");
+        h.set_text_scale(2.0);
+        assert_eq!(h.name_to_measure().as_deref(), Some("Nitin"), "a text size has its own width");
     }
 
     #[test]

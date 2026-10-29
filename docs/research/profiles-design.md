@@ -82,7 +82,7 @@ opened; it needs a picture fetch in the shared `ha-link` crate (LumaShow's, not 
 ## Screens (the Rust shell's; decisions)
 
 - **Avatar:** a rounded square (corner about a fifth of the side, Lucent's tile radius), never a circle: the picture, or the colour and the letter.
-- **Status bar:** the chip is the avatar at 48 and the name; OK opens the quick panel's strip.
+- **Status bar:** the chip is the avatar and the name in one pill. The avatar is a disc here, the one place an avatar is round: it sits in the pill's left cap, concentric with it at an even inset, where a square tile would overhang the curve. OK opens the quick panel's strip.
 - **Quick panel:** the profiles are its first row, one OK switches, the current one marked with a tick and full ink, the others in the second ink; a
   profile with a PIN asks it in place.
 - **"Who's watching?":** full screen over the blurred wallpaper, tiles of 220 with the name under, the current one ticked, focus as everywhere

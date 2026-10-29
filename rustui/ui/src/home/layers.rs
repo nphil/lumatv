@@ -759,7 +759,7 @@ impl PickerSurface {
                 .adopting(engine, &scene, || -> std::io::Result<_> {
                     let side = (f.w - 24.0) as u32;
                     let mut av = kit.ui.scene.image(side, side, z + 5, Props::at(12.0, 12.0))?;
-                    HomeSurface::paint_avatar(kit, &mut av, &profile, side);
+                    HomeSurface::paint_avatar(kit, &mut av, &profile, side, side as f32 / 5.0);
                     let style = role_style(kit, TypeRole::Label, Some(Weight::SemiBold), if pr.active { ink } else { ink2 }, Align::Centre);
                     let mut name = Text::new(kit, Frame::new(-40.0, f.h + 16.0, f.w + 80.0, kit.line(TypeRole::Label)), z + 5, style, &pr.name)?;
                     name.set_props(Props::at(-40.0, f.h + 16.0));
