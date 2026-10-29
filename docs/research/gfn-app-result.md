@@ -59,6 +59,8 @@ Process start: SAM starts `main` (the feeder), which starts `gfx64/launch.sh ...
 
 Package (`gfn/build-ipk.sh`, `gfn/package/`): app id `org.nphil.lumatv.gfn`, title "GeForce NOW", `main` = `lumatv-gfn-feeder` at the app's root, `bin64/{opennow-core,opennow-streamer}` run through `run64.sh` (the 64-bit loader and glibc from `gfx64/build/bundle/lib`, 4 MB; the Mali driver and `heapshim.so` join when the UI does), `requiredMemory` 320, no `requiredPermissions` beyond the defaults until the TV says a name is denied. Installed and removed with `appInstallService/dev/install` like the card app (`tools/cardapp.sh`'s calls with this id); LumaTV's package is not touched.
 
+Shipping (2026-10-29): `tools/build-ipk.sh` packs `gfn/build/<id>_<version>_all.ipk` into the main package as `payload/gfn/<appId>.gfn.ipk` and stops, naming the build, when it is missing; the app had not been in the round's package, so the one on the set stayed at the 2026-10-26 build. The app's version stays 0.1.0, so `gfn/build-ipk.sh` names each build by a hash of every packed file (`build-id` in the app's directory, `Build-Id:` in the control file). `tools/gfnapp.sh` (`lumatv gfn install|remove|status`): `lumatv apply` updates an app that is installed and its build id differs, leaves a streaming app for the next apply, and never puts the app on a set that lacks it (a new app is the owner's own command); the sign-in under `/var/lib/lumatv-gfn` is untouched. `tests/test_gfnapp.py` runs the packer on a stand-in tree and the installer against a fake `appInstallService`.
+
 ## Checks run (offline)
 
 - `gfn/feeder/build/host/split_test` (4): the access-unit splitter on AUD and bare HEVC, two slices per picture, H.264, AV1 OBUs.
