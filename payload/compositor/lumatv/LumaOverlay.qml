@@ -25,7 +25,7 @@ import "kit"
 // picture through its fill; the others are opaque.
 //
 //   banners   `showBanner(spec)` (panels/Banner.qml's specs); the input pill on its own when the owner has turned `banners.own` on
-//   drawer    `gearHold()`, the gear key held (theme `remote.gearHold`, on unless the owner turned it off)
+//   drawer    `gearHold("notifications")`, the gear key held where the owner chose the drawer for it (theme `remote.gearHold`)
 //   volume    panels/VolumeOsd.qml: up whenever the audio service or the receiver reports a volume or a mute, and while the sound is muted
 //   quick     panels/QuickPanel.qml: the gear's tap (the key filter's second entry), a tall panel docked to the right edge; Back slides it back
 //   picker    panels/InputPicker.qml: the Input key, a sheet along the bottom; the key again goes to the next input
@@ -42,7 +42,7 @@ Item {
     readonly property var theme: Lu.theme || ({})
     // LG's own banners draw the same moments (restyled through the overlay mount, tools/inputcommon.sh), so a second set is the owner's choice
     readonly property bool bannersOn: !!(theme.banners && theme.banners.own === true)
-    readonly property bool gearHoldOn: !theme.remote || theme.remote.gearHold !== false
+    readonly property string gearMode: !theme.remote || (theme.remote.gearHold !== "notifications" && theme.remote.gearHold !== "nothing") ? "settings" : theme.remote.gearHold
 
     property string surface: ""                           // the one that has the keys: "drawer", "quick", "picker", "banner" (one with buttons) or "" for none
     readonly property bool bannerUp: !!bannerRes.item && bannerRes.item.kind !== ""
@@ -230,8 +230,8 @@ Item {
     Binding { target: overlaysRes.item; property: "cameraBottom"; value: !!cameraRes.item ? cameraRes.item.popupBottom : 0; when: !!overlaysRes.item }
     Binding { target: overlaysRes.item; property: "warming"; value: ov.warming; when: !!overlaysRes.item }
     // OK on a card without a button of its own opens the notification drawer, where it can be opened (Home's over Home, this layer's over an app)
-    Binding { target: overlaysRes.item; property: "drawerReady"; value: !!overlaysRes.item && overlaysRes.item.pending && Bus.gearReady(); when: !!overlaysRes.item }
-    Connections { target: overlaysRes.item; ignoreUnknownSignals: true; onOpenDrawer: Bus.gearHold() }
+    Binding { target: overlaysRes.item; property: "drawerReady"; value: !!overlaysRes.item && overlaysRes.item.pending && Bus.gearReady("notifications"); when: !!overlaysRes.item }
+    Connections { target: overlaysRes.item; ignoreUnknownSignals: true; onOpenDrawer: Bus.gearHold("notifications") }
     // the camera pop-up showed a card: a doorbell record of the same ring is not a second one
     Connections { target: cameraRes.item; ignoreUnknownSignals: true; onPopupShown: { if (overlaysRes.item) overlaysRes.item.cameraShown(kind) } }
     Binding { target: cameraRes.item; property: "hostBusy"; value: ov.dnd; when: !!cameraRes.item }
@@ -354,10 +354,14 @@ Item {
         return true
     }
     function closeDrawer() { if (surface === "drawer") { surface = ""; idle.stop() } }
-    // the gear key held (the key filter times the hold; LumaBus.js asks): the drawer opens, or closes if it was up
-    function gearReady() { return appFront && gearHoldOn && !!drawerRes.item }
-    function gearHold() {
-        if (!gearReady()) return false
+    // the gear key held (the key filter or the compositor times the hold; LumaBus.js asks): what the owner chose for it. Settings is a layer of
+    // Home, so over an app the hold takes the TV to Home, which opens it; the drawer opens, or closes if it was up; nothing is taken all the same.
+    function gearReady(mode) { return appFront && ((mode || gearMode) !== "notifications" || !!drawerRes.item) }
+    function gearHold(mode) {
+        if (!gearReady(mode)) return false
+        var m = mode || gearMode
+        if (m === "nothing") return true
+        if (m === "settings") { closeDrawer(); settingsFromPanel(""); return true }
         if (surface === "drawer") { closeDrawer(); return true }
         return openDrawer()
     }

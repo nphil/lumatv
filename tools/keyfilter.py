@@ -7,7 +7,7 @@ Runs on the set (python 3.10). Called by tools/lumatv; see keyfilter_set there.
 Two entries of ours, both functions of the one script (the stock loader makes one object per file, so they share its state):
 <handler> (handleLumaHome) goes first, because LG's handleSystemKeys answers Back with NotAccepted while Home is up and a later entry
 would never see it; handleLumaQuick goes just before LG's handleHotkeys, the handler that opens Quick Settings and the input picker, so
-the replay of a gear tap has been through LG's long-press handler and the AV-reset counter by then. A chain without handleHotkeys
+the replay of a gear tap has been through LG's long-press handler by then (the AV-reset counter never counts the third tap: the first entry takes it). A chain without handleHotkeys
 (another firmware) gets the first entry only: LG's windows then open as they always did.
 """
 import json

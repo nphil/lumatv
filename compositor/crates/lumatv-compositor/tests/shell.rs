@@ -270,7 +270,7 @@ fn the_gear_and_input_go_to_the_shell_when_it_can_show_the_panel() {
         s.shell_handle(Msg::Ui { can: Some(vec!["quick".into(), "picker".into()]), wants: None, live: None, state: Some(json!({"open": ""})) });
         s.system_request(SystemRequest::QuickSettings);
         s.system_request(SystemRequest::InputPicker);
-        s.system_request(SystemRequest::Settings);
+        s.system_request(SystemRequest::GearHold);
     });
     let (shows, launched, ui_state, j1, j2) = server.eval(|s| {
         (
@@ -284,8 +284,8 @@ fn the_gear_and_input_go_to_the_shell_when_it_can_show_the_panel() {
     assert_eq!(shows.iter().map(|d| d["kind"].as_str().unwrap_or("")).collect::<Vec<_>>(), vec!["quick", "picker"]);
     assert_eq!(
         launched,
-        vec!["com.palm.app.settings".to_string(), "com.palm.app.settings".to_string()],
-        "the drawer is not offered: the gear's hold went to LG's Settings"
+        vec!["com.palm.app.settings".to_string()],
+        "only the first tap, before a shell was there, went to LG's Settings: the hold opens no LG app"
     );
     assert_eq!(ui_state, json!({"open": ""}));
     assert!(j1 && j2);
@@ -357,6 +357,35 @@ fn a_panel_asked_for_and_a_notification_handed_over_leave_markers_in_the_trace_b
         vec!["Q:picker-show", "Q:toast-delivered", "Q:alert-delivered"],
         "the input popup is not one of the gate's surfaces"
     );
+}
+
+#[test]
+fn lgs_remote_service_opens_only_while_the_owner_allows_it() {
+    let server = Server::start();
+    let dir = std::env::temp_dir().join(format!("lumatv-remoteservice-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("privacy")).unwrap();
+    let data = dir.clone();
+    let (sent, refused) = server.eval(move |s| {
+        s.config.data_dir = data;
+        s.shell_handle(Msg::Connected);
+        let remote = "com.webos.app.remoteservice";
+        s.shell_handle(Msg::Luna { tag: 1, uri: "luna://com.webos.applicationManager/launch".into(), payload: json!({"id": remote}), subscribe: false });
+        s.luna_call("luna://com.webos.applicationManager/launch".into(), json!({"id": remote, "params": {}}));
+        s.luna_call("luna://com.webos.applicationManager/launch".into(), json!({"id": "netflix"}));
+        (launches(s), (recorded(s, "luna"), journal_has(s, "LG Remote Service is blocked")))
+    });
+    assert_eq!(sent, vec!["netflix".to_string()], "blocked by default: neither the shell nor the compositor's own calls open it");
+    assert_eq!(refused.0.len(), 1, "the shell is told no");
+    assert_eq!(refused.0[0]["payload"]["errorText"], "LG Remote Service is blocked");
+    assert!(refused.1);
+    // The owner allows it (the helper's confirmed switch writes the file): the same launch goes through.
+    std::fs::write(dir.join("privacy/remoteservice.allowed"), "on\n").unwrap();
+    let sent = server.eval(|s| {
+        s.luna_call("luna://com.webos.applicationManager/launch".into(), json!({"id": "com.webos.app.remoteservice"}));
+        launches(s)
+    });
+    assert_eq!(sent.last().map(String::as_str), Some("com.webos.app.remoteservice"));
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]

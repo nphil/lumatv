@@ -827,15 +827,24 @@ Item {
     }
     // Home is up with nothing open on it: what a press of Home may turn into the app switcher (the compositor offers it; Shell.qml asks)
     readonly property bool atRest: hostActive && !(aiPrompt.up || layers.open !== "" || editing || trialOn)
-    // ---- the gear key held (payload/keyfilter/lumatv.js times the hold): the notification drawer, from wherever Home is. While Home can
-    // do this the filter stops LG's Settings long press (theme `remote.gearHold`, on unless the owner turned it off, hands the hold back to
-    // LG). Held again while the drawer is up it closes it, as LG's own hold toggles Settings. The AI prompt and the saver own the remote:
-    // the hold is taken and does nothing, so LG's Settings does not open behind them.
-    readonly property bool gearHoldOn: !theme.remote || theme.remote.gearHold !== false
-    function gearReady() { return hostActive && gearHoldOn }
-    function gearHold() {
-        if (!gearReady()) return false
+    // ---- the gear key held (payload/keyfilter/lumatv.js times the hold, the compositor under LumaTV's own): what the owner chose in Settings >
+    // Remote & pointer > Hold gear (theme `remote.gearHold`: "settings", the default, "notifications" or "nothing"), from wherever Home is. The
+    // hold is always ours, so LG's Settings long press never runs and LG's hidden support menu is not behind it. Held again while the drawer or
+    // Settings is up it closes it, as LG's own hold toggled Settings. The AI prompt and the saver own the remote: the hold is taken and does
+    // nothing. `mode` is the compositor's own reading of the same choice, when it asks.
+    readonly property string gearMode: !theme.remote || (theme.remote.gearHold !== "notifications" && theme.remote.gearHold !== "nothing") ? "settings" : theme.remote.gearHold
+    function gearReady(mode) { return hostActive }
+    function gearHold(mode) {
+        if (!gearReady(mode)) return false
         if (aiPrompt.up || layers.saverUp) return true
+        var m = mode || gearMode
+        if (m === "nothing") return true
+        if (m === "settings") {
+            if (settingsOpen) { closeSettings(); return true }
+            closeAllLayers()
+            openSettings()
+            return true
+        }
         if (layers.open === "drawer") { closeLayer(); return true }
         closeAllLayers()
         if (settingsOpen) closeSettings()

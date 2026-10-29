@@ -797,8 +797,8 @@ apps)
 keys)
     # The remote's own keys under LumaTV's compositor, each injected through `ctl remote` (the path a key from the remote's device takes)
     # and judged by what the compositor's journal says it decided and what SAM then has in front. Home is in front at the start and at the
-    # end, and every app a key opened is closed again. The gear's three taps and Mute held are left to the host tests: the first opens a
-    # service menu, the second would unmute the receiver the gate holds muted if it went wrong.
+    # end, and every app a key opened is closed again. Mute held is left to the host tests: it would unmute the receiver the gate holds
+    # muted if it went wrong. The gear's three taps and its hold open nothing of LG's (host tests in tests/keys.rs).
     kd=""; bad=""
     res() { if [ "$1" = ok ]; then kd="$kd $2 ok;"; else bad="$bad $2 ($3);"; fi; }
     home; sleep 3

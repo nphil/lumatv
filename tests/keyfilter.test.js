@@ -246,19 +246,85 @@ test("a tap of the gear is LG's from press to release: the filter only watches i
   expect(lgCalls).toEqual([]);
 });
 
-test("three taps stay three events for LG's AV reset, the hold's timer never survives a release", () => {
+// LG counts three releases of the gear within 3 s as its hidden AV-reset menu (`tvhotkey`), after the long-press replay of each tap. The filter
+// counts the remote's own presses (a press within 80 ms of a release is LG's replay of the tap) and takes the third whole: LG never sees it.
+const panels = () => calls.filter((c) => c[0] === "panel").map((c) => c[1]);
+
+test("the first two taps are LG's replay and LumaTV's panel, the third within 4 s is taken whole and opens the panel here: LG's AV reset never counts it", () => {
+  const f = makeFilter();
+  for (let i = 0; i < 2; i++) {
+    const r = tapGear(f);
+    expect(r.physical).toEqual([N, N]);
+    expect(r.replay).toEqual([A, A]);
+    advance(500);
+  }
+  expect(panels()).toEqual(["quick", "quick"]);
+  expect(down(f, GEAR)).toBe(A);
+  advance(80);
+  expect(up(f, GEAR)).toBe(A);
+  expect(panels()).toEqual(["quick", "quick", "quick"]);
+  // LG's long press never started for it, so nothing of LG's was touched
+  expect(lgCalls).toEqual([]);
+  // and the fourth, still within 4 s of the second, is taken too
+  advance(400);
+  expect(down(f, GEAR)).toBe(A);
+  advance(80);
+  expect(up(f, GEAR)).toBe(A);
+  expect(panels().length).toBe(4);
+});
+
+test("taps further apart than 4 s are LG's every time", () => {
+  const f = makeFilter();
+  for (let i = 0; i < 6; i++) {
+    expect(tapGear(f).physical).toEqual([N, N]);
+    advance(2500);
+  }
+  expect(panels().length).toBe(6);
+});
+
+test("the third tap when LumaTV's panel cannot open is LG's Quick Settings, launched here, never the AV reset", () => {
+  const f = makeFilter();
+  tapGear(f);
+  advance(500);
+  tapGear(f);
+  advance(500);
+  panelReady = () => false;
+  lunaSent = [];
+  expect(down(f, GEAR)).toBe(A);
+  advance(80);
+  expect(up(f, GEAR)).toBe(A);
+  expect(lunaSent).toEqual([["com.webos.service.systemUIManager", "/launch", '{"appId":"com.webos.app.quicksettings"}']]);
+});
+
+test("a third press that is held is a hold, not a tap: it opens what the hold opens and the release opens no panel", () => {
+  const f = makeFilter();
+  tapGear(f);
+  advance(500);
+  tapGear(f);
+  advance(500);
+  calls = [];
+  expect(down(f, GEAR)).toBe(A);
+  advance(650);
+  expect(held()).toBe(1);
+  expect(down(f, GEAR, true)).toBe(A);
+  expect(up(f, GEAR)).toBe(A);
+  expect(panels()).toEqual([]);
+});
+
+test("three taps that are not the remote's (a keyboard replays nothing) are counted the same: the third is taken", () => {
   bridgeAnswers = () => false;
   const f = makeFilter();
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 2; i++) {
     expect(down(f, GEAR)).toBe(N);
     advance(200);
     expect(up(f, GEAR)).toBe(N);
     advance(300);
   }
+  expect(down(f, GEAR)).toBe(A);
+  advance(200);
+  expect(up(f, GEAR)).toBe(A);
   advance(10_000);
   expect(held()).toBe(0);
-  expect(lgCalls).toEqual([]);
-  expect(timers).toEqual([]);
 });
 
 test("held 650 ms the gear opens the drawer, LG's long press is stopped and the rest of the hold ends at the filter", () => {

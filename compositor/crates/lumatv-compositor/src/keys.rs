@@ -1,6 +1,6 @@
 //! The remote's key filters, moved out of LG's compositor (`KeyFilters/*.js`; what each does is read in
 //! `docs/research/surfaces/KeyEntryPoints.json`) into the routing, without drawing anything: which key is which, what a tap, a
-//! hold and three taps ask for. State only, time is an argument: `input.rs` feeds it the remote's events and the tick, and
+//! hold ask for. State only, time is an argument: `input.rs` feeds it the remote's events and the tick, and
 //! `system_ui.rs` carries out what it asks for, so every decision here is a host test.
 //!
 //! LG's chain swallows the gear, Input and the app keys and decides at the release (a tap) or at 1 s (a hold, converted to
@@ -20,9 +20,6 @@ use crate::input::code::*;
 pub const HOLD: Duration = Duration::from_millis(1000);
 /// Mute held for the accessibility panel (`handleAccessibility`, 2000 ms).
 pub const HOLD_MUTE: Duration = Duration::from_millis(2000);
-/// Three gear taps within this are the hidden AV-reset menu (`handleAvReset`).
-pub const AV_RESET_WINDOW: Duration = Duration::from_secs(3);
-const AV_RESET_TAPS: usize = 3;
 
 /// The remote's four app buttons. The id is what Settings > Remote stores them under (`settings/AppKeys.js`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -166,6 +163,34 @@ impl KeyTable {
     }
 }
 
+/// What the gear does when it is held (Settings > Remote & pointer > Hold gear: the theme's `remote.gearHold`). Any other word, a missing
+/// key or the old on/off switch this replaced means the default, LumaTV's Settings.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum HoldAction {
+    #[default]
+    Settings,
+    Notifications,
+    Nothing,
+}
+
+impl HoldAction {
+    pub fn from_theme(theme: &Value) -> HoldAction {
+        match theme.pointer("/remote/gearHold").and_then(Value::as_str) {
+            Some("notifications") => HoldAction::Notifications,
+            Some("nothing") => HoldAction::Nothing,
+            _ => HoldAction::Settings,
+        }
+    }
+
+    pub fn id(self) -> &'static str {
+        match self {
+            HoldAction::Settings => "settings",
+            HoldAction::Notifications => "notifications",
+            HoldAction::Nothing => "nothing",
+        }
+    }
+}
+
 /// Settings > Remote's choice for the app buttons: the theme's `remote.appKeys`, `{netflix: "<app id>", amazon: "", ...}`. A button
 /// the owner never set is absent and means LG's own target; `""` means nothing.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -220,10 +245,9 @@ pub enum SystemRequest {
     InputPicker,
     /// The Input key held: the Home Hub (`com.webos.app.homeconnect`).
     InputHub,
-    /// The gear held: LG's Settings app, closed when it is already in front (LG's `Key_Option`).
-    Settings,
-    /// Three gear taps: the hidden AV-reset menu (`tvhotkey`, `mute-hidden-action`).
-    AvReset,
+    /// The gear held: what the owner chose for it (`GearHold`). Never LG's Settings app, and never LG's hidden AV-reset menu, which three
+    /// taps used to open (`tvhotkey`, `mute-hidden-action`): its items are in LumaTV's Settings.
+    GearHold,
     /// Mute held: the accessibility quick panel.
     Accessibility,
     /// A digit held: Quick Access slot 1 to 9; 0 is the editor.
@@ -278,7 +302,6 @@ struct Held {
 pub struct Router {
     pub table: KeyTable,
     down: Vec<Held>,
-    gear_taps: Vec<Instant>,
 }
 
 impl Router {
@@ -326,7 +349,7 @@ impl Router {
         let mut out = Outcome { swallow: h.swallowed || h.fired, actions: Vec::new() };
         if !h.fired {
             match h.logical {
-                Logical::Gear => out.actions.push(Action::Request(self.gear_tap(now))),
+                Logical::Gear => out.actions.push(Action::Request(SystemRequest::QuickSettings)),
                 Logical::Input if !h.early => out.actions.push(Action::Request(SystemRequest::InputPicker)),
                 _ => {}
             }
@@ -357,7 +380,7 @@ impl Router {
                 continue;
             }
             match h.logical {
-                Logical::Gear => out.push(Action::Request(SystemRequest::Settings)),
+                Logical::Gear => out.push(Action::Request(SystemRequest::GearHold)),
                 Logical::Input => out.push(Action::Request(SystemRequest::InputHub)),
                 // Quick Access is not asked of a text field's keyboard: its digits are the field's (LG skips it while the keyboard shows).
                 Logical::Digit(_) if ctx.keyboard_up => continue,
@@ -375,17 +398,6 @@ impl Router {
             h.fired = true;
         }
         out
-    }
-
-    fn gear_tap(&mut self, now: Instant) -> SystemRequest {
-        self.gear_taps.retain(|t| now.saturating_duration_since(*t) <= AV_RESET_WINDOW);
-        self.gear_taps.push(now);
-        if self.gear_taps.len() >= AV_RESET_TAPS {
-            self.gear_taps.clear();
-            SystemRequest::AvReset
-        } else {
-            SystemRequest::QuickSettings
-        }
     }
 }
 
@@ -491,53 +503,48 @@ mod tests {
     }
 
     #[test]
-    fn three_gear_taps_in_three_seconds_are_the_av_reset_and_the_first_two_are_not() {
+    fn gear_taps_are_quick_settings_however_many_and_however_close() {
+        // Three taps within three seconds used to open LG's hidden AV-reset menu (`tvhotkey`); every tap is Quick Settings now.
         let mut r = Rig::new();
         let mut asked = Vec::new();
-        for _ in 0..3 {
+        for _ in 0..7 {
             r.key(KEY_MENU, true);
             r.at(80);
             asked.extend(r.key(KEY_MENU, false).actions);
-            r.at(900);
+            r.at(300);
         }
-        assert_eq!(asked, vec![req(QuickSettings), req(QuickSettings), req(AvReset)]);
-        // The count starts again: the next tap is a first one.
-        r.key(KEY_MENU, true);
-        r.at(80);
-        assert_eq!(r.key(KEY_MENU, false).actions, vec![req(QuickSettings)]);
+        assert_eq!(asked, vec![req(QuickSettings); 7]);
     }
 
     #[test]
-    fn gear_taps_further_apart_than_three_seconds_never_reach_the_av_reset() {
-        let mut r = Rig::new();
-        let mut asked = Vec::new();
-        for _ in 0..5 {
-            r.key(KEY_MENU, true);
-            r.at(50);
-            asked.extend(r.key(KEY_MENU, false).actions);
-            r.at(1600);
-        }
-        assert!(asked.iter().all(|a| *a == req(QuickSettings)), "{asked:?}");
-    }
-
-    #[test]
-    fn a_gear_hold_opens_settings_once_and_is_no_tap() {
+    fn a_gear_hold_asks_for_the_hold_action_once_and_is_no_tap() {
         let mut r = Rig::new();
         r.key(KEY_MENU, true);
         r.at(999);
         assert!(r.poll().is_empty(), "not yet");
         r.at(2);
-        assert_eq!(r.poll(), vec![req(Settings)]);
+        assert_eq!(r.poll(), vec![req(GearHold)]);
         r.at(500);
         assert!(r.poll().is_empty(), "once");
         assert!(r.key(KEY_MENU, true).swallow, "a repeat after the hold");
         let release = r.key(KEY_MENU, false);
-        assert!(release.swallow && release.actions.is_empty(), "a hold is no tap, and never counts toward the AV reset");
+        assert!(release.swallow && release.actions.is_empty(), "a hold is no tap");
         for _ in 0..2 {
             r.key(KEY_MENU, true);
             r.at(60);
             assert_eq!(r.key(KEY_MENU, false).actions, vec![req(QuickSettings)]);
         }
+    }
+
+    #[test]
+    fn the_hold_action_is_the_themes_word_and_settings_for_anything_else() {
+        let of = |t: serde_json::Value| HoldAction::from_theme(&t);
+        assert_eq!(of(serde_json::json!({})), HoldAction::Settings);
+        assert_eq!(of(serde_json::json!({"remote": {"gearHold": "notifications"}})), HoldAction::Notifications);
+        assert_eq!(of(serde_json::json!({"remote": {"gearHold": "nothing"}})), HoldAction::Nothing);
+        assert_eq!(of(serde_json::json!({"remote": {"gearHold": "settings"}})), HoldAction::Settings);
+        assert_eq!(of(serde_json::json!({"remote": {"gearHold": false}})), HoldAction::Settings, "the old switch's off handed the hold to LG's Settings, which is never opened now");
+        assert_eq!(of(serde_json::json!({"remote": {"gearHold": "lg"}})), HoldAction::Settings);
     }
 
     #[test]

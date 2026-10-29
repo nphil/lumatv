@@ -127,7 +127,15 @@ pub const ALLOWED_SERVICES: &[&str] = &[
 /// Single methods of a service that is not open as a whole. The Homebrew Channel's service also runs commands as root (`exec`, `spawn`), so
 /// only its two settings calls are open, for Settings > System > Support > Update's block switch (`blockUpdates`): without them the page
 /// reads "Homebrew Channel: not allowed by the compositor" and cannot change the flag.
-pub const ALLOWED_METHODS: &[&str] = &["org.webosbrew.hbchannel.service/getConfiguration", "org.webosbrew.hbchannel.service/setConfiguration"];
+///
+/// Also the two services behind LG's hidden support menu's items, which Settings > System > About and Reset have now: the factory data's
+/// read (model, serial number) and the AV reset's video call (the rest of the AV reset is the audio, input and picture services' own).
+pub const ALLOWED_METHODS: &[&str] = &[
+    "org.webosbrew.hbchannel.service/getConfiguration",
+    "org.webosbrew.hbchannel.service/setConfiguration",
+    "com.webos.service.factorymanager/getFactoryOpt",
+    "com.webos.service.videooutput/reset/resetVideoSettings",
+];
 
 /// Whether the shell may make this call: `luna://<service>/...` with the service on the allowlist (a sub-name such as
 /// `com.webos.service.audio/tv` counts as its service), or one of the single methods in `ALLOWED_METHODS`.
@@ -704,6 +712,12 @@ impl State {
                     self.journal(format!("shell: luna {uri} refused (not on the allowlist)"));
                     self.shell
                         .push("luna", json!({"tag": tag, "payload": {"returnValue": false, "errorCode": -1, "errorText": "not allowed by the compositor"}}));
+                    return false;
+                }
+                if self.remote_service_refused(&uri, &payload) {
+                    self.shell.stats.luna_refused += 1;
+                    self.journal("shell: LG Remote Service is blocked (Settings > Privacy), launch dropped".into());
+                    self.shell.push("luna", json!({"tag": tag, "payload": {"returnValue": false, "errorCode": -1, "errorText": "LG Remote Service is blocked"}}));
                     return false;
                 }
                 if is_saver_vote(&uri) && self.shell_rust.answers("saver") {
@@ -1487,6 +1501,8 @@ mod tests {
         assert!(allowed("luna://com.webos.service.sm/deviceid/getIDs"));
         assert!(allowed("luna://com.palm.systemservice/time/getEffectiveBroadcastTime"));
         assert!(!allowed("luna://com.webos.service.secret/anything"));
+        assert!(allowed("luna://com.webos.service.factorymanager/getFactoryOpt") && allowed("luna://com.webos.service.videooutput/reset/resetVideoSettings"));
+        assert!(!allowed("luna://com.webos.service.videooutput/setDisplayWindow") && !allowed("luna://com.webos.service.factorymanager/setFactoryOpt"));
         assert!(!allowed("com.webos.applicationManager/launch"));
         assert!(!allowed("luna://com.webos.applicationManagerX/launch"));
     }

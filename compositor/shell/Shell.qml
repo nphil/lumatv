@@ -375,7 +375,8 @@ WebOSWindow {
         try {
             if (bridge.panelReady("quick")) c.push("quick")
             if (bridge.panelReady("picker")) c.push("picker")
-            if (bridge.gearReady()) c.push("drawer")
+            if (bridge.gearReady("notifications")) c.push("drawer")
+            if (bridge.gearReady("settings")) c.push("settings")
             if (bridge.panelReady("switcher")) c.push("switcher")
             if (kbd.status === Loader.Ready && !!kbd.item && kbd.item.ready === true) c.push("keyboard")
         } catch (e) {}
@@ -420,7 +421,8 @@ WebOSWindow {
         if (!bridge) return
         try {
             if (warm) { bridge.warmPanel(kind); return }
-            if (kind === "drawer") bridge.gearHold()
+            if (kind === "drawer") bridge.gearHold("notifications")
+            else if (kind === "settings") bridge.gearHold("settings")
             else bridge.panel(kind)
         } catch (e) { console.warn("[Shell] show " + kind + " threw: " + e) }
         report()

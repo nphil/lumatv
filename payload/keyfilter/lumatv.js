@@ -18,15 +18,17 @@
 //
 // The gear (Settings) key. LG's chain swallows its press (preProcess.js, `handleLongPressKeys`
 // is fourth, behind this filter) and decides on release: before 1 s it replays the key, which
-// opens Quick Settings and counts toward the three-tap AV reset; at 1 s it injects Key_Option,
-// which launches LG's Settings app. This filter only watches the press, so a tap is LG's as it
-// always was (the press also tells the quick panel to join the scene: `warmQuick`). Held 650 ms it
-// asks LumaHome (or the overlay, over an app) to open the
-// notification drawer; once that has opened, LG's own long-press timer is cancelled the way
+// opens Quick Settings and counts toward the three-tap AV reset (LG's hidden support menu, `tvhotkey`);
+// at 1 s it injects Key_Option, which launches LG's Settings app. This filter watches the press, so a
+// tap is LG's as it always was (the press also tells the quick panel to join the scene: `warmQuick`),
+// except the third tap within 4 s, which is taken here whole and opens the quick panel itself, so
+// LG's AV reset never counts it (`gearTaps`). Held 650 ms it asks LumaHome (or the overlay, over an
+// app) to do what the owner chose for the hold (theme `remote.gearHold`: LumaTV's Settings, the
+// notification drawer or nothing); once it has, LG's own long-press timer is cancelled the way
 // the Home hold cancels Screen Zoom's, and the rest of the hold, its repeats and its release,
-// ends here, so LG neither opens Settings nor replays a tap. When nothing of ours can show the
-// drawer, the hold is LG's. Key_Option, the 1 s conversion, is the safety net: while the gear is
-// down it is ours too, and LG's Settings never opens over a drawer.
+// ends here, so LG neither opens its Settings nor replays a tap. When nothing of ours can answer
+// the hold, it is LG's. Key_Option, the 1 s conversion, is the safety net: while the gear is
+// down it is ours too, and LG's Settings never opens over what the hold opened.
 //
 // The remote's app keys (Netflix, Prime Video, Disney+, LG Channels) are watched in any foreground: the owner may set each to open
 // any app or nothing (theme `remote.appKeys`, read by LumaHome). While LumaHome answers, the TV is on and nothing of LG's is on top of the
@@ -46,10 +48,17 @@ var taken = {};          // key code -> "home", "overlay" or "appkey" while that
 var lastFaultMs = 0;
 var lastWhyMs = 0;      // when the last "left to LG" reason was logged
 
-var GEAR_HOLD_MS = 650;  // PLAN: a hold is one press held 650 ms; the AV reset is three taps
+var GEAR_HOLD_MS = 650;  // PLAN: a hold is one press held 650 ms
 var GEAR_KEY = null;     // WebOS.Key_webOS_Settings, read at init: a scope without WebOS leaves the gear to LG
 var GEAR_WATCH_MS = 30000; // a release that never arrives must not hold the gear's state for good (a hold without repeat events is not cut short either)
 var gear = { down: false, fired: false, hold: -1, watch: -1, option: false };
+// LG counts three releases of the gear within 3 s as the AV reset (`handleAvReset`, counted after the long-press replay). The remote's own
+// presses are counted here (a press within GEAR_REPLAY_MS of a release is LG's replay of the tap before it, not a press of the remote), a
+// little wider than LG's window; the one that makes three is taken whole, so the replay LG counts never happens.
+var GEAR_TAPS = 3;
+var GEAR_TAPS_MS = 4000;
+var GEAR_REPLAY_MS = 80;
+var gearTaps = { times: [], lastUp: 0, taken: false };
 var APP_KEYS = {};       // key code -> "netflix" | "amazon" | "disneyplus" | "lgchannels", read at init
 var INPUT_KEYS = {};     // key code -> true: Key_webOS_InputSource and Key_webOS_LocalInputSource, read at init
 var CURSOR_KEYS = {};    // key code -> true: Key_webOS_CursorShow and Key_webOS_CursorHide, which LG's chain makes of the Magic Remote's pointer showing and hiding
@@ -178,7 +187,7 @@ function gearReset() {
     gear.down = false; gear.fired = false; gear.hold = -1; gear.watch = -1; gear.option = false;
 }
 
-// Something of ours has the screen and can show the drawer now.
+// Something of ours has the screen and can do what the hold is for now.
 function gearWanted() {
     return (homeInFront() || appInFront()) && bridge.answering() && bridge.gearReady();
 }
@@ -204,11 +213,11 @@ function gearFire() {
     gear.hold = -1;
     try {
         if (!gear.down || gear.fired || !gearWanted()) return;
-        if (!bridge.gearHold()) return;          // nothing opened: the hold stays LG's
+        if (!bridge.gearHold()) return;          // nothing answered: the hold stays LG's
         gear.fired = true;
         gearCancelLg();
         gearWatch();
-        console.info("[LumaKeys] gear held, the notification drawer is open");
+        console.info("[LumaKeys] gear held, the hold's own answer is up");
     } catch (e) {
         fault("the gear hold", e);
     }
@@ -240,6 +249,42 @@ function gearKey(pressed, autoRepeat) {
     return swallow;
 }
 
+// The third tap of the gear within GEAR_TAPS_MS: LG's chain never gets it. Its press and repeats end here; at the release, unless a hold fired,
+// the quick panel opens (or, when ours cannot, LG's own Quick Settings, which is what LG's chain did with the first two).
+function gearTapTaken() {
+    try {
+        if (panelWanted("quick") && bridge.panel("quick") === true) return;
+        if (global.powerState === "active" && lgWouldOpen("quick") && typeof bridge.launchHook === "function") bridge.launchHook("com.webos.app.quicksettings");
+    } catch (e) {
+        fault("the gear's third tap", e);
+    }
+}
+
+// One event of the gear: the hold's state (`gearKey`) and the three-tap guard. true: the event ends here.
+function gearEvent(pressed, autoRepeat) {
+    var t = Date.now();
+    if (pressed && !autoRepeat) {
+        gearTaps.taken = false;
+        if (t - gearTaps.lastUp >= GEAR_REPLAY_MS) {
+            gearTaps.times = gearTaps.times.filter(function(at) { return t - at < GEAR_TAPS_MS; });
+            gearTaps.times.push(t);
+            gearTaps.taken = gearTaps.times.length >= GEAR_TAPS;
+        }
+        warmQuick();
+    }
+    var heldHere = gear.fired && !gear.option;
+    var swallow = gearKey(pressed, autoRepeat);
+    if (!gearTaps.taken) {
+        if (!pressed) gearTaps.lastUp = t;
+        return swallow;
+    }
+    if (!pressed) {
+        gearTaps.taken = false;
+        if (!heldHere && !gear.option) gearTapTaken();
+    }
+    return true;
+}
+
 // The gear is down. If it is let go within the hold, LG replays it as a tap and the second entry below opens the quick panel, so the panel
 // joins the scene now, off the screen, and the tap's slide starts in a scene that has it (panels/PanelMotion.qml has the numbers). Nothing is
 // shown, and LG's chain still gets the press.
@@ -260,7 +305,7 @@ function optionKey(pressed) {
         if (gear.down && gearWanted() && bridge.gearHold()) {
             gear.fired = true; gear.option = true;
             gearWatch();
-            console.info("[LumaKeys] gear held, the notification drawer is open (LG's own long press ran first)");
+            console.info("[LumaKeys] gear held, the hold's own answer is up (LG's own long press ran first)");
             return true;
         }
         return false;
@@ -281,8 +326,7 @@ function handleLumaHome(key, pressed, autoRepeat, deviceId) {
         if (takeKey(key, pressed, autoRepeat, deviceId)) return KeyPolicy.Accepted;
         if (APP_KEYS[key] !== undefined) return appKey(key, pressed, autoRepeat) ? KeyPolicy.Accepted : KeyPolicy.NextPolicy;
         if (GEAR_KEY !== null && key === GEAR_KEY) {
-            if (pressed && !autoRepeat) warmQuick();
-            return gearKey(pressed, autoRepeat) ? KeyPolicy.Accepted : KeyPolicy.NextPolicy;
+            return gearEvent(pressed, autoRepeat) ? KeyPolicy.Accepted : KeyPolicy.NextPolicy;
         }
         if (key === Qt.Key_Option) return optionKey(pressed) ? KeyPolicy.Accepted : KeyPolicy.NextPolicy;
         return KeyPolicy.NextPolicy;

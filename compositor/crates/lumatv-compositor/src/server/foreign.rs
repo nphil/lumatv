@@ -286,6 +286,10 @@ impl State {
     /// A one-shot luna call through the bridge. Tokens come from the one counter every outbound call uses (`luna_token`): the
     /// bridge answers each call as an event with its token, and a token shared with a subscription would answer the wrong one.
     pub fn luna_call(&mut self, uri: String, payload: serde_json::Value) {
+        if self.remote_service_refused(&uri, &payload) {
+            self.journal("luna: LG Remote Service is blocked (Settings > Privacy), launch dropped".into());
+            return;
+        }
         // Placements are what the gate's Netflix check counts; the per-video property calls are left out.
         if uri.ends_with("/setDisplayWindow") || uri.ends_with("/setCropRegion") || uri.ends_with("/setCompositing") {
             let method = uri.rsplit('/').next().unwrap_or_default();

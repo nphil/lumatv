@@ -115,7 +115,7 @@ def _(out_dir, material):
 
 @scene("13-overlay-drawer", runner=True)
 def _(out_dir, material):
-    return render("13-overlay-drawer", out_dir, material, [(500, POST), (1000, "overlay.gearHold()")], 2400, publish=[(300, "ai", AI), (300, "__audit", AUDIT)])
+    return render("13-overlay-drawer", out_dir, material, [(500, POST), (1000, "overlay.gearHold('notifications')")], 2400, publish=[(300, "ai", AI), (300, "__audit", AUDIT)])
 
 
 def quick_scene(name, out_dir, material, keys=()):

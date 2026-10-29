@@ -4,20 +4,23 @@
 //! LG's key chain opens Quick Settings, the input picker, Quick Access and the rest as system windows of its own compositor
 //! (`systemUIManager/launch`). `State::system_request` is the one place where a key asks for a surface. The shell client says
 //! what it can show now (`can`: the quick panel, the input picker, the notification drawer) and is asked first; the table below
-//! is the route for what it declines or does not draw: each goes to the app LG's own filters reach for the same key (Settings
-//! for the gear's hold, the Home Hub for Input's, `tvhotkey` for the AV reset, the accessibility overlay for Mute), or, for the
+//! is the route for what it declines or does not draw: each goes to the app LG's own filters reach for the same key (the Home Hub
+//! for Input's, the accessibility overlay for Mute), or, for the
 //! windows that exist only inside LG's compositor, the nearest app that shows the same thing, said in the journal line.
 
 use serde_json::{Value, json};
 
 use crate::State;
-use crate::keys::SystemRequest;
+use crate::keys::{HoldAction, SystemRequest};
 
 const SETTINGS: &str = "com.palm.app.settings";
 const HOME_HUB: &str = "com.webos.app.homeconnect";
 const QUICK_ACCESS: &str = "com.webos.app.magicnum";
 const ACCESSIBILITY: &str = "com.webos.app.accessibility-overlay";
-const AV_RESET: &str = "com.webos.app.tvhotkey";
+/// LG's remote support (`LG Remote Service`: LG staff see and control the TV once a code is read out). It opens only while the owner has
+/// allowed it in Settings > Privacy, which is the helper's owner-only, confirmed switch: its file below exists. No other route turns it on.
+const REMOTE_SERVICE: &str = "com.webos.app.remoteservice";
+const REMOTE_SERVICE_ALLOWED: &str = "privacy/remoteservice.allowed";
 
 impl State {
     pub fn system_request(&mut self, request: SystemRequest) {
@@ -37,21 +40,7 @@ impl State {
                 }
             }
             SystemRequest::InputHub => self.launch("Input held", "the Home Hub", HOME_HUB, None),
-            SystemRequest::Settings => {
-                // The gear held: LumaTV's notification drawer where Home or the system layer can open it (theme `remote.gearHold`,
-                // as under LG's compositor), LG's Settings app otherwise.
-                if self.shell_show("drawer", false) {
-                    self.journal("input: gear held: the notification drawer -> LumaTV's shell".into());
-                } else if self.shell_show("settings", false) {
-                    self.journal("input: gear held: Settings -> LumaTV's own Settings".into());
-                } else if self.foreground_app() == SETTINGS {
-                    self.journal(format!("input: gear held: Settings is in front, closing {SETTINGS}"));
-                    self.luna_call("luna://com.webos.applicationManager/closeByAppId".into(), json!({"id": SETTINGS}));
-                } else {
-                    self.launch("gear held", "Settings", SETTINGS, None);
-                }
-            }
-            SystemRequest::AvReset => self.launch("gear tapped 3 times", "the AV reset menu", AV_RESET, Some(json!({"activateType": "mute-hidden-action"}))),
+            SystemRequest::GearHold => self.gear_hold(),
             SystemRequest::Accessibility => self.launch("Mute held", "the accessibility panel", ACCESSIBILITY, Some(json!({"quickMode": true}))),
             SystemRequest::QuickAccess(0) => self.launch("0 held", "the Quick Access editor", QUICK_ACCESS, None),
             SystemRequest::QuickAccess(n) => self.interim(&format!("{n} held"), &format!("Quick Access slot {n}"), QUICK_ACCESS, None),
@@ -59,6 +48,33 @@ impl State {
             SystemRequest::Exit => self.back_pressed(),
             SystemRequest::CloseKeyboard => self.close_keyboard("a key asked for the keyboard to close"),
         }
+    }
+
+    /// The gear held: what the owner chose (theme `remote.gearHold`, Settings > Remote & pointer > Hold gear). LG's own answers to this key are
+    /// never used: not its Settings app, and not the hidden AV-reset menu (`tvhotkey`), whose items are in LumaTV's Settings. A choice the shell
+    /// cannot show now is a held key that does nothing, said in the journal.
+    fn gear_hold(&mut self) {
+        let choice = self.keys.gear_hold;
+        let (kind, shown) = match choice {
+            HoldAction::Settings => ("settings", "LumaTV's Settings"),
+            HoldAction::Notifications => ("drawer", "the notification drawer -> LumaTV's shell"),
+            HoldAction::Nothing => return self.journal("input: gear held: nothing (the owner's choice)".into()),
+        };
+        if self.shell_show(kind, false) {
+            self.journal(format!("input: gear held: {shown}"));
+        } else {
+            self.journal(format!("input: gear held: LumaTV's {} cannot be shown now, nothing opened", choice.id()));
+        }
+    }
+
+    /// Whether a luna call would open LG's Remote Service while the owner has not allowed it: such a call is dropped, whoever made it.
+    pub fn remote_service_refused(&self, uri: &str, payload: &Value) -> bool {
+        let launch = uri.rsplit_once('/').is_some_and(|(service, method)| {
+            service.rsplit('/').next().is_some_and(|s| s.eq_ignore_ascii_case("com.webos.applicationManager") || s.eq_ignore_ascii_case("com.webos.service.applicationmanager"))
+                && matches!(method, "launch" | "open" | "launchDefaultApp")
+        });
+        let names = ["id", "appId"].into_iter().any(|k| payload.get(k).and_then(Value::as_str) == Some(REMOTE_SERVICE));
+        launch && names && !self.config.data_dir.join(REMOTE_SERVICE_ALLOWED).is_file()
     }
 
     /// A launch through the app manager, with the journal line the gate reads.

@@ -352,6 +352,8 @@ pub struct Keys {
     pub router: keys::Router,
     /// Settings > Remote's app buttons, re-read when the theme file changes.
     pub app_keys: keys::AppKeyConfig,
+    /// What the gear does when held (`remote.gearHold`), read with the app buttons.
+    pub gear_hold: keys::HoldAction,
     /// What shows the Magic Remote's pointer (`remote.pointerShow`), read with the app buttons.
     pub pointer_show: seat::PointerShow,
     theme: ThemeFile,
@@ -399,10 +401,12 @@ impl Keys {
         }
         if stamp.is_none() {
             self.app_keys = keys::AppKeyConfig::default();
+            self.gear_hold = keys::HoldAction::default();
             self.pointer_show = seat::PointerShow::default();
             self.theme.stamp = None;
         } else if let Some(theme) = std::fs::read_to_string(&self.theme.path).ok().and_then(|t| serde_json::from_str(&t).ok()) {
             self.app_keys = keys::AppKeyConfig::from_theme(&theme);
+            self.gear_hold = keys::HoldAction::from_theme(&theme);
             self.pointer_show = seat::PointerShow::from_theme(&theme);
             self.theme.stamp = stamp;
         }

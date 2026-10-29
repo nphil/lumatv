@@ -38,11 +38,11 @@ QtObject {
     function dispatch(key, pressed, autoRepeat, deviceId) { return Bus.dispatch(key, pressed, autoRepeat, deviceId) }
     function answering() { return Bus.answering() }
     // The overlay over an app (LumaOverlay.qml) takes keys while it has a surface that wants them; the gear key's hold, which the
-    // filter times, asks Home or the overlay to open the notification drawer.
+    // filter times, asks Home or the overlay to do what the owner chose for it (Settings, the notification drawer, nothing).
     function dispatchOverlay(key, pressed, autoRepeat, deviceId) { return Bus.dispatchOverlay(key, pressed, autoRepeat, deviceId) }
     function overlayWants() { return Bus.overlayWants() }
-    function gearReady() { return Bus.gearReady() }
-    function gearHold() { return Bus.gearHold() }
+    function gearReady(mode) { return Bus.gearReady(mode) }
+    function gearHold(mode) { return Bus.gearHold(mode) }
     // LumaTV's quick panel (the gear's tap) and input picker (the Input key), on Home or over an app: whether one can be shown or hidden now,
     // and the doing of it. False leaves the key to LG's own window.
     function panelReady(kind) { return Bus.panelReady(kind) }

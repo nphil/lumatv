@@ -120,6 +120,17 @@ test("the gear's hold goes to Home while Home can show the drawer, else to the o
   expect(Bus.gearHold()).toBe(false);
 });
 
+test("the hold's mode (Settings, the drawer, nothing) goes to whoever answers, and none is theirs to read from the theme", () => {
+  const seen = [];
+  Bus.setHandler(() => false);
+  Bus.setGear({ ready: (m) => { seen.push(["ready", m]); return true; }, hold: (m) => { seen.push(["hold", m]); return true; } });
+  Bus.beat();
+  expect(Bus.gearReady("settings")).toBe(true);
+  expect(Bus.gearHold("notifications")).toBe(true);
+  expect(Bus.gearHold()).toBe(true);
+  expect(seen).toEqual([["ready", "settings"], ["ready", "notifications"], ["hold", "notifications"], ["ready", undefined], ["hold", undefined]]);
+});
+
 test("a held gear over an app opens the overlay's drawer through the filter and the bus", () => {
   const state = { wants: false, ready: true, takes: true };
   registerHome(Bus, { active: false });

@@ -337,17 +337,18 @@ class Settings(HostCase):
             self.assertEqual(before["remote"]["numberKeys"], False)
             self.assertEqual(after, before)
 
-    def test_the_gear_hold_switch_writes_the_key_the_shell_reads(self):
-        # Remote page, Keys tab: Hold Home, number keys, gear hold (on by default): OK turns it off
+    def test_the_hold_gear_choice_writes_the_word_the_shell_and_the_compositor_read(self):
+        # Remote page, Keys tab: Hold Home, number keys, Hold gear (Settings, Notifications, Nothing; Settings until chosen): Right moves to
+        # Notifications, OK chooses it
         with tempfile.TemporaryDirectory() as d:
             data = os.path.join(d, "data")
-            rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("remote", "right", "up", "right", "down", "down", "down", "ok"),
-                                "--eval", "%d:JSON.stringify({remote: root.theme.remote})" % (READY + 3800), "--wait", str(READY + 4400), data=data)
+            rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("remote", "right", "up", "right", "down", "down", "down", "right", "ok"),
+                                "--eval", "%d:JSON.stringify({remote: root.theme.remote})" % (READY + 4200), "--wait", str(READY + 4800), data=data)
             self.assertEqual(rc, 0, out[-1500:])
-            self.assertEqual(self.docs(out)[-1]["remote"]["gearHold"], False)
+            self.assertEqual(self.docs(out)[-1]["remote"]["gearHold"], "notifications")
 
     def test_the_quick_panel_and_input_picker_switches_are_on_until_turned_off(self):
-        # Remote page, Keys tab: Hold Home, number keys, gear hold, quick panel on gear, input picker: OK on each turns it off
+        # Remote page, Keys tab: Hold Home, number keys, Hold gear, quick panel on gear, input picker: OK on each turns it off
         with tempfile.TemporaryDirectory() as d:
             data = os.path.join(d, "data")
             rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT,

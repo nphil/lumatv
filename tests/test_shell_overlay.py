@@ -129,14 +129,14 @@ class Overlay(HostCase):
         self.assertEqual(sysui_calls(got["calls"]), [], "a system window asked for twice (Quick Settings toggles) or through a client that may not be allowed")
         self.assertIn("[LumaOverlay] com.webos.app.quicksettings asked for through the key filter's client", out)
 
-    def test_the_gear_hold_opens_the_drawer_over_an_app_and_a_second_hold_or_back_closes_it(self):
+    def test_the_gear_hold_asked_for_the_drawer_opens_it_over_an_app_and_a_second_hold_or_back_closes_it(self):
         got, _ = self.run_overlay([
-            (1000, "overlay.gearHold()", "no_app"), (1100, do("overlay.appFront = true"), "front"),
-            (1200, "overlay.gearHold()", "held"), (1300, STATUS, "open"), (1350, key("Qt.Key_Down"), "down"), (1360, key("Qt.Key_Down", "false"), "down_up"),
+            (1000, "overlay.gearHold('notifications')", "no_app"), (1100, do("overlay.appFront = true"), "front"),
+            (1200, "overlay.gearHold('notifications')", "held"), (1300, STATUS, "open"), (1350, key("Qt.Key_Down"), "down"), (1360, key("Qt.Key_Down", "false"), "down_up"),
             (1400, "overlay.showBanner(%s)" % js(PILL), "banner_over_drawer"), (1450, key("Qt.Key_Back"), "back"), (1700, STATUS, "after_back"),
-            (1800, "overlay.gearHold()", "held_again"), (1900, STATUS, "open_again"), (2000, "overlay.gearHold()", "toggled"), (2300, STATUS, "after_toggle"),
+            (1800, "overlay.gearHold('notifications')", "held_again"), (1900, STATUS, "open_again"), (2000, "overlay.gearHold('notifications')", "toggled"), (2300, STATUS, "after_toggle"),
             # the drawer asked for while a banner with buttons is up replaces it
-            (2400, "overlay.showBanner(%s)" % js(BAR), "bar"), (2500, "overlay.gearHold()", "over_bar"), (2600, STATUS, "over_bar_state"),
+            (2400, "overlay.showBanner(%s)" % js(BAR), "bar"), (2500, "overlay.gearHold('notifications')", "over_bar"), (2600, STATUS, "over_bar_state"),
         ], 3000)
         self.assertEqual(got["no_app"], "false", "no app in front: the gear is not the overlay's")
         self.assertEqual(got["held"], "true")
@@ -153,18 +153,26 @@ class Overlay(HostCase):
         by_name = "function byName(p, n) { if (p.objectName === n) return p; var c = p.children; for (var i = 0; i < c.length; i++) { var f = byName(c[i], n); if (f) return f } return null } "
         geometry = ("(function(){ " + by_name + "var s = byName(overlay, 'drawerSheet'), e = byName(overlay, 'drawerEmpty'); "
                     "return JSON.stringify({ sheet: s.height, count: s.bodyHeight, emptyY: e.y, emptyBottom: e.y + e.height, visible: e.visible }) })()")
-        got, _ = self.run_overlay([(1000, do("overlay.appFront = true"), "front"), (1100, "overlay.gearHold()", "held"), (1900, geometry, "geometry")], 2300)
+        got, _ = self.run_overlay([(1000, do("overlay.appFront = true"), "front"), (1100, "overlay.gearHold('notifications')", "held"), (1900, geometry, "geometry")], 2300)
         g = json.loads(got["geometry"])
         self.assertTrue(g["visible"], "the drawer has something in it: the host's helper has no audit and the log is empty")
         self.assertGreater(g["emptyBottom"], 240 - 16, "the words fit in the old 240: this test no longer covers the overflow")
         self.assertGreaterEqual(g["sheet"], g["emptyBottom"] + 16 - 0.5, "the words run out of the card: %r" % g)
         self.assertLessEqual(g["sheet"], 1080 - 2 * 56)
 
-    def test_the_owner_hands_the_gear_hold_back_to_LG(self):
+    def test_the_gear_hold_over_an_app_is_lumatvs_settings_by_default_which_takes_the_tv_to_home(self):
         got, _ = self.run_overlay([(1000, do("overlay.appFront = true"), "front"), (1100, "overlay.gearReady()", "ready"), (1150, "overlay.gearHold()", "held"),
-                                   (1300, STATUS, "state")], 1700, '{"perf":{"syncResidents":true},"remote":{"gearHold":false}}')
-        self.assertEqual((got["ready"], got["held"]), ("false", "false"))
+                                   (1300, STATUS, "state"), (1400, CALLS, "calls")], 1800)
+        self.assertEqual((got["ready"], got["held"]), ("true", "true"))
+        self.assertEqual(got["state"], "false/false/", "no drawer: Settings is a layer of Home")
+        self.assertEqual([c["p"] for c in json.loads(got["calls"]) if c["m"] == "/launchDefaultApp"], [{"category": "home"}])
+
+    def test_the_owner_sets_the_gear_hold_to_nothing_and_it_is_taken_and_does_nothing(self):
+        got, _ = self.run_overlay([(1000, do("overlay.appFront = true"), "front"), (1100, "overlay.gearReady()", "ready"), (1150, "overlay.gearHold()", "held"),
+                                   (1300, STATUS, "state"), (1400, CALLS, "calls")], 1800, '{"perf":{"syncResidents":true},"remote":{"gearHold":"nothing"}}')
+        self.assertEqual((got["ready"], got["held"]), ("true", "true"), "LG's own hold (its Settings app) is never the answer")
         self.assertEqual(got["state"], "false/false/")
+        self.assertEqual([c["m"] for c in json.loads(got["calls"]) if c["m"] in ("/launchDefaultApp", "/launch")], [])
 
     def test_an_input_coming_to_the_front_shows_its_pill_when_the_owner_asked_for_banners(self):
         got, _ = self.run_overlay([

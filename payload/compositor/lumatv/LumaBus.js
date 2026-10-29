@@ -8,8 +8,8 @@
 //
 // Two more surfaces register here. The gear key's hold (the filter times it) is answered by
 // LumaHome while Home is in front and by the overlay (LumaOverlay.qml, drawn over an app by the
-// fullscreen container) while an app is: each says whether it can show the notification drawer now
-// (`ready`) and opens it (`hold`). The overlay also takes keys while it has a surface that wants them
+// fullscreen container) while an app is: each says whether it can do what the hold is for now (`ready(mode)`: LumaTV's Settings, the
+// notification drawer, or nothing) and does it (`hold(mode)`). The overlay also takes keys while it has a surface that wants them
 // (`wants`), as Home does.
 //
 // The quick panel and the input picker (`panels`, the filter's second entry) are answered the same way: Home while it is in front
@@ -18,8 +18,8 @@
 // moves on to the next input, and answers true when it did one of those.
 var handler = null
 var escapeHandler = null
-var gearHome = null                     // { ready(): bool, hold(): bool }
-var overlay = null                      // { wants(): bool, key(k, pressed, autoRepeat, device): bool, ready(): bool, hold(): bool }
+var gearHome = null                     // { ready(mode): bool, hold(mode): bool }
+var overlay = null                      // { wants(): bool, key(k, pressed, autoRepeat, device): bool, ready(mode): bool, hold(mode): bool }
 var appKeyHandler = null                // (id, frontAppId) -> true when LumaHome took the remote's app key (launched an app, or does nothing)
 var homePanels = null                   // { ready(kind): bool, open(kind): bool, warm(kind): bool }, kind "quick" | "picker"
 var systemLauncher = null               // (appId, params) -> true when LG's system window was asked for: the key filter's own luna client (see systemLaunch)
@@ -93,20 +93,22 @@ function dispatchOverlay(key, pressed, autoRepeat, deviceId) {
     catch (e) { fault("overlay", e); return false }
 }
 
-// Something of ours could show the drawer now: the hold is ours, and LG's Settings long press is not wanted.
-function gearReady() {
+// Something of ours could do what the gear's hold is for now (`mode`: "settings", "notifications" or "nothing"; none is the owner's choice,
+// theme `remote.gearHold`): the hold is ours, and LG's Settings long press is never wanted.
+function gearReady(mode) {
     if (!answering()) return false
     try {
-        if (gearHome && gearHome.ready() === true) return true
-        return !!overlay && overlay.ready() === true
+        if (gearHome && gearHome.ready(mode) === true) return true
+        return !!overlay && overlay.ready(mode) === true
     } catch (e) { fault("gear ready", e); return false }
 }
 
-// The gear was held: the drawer opens where it can (Home first, then the overlay). True when one opened.
-function gearHold() {
+// The gear was held: Home does it where it can, then the overlay: LumaTV's Settings, the notification drawer, or nothing (taken all the same).
+// True when one took the hold.
+function gearHold(mode) {
     try {
-        if (gearHome && gearHome.ready() === true) return gearHome.hold() === true
-        if (overlay && overlay.ready() === true) return overlay.hold() === true
+        if (gearHome && gearHome.ready(mode) === true) return gearHome.hold(mode) === true
+        if (overlay && overlay.ready(mode) === true) return overlay.hold(mode) === true
     } catch (e) { fault("gear hold", e) }
     return false
 }

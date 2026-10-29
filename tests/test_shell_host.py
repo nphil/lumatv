@@ -1,7 +1,7 @@
 """Run with: python3 -m unittest discover -s tests -p 'test_shell_host.py'   (needs Xvfb and PyQt5; skipped without them)
 
 The shell's key path as LumaHome answers it through the offline host: the number keys that open the dock's tiles and the setting that
-turns them off, the gear key's hold that opens the notification drawer, and the heartbeat Home writes for the Home stub's guard (once at
+turns them off, the gear key's hold (LumaTV's Settings, the notification drawer or nothing, as the owner chose), and the heartbeat Home writes for the Home stub's guard (once at
 load and then every second, whatever the panel does). The key filter's own side of the same paths is `tests/keyfilter.test.js`. Nothing
 here measures time: the set's gate does.
 
@@ -18,7 +18,7 @@ READY = 7000                                   # Home has presented and built th
 # where Home is: the layer with the keys, Home's own focus layer, the dock's row and column, the surfaces under the open one
 STATE = "[root.layerOpen, root.focusLayer, root.dockRow, root.dockCol, root.layerStack.join('+')].join('/')"
 CALLS = "JSON.stringify(root.lunaCalls.map(function(c) { var p; try { p = JSON.parse(c.payload) } catch (e) { p = c.payload } return { m: c.method, p: p } }))"
-OFF = '{"perf":{"syncResidents":true},"remote":{"numberKeys":false,"gearHold":false}}'
+OFF = '{"perf":{"syncResidents":true},"remote":{"numberKeys":false,"gearHold":"nothing"}}'
 
 
 def launches(got):
@@ -90,7 +90,7 @@ class KeyPath(HostCase):
         self.assertEqual((got["gear_ready"], got["gear_held"]), ("false", "false"), "nor does Home answer the gear's hold then")
         self.assertEqual(launches(got["calls"]), ["com.geforcenow.play"])
 
-    def test_the_owner_turns_the_number_keys_and_the_gear_hold_off_and_the_keys_are_LGs_again(self):
+    def test_the_owner_turns_the_number_keys_off_and_the_gear_hold_to_nothing(self):
         patch = "root.patchTheme({ remote: { numberKeys: true } })"
         got, _ = self.run_host([(0, key("Qt.Key_2"), "press"), (20, key("Qt.Key_2", "false"), "release"), (50, "root.gearReady()", "gear_ready"),
                                 (60, "root.gearHold()", "gear_held"), (500, STATE, "state"), (600, CALLS, "calls_off"),
@@ -98,8 +98,8 @@ class KeyPath(HostCase):
                                 (700, do(patch), "on"), (800, key("Qt.Key_3"), "press_on"), (820, key("Qt.Key_3", "false"), "release_on"), (1300, CALLS, "calls_on")],
                                1700, "--theme", OFF)
         self.assertEqual((got["press"], got["release"]), ("false", "false"), "with remote.numberKeys off no digit is taken")
-        self.assertEqual((got["gear_ready"], got["gear_held"]), ("false", "false"), "with remote.gearHold off the gear's hold is LG's")
-        self.assertEqual(got["state"], "/dock/0/0/")
+        self.assertEqual((got["gear_ready"], got["gear_held"]), ("true", "true"), "with remote.gearHold nothing the hold is taken: LG's Settings does not open behind it")
+        self.assertEqual(got["state"], "/dock/0/0/", "and nothing of ours opens")
         self.assertEqual(launches(got["calls_off"]), [])
         self.assertEqual((got["press_on"], got["release_on"]), ("true", "true"))
         self.assertEqual(launches(got["calls_on"]), ["com.beb.plxnative"])
@@ -119,14 +119,14 @@ class KeyPath(HostCase):
         self.assertEqual(lists, 0, "a list of titles wraps to a second line in the rail")
         self.assertLess(age, 2000, "the bar's clock is the page's build time")
 
-    def test_the_gear_hold_opens_the_notification_drawer_from_wherever_home_is_and_a_second_hold_closes_it(self):
+    def test_the_gear_hold_asked_for_the_drawer_opens_it_from_wherever_home_is_and_a_second_hold_closes_it(self):
         got, _ = self.run_host([
-            (0, "root.gearReady()", "ready"), (50, "root.gearHold()", "held"), (900, STATE, "open"), (1000, "root.gearHold()", "again"), (1400, STATE, "closed"),
+            (0, "root.gearReady()", "ready"), (50, "root.gearHold('notifications')", "held"), (900, STATE, "open"), (1000, "root.gearHold('notifications')", "again"), (1400, STATE, "closed"),
             # from Settings: Settings is closed and the drawer is what has the keys
-            (1500, do("root.openSettings()"), "settings"), (2200, "root.settingsOpen", "settings_open"), (2300, "root.gearHold()", "held_settings"),
+            (1500, do("root.openSettings()"), "settings"), (2200, "root.settingsOpen", "settings_open"), (2300, "root.gearHold('notifications')", "held_settings"),
             (3000, "[root.settingsOpen, root.layerOpen].join('/')", "state_settings"),
             # from the library: the library is gone and the drawer is what has the keys (Home's focus is where closing Settings left it: the bar)
-            (3100, do("root.closeAllLayers(); root.openApps()"), "apps"), (3200, "root.gearHold()", "held_apps"), (3900, STATE, "state_apps"),
+            (3100, do("root.closeAllLayers(); root.openApps()"), "apps"), (3200, "root.gearHold('notifications')", "held_apps"), (3900, STATE, "state_apps"),
         ], 4300)
         self.assertEqual((got["ready"], got["held"], got["again"]), ("true", "true", "true"))
         self.assertEqual(got["open"], "drawer/dock/0/0/")
@@ -134,6 +134,19 @@ class KeyPath(HostCase):
         self.assertEqual(got["settings_open"], "true")
         self.assertEqual(got["state_settings"], "false/drawer")
         self.assertEqual(got["state_apps"], "drawer/statusbar/0/0/")
+
+    def test_the_gear_hold_is_lumatvs_settings_by_default_and_a_second_hold_closes_it(self):
+        got, _ = self.run_host([
+            (0, "root.gearReady()", "ready"), (50, "root.gearHold()", "held"), (900, "[root.settingsOpen, root.layerOpen].join('/')", "open"),
+            (1000, "root.gearHold()", "again"), (1500, "[root.settingsOpen, root.layerOpen].join('/')", "closed"),
+            # the drawer is one hold of its own choice away, and Settings gives way to it
+            (1600, "root.gearHold()", "held_again"), (2300, "root.gearHold('notifications')", "to_drawer"), (3000, "[root.settingsOpen, root.layerOpen].join('/')", "state"),
+        ], 3400)
+        self.assertEqual((got["ready"], got["held"], got["again"]), ("true", "true", "true"))
+        self.assertEqual(got["open"], "true/")
+        self.assertEqual(got["closed"], "false/")
+        self.assertEqual((got["held_again"], got["to_drawer"]), ("true", "true"))
+        self.assertEqual(got["state"], "false/drawer")
 
     # ---- the remote's app keys: what LumaHome says to the key filter (settings/AppKeys.js has the shape of remote.appKeys)
 

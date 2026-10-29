@@ -482,13 +482,13 @@ class OverlayPanels(HostCase):
         self.assertGreater(p["up"][3], 0.999, "the slide is over")
         self.assertEqual(p["again"], [False, "quick"], "a panel that is up was warmed")
 
-    def test_the_gear_again_hides_it_and_a_gear_hold_replaces_it_with_the_drawer(self):
+    def test_the_gear_again_hides_it_and_a_gear_hold_for_the_drawer_replaces_it_with_the_drawer(self):
         p, out = self.overlay_host([
             (1000, "front", "overlay.appFront = true; return 1;"),
             (1200, "open", "return [overlay.panel('quick'), overlay.surface];"),
             (1700, "again", "return [overlay.panel('quick'), overlay.surface];"),
             (2300, "reopen", "return [overlay.panel('quick'), overlay.surface];"),
-            (2800, "hold", "return [overlay.gearHold(), overlay.surface];"),
+            (2800, "hold", "return [overlay.gearHold('notifications'), overlay.surface];"),
         ], 3300)
         self.assertEqual(p["open"], [True, "quick"])
         self.assertEqual(p["again"], [True, ""])

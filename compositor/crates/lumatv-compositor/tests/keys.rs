@@ -1,4 +1,4 @@
-//! The remote's own keys through the compositor's routing (`keys.rs`, `input.rs`, `system_ui.rs`): what a tap, a hold and three taps
+//! The remote's own keys through the compositor's routing (`keys.rs`, `input.rs`, `system_ui.rs`): what a tap and a hold
 //! of the gear, Input, an app button, a digit, Mute, Back and Exit launch or close, and that no app sees a key that was taken.
 //! Time is moved by hand (`key_event_at`, `poll_holds_at`), so nothing here sleeps.
 
@@ -81,58 +81,93 @@ fn a_gear_tap_asks_for_quick_settings_and_no_app_sees_the_key() {
 }
 
 #[test]
-fn three_gear_taps_in_three_seconds_open_the_av_reset_menu() {
-    let mut server = Server::start();
-    let _a = app(&mut server, "Player", "org.test.player");
-    let t = Instant::now();
-    let (launched, params) = server.eval(move |s| {
-        let mut at = t;
-        for _ in 0..3 {
-            tap(s, KEY_MENU, at, 70);
-            at += Duration::from_millis(800);
-        }
-        let params = app_manager_calls(s).last().map(|(_, p)| p["params"].clone());
-        (launches(s), params)
-    });
-    assert_eq!(launched, vec!["com.palm.app.settings", "com.palm.app.settings", "com.webos.app.tvhotkey"]);
-    assert_eq!(params, Some(json!({"activateType": "mute-hidden-action"})));
-}
-
-#[test]
-fn a_gear_held_a_second_opens_settings_and_closes_it_when_it_is_in_front() {
+fn three_gear_taps_in_three_seconds_never_open_lgs_hidden_av_reset_menu() {
+    // LG's `tvhotkey` (`mute-hidden-action`) was launched by the third tap: its items are in LumaTV's Settings now, and every tap is the
+    // quick panel's (LG's Settings app stands in while no shell shows it).
     let mut server = Server::start();
     let mut a = app(&mut server, "Player", "org.test.player");
     let t = Instant::now();
-    let calls = server.eval(move |s| {
+    let (launched, tvhotkey, said) = server.eval(move |s| {
+        let mut at = t;
+        for _ in 0..4 {
+            tap(s, KEY_MENU, at, 70);
+            at += Duration::from_millis(800);
+        }
+        (launches(s), app_manager_calls(s).iter().any(|(_, p)| p["id"] == "com.webos.app.tvhotkey" || p["params"]["activateType"] == "mute-hidden-action"), journal_has(s, "AV reset"))
+    });
+    assert_eq!(launched, vec!["com.palm.app.settings"; 4]);
+    assert!(!tvhotkey && !said);
+    a.client.roundtrip();
+    assert!(a.client.state.keys.is_empty(), "no tap reaches the app");
+}
+
+/// A compositor whose theme says `remote.gearHold` is `choice` (nothing written: the default).
+fn gear_hold_server(choice: Option<&str>, tag: &str) -> (Server, std::path::PathBuf) {
+    let server = Server::start();
+    let dir = std::env::temp_dir().join(format!("lumatv-gearhold-{tag}-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("theme")).unwrap();
+    if let Some(choice) = choice {
+        std::fs::write(dir.join("theme/theme.json"), json!({"remote": {"gearHold": choice}}).to_string()).unwrap();
+    }
+    let d = dir.clone();
+    server.eval(move |s| {
+        s.keys = Keys::new(&Config { data_dir: d, ..Config::default() });
+        s.shell_handle(Msg::Connected);
+        s.shell_handle(Msg::Ui { can: Some(vec!["quick".into(), "settings".into(), "drawer".into()]), wants: None, live: None, state: None });
+    });
+    (server, dir)
+}
+
+/// The gear held a second at `t`: the `show` events the shell was sent (the press's warm-up of the quick panel apart), what the app manager was asked and the journal's gear-held lines.
+fn hold_gear(server: &Server, t: Instant) -> (Vec<String>, Vec<(String, Value)>, Vec<String>) {
+    server.eval(move |s| {
         s.key_event_at(SeatId(0), KEY_MENU, true, false, t);
         s.poll_holds_at(t + Duration::from_millis(900));
-        assert!(launches(s).is_empty(), "not yet");
         s.poll_holds_at(t + Duration::from_millis(1050));
         s.key_event_at(SeatId(0), KEY_MENU, false, false, t + Duration::from_millis(1400));
-        app_manager_calls(s)
-    });
-    assert_eq!(calls, vec![("launch".to_string(), json!({"id": "com.palm.app.settings"}))], "a hold launches Settings once and is no tap");
-    // Settings in front now: the same hold closes it.
-    let settings = {
-        let mut c = Client::connect_extra(&mut server);
-        let kb = c.seat.get_keyboard(&c.qh, ());
-        let w = c.card("_WEBOS_WINDOW_TYPE_CARD", "Settings");
-        w.webos.set_property("appId".into(), "com.palm.app.settings".into());
-        let buf = c.shm_buffer(64, 64, 0xff00_0000);
-        c.present(&w.surface, &buf);
-        assert!(c.wait_until(WAIT, |s| s.keyboard_enters >= 1));
-        (c, w, kb, buf)
-    };
+        let shows = s.shell.recorded.iter().filter(|e| e["topic"] == "show" && e["data"]["warm"] != json!(true)).map(|e| e["data"]["kind"].as_str().unwrap_or("").to_string()).collect();
+        (shows, app_manager_calls(s), s.journal.iter().filter(|l| l.contains("gear held")).cloned().collect())
+    })
+}
+
+#[test]
+fn a_gear_held_a_second_opens_lumatvs_settings_and_never_lgs() {
+    let (mut server, dir) = gear_hold_server(None, "default");
+    let mut a = app(&mut server, "Player", "org.test.player");
+    let (shows, calls, said) = hold_gear(&server, Instant::now());
+    assert_eq!(shows, vec!["settings"], "once, and a hold is no tap: no quick panel");
+    assert!(calls.is_empty(), "LG's Settings app is never launched by the hold: {calls:?}");
+    assert_eq!(said, vec!["input: gear held: LumaTV's Settings"]);
     a.client.roundtrip();
-    let t2 = t + Duration::from_secs(5);
-    let calls = server.eval(move |s| {
-        s.key_event_at(SeatId(0), KEY_MENU, true, false, t2);
-        s.poll_holds_at(t2 + Duration::from_millis(1100));
-        s.key_event_at(SeatId(0), KEY_MENU, false, false, t2 + Duration::from_millis(1200));
-        app_manager_calls(s)
-    });
-    assert_eq!(calls.last(), Some(&("closeByAppId".to_string(), json!({"id": "com.palm.app.settings"}))));
-    drop(settings);
+    assert!(a.client.state.keys.is_empty(), "the app never sees the gear");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn the_holds_choice_is_the_themes_and_nothing_means_nothing() {
+    for (choice, shows, line) in [
+        ("settings", vec!["settings"], "input: gear held: LumaTV's Settings"),
+        ("notifications", vec!["drawer"], "input: gear held: the notification drawer -> LumaTV's shell"),
+        ("nothing", vec![], "input: gear held: nothing (the owner's choice)"),
+    ] {
+        let (mut server, dir) = gear_hold_server(Some(choice), choice);
+        let _a = app(&mut server, "Player", "org.test.player");
+        let (got, calls, said) = hold_gear(&server, Instant::now());
+        assert_eq!(got, shows, "{choice}");
+        assert!(calls.is_empty(), "{choice}: {calls:?}");
+        assert_eq!(said, vec![line], "{choice}");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+#[test]
+fn a_hold_the_shell_cannot_show_opens_nothing_of_lgs() {
+    // No shell client: the hold does nothing, where it used to launch LG's Settings app.
+    let mut server = Server::start();
+    let _a = app(&mut server, "Player", "org.test.player");
+    let (shows, calls, said) = hold_gear(&server, Instant::now());
+    assert!(shows.is_empty() && calls.is_empty(), "{shows:?} {calls:?}");
+    assert_eq!(said, vec!["input: gear held: LumaTV's settings cannot be shown now, nothing opened"]);
 }
 
 #[test]
@@ -374,8 +409,8 @@ fn the_remote_command_and_a_tick_drive_the_same_holds() {
     std::thread::sleep(Duration::from_millis(1100));
     server.eval(|s| s.poll_holds());
     server.eval(|s| lumatv_compositor::control::handle(s, "remote 139 release").text());
-    let launched = server.eval(launches);
-    assert_eq!(launched, vec!["com.palm.app.settings"]);
+    let (launched, said) = server.eval(|s| (launches(s), journal_has(s, "input: gear held")));
+    assert!(launched.is_empty() && said, "the hold is decided (and opens no LG app): {launched:?}");
     let keys = server.eval(|s| lumatv_compositor::control::handle(s, "keys").text());
     assert!(keys.contains("{\"code\":139,\"name\":\"gear\"}") && keys.contains("\"foreground\":\"org.test.player\""), "{keys}");
 }
