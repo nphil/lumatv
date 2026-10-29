@@ -24,7 +24,7 @@ use crate::system::volume_surface::VolumeSurface;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
-/// The Settings page the Cameras grid's `Settings` button opens (the page of the cameras' settings is in Home & look).
+/// The Settings page the Cameras grid's `Settings` button opens (a page of Home & look).
 const CAMERAS_SETTINGS_PAGE: &str = "cameras";
 
 /// What the shell asks the host to do.
