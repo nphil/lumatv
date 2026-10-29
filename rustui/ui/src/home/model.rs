@@ -275,6 +275,7 @@ impl Home {
     pub fn set_text_scale(&mut self, scale: f32) {
         if (scale - self.text_scale).abs() > 0.001 {
             self.text_scale = scale;
+            self.apps.scale = scale;
             self.register();
             self.dirty = true;
         }

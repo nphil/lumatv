@@ -26,8 +26,6 @@ pub const RAIL_FRAME: Frame = Frame::new(64.0, 136.0, 400.0, 888.0);
 pub const PAGE_FRAME: Frame = Frame::new(488.0, 136.0, 1368.0, 888.0);
 /// The grid's box in the page: under the heading row.
 pub const GRID_X: f32 = PAGE_FRAME.x + 40.0;
-pub const GRID_Y: f32 = PAGE_FRAME.y + 28.0 + 56.0 + 22.0;
-pub const GRID_H: f32 = PAGE_FRAME.h - (28.0 + 56.0 + 22.0) - 70.0;
 pub const MAX_CELLS: u32 = 60;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -62,6 +60,8 @@ pub enum AppsOut {
 pub struct Apps {
     apps: Vec<App>,
     categories: Value,
+    /// The person's text size: the rail's rows and the Search button grow with it.
+    pub scale: f32,
     pub section: String,
     pub rail_index: usize,
     pub cell: usize,
@@ -224,16 +224,28 @@ impl Apps {
     }
 
     pub fn cell_frame(&self, i: usize) -> Frame {
-        Frame::new(GRID_X + (i % COLS) as f32 * COL_PITCH, GRID_Y + (i / COLS) as f32 * ROW_PITCH - self.scroll_row as f32 * ROW_PITCH, CELL_W, CELL_H)
+        Frame::new(GRID_X + (i % COLS) as f32 * COL_PITCH, self.grid_y() + (i / COLS) as f32 * ROW_PITCH - self.scroll_row as f32 * ROW_PITCH, CELL_W, CELL_H)
     }
 
+    fn k(&self) -> f32 {
+        self.scale.max(1.0)
+    }
+
+    /// A rail row: 80 tall at a pitch of 84 at 100 % text, both growing with the text size.
     pub fn rail_frame(&self, i: usize, hidden: bool) -> Frame {
-        let y = if hidden { RAIL_FRAME.y + RAIL_FRAME.h - 20.0 - 80.0 } else { RAIL_FRAME.y + 20.0 + i as f32 * 84.0 };
-        Frame::new(RAIL_FRAME.x + 16.0, y, RAIL_FRAME.w - 32.0, 80.0)
+        let (h, pitch) = (80.0 * self.k(), 84.0 * self.k());
+        let y = if hidden { RAIL_FRAME.y + RAIL_FRAME.h - 20.0 - h } else { RAIL_FRAME.y + 20.0 + i as f32 * pitch };
+        Frame::new(RAIL_FRAME.x + 16.0, y, RAIL_FRAME.w - 32.0, h)
     }
 
     pub fn search_frame(&self) -> Frame {
-        Frame::new(PAGE_FRAME.x + PAGE_FRAME.w - 40.0 - 260.0, PAGE_FRAME.y + 28.0, 260.0, 56.0)
+        let (w, h) = (260.0 * self.k(), 56.0 * self.k());
+        Frame::new(PAGE_FRAME.x + PAGE_FRAME.w - 40.0 - w, PAGE_FRAME.y + 28.0, w, h)
+    }
+
+    /// The grid's top: under the heading row, which grows with the text size.
+    pub fn grid_y(&self) -> f32 {
+        PAGE_FRAME.y + 28.0 + 56.0 * self.k() + 22.0
     }
 
     /// Everything as focusables: the rail's rows, the grid's cells where they are now, the Search button.

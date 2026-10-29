@@ -132,26 +132,35 @@ impl AppsSurface {
         let bar_text = Block::new(&mut kit.ui, bar_f, z + 2, bar_lines)?;
         let rail_f = apps::RAIL_FRAME;
         let rail = kit.ui.scene.glass(rail_f.w as u32, rail_f.h as u32, z + 1, glass_of(kit, PaneKind::Card, rail_f.h, false, false), Props::at(rail_f.x, rail_f.y));
+        // the rows hold a title and a detail line at the text size; a row that cannot hold both at 200 % keeps the title alone
         let mut rows = Vec::new();
+        let (lh, ch) = (kit.line(TypeRole::Label), kit.line(TypeRole::Caption));
+        let row_h = home.apps.rail_frame(0, false).h;
+        let two = lh + ch + 8.0 <= row_h;
         for i in 0..12 {
             let f = home.apps.rail_frame(i, false);
-            rows.push((Frame::new(f.x - rail_f.x + 24.0, f.y - rail_f.y + 10.0, f.w - 48.0, kit.line(TypeRole::Label)), role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Left), String::new()));
-            rows.push((Frame::new(f.x - rail_f.x + 24.0, f.y - rail_f.y + 10.0 + kit.line(TypeRole::Label), f.w - 48.0, kit.line(TypeRole::Caption)), role_style(kit, TypeRole::Caption, None, ink2, Align::Left), String::new()));
+            let top = if two { ((row_h - lh - ch) / 2.0).round() } else { ((row_h - lh) / 2.0).round() };
+            rows.push((Frame::new(f.x - rail_f.x + 24.0, f.y - rail_f.y + top, f.w - 48.0, lh), role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Left), String::new()));
+            rows.push((Frame::new(f.x - rail_f.x + 24.0, f.y - rail_f.y + top + lh, f.w - 48.0, if two { ch } else { 0.0 }), role_style(kit, TypeRole::Caption, None, ink2, Align::Left), String::new()));
         }
         let rail_rows = Block::new(&mut kit.ui, rail_f, z + 3, rows)?;
-        let rail_mark = kit.ui.scene.shape(5, 36, z + 3, plate::solid(kit.ui.look.accent(), 3.0), HIDDEN);
-        let rail_focus = kit.ui.scene.shape((rail_f.w - 32.0) as u32, 80, z + 2, plate::solid(faded(ink, kit.tokens.states.focus_wash[0]), kit.tokens.radius(Radius::Row)), HIDDEN);
+        let rail_mark = kit.ui.scene.shape(5, (row_h - 44.0).max(12.0) as u32, z + 3, plate::solid(kit.ui.look.accent(), 3.0), HIDDEN);
+        let rail_focus = kit.ui.scene.shape((rail_f.w - 32.0) as u32, row_h as u32, z + 2, plate::solid(faded(ink, kit.tokens.states.focus_wash[0]), kit.tokens.radius(Radius::Row)), HIDDEN);
         let page_f = apps::PAGE_FRAME;
         let page = kit.ui.scene.glass(page_f.w as u32, page_f.h as u32, z + 1, glass_of(kit, PaneKind::Card, page_f.h, false, false), Props::at(page_f.x, page_f.y));
-        let heading_lines = vec![
-            (Frame::new(0.0, 0.0, 420.0, 56.0), role_style(kit, TypeRole::Title, None, ink, Align::Left), String::new()),
-            (Frame::new(430.0, 0.0, 470.0, 56.0), role_style(kit, TypeRole::Caption, None, ink2, Align::Left), String::new()),
-        ];
-        let heading = Block::new(&mut kit.ui, Frame::new(page_f.x + 40.0, page_f.y + 28.0, 900.0, 56.0), z + 2, heading_lines)?;
+        let head_h = 56.0 * kit.text_scale.max(1.0);
+        let title_w = (420.0 * kit.text_scale.max(1.0)).round();
         let sf = home.apps.search_frame();
+        let sub_w = (sf.x - 24.0 - (page_f.x + 40.0 + title_w + 10.0)).max(0.0);
+        let heading_lines = vec![
+            (Frame::new(0.0, 0.0, title_w, head_h), role_style(kit, TypeRole::Title, None, ink, Align::Left), String::new()),
+            (Frame::new(title_w + 10.0, 0.0, sub_w, head_h), role_style(kit, TypeRole::Caption, None, ink2, Align::Left), String::new()),
+        ];
+        let heading = Block::new(&mut kit.ui, Frame::new(page_f.x + 40.0, page_f.y + 28.0, title_w + 10.0 + sub_w, head_h), z + 2, heading_lines)?;
         let mut search = Button::new(kit, engine, Place { id: Id(apps::SEARCH_ID), frame: sf, region: apps::TOP, scope: super::model::SCOPE_APPS, z: z + 3 }, Spec::new("Search apps", Tone::Plain).with_icon("search"))?;
         search.show(kit, true);
-        let grid = kit.ui.scene.group(None, GroupPose { clip: Some(compositor_protocol::Rect { x: apps::GRID_X, y: apps::GRID_Y, w: page_f.w - 80.0, h: apps::GRID_H }), ..GroupPose::IDENTITY }).map_err(other)?;
+        let grid_y = home.apps.grid_y();
+        let grid = kit.ui.scene.group(None, GroupPose { clip: Some(compositor_protocol::Rect { x: apps::GRID_X, y: grid_y, w: page_f.w - 80.0, h: page_f.h - (grid_y - page_f.y) - 70.0 }), ..GroupPose::IDENTITY }).map_err(other)?;
         engine.flow.scroller(&kit.ui.scene, apps::CELLS, &grid, GroupPose::IDENTITY, false, 6000.0).map_err(other)?;
         let mut empty = Text::line_at(kit, page_f.x, page_f.y + page_f.h / 2.0, page_f.w, z + 3, role_style(kit, TypeRole::Label, None, ink2, Align::Centre), "Nothing here")?;
         empty.set_props(HIDDEN);
@@ -175,7 +184,7 @@ impl AppsSurface {
         let list: Vec<_> = home.apps.list().into_iter().cloned().collect();
         for (i, a) in list.iter().enumerate().take(most.min(apps::MAX_CELLS as usize)) {
             let id = Id(apps::CELL_ID + i as u32);
-            let f = Frame::new(apps::GRID_X + (i % apps::COLS) as f32 * apps::COL_PITCH, apps::GRID_Y + (i / apps::COLS) as f32 * apps::ROW_PITCH, apps::CELL_W, apps::CELL_H);
+            let f = Frame::new(apps::GRID_X + (i % apps::COLS) as f32 * apps::COL_PITCH, home.apps.grid_y() + (i / apps::COLS) as f32 * apps::ROW_PITCH, apps::CELL_W, apps::CELL_H);
             let rest = GroupPose { x: f.x, y: f.y, pivot_x: f.w / 2.0, pivot_y: f.h / 2.0, ..GroupPose::IDENTITY };
             let group = kit.ui.scene.group(Some(self.grid.id()), rest).map_err(other)?;
             let scene = kit.ui.scene.clone();
@@ -227,7 +236,7 @@ impl AppsSurface {
         let sub = Apps::sub_of(&h.id).to_owned();
         self.heading.set_many(&mut kit.ui, &[(0, &h.title, ink), (1, &sub, ink2)]);
         let rf = home.apps.rail_frame(home.apps.rail_index, h.id == "hidden");
-        self.rail_mark.set(Props::at(rf.x - 6.0, rf.y + 22.0));
+        self.rail_mark.set(Props::at(rf.x - 6.0, rf.y + 22.0 * kit.text_scale.max(1.0)));
         let on_rail = !home.apps.in_grid && !home.apps.search_focused && home.layer == Layer::Apps;
         self.rail_focus.set(if on_rail { Props::at(rf.x, rf.y) } else { HIDDEN });
         let scroll = home.apps.scroll_row as f32 * apps::ROW_PITCH;
