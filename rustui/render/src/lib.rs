@@ -30,6 +30,7 @@ pub mod pacer;
 mod plates;
 mod prepared;
 mod profile;
+pub mod programs;
 pub mod renderer;
 pub mod scene;
 pub mod session;

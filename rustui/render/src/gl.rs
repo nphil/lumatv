@@ -9,8 +9,11 @@ use std::cell::{Cell, RefCell};
 use std::ffi::{CStr, CString, c_char, c_void};
 use std::io;
 use std::marker::PhantomData;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
+
+use crate::programs;
 
 type EglDisplay = *mut c_void;
 type EglConfig = *mut c_void;
@@ -423,6 +426,11 @@ pub struct Gles {
     calls: Cell<Calls>,
     known: Known,
     on_creating_thread: PhantomData<*const ()>,
+    /// Where programs come from before one is linked and go back to when this is dropped (LumaTV: the compositor links the engine's
+    /// programs once, off its loop thread, `programs::Cache`). `None`: every program is linked here, as a window's renderer does.
+    programs: Option<programs::Lease>,
+    /// The programs this linked itself.
+    linked: Cell<u32>,
 }
 
 /// A GL framebuffer object whose colour attachment is a gralloc buffer imported through an `EGLImage`. Neither is
@@ -774,6 +782,8 @@ impl Gles {
             calls: Cell::new(Calls::default()),
             known: Known::new(),
             on_creating_thread: PhantomData,
+            programs: None,
+            linked: Cell::new(0),
         })
     }
 
@@ -1526,8 +1536,68 @@ impl Gles {
         }
     }
 
-    /// Compiles and links a program, reporting the driver's log on failure.
+    /// From now on programs wait in `cache` for the renderers that share it: this takes a program of the make it is asked for from there
+    /// when one waits, and every program it has (taken or linked) goes back to the cache when it is dropped.
+    pub fn use_program_cache(&mut self, cache: Arc<programs::Cache>) {
+        self.programs = Some(programs::Lease::new(cache));
+    }
+
+    /// The programs this linked itself, and those it took from its cache.
+    pub fn programs_linked(&self) -> u32 {
+        self.linked.get()
+    }
+
+    pub fn programs_taken(&self) -> u32 {
+        self.programs.as_ref().map_or(0, programs::Lease::taken)
+    }
+
+    /// Says that the renderer this is the GL wrapper of was built whole: the cache has, or this holds, every program the engine uses.
+    pub fn programs_complete(&self) {
+        if let Some(lease) = &self.programs {
+            lease.mark_complete();
+        }
+    }
+
+    /// A linked program for these shaders: one the cache has, or a new one, compiled and linked here and reporting the driver's log on
+    /// failure.
     pub fn program(&self, vertex: &CStr, fragment: &CStr) -> io::Result<u32> {
+        let Some(lease) = &self.programs else {
+            return self.link(vertex, fragment);
+        };
+        if lease.cancelled() {
+            return Err(io::Error::other("the programs are not wanted any more"));
+        }
+        let key = programs::Key::of(vertex, fragment);
+        while let Some(program) = lease.take(key) {
+            // A program that does not read as linked in this context is not used: another is looked for, and the last resort is a link.
+            if self.is_linked(program) {
+                self.known.forget_program(program);
+                return Ok(program);
+            }
+            // SAFETY: a program name this lease took out of the cache, and does not hand back.
+            unsafe { (self.gl.delete_program)(program) };
+            lease.forget(program);
+        }
+        if lease.strict() {
+            // `Unsupported` is how a host tells this miss from the driver's own errors (`programs::Lease`).
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "a program of the engine is not in the cache, and an engine built from a complete cache links none",
+            ));
+        }
+        let program = self.link(vertex, fragment)?;
+        lease.hold(key, program);
+        Ok(program)
+    }
+
+    fn is_linked(&self, program: u32) -> bool {
+        let mut linked = 0;
+        // SAFETY: a status query that writes one integer, or none for a name that is not a program.
+        unsafe { (self.gl.get_programiv)(program, GL_LINK_STATUS, &mut linked) };
+        linked != 0
+    }
+
+    fn link(&self, vertex: &CStr, fragment: &CStr) -> io::Result<u32> {
         let vs = self.shader(GL_VERTEX_SHADER, vertex)?;
         let fs = self.shader(GL_FRAGMENT_SHADER, fragment)?;
         // SAFETY: program creation and link with status and log checks; the shaders may be deleted once attached.
@@ -1550,6 +1620,8 @@ impl Gles {
                 )));
             }
             self.known.forget_program(program);
+            self.linked.set(self.linked.get() + 1);
+            programs::stand_in_delay();
             Ok(program)
         }
     }
@@ -1659,6 +1731,8 @@ impl Gles {
             calls: Cell::new(Calls::default()),
             known: Known::new(),
             on_creating_thread: PhantomData,
+            programs: None,
+            linked: Cell::new(0),
         };
         match gles.version() {
             Some((major, _)) if major >= 3 => Ok(gles),

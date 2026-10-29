@@ -33,6 +33,7 @@ use crate::geometry::Panel;
 use crate::gl::{Gles, RenderTarget};
 use crate::idle::{Idle, Process};
 use crate::ops::{Op, Transaction};
+use crate::programs::Cache;
 use crate::renderer::{Draw, DrawReport, Planned, Renderer, Surface};
 use crate::scene::{Demand, Drawn, Scene};
 use crate::session::{Config, Limits, Session};
@@ -240,6 +241,43 @@ impl Blit {
     }
 }
 
+/// What [`precompile`] made.
+#[derive(Clone, Copy, Debug)]
+pub struct Precompiled {
+    /// The programs linked, and how long the renderer took to be built from them.
+    pub programs: u32,
+    pub link_ms: u64,
+    /// How long the draws that went through every program took, and the GL error they raised, if any.
+    pub warm_ms: u64,
+    pub gl_error: Option<u32>,
+}
+
+/// Links every program the engine uses in `gles`' context, draws each of them once, and leaves them in `cache` for the engines of the
+/// compositor's context to take: a renderer is built through the cache and dropped, and the cache is complete when this returns. Meant
+/// for a thread of its own with a context that shares the compositor's, so that nothing is linked on the compositor's loop thread when a
+/// client's engine attaches (`ui::compile` in the compositor). The panel can be small: the programs do not depend on its size, and the
+/// draws only have to go through them.
+pub fn precompile(mut gles: Gles, cache: &Arc<Cache>, width: u32, height: u32) -> io::Result<Precompiled> {
+    gles.use_program_cache(Arc::clone(cache));
+    let panel = Panel { rotation: Rotation::R0, logical_width: width as f32, logical_height: height as f32, width, height };
+    let began = Instant::now();
+    let mut renderer = Renderer::new(gles, panel)?;
+    let link_ms = began.elapsed().as_millis() as u64;
+    let programs = renderer.gles().programs_linked();
+    let began = Instant::now();
+    let gl_error = if std::env::var("LUMASHOW_WARMUP").as_deref() == Ok("off") { None } else { renderer.warm_up() };
+    renderer.gles().finish();
+    // The pictures the draws made go back (textures are the share group's, and outlive the renderer and the thread's context).
+    renderer.trim();
+    renderer.gles().finish();
+    let _ = crate::gl::take_target_cost();
+    let warm_ms = began.elapsed().as_millis() as u64;
+    // The programs go to the cache with the renderer, and the cache is not complete before they have.
+    drop(renderer);
+    cache.mark_complete();
+    Ok(Precompiled { programs, link_ms, warm_ms, gl_error })
+}
+
 impl Engine {
     /// A compositor for `gles` (the window's context, current on this thread) and the app's end of the socket it speaks over.
     /// The handshake (`Hello`, `Welcome`) is answered on a thread so that `ui::Scene::over_with`, which blocks on it, can run
@@ -264,6 +302,7 @@ impl Engine {
                 Some(Blit::new(&gles, config.width, config.height)?),
             )
         };
+        let built = Instant::now();
         let mut renderer = Renderer::new(gles, panel)?;
         renderer.set_importer(None);
         if config.external {
@@ -274,7 +313,11 @@ impl Engine {
         } else if config.pages > 1 {
             renderer.set_targets(0, config.pages);
         }
-        if std::env::var("LUMASHOW_WARMUP").as_deref() != Ok("off") {
+        // A renderer that took its programs from the cache has nothing to warm up: they were drawn once where they were linked
+        // ([`precompile`], or the engine this process had before a client restarted), and a warm-up here is a pass of tens of
+        // milliseconds on the compositor's loop thread for nothing.
+        let linked = renderer.gles().programs_linked();
+        if linked > 0 && std::env::var("LUMASHOW_WARMUP").as_deref() != Ok("off") {
             let began = Instant::now();
             let error = renderer.warm_up();
             let _ = crate::gl::take_target_cost();
@@ -287,6 +330,13 @@ impl Engine {
         if let Some(saved) = &entered {
             renderer.gles().leave(saved);
         }
+        renderer.gles().programs_complete();
+        crate::log::log(format!(
+            "engine built in {:.1} ms: {} programs linked here, {} taken from the cache",
+            built.elapsed().as_secs_f64() * 1e3,
+            linked,
+            renderer.gles().programs_taken()
+        ));
         let stats = Arc::new(SharedStats::default());
         let session_config = Arc::new(Config {
             limits: Limits::for_texture_size(max_texture),
