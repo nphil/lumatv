@@ -10,6 +10,7 @@ pub mod language;
 pub mod picture;
 pub mod privacy;
 pub mod profiles;
+pub mod receiver;
 pub mod saver;
 pub mod sound;
 pub mod support;
@@ -49,5 +50,6 @@ pub fn all() -> Vec<Page> {
         sound::equalizer(),
         sound::hdmi_audio(),
         sound::usb(),
+        receiver::page(),
     ]
 }
