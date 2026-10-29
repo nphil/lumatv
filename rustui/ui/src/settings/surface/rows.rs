@@ -48,6 +48,13 @@ pub fn pill(fill: Rgba, border: Rgba, radius: f32, bw: f32) -> Shape {
     Shape { corner_radius: radius, fill: Fill::Solid(fill), border_width: bw, border }
 }
 
+/// Where a row is for the layout lint: its frame on the screen and the pane under it.
+#[derive(Clone, Copy, Debug)]
+pub struct Placed {
+    pub at: Frame,
+    pub panel: usize,
+}
+
 /// What a row is in the moment: the focus, the pointer's cue, the inner focus of a segmented row.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Moment {
@@ -302,8 +309,9 @@ impl RowArt {
         Ok(art)
     }
 
-    /// Describes the row's words to the layout lint, as they are placed: `at` is the row's frame on the screen, `panel` the pane under it.
-    pub fn feed_lint(&self, kit: &mut Kit, paint: &Paint, sz: &Sizes, row: &Row, at: Frame, lint: &mut crate::kit::lint::Lint, panel: usize) {
+    /// Describes the row's words to the layout lint, as they are placed.
+    pub fn feed_lint(&self, kit: &mut Kit, paint: &Paint, sz: &Sizes, row: &Row, placed: Placed, lint: &mut crate::kit::lint::Lint) {
+        let Placed { at, panel } = placed;
         if matches!(self.kind, Kind::Head | Kind::Note | Kind::Empty | Kind::Figure | Kind::Cards) {
             return;
         }

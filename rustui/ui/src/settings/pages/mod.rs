@@ -4,10 +4,12 @@
 use super::page::Page;
 
 pub mod access;
+pub mod ai;
 pub mod ambient;
 pub mod bluetooth;
 pub mod capture;
 pub mod home;
+pub mod homeassistant;
 pub mod inputs;
 pub mod language;
 pub mod network;
@@ -36,12 +38,14 @@ pub fn all() -> Vec<Page> {
         ambient::page(),
         home::page(),
         remote::page(),
+        ai::page(),
         system::page(),
         privacy::held(),
         profiles::person(),
         profiles::avatars(),
         home::popups(),
         widgets::page(),
+        homeassistant::page(),
         saver::page(),
         remote::app_key(),
         system::clock(),

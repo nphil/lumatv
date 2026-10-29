@@ -73,7 +73,7 @@ impl Stills {
     }
 
     pub fn due_at(&self, visible: bool) -> Option<u64> {
-        if !visible || self.wants.is_empty() { None } else { self.planner.due_at(&self.wants).or(Some(0).filter(|_| self.planner.in_flight() == 0)) }
+        if !visible || self.wants.is_empty() { None } else { self.planner.due_at(&self.wants).or((self.planner.in_flight() == 0).then_some(0)) }
     }
 }
 

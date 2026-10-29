@@ -75,6 +75,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
     let shown = c.layout.get("widgets").and_then(Value::as_array).map_or(0, |l| l.iter().filter(|e| e.get("type").and_then(Value::as_str) != Some("dock") && e.get("hidden").and_then(Value::as_bool) != Some(true)).count());
     rows.push(Row::link("widgets").tab(1).icon("layout-grid").label("Home widgets").value(&format!("{shown} shown")).does(vec![Op::Open { page: "widgets".into(), arg: Default::default() }]));
     rows.push(theme_toggle(c, ("twelvehour", 1, "clock", "12-hour clock", ""), "clock.twelveHour", true));
+    rows.push(Row::link("homeassistant").tab(1).icon("house-wifi").label("Home Assistant").value(&super::homeassistant::words(c)).does(vec![Op::Open { page: "homeassistant".into(), arg: Default::default() }]));
     rows.push(theme_toggle(c, ("greeting", 1, "sunrise", "Greeting", "Good morning, afternoon or evening under the digital clock."), "clock.greeting", true));
     let zip = c.theme_str("weather.zip").unwrap_or("your zip code").to_string();
     rows.push(theme_seg("units", 1, "sun-medium", "Temperature", &["\u{b0}F", "\u{b0}C"], Some(usize::from(c.theme_str("weather.units") == Some("celsius"))), |i| json!({"weather": {"units": if i == 1 { "celsius" } else { "fahrenheit" }}})).help(&format!("Weather for {zip}.")));

@@ -6,7 +6,7 @@
 
 use super::layout::{Column, RowGeom, Sizes, follow, measure_row, whole_rows};
 use super::paint::Paint;
-use super::rows::{Env, Moment, RowArt, other, signature};
+use super::rows::{Env, Moment, Placed, RowArt, other, signature};
 use crate::kit::focus::{Id, Region, Scope};
 use crate::kit::{Engine, Kit};
 use crate::settings::row::{Kind, Row};
@@ -120,7 +120,7 @@ impl ListArt {
         for (i, s) in self.slots.iter().enumerate() {
             let (Some(art), Some(at), Some(row)) = (&s.art, self.frame_of(i), rows.get(i)) else { continue };
             if at.y >= view.y - 1.0 && at.bottom() <= view.bottom() + 1.0 {
-                art.feed_lint(kit, paint, &sz, row, at, lint, panel);
+                art.feed_lint(kit, paint, &sz, row, Placed { at, panel }, lint);
             }
         }
     }

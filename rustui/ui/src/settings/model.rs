@@ -527,6 +527,19 @@ impl Model {
 
     // ------------------------------------------------------------------------------------------------------- the inputs
 
+    /// The page hears that an owner's document was taken (`owner:<id>`) or a helper topic changed (`topic:<name>`); no document comes with it,
+    /// the page reads the stores through its context.
+    fn page_hook(&mut self, name: &str, now: u64, out: &mut Vec<Effect>) {
+        let ops = {
+            let page = self.page(&self.current);
+            match page.and_then(|p| p.answered.map(|f| (p.id, p.title, f))) {
+                Some((id, title, f)) => f(&self.ctx(id, title, &self.arg), name, &Value::Null),
+                None => Vec::new(),
+            }
+        };
+        self.apply(ops, now, out);
+    }
+
     fn answered_call(&mut self, name: &str, payload: &Value, now: u64, out: &mut Vec<Effect>) {
         self.docs.set(name, payload.clone());
         let ops = {
@@ -545,12 +558,14 @@ impl Model {
                 if let Some(o) = self.owners.get_mut(&id) {
                     o.fetched(status, data);
                 }
+                self.page_hook(&format!("owner:{id}"), now, out);
             }
             Some(Route::OwnerPost(id)) => {
                 let Some(o) = self.owners.get_mut(&id) else { return };
                 let refetch = o.changed(status, data);
                 let next = o.next_change();
                 let path = o.path();
+                self.page_hook(&format!("owner:{id}"), now, out);
                 if refetch {
                     self.run_reads(vec![Read::Owner(id.clone())], now, out);
                 }
@@ -1296,8 +1311,12 @@ impl ScreenModel for Model {
                         self.read_page(&id, now_ms, true, &mut out);
                     }
                 } else {
+                    let same = self.topics.helper(topic) == Some(data);
                     self.topics.set_helper(topic, data.clone());
                     self.bump();
+                    if !same && self.open {
+                        self.page_hook(&format!("topic:{topic}"), now_ms, &mut out);
+                    }
                 }
             }
             Input::Luna { tag, .. } if (super::src::APPS_TAG..=super::src::APPS_TAG + 1).contains(tag) => {
