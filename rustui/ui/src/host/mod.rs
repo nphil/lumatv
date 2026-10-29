@@ -1,11 +1,13 @@
 //! The host's side of the shell: the long-poll feeds of the UI channel and the helper ([`http`]), the key socket ([`keys`]), and the
 //! clock. The loop that joins them to the engine's socket is `main.rs`.
 
+pub mod apps;
 pub mod http;
 pub mod inputs;
 pub mod keys;
 pub mod net;
 pub mod power;
+pub mod receiver;
 pub mod theme;
 
 /// Wall-clock milliseconds, the clock the models run on (the helper stamps its readings with it).

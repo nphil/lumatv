@@ -172,6 +172,7 @@ impl Shell {
                 };
                 acts.push(Act::Helper(Outbound { method, path, body, tag: Some(tag) }))
             }
+            Effect::Channel { path, body } => acts.push(Act::Channel(Outbound { method: "POST", path, body: Some(body), tag: None })),
             Effect::Theme { tag, patch } => self.write_theme(tag, &patch, now, acts),
             Effect::Log(line) => acts.push(Act::Log(line)),
             Effect::Redraw => self.redraw = true,
