@@ -6,8 +6,11 @@
 
 use crate::host::http::{Event, Outbound};
 use crate::host::keys::KeyEvent;
+use crate::kit::pointer::Sample;
 use crate::kit::screen::{Effect, Input, Model};
 use crate::kit::{Engine, Kit};
+use crate::system::alert::ALERT_TAG;
+use crate::system::layer::Layer;
 use crate::system::toast::{FEED_TAG, Toasts};
 use crate::system::toast_surface::ToastSurface;
 use crate::system::volume::Volume;
@@ -30,6 +33,12 @@ pub enum Act {
 pub struct Kinds {
     pub osd: bool,
     pub toast: bool,
+    pub alert: bool,
+    pub cards: bool,
+    pub saver: bool,
+    pub capture: bool,
+    pub popup: bool,
+    pub layout: bool,
 }
 
 impl Kinds {
@@ -40,6 +49,12 @@ impl Kinds {
             match name {
                 "osd" => k.osd = true,
                 "toast" => k.toast = true,
+                "alert" => k.alert = true,
+                "cards" => k.cards = true,
+                "saver" => k.saver = true,
+                "capture" => k.capture = true,
+                "popup" => k.popup = true,
+                "layout" => k.layout = true,
                 _ => {}
             }
         }
@@ -47,14 +62,19 @@ impl Kinds {
     }
 
     pub fn names(&self) -> Vec<&'static str> {
-        let mut v = Vec::new();
-        if self.osd {
-            v.push("osd");
-        }
-        if self.toast {
-            v.push("toast");
-        }
-        v
+        [
+            (self.osd, "osd"),
+            (self.toast, "toast"),
+            (self.alert, "alert"),
+            (self.cards, "cards"),
+            (self.saver, "saver"),
+            (self.capture, "capture"),
+            (self.popup, "popup"),
+            (self.layout, "layout"),
+        ]
+        .into_iter()
+        .filter_map(|(on, name)| on.then_some(name))
+        .collect()
     }
 }
 
@@ -68,6 +88,8 @@ pub struct Shell {
     volume_surface: VolumeSurface,
     toasts: Toasts,
     toast_surface: ToastSurface,
+    /// The system layer's kinds that sit over everything: the alerts, the cards, the pop-up, the capture mark, the saver.
+    sys: Layer,
     /// The last report sent, so an unchanged one is not sent again.
     reported: Option<Value>,
     live: bool,
@@ -87,6 +109,7 @@ impl Shell {
             volume_surface: VolumeSurface::new(system_z + crate::kit::z::SYSTEM, icons, theme, layout),
             toasts: Toasts::new(),
             toast_surface: ToastSurface::new(system_z + crate::kit::z::SYSTEM + 10, theme, layout),
+            sys: Layer::new(system_z + crate::kit::z::SYSTEM, theme, layout),
             kit,
             engine,
             kinds,
@@ -119,6 +142,9 @@ impl Shell {
             for e in self.toasts.subscribe() {
                 self.carry(e, crate::host::now_ms(), &mut acts);
             }
+        }
+        for e in self.sys.start(&self.kinds) {
+            self.carry(e, crate::host::now_ms(), &mut acts);
         }
         acts.push(Act::Channel(Outbound { method: "POST", path: "/v1/ui".into(), body: Some(self.report()), tag: None }));
         acts
@@ -178,6 +204,9 @@ impl Shell {
                 self.carry(e, now, acts);
             }
         }
+        for e in self.sys.update(&self.kinds, input, now) {
+            self.carry(e, now, acts);
+        }
     }
 
     /// An event of the UI channel.
@@ -198,6 +227,8 @@ impl Shell {
                 if let (Some(tag), Some(payload)) = (data.get("tag").and_then(Value::as_u64), data.get("payload")) {
                     if tag == FEED_TAG {
                         acts.push(Act::Log("toast delivered to the client".into()));
+                    } else if tag == ALERT_TAG {
+                        acts.push(Act::Log("alert delivered to the client".into()));
                     }
                     self.feed(&Input::Luna { tag, payload: payload.clone() }, now, &mut acts);
                 }
@@ -235,13 +266,26 @@ impl Shell {
         acts
     }
 
-    /// A key or a pointer sample from the key socket. The volume display and the toasts take no key; nothing here yet beyond the
-    /// model's say.
+    /// A key or a pointer sample from the key socket: the layer's alerts take the keys while one is up, the pointer's hover and click
+    /// are the kit's rule.
     pub fn key(&mut self, event: &KeyEvent, now: u64) -> Vec<Act> {
         let mut acts = Vec::new();
         match event {
-            KeyEvent::Key { name, down, repeat, .. } => self.feed(&Input::Key { name: name.clone(), down: *down, repeat: *repeat }, now, &mut acts),
-            KeyEvent::Pointer { x, y, buttons, visible } => self.feed(&Input::Pointer { x: *x, y: *y, buttons: *buttons, visible: *visible }, now, &mut acts),
+            KeyEvent::Key { name, down, repeat, .. } => {
+                if *down {
+                    self.sys.on_key(&self.kit, &mut self.engine);
+                }
+                self.feed(&Input::Key { name: name.clone(), down: *down, repeat: *repeat }, now, &mut acts);
+            }
+            KeyEvent::Pointer { x, y, buttons, visible } => {
+                let now_ns = self.kit.ui.scene.now_ns();
+                if let Some(target) = self.sys.pointer(&self.kit, &mut self.engine, now_ns, Sample { x: *x, y: *y, buttons: *buttons, visible: *visible }) {
+                    for e in self.sys.press(target) {
+                        self.carry(e, now, &mut acts);
+                    }
+                }
+                self.feed(&Input::Pointer { x: *x, y: *y, buttons: *buttons, visible: *visible }, now, &mut acts);
+            }
             KeyEvent::Closed => {}
         }
         self.after(now, &mut acts);
@@ -255,12 +299,18 @@ impl Shell {
         if self.volume_surface.tick(&mut self.kit, now) {
             self.redraw = true;
         }
+        if self.sys.tick(&self.kit, &self.kinds, now) {
+            self.redraw = true;
+        }
         self.after(now, &mut acts);
         acts
     }
 
     /// Draws what changed and reports when the report changed.
     fn after(&mut self, now: u64, acts: &mut Vec<Act>) {
+        if self.sys.take_redraw() {
+            self.redraw = true;
+        }
         if self.redraw {
             self.redraw = false;
             let mut live = false;
@@ -278,6 +328,10 @@ impl Shell {
                     Err(e) => acts.push(Act::Log(format!("toasts: {e}"))),
                 }
             }
+            match self.sys.apply(&self.kinds, &mut self.kit, &mut self.engine, now) {
+                Ok(on) => live |= on,
+                Err(e) => acts.push(Act::Log(e)),
+            }
             self.live = live;
         }
         if self.started {
@@ -289,10 +343,15 @@ impl Shell {
         }
     }
 
-    /// The report the compositor reads: what this process can show (no panel yet), whether its layer wants the keys (never, for a
-    /// display and a toast), whether it has something on screen, and its state for the gate.
+    /// The report the compositor reads: what this process can show (the layout editor, when it is a kind), whether its layer wants
+    /// the keys (an alert, the input popup or a PIN prompt is up), the keys its cards take while an app has the focus, whether it has
+    /// something on screen, and its state for the gate.
     pub fn report(&self) -> Value {
-        json!({"can": [], "wants": false, "live": self.live, "state": self.state()})
+        let mut can: Vec<&str> = Vec::new();
+        if self.kinds.layout {
+            can.push("layout");
+        }
+        json!({"can": can, "wants": self.sys.wants(&self.kinds), "takes": self.sys.takes(&self.kinds), "live": self.live, "state": self.state()})
     }
 
     pub fn state(&self) -> Value {
@@ -305,6 +364,9 @@ impl Shell {
         }
         if self.kinds.toast {
             s["toasts"] = self.toasts.state();
+        }
+        for (k, val) in self.sys.state(&self.kinds).as_object().into_iter().flatten() {
+            s[k] = val.clone();
         }
         s["live"] = json!(self.live);
         s
@@ -319,7 +381,7 @@ impl Shell {
         if self.kinds.toast {
             due = [due, self.toasts.due_at()].into_iter().flatten().min();
         }
-        due
+        [due, self.sys.due_at(&self.kinds)].into_iter().flatten().min()
     }
 
     pub fn is_live(&self) -> bool {
@@ -328,10 +390,21 @@ impl Shell {
 
     /// The volume pane's rectangle while it is up, and the toasts' cards (the host harness reads them).
     pub fn geometry(&self) -> Value {
-        json!({
+        let mut g = json!({
             "osd": self.volume_surface.pane_rect().map(|r| json!({"x": r.x, "y": r.y, "w": r.w, "h": r.h})),
             "toasts": self.toast_surface.rects().iter().map(|r| json!({"x": r.x, "y": r.y, "w": r.w, "h": r.h})).collect::<Vec<_>>(),
-        })
+        });
+        for (k, v) in self.sys.geometry(&self.kinds).as_object().into_iter().flatten() {
+            g[k] = v.clone();
+        }
+        g
+    }
+
+    /// The layout and contrast lint of what the layer has on the screen (`--eval lint`): an object per finding.
+    pub fn lint(&mut self) -> Value {
+        let mut lint = crate::kit::lint::Lint::new();
+        self.sys.feed_lint(&self.kinds, &mut self.kit, &mut lint);
+        json!(lint.findings().iter().map(|f| json!({"kind": f.kind.name(), "subject": f.subject, "detail": f.detail})).collect::<Vec<_>>())
     }
 
     /// The volume model's own account (`--eval volume`).
@@ -343,6 +416,7 @@ impl Shell {
     pub fn restyle(&mut self) {
         self.volume_surface.restyle();
         self.toast_surface.restyle();
+        self.sys.restyle(&mut self.engine);
         self.redraw = true;
     }
 }

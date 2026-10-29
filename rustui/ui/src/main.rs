@@ -450,6 +450,7 @@ fn run_host(o: Options) -> io::Result<()> {
         script.push((ms, Box::new(move |s, _, log| {
             let v = match what.as_str() {
                 "geometry" => s.geometry(),
+                "lint" => s.lint(),
                 "report" => s.report(),
                 "volume" => s.debug(),
                 "atlas" => json!({"settled": s.kit.ui.glyph_text_settled(), "crowded": s.kit.ui.text_atlas_crowded(), "pictures": s.kit.ui.text_pictures, "fallbacks": s.kit.ui.glyph_text_fallbacks}),

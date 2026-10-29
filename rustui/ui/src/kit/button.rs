@@ -33,17 +33,39 @@ pub struct Spec {
     pub label: String,
     /// A Lucide icon before the label.
     pub icon: Option<&'static str>,
+    /// The icon's own colour where it is not the label's (the live dot of a "Live" button).
+    pub icon_ink: Option<Rgba>,
     pub tone: Tone,
     pub enabled: bool,
+    /// Chosen (the strip's "Live" while live, a sheet's tab): the raised wash and edge, with no lift.
+    pub selected: bool,
+    /// The corner radius where it is not a pill (the mocks' controls: `radius.control`).
+    pub radius: Option<f32>,
 }
 
 impl Spec {
     pub fn new(label: &str, tone: Tone) -> Self {
-        Self { label: label.to_string(), icon: None, tone, enabled: true }
+        Self { label: label.to_string(), icon: None, icon_ink: None, tone, enabled: true, selected: false, radius: None }
     }
 
     pub fn with_icon(mut self, icon: &'static str) -> Self {
         self.icon = Some(icon);
+        self
+    }
+
+    pub fn with_icon_ink(mut self, ink: Rgba) -> Self {
+        self.icon_ink = Some(ink);
+        self
+    }
+
+    pub fn selected(mut self, on: bool) -> Self {
+        self.selected = on;
+        self
+    }
+
+    /// A rectangle of `radius` instead of a pill.
+    pub fn with_radius(mut self, radius: f32) -> Self {
+        self.radius = Some(radius);
         self
     }
 }
@@ -96,6 +118,9 @@ pub struct Button {
     hovered: bool,
     /// Looks disabled and stays focusable (the OK of a PIN pad before four digits).
     dimmed: bool,
+    /// The look of the pill at rest and as chosen.
+    at_rest: Shape,
+    chosen: Shape,
 }
 
 impl Button {
@@ -121,7 +146,7 @@ impl Button {
     pub fn new(kit: &mut Kit, engine: &mut Engine, place: Place, spec: Spec) -> std::io::Result<Self> {
         let Place { id, frame, region, scope, z } = place;
         let (w, h) = (frame.w, frame.h);
-        let radius = (h / 2.0).floor();
+        let radius = spec.radius.unwrap_or((h / 2.0).floor());
         let look = &kit.ui.look;
         let (glass, edge, raised, edge_raised) =
             (look.colour(PaletteRole::Glass), look.colour(PaletteRole::Edge), look.colour(PaletteRole::GlassRaised), look.colour(PaletteRole::EdgeRaised));
@@ -131,6 +156,7 @@ impl Button {
             Tone::Primary => (pill(accent, edge, radius), pill(lighter(accent, 1.12), edge_raised, radius), look.accent_ink()),
             Tone::Danger => (pill(faded(danger, 0.16), faded(danger, 0.5), radius), pill(faded(danger, 0.24), edge_raised, radius), danger),
         };
+        let icon_ink = spec.icon_ink.unwrap_or(label_colour);
         let hover_fill = faded(ink, kit.tokens.states.hover_wash);
         let hover_edge = faded(edge_raised, 0.6);
         let icon_name = spec.icon.filter(|n| kit.icons.has(n));
@@ -148,12 +174,12 @@ impl Button {
         let lit_group = kit.ui.scene.group(Some(group.id()), GroupPose { opacity: 0.0, ..GroupPose::IDENTITY }).map_err(other)?;
         let scene = kit.ui.scene.clone();
         let (base, hover, label, icon) = scene.adopting(&group, || -> std::io::Result<_> {
-            let base = kit.ui.scene.shape(w.round() as u32, h.round() as u32, z, base_shape, HIDDEN);
+            let base = kit.ui.scene.shape(w.round() as u32, h.round() as u32, z, if spec.selected { lit_shape } else { base_shape }, HIDDEN);
             let hover = kit.ui.scene.shape(w.round() as u32, h.round() as u32, z + 2, pill(hover_fill, hover_edge, radius), HIDDEN);
             let mut label = Text::new(kit, label_box, z + 3, style, &spec.label)?;
             label.set_props(HIDDEN);
             let icon = match icon_name {
-                Some(n) => icon::layer(kit, n, side, label_colour, z + 3, HIDDEN)?,
+                Some(n) => icon::layer(kit, n, side, icon_ink, z + 3, HIDDEN)?,
                 None => None,
             };
             Ok((base, hover, label, icon))
@@ -178,6 +204,8 @@ impl Button {
             shown: false,
             hovered: false,
             dimmed: false,
+            at_rest: base_shape,
+            chosen: lit_shape,
         })
     }
 
@@ -297,6 +325,15 @@ impl Button {
                 i.set(Props { opacity: o, ..self.icon_at });
             }
         }
+    }
+
+    /// Chosen or not: the raised wash and edge with no lift (the strip's selected "Live", a sheet's tab).
+    pub fn set_selected(&mut self, on: bool) {
+        if self.spec.selected == on {
+            return;
+        }
+        self.spec.selected = on;
+        self.base.reshape(if on { self.chosen } else { self.at_rest });
     }
 
     /// Describes the button to a lint: its pill (over what `under` is, a panel of the lint) and its words.
