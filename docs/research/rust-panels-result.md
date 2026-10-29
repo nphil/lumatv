@@ -6,17 +6,17 @@ context menu, the confirm dialog and the app switcher's chrome. Three kinds are 
 
 ## Resume here
 
-**Done, pushed (`cargo test -p lumatv-ui` 765 lib tests, compositor `shell_rust` tests, `tests/test_rust_panels.py` 13 host cases;
+**Done, pushed (`cargo test -p lumatv-ui` lib tests, compositor `shell_rust` and `ime_own` tests, `tests/test_rust_panels.py` host cases;
 `clippy -D warnings` clean)**
 
-- Kinds `quick`, `picker`, `drawer`, `menu`, `confirm`, `switcher`, `entry`: `panels/layer.rs` (`Panels`, shaped like
+- Kinds `quick`, `picker`, `drawer`, `menu`, `confirm`, `switcher`, `entry`, `keyboard`: `panels/layer.rs` (`Panels`, shaped like
   `system/layer.rs::Layer`) is called from `shell.rs` and the compositor lists the kinds (`shell_rust.rs::KINDS`). One panel is up at a
   time; `show{kind,warm,n}` opens quick/picker/drawer (a second press closes, the picker goes on to the next input); 45 s idle, an app
   coming to the front and the screen going off close what is up. Detail and the rules of each kind: `rust-shell-kit.md`, "The panels".
 - Models with the QML's cases as tests: `quick/{mod,tiles,tests}.rs` (+ `arrange.rs`, `hold.rs`, `pin.rs`, `clock.rs`, `hub.rs`),
-  `picker.rs`, `drawer.rs` (+ `notelog.rs`), `menu.rs`, `confirm.rs`, `switcher.rs`, `entry.rs`; `env.rs` is the shared state, `life.rs` the phases.
+  `picker.rs`, `drawer.rs` (+ `notelog.rs`), `menu.rs`, `confirm.rs`, `switcher.rs`, `entry.rs`, `ime.rs`; `env.rs` is the shared state, `life.rs` the phases.
   Surfaces on `stage.rs`: `quick_surface.rs` (+ `quick_layout.rs`), `picker_surface.rs`, `drawer_surface.rs`, `menu_surface.rs`,
-  `confirm_surface.rs`, `switcher_surface.rs`, `entry_surface.rs`; all lint clean at 100 % and 200 % text in both materials.
+  `confirm_surface.rs`, `switcher_surface.rs`, `entry_surface.rs`, `ime_surface.rs`; all lint clean at 100 % and 200 % text in both materials.
 - **menu / confirm**: opened by an owner with the topics `menu.open` / `confirm.ask`; `menu.picked` / `confirm.answered` go back as topics.
   Back, idle and an app coming to the front answer a dialog with its safe answer (so an owner is never left waiting). Nothing in the Rust
   shell asks for them yet: Home has its own menu and Settings its own sheets; they are for the screens that follow.
@@ -29,25 +29,36 @@ context menu, the confirm dialog and the app switcher's chrome. Three kinds are 
 - **entry**: the on-screen keyboard for the shell's own screens (Home's search keys, a sheet over Settings in `z::KEYBOARD`, solid on a
   hiding dim, a password as bullets, 128 characters). Settings' `ShellRequest::Text` opens it; Done gives the text back once to
   `settings.entered`, Back/idle/app-front to `settings.entry_cancelled` (never a topic, never printed). It takes every key while up, and the
-  release of a key it took (Settings acts on a release). Kind off: the ask is cancelled at once. The compositor's IME for text fields of
-  apps (`Msg::Ime`) is still the QML keyboard's: not started.
+  release of a key it took (Settings acts on a release). Kind off: the ask is cancelled at once.
+- **keyboard** (the apps' text fields, `Msg::Ime`): the QML `Keyboard.qml` + `KeyboardLayouts.js` ported, same layouts (letters, e-mail, URL,
+  symbols, four number pads), enter keys, shift, D-pad walk and repeats, voice key, Back ends the microphone first. Not one of the panels: the
+  compositor sends the `ime` topic and the `imekey` events to the client that answers the kind (the other is told there is no field) and takes
+  `POST /v1/ime` from it (`text`, `key`, `clear`, `hide`, `shown`); the sheet is drawn at the foot (full width, or a narrow centred pad) and its
+  rectangle is posted as `shown`, so the field keeps clear of it. Needs `lumatv keyboard luma` (the owner's flag) as before; without the kind
+  the QML keyboard serves. **The Magic Remote pointer was not wired to the Rust client at all** (`shell_rust_pointer` had no caller): the
+  compositor now sends pointer samples to it where its layer wants the keys and on its keyboard's sheet, and OK is its click while the cursor
+  is over it (`seat.rs`, `shell_rust.rs::shell_rust_pointer_sample`).
 - **Plugin tiles/notes**: the helper poll (`host/http.rs::follow_filter`) already follows the `plugins` roster; the base list is 18 names,
   past the 16 a poll may carry, so the poll asks for every topic (as the QML client's does) and `panels/hub.rs` shows what the roster says is
   connected. The earlier note that the host did not subscribe was wrong; `test_rust_panels.py` proves a connected plugin's tile reaches the
   panel and a plugin that is not connected shows none (the fake helper now has opt-in `keepalive` and `filter_topics`).
 - PIN pad at 200 % text overflowed the sheet (found by the host lint): the pad now fits the room under the head (keys shrink to a label's
-  height, then the avatar is left out).
-- Host renders (1280-wide JPEG): `docs/mocks/host-rust/panels/{switcher,menu,confirm,entry,quick-pin,quick-edit,quick-card}-{dark-100,light-200}.jpg`
+  height, then the avatar is left out). The pad shows OK and Back as glyphs in the head where the clock was; the edit list keeps every tile name
+  whole at large text (the marks go under the words, a long detail takes a second line, every row alike); a pick card with more options than
+  the screen holds (200 % text) is as tall as the safe area and scrolls its options in a window, the focused one always whole. The quick
+  panel's root, dim, modal scope, first focus and pointer are `Stage`'s now, like every other panel's.
+- Host renders (1280-wide JPEG): `docs/mocks/host-rust/panels/{switcher,menu,confirm,entry,keyboard,keyboard-email,keyboard-pad,quick-pin,quick-edit,quick-card}-{dark-100,light-200}.jpg`
   (`RUST_PANELS_RENDERS=docs/mocks/host-rust/panels python3 -m unittest test_rust_panels`); the three older PNGs stay.
 - Harness: `lumatv-ui --host` prints the shell's `POST /v1/switcher` as `[switcher] ...`. `Move` in a menu spec uses `layout-grid` (the set
   has no `move` glyph).
 
 **Not done**
 
-1. The compositor IME keyboard for apps' text fields (`Msg::Ime`, `server/ime.rs`, `panels/Keyboard.qml`, `KeyboardLayouts.js`): the `entry`
-   sheet reuses Home's keys only; layouts for e-mail/url/number pads, the field's enter key, voice and the `imekey` stream are the QML keyboard's.
-2. `quick_surface.rs` keeps its own root/dim/hover/modal code (move onto `Stage`).
-3. The glyph hints are missing under the PIN pad (the foot is the list's).
+1. The apps' keyboard on the TV: nothing is verified there (voice key, the sheet's place against a real field, the first frames, the
+   pointer samples the compositor now sends). The QML keyboard's key lift and press shrink are not ported (the focus plate glides, as the
+   entry sheet's does).
+2. A pick card's scroll and the edit list's stacked rows have host renders at 200 % only through the quick panel's card and edit scenes;
+   the cases with many options are unit tests.
 
 **Decisions taken** (conservative standard option; change if Nitin disagrees)
 
@@ -78,9 +89,13 @@ context menu, the confirm dialog and the app switcher's chrome. Three kinds are 
    the arrows move over the keys, OK types, the number keys type digits, Done goes on to "Join ...?", Back cancels. Press neither Join nor
    Apply on the first pass.
 7. `ctl shell rust +menu +confirm`: nothing opens them yet (no owner); nothing to check beyond the kinds being accepted.
+8. `lumatv keyboard luma`, `ctl shell rust +keyboard`: open an app's search field (YouTube, Plex): the sheet comes up at the foot within two
+   seconds (else LG's keyboard serves for a minute), the field moves clear of it, the arrows/OK/digits/Back act as before, Search/Done
+   hide it, the Magic Remote's pointer hovers and clicks the keys and nothing under it, the mic key (when LG says it has voice) listens;
+   a number field gets the narrow pad. `ctl shell rust -keyboard` gives the QML keyboard back.
 
 ## Changelog line
 
 Rust panels: the quick panel, input picker, notification drawer, context menu, confirm dialog, app switcher chrome (over the compositor's
-live pictures) and an on-screen keyboard for Settings' typed text are drawn by the Rust UI and switch on per kind with `ctl shell rust
-+quick +picker +drawer +menu +confirm +switcher +entry`.
+live pictures), an on-screen keyboard for Settings' typed text and the keyboard of the apps' text fields are drawn by the Rust UI and switch on per kind with `ctl shell rust
++quick +picker +drawer +menu +confirm +switcher +entry +keyboard`; the Magic Remote's pointer now reaches the Rust client.

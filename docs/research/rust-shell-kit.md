@@ -210,15 +210,15 @@ button lifts on the shared flowing focus. `tests/rust_cameras_scenes.py` renders
 and light, 100 % and 200 % text) with the lint; `tests/test_rust_cameras.py` runs the cases against the fake helper. Status and the
 TV checks: `rust-cameras-result.md`.
 
-## The panels (`rustui/ui/src/panels/`, kinds `quick`, `picker`, `drawer`, `menu`, `confirm`, `switcher`, `entry`)
+## The panels (`rustui/ui/src/panels/`, kinds `quick`, `picker`, `drawer`, `menu`, `confirm`, `switcher`, `entry`, `keyboard`)
 
-Seven kinds, one owner: `panels/layer.rs::Panels` is called from `shell.rs` the way `system/layer.rs::Layer` is (feed, key, pointer, tick,
+Eight kinds, one owner: `panels/layer.rs::Panels` is called from `shell.rs` the way `system/layer.rs::Layer` is (feed, key, pointer, tick,
 after, report, state, geometry, lint, restyle) and keeps **one panel up at a time**. A model (`quick/`, `picker.rs`, `drawer.rs`, `menu.rs`,
-`confirm.rs`, `switcher.rs`, `entry.rs`) is pure: keys and clicks in, `Out { effects, asks, events, typed, close }` out. A surface
+`confirm.rs`, `switcher.rs`, `entry.rs`, `ime.rs`) is pure: keys and clicks in, `Out { effects, asks, events, typed, close }` out. A surface
 (`*_surface.rs`) draws a view of it on `stage.rs::Stage` (the root a panel's layers hang under and how it slides, the dim, the modal scope,
 the first focus lifted at once, the pointer's cue and click) with the same shape each time: a pure `layout()`, `build()` when the content says
 something else, in-place changes for focus/typing/caret, `pointer()`, `feed_lint()`, `geometry()`. `life.rs` is the enter/exit/linger phases
-(a panel that is not wanted has no layers). Scopes: quick 200, picker 201, drawer 202, menu 203, confirm 204, switcher 205 (ask 207), entry 208.
+(a panel that is not wanted has no layers). Scopes: quick 200, picker 201, drawer 202, menu 203, confirm 204, switcher 205 (ask 207), entry 208, keyboard 209.
 
 - **`show`** (the gear, Input, the gear's hold) is the compositor's way to open `quick`, `picker`, `drawer`; a second `show` of the one up closes
   it (the picker goes on to the next input). **`menu.open`** and **`confirm.ask`** are topics the *owner of the thing* sends (the spec of
@@ -232,10 +232,27 @@ something else, in-place changes for focus/typing/caret, `pointer()`, `feed_lint
   the shell as `take_drawn()`. Offered when `remote.appSwitcher` or `remote.recents` is on (both off until the TV check): a second Home press
   (`homekey {switcher: true}` to Home at rest, `Request::Switcher`), and Back from the top of Home with `recents`.
 - **`entry`**: text typed on the TV for the shell's *own* screens (Wi-Fi password, names, addresses; Settings' `ShellRequest::Text`). It is not
-  the compositor's IME for text fields of apps (that stays the QML keyboard's). Home's search keys (`home/search.rs`) are the model; the sheet is
+  the compositor's IME for text fields of apps (that is `keyboard`, below). Home's search keys (`home/search.rs`) are the model; the sheet is
   solid on a hiding dim in `z::KEYBOARD`, takes every key and click while up (and the release of a key it took), masks a password except its last
   character, holds 128 characters and hands the text back **once** (`Panels::take_typed`, never a topic, never printed) or says it was
   cancelled. Kind off: the ask is cancelled at once.
+- **`keyboard`**: the keyboard of the *apps'* text fields (`Msg::Ime`, `server/ime.rs`; the QML `Keyboard.qml` + `KeyboardLayouts.js`, same layouts and
+  rules). The model (`ime.rs`) is not one of the panels (no `Which`, no idle close, never `wants` the keys): the compositor says which field asks (the
+  topic `ime`: `active, show, model, purpose, hint, enter, text`; never the field's words) and, while the sheet is up, hands the remote's keys over as
+  `imekey {k, d, r}` events, because the app keeps the keyboard focus. Layouts: letters, e-mail and URL letters, symbols and the four number pads (a
+  pad is narrow and centred, the letters the full width), the field's enter key is the one accent key (Search, Go, Send, Done, Next, Prev or the return
+  arrow, and the first four put the keyboard away), the voice key stands where the hide key does when `system.supportVoiceRecognition` (asked at the
+  start, again at the next field if it had no answer); shift is off, one capital or caps lock (initial shift from the hint bits and the name purpose);
+  D-pad walks the rows (wrapping), up/down keep the column; repeats are let through after 300 ms at 100 ms, 60 ms after eight. What is typed leaves as
+  `POST /v1/ime` (`text`, `key`, `clear`, `hide`, `shown`, each with the field's `model` so a late one is dropped); the sheet's rectangle is posted as
+  `shown` once per place (the field keeps clear of it; the compositor gives the pointer to this process inside it, `State::shell_rust_pointer_sample`).
+  The surface (`ime_surface.rs`) paints the plates and pictures as one image and the caps as one text block (changed in place), three focus plates
+  that glide, in `z::KEYBOARD`; a key that needs text (Clear) is dimmed and gets no hover cue; at large text the caps shrink to keep their air.
+  QML fallback: with `keyboard` off the list the QML client serves; the compositor sends `ime`/`imekey` to the one that answers the kind and tells
+  the other there is no field.
+- The quick panel's edit list keeps every tile name whole at large text (the marks go under the words when a name would be cut beside them, a long
+  detail takes a second line), the PIN pad shows OK and Back as glyphs in the head in place of the clock, and a pick card with more options than
+  the screen holds scrolls them in a window (`PopupLayout::scroll`).
 - Plugin tiles and notes (`plugin.<id>.tiles`, `.notifications`) arrive on the helper poll: `host/http.rs::follow_filter` names a connected
   plugin's topics, and past the 16 names a poll may carry (the base list is already 18) the poll asks for every topic; `panels/hub.rs` shows
   only what the roster says is connected and valid.
