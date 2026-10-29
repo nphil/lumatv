@@ -70,12 +70,19 @@ pub enum Logical {
     Other,
 }
 
+/// The keys the Rust shell's own screens know by name and the routing has no use for: the microphone key (push to talk), the on-screen remote's and
+/// Search's. Their codes are not known until the set has been read (no TV access when this was written): `keys.conf` lines `voice N`,
+/// `screenremote N` and `search N` teach them, and the client is sent these names only while it lists them in its `takes`
+/// (`shell_rust.rs`), so a mic key that the helper cannot answer stays LG's.
+pub const SHELL_KEYS: [&str; 3] = ["voice", "screenremote", "search"];
+
 /// Which evdev code is which key. The built-in codes are LG's (`tools`: network-input-service's key table; the gear and Input were
 /// also read off this set); a `keys.conf` line `NAME CODE` adds a code for a key (gear, input, netflix, amazon, disneyplus,
-/// lgchannels), which is how a button this table does not know yet is taught without a rebuild.
+/// lgchannels, or one of [`SHELL_KEYS`]), which is how a button this table does not know yet is taught without a rebuild.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct KeyTable {
     extra: Vec<(u32, Logical)>,
+    shell: Vec<(u32, &'static str)>,
 }
 
 impl KeyTable {
@@ -96,10 +103,15 @@ impl KeyTable {
         }
     }
 
+    /// The name the Rust shell knows this code by, when `keys.conf` taught it one of [`SHELL_KEYS`].
+    pub fn shell_name(&self, code: u32) -> Option<&'static str> {
+        self.shell.iter().find(|(c, _)| *c == code).map(|(_, n)| *n)
+    }
+
     /// Whether the table names this code, built in or taught: what the routing treats as a key of its own. A code it does not
     /// name goes to the app as before.
     pub fn knows(&self, code: u32) -> bool {
-        self.classify(code) != Logical::Other
+        self.classify(code) != Logical::Other || self.shell_name(code).is_some()
     }
 
     /// Parses `keys.conf`: `NAME CODE` per line, `#` comments. Every line that is not one is returned with the reason.
@@ -122,9 +134,14 @@ impl KeyTable {
                 "lgchannels" => Some(Logical::App(AppKey::LgChannels)),
                 _ => None,
             };
-            match (logical, code, words.next()) {
-                (Some(l), Some(c), None) => table.extra.push((c, l)),
-                _ => bad.push(format!("line {}: {line:?} is not NAME CODE with a name of gear, input, netflix, amazon, disneyplus or lgchannels", n + 1)),
+            let shell = SHELL_KEYS.iter().copied().find(|k| *k == name);
+            match (logical, shell, code, words.next()) {
+                (Some(l), _, Some(c), None) => table.extra.push((c, l)),
+                (None, Some(k), Some(c), None) => table.shell.push((c, k)),
+                _ => bad.push(format!(
+                    "line {}: {line:?} is not NAME CODE with a name of gear, input, netflix, amazon, disneyplus, lgchannels, voice, screenremote or search",
+                    n + 1
+                )),
             }
         }
         (table, bad)
@@ -144,6 +161,7 @@ impl KeyTable {
             .map(|(l, c)| (name(l).to_string(), c))
             .collect();
         out.extend(self.extra.iter().map(|(c, l)| (name(*l).to_string(), *c)));
+        out.extend(self.shell.iter().map(|(c, n)| ((*n).to_string(), *c)));
         out
     }
 }
@@ -443,6 +461,19 @@ mod tests {
         );
         let (_, bad) = KeyTable::parse("volume 5\ngear\ngear 1 2\ngear x\nnetflix 1037\n");
         assert_eq!(bad.len(), 4, "{bad:?}");
+    }
+
+    #[test]
+    fn the_shell_keys_are_taught_by_name_and_are_known_but_are_no_logical_key_of_the_routing() {
+        let (t, bad) = KeyTable::parse("voice 1050\nscreenremote 1051 # the on-screen remote\nsearch 217\n");
+        assert!(bad.is_empty(), "{bad:?}");
+        assert_eq!((t.shell_name(1050), t.shell_name(1051), t.shell_name(217), t.shell_name(1)), (Some("voice"), Some("screenremote"), Some("search"), None));
+        assert!(t.knows(1050) && t.knows(217) && !t.knows(1052), "taught: not reported as a code with no name");
+        assert_eq!(t.classify(1050), Logical::Other, "the routing has nothing to do for them: the app keeps them unless the shell takes them");
+        let named = t.named();
+        assert!(named.contains(&("voice".to_string(), 1050)) && named.contains(&("search".to_string(), 217)), "{named:?}");
+        let (_, bad) = KeyTable::parse("mic 5\nvoice\nvoice 1 2\n");
+        assert_eq!(bad.len(), 3, "{bad:?}");
     }
 
     #[test]

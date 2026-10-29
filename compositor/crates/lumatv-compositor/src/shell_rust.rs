@@ -884,7 +884,9 @@ impl State {
     /// own goes to it), or its cards take OK and Back by name while an app has the focus (`takes`, as the QML client's). Returns
     /// whether the key went to it.
     pub fn shell_rust_takes_key(&mut self, seat: crate::server::seat::SeatId, code: u32, pressed: bool, swallowed: bool, now: Instant) -> bool {
-        let name = match crate::server::ime::own_key_name(code) {
+        // a key `keys.conf` taught the Rust shell by name (the mic, the on-screen remote, Search): sent only while the client lists it in its `takes`
+        let taught = if crate::server::ime::own_key_name(code).is_none() { self.keys.router.table.shell_name(code) } else { None };
+        let name = match crate::server::ime::own_key_name(code).or(taught) {
             Some(n) => n,
             // the saver is up: any key wakes it, whatever it is (the colour keys, play, menu), and the key does nothing else
             None if self.shell_rust_saver_up() => "any",
@@ -911,7 +913,7 @@ impl State {
             }
             let wants = self.shell_rust_wants_keys();
             let takes = self.shell_rust.takes.iter().any(|n| n == name);
-            if !wants && !takes {
+            if (!wants && !takes) || (taught.is_some() && !takes) {
                 return false;
             }
             if takes && !wants {
@@ -1381,6 +1383,38 @@ mod tests {
         assert!(!state.shell_rust_takes_key(seat, crate::input::code::KEY_UP, true, false, now));
         state.shell_rust_handle(Msg::Takes(vec!["ok".into(), "menu".into()]));
         assert_eq!(state.shell_rust.takes, vec!["ok"]);
+    }
+
+    #[test]
+    fn a_key_keys_conf_taught_the_shell_by_name_is_sent_only_while_the_client_lists_it_and_its_release_with_it() {
+        let (mut state, _dir) = state_with("osd");
+        state.shell_rust_handle(Msg::Connected);
+        let (ours, theirs) = UnixStream::pair().unwrap();
+        ours.set_nonblocking(true).unwrap();
+        state.shell_rust.keys = Some(ours);
+        state.keys.router.table = crate::keys::KeyTable::parse("voice 1050\nsearch 217\n").0;
+        let seat = crate::server::seat::SeatId(0);
+        let now = Instant::now();
+        // Home is in front: the layer wants every key. The mic key is not listed (the helper cannot listen): it stays LG's, and so does a code nobody named
+        state.shell_rust_handle(Msg::Ui { can: None, wants: Some(true), live: Some(true), state: None });
+        assert!(!state.shell_rust_takes_key(seat, 1050, true, false, now), "not listed");
+        assert!(!state.shell_rust_takes_key(seat, 1051, true, false, now), "no name at all");
+        state.shell_rust_handle(Msg::Takes(vec!["voice".into(), "search".into(), "menu".into()]));
+        assert_eq!(state.shell_rust.takes, vec!["voice", "search"], "the names are takeable, a name nobody taught is not");
+        assert!(state.shell_rust_takes_key(seat, 1050, true, false, now), "listed: the press is the shell's");
+        assert!(state.shell_rust_takes_key(seat, 1050, false, false, now + Duration::from_millis(900)), "and the release, which is the end of the question");
+        assert!(state.shell_rust_takes_key(seat, 217, true, false, now), "Search too");
+        // it stops listing the mic key (the helper went away) between a press and its release: the release still reaches it
+        assert!(state.shell_rust_takes_key(seat, 1050, true, false, now + Duration::from_secs(2)));
+        state.shell_rust_handle(Msg::Takes(vec!["search".into()]));
+        assert!(state.shell_rust_takes_key(seat, 1050, false, false, now + Duration::from_secs(3)));
+        assert!(!state.shell_rust_takes_key(seat, 1050, true, false, now + Duration::from_secs(4)), "and the next press is LG's again");
+        let mut reader = theirs;
+        reader.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        let mut buf = [0u8; 2048];
+        let n = reader.read(&mut buf).unwrap();
+        let names: Vec<String> = std::str::from_utf8(&buf[..n]).unwrap().lines().map(|l| serde_json::from_str::<Value>(l).unwrap()["key"]["k"].as_str().unwrap().to_string()).collect();
+        assert_eq!(names, vec!["voice", "voice", "search", "voice", "voice"]);
     }
 
     #[test]
