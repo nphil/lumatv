@@ -370,14 +370,18 @@ Answers are the bridge's own v1 JSON with times unchanged (`docs/scrypted-bridge
   {"id": "c1.WyIx...", "at": 1792605900000, "duration": 30000, "kind": "person", "label": "person", "description": "Person at the front door", "has_thumbnail": true, "has_video": true}]}
 ```
 
-**The pop-up.** `cameras.popup` is a record for the overlay system's card of class `camera` (`overlays-result.md`: 560 wide, 96 px from the right edge, from y 134, two cards at most, held while a
-PIN, alert or keyboard is up); the Cameras surface supplies the words and the picture and does no placing of its own (the card's corner belongs to the overlay layer; the general placing fix lands there).
-OK opens the full view, Back dismisses, the arrows stay the app's (`takes` OK and Back only while a pop-up is up). A doorbell stays half as long again, is never held back by the cooldown, and
-merges with the Home Assistant plugin's doorbell record of the same ring (`popupShown(kind)`, as now). The card shows the event's thumbnail at once, then the camera's stills at 4 a second for as long as the card is up (the helper opens the stills stream for that camera only then).
+**The pop-up.** `cameras.popup` is a record for the overlay system's card of class `camera` (`overlays-result.md`: 560 wide, two cards at most, held while a PIN, alert or keyboard is up); the Cameras
+surface supplies the words and the picture and does no placing of its own (the card's place is the overlay layout's). OK opens the full view, Back dismisses, the arrows stay the app's (`takes` OK and
+Back only while a pop-up is up); the card shows these two keys as glyphs (`assets/glyphs`), never as words. A doorbell stays half as long again, is never held back by the cooldown, and merges with the Home
+Assistant plugin's doorbell record of the same ring (`popupShown(kind)`, as now). An `update` re-publishes the same `id` with new words, and the card up changes its words. The card shows the event's
+thumbnail at once, then the camera's stills at 4 a second for as long as the card is up (the helper opens the stills stream for that camera only then).
 
 **The full view and the strip** (Lucent TV rules: chrome over full-screen media fades after 2.5 s of no key and never blocks Back; the first key only reveals it; the way out never depends on it;
-honest states; one button size per screen; checked at 100 % and 200 % text). Up opens the strip (Live, play, back 10 s, forward 10 s, rate, span, ticks, gaps, bubble), Left and Right scrub (hold
-repeats), OK plays or pauses, Down opens the events and clips sheet, Back goes Live, then closes. Cells the bridge calls `unknown` draw as recorded and dim; only a confirmed gap is hatched.
+honest states; one button size per screen; no sentence of instruction, hints are glyphs; checked at 100 % and 200 % text). With the chrome up: Left and Right go to the previous and next camera, Up opens
+the strip (Live, play, back 10 s, forward 10 s, previous and next event, rate, span, ticks, gaps, bubble), Left and Right there scrub (hold repeats, committed on release), OK commits the cursor or plays
+and pauses, Down opens the events and clips sheet, Back goes Live, then closes. Cells the bridge calls `unknown` draw as recorded and dim; only a confirmed gap is hatched. Over a playing app the full view is
+stills (1280x720, 8 a second) and the strip, sheet and playback are not offered unless C12 shows the feeder window plays over the app. The screens are the Rust shell's: `cameras-ui-spec.md` has their behaviour
+and timings, `docs/mocks/cameras-scrypted/` their pictures.
 
 ### 3.5 Options and the event policy
 
@@ -520,7 +524,7 @@ Three slices, parallel from the contracts in 3.3 (A to B) and 3.4 (B to C). Each
 |---|---|---|---|
 | **A: bridge v1.1** (TypeScript, `lumashow-scrypted`) | modules `live`, `stills` (ffmpeg per camera, shared, ref-counted), `stream` (events, with the tracked-object rule and the 200-event ring), `event_thumbnails`, `devices` (`TokenStore` with many verifiers, the settings form); `cameras?scope=all` with `streams` and `prebuffered`; `mapping.ts` (`package`, `people`, `dog_cat`); `accept` limits and H.265 in `src/playback` and its SDP; selftest lines; `docs/scrypted-bridge-api.md` v1.1 | **M**: about 1,300 lines and 1,200 of tests | the contract 3.3; the unverified items of 1.7 are read by its self-test |
 | **B: TV helper** (Rust, `helper/app/src/scrypted/`) | `link` (store and CLI), `client` (rustls with the pin, keep-alive, SSE and multipart readers), the bridge's request and reader code (reused), `events` and `policy`, `stills`, `live` and `playback` (`rtsp-client` into the existing `Player` and `Feeder`), the routes and topics of 3.4, the options page and its providers, removal of 4.1, a fake bridge for tests | **L**: about 4,000 lines and 1,500 of tests | the contract 3.3 (fake) and the repository dependency on `rtsp-client`; `rustls` added to the helper |
-| **C: TV shell** (QML, `payload/compositor/lumatv`) | `panels/Cameras.qml` on the new topics and routes: pop-up content for the overlay card, grid, full view over the hole, strip and bubble (`panels/CamTimeline.qml`), events and clips sheet (`panels/CamEvents.qml`), states of 3.7, `settings/PageCameras.qml` on `PluginRows.js`; mocks in `docs/mocks/cameras/` (timeline, sheet, states, dark and light, 100 % and 200 % text) and the fake-helper tests | **M to L**: about 2,000 lines and mocks | the contract 3.4 (the fake helper of `tests/qmlhost`); Lucent TV (`skill://design-language`) |
+| **C: TV shell** (the Rust shell; no QML) | the screens of `cameras-ui-spec.md` on the topics and routes of 3.4: pop-up content for the overlay card, grid, full view over the hole, strip and bubble, events and clips sheet, states of 3.7, the Settings page from the schema of 3.5; mocks in `docs/mocks/cameras-scrypted/` (done: every view, dark and light, 100 % and 200 % text) | **M to L** | the contract 3.4; Lucent TV (`skill://design-language`) |
 | D: the Show (later, LumaShow) | the shared crate, `camera.event`, `live`; the mosaic for the wall | **S to M** | A deployed |
 
 Order: A and B start together (B's fake bridge follows 3.3); C starts from 3.4. Integration needs A installed (Nitin's 4.2 steps 1 to 5). The slices own distinct files; Main edits the changelog.

@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-video>
+<head>
+<meta charset="utf-8">
+<title>LumaTV · Cameras (Scrypted)</title>
+<link rel="stylesheet" href="../lucent.css">
+<style>
+  /* Cameras through Scrypted (docs/research/scrypted-cameras-design.md 3.4 to 3.7; the surface is payload/compositor/lumatv/panels/Cameras.qml and its
+     parts). ?v= picks the view: popup, popup-event, popup-doorbell (the card, content only: its place is the overlay layout's), grid, grid-more, grid-offline,
+     grid-unlinked, grid-refused, full, full-start, full-failed, strip, strip-scrub, strip-play, strip-gap, events, clips, events-all, settings,
+     settings-notify, settings-notify-cam. ?theme=light; ?text=200 doubles the type (Lucent: no overlapping text at 100 % and 200 %).
+     Every picture is a stand-in; no camera frame is kept anywhere. */
+  :root { --ts: 1; --glass-video: rgba(22, 17, 32, .90); --lu-live: #EB6F92; }
+  [data-theme="light"] { --glass-video: rgba(255, 250, 243, .94); --lu-live: #B4637A; }
+  [data-text="200"] { --ts: 2; }
+  .st { display: none; }
+  .st.on { display: block; }
+  .fill { position: absolute; inset: 0; }
+  .pic { background-color: #000; background-size: cover; background-position: center; }
+  .ic { color: currentColor; }
+  .t28 { font-size: calc(28px * var(--ts)); } .t26 { font-size: calc(26px * var(--ts)); } .t24 { font-size: calc(24px * var(--ts)); }
+  [data-theme="light"] .btn.primary { color: #17131F; }   /* the ink that reads best on the accent (Tint.bestInk): the light accent takes the dark ink */
+  .ink2 { color: var(--lu-ink-2); } .ink3 { color: var(--lu-ink-3); }
+  .nowrap { white-space: nowrap; }
+
+  /* ---- the pop-up card: 560 wide, content only (the card's corner belongs to the overlay layout) -------------------------------- */
+  .cam-card { position: absolute; right: 64px; top: 134px; width: 560px; padding: 20px; border-radius: var(--lu-radius-card); }
+  .cam-card .head { display: flex; align-items: flex-start; gap: 16px; }
+  .cam-card .head .ic { width: 36px; height: 36px; margin-top: 2px; }
+  .cam-card .who { flex: 1 1 auto; min-width: 0; }
+  .cam-card .name { font-size: calc(28px * var(--ts)); font-weight: 600; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cam-card .what { font-size: calc(26px * var(--ts)); font-weight: 500; line-height: 1.25; color: var(--lu-ink-2); margin-top: 4px; }
+  .cam-card .what .ago { color: var(--lu-ink-2); }
+  .cam-card .preview { margin-top: 12px; width: 520px; height: 292px; border-radius: var(--lu-radius-tile); }
+  [data-text="200"] .cam-card .preview { height: 200px; }
+  .cam-card .foot { display: flex; align-items: center; flex-wrap: wrap; column-gap: 8px; row-gap: 4px; margin-top: 12px; font-size: calc(22px * var(--ts)); line-height: 1.25; color: var(--lu-ink-2); }
+  .cam-card .foot .dot { display: inline-block; width: 12px; height: 12px; border-radius: 6px; background: var(--lu-live); flex: none; }
+  .cam-card .foot .hr { margin-left: auto; }
+  [data-text="200"] .cam-card .foot .hr { margin-left: 0; flex-basis: 100%; }
+
+  /* ---- full-screen media: chrome is glass pills over the picture ---------------------------------------------------------------- */
+  .pill { position: absolute; display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 0 24px; border-radius: 32px; font-size: calc(28px * var(--ts)); font-weight: 600; }
+  [data-text="200"] .pill { padding-top: 10px; padding-bottom: 10px; }
+  .pill .dot { display: inline-block; width: 12px; height: 12px; border-radius: 6px; background: var(--lu-live); flex: none; }
+  .pill .ic { width: 32px; height: 32px; }
+  .pill .sub { font-size: calc(26px * var(--ts)); font-weight: 500; color: var(--lu-ink-2); }
+  .pill.name { left: 96px; top: 54px; }
+  .pill.info { right: 96px; top: 54px; font-size: calc(24px * var(--ts)); font-weight: 500; color: var(--lu-ink-2); }
+  .pill.hints { right: 96px; bottom: 54px; }
+  /* glyph hints (Nitin: no text hints; assets/glyphs and its index.json, GlyphHints): the remote's keys as glyphs in the reading ink, then what they do as
+     a glyph in the second ink, 1.45 times the type size of the text beside them, never the words OK or Back. */
+  .hr { display: inline-flex; align-items: center; gap: calc(28px * var(--ts)); }
+  .hp { display: inline-flex; align-items: center; gap: calc(6px * var(--ts)); }
+  .hp svg.k { width: calc(35px * var(--ts)); height: calc(35px * var(--ts)); color: var(--lu-ink); flex: none; }
+  .hp .ic, .hp svg.a { width: calc(35px * var(--ts)); height: calc(35px * var(--ts)); color: var(--lu-ink-2); margin-left: calc(6px * var(--ts)); flex: none; }
+  .pill.hints { right: 96px; bottom: 54px; }
+  /* glyph hints (Nitin: no text hints): a remote key drawn as a small cap, then what it does as a glyph. The shared kit component of the
+     GlyphHints slice replaces these when it lands; one wrapper in the QML (panels/CamHint.qml) is the only place that draws them. */
+  .hr { display: inline-flex; align-items: center; gap: calc(22px * var(--ts)); color: var(--lu-ink-2); }
+  .hp { display: inline-flex; align-items: center; gap: calc(6px * var(--ts)); }
+  .kc { display: inline-grid; place-items: center; width: calc(40px * var(--ts)); height: calc(36px * var(--ts)); border-radius: calc(10px * var(--ts)); border: 2px solid currentColor; color: var(--lu-ink-2); }
+  .kc svg { width: 72%; height: 72%; }
+  .hp > .ic, .hp > svg.ic { width: calc(28px * var(--ts)); height: calc(28px * var(--ts)); margin-left: calc(6px * var(--ts)); color: var(--lu-ink-2); }
+  .ctoast { left: 50%; transform: translateX(-50%); bottom: 130px; font-size: calc(26px * var(--ts)); white-space: nowrap; }
+  .ctoast.above { bottom: calc(54px + var(--strip-h, 340px) + 24px); }
+
+  .note { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 960px; padding: 36px 44px; border-radius: var(--lu-radius-card); text-align: center; }
+  .note .ic { width: 56px; height: 56px; margin: 0 auto 12px; display: block; }
+  .note .h { font-size: calc(40px * var(--ts)); font-weight: 600; line-height: 1.2; letter-spacing: -.01em; }
+  .note .p { font-size: calc(26px * var(--ts)); font-weight: 500; line-height: 1.35; color: var(--lu-ink-2); margin-top: 10px; }
+  .note .acts { margin-top: 22px; display: flex; justify-content: center; align-items: center; gap: 28px; }
+
+  /* ---- the strip --------------------------------------------------------------------------------------------------------------- */
+  .strip { left: 96px; right: 96px; bottom: 54px; padding: 24px 28px 24px; border-radius: var(--lu-radius-card); }
+  .strip .top { display: flex; align-items: center; gap: 16px; min-height: 64px; }
+  .strip .when { font-size: calc(28px * var(--ts)); font-weight: 600; white-space: nowrap; }
+  .strip .rel { font-size: calc(26px * var(--ts)); font-weight: 500; color: var(--lu-ink-2); white-space: nowrap; }
+  .strip .sp { flex: 1; }
+  .ctl { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 64px; padding: 0 24px; border-radius: 20px; font-size: calc(26px * var(--ts)); font-weight: 600; color: var(--lu-ink); background: var(--tile-ink-wash); white-space: nowrap; border: 1px solid transparent; }
+  [data-text="200"] .ctl { padding-top: 8px; padding-bottom: 8px; }
+  .ctl .ic { width: 30px; height: 30px; }
+  .ctl .dot { display: inline-block; width: 12px; height: 12px; border-radius: 6px; background: var(--lu-live); }
+  .ctl.sel { background: var(--lu-glass-raised); border-color: var(--lu-edge-raised); }
+  .ctl.focus { background: var(--sheen), var(--lu-glass-raised); border-color: var(--lu-edge-raised); box-shadow: var(--highlight-raised), var(--shadow-raised), var(--focus-halo); transform: translateY(-4px) scale(1.04); }
+  .ctl.off { color: var(--lu-ink-2); opacity: .76; }
+  .bar { position: relative; height: 88px; margin: 6px 0 0; }
+  .bar .well { position: absolute; left: 0; right: 0; top: 32px; height: 40px; border-radius: 12px; background: var(--well); box-shadow: var(--well-inset); overflow: hidden; }
+  .bar .rec { position: absolute; top: 0; bottom: 0; background: var(--lu-accent); opacity: .85; }
+  .bar .unk { position: absolute; top: 0; bottom: 0; background: var(--lu-accent); opacity: .30; }
+  .bar .gap { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(135deg, var(--lu-ink-3) 0 3px, transparent 3px 10px); opacity: .55; }
+  .bar .ev { position: absolute; top: 8px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: var(--lu-ink); border: 2px solid var(--lu-accent); }
+  .bar .knob { position: absolute; top: 4px; width: 6px; height: 76px; margin-left: -3px; border-radius: 3px; background: var(--lu-ink); box-shadow: 0 0 0 2px rgba(0,0,0,.35); }
+  .bar .knob::before { content: ""; position: absolute; left: -9px; top: -6px; width: 24px; height: 24px; border-radius: 50%; background: var(--lu-ink); box-shadow: 0 0 0 2px rgba(0,0,0,.35); }
+  .bar.focus .knob::before { background: var(--lu-accent); width: 30px; height: 30px; left: -12px; top: -9px; }
+  .axis { position: relative; height: calc(34px * var(--ts)); margin-top: 6px; font-size: calc(22px * var(--ts)); color: var(--lu-ink-2); }
+  .axis span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
+  .axis span.first { transform: none; } .axis span.last { transform: translateX(-100%); }
+  .row2 { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+  .bubble { position: absolute; padding: 12px; border-radius: var(--lu-radius-card); text-align: center; }
+  .bubble .shot { width: 256px; height: 144px; border-radius: var(--lu-radius-control); }
+  .bubble .cap { margin-top: 8px; font-size: calc(26px * var(--ts)); font-weight: 600; white-space: nowrap; }
+  .bubble .cap2 { font-size: calc(22px * var(--ts)); font-weight: 500; color: var(--lu-ink-2); white-space: nowrap; }
+
+  /* ---- the events and clips sheet: a lower pane of cards ----------------------------------------------------------------------- */
+  .csheet { left: 96px; right: 96px; bottom: 54px; padding: 24px 28px 28px; border-radius: var(--lu-radius-sheet); overflow: hidden; }
+  .csheet .head { display: flex; align-items: center; gap: 20px; min-height: 64px; }
+  .csheet .title { font-size: calc(32px * var(--ts)); font-weight: 600; letter-spacing: -.01em; white-space: nowrap; }
+  .csheet .tabs2 { display: inline-flex; gap: 4px; padding: 4px; border-radius: 20px; background: var(--well); box-shadow: var(--well-inset); }
+  .csheet .tabs2 span { min-height: 56px; padding: 0 28px; display: grid; place-items: center; border-radius: 16px; font-size: calc(26px * var(--ts)); font-weight: 600; color: var(--lu-ink-2); }
+  .csheet .tabs2 span.sel { color: var(--lu-ink); background: var(--lu-glass-raised); border: 1px solid var(--lu-edge-raised); }
+  .csheet .cards { display: flex; align-items: flex-start; gap: 24px; margin-top: 16px; padding: 8px 4px 4px; }
+  .csheet .more { align-self: center; margin-left: auto; width: calc(40px * var(--ts)); height: calc(40px * var(--ts)); color: var(--lu-ink-2); }
+  .card { flex: none; width: 352px; border-radius: var(--lu-radius-tile); }
+  .card .shot { position: relative; width: 352px; height: 198px; border-radius: var(--lu-radius-tile); border: 3px solid var(--lu-edge); }
+  .card .shot .cbadge { position: absolute; left: 12px; top: 12px; width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; background: var(--glass-video); color: var(--lu-ink); }
+  .card .shot .cbadge .ic { width: 26px; height: 26px; }
+  .card .shot .len { position: absolute; right: 12px; bottom: 12px; padding: 2px 12px; border-radius: 999px; background: var(--glass-video); color: var(--lu-ink); font-size: calc(22px * var(--ts)); font-weight: 600; }
+  .card .l1 { margin-top: 10px; font-size: calc(26px * var(--ts)); font-weight: 600; line-height: 1.3; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  .card .l2 { font-size: calc(22px * var(--ts)); font-weight: 500; line-height: 1.3; color: var(--lu-ink-2); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  .card.focus { transform: scale(1.03); }
+  .card.focus .shot { border-color: var(--lu-edge-raised); box-shadow: var(--shadow-raised), var(--focus-halo); }
+  .card.focus .l1 { color: var(--lu-ink); }
+
+  /* ---- the grid ----------------------------------------------------------------------------------------------------------------- */
+  .page-bg { background: var(--pal-scrim-hide, rgba(18,14,26,.97)); }
+  [data-theme="light"] .page-bg { background: rgba(250,244,237,.97); }
+  .ghead { position: absolute; left: 96px; right: 96px; top: 54px; min-height: 64px; display: flex; align-items: center; gap: 20px; }
+  .ghead .title { font-size: calc(40px * var(--ts)); font-weight: 600; letter-spacing: -.01em; white-space: nowrap; }
+  .ghead .count { font-size: calc(26px * var(--ts)); color: var(--lu-ink-2); white-space: nowrap; }
+  .ghead .sp { flex: 1; }
+  .gt { position: absolute; }
+  .gt .shot { position: relative; border-radius: var(--lu-radius-tile); border: 3px solid var(--lu-edge); overflow: hidden; }
+  .gt .shot .dim { position: absolute; inset: 0; background: rgba(8, 6, 16, .62); }
+  [data-theme="light"] .gt .shot .dim { background: rgba(250, 244, 237, .70); }
+  .gt .shot .wait { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); text-align: center; font-size: calc(26px * var(--ts)); font-weight: 500; line-height: 1.25; padding: 0 12px; }
+  .gt .label { margin-top: 8px; text-align: center; font-size: calc(26px * var(--ts)); font-weight: 500; color: var(--lu-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .gt.focus { transform: scale(1.03); z-index: 1; }
+  .gt.focus .shot { border-color: var(--lu-edge-raised); box-shadow: var(--shadow-raised), var(--focus-halo); }
+  .gt.focus .label { color: var(--lu-ink); }
+  .gfoot { position: absolute; right: 96px; bottom: 54px; }
+  .gmore { position: absolute; left: 96px; bottom: 54px; display: flex; align-items: center; gap: 10px; color: var(--lu-ink-2); }
+  .gmore .ic { width: calc(28px * var(--ts)); height: calc(28px * var(--ts)); }
+  .cbanner { position: absolute; left: 96px; right: 96px; top: calc(54px + 64px + 16px + (var(--ts) - 1) * 56px); min-height: 64px; display: flex; align-items: center; gap: 14px; padding: 0 24px; border-radius: 20px; background: var(--tile-ink-wash); font-size: calc(26px * var(--ts)); font-weight: 500; color: var(--lu-ink-2); }
+  .cbanner .ic { width: 30px; height: 30px; color: var(--lu-warning); }
+  .empty { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 960px; text-align: center; }
+  .empty .ic { width: 72px; height: 72px; margin: 0 auto 16px; display: block; color: var(--lu-ink-2); }
+  .empty .h { font-size: calc(40px * var(--ts)); font-weight: 600; letter-spacing: -.01em; line-height: 1.2; }
+  .empty .p { font-size: calc(26px * var(--ts)); font-weight: 500; color: var(--lu-ink-2); line-height: 1.35; margin-top: 12px; }
+  .empty .btn { margin-top: 28px; }
+
+  /* ---- settings (the page of Home & look) --------------------------------------------------------------------------------------- */
+  .st.settings .row .t, .st.settings .row .v { font-size: calc(28px * var(--ts)); }
+  .st.settings .row .d { font-size: calc(24px * var(--ts)); }
+  .st.settings .tab { font-size: calc(27px * var(--ts)); min-height: 64px; height: auto; padding: 0 12px; }
+  .st.settings .page-head h1 { font-size: calc(40px * var(--ts)); }
+</style>
+</head>
+<body>
+<div class="frame" id="backdrop"></div>
+<div id="root"></div>
+<script src="../icons.js"></script>
+<script>
+(function () {
+  const q = new URLSearchParams(location.search);
+  const v = q.get('v') || 'popup';
+  if (q.get('text')) document.documentElement.dataset.text = q.get('text');
+  const TS = q.get('text') === '200' ? 2 : 1;
+  const root = document.getElementById('root');
+  const bd = document.getElementById('backdrop');
+  const img = n => `url('../img/${n}.jpg')`;
+  const cam = (n, pos) => `style="background-image:${img(n)};background-position:${pos || 'center'}"`;
+  const KEYS = {"ok": "<circle cx=\"12\" cy=\"12\" r=\"9.5\" opacity=\".5\"/><circle cx=\"12\" cy=\"12\" r=\"4.2\" fill=\"currentColor\" stroke=\"none\"/>", "back": "<path d=\"M9 14 4 9l5-5\"/><path d=\"M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11\"/>", "up": "<circle cx=\"12\" cy=\"12\" r=\"9.5\" opacity=\".5\"/><g transform=\"rotate(270 12 12)\"><path d=\"m10 8 4 4-4 4\"/></g>", "down": "<circle cx=\"12\" cy=\"12\" r=\"9.5\" opacity=\".5\"/><g transform=\"rotate(90 12 12)\"><path d=\"m10 8 4 4-4 4\"/></g>", "left": "<circle cx=\"12\" cy=\"12\" r=\"9.5\" opacity=\".5\"/><g transform=\"rotate(180 12 12)\"><path d=\"m10 8 4 4-4 4\"/></g>", "right": "<circle cx=\"12\" cy=\"12\" r=\"9.5\" opacity=\".5\"/><path d=\"m10 8 4 4-4 4\"/>"};
+  const ACTS = {"expand": "<polyline points=\"15 3 21 3 21 9\"/><polyline points=\"9 21 3 21 3 15\"/><line x1=\"21\" x2=\"14\" y1=\"3\" y2=\"10\"/><line x1=\"3\" x2=\"10\" y1=\"21\" y2=\"14\"/>", "close": "<path d=\"M18 6 6 18\"/><path d=\"m6 6 12 12\"/>"};
+  const SVG = (inner, cls) => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
+  const ic = n => `<i class="ic" data-ic="${n}"></i>`;
+  const kc = k => SVG(KEYS[k], 'k');
+  const hp = (keys, act) => `<span class="hp">${keys.map(kc).join('')}${act ? (ACTS[act] ? SVG(ACTS[act], 'a') : ic(act)) : ''}</span>`;
+  const hr = (...pairs) => `<span class="hr">${pairs.map(p => hp(p[0], p[1])).join('')}</span>`;
+  const KIND = { person: ['user', 'Person'], vehicle: ['car', 'Vehicle'], animal: ['paw-print', 'Animal'], package: ['package', 'Package'], doorbell: ['bell-ring', 'Doorbell rang'], motion: ['activity', 'Motion'] };
+  let html = '', video = true, backdrop = 'still';
+
+  /* ---------------- the pop-up ---------------- */
+  function popup(kind, label, ago, stateHtml, pic) {
+    const [icon, word] = KIND[kind];
+    return `<div class="st on"><div class="overlay cam-card" role="status">
+      <div class="head">${ic(icon)}<div class="who"><div class="name">Front Door</div><div class="what">${word}${label ? ' · ' + label : ''}<span class="ago">&nbsp;·&nbsp; ${ago}</span></div></div></div>
+      <div class="preview pic" ${cam(pic || 'wall')}></div>
+      <div class="foot">${stateHtml}${hr([['ok'], 'expand'], [['back'], 'close'])}</div></div></div>`;
+  }
+  const LIVE = '<i class="dot"></i><span>Live</span>', EVENTPIC = '<span>Event picture</span>';
+
+  /* ---------------- full view chrome ---------------- */
+  const namePill = (state, extra) => `<div class="overlay pill name">${ic('video')}<span>Front Door</span>${state}<span class="sub nowrap">${extra || '2 of 8'}</span></div>`;
+  const LIVEWORD = '<i class="dot"></i><span>Live</span>';
+  const infoPill = t => `<div class="overlay pill info"><span>${t}</span></div>`;
+  const hints = `<div class="overlay pill hints">${hr([['left', 'right'], 'video'], [['up'], 'history'], [['down'], 'list-video'], [['ok'], 'layout-grid'], [['back'], 'close'])}</div>`;
+  const full = (pic, chrome) => `<div class="st on"><div class="fill pic" ${cam(pic, 'center')}></div>${chrome}</div>`;
+
+  /* ---------------- the strip ---------------- */
+  // Today 14:37 is "now". Span in minutes; the window ends at now.
+  function strip(o) {
+    const W = 1672, now = 14 * 60 + 37, span = o.span, t0 = now - span;
+    const x = m => Math.round((m - t0) / span * W);
+    const clock = m => { const h = Math.floor(m / 60) % 24, mm = Math.round(m % 60); return (h % 12 || 12) + ':' + String(mm).padStart(2, '0') + ' ' + (h < 12 ? 'AM' : 'PM'); };
+    let rec = '', unk = '', gap = '', ev = '', axis = '';
+    for (const [a, b] of o.rec) rec += `<i class="rec" style="left:${Math.max(0, x(a))}px;width:${x(b) - Math.max(0, x(a))}px"></i>`;
+    for (const [a, b] of o.unk) unk += `<i class="unk" style="left:${Math.max(0, x(a))}px;width:${x(b) - Math.max(0, x(a))}px"></i>`;
+    for (const [a, b] of o.gap) gap += `<i class="gap" style="left:${Math.max(0, x(a))}px;width:${x(b) - Math.max(0, x(a))}px"></i>`;
+    for (const m of o.ev) ev += `<i class="ev" style="left:${x(m)}px"></i>`;
+    const step = span <= 15 ? 3 : span <= 60 ? 10 : span <= 360 ? 60 : 240;
+    const first = Math.ceil(t0 / step) * step;
+    const ticks = [];
+    for (let m = first; m <= now; m += step) ticks.push(m);
+    ticks.forEach((m, i) => { axis += `<span class="${i === 0 && x(m) < 40 ? 'first' : ''}" style="left:${x(m)}px">${clock(m)}</span>`; });
+    const knobX = x(o.at);
+    const spanWord = span >= 60 ? (span / 60) + ' h' : span + ' min';
+    const playIcon = o.paused ? 'play' : 'pause';
+    const f = k => (o.focus === k ? ' focus' : '');
+    const bubble = o.bubble ? `<div class="overlay bubble" style="left:${Math.min(1824 - 280, Math.max(96, 96 + 28 + knobX - 140))}px;bottom:calc(54px + var(--strip-h, 340px) + 12px)">
+        <div class="shot pic" ${cam('game', '30% 50%')}></div><div class="cap">${o.bubble[0]}</div><div class="cap2">${o.bubble[1]}</div></div>` : '';
+    return `<div class="overlay strip" id="strip">
+      <div class="top"><span class="when num">${o.when}</span><span class="rel">${o.rel}</span><span class="sp"></span>
+        <span class="ctl${f('span')}">${spanWord}</span><span class="ctl${f('rate')}">${o.rate}×</span></div>
+      <div class="bar${o.focus === 'bar' ? ' focus' : ''}"><div class="well">${rec}${unk}${gap}</div>${ev}<i class="knob" style="left:${knobX}px"></i></div>
+      <div class="axis">${axis}</div>
+      <div class="row2">
+        <span class="ctl${o.live ? ' sel' : ''}${f('live')}"><i class="dot"></i>Live</span>
+        <span class="ctl${f('back')}">−10 s</span><span class="ctl${f('play')}">${ic(playIcon)}${o.paused ? 'Play' : 'Pause'}</span><span class="ctl${f('fwd')}">+10 s</span>
+        <span class="sp" style="flex:1"></span>
+        <span class="ctl${f('pev')}">${ic('chevron-left')}Event</span><span class="ctl${f('nev')}">Event${ic('chevron-right')}</span></div>
+    </div>${bubble}`;
+  }
+
+  /* ---------------- events / clips ---------------- */
+  function cards(list, focus) {
+    return list.map((c, i) => `<div class="card${i === focus ? ' focus' : ''}"><div class="shot pic" ${cam(c.pic, c.pos)}>
+      <span class="cbadge">${ic(KIND[c.kind][0])}</span>${c.len ? `<span class="len num">${c.len}</span>` : ''}</div>
+      <div class="l1">${c.l1}</div><div class="l2 num">${c.l2}</div></div>`).join('');
+  }
+  function sheet(title, tab, list, focus) {
+    return `<div class="overlay csheet"><div class="head"><span class="title">${title}</span><span style="flex:1"></span>
+      <span class="tabs2"><span class="${tab === 'events' ? 'sel' : ''}">Events</span><span class="${tab === 'clips' ? 'sel' : ''}">Clips</span></span></div>
+      <div class="cards">${cards(list.slice(0, 4), focus)}${list.length > 4 ? ic('chevron-right').replace('class="ic"', 'class="ic more"') : ''}</div></div>`;
+  }
+  const EVENTS = [
+    { kind: 'person', l1: 'Person', l2: '2:31 PM · 6 min ago', pic: 'game', pos: '25% 50%' },
+    { kind: 'doorbell', l1: 'Doorbell rang', l2: '1:58 PM · 39 min ago', pic: 'wall', pos: '50% 40%' },
+    { kind: 'animal', l1: 'Animal · Domestic Cat', l2: '12:12 PM · 2 h ago', pic: 'home', pos: '60% 50%' },
+    { kind: 'vehicle', l1: 'Vehicle', l2: '10:44 AM · 4 h ago', pic: 'still', pos: '20% 60%' },
+    { kind: 'package', l1: 'Package', l2: '9:05 AM · 5 h ago', pic: 'game', pos: '80% 50%' },
+  ];
+  const CLIPS = [
+    { kind: 'person', l1: 'Person at the front door', l2: '2:31 PM · 6 min ago', pic: 'game', pos: '25% 50%', len: '0:30' },
+    { kind: 'doorbell', l1: 'Doorbell at the front door', l2: '1:58 PM · 39 min ago', pic: 'wall', pos: '50% 40%', len: '0:42' },
+    { kind: 'animal', l1: 'Cat on the porch', l2: '12:12 PM · 2 h ago', pic: 'home', pos: '60% 50%', len: '0:18' },
+    { kind: 'vehicle', l1: 'Car in the driveway', l2: 'Yesterday 10:10 PM', pic: 'still', pos: '20% 60%', len: '0:25' },
+    { kind: 'person', l1: 'Person at the front door', l2: 'Yesterday 6:47 PM', pic: 'game', pos: '70% 40%', len: '0:31' },
+  ];
+  const ALL = [
+    { kind: 'person', l1: 'Front Door · Person', l2: '2:31 PM · 6 min ago', pic: 'game', pos: '25% 50%' },
+    { kind: 'animal', l1: 'Backyard · Animal', l2: '2:26 PM · 11 min ago', pic: 'home', pos: '60% 50%' },
+    { kind: 'doorbell', l1: 'Front Door · Doorbell rang', l2: '1:58 PM · 39 min ago', pic: 'wall', pos: '50% 40%' },
+    { kind: 'vehicle', l1: 'Driveway · Vehicle', l2: '1:12 PM · 1 h ago', pic: 'still', pos: '20% 60%' },
+    { kind: 'person', l1: 'Office · Person', l2: '12:40 PM · 2 h ago', pic: 'game', pos: '70% 40%' },
+  ];
+
+  /* ---------------- the grid ---------------- */
+  const NAMES = ['Front Door', 'Backyard', 'Tool Room', 'Back Door', 'Plant Room', 'Bird', 'Office', 'Cat Feeder', 'Garage', 'Driveway', 'Side Gate', 'Attic'];
+  const PICS = [['wall', '50% 40%'], ['game', '30% 60%'], ['home', '50% 50%'], ['still', '70% 50%'], ['game', '80% 40%'], ['wall', '20% 60%'], ['home', '20% 40%'], ['still', '30% 40%'], ['game', '10% 50%'], ['home', '80% 60%'], ['still', '50% 70%'], ['wall', '80% 30%']];
+  function grid(n, focus, o) {
+    o = o || {};
+    const cols = n <= 1 ? 1 : n <= 4 ? 2 : n <= 6 ? 3 : 4;
+    const rowsAll = Math.ceil(n / cols), rows = Math.min(rowsAll, 2), gap = 24, label = 44;
+    const top = (o.banner ? 150 + 80 * TS : 150) + (TS - 1) * 56, bottom = 1026 - 40 * TS, availH = bottom - top;
+    const tw = Math.min(Math.floor((1728 - (cols - 1) * gap) / cols), Math.floor(((availH - (rows - 1) * gap) / rows - label) * 16 / 9));
+    const th = Math.round(tw * 9 / 16 / 2) * 2;
+    const gw = cols * tw + (cols - 1) * gap, gh = rows * (th + label) + (rows - 1) * gap;
+    const x0 = Math.round((1920 - gw) / 2), y0 = top + Math.round((availH - gh) / 2);
+    let out = '';
+    for (let i = 0; i < Math.min(n, cols * rows); i++) {
+      const c = i % cols, r = Math.floor(i / cols);
+      const st = (o.states || {})[i];
+      const [p, pos] = PICS[i];
+      out += `<div class="gt${i === focus ? ' focus' : ''}" style="left:${x0 + c * (tw + gap)}px;top:${y0 + r * (th + label + gap)}px;width:${tw}px">
+        <div class="shot pic" style="height:${th}px;${st && st.blank ? '' : `background-image:${img(p)};background-position:${pos}`}">${st ? `<div class="dim"></div><div class="wait">${st.words}</div>` : ''}</div>
+        <div class="label">${NAMES[i]}</div></div>`;
+    }
+    return out;
+  }
+  const gheader = (count, right) => `<div class="ghead"><span class="title">Cameras</span><span class="count">${count}</span><span class="sp"></span>${right || `<span class="ctl">${ic('list-video')}Events</span><span class="ctl">${ic('settings')}Settings</span>`}</div>`;
+
+  /* ---------------- settings pages ---------------- */
+  const RAIL_HOME = () => '<nav class="pane rail" data-open="home"></nav>';
+  const topbar = '<div class="pane topbar"><i data-ic="chevron-left" class="ic"></i><span class="title">Settings</span><span class="spacer"></span><span class="status"><i data-ic="wifi"></i><i data-ic="mouse-pointer-2"></i></span><span class="time num">9:57 PM</span></div>';
+  const row = (icn, t, val, extra) => `<div class="row${extra && extra.focus ? ' focusable focus' : ''}"><div class="lead">${ic(icn)}</div><div class="text"><div class="t">${t}${extra && extra.info ? '<i data-ic="info" class="info"></i>' : ''}</div>${extra && extra.d ? `<div class="d">${extra.d}</div>` : ''}</div>${val}</div>`;
+  const tog = on => `<div class="toggle" role="switch" aria-checked="${on}"></div>`;
+  const chev = t => `<div class="v">${t || ''}${ic('chevron-right')}</div>`;
+  const tabs = (names, sel) => `<div class="tabs">${names.map((n, i) => `<div class="tab" aria-selected="${i === sel}">${n}</div>`).join('')}</div>`;
+  function page(title, inner, back) { return `${topbar}${RAIL_HOME()}<main class="pane page"><div class="page-head">${back ? `<span class="chip">${ic('chevron-left')}${back}</span>` : ''}<h1>${title}</h1></div><div class="page-body">${inner}</div></main>`; }
+  const TABS = ['Scrypted', 'Cameras', 'Pop-ups', 'Notify for', 'Video'];
+
+  switch (v) {
+    case 'popup': html = popup('person', '', 'Just now', LIVE); break;
+    case 'popup-event': html = popup('animal', 'Domestic Cat', 'Just now', EVENTPIC, 'game'); break;
+    case 'popup-doorbell': html = popup('doorbell', '', 'Just now', LIVE); break;
+
+    case 'grid': video = false; html = `<div class="fill page-bg"></div>${gheader('8 cameras')}${grid(8, 1, { states: { 2: { words: 'Offline<br>3 min ago' }, 6: { words: 'No picture', blank: true } } })}<div class="gfoot">${hr([['ok'], 'expand'], [['back'], 'close'])}</div>`; break;
+    case 'grid-more': video = false; html = `<div class="fill page-bg"></div>${gheader('12 cameras')}${grid(12, 6)}<div class="gmore">${ic('chevron-down')}<span class="t24">9 to 12</span></div><div class="gfoot">${hr([['ok'], 'expand'], [['back'], 'close'])}</div>`; break;
+    case 'grid-offline': video = false; html = `<div class="fill page-bg"></div>${gheader('8 cameras')}<div class="cbanner">${ic('triangle-alert')}<span>Can't reach Scrypted</span></div>${grid(8, 0, { banner: true, states: Object.fromEntries([0, 1, 2, 3, 4, 5, 6, 7].map(i => [i, { words: ['4 min ago', '4 min ago', '9 min ago', '4 min ago', '4 min ago', '4 min ago', '12 min ago', '4 min ago'][i] }])) })}`; break;
+    case 'grid-unlinked': video = false; html = `<div class="fill page-bg"></div>${gheader('', '')}<div class="empty">${ic('unplug')}<div class="h">Scrypted isn't linked</div><span class="btn primary">${ic('settings')}Settings</span></div>`; break;
+    case 'grid-refused': video = false; html = `<div class="fill page-bg"></div>${gheader('', '')}<div class="empty">${ic('shield-alert')}<div class="h">Scrypted refused this TV</div><span class="btn primary">${ic('settings')}Settings</span></div>`; break;
+
+    case 'full': html = full('game', namePill(LIVEWORD) + infoPill('3840×2160 · H.265 · 15 fps') + hints); break;
+    case 'full-start': html = full('game', `<div class="fill" style="background:rgba(8,6,16,.35)"></div>` + namePill('<span>Starting</span>') + `<div class="overlay pill ctoast" style="bottom:54px;left:96px;transform:none;font-weight:500;color:var(--lu-ink-2)"><span>Opens in a few seconds</span></div>`); break;
+    case 'full-failed': html = full('game', `<div class="fill" style="background:rgba(8,6,16,.62)"></div>` + namePill('<span>Can\u2019t play</span>') + `<div class="overlay note">${ic('triangle-alert')}<div class="h">Can't play this camera</div><div class="p">The camera is offline.</div><div class="acts"><span class="btn primary">Try again</span>${hr([['back'], 'close'])}</div></div>`); break;
+
+    case 'strip': html = full('game', namePill(LIVEWORD) + infoPill('3840×2160 · H.265 · 15 fps') + strip({ span: 60, at: 14 * 60 + 37, live: true, focus: 'bar', rate: 1, when: 'Live', rel: 'Now', rec: [[13 * 60 + 40, 14 * 60 + 37]], unk: [], gap: [[13 * 60 + 37, 13 * 60 + 40]], ev: [13 * 60 + 58, 14 * 60 + 12, 14 * 60 + 31] })); break;
+    case 'strip-scrub': html = full('game', namePill(LIVEWORD) + infoPill('3840×2160 · H.265 · 15 fps') + strip({ span: 360, at: 11 * 60 + 12, live: false, focus: 'bar', rate: 1, when: '11:12 AM', rel: '3 h 25 min ago', rec: [[8 * 60 + 40, 10 * 60 + 5], [10 * 60 + 15, 12 * 60 + 40], [13 * 60 + 5, 14 * 60 + 37]], unk: [[12 * 60 + 40, 13 * 60 + 5]], gap: [[10 * 60 + 5, 10 * 60 + 15]], ev: [9 * 60 + 5, 10 * 60 + 44, 11 * 60 + 12, 12 * 60 + 12, 13 * 60 + 58, 14 * 60 + 31], bubble: ['11:12 AM', 'Person'] })); break;
+    case 'strip-play': html = full('game', namePill('<span>Recorded</span>', '2 of 8') + infoPill('3840×2160 · H.265 · 15 fps · 2×') + strip({ span: 60, at: 14 * 60 + 12, live: false, focus: 'play', rate: 2, when: '2:12:20 PM', rel: '24 min ago', rec: [[13 * 60 + 40, 14 * 60 + 37]], unk: [], gap: [[13 * 60 + 37, 13 * 60 + 40]], ev: [13 * 60 + 58, 14 * 60 + 12, 14 * 60 + 31] })); break;
+    case 'strip-gap': html = full('game', namePill(LIVEWORD) + infoPill('3840×2160 · H.265 · 15 fps') + strip({ span: 360, at: 10 * 60 + 10, live: false, focus: 'bar', rate: 1, when: '10:10 AM', rel: '4 h 27 min ago', rec: [[8 * 60 + 40, 10 * 60 + 5], [10 * 60 + 15, 14 * 60 + 37]], unk: [], gap: [[10 * 60 + 5, 10 * 60 + 15]], ev: [9 * 60 + 5, 10 * 60 + 44, 12 * 60 + 12, 14 * 60 + 31] }) + `<div class="overlay pill ctoast above"><span>No recording at that time</span></div>`); break;
+
+    case 'events': html = full('game', namePill(LIVEWORD) + sheet('Front Door', 'events', EVENTS, 0)); break;
+    case 'clips': html = full('game', namePill(LIVEWORD) + sheet('Front Door', 'clips', CLIPS, 1)); break;
+    case 'events-all': video = false; html = `<div class="fill page-bg" data-behind></div><div data-behind>${gheader('8 cameras', '')}${grid(8, 0)}</div><div class="fill" style="background:var(--overlay-scrim)"></div>` + sheet('Recent events', 'events', ALL, 0).replace('<span class="tabs2"><span class="sel">Events</span><span class="">Clips</span></span>', ''); break;
+
+    case 'settings': video = false; backdrop = 'wall';
+      html = `<div class="st on settings"><div class="wall fill"></div>` + page('Cameras', tabs(TABS, 0) + `<div class="rows">
+        ${row('globe', 'Scrypted', `<div class="v"><span class="chip on"><i class="dot"></i>Connected · 8 cameras</span></div>`, { focus: true, info: true })}
+        ${row('unplug', 'Forget link', `<span class="btn small danger">Forget</span>`, { d: 'Deletes the saved link to Scrypted' })}
+        </div>`, 'Home &amp; look') + '</div>'; break;
+    case 'settings-notify': video = false; backdrop = 'wall';
+      html = `<div class="st on settings"><div class="wall fill"></div>` + page('Cameras', tabs(TABS, 3) + `<div class="rows">
+        ${row('video', 'Front Door', chev('Person, Doorbell'), { focus: true })}
+        ${row('video', 'Backyard', chev('Person'))}
+        ${row('video', 'Tool Room', chev('Off'))}
+        ${row('video', 'Back Door', chev('Person, Doorbell'))}
+        ${row('video', 'Plant Room', chev('Off'))}
+        </div>`, 'Home &amp; look') + '</div>'; break;
+    case 'settings-notify-cam': video = false; backdrop = 'wall';
+      html = `<div class="st on settings"><div class="wall fill"></div>` + page('Front Door', `<div class="group-label">Pop up when it sees</div><div class="rows">
+        ${row('user', 'Person', tog(true), { focus: true })}
+        ${row('car', 'Vehicle', tog(false))}
+        ${row('paw-print', 'Animal', tog(false))}
+        ${row('package', 'Package', tog(false))}
+        ${row('bell-ring', 'Doorbell', tog(true))}
+        ${row('activity', 'Motion', tog(false))}
+        </div>`, 'Cameras') + '</div>'; break;
+  }
+  if (!video) document.documentElement.removeAttribute('data-video');
+  bd.style.backgroundImage = img(backdrop);
+  if (/^(grid|settings|events-all)/.test(v)) bd.style.background = '#000';
+  root.innerHTML = html;
+  document.documentElement.dataset.view = v;
+  if (v.startsWith('strip') || v === 'events' || v === 'clips') {
+    // the strip's measured height places the bubble
+    const s = document.getElementById('strip');
+    if (s) document.documentElement.style.setProperty('--strip-h', s.getBoundingClientRect().height + 'px');
+  }
+})();
+</script>
+<script src="../mock.js"></script>
+</body>
+</html>
