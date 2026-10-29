@@ -101,20 +101,13 @@ fn words(r: &Value, key: &str) -> Vec<String> {
     r.get(key).and_then(Value::as_array).map(|l| l.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()).unwrap_or_default()
 }
 
+/// What the three builders below share: the row's id, tab, glyph, name and info sentence.
+#[derive(Clone, Copy)]
+struct H<'a>(&'a str, usize, &'a str, &'a str, &'a str);
+
 /// A level slider: its value from `from`, dimmed while the receiver does not give it.
-fn level(
-    id: &str,
-    tab: usize,
-    icon: &str,
-    label: &str,
-    help: &str,
-    (min, max, step): (f64, f64, f64),
-    ctl: bool,
-    v: Option<f64>,
-    what: &'static str,
-    half: bool,
-) -> Row {
-    let mut r = Row::slider(id, min, max, step).tab(tab).icon(icon).label(label).help(help).admin();
+fn level(h: H, (min, max, step): (f64, f64, f64), ctl: bool, v: Option<f64>, what: &'static str, half: bool) -> Row {
+    let mut r = Row::slider(h.0, min, max, step).tab(h.1).icon(h.2).label(h.3).help(h.4).admin();
     r.enabled = ctl && v.is_some();
     r.num = v.unwrap_or(0.0);
     r.value_text = Some(db(v, half));
@@ -125,8 +118,8 @@ fn level(
 }
 
 /// A switch of the receiver's: on from a boolean the receiver gave.
-fn switch(id: &str, tab: usize, icon: &str, label: &str, help: &str, ctl: bool, v: Option<bool>, what: &'static str) -> Row {
-    let mut r = Row::toggle(id).tab(tab).icon(icon).label(label).help(help).on(v == Some(true)).admin();
+fn switch(h: H, ctl: bool, v: Option<bool>, what: &'static str) -> Row {
+    let mut r = Row::toggle(h.0).tab(h.1).icon(h.2).label(h.3).help(h.4).on(v == Some(true)).admin();
     r.enabled = ctl && v.is_some();
     r.act(move |a| match a {
         Arg::Toggle(x) => set(what, json!(x)),
@@ -135,20 +128,9 @@ fn switch(id: &str, tab: usize, icon: &str, label: &str, help: &str, ctl: bool, 
 }
 
 /// A few options on one row, written as the value at the same place of `values`.
-fn pick(
-    id: &str,
-    tab: usize,
-    icon: &str,
-    label: &str,
-    help: &str,
-    ctl: bool,
-    options: &[&str],
-    values: Vec<Value>,
-    now: Option<&Value>,
-    what: &'static str,
-) -> Row {
+fn pick(h: H, ctl: bool, options: &[&str], values: Vec<Value>, now: Option<&Value>, what: &'static str) -> Row {
     let index = now.and_then(|n| values.iter().position(|v| v == n));
-    let mut r = Row::seg(id, options).tab(tab).icon(icon).label(label).help(help).index(index).admin();
+    let mut r = Row::seg(h.0, options).tab(h.1).icon(h.2).label(h.3).help(h.4).index(index).admin();
     r.enabled = ctl && now.is_some();
     r.act(move |a| match a {
         Arg::Index(i) => values.get(i).map(|v| set(what, v.clone())).unwrap_or_default(),
@@ -266,11 +248,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
     });
     rows.push(volume);
     rows.push(level(
-        "dialog",
-        1,
-        "mic",
-        "Dialog level",
-        "Louder voices without louder everything.",
+        H("dialog", 1, "mic", "Dialog level", "Louder voices without louder everything."),
         (-12.0, 12.0, 0.5),
         ctl,
         num(lev, "dialog"),
@@ -278,11 +256,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
         true,
     ));
     rows.push(level(
-        "subwoofer",
-        1,
-        "speaker",
-        "Subwoofer level",
-        "More or less bass from the sub only.",
+        H("subwoofer", 1, "speaker", "Subwoofer level", "More or less bass from the sub only."),
         (-12.0, 12.0, 0.5),
         ctl,
         num(lev, "subwoofer"),
@@ -290,11 +264,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
         true,
     ));
     rows.push(level(
-        "bass",
-        1,
-        "sliders-vertical",
-        "Bass",
-        "Tone control. Off in Direct and Pure Direct.",
+        H("bass", 1, "sliders-vertical", "Bass", "Tone control. Off in Direct and Pure Direct."),
         (-6.0, 6.0, 1.0),
         ctl,
         num(lev, "bass"),
@@ -302,11 +272,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
         false,
     ));
     rows.push(level(
-        "treble",
-        1,
-        "sliders-vertical",
-        "Treble",
-        "Tone control. Off in Direct and Pure Direct.",
+        H("treble", 1, "sliders-vertical", "Treble", "Tone control. Off in Direct and Pure Direct."),
         (-6.0, 6.0, 1.0),
         ctl,
         num(lev, "treble"),
@@ -314,11 +280,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
         false,
     ));
     rows.push(switch(
-        "cinemaeq",
-        1,
-        "theater",
-        "Cinema EQ",
-        "Softens bright film soundtracks mixed for a big room.",
+        H("cinemaeq", 1, "theater", "Cinema EQ", "Softens bright film soundtracks mixed for a big room."),
         ctl,
         rc.get("cinemaEq").map(|v| v.as_bool().unwrap_or(!v.is_null() && v != &json!(0))),
         "cinemaEq",
@@ -327,11 +289,13 @@ fn rows(c: &Ctx) -> Vec<Row> {
     // ---- Audyssey
     let text = |v: &Value, k: &str| v.get(k).cloned();
     rows.push(pick(
-        "multeq",
-        2,
-        "audio-lines",
-        "MultEQ",
-        "Audyssey is the room correction the receiver measured. These switch its parts on and off; re-measuring is done on the receiver.",
+        H(
+            "multeq",
+            2,
+            "audio-lines",
+            "MultEQ",
+            "Audyssey is the room correction the receiver measured. These switch its parts on and off; re-measuring is done on the receiver.",
+        ),
         ctl,
         &["Reference", "L/R bypass", "Flat", "Off"],
         vec![json!("reference"), json!("bypass"), json!("flat"), json!("off")],
@@ -339,21 +303,13 @@ fn rows(c: &Ctx) -> Vec<Row> {
         "multEq",
     ));
     rows.push(switch(
-        "dyneq",
-        2,
-        "activity",
-        "Dynamic EQ",
-        "Keeps bass and surround full at low volume.",
+        H("dyneq", 2, "activity", "Dynamic EQ", "Keeps bass and surround full at low volume."),
         ctl,
         aud.get("dynEq").map(|v| v.as_bool().unwrap_or(!v.is_null() && v != &json!(0))),
         "dynEq",
     ));
     rows.push(pick(
-        "refoffset",
-        2,
-        "gauge",
-        "Reference level offset",
-        "For Dynamic EQ: 0 for films, 5\u{2013}15 for TV and music mixed quieter.",
+        H("refoffset", 2, "gauge", "Reference level offset", "For Dynamic EQ: 0 for films, 5\u{2013}15 for TV and music mixed quieter."),
         ctl,
         &["0 dB", "5", "10", "15"],
         vec![json!(0), json!(5), json!(10), json!(15)],
@@ -361,11 +317,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
         "refOffset",
     ));
     rows.push(pick(
-        "dynvol",
-        2,
-        "volume-1",
-        "Dynamic Volume",
-        "Evens out loud adverts and quiet dialogue.",
+        H("dynvol", 2, "volume-1", "Dynamic Volume", "Evens out loud adverts and quiet dialogue."),
         ctl,
         &["Off", "Light", "Medium", "Heavy"],
         vec![json!("off"), json!("light"), json!("medium"), json!("heavy")],
@@ -379,9 +331,10 @@ fn rows(c: &Ctx) -> Vec<Row> {
         3,
     ));
     let z2_on = z2.get("power").map(|v| v.as_bool().unwrap_or(!v.is_null() && v != &json!(0)));
-    rows.push(switch("zone2power", 3, "power", "Zone 2 power", "The second pair of speakers, on their own volume and input.", ctl, z2_on, "zone2Power"));
+    rows.push(switch(H("zone2power", 3, "power", "Zone 2 power", "The second pair of speakers, on their own volume and input."), ctl, z2_on, "zone2Power"));
     let (lo, hi, step) = limits(z2);
-    let mut zv = level("zone2volume", 3, "volume-2", "Zone 2 volume", "", (lo, hi, step), ctl && z2_on == Some(true), num(z2, "volumeDb"), "zone2Volume", true);
+    let mut zv =
+        level(H("zone2volume", 3, "volume-2", "Zone 2 volume", ""), (lo, hi, step), ctl && z2_on == Some(true), num(z2, "volumeDb"), "zone2Volume", true);
     zv.help.clear();
     zv.detail = if z2_on == Some(true) { String::new() } else { "Zone 2 is off".into() };
     zv.value_text = Some(z2.get("volumeText").map(crate::host::sio::js::string).filter(|t| !t.is_empty()).unwrap_or_else(|| "\u{2013}".into()));
@@ -400,11 +353,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
     }));
     rows.push(Row::head("Power", 3));
     rows.push(pick(
-        "eco",
-        3,
-        "leaf",
-        "ECO mode",
-        "Less power at low volume. Auto decides by level; On always.",
+        H("eco", 3, "leaf", "ECO mode", "Less power at low volume. Auto decides by level; On always."),
         ctl,
         &["On", "Auto", "Off"],
         vec![json!("on"), json!("auto"), json!("off")],
