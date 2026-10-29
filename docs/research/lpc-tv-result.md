@@ -48,6 +48,14 @@ in `?`), scales it by its share of the overrun and calls the frame kernel-caused
 prints it per window and per late frame; the frame gate's full captures get it by default, the 60 s x1 run only with
 `tv_gate.py --kwait` (tracing would perturb the zero-gap rule's own run).
 
+The loop thread is the id `capture.sh start` writes into the trace (`loop TID`): the compositor runs under its private loader, so its
+threads are `ld-linux-aarch6` (the X1 client's main thread too), and the name the gate used to pass found nothing (round 17). A trace
+without the marker is searched by `--comm`, then by the compositor's own names. A client that commits every frame can be late while the
+flips are not (round 17's x1 runs): `kwait.py` then also reports how long after each flip, or after the compositor's own draw when the
+callbacks go out with it (`112d9cc`), whichever the client's jobs follow, the client's next GPU job began, the ones over 3 ms with the
+tasks seen on the loop's CPU meanwhile, and with `--x1` the client's own gap lines beside the gaps that implies
+(`compositor/slot-2026-10-29-r17/x1-analysis.md`).
+
 On a kernel that refuses the trigger the capture says so and the labels fall back to context [INFERENCE: 5.4.268's tracefs
 accepts it; first use on the set will show].
 

@@ -5,7 +5,9 @@
 #
 #   gate.sh live [LABEL]  LumaTV is the compositor: mounted, 12 names registered, no fallback, WAM up, Home (the web
 #                     stub) mapped and on the panel, the watchdog reading the compositor's counters and the power state
-#   gate.sh x1 SECS   the X1 probe client (64-bit, LG's blob) for SECS: the frame rule below
+#   gate.sh x1 SECS   the X1 probe client (64-bit, LG's blob) for SECS: the frame rule below. Switches, each an A/B with the rule unchanged:
+#                     LUMATV_X1_RT=N the client runs SCHED_FIFO N; LUMATV_X1_CALLBACKS=early|landing the clients' frame callbacks go out with the
+#                     frame's draw or at the flip; LUMATV_GATE_KWAIT the run is traced (tv_gate.py --kwait, --x1-rt, --x1-callbacks)
 #   gate.sh netflix   the Dolby Vision test film by deep link, from a fresh Netflix instance (a running one is
 #                     closed first): card mapped, video window exported, Picture Mode dolbyHdrCinema while
 #                     playing, filmMaker back on Home
@@ -332,14 +334,24 @@ x1)
     before=$(ctl status | sed -n 's/.*\(flips [0-9]* late [0-9]* lost [0-9]*\).*/\1/p')
     sched_before=$(comp_sched)
     ctl wake reset > /dev/null; waits_reset
+    # LUMATV_X1_CALLBACKS=early|landing (tv_gate.py --x1-callbacks) sets when every client's frame callbacks go out for this run (`ctl callbacks
+    # clients`): with the frame's draw (early, the compositor's default since 112d9cc) or at the flip (landing), and early again after it.
+    cbnote=""
+    if [ -n "${LUMATV_X1_CALLBACKS:-}" ]; then
+        r_cb=$(ctl callbacks clients "$LUMATV_X1_CALLBACKS")
+        case "$r_cb" in *'"ok":true'*) cbnote="; the clients' callbacks $LUMATV_X1_CALLBACKS" ;; *) cbnote="; the clients' callbacks NOT set to $LUMATV_X1_CALLBACKS ($r_cb)" ;; esac
+    fi
     # With LUMATV_GATE_KWAIT set (tv_gate.py --kwait) and capture.sh and kwait.py on the set: the run is traced and each late frame's kernel
-    # waits are named (capture.sh's kwait mode: the compositor's own scheduler events and the stacks of its D-state sleeps).
+    # waits are named (capture.sh's kwait mode: the compositor's own scheduler events and the stacks of its D-state sleeps). The client's own gaps
+    # are no late frame while the flips are on time: kwait.py also says how long after each flip the client's next GPU job began, and sets the
+    # client's gap lines (`--x1`) beside the gaps that implies. The loop thread is the one capture.sh marked (`loop TID`).
     kw=""
     if [ -n "${LUMATV_GATE_KWAIT:-}" ] && [ -f /tmp/perf/capture.sh ] && [ -f /tmp/perf/kwait.py ]; then
         sh /tmp/perf/capture.sh start x1 kwait > $OUT/x1-capture.txt 2>&1 && kw=1
     fi
-    XDG_RUNTIME_DIR=/tmp/xdg WAYLAND_DISPLAY=wayland-0 X1_SECONDS=$secs X1_WINDOW_TYPE=_WEBOS_WINDOW_TYPE_OVERLAY \
+    XDG_RUNTIME_DIR=/tmp/xdg WAYLAND_DISPLAY=wayland-0 X1_SECONDS=$secs X1_WINDOW_TYPE=_WEBOS_WINDOW_TYPE_OVERLAY X1_RT=${LUMATV_X1_RT:-} \
         $LD --library-path $LIB --preload $LIB/x1heapshim.so $D/bin/x1client $BLOB > $OUT/x1.log 2>&1
+    [ -z "${LUMATV_X1_CALLBACKS:-}" ] || ctl callbacks clients early > /dev/null
     res=$(grep RESULT $OUT/x1.log)
     after=$(ctl status | sed -n 's/.*\(flips [0-9]* late [0-9]* lost [0-9]*\).*/\1/p')
     sched=$(echo "$sched_before $(comp_sched)" | awk 'function pol(v) { return (v == 1) ? "SCHED_FIFO" : (v == 0) ? "SCHED_OTHER" : "policy " v }
@@ -350,7 +362,7 @@ x1)
     kwsum=""
     if [ -n "$kw" ]; then
         sh /tmp/perf/capture.sh stop x1 >> $OUT/x1-capture.txt 2>&1
-        python3 /tmp/perf/kwait.py /tmp/perf/x1.trace --comm lumatv-composit --json $OUT/x1-kwait.json > $OUT/x1-kwait.txt 2>&1
+        python3 /tmp/perf/kwait.py /tmp/perf/x1.trace --x1 $OUT/x1.log --json $OUT/x1-kwait.json > $OUT/x1-kwait.txt 2>&1
         kwsum=$(tail -n 1 $OUT/x1-kwait.txt)
         gzip -c /tmp/perf/x1.trace > $OUT/x1.trace.gz 2>/dev/null; rm -f /tmp/perf/x1.trace
     fi
@@ -361,12 +373,12 @@ x1)
     # was then, a frame held while a driver buffer warms, a surface stood in for, each buffer's warm, buffers freed. The
     # gaps' cause is read from these lines; only the ones over the limit count against the rule (comp_over_limit).
     t0=$(sed -n 's/.*starting at monotonic \([0-9.]*\).*/\1/p' $OUT/x1.log); t1=$(sed -n 's/.*ended at monotonic \([0-9.]*\).*/\1/p' $OUT/x1.log)
-    awk -v a="${t0:-0}" -v b="${t1:-0}" '/^\[srv/ { t = $2; sub(/\]/, "", t); t += 0; if (t >= a && t <= b + 1 && $0 ~ /loop:|frame gap|client (dis)?connected|atomic commit|page-flip|callbacks held|flip reached|frame held|warm done|warm:|standin:|trace:|bury:|tick:/) print }' \
+    awk -v a="${t0:-0}" -v b="${t1:-0}" '/^\[srv/ { t = $2; sub(/\]/, "", t); t += 0; if (t >= a && t <= b + 1 && $0 ~ /loop:|frame gap|client (dis)?connected|atomic commit|page-flip|callbacks held|flip reached|frame held|warm done|warm:|standin:|trace:|bury:|tick:|boxdim:/) print }' \
         $STATE/compositor.log > $OUT/x1-compositor.txt
     stalls=$(grep -c 'loop: [0-9.]* ms in one pass' $OUT/x1-compositor.txt); gaps=$(grep -c 'frame gap' $OUT/x1-compositor.txt); churn=$(grep -c 'client connected' $OUT/x1-compositor.txt)
     # What counts against the rule is what the log says over the limit while the client was alive (not the second after).
     comp_over=$(comp_over_limit $STATE/compositor.log "${t0:-0}" "${t1:-0}")
-    detail="$res | pacer before: $before after: $after | compositor: loop stalls $stalls, frame gaps $gaps, clients connected $churn, over ${GAP_LIMIT_MS} ms $comp_over; $sched | wake-up latency: ${wakeline:-not read} | waits: $waitsline${kwsum:+ | $kwsum}"
+    detail="$res | pacer before: $before after: $after | compositor: loop stalls $stalls, frame gaps $gaps, clients connected $churn, over ${GAP_LIMIT_MS} ms $comp_over; $sched${LUMATV_X1_RT:+; the client SCHED_FIFO $LUMATV_X1_RT}$cbnote | wake-up latency: ${wakeline:-not read} | waits: $waitsline${kwsum:+ | $kwsum}"
     echo "$detail" > $OUT/x1-result.txt
     verdict=$(x1_rule "$res" "$secs" "$late_before" "$late_after" "$comp_over")
     case "$verdict" in PASS*) pass x1 "${verdict#PASS }" ;; *) fail x1 "${verdict#FAIL } | $detail" ;; esac

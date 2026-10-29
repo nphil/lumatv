@@ -51,6 +51,15 @@ def frames(*times):
     return [vblank(t) for t in times]
 
 
+def marker(t, text):
+    return ev(t, 0, "sh", 9, "tracing_mark_write", text)
+
+
+def job(t, cpu, comm, pid, tgid, event=(1 << 24) | (1 << 16)):
+    """A GPU job slot event of process `tgid`, submitted by thread `comm`-`pid`: by default a start (type 1, slot 1)."""
+    return ev(t, cpu, comm, pid, "mali_job_slots_event", f"gpu=0 event={event} tgid={tgid} pid={tgid} job_id=2")
+
+
 def run_trace(lines, gap=20.0):
     events, stacks = kwait.parse_lines(lines)
     ctx = kwait.Context(events, stacks, LOOP)
@@ -252,6 +261,212 @@ class Attribution(unittest.TestCase):
         self.assertEqual(kwait.summary_line(kwait.summarize([])), "kernel waits: no late frame")
 
 
+class LoopThread(unittest.TestCase):
+    """The compositor runs under its private loader, so its threads are `ld-linux-aarch6`, and so is the X1 client's main thread."""
+    LOADER = "ld-linux-aarch6"
+    LOOP_TID, CLIENT_TID, MALI_TID = 31259, 422, 31290
+
+    def busy(self):
+        """A second of passes: the loop in and out 60 times, the compositor's Mali thread twice as often, the client's thread twice."""
+        lines = []
+        for k in range(60):
+            t = 1.0 + k / 60
+            lines += [switch(t, 2, "swapper/2", 0, "R", self.LOADER, self.LOOP_TID), switch(t + 0.0001, 2, self.LOADER, self.LOOP_TID, "S", "swapper/2", 0)]
+            for i in range(2):
+                lines += [switch(t + 0.0002 + i * 1e-5, 3, "swapper/3", 0, "R", "mali-cmar-backe", self.MALI_TID),
+                          switch(t + 0.0003 + i * 1e-5, 3, "mali-cmar-backe", self.MALI_TID, "S", "swapper/3", 0)]
+        lines += [switch(1.5, 1, "swapper/1", 0, "R", self.LOADER, self.CLIENT_TID), switch(1.6, 1, self.LOADER, self.CLIENT_TID, "S", "swapper/1", 0)]
+        return lines
+
+    def find(self, lines, comm=None):
+        events, _ = kwait.parse_lines(lines)
+        return kwait.find_loop(events, comm)
+
+    def test_the_marker_capture_sh_wrote_names_the_loop(self):
+        tid, how = self.find(trace(self.busy(), marker(1.0, "start x1 100.5"), marker(1.0, f"loop {self.LOOP_TID}")))
+        self.assertEqual((tid, how), (self.LOOP_TID, "the loop marker in the trace"))
+        self.assertEqual(self.find(trace(self.busy(), marker(1.0, "loop 777")))[0], 777, "the marker is the capture's word, not a count of switches")
+
+    def test_without_a_marker_the_loaders_name_finds_it_and_not_the_client_that_shares_the_name(self):
+        tid, how = self.find(self.busy())
+        self.assertEqual((tid, how), (self.LOOP_TID, "the busiest thread named ld-linux"))
+
+    def test_a_name_given_is_tried_first_and_a_name_nothing_has_falls_back(self):
+        self.assertEqual(self.find(self.busy(), "mali-cmar"), (self.MALI_TID, "a thread named mali-cmar"))
+        self.assertEqual(self.find(self.busy(), "lumatv-composit"), (self.LOOP_TID, "the busiest thread named ld-linux"),
+                         "the name the gate used to pass finds nothing under the loader: the compositor's own names follow")
+        self.assertEqual(self.find(trace(self.busy(), marker(1.0, "loop 777")), "lumatv-composit"), (777, "the loop marker in the trace"))
+
+    def test_a_trace_with_none_says_what_was_tried_and_who_was_busiest(self):
+        tid, why = self.find([switch(1.0, 1, "kworker/1:0", 31, "S", "swapper/1", 0)])
+        self.assertIsNone(tid)
+        self.assertIn("no loop marker", why)
+        self.assertIn("lumatv-composit, ld-linux, surface-manager", why)
+        self.assertIn("kworker/1:0-31 (1)", why)
+
+
+class ClientReaction(unittest.TestCase):
+    """A client that answers the compositor's frame callbacks with a GPU job: they go out when a flip lands (`flip`) or with the frame's draw
+    (`draw`), so the time from that moment to the client's next job start is the client's wake-up, draw and submission."""
+    PERIOD = 1.0 / 60
+    CLIENT = 500
+    TICK = 0.006      # the latch: 6 ms after a flip, the compositor's pass that draws the frame, with its own GPU job
+
+    def run_of(self, frames_=60, slow=None, skip=(), extra=(), job_tgid=None, mode="flip"):
+        """Flips every 1/60 s from 10.0 and the loop's pass on CPU 2 at each; a tick pass 6 ms after it with the compositor's own job; the client's
+        tiler job 0.4 ms after the flip (mode `flip`) or after the tick's draw (mode `draw`), `slow`: {frame: ms}, and its fragment job 50 us later,
+        both submitted by the Mali threads (501, 502) on CPU 3; no job for a frame in `skip`."""
+        slow = slow or {}
+        lines = []
+        for k in range(frames_):
+            f = 10.0 + k * self.PERIOD
+            lines += [vblank(f), switch(f + 0.00001, 2, "swapper/2", 0, "R", "ld-linux-aarch6", LOOP),
+                      switch(f + 0.0001, 2, "ld-linux-aarch6", LOOP, "S", "swapper/2", 0),
+                      switch(f + self.TICK - 0.0003, 2, "swapper/2", 0, "R", "ld-linux-aarch6", LOOP),
+                      job(f + self.TICK, 2, "ld-linux-aarch6", LOOP, LOOP), job(f + self.TICK + 0.00005, 2, "ld-linux-aarch6", LOOP, LOOP, 1 << 24),
+                      switch(f + self.TICK + 0.0004, 2, "ld-linux-aarch6", LOOP, "S", "swapper/2", 0)]
+            if k not in skip:
+                r = slow.get(k, 0.4) / 1000.0
+                base = f + (self.TICK if mode == "draw" else 0.0)
+                lines += [job(base + r, 3, "mali-cmar-backe", 501, job_tgid or self.CLIENT), job(base + r + 0.00005, 3, "kworker/u9:1", 502, job_tgid or self.CLIENT, 1 << 24)]
+        return trace(lines, *extra)
+
+    def read(self, lines, **kw):
+        events, _ = kwait.parse_lines(lines)
+        return kwait.reactions(events, LOOP, **kw)
+
+    def test_each_reaction_is_the_time_from_a_flip_to_the_clients_next_job_start(self):
+        c = self.read(self.run_of())
+        self.assertEqual((c["client"], c["p50"], c["max"], c["over3"], c["slow"], c["implied"]), (self.CLIENT, 0.4, 0.4, 0, [], []))
+        self.assertEqual(c["frames"], 55, "the flips before the client's ninth job start are its start-up: not read")
+        self.assertAlmostEqual(c["flip_max_ms"], 1000 / 60, places=2)
+
+    def test_a_slow_reaction_is_listed_with_the_gap_it_makes_and_who_else_ran_on_the_loops_cpu(self):
+        f = 10.0 + 30 * self.PERIOD
+        c = self.read(self.run_of(slow={30: 5.0}, extra=(
+            switch(f + 0.001, 2, "swapper/2", 0, "R", "captureservice", 77), switch(f + 0.004, 2, "captureservice", 77, "S", "swapper/2", 0),
+            switch(f + 0.002, 3, "swapper/3", 0, "R", "elsewhere", 88))))
+        self.assertEqual((c["over3"], c["max"], len(c["slow"]), len(c["implied"])), (1, 5.0, 1, 1))
+        x = c["slow"][0]
+        self.assertEqual((x["ms"], x["prev_ms"], x["cpu"], x["held_by"]), (5.0, 0.4, 2, ["captureservice-77 x2"]))
+        self.assertAlmostEqual(x["gap_ms"], 1000 / 60 + 4.6, places=1)
+        self.assertEqual(c["implied"][0]["t"], x["t"])
+        text = kwait.describe_reaction(x)
+        self.assertIn("5.0 ms after it", text)
+        self.assertIn("CPU 2 also ran captureservice-77 x2", text)
+        self.assertEqual((x["trigger"], c["trigger"]), ("flip", "flip"))
+
+    def test_the_moment_counted_from_is_the_one_the_clients_jobs_follow_closest(self):
+        self.assertEqual(self.read(self.run_of(mode="flip"))["trigger"], "flip")
+        self.assertEqual(self.read(self.run_of(mode="draw"))["trigger"], "draw")
+
+    def test_with_the_callbacks_at_the_draw_a_slow_reaction_is_counted_from_the_draw_and_the_loops_cpu_is_read_there(self):
+        f = 10.0 + 30 * self.PERIOD
+        c = self.read(self.run_of(mode="draw", slow={30: 5.0}, extra=(
+            switch(f + self.TICK + 0.001, 2, "swapper/2", 0, "R", "captureservice", 77), switch(f + self.TICK + 0.004, 2, "captureservice", 77, "S", "swapper/2", 0))))
+        self.assertEqual((c["trigger"], c["p50"], c["over3"], len(c["slow"]), len(c["implied"])), ("draw", 0.4, 1, 1, 1))
+        x = c["slow"][0]
+        self.assertEqual((x["trigger"], x["ms"], x["prev_ms"], x["cpu"], x["held_by"]), ("draw", 5.0, 0.4, 2, ["captureservice-77 x2"]))
+        self.assertAlmostEqual(x["t"], f + self.TICK, places=3)
+        self.assertAlmostEqual(c["flip_max_ms"], 1000 / 60, places=2, msg="the flips are still the presentation's cadence")
+        events, _ = kwait.parse_lines(self.run_of(mode="draw"))
+        times = [e[0] for e in events]
+        self.assertEqual(kwait.loop_cpu(events, times, f + self.TICK, LOOP, before=True), 2)
+        self.assertIsNone(kwait.loop_cpu(events, times, f + self.TICK, LOOP), "after a draw the loop's pass has gone to sleep: none switches in for 10 ms")
+
+    def test_a_client_that_stays_slow_leaves_one_gap_not_two(self):
+        c = self.read(self.run_of(slow={30: 5.0, 31: 5.0}))
+        self.assertEqual((len(c["slow"]), len(c["implied"])), (2, 1))
+
+    def test_a_gap_is_only_implied_between_two_flips_the_client_answered(self):
+        c = self.read(self.run_of(slow={41: 5.0}, skip=(40,)))
+        self.assertEqual((c["frames"], len(c["slow"]), c["implied"]), (54, 1, []))
+        self.assertNotIn("gap_ms", c["slow"][0])
+
+    def test_a_slow_reaction_under_three_milliseconds_is_in_the_spread_and_not_listed(self):
+        c = self.read(self.run_of(slow={30: 2.5}))
+        self.assertEqual((c["over2"], c["over3"], c["slow"], c["implied"]), (1, 0, [], []))
+
+    def test_no_client_and_the_compositors_own_jobs_are_no_reaction(self):
+        self.assertIsNone(self.read(trace(frames(*[10.0 + k * self.PERIOD for k in range(60)]))))
+        self.assertIsNone(self.read(self.run_of(job_tgid=LOOP)), "the compositor's own jobs are not a client's")
+
+    def test_the_late_frames_of_a_run_are_the_ones_inside_the_clients_span(self):
+        idle = frames(1.0, 1.083, 1.166, 1.250)
+        events, _ = kwait.parse_lines(trace(idle, self.run_of(), frames(20.0, 20.1)))
+        c = kwait.reactions(events, LOOP)
+        self.assertEqual(len(kwait.late_frames(events)), 4, "the still screen's 83 ms flips before and the 100 ms after count when the whole trace is read")
+        self.assertEqual(kwait.late_frames(events, span=c["span"]), [])
+
+    def test_the_x1_clients_gap_lines_are_read_and_set_beside_the_gaps_the_trace_implies(self):
+        c = self.read(self.run_of(slow={30: 5.0}))
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "x1.log")
+            with open(path, "w") as f:
+                f.write("[x1] primed: 4 swaps in 61.7 ms before the clock\n[x1] gap 21.1 ms before swap 26 returned at monotonic 10.512\n"
+                        "[x1] t=  1 s: 60 swaps this second, worst gap so far 21.1 ms\n")
+            gaps = kwait.x1_gaps(path)
+        self.assertEqual(gaps, [(21.1, 26, 10.512)])
+        lines = kwait.x1_lines(gaps, c, 20.0)
+        self.assertEqual(lines[0], "x1 log: 1 gap(s) over 20 ms (21.1 ms); the trace implies 1 (21.3 ms)")
+        self.assertIn("gap 21.1 ms before swap 26 = ", lines[1])
+        self.assertEqual(len(kwait.x1_lines(gaps, None, 20.0)), 1, "no client in the trace: the log's gaps stand alone")
+        self.assertEqual(len(kwait.x1_lines([(21.1, 26, 10.5), (20.5, 90, 11.5)], c, 20.0)), 1, "unequal counts are not paired")
+
+
+class CommandOnATracedRun(unittest.TestCase):
+    def run_kwait(self, lines, *args, name="t.trace", opener=open):
+        with tempfile.TemporaryDirectory() as d:
+            path, out = os.path.join(d, name), os.path.join(d, "r.json")
+            with opener(path, "wt") as f:
+                f.write("\n".join(lines) + "\n")
+            r = subprocess.run([sys.executable, os.path.join(PERF, "kwait.py"), path, "--json", out, *args], capture_output=True, text=True)
+            doc = None
+            if os.path.exists(out):
+                with open(out) as f:
+                    doc = json.load(f)
+        return r, doc
+
+    def test_a_traced_x1_run_names_its_loop_by_the_marker_and_says_what_the_client_did_with_the_flips(self):
+        cr = ClientReaction()
+        lines = trace(marker(9.9, "start x1 100.0"), marker(9.9, f"loop {LOOP}"), cr.run_of(slow={30: 5.0}))
+        with tempfile.TemporaryDirectory() as d:
+            log = os.path.join(d, "x1.log")
+            with open(log, "w") as f:
+                f.write("[x1] gap 21.1 ms before swap 26 returned at monotonic 10.512\n")
+            r, doc = self.run_kwait(lines, "--x1", log)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = r.stdout.splitlines()
+        self.assertEqual(out[0], f"loop thread {LOOP} (the loop marker in the trace)")
+        self.assertTrue(any(x.startswith("client 500: its next GPU job began after a flip (where its frame callbacks go out) p50 0.4 ms") for x in out), out)
+        self.assertIn("x1 log: 1 gap(s) over 20 ms (21.1 ms); the trace implies 1 (21.3 ms)", out)
+        self.assertTrue(out[-1].startswith("kernel waits: no late frame | client 500 reaction after a flip: p50 0.4 ms, p99.9 5.0, max 5.0; 1 over 3 ms, 1 frame gap(s) over 20 ms implied"), out[-1])
+        self.assertEqual((doc["tid"], doc["how"], doc["client"]["over3"], doc["x1"]), (LOOP, "the loop marker in the trace", 1, [{"ms": 21.1, "swap": 26, "at": 10.512}]))
+
+    def test_a_gzipped_trace_is_read(self):
+        import gzip
+        r, doc = self.run_kwait(trace(marker(9.9, f"loop {LOOP}"), ClientReaction().run_of()), name="t.trace.gz", opener=gzip.open)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(doc["client"]["frames"], 55)
+
+    def test_a_trace_without_a_loop_exits_saying_what_it_looked_for(self):
+        r, doc = self.run_kwait([switch(1.0, 1, "kworker/1:0", 31, "S", "swapper/1", 0)])
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("the loop thread is not in the trace (no loop marker, no thread named", r.stderr)
+        self.assertIn("pass --tid", r.stderr)
+        self.assertIsNone(doc)
+
+    def test_a_client_log_that_cannot_be_read_is_said_and_the_rest_is_still_printed(self):
+        r, doc = self.run_kwait(trace(marker(9.9, f"loop {LOOP}"), ClientReaction().run_of()), "--x1", "/nonexistent/x1.log")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("x1 log not read: ", r.stdout)
+        self.assertEqual((doc["x1"], doc["client"]["frames"]), (None, 55))
+
+    def test_a_trace_marker_that_a_kernel_names_print_marks_the_loop_too(self):
+        events, _ = kwait.parse_lines(trace(ev(1.0, 0, "sh", 9, "print", "loop 321")))
+        self.assertEqual(kwait.marked_loop(events), 321)
+
+
 class Command(unittest.TestCase):
     def test_the_command_reads_a_trace_file_and_prints_each_late_frame_and_the_summary(self):
         lines = trace(
@@ -356,6 +571,16 @@ class CaptureScript(unittest.TestCase):
         self.assertIn("no stacktrace trigger on this kernel: kernel waits are labelled from context", out)
         self.assertFalse(os.path.exists(os.path.join(self.perf, ".kstack")))
         self.assertEqual(self.read("tracing_on"), "1", "the capture itself started")
+
+    def test_start_marks_the_loop_thread_for_kwait_py(self):
+        self.capture("start", "t", "kwait")
+        self.assertIn("loop 4242", self.read("trace_marker").splitlines())
+
+    def test_start_with_no_compositor_marks_no_loop_and_still_succeeds(self):
+        open(os.path.join(self.tmp.name, "none"), "w").close()
+        r = subprocess.run(["sh", CAPTURE, "start", "t", "full"], env=self.env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("loop", self.read("trace_marker"))
 
 
 if __name__ == "__main__":

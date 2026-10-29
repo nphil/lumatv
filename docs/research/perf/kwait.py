@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Which kernel waits made a frame late (LPC 2026, "Kernel Lock Contention Hotspots Causing Frame Drops on Android").
 
-    kwait.py TRACE (--tid TID | --comm NAME) [--gap MS] [--period MS] [--hops N] [--json OUT]
+    kwait.py TRACE [--tid TID | --comm NAME] [--gap MS] [--period MS] [--hops N] [--x1 X1LOG] [--json OUT]
 
 A late frame is a `drm_vblank_event_delivered` more than --gap ms (default 20) after the one before it. The compositor's loop thread
 missed it; the loop is blamed on the kernel when the time it, or a thread it was waiting for, spent blocked in the kernel covers
@@ -18,10 +18,23 @@ most of the overrun (the frame's interval less one refresh). From a capture.sh `
     request issued, reclaim, a GPU job running: the label then ends in `?`), else `other`;
   - a loop that waited for a CPU is no kernel wait: its run-queue time over 3 ms is reported apart as `sched`, with who held the CPU.
 
+The loop thread is the id capture.sh wrote into the trace when it started (a `loop TID` marker); for a trace without one --comm names it
+(a thread whose name starts so), else the compositor's own names are tried in turn: LumaTV's runs under its private loader, so its
+threads are `ld-linux-aarch6` (the loader's file name cut to 15 characters), not the binary's name.
+
+A client that commits every frame, as the X1 probe does, can be late on its own side while the flips are not: the compositor's frame callbacks
+start the client's next frame, and they go out when a flip lands (`ctl callbacks clients landing`) or with the frame's draw (the default since
+112d9cc). The same trace says when the client's first GPU job of that frame began after that moment (its reaction: the client waking, drawing
+and submitting), taken from the flips or from the compositor's own job starts, whichever the client's jobs follow more closely. A reaction that
+is 3.3 ms longer than the one before it is a swap gap of 20 ms with no late flip. The reactions over 3 ms are listed with the tasks seen on the
+loop's CPU meanwhile, and with --x1 the client's own gap lines are set beside the gaps the trace implies.
+
 `analyse.py` calls this for every gap it lists; `gate.py` prints the result under each surface.
 """
 import argparse
+import bisect
 import collections
+import gzip
 import json
 import re
 import sys
@@ -85,9 +98,10 @@ class Wait:
 
 
 def parse(path):
-    """(events, stacks) from a trace dump: events as analyse.py's `(t, cpu, name, pid, comm, args)` sorted by time, stacks as
-    {index into events of a sched_switch: [symbol, ...]} for the switches a `stacktrace` trigger followed."""
-    with open(path, errors='replace') as f:
+    """(events, stacks) from a trace dump (plain text, or gzip when the name ends in .gz): events as analyse.py's
+    `(t, cpu, name, pid, comm, args)` sorted by time, stacks as {index into events of a sched_switch: [symbol, ...]} for the switches a
+    `stacktrace` trigger followed."""
+    with (gzip.open(path, 'rt', errors='replace') if path.endswith('.gz') else open(path, errors='replace')) as f:
         return parse_lines(f)
 
 
@@ -258,25 +272,219 @@ class Context:
                 'verdict': 'kernel' if score >= share else ('sched' if sched_ms >= overrun * share else 'unexplained')}
 
 
-def late_frames(events, gap_ms=20.0, max_gap_ms=MAX_GAP_MS):
+def late_frames(events, gap_ms=20.0, max_gap_ms=MAX_GAP_MS, span=None):
     """[(g0, g1)] of the presented frames more than gap_ms and no more than max_gap_ms after the one before (a longer silence is a still screen,
-    not a frame that was late)."""
+    not a frame that was late); with `span` (from, to) only the frames inside it: the run of a client that draws every frame, not the still
+    screen before it starts and after it ends."""
     t = [e[0] for e in events if e[2] == 'drm_vblank_event_delivered']
-    return [(a, b) for a, b in zip(t, t[1:]) if gap_ms < (b - a) * 1000.0 <= max_gap_ms]
+    return [(a, b) for a, b in zip(t, t[1:]) if gap_ms < (b - a) * 1000.0 <= max_gap_ms and (span is None or span[0] <= a and b <= span[1])]
 
 
-def find_loop(events, comm):
-    """The thread id a comm has in the trace (the busiest, when several), None when it never ran."""
+# The names the compositor's threads have in a trace that carries no `loop` marker, tried in turn: its binary's (started directly), the
+# private loader's (`ld-linux-aarch64.so.1` cut to the 15 characters of a comm: how LumaTV's compositor runs on the set, and the X1 client too),
+# LG's.
+LOOP_COMMS = ('lumatv-composit', 'ld-linux', 'surface-manager')
+LOOP_MARK = re.compile(r'^loop (\d+)\s*$')
+MARK_EVENTS = ('tracing_mark_write', 'print')     # what a trace_marker write is called: the set's 5.4 kernel, newer kernels
+
+
+def marked_loop(events):
+    """The thread id capture.sh marked when it started (`loop TID`, the last such marker when there are several), None without one."""
+    tid = None
+    for t, cpu, name, pid, comm, args in events:
+        if name in MARK_EVENTS:
+            m = LOOP_MARK.match(args)
+            if m:
+                tid = int(m.group(1))
+    return tid
+
+
+def threads_seen(events):
+    """Counter of (comm, tid) over the trace's sched_switch events, each switch counting for both threads."""
     c = collections.Counter()
     for t, cpu, name, pid, ec, args in events:
         if name == 'sched_switch':
             m = SWITCH.match(args)
             if m:
-                if m.group(5).startswith(comm):
-                    c[int(m.group(6))] += 1
-                if m.group(1).startswith(comm):
-                    c[int(m.group(2))] += 1
-    return c.most_common(1)[0][0] if c else None
+                c[(m.group(1), int(m.group(2)))] += 1
+                c[(m.group(5), int(m.group(6)))] += 1
+    return c
+
+
+def busiest(seen, prefix):
+    """The thread id, among those whose name starts with `prefix`, that switched most; None when none did."""
+    best = [(n, tid) for (comm, tid), n in seen.items() if comm.startswith(prefix)]
+    return max(best)[1] if best else None
+
+
+def find_loop(events, comm=None):
+    """(tid, how): the compositor's loop thread and how it was found; (None, what was tried) when it cannot be. A name given is tried first,
+    then the id capture.sh marked, then the compositor's own names. Among threads of one name the busiest is taken: the X1 client runs under
+    the same loader and is `ld-linux-aarch6` as well, but the loop switches hundreds of times a second and the client a few times."""
+    seen = threads_seen(events)
+    if comm:
+        tid = busiest(seen, comm)
+        if tid is not None:
+            return tid, f'a thread named {comm}'
+    tid = marked_loop(events)
+    if tid is not None:
+        return tid, 'the loop marker in the trace'
+    for name in LOOP_COMMS:
+        tid = busiest(seen, name)
+        if tid is not None:
+            return tid, f'the busiest thread named {name}'
+    top = ', '.join(f'{c}-{t} ({n})' for (c, t), n in seen.most_common(4)) or 'none'
+    return None, f"no loop marker, no thread named {', '.join(([comm] if comm else []) + list(LOOP_COMMS))}; busiest threads: {top}"
+
+
+JOB = re.compile(r'gpu=\d+ event=(\d+) tgid=(\d+) ')
+REACTION_SLOW_MS = 3.0
+REACTION_START = 8     # the client's first job starts are its start-up (X1 primes its swapchain with four frames of two jobs): flips before the ninth are not read
+
+
+def job_starts(events):
+    """({tgid: [t, ...]}, {tid, ...}): when each process's GPU jobs began (`mali_job_slots_event` of type 1, a job slot starting; tgid 0 is
+    the interrupt's stop events), and the threads that started them (the Mali threads and the workers the driver hands the jobs to)."""
+    starts, plumbing = collections.defaultdict(list), set()
+    for t, cpu, name, pid, comm, args in events:
+        if name == 'mali_job_slots_event':
+            m = JOB.match(args)
+            if m and int(m.group(1)) >> 24 == 1 and int(m.group(2)):
+                starts[int(m.group(2))].append(t)
+                plumbing.add(pid)
+    return starts, plumbing
+
+
+def loop_cpu(events, times, t, loop_tid, before=False, within=0.002):
+    """The CPU the loop thread was switched in on, the first time after `t` (the last time before it with `before`), within `within` seconds;
+    None when it was not."""
+    if before:
+        i = bisect.bisect_right(times, t) - 1
+        while i >= 0 and times[i] >= t - within:
+            if events[i][2] == 'sched_switch':
+                m = SWITCH.match(events[i][5])
+                if m and int(m.group(6)) == loop_tid:
+                    return events[i][1]
+            i -= 1
+        return None
+    i = bisect.bisect_left(times, t)
+    while i < len(events) and times[i] <= t + within:
+        if events[i][2] == 'sched_switch':
+            m = SWITCH.match(events[i][5])
+            if m and int(m.group(6)) == loop_tid:
+                return events[i][1]
+        i += 1
+    return None
+
+
+def clusters(ts, within=0.002):
+    """The first of each run of times less than `within` seconds from the one before it: a frame's GPU jobs make one start."""
+    out, last = [], None
+    for t in ts:
+        if last is None or t - last >= within:
+            out.append(t)
+        last = t
+    return out
+
+
+def occupants(events, times, cpu, t0, t1, skip_tids, skip_comms=('swapper', '<idle>')):
+    """[(comm-tid, count)], most seen first: who the trace shows on `cpu` from t0 to t1. An event names the task that was running when it
+    fired and a switch the two it changed between; threads in `skip_tids` (the loop, the client, the GPU plumbing) and idle are left out."""
+    seen = collections.Counter()
+    for i in range(bisect.bisect_left(times, t0), bisect.bisect_right(times, t1)):
+        t, c, name, pid, comm, args = events[i]
+        if c != cpu:
+            continue
+        who = [(comm.strip(), pid)]
+        if name == 'sched_switch':
+            m = SWITCH.match(args)
+            if m:
+                who = [(m.group(1), int(m.group(2))), (m.group(5), int(m.group(6)))]
+        for cm, tid in who:
+            if tid and tid not in skip_tids and not cm.startswith(skip_comms):
+                seen[f'{cm}-{tid}'] += 1
+    return seen.most_common()
+
+
+def reactions(events, loop_tid, gap_ms=20.0, slow_ms=REACTION_SLOW_MS, period_ms=PERIOD_MS):
+    """How the client answered the compositor's frame callbacks: how long after the moment they go out the client's next GPU job began (its
+    wake-up, its draw and its submission). They go out when a flip lands, or, in builds that send them with the frame's draw (`ctl callbacks
+    clients early`, the default since 112d9cc), when the compositor's own job for the frame starts. The trace has no event for the callbacks, so
+    the moment taken is the one the client's jobs follow most closely, the flips' or the draws' (`trigger`).
+    The client is the process, other than the compositor, that started a job for at least every second flip; None when no process did.
+    Two consecutive answers r0 and r1 make the client's jobs `interval + r1 - r0` apart: a pair more than gap_ms apart is a swap gap of the
+    client's own, whether the flips were late or not (`implied`). The reactions over slow_ms are listed (`slow`) with the CPU the loop's pass
+    ran on and who else the trace shows there until the job began."""
+    flips = [e[0] for e in events if e[2] == 'drm_vblank_event_delivered']
+    starts, plumbing = job_starts(events)
+    cands = [(len(v), tg) for tg, v in starts.items() if tg != loop_tid]
+    if len(flips) < 30 or not cands or max(cands)[0] < len(flips) // 2:
+        return None
+    client = max(cands)[1]
+    jobs = starts[client]
+    first = jobs[REACTION_START] if len(jobs) > REACTION_START else jobs[-1]
+    t0 = events[0][0]
+    times = [e[0] for e in events]
+
+    def answers(moments):
+        """(index in moments, moment, the client's next job start, ms between them) for each moment a job followed within a period."""
+        out = []
+        for k, m in enumerate(moments):
+            i = bisect.bisect_right(jobs, m)
+            if m >= first and i < len(jobs) and (jobs[i] - m) * 1000.0 < period_ms:
+                out.append((k, m, jobs[i], (jobs[i] - m) * 1000.0))
+        return out
+
+    best = None
+    for name, moments in (('flip', flips), ('draw', clusters(starts.get(loop_tid, [])))):
+        got = answers(moments)
+        if len(got) >= 30:
+            median = sorted(r[3] for r in got)[len(got) // 2]
+            if best is None or median < best[0]:
+                best = (median, name, got)
+    if best is None:
+        return None
+    _, trigger, rows = best
+    ms = sorted(r[3] for r in rows)
+    n = len(ms)
+
+    def pick(p):
+        return round(ms[min(n - 1, int(n * p))], 2)
+
+    def detail(row, prev):
+        k, m, j, r = row
+        out = {'at': round(m - t0, 3), 't': round(m, 3), 'trigger': trigger, 'ms': round(r, 2)}
+        if prev and prev[0] == k - 1:
+            out['prev_ms'] = round(prev[3], 2)
+            out['gap_ms'] = round((j - prev[2]) * 1000.0, 1)
+        cpu = loop_cpu(events, times, m, loop_tid, before=trigger == 'draw')
+        if cpu is not None:
+            out['cpu'] = cpu
+            out['held_by'] = [f'{who} x{c}' for who, c in occupants(events, times, cpu, m, j, {loop_tid, client} | plumbing)[:4]]
+        return out
+
+    slow, implied = [], []
+    for x, row in enumerate(rows):
+        prev = rows[x - 1] if x else None
+        if row[3] >= slow_ms:
+            slow.append(detail(row, prev))
+        if prev and prev[0] == row[0] - 1 and (row[2] - prev[2]) * 1000.0 > gap_ms:
+            implied.append(detail(row, prev))
+    span = [r[1] for r in rows]
+    inside = [f for f in flips if span[0] <= f <= span[-1]]
+    return {'client': client, 'trigger': trigger, 'frames': n, 'p50': pick(0.5), 'p90': pick(0.9), 'p99': pick(0.99), 'p999': pick(0.999),
+            'max': round(ms[-1], 2), 'over2': sum(1 for v in ms if v > 2.0), 'over3': sum(1 for v in ms if v > 3.0),
+            'flips': len(inside), 'flip_max_ms': round(max((b - a) * 1000.0 for a, b in zip(inside, inside[1:])), 2) if len(inside) > 1 else 0.0,
+            'slow': slow[:20], 'implied': implied[:20], 'span': (round(span[0], 6), round(span[-1], 6))}
+
+
+X1_GAP = re.compile(r'^\[x1\] gap ([\d.]+) ms before swap (\d+) returned at monotonic ([\d.]+)')
+
+
+def x1_gaps(path):
+    """[(ms, swap, monotonic time)] of the gap lines the X1 client wrote (`[x1] gap G ms before swap K returned at monotonic T`)."""
+    with open(path, errors='replace') as f:
+        return [(float(m.group(1)), int(m.group(2)), float(m.group(3))) for m in map(X1_GAP.match, f) if m]
 
 
 def describe(r):
@@ -307,34 +515,90 @@ def summary_line(s):
             + f", {s['sched']} waiting for a CPU, {s['unexplained']} unexplained")
 
 
+WHAT = {'flip': 'a flip', 'draw': "the compositor's draw"}
+
+
+def describe_reaction(x):
+    """One line for a reaction the client took long over: when, how long, the frames it left apart, and who else the trace shows on the loop's CPU."""
+    s = f"+{x['at']} s: {x['trigger']} {x['t']:.3f}, the client's next GPU job began {x['ms']} ms after it"
+    if 'prev_ms' in x:
+        s += f" (the frame before: {x['prev_ms']} ms), its jobs {x['gap_ms']} ms apart"
+    if x.get('held_by'):
+        s += f"; CPU {x['cpu']} also ran {', '.join(x['held_by'])}"
+    elif 'cpu' in x:
+        s += f"; CPU {x['cpu']} ran nothing else the trace shows"
+    return s
+
+
+def client_lines(c, gap_ms):
+    """The lines for the client's reactions: the spread, then each reaction over 3 ms."""
+    out = [f"client {c['client']}: its next GPU job began after {WHAT[c['trigger']]} (where its frame callbacks go out) p50 {c['p50']} ms, "
+           f"p90 {c['p90']}, p99 {c['p99']}, p99.9 {c['p999']}, max {c['max']} ({c['frames']} answered, the flips in that stretch at most "
+           f"{c['flip_max_ms']} ms apart); {c['over3']} over 3 ms, {len(c['implied'])} would leave its jobs more than {gap_ms:g} ms apart"]
+    return out + ['  ' + describe_reaction(x) for x in c['slow']]
+
+
+def client_summary(c, gap_ms):
+    """The client's part of the one line a gate prints."""
+    return (f"client {c['client']} reaction after {WHAT[c['trigger']]}: p50 {c['p50']} ms, p99.9 {c['p999']}, max {c['max']}; {c['over3']} over 3 ms, "
+            f"{len(c['implied'])} frame gap(s) over {gap_ms:g} ms implied; answered {c['frames']}, flips at most {c['flip_max_ms']} ms apart")
+
+
+def x1_lines(gaps, c, gap_ms):
+    """The X1 client's own gap lines beside the gaps the trace implies: paired in order when there are as many of one as of the other."""
+    implied = c['implied'] if c else []
+    out = [f"x1 log: {len(gaps)} gap(s) over {gap_ms:g} ms" + (f" ({', '.join(f'{g[0]} ms' for g in gaps)})" if gaps else '')
+           + f"; the trace implies {len(implied)}" + (f" ({', '.join(str(x['gap_ms']) + ' ms' for x in implied)})" if implied else '')]
+    if gaps and len(gaps) == len(implied):
+        out += [f"  gap {ms} ms before swap {swap} = {describe_reaction(x)}" for (ms, swap, _t), x in zip(gaps, implied)]
+    return out
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     ap.add_argument('trace')
     ap.add_argument('--tid', type=int, help='the loop thread (the compositor process id)')
-    ap.add_argument('--comm', help="or its name's start (lumatv-composit)")
+    ap.add_argument('--comm', help="or its name's start: tried before the trace's own `loop` marker")
     ap.add_argument('--gap', type=float, default=20.0)
     ap.add_argument('--period', type=float, default=PERIOD_MS)
     ap.add_argument('--hops', type=int, default=HOPS)
     ap.add_argument('--min-wait', type=float, default=MIN_WAIT_MS)
+    ap.add_argument('--x1', help="the X1 client's log: its gap lines are set beside the gaps the trace implies")
     ap.add_argument('--json')
     a = ap.parse_args(argv)
     events, stacks = parse(a.trace)
     if not events:
         sys.exit('empty trace')
-    tid = a.tid if a.tid is not None else find_loop(events, a.comm or 'lumatv-composit')
-    if tid is None:
-        sys.exit('the loop thread is not in the trace: pass --tid')
+    if a.tid is not None:
+        tid, how = a.tid, '--tid'
+    else:
+        tid, how = find_loop(events, a.comm)
+        if tid is None:
+            sys.exit(f'the loop thread is not in the trace ({how}): pass --tid')
+    print(f'loop thread {tid} ({how})')
     ctx = Context(events, stacks, tid)
+    client = reactions(events, tid, a.gap)
     frames = []
-    for g0, g1 in late_frames(events, a.gap):
+    for g0, g1 in late_frames(events, a.gap, span=client['span'] if client else None):
         r = ctx.frame(g0, g1, a.period, a.hops, a.min_wait)
         r['at'] = round(g0 - events[0][0], 3)
         frames.append(r)
         print(f"+{r['at']} s: {describe(r)}")
-    print(summary_line(summarize(frames)))
+    if client:
+        print('\n'.join(client_lines(client, a.gap)))
+    gaps = None
+    if a.x1:
+        try:
+            gaps = x1_gaps(a.x1)
+        except OSError as e:
+            print(f'x1 log not read: {e}')
+    if gaps is not None:
+        print('\n'.join(x1_lines(gaps, client, a.gap)))
+    print(summary_line(summarize(frames)) + (f' | {client_summary(client, a.gap)}' if client else ''))
     if a.json:
         with open(a.json, 'w') as f:
-            json.dump({'tid': tid, 'frames': frames, 'summary': summarize(frames)}, f, indent=1)
+            json.dump({'tid': tid, 'how': how, 'frames': frames, 'summary': summarize(frames), 'client': client,
+                       'x1': [{'ms': g[0], 'swap': g[1], 'at': g[2]} for g in gaps] if gaps is not None else None}, f, indent=1)
     return 0
 
 

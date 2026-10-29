@@ -1,0 +1,85 @@
+ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+x1heapshim: open /dev/dma_heap/system-uncached -> placeholder fd 8
+arm_release_ver: g24p0-00eac0, rk_so_ver: 10
+[x1] EGL 1.5 ARM | 1.5 Bifrost-"g24p0-00eac0"
+[x1] GL Mali-G52 / OpenGL ES 3.2 v1.g24p0-00eac0.fe7fa84c52ed3b756cd64cb3246aafd9
+[x1] window 1920x1080 type _WEBOS_WINDOW_TYPE_OVERLAY, 60 s, starting at monotonic 7613.468
+x1heapshim: pool of 2 more buffers of 8986624 bytes allocated in 26.2 ms
+x1heapshim: alloc 8986624 bytes -> fd 13 via drm dumb (CMA) (dumb so far 1, te 0) at monotonic 7613.495
+[x1] webos state_changed 3
+x1heapshim: alloc 8986624 bytes -> fd 15 via drm dumb (CMA), from the pool (dumb so far 2, te 0) at monotonic 7613.510
+x1heapshim: alloc 8986624 bytes -> fd 14 via drm dumb (CMA), from the pool (dumb so far 3, te 0) at monotonic 7613.511
+[x1] priming swap 1 returned at monotonic 7613.510
+[x1] priming swap 2 returned at monotonic 7613.511
+[x1] priming swap 3 returned at monotonic 7613.514
+[x1] priming swap 4 returned at monotonic 7613.547
+[x1] primed: 4 swaps in 78.9 ms before the clock
+[x1] swap 1 returned at monotonic 7613.564 (its draw started 17.2 ms before)
+[x1] swap 2 returned at monotonic 7613.572 (its draw started 7.7 ms before)
+[x1] swap 3 returned at monotonic 7613.588 (its draw started 16.6 ms before)
+[x1] swap 4 returned at monotonic 7613.605 (its draw started 16.6 ms before)
+[x1] swap 5 returned at monotonic 7613.621 (its draw started 16.4 ms before)
+[x1] swap 6 returned at monotonic 7613.638 (its draw started 16.7 ms before)
+[x1] swap 7 returned at monotonic 7613.655 (its draw started 16.8 ms before)
+[x1] swap 8 returned at monotonic 7613.671 (its draw started 16.5 ms before)
+[x1] t=  1 s: 61 swaps this second, worst gap so far 19.2 ms
+[x1] t=  2 s: 60 swaps this second, worst gap so far 19.2 ms
+[x1] t=  3 s: 60 swaps this second, worst gap so far 19.2 ms
+[x1] t=  4 s: 60 swaps this second, worst gap so far 19.2 ms
+[x1] t=  5 s: 60 swaps this second, worst gap so far 19.2 ms
+[x1] t=  6 s: 60 swaps this second, worst gap so far 19.2 ms
+[x1] t=  7 s: 60 swaps this second, worst gap so far 19.2 ms
+[x1] t=  8 s: 60 swaps this second, worst gap so far 19.2 ms
+[x1] t=  9 s: 60 swaps this second, worst gap so far 19.2 ms
+[x1] t= 10 s: 60 swaps this second, worst gap so far 19.2 ms
+[x1] t= 11 s: 60 swaps this second, worst gap so far 19.2 ms
+[x1] t= 12 s: 60 swaps this second, worst gap so far 19.2 ms
+[x1] t= 13 s: 60 swaps this second, worst gap so far 19.2 ms
+[x1] t= 14 s: 60 swaps this second, worst gap so far 19.2 ms
+[x1] t= 15 s: 60 swaps this second, worst gap so far 19.2 ms
+[x1] t= 16 s: 60 swaps this second, worst gap so far 19.2 ms
+[x1] t= 17 s: 60 swaps this second, worst gap so far 19.2 ms
+[x1] gap 20.6 ms before swap 1031 returned at monotonic 7630.742
+[x1] t= 18 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 19 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 20 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 21 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 22 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 23 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 24 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 25 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 26 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 27 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 28 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 29 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 30 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 31 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 32 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 33 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 34 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 35 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 36 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 37 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 38 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 39 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 40 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 41 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 42 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 43 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 44 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 45 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 46 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 47 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 48 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 49 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 50 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 51 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 52 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 53 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 54 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 55 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 56 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 57 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 58 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] t= 59 s: 60 swaps this second, worst gap so far 20.6 ms
+[x1] RESULT frames=3598 in 60.01 s = 59.95 fps; gaps: <=17.5 ms 3561, 17.5-20 35, 20-33.5 1, >33.5 0; worst 20.6 ms; ended at monotonic 7673.560

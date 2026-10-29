@@ -16,6 +16,8 @@
 # In "full" and "kwait" a `stacktrace` trigger leaves the kernel stack of each compositor thread that goes to sleep in D state
 # (blocked in a lock, I/O or the driver); `kwait.py` labels each wait from it (kbase, mmap_sem, io, ...). A kernel without the
 # trigger says so and the waits are labelled from the events around them instead.
+# `start` also writes `loop TID` (the compositor's process id, its loop thread's) into the trace, which is how `kwait.py` finds the loop:
+# run through its private loader the compositor's threads are named `ld-linux-aarch6`, like the X1 client's.
 #
 # The 1 s sampler is sample.py (one process, no forks) when it sits beside this script. The shell
 # `sample` below forks about 40 processes a second; on the set that was 50-60 ms of CPU, and the
@@ -44,10 +46,15 @@ vmscan/mm_vmscan_direct_reclaim_begin vmscan/mm_vmscan_direct_reclaim_end
 compaction/mm_compaction_begin compaction/mm_compaction_end cma/cma_alloc
 mali/mali_job_slots_event"
 
-# The compositor's thread ids (LumaTV's, else LG's surface-manager), and a filter that names them: `FIELD == A || FIELD == B`.
-comp_tids() {
+# The compositor's process id, which is its loop thread's id (LumaTV's, else LG's surface-manager), its threads' ids, and a filter that names
+# them: `FIELD == A || FIELD == B`.
+comp_pid() {
   pid=$(pgrep -f 'bin/lumatv-compositor' | head -n 1)
   [ -n "$pid" ] || pid=$(pidof surface-manager | cut -d' ' -f1)
+  echo "$pid"
+}
+comp_tids() {
+  pid=$(comp_pid)
   [ -n "$pid" ] && ls $PROC/$pid/task 2>/dev/null
 }
 tid_filter() {
@@ -115,6 +122,9 @@ case "$1" in
     echo $! > $D/.sampler
     echo 1 > $T/tracing_on
     echo "start $name $(cut -d' ' -f1 /proc/uptime)" > $T/trace_marker
+    # The loop thread's id, for kwait.py: the compositor runs under its private loader, so its threads are named `ld-linux-aarch6`, which names nothing.
+    loop=$(comp_pid)
+    if [ -n "$loop" ]; then echo "loop $loop" >> $T/trace_marker; fi
     ;;
   mark)
     echo "$2" > $T/trace_marker

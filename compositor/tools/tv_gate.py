@@ -5,7 +5,7 @@ the standby check, and the checks that end the live session (Home held on a virt
 killed, the compositor's own hold-Home escape) each get a fresh session. Exit 0 only when every check passed; the result
 lines and files land in /tmp/lumatv-tv-out/out/gate and docs/research/compositor/gate-<date>.txt.
 
-    tv_gate.py [--skip netflix,hdmi,apps,...] [--only keys,ime] [--x1-seconds N] [--enable-after] [--frames-callbacks landing] [--frames-quick] [--refresh 120] [--scanout direct] [--force-wake]
+    tv_gate.py [--skip netflix,hdmi,apps,...] [--only keys,ime] [--x1-seconds N] [--x1-rt N] [--x1-callbacks early|landing] [--enable-after] [--frames-callbacks landing] [--frames-quick] [--refresh 120] [--scanout direct] [--force-wake]
 
 The gate's rule for the frame check is 60 s with no gap over 20 ms (tv-gate.sh, "The frame rule"); --x1-seconds under 60
 can only fail it. Checks that can be skipped: firmware, homeheld, volume, x1, netflix, hdmi, apps, keys, ime, standby, homekey,
@@ -288,6 +288,8 @@ def main():
     ap.add_argument("--skip", default="")
     ap.add_argument("--only", default="")
     ap.add_argument("--x1-seconds", type=int, default=60)
+    ap.add_argument("--x1-rt", type=int, default=0, help="run the x1 client SCHED_FIFO N (1 to 99) instead of time-shared: an A/B for the client's own wake-ups against the set's other tasks, the rule unchanged")
+    ap.add_argument("--x1-callbacks", choices=["early", "landing"], help="when every client's frame callbacks go out for the x1 run (`ctl callbacks clients`): with the frame's draw (early, the default since 112d9cc) or at the flip (landing), the rule unchanged")
     ap.add_argument("--enable-after", action="store_true")
     ap.add_argument("--frames-cycles", type=int, default=3, help="open/close cycles of the surface frame gate's soak (default 3)")
     ap.add_argument("--frames-quick", action="store_true", help="the surface frame gate over the quick set only (%s): what a regular round needs; without it the set also walks the app switcher, the keyboard and the app launches with smooth transitions on (%s), which changes a setting for each run and puts it back, and takes about twice as long" % (FRAMES_SURFACES_QUICK, FRAMES_SURFACES.replace(FRAMES_SURFACES_QUICK + ",", "")))
@@ -302,6 +304,8 @@ def main():
     ap.add_argument("--force-wake", action="store_true",
                     help="wake the set without waiting for LG's panel refresh (a run due at standby is left alone until 15 minutes of standby have passed: refresh_guard.py)")
     a = ap.parse_args()
+    if not 0 <= a.x1_rt <= 99:
+        ap.error("--x1-rt is a SCHED_FIFO priority, 1 to 99 (0 leaves the client time-shared)")
     global FORCE_WAKE
     FORCE_WAKE = a.force_wake
     skip = set(a.skip.split(",")) - {""}
@@ -366,11 +370,17 @@ def main():
             lines.append(line)
         if "x1" not in skip:
             env = ""
+            if a.x1_rt:
+                env += "LUMATV_X1_RT=%d " % a.x1_rt
+            if a.x1_callbacks:
+                env += "LUMATV_X1_CALLBACKS=%s " % a.x1_callbacks
             if a.kwait:
                 tv.tv("mkdir -p /tmp/perf")
                 tv.put(os.path.join(PERF_DIR, "capture.sh"), "/tmp/perf/capture.sh")
                 tv.put(os.path.join(PERF_DIR, "kwait.py"), "/tmp/perf/kwait.py")
-                env = "LUMATV_GATE_KWAIT=1 "
+                # beside capture.sh, so that its 1 s sampler is the one process that forks nothing (the shell one forks about 40 a second)
+                tv.put(os.path.join(PERF_DIR, "sample.py"), "/tmp/perf/sample.py")
+                env += "LUMATV_GATE_KWAIT=1 "
             step("x1", "%ssh /tmp/lumatv/gate.sh x1 %d" % (env, a.x1_seconds), a.x1_seconds + 120)
         if "netflix" not in skip:
             avr_mute(True)   # the receiver may have been off (no mute to take) when the first one was sent

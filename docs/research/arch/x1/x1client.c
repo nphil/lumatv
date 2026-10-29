@@ -2,17 +2,19 @@
 // N seconds. It measures whether LG's compositor alone can keep a client's frames on the 60 Hz deadline: one clear
 // and one small moving rectangle per frame, nothing else. The per-frame timing is logged (swap-to-swap gap) and
 // the ftrace harness counts presented frames from outside.
-//   X1_SECONDS=60 X1_WINDOW_TYPE=_WEBOS_WINDOW_TYPE_OVERLAY x1client <libmali-...-wayland-gbm.so>
+//   X1_SECONDS=60 X1_WINDOW_TYPE=_WEBOS_WINDOW_TYPE_OVERLAY [X1_RT=SCHED_FIFO priority] x1client <libmali-...-wayland-gbm.so>
 // Window: wl_shell toplevel + wl_webos_shell_surface (state fullscreen, appId org.nphil.lumatv.x1).
 // Buffers: the driver's own window path; LD_PRELOAD=x1heapshim.so answers its /dev/dma_heap opens.
 #define _GNU_SOURCE
 #define X2_CLIENT
 #include "../x2/x2wl.h"
 #include <dlfcn.h>
+#include <errno.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sched.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -100,6 +102,15 @@ int main(int argc, char **argv) {
     int seconds = getenv("X1_SECONDS") ? atoi(getenv("X1_SECONDS")) : 60;
     const char *wtype = getenv("X1_WINDOW_TYPE") ? getenv("X1_WINDOW_TYPE") : "_WEBOS_WINDOW_TYPE_OVERLAY";
     int W = 1920, H = 1080;
+    // X1_RT=N runs the client SCHED_FIFO N from here, before the blob makes its threads (they inherit it), so that its wake-ups do not wait
+    // behind the set's time-shared tasks: an A/B for client gaps with the compositor's flips on time (round 17). Off by default.
+    const char *rt = getenv("X1_RT");
+    if (rt && *rt) {
+        struct sched_param sp = { .sched_priority = atoi(rt) };
+        if (sched_setscheduler(0, SCHED_FIFO, &sp)) printf("[x1] SCHED_FIFO %d refused: %s\n", sp.sched_priority, strerror(errno));
+        else printf("[x1] SCHED_FIFO %d\n", sp.sched_priority);
+        fflush(stdout);
+    }
     void *h = dlopen(lib, RTLD_NOW | RTLD_GLOBAL);
     if (!h) { printf("[x1] dlopen(%s): %s\n", lib, dlerror()); return 1; }
 #define S(name) *(void **)&name = dlsym(h, #name); if (!name) { printf("[x1] missing %s\n", #name); return 1; }

@@ -1610,9 +1610,33 @@ class GateDriver(unittest.TestCase):
         put = [c.args[1] for c in self.gate.tv.put.call_args_list]
         self.assertIn("/tmp/perf/capture.sh", put)
         self.assertIn("/tmp/perf/kwait.py", put)
+        self.assertIn("/tmp/perf/sample.py", put, "beside capture.sh, whose 1 s sampler is then the one that forks nothing")
         calls, code, _ = self.run_main(argv=["--only", "x1"])
         self.assertIn("sh /tmp/lumatv/gate.sh x1 60", calls, "without the flag the x1 run is untraced, as the rule has always been")
         self.assertNotIn("LUMATV_GATE_KWAIT=1 sh /tmp/lumatv/gate.sh x1 60", calls)
+
+    def test_x1_rt_runs_the_x1_client_fifo_and_asks_nothing_else_of_the_check(self):
+        calls, code, _ = self.run_main(argv=["--only", "x1", "--x1-rt", "10"])
+        self.assertEqual(code, 0)
+        self.assertIn("LUMATV_X1_RT=10 sh /tmp/lumatv/gate.sh x1 60", calls)
+        calls, code, _ = self.run_main(argv=["--only", "x1", "--x1-rt", "10", "--kwait"])
+        self.assertIn("LUMATV_X1_RT=10 LUMATV_GATE_KWAIT=1 sh /tmp/lumatv/gate.sh x1 60", calls)
+        calls, code, _ = self.run_main(argv=["--only", "x1"])
+        self.assertIn("sh /tmp/lumatv/gate.sh x1 60", calls, "the client is time-shared unless it is asked")
+        self.assertNotIn("LUMATV_X1_RT", " ".join(calls))
+        calls, code, _ = self.run_main(argv=["--only", "x1", "--x1-rt", "100"])
+        self.assertEqual((calls, code), ([], 2), "a priority past 99 is refused before anything runs on the set")
+
+    def test_x1_callbacks_sets_when_the_clients_frame_callbacks_go_out_for_the_x1_run(self):
+        calls, code, _ = self.run_main(argv=["--only", "x1", "--x1-callbacks", "landing"])
+        self.assertEqual(code, 0)
+        self.assertIn("LUMATV_X1_CALLBACKS=landing sh /tmp/lumatv/gate.sh x1 60", calls)
+        calls, code, _ = self.run_main(argv=["--only", "x1", "--x1-rt", "10", "--x1-callbacks", "early", "--kwait"])
+        self.assertIn("LUMATV_X1_RT=10 LUMATV_X1_CALLBACKS=early LUMATV_GATE_KWAIT=1 sh /tmp/lumatv/gate.sh x1 60", calls)
+        calls, code, _ = self.run_main(argv=["--only", "x1"])
+        self.assertNotIn("LUMATV_X1_CALLBACKS", " ".join(calls), "the compositor's default stands unless it is asked")
+        calls, code, _ = self.run_main(argv=["--only", "x1", "--x1-callbacks", "sometimes"])
+        self.assertEqual((calls, code), ([], 2))
 
     def test_after_the_frame_run_the_interrupts_and_wakeups_are_read_once_and_not_judged(self):
         calls, code, _ = self.run_main(argv=["--only", "frames"])
