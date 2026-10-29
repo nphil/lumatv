@@ -381,14 +381,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to -1, which skips the call). `wl_webos_seat.info` names each seat by its input device as LG
   does, `wl_output` sends no `scale` (LG never does), and the gate launches YouTube and PlxNative
   (`gate.sh apps`: foreground within 5 s, alive at 10 s, closed cleanly).
-- Compositor: PlxNative closes without crashing. A surface destroyed before any frame drew its
-  last commit still gets that commit's frame callbacks, with the frame in flight or at once:
-  LG's SDL destroys its `wl_surface` before `eglTerminate`, Mali's EGL waits there for the
-  callback of the last swap, and SDL's force-quit then ran a second `SDL_Quit` a second later,
-  which crashed (SIGSEGV in 4 of 13 closes). The cursor standby timer is kept per client. A
+- Compositor: PlxNative closes without crashing. A destroyed surface's frame callbacks (pending,
+  committed, in flight) are destroyed with it and never answered, as LG's compositor does:
+  answering them made PlxNative's libwayland-client send requests on freed proxies at close
+  (SIGSEGV in 6 of 8 closes after YouTube). The cursor standby timer is kept per client. A
   `set_state` asking for the state a window already has gets no answer, as under LG's
   compositor: LG's browser, which NVIDIA's GeForce NOW opens, asked for fullscreen again 0.3 s
   after each answer and took the front back from Home.
+- Compositor: an input device that goes away or a luna bridge closed at the other end is taken
+  out of the loop instead of holding it at 100% of a core; the ring counts passes and what woke
+  them, `ctl status` reports what clients left behind (`held`), and a bridge line split across
+  reads is read whole.
 - Gate: `gate.sh apps` also launches Home over the browser GeForce NOW opens, which must keep the
   front, and the Netflix check's fresh start reads SAM's list as `luna-send` prints it, so a
   running Netflix is closed first as intended.
@@ -409,6 +412,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   layout; the apps check reads SAM's list and exit status through the log rotation; other apps'
   QML errors no longer fail a surface. Gate runs no longer write an explicit wallpaper-motion
   false back as true.
+- Saver vote: a refused tvpower subscription is cancelled instead of leaking (the compositor held
+  26 to 141 of them), the shell's luna calls and cancels reach the compositor in order, and the
+  gate reports the vote when the saver does not start.
+- OLED care: an app is still when its picture is. Apps that redraw the same frame every few
+  seconds (LG's browser, PlxNative) now engage box dim and app dim/shift; the box dim's sample
+  no longer stalls the loop.
+- Panel refresh guard: `getPanelUsageTime` is asked with `{"subscribe":false}`, the only form
+  the TV accepts.
+- Volume bar: a held key moves the shown level at a steady, gently rising pace and the helper
+  sets the Denon to that level, so the display and receiver agree during and after a hold.
+- GeForce NOW app: Play no longer fails with "different account context" (the launch carries the
+  account's scope), the header shows the live membership tier, and Settings has a Sign out row.
+- Compositor: direct scan-out of a sole full-screen client buffer behind `--scanout direct` /
+  `ctl scanout` (off by default), falling back to composition in the same frame.
 - Compositor: the shell may call the Homebrew Channel's `getConfiguration` and `setConfiguration`
   (and nothing else of that service, which also runs commands as root), so Settings > System >
   Support > Update can read and change "Block LG system updates" instead of showing "Homebrew
