@@ -6,7 +6,39 @@ how to measure again. Facts here were observed on one set unless marked
 [INFERENCE]. Credentials and the set's address are deliberately absent; they
 live with the owner.
 
-## Resume here (LumaTV, 2026-10-26 19:05 PDT)
+## Resume here (LumaTV, 2026-10-29 EDT)
+
+- Persistent go-live remains paused after round 17 (`0d6d249`): PlxNative close crashes
+  and the strict X1 timing bar still need a device pass. `112d9cc` changes frame callbacks
+  to draw time; the next app-close check must retain PlxNative's own crash-log evidence.
+- All screens move to the 64-bit Rust shell; no new QML. Home, quick panel, picker, drawer,
+  Cameras and part of Settings are opt-in. Remaining Settings and system surfaces are in
+  progress. QML retires per kind only after two device parity passes. Recovery points are
+  `rust-home-result.md`, `rust-panels-result.md`, `rust-settings-result.md`,
+  `rust-cameras-result.md` and `system-layer-result.md` under `docs/research/`.
+- The saver gains a dim analog clock, date, weather, notices and plugin items. The helper
+  rules and camera-over-saver fix are implemented; surfaces and device checks are separate
+  work. HA couch-occupancy wake is parked. Scrypted replaces HA cameras; bridge installation
+  and pairing remain human actions (`scrypted-cameras-design.md`).
+- Privacy is addressed on the TV, not by router blocks. The early hook stubs programs
+  before masking units; the boot timeline must establish whether it beats LG's starts
+  (`privacy-menu-result.md`). No data deletion or system-image changes are authorised.
+- OSD0_1 held writes but did not latch its header or show an extra layer under LG's AFBC
+  path. The linear case remains open; evidence is in `compositor/osd01-probe-2026-10-29/`.
+  `display-chip-direct.md` ranks hardware work; `tools/regdecode.py` decodes captures.
+  Host policy tests do not establish working cursor, AFBC or extra video windows on the TV.
+- Interrupted work has snapshots and ownership notes at
+  `/data/home/tmp/lumatv-recovery-2026-10-29/RESUME.md`. Read that and the live worker roster
+  before resuming: replacements may already own the original worktrees. Preserve unfinished
+  files. Rate limits and an exhausted API balance are separate failure modes.
+- At most 12 helpers and one deep-task worker; no spawning by helpers. Only the verified
+  human gate permits protected actions. No raw root infrastructure commands, secret reads,
+  network changes, data deletion or protected installs outside that gate. A changed installer
+  script is not covered by an earlier standing approval.
+- Hourly check-ins and a 06:05 EDT recovery check are scheduled. Conservative defaults resolve
+  routine engineering choices. Marquee remains parked until the Rust screens are complete.
+
+## Earlier snapshot (LumaTV, 2026-10-26 19:05 PDT)
 
 - Source of truth: `docs/PLAN.md` (phases, gates, decisions), `docs/SURFACES.md`
   (inventory), each `docs/research/*-result.md` (its worker's recovery point). An

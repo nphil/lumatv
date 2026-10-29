@@ -14,6 +14,17 @@ inventory snapshot of the firmware: `/data/home/lgtv/uiinv`.
 Kept current with every change to this plan. Building is under way (Nitin said go,
 2026-10-24).
 
+Current direction (2026-10-29): every LumaTV screen moves to the 64-bit Rust shell; no
+new QML. Each kind remains opt-in until it reaches parity and passes on the TV twice.
+Home, panels and Cameras have landed host implementations; Settings and system surfaces
+still have active completion work. Persistent go-live remains paused after round 17.
+Current recovery points and ownership are in `docs/HANDOFF.md` and the dated worker notes.
+
+Display hardware work follows `docs/research/display-chip-direct.md`: use measured
+driver-exposed paths before raw-register experiments. The OSD0_1 AFBC probe showed no
+extra layer; the linear rerun needs Nitin present. Strongest-role investigation resumes
+from its saved evidence, not from repeated collection.
+
 Recovery after the quota interruption (2026-10-25): a review of the fallback
 model's commits (94cb377..76e470b) found overstated claims, corrected here and in
 `docs/HANDOFF.md`. The recovered scenes load in the QML host without warnings,

@@ -9,14 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- LumaTV's own compositor is live on the TV, persistently, with LG's compositor as the
-  automatic fallback: every safety and function check of the gate passed on firmware
-  10.2.1-5202 (`compositor/firmware/verified.list`). Hold Home for about a second to fall back.
+- LumaTV's compositor retains LG's compositor as the automatic fallback. Persistent go-live
+  remains paused pending the app-close, frame-timing and Rust-shell device gates.
 - Compositor (not live yet): LumaTV's compositor draws LumaTV's own screens. Home, Settings,
   the quick panel, input picker, volume display, toasts, alerts, input popup, PIN prompt and
   screensaver run as a standalone Qt client (qml-runner) in two compositor windows, fed over a
   token-gated loopback channel with luna calls proxied from an allowlist; the gear and Input
   open LumaTV's panels first. New gate checks `shell` (screens and idle cost) and `frames`.
+- Opt-in Rust shell kinds for Home, the quick panel, input picker, drawer, Cameras and
+  Settings; QML remains the fallback until each replacement reaches device parity.
+  Home includes profile switching, camera stills, notification badges and large-text scrolling.
+- Screensaver rules per notification source: show over the saver, use its notification area,
+  wake or hide. Sources include cameras, doorbells, timers, Home Assistant, ntfy and plugins.
+- Offline display-register decoding and noise-aware comparisons with `tools/regdecode.py`.
 - Compositor (not live yet): the frame loop and the Mali driver's submission threads run
   SCHED_FIFO; a buffer the driver is still warming is stood in for by the last frame; the idle
   tick follows the panel's refresh grid and the latch moves later by at most 1 ms per frame;
@@ -256,6 +261,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Privacy: tracking, ad and uploader programs are stubbed and masked first in the boot hook;
+  each menu row distinguishes this boot's result from an older pass.
 - Volume: the mute mark stays in the top corners (hopping between four places against
   burn-in) instead of the lower middle, clear of subtitles and the status bar. The
   receiver's "Dolby Atmos - DD+" reads as "Dolby Atmos", and "Dolby Digital+" no longer
@@ -370,6 +377,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Compositor: app frame callbacks are delivered at draw time rather than the later display flip,
+  avoiding a pending final frame during LG SDL's window teardown.
+- Screensaver: a dimmer clock and no automatic camera video popup over an active saver.
+- Gate: new PlxNative crash reports fail app-close checks even when SAM reports a clean exit;
+  X1 traces distinguish display timing from the test client's scheduling delay.
 - Compositor: YouTube and PlxNative run under LumaTV's compositor. Every seat now offers touch
   with the keyboard and pointer and sends no `wl_seat.name`, as LG's compositor does: Cobalt
   (YouTube) never initialises its touch proxy and destroyed it when a seat had no touch (SIGSEGV

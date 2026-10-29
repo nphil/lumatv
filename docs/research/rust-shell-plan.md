@@ -1,6 +1,6 @@
 # The Rust shell: LumaTV's screens out of QML and into the 64-bit Rust UI
 
-Plan only (2026-10-29); nothing here is built. Decision it carries out (Nitin, 2026-10-29 00:30 EDT): every LumaTV
+Design and migration plan (2026-10-29); implementation is in progress behind per-kind switches. Decision (Nitin, 2026-10-29 00:30 EDT): every LumaTV
 screen moves from the QML shell (LG's 32-bit Qt 5.12 in `qml-runner`) to LumaTV's own Rust UI, for performance,
 reliability and extensibility. Binding since 00:31 EDT: no new QML; logic and data of every feature in flight go into
 Rust or plain data files behind the helper API, and today's QML screens stay only until each Rust replacement is
