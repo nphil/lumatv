@@ -34,7 +34,7 @@ use crate::shell::{
 
 /// The kinds the Rust shell may answer, in the order `ctl shell` lists them. `quick`, `picker` and `drawer` are the panels LumaTV opens
 /// itself (`State::shell_show`): while the Rust shell answers one, its `show` goes to it and the QML client's panel stays shut.
-pub const KINDS: &[&str] = &["home", "osd", "settings", "toast", "cameras", "quick", "picker", "drawer"];
+pub const KINDS: &[&str] = &["home", "osd", "settings", "toast", "cameras", "quick", "picker", "drawer", "alert", "saver"];
 /// Where the system layer's layers begin in the engine's z: everything the Rust shell draws over the windows is at this or more.
 pub const SYSTEM_Z: i32 = 1000;
 const TOKEN_FILE: &str = "lumatv-ui.token";
@@ -541,7 +541,10 @@ impl State {
     pub fn shell_rust_sync_home(&mut self) {
         let on = self.shell_rust.answers("home") && self.shell_rust.engine_connected;
         if self.scene.set_home_rust(on) {
-            self.journal(format!("shell-rust: Home is {}", if on { "the Rust shell's: the QML Home window is left out of the stack" } else { "the QML shell's again" }));
+            self.journal(format!(
+                "shell-rust: Home is {}",
+                if on { "the Rust shell's: the QML Home window is left out of the stack" } else { "the QML shell's again" }
+            ));
             self.shell_sync_topics();
         }
     }
@@ -833,6 +836,7 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shell::is_saver_vote;
     use std::io::Read;
 
     /// A state with both clients' channels open on free ports (no child is started: no binary), the Rust shell answering `kinds`.
@@ -901,6 +905,63 @@ mod tests {
         let alert_token = state.shell.luna_tags.iter().find(|t| t.tag == 8).unwrap().token;
         assert!(state.shell_luna_event(alert_token, &json!({"alertAction": "open", "alertInfo": {"message": "hot"}})));
         assert_eq!(state.shell.topic("luna").unwrap()["tag"], 8);
+    }
+
+    #[test]
+    fn the_alert_kind_takes_the_three_notification_feeds_from_the_qml_client_and_only_what_opens_a_surface() {
+        let (mut state, _dir) = state_with("alert");
+        state.shell_handle(Msg::Connected);
+        state.shell_rust_handle(Msg::Connected);
+        let feeds =
+            [("getAlertNotification", "alertAction"), ("getInputAlertNotification", "alertAction"), ("getPincodePromptNotification", "pincodePromptAction")];
+        for (i, (feed, _)) in feeds.iter().enumerate() {
+            let uri = format!("luna://com.webos.notification/{feed}");
+            state.shell_handle(Msg::Luna { tag: 10 + i as u64, uri: uri.clone(), payload: json!({"subscribe": true}), subscribe: true });
+            state.shell_rust_handle(Msg::Luna { tag: 20 + i as u64, uri, payload: json!({"subscribe": true}), subscribe: true });
+        }
+        for (i, (_, action)) in feeds.iter().enumerate() {
+            let qml = state.shell.luna_tags.iter().find(|t| t.tag == 10 + i as u64).unwrap().token;
+            let rust = state.shell_rust.luna_tags.iter().find(|t| t.tag == 20 + i as u64).unwrap().token;
+            assert!(state.shell_luna_event(qml, &json!({*action: "open"})));
+            assert!(
+                state.shell.topic("luna").is_none_or(|l| l["tag"] != 10 + i as u64),
+                "{action} of feed {i}: what opens a surface is withheld from the QML client"
+            );
+            assert!(state.shell_luna_event(rust, &json!({*action: "open"})));
+            assert_eq!(state.shell_rust.topic("luna").unwrap()["tag"], 20 + i as u64, "and reaches the Rust client");
+        }
+        let qml = state.shell.luna_tags.iter().find(|t| t.tag == 10).unwrap().token;
+        assert!(state.shell_luna_event(qml, &json!({"alertAction": "closeAll"})));
+        assert_eq!(state.shell.topic("luna").unwrap()["tag"], 10, "a close still goes to it: nothing of it is open, and nothing is lost");
+    }
+
+    #[test]
+    fn with_the_saver_the_rust_shells_the_qml_one_is_refused_its_vote_and_the_care_reads_the_rust_clients_word() {
+        let (mut state, _dir) = state_with("saver");
+        state.shell_handle(Msg::Connected);
+        state.shell_rust_handle(Msg::Connected);
+        let vote = "luna://com.webos.service.tvpower/power2/registerScreenSaverRequest";
+        state.shell_handle(Msg::Luna { tag: 31, uri: vote.into(), payload: json!({"clientName": "qml", "subscribe": true}), subscribe: true });
+        assert!(state.shell.luna_tags.is_empty(), "the QML client's vote is not passed on");
+        assert_eq!(state.shell.topic("luna").unwrap()["payload"]["returnValue"], false, "it is told no");
+        state.shell_rust_handle(Msg::Luna { tag: 32, uri: vote.into(), payload: json!({"clientName": "rust", "subscribe": true}), subscribe: true });
+        assert_eq!(state.shell_rust.luna_tags.len(), 1, "the Rust client's vote goes through");
+        // the OLED care stands aside for the saver the Rust client says is up
+        state.shell_rust_handle(Msg::Ui { can: Some(vec![]), wants: Some(true), live: Some(true), state: Some(json!({"saver": true})) });
+        state.tick();
+        assert!(state.scene.care.saver, "the Rust shell's saver is the saver");
+        state.shell_rust_handle(Msg::Ui { can: None, wants: Some(false), live: Some(false), state: Some(json!({"saver": false})) });
+        state.tick();
+        assert!(!state.scene.care.saver);
+        // without the kind the vote is the QML client's as before
+        let (mut qml_only, _d2) = state_with("toast");
+        qml_only.shell_handle(Msg::Connected);
+        qml_only.shell_handle(Msg::Luna { tag: 31, uri: vote.into(), payload: json!({"subscribe": true}), subscribe: true });
+        assert_eq!(qml_only.shell.luna_tags.len(), 1);
+        assert!(
+            is_saver_vote("luna://com.webos.service.tvpower/power/registerScreenSaverRequest")
+                && !is_saver_vote("luna://com.webos.service.tvpower/power/getPowerState")
+        );
     }
 
     #[test]

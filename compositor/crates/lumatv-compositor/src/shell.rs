@@ -702,6 +702,13 @@ impl State {
                         .push("luna", json!({"tag": tag, "payload": {"returnValue": false, "errorCode": -1, "errorText": "not allowed by the compositor"}}));
                     return false;
                 }
+                if is_saver_vote(&uri) && self.shell_rust.answers("saver") {
+                    // one saver votes: the Rust shell's. The QML one is told no (it asks again at its own pace and never owns the saver).
+                    self.shell.stats.luna_refused += 1;
+                    self.shell
+                        .push("luna", json!({"tag": tag, "payload": {"returnValue": false, "errorCode": -1, "errorText": "the Rust shell answers the saver"}}));
+                    return false;
+                }
                 self.shell.stats.luna_calls += 1;
                 let token = self.luna_token();
                 self.shell.luna_tags.push(LunaTag { tag, token, subscribe, uri: uri.clone() });
@@ -781,7 +788,8 @@ impl State {
         let Some(i) = self.shell.luna_tags.iter().position(|t| t.token == token) else { return self.shell_rust_luna_event(token, payload) };
         let tag = self.shell.luna_tags[i].tag;
         let feed = notification_feed(&self.shell.luna_tags[i].uri, payload);
-        let withheld = feed == Some("toast") && self.shell_rust.answers("toast");
+        let withheld = (feed == Some("toast") && self.shell_rust.answers("toast"))
+            || (opens_alert(&self.shell.luna_tags[i].uri, payload) && self.shell_rust.answers("alert"));
         if let Some(feed) = feed
             && !withheld
         {
@@ -1019,6 +1027,20 @@ pub(crate) fn notification_feed(uri: &str, payload: &Value) -> Option<&'static s
         return Some("alert");
     }
     None
+}
+
+/// Whether a push of the notification service opens an alert, the input popup or a PIN prompt: what the Rust shell's `alert` kind draws, and
+/// so what the QML client is not given while that kind is the Rust shell's.
+pub(crate) fn opens_alert(uri: &str, payload: &Value) -> bool {
+    let action = |key: &str| payload.get(key).and_then(Value::as_str) == Some("open");
+    ((uri.ends_with("/getAlertNotification") || uri.ends_with("/getInputAlertNotification")) && action("alertAction"))
+        || (uri.ends_with("/getPincodePromptNotification") && action("pincodePromptAction"))
+}
+
+/// Whether a call of the QML client is a vote on tvpower's screen saver lists (`SaverVote.qml`): refused while the Rust shell answers `saver`,
+/// so that the QML saver never owns the saver the Rust one draws.
+pub(crate) fn is_saver_vote(uri: &str) -> bool {
+    uri.starts_with("luna://com.webos.service.tvpower/") && uri.ends_with("/registerScreenSaverRequest")
 }
 
 /// `<bundle>/shell/Shell.qml` beside this executable (`<bundle>/bin/lumatv-compositor`), when the bundle has one.

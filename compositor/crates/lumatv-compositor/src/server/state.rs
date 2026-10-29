@@ -508,9 +508,10 @@ impl State {
         if !self.luna_state.power.rendering && self.scene.transitions.active() {
             self.scene.transitions.clear();
         }
-        let State { scene, surfaces, output, stats, shell, screencap, .. } = self;
+        let State { scene, surfaces, output, stats, shell, shell_rust, screencap, .. } = self;
         scene.care.refresh(now_ns);
-        scene.care.saver = shell.ui_state.get("saver").and_then(serde_json::Value::as_bool).unwrap_or(false);
+        // the saver is up when the client that answers it says so (the QML shell's, or the Rust shell's once `saver` is on its list)
+        scene.care.saver = [&shell.ui_state, &shell_rust.ui_state].iter().any(|s| s.get("saver").and_then(serde_json::Value::as_bool) == Some(true));
         scene.boxdim.capturing = screencap.armed();
         // A box dim sample the GPU has finished (`boxdim`): judged before this plan, so what it saw changed is in this frame.
         if scene.boxdim.in_flight() {
