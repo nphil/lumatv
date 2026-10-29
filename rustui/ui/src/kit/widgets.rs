@@ -316,6 +316,14 @@ impl Hover {
         }
     }
 
+    /// The cue is gone (the pointer left, a key hid it, the surface goes).
+    pub fn hide(&mut self) {
+        if let Some(s) = &self.shape {
+            s.set(HIDDEN);
+        }
+        self.at = None;
+    }
+
     pub fn is_shown(&self) -> bool {
         self.at.is_some()
     }
@@ -449,6 +457,14 @@ impl Chip {
     pub fn layers(&self) -> usize {
         2
     }
+
+    /// Describes the words of the chip to a lint: the chip is a panel of its own, over `parent` (the sheet it sits on), for the words in it.
+    pub fn feed_lint(&self, kit: &mut Kit, lint: &mut super::lint::Lint, name: &str, shift: (f32, f32), parent: usize) {
+        let pill = lint.panel_on(&format!("{name} chip"), Frame::new(self.frame.x + shift.0, self.frame.y + shift.1, self.frame.w, self.frame.h), selected_wash(kit), false, parent);
+        let style = role_style(kit, TypeRole::Caption, None, kit.ui.look.ink(), Align::Left);
+        let f = self._words.frame();
+        lint.word(kit, name, self._words.text(), Frame::new(f.x + shift.0, f.y + shift.1, f.w, f.h), style, Some(pill));
+    }
 }
 
 /// The value of a stepper or a nudge on a line of its own or beside the words: a chevron at each end and the value between them, in a
@@ -536,6 +552,13 @@ impl Stepper {
 
     pub fn layers(&self) -> usize {
         3
+    }
+
+    /// Describes the value's words to a lint, `panel` being what they sit on and `shift` where a scrolled list has moved them.
+    pub fn feed_lint(&self, kit: &mut Kit, lint: &mut super::lint::Lint, name: &str, panel: Option<usize>, shift: (f32, f32)) {
+        let style = role_style(kit, TypeRole::Label, None, kit.ui.look.ink(), Align::Centre);
+        let f = self.text.frame();
+        lint.word(kit, name, self.text.text(), Frame::new(f.x + shift.0, f.y + shift.1, f.w, f.h), style, panel);
     }
 }
 

@@ -346,7 +346,9 @@ impl Button {
         };
         let panel = lint.panel_on(&format!("button {}", self.spec.label), self.frame, paint, false, under);
         if !self.spec.label.is_empty() {
-            let at = Frame::new(self.frame.x + self.label_box.x, self.frame.y + self.label_box.y, self.label_box.w, self.label_box.h);
+            // the icon and the words are one run, centred together: the words alone sit half an icon to the right of the button's centre
+            let half = if self.icon.is_some() { (Self::icon_side(kit) as f32 + kit.space(2)) / 2.0 } else { 0.0 };
+            let at = Frame::new(self.frame.x + self.label_box.x - half, self.frame.y + self.label_box.y, self.label_box.w, self.label_box.h);
             lint.word(kit, &format!("button {}", self.spec.label), &self.spec.label, at, self.style, Some(panel));
         }
     }

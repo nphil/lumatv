@@ -4,6 +4,7 @@
 //! remote-key hint glyphs ([`glyph`], [`hint`]), the TV motion set ([`motion`]), panes of the TV's glass ([`pane`]), text in the
 //! TV's type roles ([`text`]) and the screen contract ([`screen`]).
 
+pub mod avatar;
 pub mod button;
 pub mod flow;
 pub mod focus;

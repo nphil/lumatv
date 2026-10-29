@@ -8,5 +8,6 @@
 pub mod home;
 pub mod host;
 pub mod kit;
+pub mod panels;
 pub mod shell;
 pub mod system;

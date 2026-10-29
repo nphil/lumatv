@@ -9,6 +9,7 @@ pub mod keys;
 pub mod net;
 pub mod power;
 pub mod receiver;
+pub mod sio;
 pub mod theme;
 
 /// Wall-clock milliseconds, the clock the models run on (the helper stamps its readings with it).
