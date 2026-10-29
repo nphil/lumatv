@@ -1,7 +1,10 @@
 // X2 test client: a 32-bit Wayland client that draws with LG's own libmali (the library every LG app uses) into
 // a window on the X2 private socket. Logs the registry, EGL/GL strings and the per-frame result. Frame k is cleared
 // to R=k*25 G=0x80 B=0xff-k*25 A=0xff so the server can check what it received.
-// Usage: x2cli <libmali.so> [--frames 6] [--size WxH] [--no-egl] [--interval 0|1]
+// Usage: x2cli <libmali.so> [--frames 6] [--size WxH] [--no-egl] [--interval 0|1] [--pattern] [--opaque]
+// --pattern draws the direct scan-out check's picture (docs/research/scanout-research.md, TV check list b) instead of the colour clear: bars, a white
+// frame, a marker in each corner and the frame number twice, so a frame shown torn or half drawn reads as two numbers. --opaque asks for a window
+// configuration without alpha (an XB24 buffer, opaque by its format), which the plane takes without a declared opaque region.
 // Run with WAYLAND_DISPLAY=wayland-x2 XDG_RUNTIME_DIR=/tmp/x2 WAYLAND_DEBUG=1 to see every request libmali makes.
 #define _GNU_SOURCE
 #define X2_CLIENT
@@ -39,6 +42,8 @@ L(eglTerminate, unsigned, EGLDisplay)
 L(glGetString, const unsigned char *, unsigned)
 L(glClearColor, void, float, float, float, float)
 L(glClear, void, unsigned)
+L(glScissor, void, int, int, int, int)
+L(glEnable, void, unsigned)
 L(glViewport, void, int, int, int, int)
 L(glFinish, void, void)
 L(wl_egl_window_create, void *, struct wl_surface *, int, int)
@@ -58,6 +63,37 @@ static void global(void *d, struct wl_registry *r, uint32_t name, const char *if
 static void global_remove(void *d, struct wl_registry *r, uint32_t n) {}
 static void (*registry_listener[])(void) = { (void (*)(void))global, (void (*)(void))global_remove };
 
+// One filled rectangle through the scissor box (GL counts rows from the bottom): the pattern needs no shader, only clears.
+static void rect(int x, int y, int w, int h, float r, float g, float b) {
+    glScissor(x, y, w, h);
+    glClearColor(r, g, b, 1.0f);
+    glClear(0x4000);
+}
+
+// Frame k of the direct scan-out check's picture: eight colour bars across the middle third, a 4 px white frame on the edges, a 96 px marker in every
+// corner (top left red, top right green, bottom left blue, bottom right white), a bar that moves 16 px a frame along the middle, and k in twelve bits
+// (64x48 cells, white one) as one row at the top and the same at the bottom: a torn frame shows two different numbers.
+static void pattern(int W, int H, int k) {
+    static const float bars[8][3] = {{1, 1, 1}, {1, 1, 0}, {0, 1, 1}, {0, 1, 0}, {1, 0, 1}, {1, 0, 0}, {0, 0, 1}, {0, 0, 0}};
+    glEnable(0x0C11 /* GL_SCISSOR_TEST */);
+    rect(0, 0, W, H, 0.12f, 0.12f, 0.12f);
+    for (int i = 0; i < 8; i++) rect(i * W / 8, H / 3, W / 8, H / 3, bars[i][0], bars[i][1], bars[i][2]);
+    rect(0, 0, W, 4, 1, 1, 1);
+    rect(0, H - 4, W, 4, 1, 1, 1);
+    rect(0, 0, 4, H, 1, 1, 1);
+    rect(W - 4, 0, 4, H, 1, 1, 1);
+    rect(8, H - 8 - 96, 96, 96, 1, 0, 0);
+    rect(W - 8 - 96, H - 8 - 96, 96, 96, 0, 1, 0);
+    rect(8, 8, 96, 96, 0, 0, 1);
+    rect(W - 8 - 96, 8, 96, 96, 1, 1, 1);
+    for (int bit = 0; bit < 12; bit++) {
+        float v = ((k >> bit) & 1) ? 1.0f : 0.0f;
+        rect(160 + bit * 72, H - 8 - 48, 64, 48, v, v, v);
+        rect(160 + bit * 72, 8, 64, 48, v, v, v);
+    }
+    rect((k * 16) % (W - 64), H / 2 - 24, 64, 48, 1, 0.5f, 0);
+}
+
 static void ping(void *d, struct wl_shell_surface *s, uint32_t serial) { wl_shell_surface_pong(s, serial); }
 static void configure(void *d, struct wl_shell_surface *s, uint32_t e, int32_t w, int32_t h) { printf("[cli] configure %dx%d\n", w, h); }
 static void popup_done(void *d, struct wl_shell_surface *s) {}
@@ -71,12 +107,14 @@ static double now_s(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t
 
 int main(int argc, char **argv) {
     const char *lib = argc > 1 ? argv[1] : "/usr/lib/libmali.so.0";
-    int frames = 6, W = 256, H = 256, use_egl = 1, interval = 1;
+    int frames = 6, W = 256, H = 256, use_egl = 1, interval = 1, use_pattern = 0, opaque = 0;
     for (int i = 2; i < argc; i++) {
         if (!strcmp(argv[i], "--frames")) frames = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--size")) sscanf(argv[++i], "%dx%d", &W, &H);
         else if (!strcmp(argv[i], "--no-egl")) use_egl = 0;
         else if (!strcmp(argv[i], "--interval")) interval = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--pattern")) use_pattern = 1;
+        else if (!strcmp(argv[i], "--opaque")) opaque = 1;
     }
     struct wl_display *dpy = wl_display_connect(NULL);
     if (!dpy) { printf("[cli] wl_display_connect failed: %s\n", strerror(errno)); return 2; }
@@ -116,7 +154,7 @@ int main(int argc, char **argv) {
 #define S(name) *(void **)&name = dlsym(h, #name); if (!name) { printf("[cli] missing %s\n", #name); return 1; }
     S(eglGetDisplay) S(eglInitialize) S(eglQueryString) S(eglChooseConfig) S(eglCreateWindowSurface) S(eglCreateContext)
     S(eglMakeCurrent) S(eglSwapBuffers) S(eglSwapInterval) S(eglGetError) S(eglBindAPI) S(eglGetProcAddress) S(eglTerminate)
-    S(glGetString) S(glClearColor) S(glClear) S(glViewport) S(glFinish)
+    S(glGetString) S(glClearColor) S(glClear) S(glViewport) S(glFinish) S(glScissor) S(glEnable)
     *(void **)&eglGetPlatformDisplayEXT = dlsym(h, "eglGetPlatformDisplayEXT");
     void *we = dlopen("libwayland-egl.so.1", RTLD_NOW | RTLD_GLOBAL);
     if (we) { *(void **)&wl_egl_window_create = dlsym(we, "wl_egl_window_create"); *(void **)&wl_egl_window_destroy = dlsym(we, "wl_egl_window_destroy"); }
@@ -131,7 +169,7 @@ int main(int argc, char **argv) {
     printf("[cli] EGL %d.%d vendor \"%s\" version \"%s\"\n", maj, min, eglQueryString(d, 0x3053), eglQueryString(d, 0x3054));
     printf("[cli] EGL display extensions: %s\n", eglQueryString(d, 0x3055));
     fflush(stdout);
-    EGLint ca[] = { 0x3033, 0x0004 /* WINDOW */, 0x3040, 0x0004 /* ES2 */, 0x3024, 8, 0x3023, 8, 0x3022, 8, 0x3021, 8, 0x3038 };
+    EGLint ca[] = { 0x3033, 0x0004 /* WINDOW */, 0x3040, 0x0004 /* ES2 */, 0x3024, 8, 0x3023, 8, 0x3022, 8, 0x3021, opaque ? 0 : 8, 0x3038 };
     EGLConfig cfg; EGLint n = 0;
     if (!eglChooseConfig(d, ca, &cfg, 1, &n) || !n) { printf("[cli] no config 0x%x\n", eglGetError()); return 5; }
     void *ew = wl_egl_window_create(surf, W, H);
@@ -147,8 +185,12 @@ int main(int argc, char **argv) {
     double t0 = now_s();
     for (int k = 0; k < frames; k++) {
         glViewport(0, 0, W, H);
-        glClearColor((k * 25) / 255.0f, 0x80 / 255.0f, (0xff - k * 25) / 255.0f, 1.0f);
-        glClear(0x4000);
+        if (use_pattern) {
+            pattern(W, H, k);
+        } else {
+            glClearColor((k * 25) / 255.0f, 0x80 / 255.0f, (0xff - k * 25) / 255.0f, 1.0f);
+            glClear(0x4000);
+        }
         double ts = now_s();
         unsigned ok = eglSwapBuffers(d, es);
         printf("[cli] frame %d: eglSwapBuffers %s (0x%x) took %.1f ms\n", k, ok ? "ok" : "FAILED", ok ? 0 : eglGetError(), (now_s() - ts) * 1000);

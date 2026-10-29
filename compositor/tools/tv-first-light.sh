@@ -5,8 +5,8 @@
 #   tv-first-light.sh app [BIN]   the first-app step
 #   tv-first-light.sh fetch       pull /tmp/lumatv/out to /tmp/lumatv-tv-out and write the log summary to
 #                                 docs/research/compositor/first-light-<date>.txt
-#   tv-first-light.sh kms         the C3 maintenance window (tools/tv_kms.py): LG's compositor stopped, LumaTV as DRM
-#                                 master for ~40 s, LG's compositor restarted; results in /tmp/lumatv-tv-out/out/kms
+#   tv-first-light.sh kms [CASE...]  the C3 maintenance window (tools/tv_kms.py): LG's compositor stopped, LumaTV as DRM master for ~30 s a case
+#                                 (a, b, c; default all: tv-kms-window.sh), LG's compositor restarted; results in /tmp/lumatv-tv-out/out/kms
 #   tv-first-light.sh sm          the C4 supervisor/bridge dry run beside LG's compositor (bus names suffixed .lumatv)
 #   tv-first-light.sh inspect     read-only: the compositor unit, its wrapper, the role files for /usr/bin/surface-manager,
 #                                 initctl, the state of webapp-mgr; written to docs/research/compositor/set-inspect-<date>.txt
@@ -23,6 +23,8 @@
 #   tv-first-light.sh probe       read-only (tools/tv-readonly-probe.sh): LG's wl_webos_* tables in every copy on the set
 #                                 and the Wayland clients of LG's compositor; written to
 #                                 docs/research/compositor/probe-<date>.txt; safe beside another session
+#   tv-first-light.sh scanout-proof [VARIANT...]  the off-screen proof of direct scan-out (/tmp/lumatv/scanout-proof.sh, after `deploy`): a 256x256 LG-driver
+#                                 client on a private socket, the descriptor each buffer has and whether lg1k imports it; the screen is not touched
 # Transport: docs/research/arch/tv.py (paramiko). Before `run`: confirm the set is idle (getPowerState Active,
 # getForegroundAppInfo) and that nothing else is being measured on it.
 set -eu
@@ -70,7 +72,8 @@ case "${1:-help}" in
         echo "wrote docs/research/compositor/first-light-$day.txt; PNGs under /tmp/lumatv-tv-out/out/"
         ;;
     kms)
-        python3 "$here/tools/tv_kms.py" run
+        shift
+        python3 "$here/tools/tv_kms.py" run "$@"
         ;;
     gate)
         shift
@@ -102,6 +105,10 @@ EOF2
     kms-restore)
         python3 "$here/tools/tv_kms.py" restore
         ;;
+    scanout-proof)
+        shift
+        tv "sh /tmp/lumatv/scanout-proof.sh run $*"
+        ;;
     probe)
         tv "mkdir -p /tmp/lumatv/out"
         put "$here/tools/tv-readonly-probe.sh" /tmp/lumatv/probe.sh
@@ -114,5 +121,5 @@ EOF2
     clean)
         tv "sh /tmp/lumatv/run.sh clean"
         ;;
-    *) sed -n 2,24p "$0" ;;
+    *) sed -n 2,29p "$0" ;;
 esac

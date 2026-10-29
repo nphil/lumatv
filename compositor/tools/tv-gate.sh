@@ -38,6 +38,10 @@
 #                     SECS-long cyclictest-style probe at the loop's class, the Mali submission threads' class and a time-shared one. A report, no rule
 #   gate.sh mem       what the compositor has resident and pinned, malloc's mmapped blocks, and what the set has left (report)
 #   gate.sh load start SECS [KINDS] | stop | status   synthetic background load (decode, ws, ble, download) for the frame gate's loaded run
+#   gate.sh scanout [direct|off|read]   direct scan-out (docs/research/scanout-research.md): `direct` asks the shell for buffers the plane takes (`ctl scanout
+#                     shell-env WAYLAND_AFBC=0`), switches the compositor's scan-out on and starts the shell again, so that its Home window makes buffers the
+#                     protocol tap sees; `off` switches it off; `read` (the default) only reports: frames shown direct and composed, the reason of each
+#                     composed one, the last frame's state. A report, no rule
 #   gate.sh refresh [60|120|reset|read] [SECS]   the refresh test mode (`ctl refresh`, docs/research/ui120-result.md): with 60 or 120 switches the
 #                     output to it (the OSD vblank divider, the pacer, the tick, the shell), then measures SECS (default 5) of the screen as it is:
 #                     flips a second, DE2VSYNC and osd_irq a second, the compositor's measure (intervals in refreshes, late, lost, missed,
@@ -735,6 +739,29 @@ refresh)
     [ -n "$slides" ] || slides=$( { cat $STATE/shell.log 2>/dev/null; for f in $(ls -tr $MESSAGES $MESSAGES.* 2>/dev/null); do case $f in *.gz|*.xz|*.bz2) ;; *) cat "$f" ;; esac; done; } | grep -o '\[FrameMotion\] [0-9]* steps in [0-9]* ms for [0-9]*' | tail -n 6 | sed 's/\[FrameMotion\] \([0-9]*\) steps in \([0-9]*\) ms for \([0-9]*\)/\1\/\2\/\3/' | tr '\n' ' ')
     echo "$m" > $OUT/refresh-${r_hz:-x}-${2:-read}.json
     echo "GATE refresh: measured hz ${r_hz:-?} divider ${r_div:-unreadable} shell ${shell_hz:-?} over ${r_secs} s: OSD flips/s $(per_s "$f0" "$f1"), DE2VSYNC/s $(per_s "$v0" "$v1"), osd_irq/s $(per_s "$o0" "$o1"); compositor: $(echo "$m" | grep -o '"intervals":{[^}]*}') $(echo "$m" | grep -o '"frames":{[^}]*}') $(echo "$m" | grep -o '"pipeline_ms":{[^}]*}') flips/s $(echo "$m" | grep -o '"flips_per_second":[0-9.]*' | cut -d: -f2); mali busy ${mali} %; temperature ${temp:-unreadable}; slides (steps/ms/for): ${slides:-none}"
+    ;;
+scanout)
+    # Direct scan-out (`ctl scanout`): `direct` sets the shell client's environment for the layout the plane takes, turns the switch on (the protocol
+    # tap goes on the display now) and starts the shell again, since a buffer made before the tap has no descriptor and is composed; `off` turns it off;
+    # `read` only reports. A FAIL is a refused command; what the counters say is for the reader.
+    case "${2:-read}" in
+    direct)
+        ctl scanout shell-env WAYLAND_AFBC=0 > /dev/null
+        r_set=$(ctl scanout direct)
+        if ! echo "$r_set" | grep -q '"ok":true'; then echo "GATE scanout: FAIL $r_set"; exit 1; fi
+        ctl shell restart > /dev/null
+        wait_shell_bool homeDrawn true 40
+        sleep 2 ;;
+    off)
+        r_set=$(ctl scanout off)
+        if ! echo "$r_set" | grep -q '"ok":true'; then echo "GATE scanout: FAIL $r_set"; exit 1; fi
+        sleep 1 ;;
+    read) ;;
+    *) echo "GATE scanout: FAIL scanout [direct|off|read]"; exit 1 ;;
+    esac
+    s=$(ctl scanout)
+    echo "$s" > $OUT/scanout-${2:-read}.json
+    echo "GATE scanout: mode $(echo "$s" | jstr mode) frames $(echo "$s" | grep -o '"frames":{[^}]*}' | sed 's/^"frames"://') composed because $(echo "$s" | grep -o '"refused":{[^}]*}' | sed 's/^"refused"://') transitions $(echo "$s" | jnum transitions) tap $(echo "$s" | grep -o '"tap":{[^}]*}' | sed 's/^"tap"://') shell env $(echo "$s" | grep -o '"shellEnv":\[[^]]*\]' | sed 's/^"shellEnv"://') last $(echo "$s" | grep -o '"last":{[^}]*}' | sed 's/^"last"://')"
     ;;
 standby)
     ctl journal > $OUT/standby-journal-before.json

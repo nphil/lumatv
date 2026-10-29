@@ -5,7 +5,7 @@ the standby check, and the checks that end the live session (Home held on a virt
 killed, the compositor's own hold-Home escape) each get a fresh session. Exit 0 only when every check passed; the result
 lines and files land in /tmp/lumatv-tv-out/out/gate and docs/research/compositor/gate-<date>.txt.
 
-    tv_gate.py [--skip netflix,hdmi,apps,...] [--only keys,ime] [--x1-seconds N] [--enable-after] [--frames-callbacks landing] [--frames-quick] [--refresh 120] [--force-wake]
+    tv_gate.py [--skip netflix,hdmi,apps,...] [--only keys,ime] [--x1-seconds N] [--enable-after] [--frames-callbacks landing] [--frames-quick] [--refresh 120] [--scanout direct] [--force-wake]
 
 The gate's rule for the frame check is 60 s with no gap over 20 ms (tv-gate.sh, "The frame rule"); --x1-seconds under 60
 can only fail it. Checks that can be skipped: firmware, homeheld, volume, x1, netflix, hdmi, apps, keys, ime, standby, homekey,
@@ -19,6 +19,10 @@ runs the quick set, which starts no app and changes a setting only if the owner 
 before it (the OSD vblank divider at 1, the pacer at 8.33 ms; a GATE refresh line with the rate measured three ways, Mali busy and the
 temperature at idle Home), the gate's dropped-frame threshold at 10 ms, idle Home measured again after the surfaces, then
 `gate.sh refresh 60` (and once more in the clean-up, whatever happened). `--only frames --refresh 120` is the whole 120 Hz check.
+--scanout direct switches direct scan-out on for the surface frame gate (docs/research/scanout-research.md, TV check list d): `gate.sh scanout direct`
+before it (the shell asked for buffers the plane takes, the compositor's switch on, the shell started again), `gate.sh scanout read` after it (frames
+shown direct and composed, the reason of each composed one); the gate's files and trace tag carry `-scanout`, so the run beside the same gate without
+the switch keeps both. `--only frames --refresh 120 --scanout direct` is the 120 Hz check with the switch on.
 
 The standby check wakes the set 25 s after it went to standby, which cuts LG's panel refresh (about 10 minutes of compensation LG runs at
 standby once the panel is 4 hours past the last one) short. When one is due the wake waits until 15 minutes of standby have passed, saying why
@@ -132,7 +136,7 @@ def volume_check():
     ok = None not in (before, up, back) and up > before and abs(back - before) < 1e-6
     return "GATE volume: %s %s" % ("PASS" if ok else "FAIL", detail)
 
-def frames_check(cycles, load=False, refresh=60, quick=False):
+def frames_check(cycles, load=False, refresh=60, quick=False, scanout=False):
     """The surface frame gate (`docs/research/perf/gate.py`) over LumaTV's own surfaces under its compositor: Home's D-pad, the quick
     panel and the input picker (the gear and Input through the shell client), a toast, and the screens walked with the D-pad (Settings, the
     Apps library, Home's rows, the app switcher, the keyboard) and the app launches with smooth transitions on (FRAMES_SURFACES; `quick` runs
@@ -143,10 +147,10 @@ def frames_check(cycles, load=False, refresh=60, quick=False):
     verdict is told but is no verdict of the gate's."""
     surfaces = FRAMES_SURFACES_QUICK if quick else FRAMES_SURFACES
     minutes = FRAMES_QUICK_SESSION_MINUTES if quick else FRAMES_SESSION_MINUTES
-    out_json = "/tmp/lumatv-tv-out/frames%s%s.json" % ("-load" if load else "", "-%d" % refresh if refresh != 60 else "")
+    out_json = "/tmp/lumatv-tv-out/frames%s%s%s.json" % ("-load" if load else "", "-%d" % refresh if refresh != 60 else "", "-scanout" if scanout else "")
     os.makedirs("/tmp/lumatv-tv-out", exist_ok=True)
     cmd = [sys.executable, PERF_GATE, "--surfaces", surfaces, "--input-key", "241", "--cycles", str(cycles), "--json", out_json,
-           "--tag", "c4shell-load" if load else ("c4shell-%d" % refresh if refresh != 60 else "c4shell")] + (["--load", "decode,ws,ble,download"] if load else []) \
+           "--tag", ("c4shell-load" if load else ("c4shell-%d" % refresh if refresh != 60 else "c4shell")) + ("-scanout" if scanout else "")] + (["--load", "decode,ws,ble,download"] if load else []) \
           + (["--refresh", str(refresh)] if refresh != 60 else [])
     name = "frames-load" if load else "frames"
     try:
@@ -293,6 +297,8 @@ def main():
                     help="when the shell client's frame callbacks go out in the surface frame gate: a frame ahead of the flip inside a run of its frames (early, the default) or at the flip (landing)")
     ap.add_argument("--refresh", type=int, choices=[60, 120], default=60,
                     help="the refresh the surface frame gate runs at: 120 switches the compositor's refresh test mode on for it (gate.sh refresh 120) and off after")
+    ap.add_argument("--scanout", choices=["off", "direct"], default="off",
+                    help="direct: the surface frame gate runs with the compositor's direct scan-out on (gate.sh scanout direct before it, gate.sh scanout read after), its files and trace tag carrying -scanout")
     ap.add_argument("--force-wake", action="store_true",
                     help="wake the set without waiting for LG's panel refresh (a run due at standby is left alone until 15 minutes of standby have passed: refresh_guard.py)")
     a = ap.parse_args()
@@ -389,11 +395,16 @@ def main():
             if a.frames_callbacks == "landing":
                 print(pty("sh /tmp/lumatv/gate.sh callbacks landing", 60))
         if run_frames:
+            if a.scanout == "direct":
+                # The shell asked for buffers the plane takes, the switch on, the shell started again; then what the compositor counts.
+                step("scanout", "sh /tmp/lumatv/gate.sh scanout direct", 180)
             if a.refresh != 60:
                 # The switch, then idle Home at the new rate: the rate three ways, the compositor's measure, Mali and the temperature.
                 step("refresh", "sh /tmp/lumatv/gate.sh refresh %d 10" % a.refresh, 120)
             print(pty("sh /tmp/lumatv/gate.sh wake reset", 60))
-            lines.append(frames_check(a.frames_cycles, refresh=a.refresh, quick=a.frames_quick))
+            lines.append(frames_check(a.frames_cycles, refresh=a.refresh, quick=a.frames_quick, scanout=a.scanout == "direct"))
+            if a.scanout == "direct":
+                step("scanout", "sh /tmp/lumatv/gate.sh scanout read", 60)
             if a.refresh != 60:
                 # Idle Home again after the surfaces, the compositor's measure left running since the switch (it covers the slides), then the mode off: 60 is the gate's resting state.
                 step("refresh", "sh /tmp/lumatv/gate.sh refresh read 10", 120)

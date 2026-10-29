@@ -1387,7 +1387,8 @@ class GateDriver(unittest.TestCase):
         g.avr_mute = lambda on: None
         g.volume_check = lambda: "GATE volume: PASS fine"
         g.frames_calls = []
-        g.frames_check = lambda cycles, load=False, refresh=60, quick=False: g.frames_calls.append((load, refresh, quick)) or (
+        g.frames_scanout = []
+        g.frames_check = lambda cycles, load=False, refresh=60, quick=False, scanout=False: g.frames_scanout.append(scanout) or g.frames_calls.append((load, refresh, quick)) or (
             "GATE frames-load: measured fine" if load else ("GATE frames at %d Hz: PASS fine" % refresh if refresh != 60 else "GATE frames: PASS fine"))
         g.VERIFIED_LIST = lst
         g.here = repo
@@ -1423,6 +1424,20 @@ class GateDriver(unittest.TestCase):
         calls, _, _ = self.run_main(argv=("--only", "frames"))
         self.assertNotIn("refresh", " ".join(self.checks(calls)))
         self.assertFalse([c for c in calls if "fbdev_vsync_cnt_on_flip" in c])
+
+    def test_the_frame_gate_with_direct_scan_out_switches_it_on_before_the_surfaces_and_reads_it_after(self):
+        calls, code, _ = self.run_main(argv=("--only", "frames", "--refresh", "120", "--scanout", "direct"))
+        self.assertEqual(code, 0)
+        checks = [c for c in self.checks(calls) if not c.startswith("key ")]
+        self.assertEqual(checks, [
+            self.session(self.first + self.full), "live", "evidence",
+            self.session(self.full), "live frames", "scanout direct", "refresh 120 10", "wake reset", "scanout read", "refresh read 10", "refresh 60 5",
+            "wake frames", "mem", "callbacks", "cutover disable"])
+        self.assertEqual(self.gate.frames_scanout, [True], "the gate's files and trace tag carry -scanout")
+        # without the switch the gate asks the compositor nothing about it
+        calls, _, _ = self.run_main(argv=("--only", "frames", "--refresh", "120"))
+        self.assertNotIn("scanout", " ".join(self.checks(calls)))
+        self.assertEqual(self.gate.frames_scanout, [False])
 
     def test_the_order_of_a_full_gate_with_a_fresh_session_after_every_check_that_ends_one(self):
         calls, code, _ = self.run_main()
