@@ -261,6 +261,11 @@ pub struct State {
     pub im: Option<crate::im_queue::ImQueue>,
     /// The hardware video windows' allocator, claims and the `videooutputd` status they read (`vwin`).
     pub vwin: crate::vwin::Vwin,
+    /// The panel dim (`paneldim`): the saver's and idle Home's dim on the panel's own light, and the token of its call in flight.
+    pub panel: crate::paneldim::PanelDim,
+    pub panel_token: Option<u64>,
+    /// `ctl paneldim want X`: a dim asked for by hand, for the TV check and the tests.
+    pub panel_want_ctl: Option<f32>,
 }
 
 impl State {
@@ -270,6 +275,7 @@ impl State {
         let mut scene = Scene::default();
         scene.care = crate::oledcare::Care::new(&config.data_dir);
         let motion = crate::transition::ThemeSwitch::new(&config.data_dir);
+        let panel_dir = config.data_dir.clone();
         State {
             dh,
             config,
@@ -313,6 +319,9 @@ impl State {
             pointer_carried: false,
             im: None,
             vwin: crate::vwin::Vwin::new(config_vwin),
+            panel: crate::paneldim::PanelDim::new(&panel_dir),
+            panel_token: None,
+            panel_want_ctl: None,
         }
     }
 
@@ -595,8 +604,12 @@ impl State {
         if !self.luna_state.power.rendering && self.scene.transitions.active() {
             self.scene.transitions.clear();
         }
-        let State { scene, surfaces, output, stats, shell, shell_rust, screencap, .. } = self;
+        self.panel.settings = self.scene.care.settings.paneldim;
+        self.panel.set_bridge(self.luna.is_connected());
+        let State { scene, surfaces, output, stats, shell, shell_rust, screencap, panel, .. } = self;
         scene.care.refresh(now_ns);
+        // while the panel is the one dimming Home, Home is drawn at full brightness (and may go to the plane whole)
+        scene.care.panel_carry = panel.carries();
         // the saver is up when the client that answers it says so (the QML shell's, or the Rust shell's once `saver` is on its list)
         scene.care.saver = [&shell.ui_state, &shell_rust.ui_state].iter().any(|s| s.get("saver").and_then(serde_json::Value::as_bool) == Some(true));
         scene.boxdim.capturing = screencap.armed();
@@ -644,6 +657,7 @@ impl State {
         for line in self.scene.care.take_events().into_iter().chain(self.scene.boxdim.take_journal()) {
             self.journal(line);
         }
+        self.panel_dim_tick(now_ns);
         let presented = match self.output.present() {
             Ok(p) => p,
             Err(e) => {

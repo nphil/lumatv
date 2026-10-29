@@ -189,7 +189,10 @@ fn run(config: Config) -> io::Result<()> {
     let mut state = State::new(dh, config.clone(), output, luna);
     if state.luna.is_connected() {
         state.luna_register();
+        // a panel left dim by a run that ended is put back (`paneldim`)
+        state.panel_recover();
     }
+    install_term_handler();
     state.tap = scanout_tap;
     state.meta = scanout_meta;
     state.wl_display = wl_display_ptr;
@@ -331,6 +334,10 @@ fn run(config: Config) -> io::Result<()> {
     let mut last_flip_seen: Option<u64> = None;
 
     loop {
+        if TERM.load(std::sync::atomic::Ordering::Relaxed) && !state.should_exit {
+            state.journal("exit: asked to stop (SIGTERM or SIGINT)".into());
+            state.should_exit = true;
+        }
         if state.should_exit {
             let lingering = config.exit_on_disconnect && !state.clients.is_empty();
             match (lingering, linger_until) {
@@ -623,6 +630,8 @@ fn run(config: Config) -> io::Result<()> {
         }
     }
     display.flush_clients()?;
+    // the panel goes back to the user's brightness before the process ends (`paneldim`); the bridge's answer is waited for, a moment at most
+    state.panel_exit(Duration::from_millis(800));
     state.pngs.finish();
     state.probe_poll();
     if let Some(p) = &state.probe {
@@ -640,6 +649,28 @@ fn run(config: Config) -> io::Result<()> {
         std::process::exit(3);
     }
     Ok(())
+}
+
+/// SIGTERM or SIGINT was received: the loop ends at its next pass (the idle tick is at most 100 ms away).
+static TERM: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+extern "C" fn on_term(_: libc::c_int) {
+    TERM.store(true, std::sync::atomic::Ordering::Relaxed);
+    // A loop that is wedged never reaches the flag: SIGALRM (default action: end the process) comes in 3 s, so a TERM still ends the process
+    // as it did before the handler existed.
+    // SAFETY: `alarm` is async-signal-safe.
+    unsafe { libc::alarm(3) };
+}
+
+/// Ends the compositor the clean way on SIGTERM and SIGINT, so that the panel dim's put back (`State::panel_exit`) runs; before, either one
+/// ended the process on the spot.
+fn install_term_handler() {
+    let handler = on_term as *const () as libc::sighandler_t;
+    // SAFETY: `on_term` only stores an atomic and calls `alarm`.
+    unsafe {
+        libc::signal(libc::SIGTERM, handler);
+        libc::signal(libc::SIGINT, handler);
+    }
 }
 
 fn luna_poll(state: &mut State) {

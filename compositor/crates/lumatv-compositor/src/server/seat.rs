@@ -388,7 +388,7 @@ pub fn wheel_turn(state: &mut State) -> bool {
     state.shell_rust_wheel();
     if state.seat.cursor_visible {
         state.seat.cursor_shown_at = Some(std::time::Instant::now());
-        state.scene.input(crate::output::monotonic_ns());
+        state.care_input();
         return false;
     }
     if state.keys.pointer_show == PointerShow::Wheel {
@@ -404,7 +404,7 @@ pub fn pointer_motion(state: &mut State, x: i32, y: i32) -> bool {
     let (x, y) = (x.clamp(0, crate::OUTPUT_WIDTH as i32 - 1), y.clamp(0, crate::OUTPUT_HEIGHT as i32 - 1));
     state.seat.pointer_position = (x, y);
     state.seat.last_input = "pointer";
-    state.scene.input(crate::output::monotonic_ns());
+    state.care_input();
     set_cursor_visible(state, true);
     state.seat.cursor_shown_at = Some(std::time::Instant::now());
     state.seat.motions += 1;

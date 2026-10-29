@@ -23,6 +23,10 @@
 //! lowers the light of everything Home draws, text included: `dimTo` is not allowed below [`MIN_DIM_TO`], where the palette's
 //! second ink still reads 4.5 : 1 (`tests/test_oledcare.py`).
 //!
+//! **The panel's own light** (`panelDim`, on unless the theme says off; `paneldim.rs`). Home's ease is not drawn while the panel can carry it:
+//! [`Care::dim`] is 1 for Home (so the plane takes it whole) and [`Care::home_want`] is the fraction of the user's OLED pixel brightness the
+//! panel is taken to, one unit at a time. A call that fails hands the ease back to the GPU the next plan (`panel_carry` false).
+//!
 //! **Apps** (`appDim`, `appShift`, each its own switch, independent of `enabled`). The card in front (`WindowType::Card`, not Home, not a
 //! covering overlay) is cared for while it is *still*: no key or pointer, no change of its picture over [`CHANGE_FRACTION`] of the screen,
 //! no video hole of its own, no transition. What is a change is the box dim's samples' to say (`boxdim`), not the commits': LG's browser
@@ -83,6 +87,8 @@ pub struct Settings {
     pub app_floor: f32,
     /// `boxDim` and its tuning keys (`boxdim.rs`).
     pub boxdim: crate::boxdim::Settings,
+    /// `panelDim` and its tuning key (`paneldim.rs`): the whole-screen dims go to the panel's own light.
+    pub paneldim: crate::paneldim::Settings,
 }
 
 impl Default for Settings {
@@ -99,6 +105,7 @@ impl Default for Settings {
             app_after_ns: 3 * 60 * SEC,
             app_floor: 0.75,
             boxdim: crate::boxdim::Settings::default(),
+            paneldim: crate::paneldim::Settings::default(),
         }
     }
 }
@@ -124,6 +131,7 @@ impl Settings {
             app_after_ns: num("appDimAfterMin").map_or(d.app_after_ns, |v| (v.clamp(1.0, 120.0) * 60.0 * SEC as f64) as u64),
             app_floor: num("appDimTo").map_or(d.app_floor, |v| (v as f32).clamp(MIN_APP_DIM_TO, 1.0)),
             boxdim: crate::boxdim::Settings::from_object(o),
+            paneldim: crate::paneldim::Settings::from_object(o),
         }
     }
 }
@@ -218,6 +226,9 @@ pub struct Care {
     /// The screensaver is up (the shell's `state.saver`): it is the burn-in protection of its own (black, everything moving, dimming over an
     /// hour), so the care stands aside, as it does while no shell window is on the screen.
     pub saver: bool,
+    /// The panel carries the dim of Home (`paneldim::PanelDim::carries`, set by the state before each plan): Home's own ease still runs, as the
+    /// level the panel is asked for ([`Care::home_want`]), and is not drawn.
+    pub panel_carry: bool,
     path: PathBuf,
     stamp: Option<(SystemTime, u64)>,
     polled_ns: u64,
@@ -272,9 +283,15 @@ impl Care {
         if self.settings.enabled { self.offset } else { (0, 0) }
     }
 
-    /// The brightness of layer `layer` (0 Home, 1 the system layer, which is never dimmed), 1 when it is not dimmed.
+    /// The brightness of layer `layer` (0 Home, 1 the system layer, which is never dimmed), 1 when it is not dimmed. While the panel carries
+    /// Home's dim (`panelDim`) Home is drawn at full brightness: the plane takes it whole.
     pub fn dim(&self, layer: usize) -> f32 {
-        if self.settings.enabled { self.layers[layer].level } else { 1.0 }
+        if self.settings.enabled && !(self.panel_carry && layer == 0) { self.layers[layer].level } else { 1.0 }
+    }
+
+    /// The fraction of the user's brightness Home's ease asks of the panel: 1 unless the care is on and Home has been still long enough.
+    pub fn home_want(&self) -> f32 {
+        if self.settings.enabled && !self.saver { self.layers[0].level } else { 1.0 }
     }
 
     /// `ctl status`'s `oledcare`: each feature's switch and what it is doing now. `dim` and `offset` are LumaTV's own screens (Home, the
@@ -285,6 +302,8 @@ impl Care {
             "enabled": self.settings.enabled,
             "offset": [o.0, o.1],
             "dim": [self.dim(0), self.dim(1)],
+            // what Home's ease asks of the panel while `panelDim` carries it (`dim` is what is drawn: 1 then)
+            "homeWant": self.home_want(),
             "beats": self.beats,
             "appDim": {"enabled": self.settings.app_dim, "level": self.app_dim(), "to": self.settings.app_floor, "afterMin": self.settings.app_after_ns / (60 * SEC)},
             "appShift": {"enabled": self.settings.app_shift, "offset": [a.0, a.1]},
@@ -494,7 +513,8 @@ impl Care {
             let level = dim_level(now_ns.saturating_sub(l.still_since_ns), s.dim_after_ns, s.dim_over_ns, s.dim_floor);
             if level != l.level {
                 l.level = level;
-                self.changed = true;
+                // drawn only when the panel is not the one dimming
+                self.changed |= !self.panel_carry;
             }
         }
         self.changed

@@ -150,6 +150,9 @@ impl State {
     /// An answer to one of the compositor's own calls: tvpower pushes and the audio service's volume state are the
     /// ones acted on; the shell's calls are answered to it.
     pub fn luna_event(&mut self, ev: Event) {
+        if self.panel_answer(ev.token, &ev.payload) {
+            return;
+        }
         if let Some(line) = self.luna_state.video_answer(ev.token, &ev.payload) {
             self.journal(line);
             return;
@@ -179,6 +182,10 @@ impl State {
         }
         if let Some((uri, payload)) = self.luna_state.power.on_push(round, &ev.payload) {
             self.journal(format!("tvpower: {round} ({}) -> ack", ev.payload.get("next sub state").and_then(Value::as_str).unwrap_or("")));
+            // the user's panel brightness goes back before the answer that lets the TV power down (`paneldim`)
+            if !self.luna_state.power.rendering {
+                self.panel_standby();
+            }
             let token = self.luna_token();
             self.luna.send(ToBridge::Outbound(Outbound { token, uri, payload, subscribe: false }));
             self.shell_sync_topics();

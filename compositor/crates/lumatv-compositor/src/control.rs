@@ -25,6 +25,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             let now = crate::output::monotonic_ns();
             let mut oledcare = state.scene.care.status(now);
             oledcare["boxDim"] = state.scene.boxdim.report(now, &state.scene.care.settings.boxdim);
+            oledcare["panelDim"] = state.panel.status();
             json!({
             "ok": true,
             "summary": state.summary(),
@@ -463,6 +464,23 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             }
             _ => json!({"ok": false, "error": "pageprobe WxH SECONDS | off"}),
         },
+        // The panel dim (`paneldim`): its state, or a dim asked for by hand until released (the TV check's quick way to see the whole path without
+        // waiting for the saver or an idle Home): `paneldim want 0.8` asks the panel for 0.8 of the user's brightness, `paneldim release` ends it.
+        "paneldim" => match (words.next(), words.next()) {
+            (None, _) => json!({"ok": true, "panelDim": state.panel.status(), "want": state.panel_want_ctl}),
+            (Some("release"), _) => {
+                state.panel_want_ctl = None;
+                json!({"ok": true, "panelDim": state.panel.status()})
+            }
+            (Some("want"), Some(v)) => match v.parse::<f32>() {
+                Ok(w) if (0.0..=1.0).contains(&w) => {
+                    state.panel_want_ctl = Some(w);
+                    json!({"ok": true, "panelDim": state.panel.status(), "want": w})
+                }
+                _ => json!({"ok": false, "error": "paneldim want X (0 to 1)"}),
+            },
+            _ => json!({"ok": false, "error": "paneldim | paneldim want X | paneldim release"}),
+        },
         "quit" => {
             state.should_exit = true;
             json!({"ok": true})
@@ -476,7 +494,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
         }
         "" => json!({"ok": false, "error": "empty command"}),
         other => {
-            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, screencap [status|shot|record start|record stop], key CODE, remote CODE, pointer [aim] X Y, wheel, click, sched mali fifo|other, callbacks shell early|landing, callbacks clients commit|early|landing, mem, wake [reset|probe start|probe stop], ring [N], idle [MS], refresh [60|120], scanout [off|direct|offset on|off], pageprobe [WxH SECONDS|off], pointer [plane|gpu|X Y], afbc [on|off], pagealpha [on|off], vwin [off|idle|apps|claim|move|release], fallback [reason], quit")})
+            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, screencap [status|shot|record start|record stop], key CODE, remote CODE, pointer [aim] X Y, wheel, click, sched mali fifo|other, callbacks shell early|landing, callbacks clients commit|early|landing, mem, wake [reset|probe start|probe stop], ring [N], idle [MS], refresh [60|120], scanout [off|direct|offset on|off], pageprobe [WxH SECONDS|off], pointer [plane|gpu|X Y], afbc [on|off], pagealpha [on|off], vwin [off|idle|apps|claim|move|release], paneldim [want X|release], fallback [reason], quit")})
         }
     };
     Reply::Now(reply.to_string())

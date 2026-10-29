@@ -1288,6 +1288,31 @@ mod tests {
     }
 
     #[test]
+    fn the_rust_client_is_told_whether_the_panel_carries_the_savers_dim_and_the_qml_one_is_not() {
+        let (mut state, _dir) = state_with("saver");
+        state.shell_handle(Msg::Connected);
+        state.shell_rust_handle(Msg::Connected);
+        // no luna bridge on the set (the null one): the panel cannot be asked, the saver dims its own picture
+        state.tick();
+        assert_eq!(state.shell_rust.topic("paneldim").unwrap()["carry"], false);
+        assert!(state.shell.topic("paneldim").is_none(), "the QML client's saver dims its own picture");
+        // a bridge that is up: the panel carries, and the client is told
+        state.panel.set_bridge(true);
+        state.panel_dim_tick(crate::output::monotonic_ns());
+        assert_eq!(state.shell_rust.topic("paneldim").unwrap()["carry"], true);
+        // the switch off: it is the saver's again
+        state.panel.settings.enabled = false;
+        state.panel_dim_tick(crate::output::monotonic_ns());
+        assert_eq!(state.shell_rust.topic("paneldim").unwrap()["carry"], false);
+        // the saver's level counts only when it says it does not draw the dim itself
+        state.shell_rust.ui_state = json!({"saver": true, "saverState": {"level": 0.5, "carry": false}});
+        state.scene.care.saver = true;
+        assert_eq!(state.panel_want(), 1.0);
+        state.shell_rust.ui_state = json!({"saver": true, "saverState": {"level": 0.5, "carry": true}});
+        assert_eq!(state.panel_want(), 0.5);
+    }
+
+    #[test]
     fn with_the_capture_mark_the_rust_shells_the_topic_and_the_dot_are_its_own_and_the_qml_client_is_not_told() {
         let (mut state, _dir) = state_with("capture");
         state.shell_handle(Msg::Connected);
