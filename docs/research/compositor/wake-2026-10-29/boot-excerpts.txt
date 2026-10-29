@@ -1,0 +1,14 @@
+# Boot of 2026-10-29 15:13:40 EDT (19:13:40Z = kernel start; line = UTC stamp [kernel monotonic s]); excerpts of /var/log/messages of that boot, scrubbed
+2023-01-01T00:00:11.423749Z [12.371661660] user.info micomservice [] com.webos.service.micomservice NL_MICOM_HISTORY {"power_off_history":"OFF_BY_KEYTIMEOUT","utt_time":4343} 
+2026-10-29T19:13:59.337868Z [16.280939560] user.info tvpowerd [] tvpowerd POWERON_REASON {} [/power/getPowerOnReasonHandler] remoteKey is power on reason
+2026-10-29T19:14:31.031597Z [50.069884440] user.info tvpowerd [] tvpowerd POWERON_REASON {} [/power/getPowerOnReasonHandler] remoteKey is power on reason
+2026-10-29T19:13:58.765139Z [15.708210700] user.info btaudiosrc [] bluetooth-audio-source POWER {} Previous substate was cold/reboot.    [_adapter_power_registerGetPowerStateCallback (314)] 
+2026-10-29T19:13:59.340215Z [16.283288600] user.info eim [] EIM CALLBACK {} [adapter_eim_getPowerOnReason_callback:2864] [{ "returnValue": true, "reason": "remoteKey" }]
+2026-10-29T19:14:05.821702Z [22.764773780] user.info sdx [] sdx.logging SDX {} updateStatusData[75]: Internet connection is available  !
+2026-10-29T19:14:10.708157Z [29.746452320] user.info eplmanager [] eplmanager LS2_RECEIVED {} getStatus:{ "status": "idle", "version": 0, "usbImageSize": 0, "nsuImageSize": 1769900424, "ssuImageSize": 0, "platformUpgrade": false, "versionText": "00.00.00", "updateType": "nsu", "nsuType": "pak" }
+2026-10-29T19:14:12.804017Z [31.842312080] user.info notificationmgr [] NOTIFICATION NOTIFY_INVOKE {"SOURCE_ID":"com.webos.service.update","TYPE":"ALERT","TITLE":"","MESSAGE":"The latest version of the software is available for your TV. Do you want to update now?<br>(Version: 33.31.69 / 1687MB)<br>* Please use LG TV Remote Control.<br>* You can watch TV even while updating the software."}  
+# first lines of the boot
+2023-01-01T00:00:11.423749Z [12.371661660] user.info micomservice [] com.webos.service.micomservice NL_MICOM_HISTORY {"power_off_history":"OFF_BY_KEYTIMEOUT","utt_time":4343} 
+2023-01-01T00:00:11.639039Z [12.586959720] user.info service-logger [] service-logger NORMAL_LOGGING_INFO {"where":"Init"} 
+# iot-client launched on demand although its unit is masked
+2026-10-29T19:14:17.785657Z [36.823945540] user.info ls-hubd [] ls-hubd LSHUB_SRV_LNCH {"SERVICE_NAME":"com.webos.service.iotclient","EXE":"/usr/bin/run-service /usr/palm/services/com.webos.service.iotclient/iot-client","REQUESTER":"com.webos.service.homeconnect","APP_ID":"(null)","STATE":1,"PID":10

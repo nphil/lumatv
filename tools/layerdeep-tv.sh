@@ -58,6 +58,18 @@ flips() { fb status.fb_flip_cnt; }
 # Registers that differ between two regdumps: address, first value, second value.
 rdiff() { awk 'NR == FNR { if ($1 ~ /^0x/) v[$1] = $NF; next } ($1 ~ /^0x/) && ($1 in v) && v[$1] != $NF { print $1, v[$1], $NF }' "$1" "$2"; }
 header() { log "fb0: visible=$(fb visible) xpos=$(fb hdr.xpos) ypos=$(fb hdr.ypos) mem=$(fb hdr.w_mem)x$(fb hdr.h_mem) out=$(fb hdr.w_out)x$(fb hdr.h_out) flips=$(flips)"; }
+# The set has no `lumatv` CLI: a theme set is a merge into theme.json, which the compositor re-reads within 2 s.
+lumatv() {
+    [ "$1 $2" = "theme set" ] || return 1
+    python3 - "$3" "$THEME" <<'PY'
+import json, sys
+def merge(a, b):
+    for k, v in b.items():
+        if isinstance(v, dict) and isinstance(a.get(k), dict): merge(a[k], v)
+        else: a[k] = v
+t = json.load(open(sys.argv[2])); merge(t, json.loads(sys.argv[1])); json.dump(t, open(sys.argv[2], "w"), indent=2)
+PY
+}
 orbit_moves() { dmesg | grep -c vsc_set_orbit_move; }
 photo() { log "PHOTO: $*"; }
 

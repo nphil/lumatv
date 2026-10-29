@@ -1,0 +1,244 @@
+== date
+Thu Oct 29 15:15:42 EDT 2026
+121.93 269.88
+== nyx OSInfo
+5.4.268-329.ptl4tv.2
+Rockhopper
+10.2.1-5202
+ponytail-paparoa
+prodkey
+20251025100051
+5202
+lib32-starfish-global-secured
+33.22.52
+webOS TV
+unknown
+10.2.1
+ponytail-paparoa
+10
+== os-release
+ID=starfish
+NAME="webOS TV"
+VERSION="10.2.1"
+VERSION_ID=10.2.1
+PRETTY_NAME="webOS TV 10.2.1"
+{
+    "webos_build_id": "5202",
+    "webos_build_datetime": "20251025100051",
+    "webos_imagename": "lib32-starfish-global-secured",
+    "core_os_release": "10.2.1-5202",
+    "webos_prerelease": "unknown",
+    "core_os_name": "Rockhopper",
+    "core_os_release_codename": "ponytail-paparoa",
+    "webos_name": "webOS TV",
+    "encryption_key_type": "prodkey",
+    "core_os_kernel_version": "5.4.268-329.ptl4tv.2",
+    "webos_manufacturing_version": "33.22.52",
+    "webos_release_codename": "ponytail-paparoa",
+    "webos_release": "10.2.1",
+    "webos_release_platformcode": "10"
+}
+
+== id root
+uid=0(root) gid=0(root) groups=0(root),10(wheel),506(pulse-access),509(se),777(crashd),995(lpadmin)
+== updateblock
+{"ok":true,"updateBlock":{"flag":true,"hosts":{"snu.lge.com":true,"su.lge.com":true,"su-ssl.lge.com":true,"su-dev.lge.com":true},"live":true,"blocking":true,"state":"blocked"}}
+== flag
+-rw-r--r--    1 root     root             1 Dec 19  2025 /var/luna/preferences/webosbrew_block_updates
+== hosts
+127.0.0.1	localhost.localdomain	localhost
+::1	localhost ip6-localhost ip6-loopback
+fe00::0	ip6-localnet
+ff00::0	ip6-mcastprefix
+ff02::1	ip6-allnodes
+ff02::2	ip6-allrouters
+
+# LG Ad & Telemetry Blackhole (lg-webos-mqtt)
+0.0.0.0	ad.lgsmartad.com
+0.0.0.0	ibis.lgappstv.com
+0.0.0.0	ibs.lgappstv.com
+0.0.0.0	lgsmartad.com
+0.0.0.0	rdx.lgtvcommon.com
+0.0.0.0	aic.lgtvcommon.com
+0.0.0.0	smartclip.com
+0.0.0.0	smartclip-services.com
+0.0.0.0	yumenetworks.com
+
+# Homebrew Channel system update block, carried from its own /etc/hosts
+127.0.0.1	snu.lge.com su-dev.lge.com su.lge.com su-ssl.lge.com
+::1	snu.lge.com su-dev.lge.com su.lge.com su-ssl.lge.com
+tmpfs on /etc/hosts type tmpfs (rw,relatime)
+/dev/mmcblk0p58 on /etc/hosts type ext4 (rw,nosuid,relatime,data=ordered)
+/dev/mmcblk0p58 on /tmp/hosts type ext4 (rw,nosuid,relatime,data=ordered)
+/dev/mmcblk0p58 on /mnt/lg/cmn_data/var/palm/jail/com.lighting.huesync/tmp/hosts type ext4 (rw,nosuid,relatime,data=ordered)
+/dev/mmcblk0p58 on /mnt/lg/flash/data/var/palm/jail/com.lighting.huesync/tmp/hosts type ext4 (rw,nosuid,relatime,data=ordered)
+/dev/mmcblk0p58 on /mnt/lg/user/var/palm/jail/com.lighting.huesync/tmp/hosts type ext4 (rw,nosuid,relatime,data=ordered)
+/dev/mmcblk0p58 on /mnt/lg/cmn_data/var/palm/jail/com.webos.chromecast/tmp/hosts type ext4 (rw,nosuid,relatime,data=ordered)
+/dev/mmcblk0p58 on /mnt/lg/flash/data/var/palm/jail/com.webos.chromecast/tmp/hosts type ext4 (rw,nosuid,relatime,data=ordered)
+/dev/mmcblk0p58 on /mnt/lg/user/var/palm/jail/com.webos.chromecast/tmp/hosts type ext4 (rw,nosuid,relatime,data=ordered)
+== hosts files
+-rw-r--r--    1 root     root           642 Sep 14 16:20 /etc/hosts
+
+/var/lib/webosbrew:
+total 44
+drwxr-xr-x    5 root     root          4096 Oct 25 21:09 .
+drwxr-xr-x   28 root     root          4096 Oct 26 04:46 ..
+drwxr-xr-x    2 root     root          4096 Oct 25 20:25 __pycache__
+drwxr-xr-x    2 root     root          4096 Oct 25 20:17 init.d
+-rwxr-xr-x    1 root     root         16206 Oct 25 20:30 padguard.py
+drwxr-xr-x    2 root     root          4096 Sep 13 12:25 sshd
+== update luna
+-- com.webos.service.update/getCurrentSWInformation
+{
+    "auth_flag": "N",
+    "returnValue": true,
+    "major_ver": "33",
+    "minor_ver": "22.52",
+    "sw_type": "FIRMWARE",
+    "country_group": "US",
+    "config_key": "00",
+    "device_id": "<MAC>",
+    "country": "US2",
+    "product_name": "webOSTV 24",
+    "ignore_disable": "N",
+    "model_name": "HE_DTV_W24G_AFABATAA",
+    "eco_info": "01",
+    "language_code": "en-US"
+}
+-- com.webos.service.update/getStatus
+{
+    "returnValue": true,
+    "nsuImageSize": 1769900424,
+    "nsuType": "pak",
+    "platformUpgrade": false,
+    "ssuImageSize": 0,
+    "usbImageSize": 0,
+    "status": "idle",
+    "updateType": "nsu"
+}
+-- com.webos.service.update/getUpdateStatus
+{
+    "errorCode": -1,
+    "returnValue": false,
+    "errorText": "Unknown method \"getUpdateStatus\" for category \"/\""
+}
+-- com.webos.service.update/checkUpdate
+{
+    "errorCode": 60,
+    "returnValue": true,
+    "version": 0,
+    "flagUpdate": false,
+    "errorReason": "Peer certificate cannot be authenticated with given CA certificates"
+}
+-- fota
+{
+    "errorCode": -1,
+    "returnValue": false,
+    "errorText": "Service does not exist: com.webos.service.fotaservice."
+}
+LUNASERVICE ERROR -1: Could not cancel to unknown client (_LSTransportAddPendingMessageWithToken @ transport.c:4152)
+== update dirs
+-- /var/luna/preferences
+total 212
+drwxr-xr-x    4 root     root          4096 Oct 29 15:14 .
+drwxr-xr-x    4 root     root          4096 Oct 12  2024 ..
+-rw-r--r--    1 root     root            46 Oct 29 15:13 accountDBMarkedFile.json
+-rw-r--r--    1 root     root            30 Oct 28 09:33 accountdb_info.json
+-rw-------    1 root     root            34 Oct 29 14:52 bootd_last_foreground_app_id.json
+-rw-r--r--    1 root     root           811 Dec 19  2025 caption
+-rw-r--r--    1 root     root            63 Dec 19  2025 caption.md5
+-rw-r--r--    1 root     root          1597 Oct 29 15:13 channel
+-rw-r--r--    1 root     root            63 Oct 29 15:13 channel.md5
+drwxr-xr-x    2 root     root          4096 May  6  2025 devmode_enabled
+-rw-r--r--    1 root     root          1166 Dec 19  2025 environmentCondition
+-rw-r--r--    1 root     root          5396 Aug 29 07:27 eula
+-rw-r--r--    1 root     root            60 Aug 29 07:27 eula.md5
+-rw-r--r--    1 root     root          1638 Oct 29 15:14 general
+-rw-r--r--    1 root     root            63 Oct 29 15:14 general.md5
+-rw-r--r--    1 root     root          1547 Oct 29 15:13 hotelMode
+-rw-r--r--    1 root     root            65 Oct 29 15:13 hotelMode.md5
+-rw-r--r--    1 root     root            30 Oct 29 15:14 last_foreground_app_id.json
+-rw-r--r--    1 root     root            50 Oct 29 15:13 lgchannels
+-rw-r--r--    1 root     root            66 Oct 29 15:13 lgchannels.md5
+-rw-r--r--    1 root     root           256 Oct 29 15:13 localeInfo
+-rw-r--r--    1 root     root            66 Oct 29 15:13 localeInfo.md5
+lrwxr-xr-x    1 root     root            36 Dec 31  2022 localtime -> /usr/share/zoneinfo/America/New_York
+-rw-r--r--    1 root     root           183 Dec 19  2025 lock
+-rw-r--r--    1 root     root            60 Dec 19  2025 lock.md5
+-rw-r--r--    1 root     root           178 Oct 25 23:17 network
+-rw-r--r--    1 root     root            63 Oct 25 23:17 network.md5
+-rw-r--r--    1 root     root          9395 Oct 29 15:14 option
+-rw-r--r--    1 root     root            62 Oct 29 15:14 option.md5
+-- /mnt/lg/cmn_data
+total 1660
+drwxrwxrwx   78 root     root          4096 Oct 29 15:14 .
+drwxr-xr-x    1 root     root            26 Apr  5  2011 ..
+drwx------    2 root     root          4096 Nov 27  2024 .accountmanager
+drwx------    2 root     root          4096 Sep 15 05:06 .iot
+drwx------    2 root     root          4096 Oct 12  2024 .iotproxy
+-rw-r--r--    1 root     root           516 Jan 15  2025 .lastNSUUpdateFailLog
+drwx------    2 root     root          4096 Oct 28 21:54 .pushclient
+drwx------    2 root     root          4096 Nov  6  2024 .ruleengine
+drwxr-xr-x    2 root     root          4096 Dec 31  2022 .service-logger
+drwx------    2 root     root          4096 Oct 28 21:55 .sportsalarm
+-rw-r--r--    1 root     root            21 Dec 31  2022 MagicSearchResult.txt
+-rw-r--r--    1 root     root           176 Sep 20 21:14 NL_VIDEO_ALL_DIM_ASPECT_RATIO_HISTORY_CACHE
+-rw-r--r--    1 root     root            11 Sep 20 21:14 NL_VIDEO_ALL_DIM_ASPECT_RATIO_TARGET_CACHE
+-rw-r--r--    1 root     root           176 Sep 20 21:14 NL_VIDEO_ALL_DIM_JUST_SCAN_FHD_HISTORY_CACHE
+-rw-r--r--    1 root     root            11 Sep 20 21:14 NL_VIDEO_ALL_DIM_JUST_SCAN_FHD_TARGET_CACHE
+-rw-r--r--    1 root     root           176 Sep 20 21:14 NL_VIDEO_ALL_DIM_JUST_SCAN_SD_HISTORY_CACHE
+-rw-r--r--    1 root     root            11 Sep 20 21:14 NL_VIDEO_ALL_DIM_JUST_SCAN_SD_TARGET_CACHE
+-rw-r--r--    1 root     root           176 Sep 20 21:14 NL_VIDEO_ALL_DIM_JUST_SCAN_UHD_HISTORY_CACHE
+-rw-r--r--    1 root     root            11 Sep 20 21:14 NL_VIDEO_ALL_DIM_JUST_SCAN_UHD_TARGET_CACHE
+-rw-r--r--    1 root     root           176 Sep 20 21:14 NL_VIDEO_SCREEN_MOVE_HISTORY_CACHE
+-rw-r--r--    1 root     root            11 Sep 20 21:14 NL_VIDEO_SCREEN_MOVE_TARGET_CACHE
+-rw-r--r--    1 root     root           143 Oct 20 19:37 NL_VIDEO_SUB_SCALER_HISTORY_CACHE
+-rw-r--r--    1 root     root            11 Oct 20 19:37 NL_VIDEO_SUB_SCALER_TARGET_CACHE
+drwxr-xr-x    5 root     root          4096 Oct 12  2024 acr
+drwxr-xr-x    3 root     root          4096 Dec 19  2025 adlogservice
+drwxr-xr-x    7 root     root          4096 Dec 19  2025 admanager
+drwxr-xr-x    5 root     root          4096 Nov 27  2024 adoverlay
+drwx------    2 root     root          4096 Oct 12  2024 aibsp
+drwxr-xr-x    2 root     root          4096 Oct 12  2024 aiservice
+-- /media/cryptofs
+total 24
+drwxr-xr-x    6 root     root          4096 Oct 29 12:12 .
+drwxr-xr-x   10 root     root          4096 Dec 31  2022 ..
+drwxr-xr-x    5 root     root          4096 Sep 13 22:47 apps
+d---r-xr-x    2 root     root          4096 May  6  2025 certificates
+drwxr-xr-x    3 root     root          4096 Apr  5  2011 data
+drwxr-xr-x    2 root     root          4096 Oct 25 02:59 tmp
+-- /var/spool
+total 32
+drwxr-xr-x    9 root     root          4096 Dec 31  2022 .
+drwxr-xr-x   25 root     root          4096 Oct 29 15:14 ..
+drwx--x---    3 root     lp            4096 Dec 31  2022 cups
+drwx------    2 root     root          4096 Dec 31  2022 diag
+drwxr-xr-x    4 root     root          4096 Sep 14 17:28 faultmanager
+drwxr-xr-x    2 root     root          4096 Oct 12  2024 klog-formatter
+drwxrwxr-x    2 root     mail          4096 Apr  5  2011 mail
+drwxr-xr-x    2 root     root            40 Oct 29 15:14 rdxd
+drwxr-xr-x    4 root     root          4096 Oct 12  2024 uploadd
+== cmdline update
+== mounts update
+== df
+Filesystem                Size      Used Available Use% Mounted on
+/dev/root                 1.5G      1.5G         0 100% /
+devtmpfs                653.0M         0    653.0M   0% /dev
+tmpfs                   991.4M      2.0M    989.4M   0% /dev/shm
+tmpfs                   396.6M    296.0K    396.3M   0% /run
+tmpfs                     4.0M         0      4.0M   0% /sys/fs/cgroup
+tmpfs                    36.1M     36.1M         0 100% /etc/machine-id
+tmpfs                   991.4M     30.0M    961.4M   3% /tmp
+/dev/dm-9                36.1M     36.1M         0 100% /overlay/bsppart
+overlay                  36.1M     36.1M         0 100% /etc
+overlay                  36.1M     36.1M         0 100% /lib
+overlay                  36.1M     36.1M         0 100% /mnt
+overlay                  36.1M     36.1M         0 100% /usr
+overlay                 965.9M    728.2M    171.6M  81% /var
+/dev/dm-3                69.4M     69.4M         0 100% /mnt/fonts
+/dev/dm-5                11.0M     11.0M         0 100% /mnt/otncabi
+/dev/dm-7               128.0K    128.0K         0 100% /mnt/otycabi
+/dev/mmcblk0p30         512.0K    512.0K         0 100% /mnt/license
+/dev/dm-3                69.4M     69.4M         0 100% /usr/share/fonts
+/dev/dm-7               128.0K    128.0K         0 100% /usr/lib/nyx/modules

@@ -1,0 +1,93 @@
+== date
+Thu Oct 29 15:17:08 EDT 2026
+207.32 538.24
+resume
+== lumatv status (persist/early)
+{"ok":true,"version":"0.4.0","applied":true,"live":true,"mounts":1,"persist":true,"early":true,"standby":"warm","fps":false,"ntfy":{"enabled":false,"url":"https://ntfy.sh/lumaglass-selftest-nphil"},"firmware":"10.2.1","model":"o22n2","homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0},"helper":{"healthy":true,"ok":true,"pid":6463,"port":18731,"running":true},"compositor":{"bundle":true,"enabled":true,"flag":"persistent","mounted":true,"live":true,"lgBinary":"mounted","firmware":"verified","escaped":false,"unsettled":false,"failures":0,"lastFallback":"hold Home 650 ms","smLog":"[15:16:11] settled: two minutes healthy"},"updateBlock":{"flag":true,"hosts":{"snu.lge.com":true,"su.lge.com":true,"su-ssl.lge.com":true,"su-dev.lge.com":true},"live":true,"blocking":true,"state":"blocked"},"openApps":{"enabled":false,"entries":1,"ids":["com.webos.app.lifeonscreen"],"state":"off","saved":false}}
+
+== declutter status
+{"ok":true,"profile":"lean","groups":{"uploaders":{"on":true,"inTarget":"7/7"},"ads":{"on":true,"inTarget":"6/6"},"push":{"on":true,"inTarget":"5/5"},"settings":{"on":true,"inTarget":"16/16"},"apps":{"on":true,"inTarget":"2/2"},"autoinstall":{"on":true,"inTarget":"8/8"},"voice":{"on":true,"inTarget":"16/16"},"connectivity":{"on":true,"inTarget":"4/4"},"share":{"on":true,"inTarget":"11/11"},"misc":{"on":true,"inTarget":"3/3"},"ai":{"on":false,"inTarget":"0/3"},"livetv":{"on":false,"inTarget":"0/9"},"cast":{"on":false,"inTarget":"0/3"}},"persist":true,"skip":false,"memAvailableKb":853940}
+
+== early.json
+{"ran":true,"why":"","bootId":"e10720d2-4f47-4e95-88b9-bda65dbbb0c0","startSec":13.73,"stubbedSec":17.56,"maskedSec":19.73,"uptimeSec":21.10,"masked":["rdxd.service","remotelogger.service","crashd.service","service-logger.service","faultmanager.service","uploadd.service","contentminer.service","com.webos.service.pushclient.service","nudge.service","user-context-manager.service","iot-client.service","voiceconductor.service","voiceinput.service","google-home-controller.service","com.webos.service.ruleengine.service","miracast.service","airplay-adaptor.service","dmr.service","appcasting.service","com.webos.service.mycar.service","ftms.service","tvlinkcmdprocessor.service","tvlink-network-proxy.service","cups.path","cups.socket","cups-lpd.socket"],"stubbed":["/usr/sbin/uploadd","/usr/sbin/admanager","/usr/sbin/adoverlay-service","/usr/sbin/acr2","/usr/sbin/sportsalarm","/usr/sbin/pbs","/usr/sbin/sdp-server-notice","/usr/sbin/nlpmanager","/usr/sbin/trigger_alexa","/usr/sbin/trigger_thinq","/usr/sbin/voiceclick","/usr/sbin/voiceinput_sound","/usr/sbin/voiceinput_network","/usr/sbin/voiceinput_hidraw","/usr/sbin/voiceinput_preprocessor","/usr/sbin/tts","/usr/sbin/iconnectivity","/usr/sbin/airplay","/usr/sbin/upnpd","/usr/sbin/mfi"],"running":["remotelogger.service","crashd.service","service-logger.service","faultmanager.service","com.webos.service.pushclient.service","voiceinput.service","com.webos.service.mycar.service","cups.path","cups.socket","cups-lpd.socket"]}
+
+== declutter log
+2026-10-29 15:14:24 group share on
+2026-10-29 15:14:24 group misc on
+2026-10-29 15:14:24 boot: first pass done
+2026-10-29 15:14:39 boot: settled
+2026-10-29 15:14:47 group uploaders on
+2026-10-29 15:14:47 group ads on
+2026-10-29 15:14:47 group push on
+2026-10-29 15:14:47 group settings on
+2026-10-29 15:14:47 group apps on
+2026-10-29 15:14:48 group autoinstall on
+2026-10-29 15:14:48 group voice on
+2026-10-29 15:14:49 group connectivity on
+2026-10-29 15:14:49 group share on
+2026-10-29 15:14:49 group misc on
+2026-10-29 15:15:17 group uploaders on
+2026-10-29 15:15:17 group ads on
+2026-10-29 15:15:17 group push on
+2026-10-29 15:15:17 group settings on
+2026-10-29 15:15:17 group apps on
+2026-10-29 15:15:18 group autoinstall on
+2026-10-29 15:15:18 group voice on
+2026-10-29 15:15:18 group connectivity on
+2026-10-29 15:15:18 group share on
+2026-10-29 15:15:18 group misc on
+2026-10-29 15:15:18 boot: later passes done
+== lumatv log (declutter early / homestub-boot)
+2026-10-29 15:13:58 boot: [up 15.15 s] homestub-boot: {"ok":true,"stub":true}
+2026-10-29 15:14:05 boot: [up 21.99 s] declutter early: {"ok":true,"early":true,"startSec":13.73,"stubbedSec":17.56,"maskedSec":19.73,"uptimeSec":21.86,"masked":26,"stubbed":20,"running":["remotelogger.service","crashd.s
+== units
+-- contentminer
+LoadState=masked ActiveState=inactive ActiveEnterTimestampMonotonic=0 
+-- rdxd
+LoadState=masked ActiveState=inactive ActiveEnterTimestampMonotonic=0 
+-- nudge
+LoadState=masked ActiveState=inactive ActiveEnterTimestampMonotonic=0 
+-- uploadd
+LoadState=masked ActiveState=inactive ActiveEnterTimestampMonotonic=0 
+-- user-context-manager
+LoadState=masked ActiveState=inactive ActiveEnterTimestampMonotonic=0 
+-- iot-client
+LoadState=masked ActiveState=inactive ActiveEnterTimestampMonotonic=0 
+== stubs mounted
+/dev/mmcblk0p58 on /usr/sbin/uploadd type ext4 (rw,nosuid,relatime,data=ordered)
+/dev/mmcblk0p58 on /usr/sbin/admanager type ext4 (rw,nosuid,relatime,data=ordered)
+/dev/mmcblk0p58 on /usr/sbin/adoverlay-service type ext4 (rw,nosuid,relatime,data=ordered)
+/dev/mmcblk0p58 on /usr/sbin/acr2 type ext4 (rw,nosuid,relatime,data=ordered)
+/dev/mmcblk0p58 on /usr/sbin/sportsalarm type ext4 (rw,nosuid,relatime,data=ordered)
+/dev/mmcblk0p58 on /usr/sbin/pbs type ext4 (rw,nosuid,relatime,data=ordered)
+tmpfs on /tmp/uploadd type tmpfs (ro,relatime)
+tmpfs on /mnt/lg/cmn_data/var/palm/jail/com.lighting.huesync/tmp/uploadd type tmpfs (rw,relatime)
+tmpfs on /mnt/lg/flash/data/var/palm/jail/com.lighting.huesync/tmp/uploadd type tmpfs (rw,relatime)
+tmpfs on /mnt/lg/user/var/palm/jail/com.lighting.huesync/tmp/uploadd type tmpfs (rw,relatime)
+tmpfs on /mnt/lg/cmn_data/var/palm/jail/com.webos.chromecast/tmp/uploadd type tmpfs (rw,relatime)
+tmpfs on /mnt/lg/flash/data/var/palm/jail/com.webos.chromecast/tmp/uploadd type tmpfs (rw,relatime)
+tmpfs on /mnt/lg/user/var/palm/jail/com.webos.chromecast/tmp/uploadd type tmpfs (rw,relatime)
+tmpfs on /var/spool/uploadd/pending type tmpfs (ro,relatime)
+tmpfs on /mnt/lg/cmn_data/var/spool/uploadd/pending type tmpfs (rw,relatime)
+tmpfs on /mnt/lg/flash/data/var/spool/uploadd/pending type tmpfs (rw,relatime)
+tmpfs on /mnt/lg/user/var/spool/uploadd/pending type tmpfs (rw,relatime)
+tmpfs on /var/spool/uploadd/uploaded type tmpfs (ro,relatime)
+tmpfs on /mnt/lg/cmn_data/var/spool/uploadd/uploaded type tmpfs (rw,relatime)
+tmpfs on /mnt/lg/flash/data/var/spool/uploadd/uploaded type tmpfs (rw,relatime)
+tmpfs on /mnt/lg/user/var/spool/uploadd/uploaded type tmpfs (rw,relatime)
+== messages lines of the programs this boot
+/tmp/var/log/messages:2026-10-29T19:14:26.963803Z [46.002099020] user.info iot-client [] iot-client MSGID_DEFAULT {} [retryStartDaemon:65] enter
+/tmp/var/log/messages:2026-10-29T19:14:26.963895Z [46.002183300] user.info iot-client [] iot-client LOG_PUSH_STATE {} [checkDeviceStatusImpl(343)] checkDRStatus start
+/tmp/var/log/messages:2026-10-29T19:14:26.963921Z [46.002208300] user.info iot-client [] iot-client MSGID_DEFAULT {} [getCurrentDeviceInfo:354]called
+/tmp/var/log/messages:2026-10-29T19:14:26.979512Z [46.017807340] user.info iot-client [] iot-client LOG_PUSH_STATE {} [getCurrentDeviceInfo:398] userNoList : US2403294801981
+/tmp/var/log/messages:2026-10-29T19:14:26.979607Z [46.017894260] user.info iot-client [] iot-client LOG_PUSH_STATE {} [getCurrentDeviceInfo:409]url for requesting of update: https://AIC.api.lgtviot.co
+count by program (first/last stamp)
+pbs n=0 first= last=
+acr2 n=0 first= last=
+admanager n=0 first= last=
+adoverlay-service n=0 first= last=
+sportsalarm n=0 first= last=
+contentminer n=0 first= last=
+uploadd n=0 first= last=
+nudge n=0 first= last=
+iot-client n=189 first= [37.056331660] use last= [46.306360440] use
