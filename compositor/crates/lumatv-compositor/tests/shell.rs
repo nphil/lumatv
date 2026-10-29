@@ -448,17 +448,33 @@ fn the_system_layer_is_drawn_only_while_live_and_joins_without_a_frame_of_its_ow
     assert_eq!(server.eval(drawn).pixel(10, 10), red);
     let mapped = server.eval(|s| s.scene.shell_window(WindowType::ShellSystem).is_some_and(|w| w.map_serial > 0));
     assert!(mapped);
-    let green = layer.client.shm_buffer(64, 64, 0xff00_ff00);
-    layer.client.present(&layer.win.surface, &green);
-    layer.client.roundtrip();
-    let (image, drawn_before) = server.eval(|s| (drawn(s), s.stats.frames_drawn));
-    assert_eq!(image.pixel(10, 10), red, "a commit of an idle layer is not drawn");
-    assert!(layer.client.wait_until(WAIT, |s| s.frames_done >= 2), "its callback goes out all the same");
+    // Live again within 100 ms of that commit: the commit was the frame being announced, so the join draws it. "Within" is the compositor's
+    // own JOIN_FRESH_NS (400 ms of real time) and the steps in between take longer than that on a busy machine, so the case is repeated until
+    // the compositor's journal says the join found the commit fresh; the assertions are about that join only.
+    let mut callbacks = 1;
+    let mut attempts = 0;
+    let (image, drawn_before, drawn_after) = loop {
+        let green = layer.client.shm_buffer(64, 64, 0xff00_ff00);
+        layer.client.present(&layer.win.surface, &green);
+        layer.client.roundtrip();
+        let (image, drawn_before) = server.eval(|s| (drawn(s), s.stats.frames_drawn));
+        assert_eq!(image.pixel(10, 10), red, "a commit of an idle layer is not drawn");
+        callbacks += 1;
+        assert!(layer.client.wait_until(WAIT, move |s| s.frames_done >= callbacks), "its callback goes out all the same");
 
-    // Live again within 100 ms of that commit: the commit was the frame being announced, so the join draws it.
-    let drew_now = server.eval(move |s| s.shell_handle(ui(true)));
-    assert!(!drew_now, "the software output draws at the tick, not on damage");
-    let (image, drawn_after) = server.eval(|s| (drawn(s), s.stats.frames_drawn));
+        let drew_now = server.eval(move |s| s.shell_handle(ui(true)));
+        assert!(!drew_now, "the software output draws at the tick, not on damage");
+        let fresh = server.eval(|s| s.journal.iter().rev().find(|l| l.contains("system layer live")).is_some_and(|l| l.contains("join draws it")));
+        let (image, drawn_after) = server.eval(|s| (drawn(s), s.stats.frames_drawn));
+        if fresh {
+            break (image, drawn_before, drawn_after);
+        }
+        attempts += 1;
+        assert!(attempts < 50, "the join never found the commit fresh");
+        assert_eq!(drawn_after, drawn_before, "a quiet join draws no frame");
+        server.eval(move |s| s.shell_handle(ui(false)));
+        assert_eq!(server.eval(drawn).pixel(10, 10), red);
+    };
     assert_eq!(image.pixel(10, 10), [0, 255, 0, 255]);
     assert_eq!(drawn_after, drawn_before + 1);
 
@@ -542,14 +558,26 @@ fn a_frame_of_the_layer_that_came_250_ms_before_the_word_that_it_is_live_is_draw
     let mut layer = shown(&mut server, false, "_WEBOS_WINDOW_TYPE_LUMATV_SYSTEM", "Layer", "org.nphil.lumatv.shell", 0xff00_00ff);
     server.ticking.store(false, std::sync::atomic::Ordering::SeqCst);
     server.eval(|s| s.shell_handle(Msg::Ui { can: None, wants: None, live: Some(false), state: None }));
-    let green = layer.client.shm_buffer(64, 64, 0xff00_ff00);
-    layer.client.present(&layer.win.surface, &green);
-    layer.client.roundtrip();
-    std::thread::sleep(Duration::from_millis(250));
-    let drew = server.eval(|s| s.shell_handle(Msg::Ui { can: None, wants: None, live: Some(true), state: None }));
-    assert!(drew, "the join draws the commit that is waiting");
-    assert_eq!(server.eval(drawn).pixel(10, 10), [0, 255, 0, 255]);
-    assert!(server.eval(|s| s.journal.iter().any(|l| l.contains("shell: system layer live; its last commit") && l.contains("join draws it"))));
+    // The 400 ms the compositor allows is real time, so on a busy machine the join can come too late; the case is repeated until the
+    // compositor's journal says the join found the commit fresh (its age is in that line, 250 ms and more here).
+    let mut attempts = 0;
+    loop {
+        let green = layer.client.shm_buffer(64, 64, 0xff00_ff00);
+        layer.client.present(&layer.win.surface, &green);
+        layer.client.roundtrip();
+        std::thread::sleep(Duration::from_millis(250));
+        let drew = server.eval(|s| s.shell_handle(Msg::Ui { can: None, wants: None, live: Some(true), state: None }));
+        let line = server.eval(|s| s.journal.iter().rev().find(|l| l.contains("shell: system layer live; its last commit")).cloned().unwrap());
+        if line.contains("join draws it") {
+            assert!(drew, "the join draws the commit that is waiting");
+            assert_eq!(server.eval(drawn).pixel(10, 10), [0, 255, 0, 255]);
+            break;
+        }
+        attempts += 1;
+        assert!(attempts < 50, "the join never found the commit fresh: {line}");
+        server.eval(|s| s.shell_handle(Msg::Ui { can: None, wants: None, live: Some(false), state: None }));
+        server.eval(drawn);
+    }
     drop(app);
 }
 
