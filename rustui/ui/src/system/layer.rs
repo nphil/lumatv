@@ -420,6 +420,14 @@ impl Layer {
         self.redraw = true;
     }
 
+    /// The text size changed while the editor is open: it draws its stand-ins at the sizes the shell measured again.
+    pub fn set_layout_sizes(&mut self, sizes: Sizes) {
+        if let Some(editor) = &mut self.layout {
+            editor.set_sizes(sizes);
+            self.redraw = true;
+        }
+    }
+
     /// A press of a surface (a click of the pointer).
     pub fn press(&mut self, target: Target) -> Vec<Effect> {
         let out = self.alerts.press(target);
@@ -478,8 +486,8 @@ impl Layer {
             let (width, gap) = (self.overlay.config().width as f32, self.overlay.config().gap as f32);
             let drawer_ready = self.overlay.drawer_ready();
             if self.overlay.needs_refresh(now_ms) {
-                let top = self.cards_surface.top(popup, width);
-                self.overlay.refresh(top, &mut |e| f64::from(CardsSurface::height_of(kit, e, width, drawer_ready)), now_ms);
+                let room = self.cards_surface.room(popup, width);
+                self.overlay.refresh(room, &mut |e| f64::from(CardsSurface::height_of(kit, e, width, drawer_ready)), now_ms);
             }
             let column = Column { width, gap, popup, drawer_ready, over_video: over };
             match self.cards_surface.apply(kit, self.overlay.shown(), &column, now_ms) {

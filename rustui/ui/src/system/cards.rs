@@ -294,8 +294,11 @@ pub struct Ctx<'a> {
     pub dnd: bool,
     /// The camera pop-up is up: it takes a slot and the top of the column.
     pub camera: bool,
-    /// Where the first card of the queue starts: the camera's bottom and the gap, else `cfg.top`.
+    /// The room the column has: where its first card may start (the zone's top, or under the camera's card) and where its last may end (the
+    /// zone's foot, or above the camera's card). A column of any height that fits is placed whole inside the zone, so the check is on the
+    /// cards' total height and does not depend on which edge the column is anchored to.
     pub top: f64,
+    pub limit: f64,
     pub height_of: &'a mut dyn FnMut(&Entry) -> f64,
 }
 
@@ -492,7 +495,7 @@ impl Queue {
             });
             let best = if ctx.camera { 0 } else { order.first().map_or(0, |&i| self.list[i].priority) };
             let slots = cfg.max_visible.saturating_sub(usize::from(ctx.camera));
-            // the column's start is the caller's: the placement's place for it, under the camera's card when that is up
+            // the room is the caller's: the placement's zone, less the camera's card when it is up
             let mut y = ctx.top;
             let mut have_score = false;
             for &i in &order {
@@ -507,8 +510,8 @@ impl Queue {
                     continue;
                 }
                 let h = (ctx.height_of)(e);
-                // the first card of an empty screen always shows (a doorbell is not left unseen for its size); any other must end above the limit
-                if (!chosen.is_empty() || ctx.camera) && y + h > cfg.limit {
+                // the first card of an empty screen always shows (a doorbell is not left unseen for its size); any other must fit the room
+                if (!chosen.is_empty() || ctx.camera) && y + h > ctx.limit {
                     continue;
                 }
                 chosen.push(e.key.clone());
@@ -643,7 +646,7 @@ mod tests {
         fn ctx(&mut self, dnd: bool, camera: bool, top: f64) -> Selection {
             let h = self.h;
             let mut f = move |_: &Entry| h;
-            let mut ctx = Ctx { dnd, camera, top, height_of: &mut f };
+            let mut ctx = Ctx { dnd, camera, top, limit: self.cfg.limit, height_of: &mut f };
             self.q.select(&mut ctx, &self.cfg, self.t)
         }
         fn now(&mut self) -> Selection {

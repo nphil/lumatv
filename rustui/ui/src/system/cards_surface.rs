@@ -252,9 +252,21 @@ impl CardsSurface {
         }
     }
 
-    /// Where the first card starts: the column's top for a card of a typical height.
-    pub fn top(&self, popup: Option<Size>, width: f32) -> f64 {
-        f64::from(self.column(popup, Size::new(width as i32, 150)).0.y)
+    /// The room the column has, as the queue is asked: where its first card may start and where its last may end. It is the zone's, less the
+    /// camera window's where the two meet (under the window for a column that grows down, above it for one that grows up), whichever edge the
+    /// column is anchored to: a column of any height that fits is placed whole inside the zone (`rect_of`).
+    pub fn room(&self, popup: Option<Size>, width: f32) -> (f64, f64) {
+        let probe = Size::new(width as i32, 150);
+        let z = self.registry.zone_of("cards", &self.frame);
+        let down = self.registry.placement_of("cards", &self.user).is_none_or(|p| p.placement.grows_down());
+        let window = popup.and_then(|p| {
+            let mut sizes = Sizes::new();
+            sizes.set("popup", p);
+            sizes.set("cards", probe);
+            self.registry.layout_all(&self.user, &self.frame, &sizes, None, false).rect("popup")
+        });
+        let room = self.registry.column_room_for("cards", &self.user, &self.frame, window.as_ref(), lumatv_placement::model::STACK, probe);
+        if down { (f64::from(z.bottom() - room), f64::from(z.bottom())) } else { (f64::from(z.y), f64::from(z.y + room)) }
     }
 
     /// Fits the screen to `shown` (top first): cards that came are made and slide in, those that went slide out, the rest stay or glide.
@@ -282,11 +294,27 @@ impl CardsSurface {
             s.sheet.slide_out(kit, slide);
             self.leaving.push((s.sheet, now_ms + u64::from(kit.beat_ms(crate::kit::motion::Beat::Rest)) + 40));
         }
-        let mut y = rect.y as f32;
+        // a column anchored in the upper half grows down from its edge, the first card on top; one anchored low grows up from its edge, the
+        // first card (the one OK and Back act on) nearest the edge and the others above it
+        let down = self.registry.placement_of("cards", &self.user).is_none_or(|p| p.placement.grows_down());
+        let mut ys = Vec::with_capacity(plans.len());
+        if down {
+            let mut y = rect.y as f32;
+            for p in &plans {
+                ys.push(y);
+                y += p.height + gap;
+            }
+        } else {
+            let mut foot = rect.bottom() as f32;
+            for p in &plans {
+                ys.push(foot - p.height);
+                foot -= p.height + gap;
+            }
+        }
         let x = rect.x as f32;
-        for (e, p) in shown.iter().zip(&plans) {
+        for (k, (e, p)) in shown.iter().zip(&plans).enumerate() {
             let sig = signature(e, drawer_ready, width);
-            let at = (x, y);
+            let at = (x, ys[k]);
             let existing = self.slots.iter().position(|s| s.key == e.key);
             match existing {
                 Some(k) if self.slots[k].sig == sig => {
@@ -315,7 +343,6 @@ impl CardsSurface {
                     self.slots.push(slot);
                 }
             }
-            y += p.height + gap;
         }
         // the slots keep the order of the cards
         self.slots.sort_by_key(|s| shown.iter().position(|e| e.key == s.key).unwrap_or(usize::MAX));
@@ -449,7 +476,7 @@ mod tests {
             ],
             T0,
         );
-        o.refresh(134.0, &mut |e| f64::from(CardsSurface::height_of(kit, e, 560.0, false)), T0);
+        o.refresh((134.0, 810.0), &mut |e| f64::from(CardsSurface::height_of(kit, e, 560.0, false)), T0);
         o.shown().to_vec()
     }
 
@@ -500,7 +527,7 @@ mod tests {
             let mut o = Overlay::new(&json!({}));
             let score = json!({"league": "Premier League", "status": "78'", "live": true, "home": {"name": "Arsenal", "abbr": "ARS", "score": 2}, "away": {"name": "Chelsea", "abbr": "CHE", "score": 1}});
             o.posted(&[note("s", "score", "Arsenal 2, Chelsea 1", "", json!([]), score)], T0);
-            o.refresh(134.0, &mut |e| f64::from(CardsSurface::height_of(&mut kit, e, 560.0, false)), T0);
+            o.refresh((134.0, 810.0), &mut |e| f64::from(CardsSurface::height_of(&mut kit, e, 560.0, false)), T0);
             assert!(s.apply(&mut kit, o.shown(), &col(None), 1000).unwrap());
             assert_eq!(o.shown()[0].cls, "score");
             let found = lint_of(&mut kit, &s);
@@ -516,7 +543,8 @@ mod tests {
         s.apply(&mut kit, &shown[..1], &col(Some(popup)), 1000).unwrap();
         let g = s.geometry();
         assert_eq!(g[0]["y"].as_f64().unwrap(), 134.0 + 469.0 + 16.0, "under the window: {g}");
-        assert_eq!(s.top(Some(popup), 560.0), 134.0 + 469.0 + 16.0);
+        assert_eq!(s.room(Some(popup), 560.0), (134.0 + 469.0 + 16.0, 810.0), "the room under the window");
+        assert_eq!(s.room(None, 560.0), (134.0, 810.0), "the zone's own");
         // the card goes: it fades out and is dropped after the beat
         s.apply(&mut kit, &[], &col(None), 2000).unwrap();
         assert!(!s.is_up());
@@ -525,6 +553,51 @@ mod tests {
         assert!(layers > 0, "still fading");
         assert!(s.tick(10_000));
         assert_eq!(s.layers(), 0, "nothing hidden is kept");
+    }
+
+    fn low(popup_anchor: Option<&str>) -> CardsSurface {
+        let layout: Value = serde_json::from_str(include_str!("../../../../payload/theme/layout.json")).unwrap();
+        let mut overlays = json!({"cards": {"anchor": "bottom-right", "dx": 0.0, "dy": 0.0}});
+        if let Some(a) = popup_anchor {
+            overlays["popup"] = json!({"anchor": a, "dx": 0.0, "dy": 0.0});
+        }
+        CardsSurface::new(1060, &json!({"layout": {"overlays": overlays}}), &layout)
+    }
+
+    #[test]
+    fn a_column_anchored_low_has_the_whole_zones_room_stacks_up_from_its_edge_with_the_first_card_nearest_it_and_stays_in_the_zone() {
+        let (_h, mut kit) = testkit::kit(1.0);
+        let mut s = low(None);
+        assert_eq!(s.room(None, 560.0), (134.0, 810.0), "the room is the zone's, whichever edge it is anchored to");
+        // the queue is asked with that room: two cards fit, where counting from the card's own place (810 - 150) would let one show
+        let shown = two_cards(&mut kit);
+        assert_eq!(shown.len(), 2, "two cards at 100 % text");
+        assert!(s.apply(&mut kit, &shown, &col(None), 1000).unwrap());
+        let g = s.geometry();
+        let cards = g.as_array().unwrap();
+        assert_eq!(cards.len(), 2);
+        let (a, b) = (&cards[0], &cards[1]);
+        let bottom = |c: &Value| c["y"].as_f64().unwrap() + c["h"].as_f64().unwrap();
+        assert_eq!(bottom(a), 810.0, "the first card ends at the zone's foot: {g}");
+        assert_eq!(bottom(b) + 16.0, a["y"].as_f64().unwrap(), "the second is above it with the gap: {g}");
+        assert!(b["y"].as_f64().unwrap() >= 134.0, "inside the zone: {g}");
+    }
+
+    #[test]
+    fn a_column_anchored_low_goes_above_the_camera_window_and_the_room_is_what_is_left_over_it() {
+        let (_h, mut kit) = testkit::kit(1.0);
+        // the camera window anchored at the foot too: the two share the corner, and the column is above the window
+        let mut s = low(Some("bottom-right"));
+        let popup = Size::new(560, 300);
+        let (top, limit) = s.room(Some(popup), 560.0);
+        assert_eq!(top, 134.0);
+        assert_eq!(limit, 810.0 - 300.0 - 16.0, "above the window");
+        let shown = two_cards(&mut kit);
+        let one = &shown[..1];
+        assert!(s.apply(&mut kit, one, &col(Some(popup)), 1000).unwrap());
+        let g = s.geometry();
+        let c = &g[0];
+        assert!(c["y"].as_f64().unwrap() + c["h"].as_f64().unwrap() + 16.0 <= 810.0 - 300.0 + 0.5, "the card ends above the window: {g}");
     }
 
     #[test]

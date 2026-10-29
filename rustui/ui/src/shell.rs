@@ -437,16 +437,22 @@ impl Shell {
         acts
     }
 
-    /// The editor is started with the sizes of the stand-ins it draws, measured as the real surfaces are at the person's text size.
-    fn start_layout(&mut self, item: Option<&str>) {
-        if !self.kinds.layout {
-            return;
-        }
+    /// What the surfaces the editor stands in for measure at the person's text size.
+    fn layout_sizes(&mut self) -> lumatv_placement::Sizes {
         let mut sizes = lumatv_placement::Sizes::new();
         self.sys.sample_sizes(&mut self.kit, &mut sizes);
         self.volume_surface.sample_sizes(&mut self.kit, &mut sizes);
         sizes.set("toast", lumatv_placement::Size::new(560, self.toast_surface.sample_height(&self.kit).ceil() as i32));
         sizes.set("mute", lumatv_placement::Size::new(64, 64));
+        sizes
+    }
+
+    /// The editor is started with the sizes of the stand-ins it draws, measured as the real surfaces are at the person's text size.
+    fn start_layout(&mut self, item: Option<&str>) {
+        if !self.kinds.layout {
+            return;
+        }
+        let sizes = self.layout_sizes();
         self.sys.start_layout(item, sizes);
         self.redraw = true;
     }
@@ -877,7 +883,8 @@ impl Shell {
         self.volume.debug()
     }
 
-    /// The theme or the text size changed: the surfaces are made again at the next draw.
+    /// The theme or the text size changed: the surfaces are made again at the next draw, and the layout editor, when it is open, measures the
+    /// surfaces it stands in for again (its stand-ins follow the person's text size, not the size they had when it was opened).
     pub fn restyle(&mut self) {
         self.volume_surface.restyle();
         self.toast_surface.restyle();
@@ -886,6 +893,10 @@ impl Shell {
         self.home_surface.restyle();
         self.cameras.restyle(&mut self.engine, self.kit.text_scale);
         self.settings.restyle();
+        if self.kinds.layout && self.sys.layout_open() {
+            let sizes = self.layout_sizes();
+            self.sys.set_layout_sizes(sizes);
+        }
         self.redraw = true;
     }
 
@@ -1023,6 +1034,23 @@ mod tests {
         let (h, kit) = testkit::kit(1.0);
         let shell = Shell::new(kit, Kinds::parse("cameras"), 2000, &testkit::module_dir().join("icons/audio"), &json!({}), &json!({})).expect("a shell");
         (h, shell)
+    }
+
+    #[test]
+    fn the_layout_editor_measures_its_stand_ins_again_when_the_text_size_changes_while_it_is_open() {
+        let (_h, kit) = testkit::kit(1.0);
+        let mut shell = Shell::new(kit, Kinds::parse("layout"), 2000, &testkit::module_dir().join("icons/audio"), &json!({}), &json!({})).expect("a shell");
+        shell.open_layout(None, 1_000);
+        let height_of = |s: &Shell, id: &str| -> f64 {
+            s.geometry()["layout"]["items"].as_array().and_then(|items| items.iter().find(|i| i["id"] == id)).and_then(|i| i["h"].as_f64()).unwrap_or(0.0)
+        };
+        let (cards, popup) = (height_of(&shell, "cards"), height_of(&shell, "popup"));
+        assert!(cards > 0.0 && popup > 0.0, "the editor is open and drew its stand-ins: {}", shell.geometry()["layout"]);
+        shell.reload_theme(&json!({"type": {"scale": 2.0}}));
+        shell.tick(1_100);
+        assert!(height_of(&shell, "cards") > cards, "the cards' stand-in is taller at 200 % text, with the editor still open");
+        assert!(height_of(&shell, "popup") > popup, "so is the camera window's");
+        assert_eq!(shell.state()["layout"], json!({"open": true}), "the editor stayed open through it");
     }
 
     fn claims(acts: &[Act]) -> Vec<Value> {

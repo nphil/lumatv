@@ -136,11 +136,12 @@ impl Overlay {
         self.dirty || (self.wake_at > 0 && now >= self.wake_at)
     }
 
-    /// Looks at the queue again: what shows now, whether the keys are the top card's, when to look next. `top` is where the first card starts
-    /// (the placement's place for the column, under the camera's card when that is up), `height_of` a card's height as it is drawn.
-    pub fn refresh(&mut self, top: f64, height_of: &mut dyn FnMut(&Entry) -> f64, now: u64) {
+    /// Looks at the queue again: what shows now, whether the keys are the top card's, when to look next. `room` is the column's room: where its
+    /// first card may start and where its last may end (the placement's zone, less the camera's card when that is up, wherever the column is
+    /// anchored), `height_of` a card's height as it is drawn.
+    pub fn refresh(&mut self, room: (f64, f64), height_of: &mut dyn FnMut(&Entry) -> f64, now: u64) {
         self.dirty = false;
-        let mut ctx = Ctx { dnd: self.dnd, camera: self.camera_up, top, height_of };
+        let mut ctx = Ctx { dnd: self.dnd, camera: self.camera_up, top: room.0, limit: room.1, height_of };
         let sel = self.queue.select(&mut ctx, &self.cfg, now);
         self.shown = sel.visible.iter().filter_map(|k| self.queue.find(k).cloned()).collect();
         self.armed = self.queue.armed(&sel.visible, &self.cfg, now);
@@ -250,7 +251,7 @@ mod tests {
     }
 
     fn refresh(o: &mut Overlay, now: u64) {
-        o.refresh(134.0, &mut |_| 150.0, now);
+        o.refresh((134.0, 810.0), &mut |_| 150.0, now);
     }
 
     #[test]
@@ -378,7 +379,7 @@ mod tests {
         let mut seen = Vec::new();
         o.set_camera(true);
         o.posted(&[note("n9", "timer")], T0 + 3_000);
-        o.refresh(134.0 + 469.0 + 16.0, &mut |e| {
+        o.refresh((134.0 + 469.0 + 16.0, 810.0), &mut |e| {
             seen.push(e.key.clone());
             150.0
         }, T0 + 3_000);

@@ -41,12 +41,14 @@ full viewer is unchanged). `ctl shell show layout [ITEM]` reaches the Rust clien
 - It takes every key and the pointer while up (`wants`), is left by Done, Back or the Home key, and writes `layout.overlays` whole through `Effect::Theme`
   on each put-down and Reset. The shell then gives every surface the new places and Settings the merged theme, so its rows (`Registry::words`) update.
 
-### Known limits
+### Placement of the columns (RustGaps, 2026-10-29)
 
-- A card anchored low shows one at a time (the queue's limit check counts from the top of the column).
-- The editor's stand-ins are simplified pictures of the real surfaces at their measured sizes; a text-size change while it is open is not followed until it
-  is opened again.
-- The toast column is not placed by the anchor's direction (anchored low it would run past its zone).
+- A column of cards or toasts is placed whole inside its zone whichever edge it is anchored to (`rect_of` of the column's total height). Anchored in the upper
+  half it grows down from its edge, the first card (the newest toast) on top; anchored low it grows up from its edge, the first card (the newest toast) nearest
+  the edge and the others above it. The cards' queue is asked with the room of the zone, less the camera window's where the two meet (`CardsSurface::room`), so a
+  low-anchored column holds as many cards as the zone does, and the toast column shows fewer than three when the zone cannot hold them.
+- The layout editor measures its stand-ins again when the text size changes while it is open (`Shell::restyle`).
+- The editor's stand-ins are still simplified pictures of the real surfaces at their measured sizes.
 
 ## TV checks (next round)
 
