@@ -35,7 +35,8 @@ use ui::scene::{Scene, SceneOptions};
 
 const SHIPPED_LAYOUT: &str = include_str!("../../../payload/theme/layout.json");
 /// The helper's topics the shell follows besides its plugins' (`kit/Helper.qml` `subscribed`, and the sheets of the cameras).
-const HELPER_TOPICS: &str = "screen,weather,news,receiver,ai,ai.prompt,plugins,ha.link,updateblock,openapps,panel,cameras,cameras.popup,cameras.live,cameras.events,profiles";
+const HELPER_TOPICS: &str =
+    "screen,weather,news,receiver,ai,ai.prompt,plugins,ha.link,updateblock,openapps,panel,cameras,cameras.popup,cameras.live,cameras.events,profiles";
 
 struct Options {
     host: bool,
@@ -226,7 +227,7 @@ fn make_shell(o: &Options, scene: Scene) -> io::Result<Shell> {
     let (tokens, theme, layout) = theme_and_layout(o);
     let mode = o.mode.unwrap_or_else(|| tokens.mode(None));
     let kit = Kit::new(scene, tokens, mode, MaterialTier::T1, o.text_scale)?;
-    let mut shell = Shell::new(kit, Kinds::parse(&o.kinds), o.system_z, &o.module_dir.join("icons/audio"), &theme, &layout);
+    let mut shell = Shell::new(kit, Kinds::parse(&o.kinds), o.system_z, &o.module_dir.join("icons/audio"), &theme, &layout)?;
     shell.dirs(&o.module_dir, &o.data_dir);
     Ok(shell)
 }
@@ -320,6 +321,8 @@ fn run_set(o: Options) -> io::Result<()> {
                 Err(e) => return Err(io::Error::other(format!("the engine's socket: {e}"))),
             }
         }
+        let now_ns = shell.kit.ui.scene.now_ns();
+        shell.tidy(now_ns);
     }
 }
 
@@ -568,6 +571,7 @@ fn run_host(o: Options) -> io::Result<()> {
                 ));
             }
             engine.tidy();
+            shell.tidy(now_ns);
         } else {
             // Commits that show nothing by themselves (atlas chunks, layers made ahead) are applied without a frame, and the upload
             // work they leave is done now: `tidy_more` only says what the last tidy left over.

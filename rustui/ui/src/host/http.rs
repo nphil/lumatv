@@ -114,7 +114,8 @@ enum Topics {
 /// The topic names a poll asks for under the roster as it stands: `None` for every topic.
 pub fn follow_filter(base: &str, roster: &Value) -> Option<String> {
     let mut names: Vec<String> = base.split(',').map(str::to_string).collect();
-    let plugins = roster.get("plugins").and_then(Value::as_array).into_iter().flatten().chain(roster.get("firstParty").and_then(Value::as_array).into_iter().flatten());
+    let plugins =
+        roster.get("plugins").and_then(Value::as_array).into_iter().flatten().chain(roster.get("firstParty").and_then(Value::as_array).into_iter().flatten());
     for p in plugins {
         if p.get("state").and_then(Value::as_str) != Some("connected") {
             continue;

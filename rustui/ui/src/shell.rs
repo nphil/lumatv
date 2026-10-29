@@ -6,8 +6,8 @@
 
 use crate::host::http::{Event, Outbound};
 use crate::host::keys::KeyEvent;
-use crate::kit::Kit;
 use crate::kit::screen::{Effect, Input, Model};
+use crate::kit::{Engine, Kit};
 use crate::system::toast::{FEED_TAG, Toasts};
 use crate::system::toast_surface::ToastSurface;
 use crate::system::volume::Volume;
@@ -60,6 +60,9 @@ impl Kinds {
 
 pub struct Shell {
     pub kit: Kit,
+    /// The focus engine every screen of the process shares: the registry of focusables (a modal kind opens a scope of its own) and the
+    /// flowing lift that shows each move.
+    pub engine: Engine,
     pub kinds: Kinds,
     volume: Volume,
     volume_surface: VolumeSurface,
@@ -77,13 +80,15 @@ pub struct Shell {
 
 impl Shell {
     /// `icons` is the module's `icons/audio` directory; `theme` the merged theme and `layout` Home's layout, for the placements.
-    pub fn new(kit: Kit, kinds: Kinds, system_z: i32, icons: &Path, theme: &Value, layout: &Value) -> Self {
-        Self {
+    pub fn new(kit: Kit, kinds: Kinds, system_z: i32, icons: &Path, theme: &Value, layout: &Value) -> std::io::Result<Self> {
+        let engine = Engine::new(&kit).map_err(|e| std::io::Error::other(format!("{e}")))?;
+        Ok(Self {
             volume: Volume::default(),
             volume_surface: VolumeSurface::new(system_z, icons, theme, layout),
             toasts: Toasts::new(),
             toast_surface: ToastSurface::new(system_z + 10, theme, layout),
             kit,
+            engine,
             kinds,
             reported: None,
             live: false,
@@ -91,7 +96,12 @@ impl Shell {
             helper_up: false,
             started: false,
             data_dir: None,
-        }
+        })
+    }
+
+    /// After a frame: the focusables that have come to rest give their lift track back (`now_ns` on the engine's clock).
+    pub fn tidy(&mut self, now_ns: u64) {
+        self.engine.flow.tidy(now_ns);
     }
 
     /// The module's directory (`<module>/icons/lucide` are the kit's icons) and the data directory (`theme/theme.json` is written

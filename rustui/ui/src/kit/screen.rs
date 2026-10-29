@@ -53,7 +53,10 @@ pub enum Effect {
     Request { tag: u64, method: String, path: String, body: Option<Value> },
     /// A patch of the owner's theme (`theme/theme.json`), merged one level deep and written atomically by the host; the merged file
     /// comes back as [`Input::Fetched`] with the tag (status 200), or status 500 with the reason when it could not be written.
-    Theme { tag: u64, patch: Value },
+    Theme {
+        tag: u64,
+        patch: Value,
+    },
     /// A line in the host's log (the journal on the set, stdout on the host).
     Log(String),
     /// The model's view changed: the surface is to be drawn again.

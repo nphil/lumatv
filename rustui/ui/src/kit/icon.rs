@@ -187,8 +187,28 @@ mod tests {
     fn the_icons_the_system_layer_draws_are_all_in_the_folder() {
         let mut icons = Icons::new(&module());
         for name in [
-            "bell-ring", "alarm-clock", "timer", "circle-alert", "trophy", "triangle-alert", "bell", "cable", "video", "volume-2", "volume-x", "info", "user", "car", "paw-print", "package",
-            "activity", "camera", "monitor", "plug", "chevron-down", "chevron-right",
+            "bell-ring",
+            "alarm-clock",
+            "timer",
+            "circle-alert",
+            "trophy",
+            "triangle-alert",
+            "bell",
+            "cable",
+            "video",
+            "volume-2",
+            "volume-x",
+            "info",
+            "user",
+            "car",
+            "paw-print",
+            "package",
+            "activity",
+            "camera",
+            "monitor",
+            "plug",
+            "chevron-down",
+            "chevron-right",
         ] {
             assert!(icons.has(name), "{name}");
         }

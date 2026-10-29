@@ -147,7 +147,12 @@ fn overlap_area(a: &Frame, b: &Frame) -> f32 {
 impl Lint {
     /// A lint of the whole 1920 by 1080 screen, held to Home's safe area (64 and 54, `layout.json`).
     pub fn new() -> Self {
-        Self { screen: Frame::new(0.0, 0.0, 1920.0, 1080.0), safe: Frame::new(64.0, 54.0, 1920.0 - 128.0, 1080.0 - 108.0), panels: Vec::new(), words: Vec::new() }
+        Self {
+            screen: Frame::new(0.0, 0.0, 1920.0, 1080.0),
+            safe: Frame::new(64.0, 54.0, 1920.0 - 128.0, 1080.0 - 108.0),
+            panels: Vec::new(),
+            words: Vec::new(),
+        }
     }
 
     /// The safe area panels marked `safe` are held to.
@@ -196,7 +201,12 @@ impl Lint {
         let mut out = Vec::new();
         let finding = |kind: Kind, subject: &str, detail: String| Finding { kind, subject: subject.to_string(), detail };
         for p in &self.panels {
-            if p.safe && !(p.rect.x >= self.safe.x - TOL && p.rect.y >= self.safe.y - TOL && p.rect.right() <= self.safe.right() + TOL && p.rect.bottom() <= self.safe.bottom() + TOL) {
+            if p.safe
+                && !(p.rect.x >= self.safe.x - TOL
+                    && p.rect.y >= self.safe.y - TOL
+                    && p.rect.right() <= self.safe.right() + TOL
+                    && p.rect.bottom() <= self.safe.bottom() + TOL)
+            {
                 out.push(finding(Kind::Safe, &p.name, format!("{:?} is not inside the safe area {:?}", rect_text(&p.rect), rect_text(&self.safe))));
             }
         }
@@ -215,7 +225,9 @@ impl Lint {
             let alone = self.words.iter().filter(|o| o.panel == w.panel).count() == 1;
             if alone && b.h <= CENTRED_MAX_H && p.paint.3 > 0 {
                 let (wc, bc) = (r.centre(), b.centre());
-                if (wc.0 - bc.0).abs() > CENTRE && (r.x - b.x - PAD_X).abs() > CENTRE && ((b.right() - PAD_X) - r.right()).abs() > CENTRE || (wc.1 - bc.1).abs() > CENTRE {
+                if (wc.0 - bc.0).abs() > CENTRE && (r.x - b.x - PAD_X).abs() > CENTRE && ((b.right() - PAD_X) - r.right()).abs() > CENTRE
+                    || (wc.1 - bc.1).abs() > CENTRE
+                {
                     out.push(finding(Kind::OffCentre, &w.name, format!("centre {:?} against {} {:?}", wc, p.name, bc)));
                 }
             }
@@ -231,10 +243,20 @@ impl Lint {
         for w in &self.words {
             // words with no panel are on the bare screen: nothing is known of what is behind them
             let Some(paint) = w.panel.and_then(|i| self.panels.get(i)).map(|p| p.paint) else { continue };
-            let need = if w.muted { CONTRAST_MUTED } else if w.px >= LARGE_PX { CONTRAST_LARGE } else { CONTRAST_TEXT };
+            let need = if w.muted {
+                CONTRAST_MUTED
+            } else if w.px >= LARGE_PX {
+                CONTRAST_LARGE
+            } else {
+                CONTRAST_TEXT
+            };
             let got = worst_contrast(w.ink, paint);
             if got + 0.005 < need {
-                out.push(finding(Kind::Contrast, &w.name, format!("{got:.2}:1 on {} where {need}:1 is needed", w.panel.and_then(|i| self.panels.get(i)).map_or("the screen", |p| p.name.as_str()))));
+                out.push(finding(
+                    Kind::Contrast,
+                    &w.name,
+                    format!("{got:.2}:1 on {} where {need}:1 is needed", w.panel.and_then(|i| self.panels.get(i)).map_or("the screen", |p| p.name.as_str())),
+                ));
             }
         }
         out
