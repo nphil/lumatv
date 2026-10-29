@@ -12,6 +12,7 @@ use lumatv_compositor::scene::Plan;
 use lumatv_compositor::server::state::ClientCallbacks;
 use lumatv_compositor::surface::Surfaces;
 use parking_lot::Mutex;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
@@ -272,4 +273,52 @@ fn with_client_callbacks_at_the_commit_a_cards_replaced_buffer_is_released_at_th
     assert!(client.wait_until(Duration::from_secs(3), |s| s.releases.contains(&first)), "the buffer the second frame replaced is back at its draw");
     let (at_commit, ahead) = server.eval(|s| (s.stats.callbacks_at_commit, s.stats.callbacks_ahead));
     assert_eq!((at_commit, ahead), (2, 0));
+}
+
+/// What a card that draws its next frame the moment its callback comes costs between two draws, per callback pacing: its commits a refresh,
+/// with `buffers` buffers in its swap chain and a frame that takes no time to make (the most it can do). A refresh is one tick and one landed
+/// flip, so the count does not depend on the machine's speed.
+fn commits_per_refresh(policy: ClientCallbacks, buffers: usize, refreshes: usize) -> Vec<usize> {
+    let (mut server, landed, _drawn_at) = flipping(Duration::ZERO);
+    server.ticking.store(false, Ordering::SeqCst);
+    server.eval(move |s| s.client_callbacks = policy);
+    let mut client = Client::connect(&mut server);
+    let card = client.card("_WEBOS_WINDOW_TYPE_CARD", "greedy");
+    let pool: Vec<_> = (0..buffers).map(|i| client.shm_buffer(64, 36, 0xff00_0000 | (i as u32 * 0x0010_1010))).collect();
+    let mut free: HashSet<u32> = pool.iter().map(|b| b.id().protocol_id()).collect();
+    let (mut committed, mut per_refresh) = (0, Vec::new());
+    for _ in 0..refreshes {
+        let mut commits = 0;
+        loop {
+            client.roundtrip();
+            free.extend(client.state.releases.drain(..));
+            // libmali's present thread commits the next frame once the callback of the one before has come, into a buffer it has
+            let Some(&id) = free.iter().next().filter(|_| client.state.frames_done >= committed) else { break };
+            free.remove(&id);
+            client.present(&card.surface, pool.iter().find(|b| b.id().protocol_id() == id).unwrap());
+            (committed, commits) = (committed + 1, commits + 1);
+            assert!(commits <= buffers, "a refresh's commits are the buffers the client has");
+        }
+        per_refresh.push(commits);
+        server.eval(|s| s.tick());
+        landed.store(1, Ordering::SeqCst);
+        server.eval(|s| s.land_flips());
+    }
+    per_refresh
+}
+
+/// The price of the callbacks at the commit (round 19), measured on the model: a card that draws on every callback makes a frame for each
+/// spare buffer it has between two draws, all but the last of which the next commit replaces unseen (with three buffers, two frames a
+/// refresh, so the app's own drawing is doubled while it animates); at the draw or the flip it makes one. Over Home nothing of this is in
+/// play: the Home stub commits next to nothing.
+#[test]
+fn a_card_that_draws_on_every_callback_commits_once_a_refresh_at_the_draw_and_once_for_each_spare_buffer_at_the_commit() {
+    for buffers in [2, 3, 4] {
+        let at_commit = commits_per_refresh(ClientCallbacks::Commit, buffers, 12);
+        assert!(at_commit[2..].iter().all(|&n| n == buffers - 1), "{buffers} buffers, at the commit: {at_commit:?}");
+        for policy in [ClientCallbacks::Draw, ClientCallbacks::Landing] {
+            let paced = commits_per_refresh(policy, buffers, 12);
+            assert!(paced.iter().all(|&n| n == 1), "{buffers} buffers, {policy:?}: {paced:?}");
+        }
+    }
 }
