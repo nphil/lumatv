@@ -1618,8 +1618,16 @@ impl Output for Gl {
         self.graveyard.len()
     }
 
-    fn sample_cells(&mut self, plan: &Plan, surfaces: &Surfaces, luma: &mut [u8; crate::boxdim::CELLS]) -> io::Result<bool> {
-        Gl::sample_cells(self, plan, surfaces, luma)
+    fn sample_begin(&mut self, plan: &Plan, _surfaces: &Surfaces) -> io::Result<bool> {
+        Gl::sample_begin(self, plan)
+    }
+
+    fn sample_take(&mut self, sigs: &mut [crate::boxdim::Sig; crate::boxdim::CELLS]) -> io::Result<bool> {
+        Gl::sample_take(self, sigs)
+    }
+
+    fn boxdim_warm(&mut self) -> io::Result<bool> {
+        Gl::boxdim_warm(self)
     }
 
     fn forget_buffer(&mut self, buffer: &WlBuffer) {

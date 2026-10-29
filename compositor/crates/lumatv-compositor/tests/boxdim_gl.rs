@@ -1,6 +1,7 @@
-//! The box dim's GPU side (`render/gl/boxdim.rs`) on Mesa's software GL: the sample pass reads each cell's brightness, holes black; the
-//! gained program draws the map feathered and leaves what is not an app's; and what a frame with the map costs against one without
-//! (printed, a host number for `docs/research/boxdim-result.md`).
+//! The box dim's GPU side (`render/gl/boxdim.rs`) on Mesa's software GL: its programs and targets are made ahead in four pieces; the
+//! sample, begun and read once the GPU is done, says each cell's numbers, holes black; the gained program draws the map feathered and
+//! leaves what is not an app's; and what a frame with the map costs against one without (printed, a host number for
+//! `docs/research/boxdim-result.md`).
 
 mod harness;
 
@@ -87,31 +88,57 @@ fn px(img: &Image, x: i32, y: i32) -> [u8; 4] {
 }
 
 #[test]
-fn the_sample_pass_reads_each_cells_brightness_with_the_hole_black() {
+fn the_sample_is_made_ahead_in_pieces_read_once_the_gpu_is_done_and_says_each_cells_numbers_with_the_hole_black() {
     let Some((server, _client)) = screen() else { return };
-    let luma = server.eval(|s| {
+    let (sigs, pieces, begin_us, polls) = server.eval(|s| {
         s.tick_at(SEC);
         let State { scene, surfaces, output, .. } = s;
-        let mut luma = [0u8; CELLS];
+        // The warm-up: the pass across, the pass down, the gained program, the targets and first draws; a piece a call.
+        let mut pieces = Vec::new();
+        loop {
+            let began = Instant::now();
+            let done = output.boxdim_warm().unwrap();
+            pieces.push(began.elapsed().as_micros());
+            if done {
+                break;
+            }
+            assert!(pieces.len() < 10);
+        }
+        let mut sigs = Box::new([[0u8; 3]; CELLS]);
+        assert!(!output.sample_take(&mut sigs).unwrap(), "nothing begun, nothing to read");
         let began = Instant::now();
-        assert!(output.sample_cells(scene.last_plan(), surfaces, &mut luma).unwrap());
-        eprintln!("boxdim: sample pass {} us on Mesa", began.elapsed().as_micros());
-        luma
+        assert!(output.sample_begin(scene.last_plan(), surfaces).unwrap());
+        let begin_us = began.elapsed().as_micros();
+        assert!(!output.sample_begin(scene.last_plan(), surfaces).unwrap(), "one in flight at a time");
+        let mut polls = 0;
+        while !output.sample_take(&mut sigs).unwrap() {
+            polls += 1;
+            std::thread::sleep(std::time::Duration::from_millis(1));
+            assert!(polls < 2000);
+        }
+        (sigs, pieces, begin_us, polls)
     });
-    let at = |c: usize, r: usize| luma[r * 64 + c];
-    assert!(at(15, 15) >= 254, "a white cell: {}", at(15, 15));
-    assert!(at(10, 10) >= 254 && at(20, 20) >= 254, "the box's corner cells are whole cells");
-    assert!(at(40, 30).abs_diff(64) <= 1, "a grey cell: {}", at(40, 30));
-    assert!(at(0, 0).abs_diff(64) <= 1 && at(63, 35).abs_diff(64) <= 1, "the screen's corners: {} {}", at(0, 0), at(63, 35));
+    eprintln!("boxdim: warm-up pieces {pieces:?} us, sample begun in {begin_us} us, read after {polls} polls (Mesa llvmpipe)");
+    assert_eq!(pieces.len(), 4, "four pieces: {pieces:?}");
+    let at = |c: usize, r: usize| sigs[r * 64 + c];
+    let near = |a: [u8; 3], b: [u8; 3]| a.iter().zip(b).all(|(x, y)| x.abs_diff(y) <= 1);
+    assert!(near(at(15, 15), [255; 3]), "a white cell: {:?}", at(15, 15));
+    assert!(near(at(10, 10), [255; 3]) && near(at(20, 20), [255; 3]), "the box's corner cells are whole cells");
+    assert!(near(at(40, 30), [64; 3]), "a grey cell: {:?}", at(40, 30));
+    assert!(near(at(0, 0), [64; 3]) && near(at(63, 35), [64; 3]), "the screen's corners: {:?} {:?}", at(0, 0), at(63, 35));
+    // Cell 21 is white on its left half (to x 645) and grey on its right: the whole cell averages both, its left part is white, its
+    // lower part is the whole's.
     let half = at(21, 15);
-    assert!(half.abs_diff(((255u32 + 64) / 2) as u8) <= 2, "a cell half white, half grey averages both: {half}");
-    assert!(at(9, 15).abs_diff(64) <= 1, "the cell left of the box is grey: {}", at(9, 15));
+    assert!(half[0].abs_diff(((255u32 + 64) / 2) as u8) <= 2, "a cell half white, half grey averages both: {half:?}");
+    assert!(half[1] >= 254, "its left 14 columns are white: {half:?}");
+    assert!(half[2].abs_diff(half[0]) <= 2, "and its lower rows are like all of it: {half:?}");
+    assert!(near(at(9, 15), [64; 3]), "the cell left of the box is grey: {:?}", at(9, 15));
     for r in 20..26 {
         for c in 40..48 {
-            assert_eq!(at(c, r), 0, "the hole's cell ({c}, {r}) is black");
+            assert_eq!(at(c, r), [0; 3], "the hole's cell ({c}, {r}) is black");
         }
     }
-    assert!(at(39, 22).abs_diff(64) <= 1 && at(48, 22).abs_diff(64) <= 1, "beside the hole: grey");
+    assert!(near(at(39, 22), [64; 3]) && near(at(48, 22), [64; 3]), "beside the hole: grey");
 }
 
 #[test]

@@ -202,11 +202,25 @@ pub trait Output {
     /// output may call the screen at rest once that frame has flipped, rather than a second after it, so the tick stays at its slowed rate.
     fn quiet_frame(&mut self) {}
 
-    /// The brightness of the app's pictures in the last plan, one 8-bit luma per cell of the box dim's grid (`boxdim`, row 0 the top),
-    /// composed at the grid's resolution with the plan's holes black: what the box dim reads every few seconds on a still screen. `false`
-    /// when the output cannot sample (nothing is dimmed then). The default cannot.
-    fn sample_cells(&mut self, _plan: &Plan, _surfaces: &Surfaces, _luma: &mut [u8; crate::boxdim::CELLS]) -> io::Result<bool> {
+    /// Begins a sample of the app's pictures in `plan` for the box dim (`boxdim`): each cell of its grid's numbers (`boxdim::Sig`), composed
+    /// at the grid's resolution with the plan's holes black, each app item where its window places it (`Item::drift` taken away). The
+    /// work is started, not waited for: [`Output::sample_take`] reads it once done. `Ok(false)`: not now (one is in flight, a buffer is
+    /// still warming); an error: this output cannot sample, and the box dim takes damage for change. The default cannot.
+    fn sample_begin(&mut self, _plan: &Plan, _surfaces: &Surfaces) -> io::Result<bool> {
+        Err(io::Error::from(io::ErrorKind::Unsupported))
+    }
+
+    /// The sample begun last, once it is done: into `sigs` (row 0 the top), `Ok(true)`. `Ok(false)` while it is not done (or none was
+    /// begun); an error when it never will be (it is dropped). The default has none.
+    fn sample_take(&mut self, _sigs: &mut [crate::boxdim::Sig; crate::boxdim::CELLS]) -> io::Result<bool> {
         Ok(false)
+    }
+
+    /// Makes a piece of what sampling and the box dim's map need ahead of their first use (a shader's compile costs the loop
+    /// milliseconds on the set), one piece a call, on ticks with nothing else to do: `Ok(true)` once all is made. The default has nothing
+    /// to make.
+    fn boxdim_warm(&mut self) -> io::Result<bool> {
+        Ok(true)
     }
 
     /// `idle_tick_at` for a tick no sooner than `wait` from now (the slowed tick), still on the panel's grid. `None` as there.

@@ -18,8 +18,11 @@ pub struct Software {
     /// Premultiplied 0xAARRGGBB, row-major, top-down.
     pixels: Vec<u32>,
     cursor: Vec<u32>,
-    /// The app's pictures composed for the box dim's sample (`sample_cells`), kept between samples; empty until the first.
+    /// The app's pictures composed for the box dim's sample (`sample_begin`), kept between samples; empty until the first. With the
+    /// numbers of the sample begun last, until `sample_take` reads them.
     sample: Vec<u32>,
+    sigs: Option<Box<[crate::boxdim::Sig; crate::boxdim::CELLS]>>,
+    sample_ready: bool,
     clock: FrameClock,
     skipped_logged: bool,
 }
@@ -32,6 +35,8 @@ impl Software {
             pixels: vec![0xff00_0000; (width * height) as usize],
             cursor: super::cursor::sprite_argb(),
             sample: Vec::new(),
+            sigs: None,
+            sample_ready: false,
             clock: FrameClock::new(),
             skipped_logged: false,
         }
@@ -310,9 +315,11 @@ impl Output for Software {
         Ok(Image { width: self.width, height: self.height, rgba })
     }
 
-    /// The app's pictures composed over black on the CPU, holes cleared, then each cell's mean luma (Rec. 709 weights on the 8-bit values).
-    fn sample_cells(&mut self, plan: &Plan, _surfaces: &Surfaces, luma: &mut [u8; crate::boxdim::CELLS]) -> io::Result<bool> {
-        use crate::boxdim::{CELL, COLS, ROWS};
+    /// The app's pictures composed over black on the CPU (each where its window places it, `Item::drift` taken away), holes cleared, then
+    /// each cell's mean luma (Rec. 709 weights on the 8-bit values), of the cell, of its left 14 columns and of its lower 14 rows, as the
+    /// GL renderer's passes take them. Done at once: `sample_take` has it at the next call.
+    fn sample_begin(&mut self, plan: &Plan, _surfaces: &Surfaces) -> io::Result<bool> {
+        use crate::boxdim::{CELL, CELLS, COLS, ROWS};
         let (w, h) = (self.width as usize, self.height as usize);
         let full = Rect::new(0, 0, self.width as i32, self.height as i32);
         let pixels = &mut self.sample;
@@ -334,12 +341,13 @@ impl Output for Software {
             }
             let BufferKindRef::Shm(shm) = kind_of(&item.buffer) else { continue };
             let shm = shm.clone();
-            let clip = item.rect.intersect(&full);
+            let rect = item.rect.translated(-item.drift.0, -item.drift.1);
+            let clip = rect.intersect(&full);
             shm.pool.with_bytes(|bytes| {
                 for y in clip.y..clip.bottom() {
                     let row = y as usize * w;
                     for x in clip.x..clip.right() {
-                        if let Some(src) = shm.pixel(bytes, x - item.rect.x, y - item.rect.y) {
+                        if let Some(src) = shm.pixel(bytes, x - rect.x, y - rect.y) {
                             let d = &mut pixels[row + x as usize];
                             *d = blend(*d, src);
                         }
@@ -347,18 +355,36 @@ impl Output for Software {
                 }
             });
         }
+        let sigs = self.sigs.get_or_insert_with(|| Box::new([[0; 3]; CELLS]));
+        let cell = CELL as usize;
         for r in 0..ROWS {
             for c in 0..COLS {
-                let mut sum = 0u32;
-                for y in r * CELL as usize..(r + 1) * CELL as usize {
-                    for p in &pixels[y * w + c * CELL as usize..y * w + (c + 1) * CELL as usize] {
-                        sum += (54 * ((p >> 16) & 255) + 183 * ((p >> 8) & 255) + 19 * (p & 255)) >> 8;
+                let (mut whole, mut left, mut lower) = (0u32, 0u32, 0u32);
+                for dy in 0..cell {
+                    let row = (r * cell + dy) * w + c * cell;
+                    for (dx, p) in pixels[row..row + cell].iter().enumerate() {
+                        let l = (54 * ((p >> 16) & 255) + 183 * ((p >> 8) & 255) + 19 * (p & 255)) >> 8;
+                        whole += l;
+                        left += if dx < 14 { l } else { 0 };
+                        lower += if dy >= cell - 14 { l } else { 0 };
                     }
                 }
-                luma[r * COLS + c] = (sum / (CELL * CELL) as u32) as u8;
+                let n = (cell * cell) as u32;
+                sigs[r * COLS + c] = [(whole / n) as u8, (left / (14 * cell as u32)) as u8, (lower / (14 * cell as u32)) as u8];
             }
         }
+        self.sample_ready = true;
         Ok(true)
+    }
+
+    fn sample_take(&mut self, sigs: &mut [crate::boxdim::Sig; crate::boxdim::CELLS]) -> io::Result<bool> {
+        match self.sigs.as_deref() {
+            Some(s) if std::mem::take(&mut self.sample_ready) => {
+                *sigs = *s;
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
     }
 }
 

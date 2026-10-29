@@ -1,6 +1,8 @@
 //! The box dim on the scene and the software renderer (`boxdim`, `scene.rs`, `render/software.rs`): a bright box that stays still dims
 //! after the wait, feathered, while the rest of the picture and the shell do not; the app keeps the plane until then and gets it back on
-//! a key; small damage leaves the dim, big damage and a capture take it away; a hole samples black.
+//! a key. What is still is the picture, not the commits: an app that commits the same picture again every few seconds (LG's browser and
+//! Plex on the set, round 16) is still for the box dim and for the OLED care's app features, and a different picture brings both back
+//! within a few frames. A small change leaves the dim, a big one and a capture take it away; a hole samples black.
 
 mod harness;
 
@@ -8,7 +10,7 @@ use std::sync::atomic::Ordering;
 
 use harness::{Client, Server, Window};
 use lumatv_compositor::State;
-use lumatv_compositor::boxdim::{CELL, COLS, Settings};
+use lumatv_compositor::boxdim::{CELL, Settings};
 use lumatv_compositor::output::Image;
 use lumatv_compositor::scene::Hole;
 use lumatv_compositor::window::WindowType;
@@ -73,6 +75,16 @@ fn run_on(server: &Server, t: u64, for_ns: u64, step: u64) -> u64 {
     t
 }
 
+/// The app commits `buf` (the whole surface damaged, as Mali's EGL does at each swap) and the server ticks once, `dt` on.
+fn commit(server: &Server, app: &mut Client, card: &Window, buf: &WlBuffer, t: u64, dt: u64) -> u64 {
+    app.present(&card.surface, buf);
+    app.roundtrip();
+    server.eval(move |s| {
+        s.tick_at(t + dt);
+        t + dt
+    })
+}
+
 fn px(img: &Image, x: i32, y: i32) -> [u8; 4] {
     let i = (y as usize * img.width as usize + x as usize) * 4;
     [img.rgba[i], img.rgba[i + 1], img.rgba[i + 2], img.rgba[i + 3]]
@@ -115,9 +127,10 @@ fn a_still_bright_box_dims_after_the_wait_feathered_and_the_app_keeps_the_plane_
     let t = run_on(&server, t, 50 * SEC, 2 * SEC);
     server.eval(|s| {
         assert!(!s.scene.boxdim.engaged() && direct(s), "still for less than the wait: nothing, and the plane is kept");
-        assert!(s.scene.boxdim.samples >= 10, "sampled every 4 s: {}", s.scene.boxdim.samples);
-        assert_eq!(s.scene.boxdim.luma(15, 15), 255, "a white cell");
-        assert_eq!(s.scene.boxdim.luma(40, 30), 64, "a grey cell");
+        assert_eq!(s.scene.boxdim.samples, 1, "one sample to know the picture; nothing committed since, nothing to judge");
+        assert_eq!(s.scene.boxdim.sig(15, 15), [255, 255, 255], "a white cell");
+        assert_eq!(s.scene.boxdim.sig(40, 30), [64, 64, 64], "a grey cell");
+        assert_eq!(s.scene.boxdim.sig(20, 15)[0], 255, "the box's last column of cells");
     });
     let t = run_on(&server, t, 40 * SEC, 2 * SEC);
     server.eval(move |s| {
@@ -129,6 +142,7 @@ fn a_still_bright_box_dims_after_the_wait_feathered_and_the_app_keeps_the_plane_
         let status = s.scene.boxdim.report(t, &s.scene.care.settings.boxdim);
         assert_eq!(status["engaged"], true);
         assert_eq!(status["lowest"], 0.8);
+        assert_eq!(status["warm"], true);
         assert!(status["cells"].as_u64().unwrap() >= 121, "{status}");
     });
 }
@@ -171,7 +185,75 @@ fn a_key_brings_the_picture_back_within_250_ms_and_the_plane_with_it() {
 }
 
 #[test]
-fn small_damage_keeps_the_dim_big_damage_and_a_capture_take_it_away_and_a_hole_samples_black() {
+fn the_same_picture_committed_again_every_few_seconds_is_still_for_the_box_dim_and_the_app_features() {
+    let mut server = quiet_server();
+    let (mut app, card, buf) = app_card(&mut server, picture);
+    // A swap chain: a second buffer with the same picture, committed in turn with the first.
+    let twin = app.shm_pattern(1920, 1080, picture);
+    let t = server.eval(|s| {
+        on(s);
+        let c = &mut s.scene.care.settings;
+        c.app_dim = true;
+        c.app_shift = true;
+        c.app_after_ns = 60 * SEC;
+        c.dim_over_ns = 60 * SEC;
+        c.app_floor = 0.7;
+        s.tick_at(SEC);
+        SEC
+    });
+    // Round 16's static page: bursts of commits of the same frame every 4 to 5 s, for two and a half minutes.
+    let mut t = t;
+    for cycle in 0..34 {
+        for k in 0..3 {
+            t = commit(&server, &mut app, &card, if (cycle + k) % 2 == 0 { &buf } else { &twin }, t, 16 * MS);
+        }
+        t = run_on(&server, t, 4 * SEC + 400 * MS, 200 * MS);
+    }
+    let t = server.eval(move |s| {
+        let b = &s.scene.boxdim;
+        assert!(b.engaged(), "the box dim engaged, the commits notwithstanding: {}", b.report(t, &s.scene.care.settings.boxdim));
+        assert!(b.samples >= 30, "each burst was judged: {}", b.samples);
+        assert!(b.checks > 0, "and judged at once once dimmed: {}", b.checks);
+        let status = s.scene.care.status(t);
+        assert_eq!(status["app"]["engaged"], true, "the app features engaged too: {status}");
+        assert!(s.scene.care.app_dim() < 1.0, "{status}");
+        assert!(status["app"]["stillSec"].as_u64().unwrap() >= 140, "still since it appeared: {status}");
+        assert!(s.journal.iter().all(|l| !l.contains("put back")), "never put back by a commit: {:?}", s.journal);
+        t
+    });
+    // Now a different picture: the box moved. Both come back within a few frames of the commit.
+    let moved = app.shm_pattern(1920, 1080, |x, y| picture(x - 300, y));
+    let mut t = commit(&server, &mut app, &card, &moved, t, 16 * MS);
+    let mut frames = 1;
+    loop {
+        let back = server.eval(|s| s.scene.care.app_dim() == 1.0 && s.scene.care.app_offset() == (0, 0));
+        if back {
+            break;
+        }
+        t = server.eval(move |s| {
+            s.tick_at(t + 16 * MS);
+            t + 16 * MS
+        });
+        frames += 1;
+        assert!(frames <= 3, "the app put back within 3 frames of the new picture");
+    }
+    server.eval(move |s| {
+        assert!(s.journal.iter().any(|l| l.contains("put back (redrawn)")), "{:?}", s.journal);
+        let mut t = t;
+        let mut frames = 0;
+        while s.scene.boxdim.engaged() {
+            t += 16 * MS;
+            s.tick_at(t);
+            frames += 1;
+            assert!(frames <= 15, "the box dim off within 250 ms");
+        }
+        assert!(s.journal.iter().any(|l| l == "oledcare: boxDim off (change)"), "{:?}", s.journal);
+    });
+    drop((twin, moved));
+}
+
+#[test]
+fn small_change_keeps_the_dim_big_change_and_a_capture_take_it_away_and_a_hole_samples_black() {
     let mut server = quiet_server();
     let (mut app, card, buf) = app_card(&mut server, picture);
     let t = server.eval(|s| {
@@ -181,20 +263,32 @@ fn small_damage_keeps_the_dim_big_damage_and_a_capture_take_it_away_and_a_hole_s
     });
     let t = run_on(&server, t, 100 * SEC, 2 * SEC);
     server.eval(|s| assert!(s.scene.boxdim.engaged()));
-    // A clock of 60 x 30 px ticks: its own two cells restart, the box stays dimmed.
-    card.surface.attach(Some(&buf), 0, 0);
-    card.surface.damage(900, 500, 60, 30);
+    // A clock of 60 x 30 px ticks: its own two cells change, the box stays dimmed.
+    let clock = app.shm_pattern(1920, 1080, |x, y| if (900..960).contains(&x) && (480..510).contains(&y) { WHITE } else { picture(x, y) });
+    card.surface.attach(Some(&clock), 0, 0);
+    card.surface.damage(900, 480, 60, 30);
     card.surface.commit();
     app.roundtrip();
     let t = server.eval(move |s| {
-        let t = run(s, t, 2 * SEC, 500 * MS);
+        let t = run(s, t, 2 * SEC, 100 * MS);
         assert!(s.scene.boxdim.engaged(), "a small change does not restore the screen");
         let c = (BOX.0 + BOX.1) / 2;
         assert_eq!(px(&s.output.capture().unwrap(), c, c)[0], 204);
         t
     });
+    // A popup's worth of damage over a picture that did not change: nothing.
+    card.surface.attach(Some(&clock), 0, 0);
+    card.surface.damage(700, 400, 400, 200);
+    card.surface.commit();
+    app.roundtrip();
+    let t = server.eval(move |s| {
+        let t = run(s, t, 2 * SEC, 100 * MS);
+        assert!(s.scene.boxdim.engaged(), "damage is not change");
+        t
+    });
     // A popup of 400 x 200 px: everything restarts.
-    card.surface.attach(Some(&buf), 0, 0);
+    let popup = app.shm_pattern(1920, 1080, |x, y| if (700..1100).contains(&x) && (400..600).contains(&y) { 0xff10_1010 } else { picture(x, y) });
+    card.surface.attach(Some(&popup), 0, 0);
     card.surface.damage(700, 400, 400, 200);
     card.surface.commit();
     app.roundtrip();
@@ -232,10 +326,8 @@ fn small_damage_keeps_the_dim_big_damage_and_a_capture_take_it_away_and_a_hole_s
     run_on(&server, t, 120 * SEC, 2 * SEC);
     server.eval(|s| {
         assert!(!s.scene.boxdim.engaged(), "nothing bright outside the hole");
-        assert_eq!(s.scene.boxdim.luma(15, 15), 0, "the hole's cells read black");
-        assert_eq!(s.scene.boxdim.luma(40, 30), 64);
-        assert!(s.scene.boxdim.samples > 0);
-        let _ = COLS;
+        assert_eq!(s.scene.boxdim.sig(15, 15), [0, 0, 0], "the hole's cells read black");
+        assert_eq!(s.scene.boxdim.sig(40, 30), [64, 64, 64]);
     });
-    drop(punched);
+    drop((buf, clock, popup, punched));
 }

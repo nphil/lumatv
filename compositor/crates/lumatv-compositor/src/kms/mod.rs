@@ -908,8 +908,16 @@ impl Output for Kms {
         self.care_draw = true;
     }
 
-    fn sample_cells(&mut self, plan: &Plan, surfaces: &Surfaces, luma: &mut [u8; crate::boxdim::CELLS]) -> io::Result<bool> {
-        self.gl.sample_cells(plan, surfaces, luma)
+    fn sample_begin(&mut self, plan: &Plan, _surfaces: &Surfaces) -> io::Result<bool> {
+        self.gl.sample_begin(plan)
+    }
+
+    fn sample_take(&mut self, sigs: &mut [crate::boxdim::Sig; crate::boxdim::CELLS]) -> io::Result<bool> {
+        self.gl.sample_take(sigs)
+    }
+
+    fn boxdim_warm(&mut self) -> io::Result<bool> {
+        self.gl.boxdim_warm()
     }
 
     /// `idle_tick_at` for the slowed tick: the first refresh's latch on the panel's grid that is at least `wait` away.

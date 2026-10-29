@@ -478,6 +478,18 @@ impl State {
         scene.care.refresh(now_ns);
         scene.care.saver = shell.ui_state.get("saver").and_then(serde_json::Value::as_bool).unwrap_or(false);
         scene.boxdim.capturing = screencap.armed();
+        // A box dim sample the GPU has finished (`boxdim`): judged before this plan, so what it saw changed is in this frame.
+        if scene.boxdim.in_flight() {
+            let began = Instant::now();
+            match output.sample_take(&mut scene.boxdim.incoming) {
+                Ok(true) => scene.boxdim.take_sample(now_ns, began.elapsed().as_micros() as u32),
+                Ok(false) => {}
+                Err(e) => {
+                    scene.boxdim.sample_failed(now_ns);
+                    log::warn!("boxdim: {e}");
+                }
+            }
+        }
         let plan = scene.plan_at(surfaces, now_ns);
         let mut drew = false;
         let ui_changed = output.ui_needs_frame().unwrap_or_else(|e| {
@@ -517,19 +529,25 @@ impl State {
                 Presented::default()
             }
         };
-        // The box dim's sample (`boxdim`): on a screen still for seconds, the app's pictures at the grid's resolution, read on the GPU
-        // between frames, never beside one.
-        if !drew && !self.output.warming() && self.scene.boxdim.sample_due(now_ns, &self.scene.care.settings.boxdim) {
-            let State { scene, surfaces, output, .. } = self;
-            let mut luma = [0u8; crate::boxdim::CELLS];
-            let began = Instant::now();
-            match output.sample_cells(scene.last_plan(), surfaces, &mut luma) {
-                Ok(true) => scene.boxdim.take_sample(now_ns, &luma, began.elapsed().as_micros() as u32),
-                Ok(false) => scene.boxdim.sample_skipped(now_ns),
-                Err(e) => {
-                    scene.boxdim.sample_skipped(now_ns);
-                    log::warn!("boxdim: sample: {e}");
+        // The box dim (`boxdim`): a sample of the app's pictures begun after the frame (the GPU's work, read on a later tick), or a piece of
+        // what sampling needs made on a tick with nothing else to do. Never while a driver buffer warms: a draw from it would wait.
+        let State { scene, surfaces, output, .. } = self;
+        if !output.warming() {
+            if scene.boxdim.wants_sample(now_ns, drew) {
+                let began = Instant::now();
+                match output.sample_begin(scene.last_plan(), surfaces) {
+                    Ok(true) => scene.boxdim.sample_started(now_ns, began.elapsed().as_micros() as u32),
+                    Ok(false) => scene.boxdim.sample_skipped(now_ns),
+                    Err(e) => {
+                        if scene.boxdim.sample_unavailable(now_ns) && e.kind() != std::io::ErrorKind::Unsupported {
+                            log::warn!("boxdim: no sample ({e}): damage is taken for change");
+                        }
+                    }
                 }
+            } else if scene.boxdim.wants_warm(now_ns, drew) {
+                let began = Instant::now();
+                let done = output.boxdim_warm().unwrap_or(true);
+                scene.boxdim.warmed(began.elapsed().as_micros() as u32, done);
             }
         }
         let t_presented = Instant::now();

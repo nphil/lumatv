@@ -16,6 +16,7 @@ use lumatv_compositor::window::WindowType;
 use wayland_client::protocol::wl_buffer::WlBuffer;
 
 const SEC: u64 = 1_000_000_000;
+const MS: u64 = 1_000_000;
 
 struct Shown {
     _client: Client,
@@ -295,33 +296,105 @@ fn an_app_with_a_video_hole_is_never_dimmed_or_shifted_and_a_hole_that_appears_p
 }
 
 #[test]
-fn a_redraw_of_the_screen_restores_an_app_but_a_caret_does_not() {
+fn a_new_picture_restores_an_app_but_the_same_picture_again_or_a_caret_does_not() {
+    let mut server = quiet_server();
+    let (mut app, card, buf) = app_card(&mut server);
+    // Ticks, not bare plans: what changed is told by the box dim's samples, which the loop's tick begins and reads (`boxdim`).
+    let t = server.eval(|s| {
+        app_on(s);
+        let mut t = monotonic_ns();
+        for _ in 0..12 {
+            t += 500 * MS;
+            s.tick_at(t);
+        }
+        assert_eq!(s.scene.boxdim.samples, 1, "the picture is known");
+        for _ in 0..12 {
+            t += 30 * SEC + GRACE_NS;
+            s.tick_at(t);
+        }
+        assert!(s.scene.care.app_dim() < 1.0 && s.scene.care.app_offset() != (0, 0), "engaged");
+        t
+    });
+    let ticks = |server: &Server, t: u64, n: u64| {
+        server.eval(move |s| {
+            (1..=n).fold(t, |t, _| {
+                s.tick_at(t + 16 * MS);
+                t + 16 * MS
+            })
+        })
+    };
+    // The same picture committed again, the whole surface damaged (LG's browser and Plex every few seconds on the set).
+    app.present(&card.surface, &buf);
+    app.roundtrip();
+    let t = ticks(&server, t, 4);
+    server.eval(|s| {
+        assert!(s.scene.care.app_dim() < 1.0, "the same picture again is not a change");
+        assert!(s.scene.boxdim.checks >= 1, "and it was looked at: {}", s.scene.boxdim.checks);
+    });
+    // A 20 x 20 patch: a caret, a clock, a progress bar.
+    let caret = app.shm_pattern(1920, 1080, |x, y| if x < 20 && y < 20 { 0xffff_ffff } else { 0xffff_0000 });
+    card.surface.attach(Some(&caret), 0, 0);
+    card.surface.damage(0, 0, 20, 20);
+    card.surface.commit();
+    app.roundtrip();
+    let t = ticks(&server, t, 4);
+    server.eval(|s| assert!(s.scene.care.app_dim() < 1.0, "a small change is not a change of the picture"));
+    // A new picture (a page, a menu) on a screen quiet for a second: put back the frame after the one that showed it.
+    let t = ticks(&server, t, 60);
+    let page = app.shm_buffer(1920, 1080, 0xff00_40ff);
+    app.present(&card.surface, &page);
+    app.roundtrip();
+    let t = ticks(&server, t, 1);
+    server.eval(move |s| {
+        // The frame after the one that showed the new picture: its tick reads the check and puts the card back.
+        s.tick_at(t + 16 * MS);
+        assert_eq!(card_at(s, t + 32 * MS), ((0, 0, 1.0), true), "restored and direct again");
+        assert!(s.journal.iter().any(|l| l.contains("put back (redrawn)")), "{:?}", s.journal);
+    });
+    drop((caret, page));
+}
+
+#[test]
+fn a_new_picture_in_a_run_of_commits_is_seen_within_a_quarter_second() {
     let mut server = quiet_server();
     let (mut app, card, buf) = app_card(&mut server);
     let t = server.eval(|s| {
         app_on(s);
-        let t = monotonic_ns();
-        card_at(s, t);
-        let t = engage(s, t);
-        assert_ne!(card_at(s, t + 1).0, (0, 0, 1.0));
+        let mut t = monotonic_ns();
+        for _ in 0..12 {
+            t += 500 * MS;
+            s.tick_at(t);
+        }
+        for _ in 0..12 {
+            t += 30 * SEC + GRACE_NS;
+            s.tick_at(t);
+        }
+        assert!(s.scene.care.app_dim() < 1.0, "engaged");
         t
     });
-    // A 20 x 20 patch: a caret, a clock, a progress bar.
-    card.surface.attach(Some(&buf), 0, 0);
-    card.surface.damage(0, 0, 20, 20);
-    card.surface.commit();
-    app.roundtrip();
-    let t = server.eval(move |s| {
-        assert_ne!(card_at(s, t + 2).0, (0, 0, 1.0), "a small redraw is not a change of the picture");
-        t + 2
-    });
-    // The whole picture again: a page, a menu, a video frame.
+    let tick = |server: &Server, t: u64| {
+        server.eval(move |s| {
+            s.tick_at(t + 16 * MS);
+            t + 16 * MS
+        })
+    };
+    // The same picture, then 50 ms later a new one: the check of the run's first commit has just been taken.
     app.present(&card.surface, &buf);
     app.roundtrip();
-    server.eval(move |s| {
-        assert_eq!(card_at(s, t + 3), ((0, 0, 1.0), true), "restored in the plan that has the redraw, and direct again");
-        assert!(s.scene.care.take_events().iter().any(|l| l.contains("redrawn")));
-    });
+    let mut t = tick(&server, t);
+    for _ in 0..2 {
+        t = tick(&server, t);
+    }
+    let page = app.shm_buffer(1920, 1080, 0xff00_40ff);
+    app.present(&card.surface, &page);
+    app.roundtrip();
+    let mut frames = 0;
+    while server.eval(|s| s.scene.care.app_dim() < 1.0) {
+        t = tick(&server, t);
+        frames += 1;
+        assert!(frames * 16 <= 250 + 3 * 16, "seen within a quarter second and a frame or two: {frames} frames");
+    }
+    drop(page);
 }
 
 #[test]

@@ -74,6 +74,8 @@ struct Look {
     under_hole: bool,
     /// An app's picture: drawn through the box dim's map while one is engaged (`boxdim`).
     gain: bool,
+    /// What the OLED care moved the window by (the app features' shift): [`Item::drift`].
+    drift: (i32, i32),
 }
 
 /// A card as a transition sees it: its app, its rectangle and whether its picture is (or is about to be) on the video plane.
@@ -232,6 +234,9 @@ pub struct Item {
     pub ghost: bool,
     /// An app window's picture (not the shell's, not the wallpaper's): the box dim's map applies to it while [`Plan::gain`] is on.
     pub gain: bool,
+    /// How far the OLED care moved `rect` from where the window places it (the app features' shift; (0, 0) otherwise): the box dim's sample
+    /// takes it away, so it reads the app's own picture and a shift is never a change of it.
+    pub drift: (i32, i32),
     /// The surface asked for a buffer transform or a scale: the output draws the picture as it is (it applies neither), but a plane could not
     /// show it any other way either, so a window that did is never scanned out whole.
     pub xform: bool,
@@ -908,6 +913,7 @@ impl Scene {
             pose: Some(posed),
             ghost: true,
             gain: false,
+            drift: (0, 0),
             xform: false,
         });
     }
@@ -1011,8 +1017,11 @@ impl Scene {
 
     /// The card in front as the OLED care's app features see it (`oledcare::AppView`): the app's own card (not Home's stub, not a covering
     /// overlay), while either feature is on. `busy` is a video's hole on any surface of the card's group, or a transition on the screen;
-    /// `changed` a commit waiting to be drawn that redraws a [`crate::oledcare::CHANGE_FRACTION`] of the output or more.
-    fn app_view(&mut self, surfaces: &Surfaces) -> Option<crate::oledcare::AppView> {
+    /// `changed` that a sample of the box dim's grid found the app's picture changed over a [`crate::oledcare::CHANGE_FRACTION`] of the
+    /// output since the last look (`boxdim::BoxDim::take_app_change`): a commit of the same picture again is not a change.
+    fn app_view(&mut self) -> Option<crate::oledcare::AppView> {
+        // Taken whether or not there is a card to look at: a change seen under another window is not this card's.
+        let changed = self.boxdim.take_app_change();
         if !self.care.wants_app() {
             return None;
         }
@@ -1021,35 +1030,13 @@ impl Scene {
         if w.kind != WindowType::Card || w.app_id() == HOME_APP || !self.stack.iter().any(|(_, _, id)| *id == wid) {
             return None;
         }
-        let (owner, commits, fresh) = (w.surface, w.commits, w.commits > w.commits_drawn);
+        let owner = w.surface;
         self.build_members(owner);
         let mut busy = self.transitions.active() || self.holes.iter().any(|h| h.surface == owner);
         for k in 0..self.members.len() {
             busy |= self.holes.iter().any(|h| h.surface == self.members[k].1);
         }
-        let mut changed = false;
-        if fresh && !busy {
-            let mut area = 0i64;
-            for root in std::iter::once(owner).chain(self.members.iter().map(|m| m.1)) {
-                surfaces.tree_in_draw_order_into(root, &mut self.tree);
-                for &(sid, _, _) in &self.tree {
-                    let Some(s) = surfaces.get(sid) else { continue };
-                    let (sw, sh) = s.size();
-                    area += match &s.current.damage {
-                        None => i64::from(sw) * i64::from(sh),
-                        Some(d) => d
-                            .iter()
-                            .map(|r| {
-                                let r = r.intersect(&Rect::new(0, 0, sw, sh));
-                                i64::from(r.w.max(0)) * i64::from(r.h.max(0))
-                            })
-                            .sum(),
-                    };
-                }
-            }
-            changed = area * crate::oledcare::CHANGE_FRACTION as i64 >= i64::from(OUTPUT_WIDTH) * i64::from(OUTPUT_HEIGHT);
-        }
-        Some(crate::oledcare::AppView { window: wid.0, commits, changed, busy })
+        Some(crate::oledcare::AppView { window: wid.0, changed, busy })
     }
 
     /// [`Scene::plan`] at a given time (CLOCK_MONOTONIC ns), for the OLED care's beats.
@@ -1075,7 +1062,7 @@ impl Scene {
             }
         }
         self.care.step(now_ns, views, pending);
-        let app = self.app_view(surfaces);
+        let app = self.app_view();
         self.care.step_app(now_ns, app, pending);
         self.care_only = self.care.beat_frame() && !pending;
         let (shift, dims) = (self.care.offset(), [self.care.dim(0), self.care.dim(1)]);
@@ -1104,15 +1091,18 @@ impl Scene {
                         pose: None,
                         ghost: true,
                         gain: false,
+                        drift: (0, 0),
                         xform: false,
                     });
                 }
                 continue;
             };
             let mut dim = 1.0;
+            let mut drift = (0, 0);
             let origin = if w.kind.is_card() {
                 if app_card == Some(wid) {
                     dim = app_dim;
+                    drift = app_shift;
                     app_shift
                 } else {
                     (0, 0)
@@ -1133,7 +1123,7 @@ impl Scene {
             let pose = self.pose_of(wid, now_ns);
             let ghost = self.transitions.active() && !self.stack.iter().any(|(_, _, id)| *id == wid);
             let gain = !w.kind.is_shell() && w.kind != WindowType::Wallpaper;
-            let look = Look { window: wid, origin, dim, pose, ghost, under_hole: false, gain };
+            let look = Look { window: wid, origin, dim, pose, ghost, under_hole: false, gain, drift };
             self.build_members(owner);
             let m = self.members.len();
             // The members below a window whose hole covers them (Live TV's Dmost and its other layers under the video) are under the plane's
@@ -1235,15 +1225,20 @@ impl Scene {
                 }
             }
         }
-        // The box dim (`boxdim`): what changed on the app's pictures this frame (their own damage, before a redraw of everything below
-        // wipes it), whether the layout changed, and the map's step. A step damages the cells it changed, the items keep their own.
+        // The box dim (`boxdim`): which cells of the app's pictures may have changed this frame (their own damage, before a redraw of
+        // everything below wipes it), whether the layout changed, and the map's step. A step damages the cells it changed, the items keep
+        // their own. Nothing of it runs while neither it nor an app feature is on.
         let boxdim_settings = self.care.settings.boxdim;
+        let track = boxdim_settings.on || self.care.wants_app();
         self.boxdim.begin();
-        for i in &self.plan.items {
-            if i.gain && !i.ghost {
-                self.boxdim.seen(now_ns, i.drawn_rect(), i.damage.map(|(a, b)| &self.plan.damage_rects[a..b]));
+        if track {
+            for i in &self.plan.items {
+                if i.gain && !i.ghost && i.pose.is_none() {
+                    self.boxdim.seen(now_ns, i.rect, i.drift, i.damage.map(|(a, b)| &self.plan.damage_rects[a..b]));
+                }
             }
         }
+        self.boxdim.app_engaged = self.care.app_engaged();
         let blocked = if self.boxdim.capturing {
             Some(crate::boxdim::Restart::Capture)
         } else if self.care.saver {
@@ -1254,7 +1249,7 @@ impl Scene {
             None
         };
         let layout_changed = !same_layout(&self.placed, &self.last_placed) || self.plan.holes != self.last_holes;
-        if let Some(r) = self.boxdim.step(now_ns, &boxdim_settings, blocked, layout_changed) {
+        if let Some(r) = self.boxdim.step(now_ns, &boxdim_settings, track, blocked, layout_changed) {
             let r = r.intersect(&output);
             self.plan.damage = self.plan.damage.union(&r);
             self.plan.tiles.as_mut().unwrap().add(&r);
@@ -1351,7 +1346,7 @@ impl Scene {
     }
 
     fn push_tree(&mut self, surfaces: &Surfaces, root: SurfaceId, look: Look) {
-        let Look { window, origin, dim, pose, ghost, under_hole, gain } = look;
+        let Look { window, origin, dim, pose, ghost, under_hole, gain, drift } = look;
         surfaces.tree_in_draw_order_into(root, &mut self.tree);
         let n = self.tree.len();
         for k in 0..n {
@@ -1420,7 +1415,7 @@ impl Scene {
                 self.plan.content_ns = Some(self.plan.content_ns.map_or(c, |p| p.min(c)));
             }
             let xform = s.current.transform != 0 || s.current.scale != 1;
-            self.plan.items.push(Item { window, surface: sid, buffer, rect, damage, opaque, y_invert, dim, pose: posed, ghost, gain, xform });
+            self.plan.items.push(Item { window, surface: sid, buffer, rect, damage, opaque, y_invert, dim, pose: posed, ghost, gain, drift, xform });
         }
     }
 }
