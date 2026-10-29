@@ -15,7 +15,6 @@ use crate::kit::focus::{Id, Region, Scope};
 use crate::kit::hint::{Action, Hint, HintRow, Key, RowAt, glyph_side};
 use crate::kit::lint::Lint;
 use crate::kit::motion::Beat;
-use crate::kit::pane::{Pane, PaneKind};
 use crate::kit::picture::Picture;
 use crate::kit::pointer::Sample;
 use crate::kit::text::{role_style, width_of};
@@ -179,7 +178,7 @@ impl Lit {
 
 struct Built {
     sig: String,
-    pane: Pane,
+    _sheet: ShapeLayer,
     _prompt: Words,
     _hints: Vec<HintRow>,
     _field: ShapeLayer,
@@ -192,7 +191,6 @@ struct Built {
     caps: Block,
     caps_now: Vec<String>,
     lit: Lit,
-    over_video: bool,
     lay: Layout,
 }
 
@@ -204,7 +202,7 @@ pub struct EntrySurface {
 impl EntrySurface {
     /// `z` is the panels' band base.
     pub fn new(z: i32) -> Self {
-        Self { stage: Stage::new(z, SCOPE), built: None }
+        Self { stage: Stage::new(z, SCOPE).hiding(), built: None }
     }
 
     pub fn is_up(&self) -> bool {
@@ -239,7 +237,9 @@ impl EntrySurface {
         let done_style = Style { colour: accent_ink, ..caps_style };
         scene
             .adopting_view(root, || -> std::io::Result<Built> {
-                let pane = Pane::new(kit, lay.sheet, z + 1, PaneKind::Sheet, v.over_video);
+                // a solid sheet over a dim that hides the screen (Settings, full of words): a password is typed against nothing else
+                let sheet_look = Shape { corner_radius: kit.tokens.radius(Radius::Sheet), fill: Fill::Solid(kit.ui.look.colour(PaletteRole::Sheet)), border_width: 1.0, border: edge(kit) };
+                let sheet = plate::shape(&kit.ui, lay.sheet, z + 1, sheet_look);
                 let prompt_lines: Vec<WordLine> = lay.prompt.iter().map(|t| WordLine::new(t, TypeRole::Title, ink).weight(Weight::SemiBold)).collect();
                 let prompt = Words::new(kit, lay.prompt_at.0, lay.prompt_at.1, lay.prompt_at.2, z + 3, &prompt_lines)?;
                 let mut hint_rows = Vec::new();
@@ -287,7 +287,7 @@ impl EntrySurface {
                 let caps = Block::new(&mut kit.ui, lay.grid, z + 6, lines)?;
                 Ok(Built {
                     sig,
-                    pane,
+                    _sheet: sheet,
                     _prompt: prompt,
                     _hints: hint_rows,
                     _field: field,
@@ -300,16 +300,14 @@ impl EntrySurface {
                     caps,
                     caps_now,
                     lit,
-                    over_video: v.over_video,
                     lay: lay.clone(),
                 })
             })
             .map_err(|e| std::io::Error::other(format!("{e}")))
-            .and_then(|b| {
+            .inspect(|_| {
                 for (i, f) in lay.keys.iter().enumerate() {
                     engine.focus.register(Target::Key(i).id(), *f, REGION, SCOPE);
                 }
-                Ok(b)
             })
     }
 
@@ -345,25 +343,26 @@ impl EntrySurface {
             self.stage.refocus();
         }
         if let Some(b) = self.built.as_mut() {
-            Self::update(kit, b, v, now_ms);
+            Self::update(kit, self.stage.group(), self.stage.z(), b, v, now_ms);
         }
         if self.stage.phase(kit, engine, phase) {
-            if let Some(b) = self.built.as_mut()
-                && b.over_video != v.over_video
-            {
-                b.pane.restyle(kit, v.over_video);
-                b.over_video = v.over_video;
-            }
             self.stage.focus(engine, Some(Target::Key(v.index).id()), now_ns);
         }
         Ok(true)
     }
 
     /// What changes in place: the typed words, the caret, the caps of a new case or layout, and the ring.
-    fn update(kit: &mut Kit, b: &mut Built, v: &View, now_ms: u64) {
+    fn update(kit: &mut Kit, root: &ui::group::Group, z: i32, b: &mut Built, v: &View, now_ms: u64) {
         let shown = tail(kit, b.typed_style, &v.shown, b.lay.typed.w);
         if shown != b.shown {
-            b.typed.set(kit, 0, &shown);
+            // one layer of words, made again: a line that began empty has no glyphs to change
+            let ink = kit.ui.look.ink();
+            let scene = kit.ui.scene.clone();
+            let at = b.lay.typed;
+            let made = scene.adopting_view(root, || -> std::io::Result<Words> { Words::new(kit, at.x, at.y, at.w, z + 3, &[WordLine::new(&shown, TypeRole::Title, ink)]) });
+            if let Ok(words) = made {
+                b.typed = words;
+            }
             b.shown = shown;
         }
         let text_w = width_of(kit, b.typed_style, &b.shown);

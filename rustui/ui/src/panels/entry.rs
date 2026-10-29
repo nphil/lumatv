@@ -120,9 +120,9 @@ impl Entry {
             K::Back => Out { typed: Some(Typed::Cancelled), close: true, ..Out::default() },
             K::Ok => self.press(self.index, now),
             K::Digit(d) => {
-                let cap = [b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9'][usize::from(d.min(9))];
+                let cap = char::from(b'0' + d.min(9));
                 if self.search.text.chars().count() < MAX_CHARS {
-                    self.search.press(&(cap as char).to_string());
+                    self.search.press(&cap.to_string());
                 }
                 Out::default()
             }

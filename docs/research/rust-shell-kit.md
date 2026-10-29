@@ -209,3 +209,37 @@ here. The grid builds the shown rows and one row each side, the strip's bar is o
 button lifts on the shared flowing focus. `tests/rust_cameras_scenes.py` renders the scenes to `docs/mocks/host-rust/cameras/` (dark
 and light, 100 % and 200 % text) with the lint; `tests/test_rust_cameras.py` runs the cases against the fake helper. Status and the
 TV checks: `rust-cameras-result.md`.
+
+## The panels (`rustui/ui/src/panels/`, kinds `quick`, `picker`, `drawer`, `menu`, `confirm`, `switcher`, `entry`)
+
+Seven kinds, one owner: `panels/layer.rs::Panels` is called from `shell.rs` the way `system/layer.rs::Layer` is (feed, key, pointer, tick,
+after, report, state, geometry, lint, restyle) and keeps **one panel up at a time**. A model (`quick/`, `picker.rs`, `drawer.rs`, `menu.rs`,
+`confirm.rs`, `switcher.rs`, `entry.rs`) is pure: keys and clicks in, `Out { effects, asks, events, typed, close }` out. A surface
+(`*_surface.rs`) draws a view of it on `stage.rs::Stage` (the root a panel's layers hang under and how it slides, the dim, the modal scope,
+the first focus lifted at once, the pointer's cue and click) with the same shape each time: a pure `layout()`, `build()` when the content says
+something else, in-place changes for focus/typing/caret, `pointer()`, `feed_lint()`, `geometry()`. `life.rs` is the enter/exit/linger phases
+(a panel that is not wanted has no layers). Scopes: quick 200, picker 201, drawer 202, menu 203, confirm 204, switcher 205 (ask 207), entry 208.
+
+- **`show`** (the gear, Input, the gear's hold) is the compositor's way to open `quick`, `picker`, `drawer`; a second `show` of the one up closes
+  it (the picker goes on to the next input). **`menu.open`** and **`confirm.ask`** are topics the *owner of the thing* sends (the spec of
+  `menu.rs`/`confirm.rs`); what was picked comes back as the topic `menu.picked {id, index}` / `confirm.answered {id}`. Any way out of a dialog
+  that is not an answer (Back, 45 s idle, an app coming to the front) answers with the safe answer, so an owner is never left waiting; a menu
+  closed that way picks nothing.
+- **`switcher`**: the pictures are the compositor's (`compositor/.../switcher.rs`: live windows moved on its own clock under the shell's
+  layers, a video-plane app is an icon on a tile here); this draws the header, each card's name/state/Quit, the ring, the veils and the
+  Quit all question. While the kind is on the compositor sends `apps`/`switcher` topics to this client only, takes `POST /v1/switcher` ops
+  from it and counts it as the one that "can show" `switcher`; `Panels::apply` hands the cards' places (`Switcher::layout`, once per change) to
+  the shell as `take_drawn()`. Offered when `remote.appSwitcher` or `remote.recents` is on (both off until the TV check): a second Home press
+  (`homekey {switcher: true}` to Home at rest, `Request::Switcher`), and Back from the top of Home with `recents`.
+- **`entry`**: text typed on the TV for the shell's *own* screens (Wi-Fi password, names, addresses; Settings' `ShellRequest::Text`). It is not
+  the compositor's IME for text fields of apps (that stays the QML keyboard's). Home's search keys (`home/search.rs`) are the model; the sheet is
+  solid on a hiding dim in `z::KEYBOARD`, takes every key and click while up (and the release of a key it took), masks a password except its last
+  character, holds 128 characters and hands the text back **once** (`Panels::take_typed`, never a topic, never printed) or says it was
+  cancelled. Kind off: the ask is cancelled at once.
+- Plugin tiles and notes (`plugin.<id>.tiles`, `.notifications`) arrive on the helper poll: `host/http.rs::follow_filter` names a connected
+  plugin's topics, and past the 16 names a poll may carry (the base list is already 18) the poll asks for every topic; `panels/hub.rs` shows
+  only what the roster says is connected and valid.
+- Kit parts the panels added: `kit/widgets.rs` (Plate, Hover, Toggle, Chip, Stepper, Slider, Px, tile), `kit/avatar.rs` (a person's picture from
+  a file), `Effect::Request` / `Effect::Channel`, `Button::feed_lint_at`. Host tests: `tests/test_rust_panels.py` (cases and lint at both
+  sizes in both looks; `RUST_PANELS_RENDERS=docs/mocks/host-rust/panels` writes the 1280-wide JPEGs), status and TV checks:
+  `rust-panels-result.md`.

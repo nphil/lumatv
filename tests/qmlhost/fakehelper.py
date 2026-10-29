@@ -172,6 +172,7 @@ class State:
         self.events = []        # (seq, topic, data)
         self.filter_topics = False      # a poll's `topics=` narrows its events, as the helper's hub does (off: every event, as the QML tests have always had them)
         self.polls = []         # the `topics=` of every /v1/events poll (None: the poll named none)
+        self.keepalive = False  # connections stay open between requests, as the helper's do (off: one request each, as the QML tests have always had it)
         self.topics["ai"] = ai_doc()
         self.topics["ai.prompt"] = None
         self.topics["updateblock"] = updateblock("blocked")
@@ -229,6 +230,10 @@ def voice_view(st):
 
 def handler(st):
     class H(BaseHTTPRequestHandler):
+        @property
+        def protocol_version(self):
+            return "HTTP/1.1" if st.keepalive else "HTTP/1.0"
+
         def log_message(self, *a):
             pass
 

@@ -152,6 +152,8 @@ pub struct Shell {
     started: bool,
     /// The data directory (`theme/theme.json` is written under it) and the module's (`icons/`, `art/`).
     data_dir: Option<PathBuf>,
+    /// The keys whose press the entry sheet took (their release is the sheet's too).
+    entry_keys: Vec<String>,
 }
 
 impl Shell {
@@ -183,6 +185,7 @@ impl Shell {
             helper_up: false,
             started: false,
             data_dir: None,
+            entry_keys: Vec::new(),
         })
     }
 
@@ -538,15 +541,26 @@ impl Shell {
                 self.cards_took = self.sys.takes_key(&self.kinds, &key_input, now);
                 // a question of the system layer (an alert, a PIN prompt) has the keys before Settings does
                 let sys_asks = self.settings.is_open() && self.sys.wants(&self.kinds);
+                // the entry sheet is over Settings and takes every key while it is up, and the release of a key it took (Settings acts on a
+                // release: the one that follows a press the sheet took must not reach the row behind it)
+                let entry_up = self.panels.entry_up(&self.kinds);
+                let took = self.entry_keys.iter().position(|k| k == name);
+                let for_entry = entry_up || took.is_some();
+                if *down && entry_up && took.is_none() {
+                    self.entry_keys.push(name.clone());
+                }
+                if !*down && let Some(i) = took {
+                    self.entry_keys.remove(i);
+                }
                 if sys_asks {
                     for e in self.sys.update(&self.kinds, &Input::Key { name: name.clone(), down: *down, repeat: *repeat }, now) {
                         self.carry(e, now, &mut acts);
                     }
-                } else {
+                } else if !for_entry {
                     self.feed(&Input::Key { name: name.clone(), down: *down, repeat: *repeat }, now, &mut acts);
                 }
-                // a panel has the keys unless a question of the system layer or Settings is over it, or a card took the key
-                if !self.sys.wants(&self.kinds) && !self.settings.is_open() && !self.cards_took {
+                // a panel has the keys unless a question of the system layer or Settings is over it, or a card took the key (the entry sheet is over Settings)
+                if !self.sys.wants(&self.kinds) && (for_entry || !self.settings.is_open()) && !self.cards_took {
                     for e in self.panels.key(&self.kinds, name, *down, *repeat, now) {
                         self.carry(e, now, &mut acts);
                     }
@@ -562,7 +576,7 @@ impl Shell {
                     for e in self.sys.press(target) {
                         self.carry(e, now, &mut acts);
                     }
-                } else if self.kinds.settings && !self.sys.wants(&self.kinds) {
+                } else if self.kinds.settings && !self.sys.wants(&self.kinds) && !self.panels.entry_up(&self.kinds) {
                     for e in self.settings.pointer(&mut self.engine, now_ns, sample, now) {
                         self.carry(e, now, &mut acts);
                     }
@@ -838,6 +852,11 @@ impl Shell {
     /// The layout and contrast lint of what the layer has on the screen (`--eval lint`): an object per finding.
     pub fn lint(&mut self) -> Value {
         let mut lint = crate::kit::lint::Lint::new();
+        // the entry sheet's dim hides the screen it is over: only the sheet is read
+        if self.panels.entry_up(&self.kinds) {
+            self.panels.feed_lint(&self.kinds, &mut self.kit, &mut lint);
+            return json!(lint.findings().iter().map(|f| json!({"kind": f.kind.name(), "subject": f.subject, "detail": f.detail})).collect::<Vec<_>>());
+        }
         self.sys.feed_lint(&self.kinds, &mut self.kit, &mut lint);
         if self.kinds.home {
             lint = self.home_surface.lint(&mut self.kit, &self.home);

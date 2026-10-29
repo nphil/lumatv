@@ -150,7 +150,8 @@ impl Panels {
             // over the panels: the compositor's pictures are under every layer of the shell, the chrome is the top of the band
             switcher_s: SwitcherSurface::new(base + 40),
             entry: Entry::new(),
-            entry_s: EntrySurface::new(base),
+            // over Settings and the Cameras app, which are the screens that ask for text: the keyboard's own band
+            entry_s: EntrySurface::new(base + crate::kit::z::KEYBOARD - crate::kit::z::PANELS),
             typed: Vec::new(),
             redraw: false,
             idle_due: None,
@@ -687,6 +688,11 @@ impl Panels {
     /// What the last draw asks of the compositor.
     pub fn take_drawn(&mut self) -> Vec<Effect> {
         std::mem::take(&mut self.drawn)
+    }
+
+    /// Whether the entry sheet is up: it is over Settings and has every key (and click) while it is.
+    pub fn entry_up(&self, kinds: &Kinds) -> bool {
+        kinds.entry && self.entry.life.presented()
     }
 
     /// What was typed on the entry sheet since the last take, in order: for the one screen that asked.

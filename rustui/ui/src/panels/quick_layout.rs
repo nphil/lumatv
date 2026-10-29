@@ -276,27 +276,44 @@ pub struct PadLayout {
     pub bottom: f32,
 }
 
-pub fn pad_layout(kit: &Kit, inner: f32) -> PadLayout {
-    let av = (kit.tokens.target * 1.125).round();
+/// `avail` is how tall the room under the head is: the keys give way to it (never below a label and a hair of air), and when the words above
+/// them still take too much (large text) the avatar is left out, since the name says who it is.
+pub fn pad_layout(kit: &Kit, inner: f32, avail: f32) -> PadLayout {
+    let s1 = kit.space(1);
+    let gap = kit.space(3);
     let name_h = kit.line(TypeRole::Title);
+    let d = 28.0;
+    let note_h = kit.line(TypeRole::Caption);
+    let ch_nominal = kit.tokens.target.max(kit.line(TypeRole::Label) + 2.0 * kit.space(2)).ceil();
+    let ch_least = (kit.line(TypeRole::Label) + 2.0 * s1).ceil();
+    let words = name_h + kit.space(3) + d + kit.space(3) + note_h + kit.space(4);
+    let keys = |ch: f32| 4.0 * ch + 3.0 * gap;
+    let mut av = (kit.tokens.target * 1.125).round();
+    let mut ch = ch_nominal;
+    if av + s1 + words + keys(ch) > avail {
+        ch = ((avail - av - s1 - words - 3.0 * gap) / 4.0).floor().clamp(ch_least, ch_nominal);
+    }
+    if av + s1 + words + keys(ch) > avail {
+        av = 0.0;
+        ch = ((avail - words - 3.0 * gap) / 4.0).floor().clamp(ch_least, ch_nominal);
+    }
     let mut y = 0.0;
     let avatar = Frame::new(((inner - av) / 2.0).round(), y, av, av);
-    y += av + kit.space(1);
+    if av > 0.0 {
+        y += av + s1;
+    }
     let name = Frame::new(0.0, y, inner, name_h);
     y += name_h + kit.space(3);
-    let d = 28.0;
     let dgap = kit.space(4);
     let dots_w = 4.0 * d + 3.0 * dgap;
     let dots = (0..4).map(|i| Frame::new(((inner - dots_w) / 2.0).round() + i as f32 * (d + dgap), y, d, d)).collect();
     y += d + kit.space(3);
-    let note = Frame::new(0.0, y, inner, kit.line(TypeRole::Caption));
+    let note = Frame::new(0.0, y, inner, note_h);
     y += note.h + kit.space(4);
-    let gap = kit.space(3);
     let cw = ((inner - 2.0 * gap) / 3.0).floor();
-    let ch = kit.tokens.target.max(kit.line(TypeRole::Label) + 2.0 * kit.space(2)).ceil();
     let x0 = ((inner - (3.0 * cw + 2.0 * gap)) / 2.0).floor();
     let cells: Vec<Frame> = (0..12).map(|i| Frame::new(x0 + (i % 3) as f32 * (cw + gap), y + (i / 3) as f32 * (ch + gap), cw, ch)).collect();
-    let bottom = y + 4.0 * ch + 3.0 * gap;
+    let bottom = y + keys(ch);
     PadLayout { avatar, name, dots, note, cells, bottom }
 }
 
@@ -330,7 +347,27 @@ pub struct SliderLayout {
     pub mark_w: f32,
 }
 
+/// The card keeps this far from the top and bottom of the screen (the safe area).
+const POPUP_EDGE: f32 = 54.0;
+
+/// The card beside the sheet. When its content is taller than the room (a list of options at large text) it rises to the top of the safe area,
+/// then gives up lines of its explanation one at a time; it never leaves the screen for a list of up to seven or eight options.
 pub fn popup_layout(kit: &mut Kit, p: &PopupView) -> PopupLayout {
+    let limit = 1080.0 - POPUP_EDGE;
+    let mut text_max = 6;
+    loop {
+        let mut l = popup_layout_with(kit, p, text_max);
+        if l.frame.y + l.frame.h > limit {
+            l.frame.y = (limit - l.frame.h).max(POPUP_EDGE);
+        }
+        if l.frame.y + l.frame.h <= limit || text_max == 1 || l.text.is_empty() {
+            return l;
+        }
+        text_max -= 1;
+    }
+}
+
+fn popup_layout_with(kit: &mut Kit, p: &PopupView, text_max: usize) -> PopupLayout {
     let pad = kit.space(6);
     let w = SHEET_W;
     let body_w = w - 2.0 * pad;
@@ -348,7 +385,7 @@ pub fn popup_layout(kit: &mut Kit, p: &PopupView) -> PopupLayout {
     let title_w = body_w - if value_w > 0.0 { value_w + kit.space(3) } else { 0.0 };
     let title = wrap::lines(kit, title_style, &title_s, title_w, 1);
     let title_h = kit.line(TypeRole::Title);
-    let text = if text_s.is_empty() { Vec::new() } else { wrap::lines(kit, caption_style, &text_s, body_w, 6) };
+    let text = if text_s.is_empty() { Vec::new() } else { wrap::lines(kit, caption_style, &text_s, body_w, text_max) };
     let gap = kit.space(3);
     let mut y = pad + title_h + gap;
     if !text.is_empty() {
@@ -520,13 +557,15 @@ mod tests {
         assert_eq!(s.cells[0].x + (s.cells[1].x + s.cells[1].w), 512.0, "centred");
         let six = strip_layout(&kit, 6, 512.0);
         assert!(six.cells[5].x + six.cells[5].w <= 512.0 + 0.5);
-        let p = pad_layout(&kit, 512.0);
+        let p = pad_layout(&kit, 512.0, 840.0);
         assert_eq!((p.dots.len(), p.cells.len()), (4, 12));
         assert!(p.cells[0].w > 150.0 && p.cells[0].h >= 64.0);
         assert!(p.cells[11].y > p.cells[0].y && p.cells[1].x > p.cells[0].x);
         assert!(p.bottom < 840.0, "the pad fits the sheet: {}", p.bottom);
         let (_h2, big) = testkit::kit(2.0);
-        assert!(pad_layout(&big, 512.0).bottom < 840.0, "and at 200 %");
+        let squeezed = pad_layout(&big, 512.0, 640.0);
+        assert!(squeezed.bottom <= 640.0, "and at 200 % in the room the sheet leaves: {}", squeezed.bottom);
+        assert!(squeezed.cells[0].h >= big.line(TypeRole::Label), "the keys keep room for their digit");
     }
 
     #[test]
@@ -551,5 +590,18 @@ mod tests {
         assert!(q.options[0].h >= 72.0);
         assert!(q.frame.h > p.frame.h, "seven rows are taller than a slider");
         assert!(q.frame.y + q.frame.h < 1080.0 - 48.0, "inside the screen: {}", q.frame.h);
+    }
+
+    #[test]
+    fn the_pick_card_stays_inside_the_screen_at_200_percent() {
+        let (_h, mut kit) = testkit::kit(2.0);
+        let pick = PopupView::Pick {
+            title: "Picture mode".into(),
+            text: "How the picture looks. Each input keeps its own.".into(),
+            options: (0..7).map(|i| super::super::quick::OptionView { label: format!("Mode {i}"), icon: "image".into(), detail: String::new(), current: i == 1 }).collect(),
+            index: 1,
+        };
+        let q = popup_layout(&mut kit, &pick);
+        assert!(q.frame.y + q.frame.h <= 1080.0 - 54.0, "inside the screen: {:?}", q.frame);
     }
 }

@@ -362,18 +362,19 @@ impl QuickSurface {
 
     fn dot_shape(kit: &Kit, filled: bool, d: f32) -> Shape {
         let look = &kit.ui.look;
-        let (fill, edge) = if filled { (look.accent(), look.colour(PaletteRole::Edge)) } else { (look.colour(PaletteRole::Glass), look.colour(PaletteRole::EdgeRaised)) };
-        Shape { corner_radius: d / 2.0, fill: Fill::Solid(fill), border_width: 1.0, border: edge }
+        // an empty place is a ring in the muted ink: a hairline of the glass edge is gone on the light material
+        let (fill, edge, width) = if filled { (look.accent(), look.colour(PaletteRole::Edge), 1.0) } else { (look.colour(PaletteRole::Glass), look.ink2(), 2.0) };
+        Shape { corner_radius: d / 2.0, fill: Fill::Solid(fill), border_width: width, border: edge }
     }
 
     fn build_pad(kit: &mut Kit, engine: &mut Engine, root: &Group, p: &PadView, area: Frame, z: i32) -> std::io::Result<PadParts> {
-        let l = lay::pad_layout(kit, area.w);
+        let l = lay::pad_layout(kit, area.w, area.h);
         let ink = kit.ui.look.ink();
         let ink2 = kit.ui.look.ink2();
         let (ox, oy) = (area.x, area.y);
         let avatar_layer = match &p.avatar {
-            Some(person) => Some(avatar::px(kit, &person_who(person), l.avatar.w as u32, false).layer(kit, z + 2, Props::at(ox + l.avatar.x, oy + l.avatar.y))?),
-            None => None,
+            Some(person) if l.avatar.w > 0.0 => Some(avatar::px(kit, &person_who(person), l.avatar.w as u32, false).layer(kit, z + 2, Props::at(ox + l.avatar.x, oy + l.avatar.y))?),
+            _ => None,
         };
         let name = Words::new(kit, ox, oy + l.name.y, l.name.w, z + 2, &[WordLine::new(&p.pin.name, TypeRole::Title, ink).weight(Weight::SemiBold).aligned(Align::Centre)])?;
         let dots = l
@@ -1418,6 +1419,25 @@ mod tests {
         u.key(K::Right);
         assert_eq!(u.kit.room().layers, layers, "the thumb, the fill and the figure move; nothing is made");
         assert!(u.lint().is_empty(), "{:?}", u.lint());
+    }
+
+    #[test]
+    fn the_pin_pad_fits_the_sheet_and_reads_clean_at_200_percent_in_both_materials() {
+        for mode in [Mode::Dark, Mode::Light] {
+            for scale in [1.0, 2.0] {
+                let mut u = Up::new(mode, scale, false);
+                feed(&mut u.env, "profiles", two_people("isabel", &["nitin"]), 10);
+                u.apply();
+                u.key(K::Up);
+                u.key(K::Left);
+                u.key(K::Ok);
+                let g = u.s.geometry(&u.engine);
+                let sheet_bottom = g["sheet"]["y"].as_f64().unwrap() + g["sheet"]["h"].as_f64().unwrap();
+                let low = g["pad"].as_array().unwrap().iter().map(|c| c["y"].as_f64().unwrap() + c["h"].as_f64().unwrap()).fold(0.0, f64::max);
+                assert!(low <= sheet_bottom, "{mode:?} {scale}: the last row of keys ({low}) is inside the sheet ({sheet_bottom})");
+                assert!(u.lint().is_empty(), "{mode:?} {scale}: {:?}", u.lint());
+            }
+        }
     }
 
     #[test]
