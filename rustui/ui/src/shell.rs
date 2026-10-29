@@ -262,20 +262,19 @@ impl Shell {
             Effect::Channel { path, body } => acts.push(Act::Channel(Outbound { method: "POST", path, body: Some(body), tag: None })),
             Effect::Theme { tag, patch } => self.write_theme(tag, &patch, now, acts),
             Effect::Read { tag, path } => {
-                let (status, data) = match self.data_dir.as_ref().map(|d| std::fs::read(d.join(&path))) {
-                    Some(Ok(bytes)) => match serde_json::from_slice::<Value>(&bytes) {
+                let (status, data) = match self.file_of(&path).map(std::fs::read) {
+                    Ok(Ok(bytes)) => match serde_json::from_slice::<Value>(&bytes) {
                         Ok(v) => (200, v),
                         Err(e) => (500, json!({"error": e.to_string()})),
                     },
-                    Some(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => (404, Value::Null),
-                    Some(Err(e)) => (500, json!({"error": e.to_string()})),
-                    None => (500, json!({"error": "no data directory"})),
+                    Ok(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => (404, Value::Null),
+                    Ok(Err(e)) => (500, json!({"error": e.to_string()})),
+                    Err(e) => (500, json!({"error": e.to_string()})),
                 };
                 self.feed(&Input::Fetched { tag, status, data }, now, acts);
             }
             Effect::Write { path, text } => {
-                let written = self.data_dir.as_ref().ok_or_else(|| std::io::Error::other("no data directory")).and_then(|d| {
-                    let full = d.join(&path);
+                let written = self.file_of(&path).and_then(|full| {
                     if let Some(dir) = full.parent() {
                         std::fs::create_dir_all(dir)?;
                     }
@@ -290,6 +289,18 @@ impl Shell {
             Effect::Log(line) => acts.push(Act::Log(line)),
             Effect::Redraw => self.redraw = true,
         }
+    }
+
+    /// The file a model's effect names: a path under the data directory, or a file of the video-plane player's mailbox (`/tmp/<shortId>-vplane/`),
+    /// which is the only place outside the data directory a model may read or write.
+    fn file_of(&self, path: &str) -> std::io::Result<PathBuf> {
+        if let Some(name) = path.strip_prefix(crate::home::wallvideo::MAILBOX).and_then(|rest| rest.strip_prefix('/')) {
+            return if !name.is_empty() && !name.contains('/') && !name.contains("..") { Ok(PathBuf::from(path)) } else { Err(std::io::Error::other("not a file of the player's mailbox")) };
+        }
+        if path.starts_with('/') || path.split('/').any(|part| part == "..") {
+            return Err(std::io::Error::other("a path outside the data directory"));
+        }
+        self.data_dir.as_ref().map(|d| d.join(path)).ok_or_else(|| std::io::Error::other("no data directory"))
     }
 
     /// Writes a theme patch under the data directory and tells the models how it went, with the merged file.
@@ -697,6 +708,13 @@ impl Shell {
 
     /// Draws what changed and reports when the report changed.
     fn after(&mut self, now: u64, acts: &mut Vec<Act>) {
+        // the material in use and the saver: what the moving wallpaper's clip needs to be Home's besides the theme
+        if self.kinds.home {
+            let (light, saver) = (self.kit.mode == ui::lucent::palette::Mode::Light, self.sys.saver_up(&self.kinds));
+            for e in self.home.set_context(light, saver, now) {
+                self.carry(e, now, acts);
+            }
+        }
         // what the panels, Settings and the Cameras viewer have up is what the cards and the pop-up wait for
         let host_busy = self.panels.wants(&self.kinds) || (self.kinds.settings && self.settings.is_open());
         let viewer = self.kinds.cameras && self.cameras.wants();
@@ -1439,6 +1457,24 @@ mod tests {
         assert!(shell.state()["extras"]["frame"].is_null());
         shell.tick(4_100 + 400);
         assert!(shell.geometry()["extras"]["frame"].is_null(), "it shrank back and is gone");
+    }
+
+    #[test]
+    fn a_model_may_read_and_write_the_data_directory_and_the_players_mailbox_and_nothing_else() {
+        let (_h, mut shell) = shell();
+        shell.dirs(&testkit::module_dir(), std::path::Path::new("/data/lumatv"));
+        assert_eq!(shell.file_of("theme/theme.json").unwrap(), PathBuf::from("/data/lumatv/theme/theme.json"));
+        assert_eq!(shell.file_of("/tmp/lumatv-vplane/req.json").unwrap(), PathBuf::from("/tmp/lumatv-vplane/req.json"));
+        assert_eq!(shell.file_of("/tmp/lumatv-vplane/status.json").unwrap(), PathBuf::from("/tmp/lumatv-vplane/status.json"));
+        for bad in ["/etc/passwd", "/tmp/other/req.json", "/tmp/lumatv-vplane/", "/tmp/lumatv-vplane/../x", "/tmp/lumatv-vplane/a/b", "../x", "theme/../../x", "/tmp/lumatv-vplane-x/req.json"] {
+            assert!(shell.file_of(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn the_mailbox_is_the_one_the_player_and_the_qml_use() {
+        let brand: Value = serde_json::from_str(include_str!("../../../brand.json")).expect("brand.json");
+        assert_eq!(crate::home::wallvideo::MAILBOX, format!("/tmp/{}-vplane", brand["shortId"].as_str().unwrap()));
     }
 
     #[test]

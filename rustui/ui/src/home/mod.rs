@@ -15,6 +15,7 @@ pub mod search;
 pub mod stills;
 pub mod surface;
 pub mod wallpaper;
+pub mod wallvideo;
 pub mod widgets;
 
 pub use model::Home;

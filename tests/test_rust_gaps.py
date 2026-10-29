@@ -371,6 +371,74 @@ class RustGapsHome(unittest.TestCase):
             self.assertEqual(ev[1], [], '%s at %s: %s' % (mode, scale, ev[1]))
             self.assertTrue(ev[2]['extras']['frame']['landed'] and ev[2]['extras']['frame']['wanted'], 'the web half was asked for')
 
+    # ---- the moving wallpaper
+    def test_the_video_wallpaper_is_asked_of_the_player_and_home_takes_its_own_picture_away_only_when_the_clip_plays_under_the_hole(self):
+        import shutil
+        import threading
+        mailbox = '/tmp/lumatv-vplane'
+        with open(os.path.join(home_host.ROOT, 'brand.json')) as f:
+            self.assertEqual(mailbox, '/tmp/%s-vplane' % json.load(f)['shortId'])
+        shutil.rmtree(mailbox, ignore_errors=True)
+        os.makedirs(mailbox)
+        self.addCleanup(shutil.rmtree, mailbox, True)
+        data = tempfile.mkdtemp(prefix='rustgaps-wall-')
+        os.makedirs(os.path.join(data, 'vplane', 'clips'))
+        shutil.copy(os.path.join(home_host.ROOT, 'payload', 'vplane', 'clips', 'wall.json'), os.path.join(data, 'vplane', 'clips', 'wall.json'))
+        seen = []
+        stop = threading.Event()
+
+        def player():
+            """The decoder's side of the mailbox: idle until a wall start comes, then playing with a fresh status every half second."""
+            playing = None
+            while not stop.is_set():
+                try:
+                    with open(os.path.join(mailbox, 'req.json')) as f:
+                        req = json.load(f)
+                except (OSError, ValueError):
+                    req = None
+                if req and (not seen or seen[-1]['seq'] != req['seq']):
+                    seen.append(req)
+                    if req['op'] == 'start' and req.get('role') == 'wall':
+                        playing = req['seq']
+                    elif req['op'] == 'stop':
+                        playing = None
+                doc = {'v': 1, 'ts': int(time.time() * 1000), 'seq': playing or 1, 'role': 'wall' if playing else 'saver', 'state': 'playing' if playing else 'idle', 'reason': ''}
+                tmp = os.path.join(mailbox, 'status.tmp')
+                with open(tmp, 'w') as f:
+                    json.dump(doc, f)
+                os.replace(tmp, os.path.join(mailbox, 'status.json'))
+                time.sleep(0.1)
+
+        thread = threading.Thread(target=player, daemon=True)
+        thread.start()
+        try:
+            theme = {'wallpaperMotion': {'source': 'video'}, 'material': 'dark'}
+            steps = [['--push', '60:wall:{"hole":true}'], ['--eval', '1000:state'], ['--eval', '3500:state'], ['--eval', '3500:geometry']]
+            _, ev, _ = home_host.RustHome.host(self, 4200, steps, data=data, theme=theme, mode='dark')
+        finally:
+            stop.set()
+            thread.join(2)
+        self.assertEqual([r['op'] for r in seen][:1], ['start'], seen)
+        self.assertEqual((seen[0]['role'], seen[0]['clip']), ('wall', 'wall-silk'))
+        wall = ev[1]['home']['wall']
+        self.assertEqual((wall['state'], wall['up']), ('playing', True), wall)
+        self.assertTrue(ev[1]['home']['wallHole'])
+        self.assertFalse(ev[2]['home']['wallpaper'], "Home's own picture is away while the clip is on the plane")
+        self.assertTrue(all(r['op'] in ('start', 'renew', 'stop') for r in seen))
+
+    def test_without_a_player_the_gpu_wallpaper_stays_and_nothing_is_written(self):
+        import shutil
+        shutil.rmtree('/tmp/lumatv-vplane', ignore_errors=True)
+        data = tempfile.mkdtemp(prefix='rustgaps-wall-')
+        os.makedirs(os.path.join(data, 'vplane', 'clips'))
+        shutil.copy(os.path.join(home_host.ROOT, 'payload', 'vplane', 'clips', 'wall.json'), os.path.join(data, 'vplane', 'clips', 'wall.json'))
+        theme = {'wallpaperMotion': {'source': 'video'}, 'material': 'dark'}
+        _, ev, _ = home_host.RustHome.host(self, 3000, [['--push', '60:wall:{"hole":true}'], ['--eval', '2500:state'], ['--eval', '2500:geometry']], data=data, theme=theme, mode='dark')
+        wall = ev[0]['home']['wall']
+        self.assertEqual((wall['state'], wall['reason'], wall['up']), ('off', 'no player', False), wall)
+        self.assertFalse(os.path.exists('/tmp/lumatv-vplane/req.json'), 'no request is left where no player is')
+        self.assertTrue(ev[1]['home']['wallpaper'], "Home draws its own picture")
+
 
 if __name__ == '__main__':
     unittest.main()

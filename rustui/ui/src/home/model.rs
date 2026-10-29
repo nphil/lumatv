@@ -10,6 +10,7 @@ use super::editor::{Editor, EditorOut};
 use super::grid::{self, Entry, Rect};
 use super::picker::{Picker, PickerOut};
 use super::search::{Search, SearchOut};
+use super::wallvideo::{Ctx, WallVideo};
 use crate::kit::focus::{Dir, Focus, Id, Moved, Region, Scope};
 use crate::kit::screen::{Effect, Input};
 use crate::system::extras::{Intent, Note, Page, Pick, Tile};
@@ -118,7 +119,14 @@ pub struct Home {
     pub inner_index: Option<usize>,
     pointer_down: bool,
     pub active: bool,
+    /// The clip of the moving wallpaper is on the plane under Home and the hole is open: Home's own picture and scrim are away ([`WallVideo::up`]).
     pub wall_hole: bool,
+    /// What the compositor's `wall` topic says: the hole of the wallpaper's window is under Home.
+    wall_topic: bool,
+    /// The moving wallpaper's controller: asks the player for the clip while Home wants it.
+    pub wall: WallVideo,
+    light: bool,
+    saver_up: bool,
     pub screen_on: bool,
     pub cursor_visible: bool,
     pub launching: Option<String>,
@@ -183,6 +191,10 @@ impl Home {
             menu_app: None,
             active: false,
             wall_hole: false,
+            wall_topic: false,
+            wall: WallVideo::default(),
+            light: false,
+            saver_up: false,
             screen_on: true,
             cursor_visible: false,
             launching: None,
@@ -466,6 +478,32 @@ impl Home {
         self.tick(&mut out);
         let visible = self.camera_stills_visible();
         out.extend(self.stills.update(input, visible, now));
+        out.extend(self.wall.update(input, now));
+        self.sync_wall(&mut out);
+        out
+    }
+
+    /// Fits the moving wallpaper's controller to what Home is now (the theme, the material, whether it is the front, the saver, the hole under it); the
+    /// pictures Home draws itself go while the clip is on the plane.
+    fn sync_wall(&mut self, out: &mut Vec<Effect>) {
+        let ctx = Ctx { dark: !self.light, active: self.active && self.screen_on, saver: self.saver_up };
+        out.extend(self.wall.sync(&self.theme, ctx, self.wall_topic, self.now));
+        let up = self.wall.up();
+        if up != self.wall_hole {
+            self.wall_hole = up;
+            self.redraw(out);
+        }
+    }
+
+    /// The material in use and whether the screensaver is over Home: what the clip's contract reads besides the theme.
+    pub fn set_context(&mut self, light: bool, saver_up: bool, now: u64) -> Vec<Effect> {
+        let mut out = Vec::new();
+        if light != self.light || saver_up != self.saver_up {
+            self.light = light;
+            self.saver_up = saver_up;
+            self.now = now;
+            self.sync_wall(&mut out);
+        }
         out
     }
 
@@ -525,6 +563,7 @@ impl Home {
         take(self.picker.due_at());
         take(self.search.due_at());
         take(self.stills.due_at(self.camera_stills_visible()));
+        take(self.wall.due_at());
         // the clock's minute, and its second hand when the analogue face shows one
         let step = if self.theme.pointer("/clock/style").and_then(Value::as_str) == Some("analog") { 1000 } else { 60_000 };
         take(Some((self.now / step + 1) * step));
@@ -543,6 +582,7 @@ impl Home {
                         self.launching = None;
                         self.focus.ensure();
                         self.next_poll = self.now;
+                        self.wall.read_manifest(self.now);
                     } else {
                         self.reset_ok();
                         self.close_all();
@@ -551,11 +591,7 @@ impl Home {
                 }
             }
             "wall" => {
-                let hole = data.get("hole").and_then(Value::as_bool).unwrap_or(false);
-                if hole != self.wall_hole {
-                    self.wall_hole = hole;
-                    self.redraw(out);
-                }
+                self.wall_topic = data.get("hole").and_then(Value::as_bool).unwrap_or(false);
             }
             "screen" => {
                 let on = data.get("on").and_then(Value::as_bool).unwrap_or(true);
@@ -1569,6 +1605,7 @@ impl Home {
             "editing": self.editor.is_some(),
             "editor": self.editor.as_ref().map(Editor::state),
             "wallHole": self.wall_hole,
+            "wall": self.wall.state(),
             "cards": self.cards().iter().map(|e| { let r = self.rect(e); json!([e.id, r.x, r.y, r.w, r.h]) }).collect::<Vec<_>>(),
             "layout": grid::entries(&self.layout).iter().map(|e| json!([e.id, e.col, e.row, e.span, e.rows, e.hidden as u8])).collect::<Vec<_>>(),
             "dock": self.dock.ids(),
@@ -1914,5 +1951,38 @@ mod tests {
         assert_eq!(*from, [r.x as f32, r.y as f32, r.w as f32, r.h as f32]);
         assert_eq!((to[0], to[1], to[2], to[3]), (200.0, 150.0, 1520.0, 860.0), "centred under the status bar");
         assert!(!out.iter().any(|e| matches!(e, Effect::Luna { .. })), "the browser is not opened: the frame is");
+    }
+
+    #[test]
+    fn the_hole_takes_the_picture_away_only_once_the_clip_plays_and_has_settled_and_the_picture_is_back_when_home_stops_wanting_it() {
+        use crate::home::wallvideo::{MANIFEST_TAG, STATUS_TAG};
+        let mut h = home();
+        h.theme["wallpaperMotion"]["source"] = json!("video");
+        let manifest: Value = serde_json::from_str(include_str!("../../../../payload/vplane/clips/wall.json")).unwrap();
+        h.update(&Input::Topic { topic: "wall".into(), data: json!({"hole": true}) }, 1100);
+        assert!(!h.wall_hole, "the compositor's hole alone is not the clip: Home's own picture stays until the player plays");
+        let out = h.update(&Input::Tick, 1200);
+        assert!(out.iter().any(|e| matches!(e, Effect::Read { tag: MANIFEST_TAG, .. })), "the clips' manifest is read");
+        // Home is in front with the screen on and has the manifest: it wants the clip, and asks for the player's status; the player says idle, the start goes out
+        let out = h.update(&Input::Fetched { tag: MANIFEST_TAG, status: 200, data: manifest }, 1210);
+        assert!(out.iter().any(|e| matches!(e, Effect::Read { tag: STATUS_TAG, .. })), "{out:?}");
+        let out = h.update(&Input::Fetched { tag: STATUS_TAG, status: 200, data: json!({"ts": 1215, "seq": 1, "role": "saver", "state": "idle"}) }, 1230);
+        let start = out.iter().find_map(|e| match e {
+            Effect::Write { path, text } if path == crate::home::wallvideo::REQ_FILE => serde_json::from_str::<Value>(text).ok(),
+            _ => None,
+        });
+        let start = start.expect("a start request");
+        assert_eq!((start["op"].as_str(), start["clip"].as_str()), (Some("start"), Some("wall-silk")));
+        h.update(&Input::Tick, 1450);
+        h.update(&Input::Fetched { tag: STATUS_TAG, status: 200, data: json!({"ts": 1440, "seq": start["seq"], "role": "wall", "state": "playing"}) }, 1460);
+        assert!(!h.wall_hole, "playing, but the first picture has not settled");
+        let out = h.update(&Input::Tick, 1470 + 250);
+        assert!(h.wall_hole && out.contains(&Effect::Redraw), "settled with the hole under Home: Home's picture and scrim go");
+        assert_eq!(h.state()["wallHole"], true);
+        assert_eq!(h.state()["wall"]["state"], "playing");
+        // the owner turns the switch off: the picture is back in the same update
+        h.theme["wallpaperMotion"]["source"] = json!("gpu");
+        let out = h.update(&Input::Tick, 2000);
+        assert!(!h.wall_hole && out.contains(&Effect::Redraw));
     }
 }
