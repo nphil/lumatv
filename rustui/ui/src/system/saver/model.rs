@@ -101,6 +101,9 @@ pub struct Saver {
     pointer: Option<(f32, f32)>,
     /// The helper's count of requests to wake the screen; `None` until the first document.
     wake_seen: Option<u64>,
+    /// The volume and mute as the `audio` topic last said: a change while the saver is up is a volume key (the compositor takes those keys
+    /// itself), and the bar it shows is under the saver, so the saver ends.
+    audio: Option<(Option<i64>, Option<bool>)>,
     redraw: bool,
 }
 
@@ -132,6 +135,7 @@ impl Saver {
             block: (900.0, 540.0),
             pointer: None,
             wake_seen: None,
+            audio: None,
             redraw: false,
         }
     }
@@ -192,6 +196,16 @@ impl Saver {
         match input {
             Input::Topic { topic, data } if topic == "foreground" => {
                 self.home_front = data.get("home").and_then(Value::as_bool) == Some(true);
+            }
+            Input::Topic { topic, data } if topic == "audio" => {
+                if let Some(v) = data.get("volumeStatus") {
+                    let heard = (v.get("volume").and_then(Value::as_i64), v.get("muteStatus").and_then(Value::as_bool));
+                    let changed = self.audio.is_some_and(|was| was != heard);
+                    self.audio = Some(heard);
+                    if changed && self.up() {
+                        self.wake(now, &mut out);
+                    }
+                }
             }
             Input::Helper { topic, data } if topic == "screen" => {
                 self.power_state = data.get("state").and_then(Value::as_str).unwrap_or("").to_string();
@@ -615,6 +629,33 @@ mod tests {
         u.update(&at(1.0, 1.0, 0), NOW + 2);
         u.update(&at(900.0, 900.0, 0), NOW + 3);
         assert!(u.up());
+    }
+
+    #[test]
+    fn a_volume_key_ends_the_saver_because_the_bar_it_would_show_is_under_it_and_the_first_reading_is_only_the_level() {
+        let mut s = saver();
+        home(&mut s, NOW);
+        question(&mut s, 0, 1, NOW + 1);
+        let audio = |volume: i64, muted: bool| topic("audio", json!({"volumeStatus": {"volume": volume, "muteStatus": muted}}));
+        s.update(&audio(20, false), NOW + 2);
+        assert!(s.up(), "the first reading is where the volume already was");
+        s.update(&audio(20, false), NOW + 3);
+        assert!(s.up(), "the same reading again changes nothing");
+        s.update(&audio(21, false), NOW + 4);
+        assert!(!s.up(), "a step of the volume ends it");
+        let mut t = saver();
+        home(&mut t, NOW);
+        question(&mut t, 0, 1, NOW + 1);
+        t.update(&audio(20, false), NOW + 2);
+        t.update(&audio(20, true), NOW + 3);
+        assert!(!t.up(), "so does the mute key");
+        // LG's own saver: the TV is asked to turn the screen on
+        let mut u = saver();
+        home(&mut u, NOW);
+        u.update(&helper("screen", json!({"on": true, "state": "Screen Saver"})), NOW + 1);
+        u.update(&audio(20, false), NOW + 2);
+        let fx = u.update(&audio(25, false), NOW + 3);
+        assert_eq!(luna_calls(&fx).len(), 1, "the screen is asked to come on: {fx:?}");
     }
 
     #[test]

@@ -270,6 +270,11 @@ impl Shell {
     }
 
     fn feed(&mut self, input: &Input, now: u64, acts: &mut Vec<Act>) {
+        // Who had the keys when this input arrived: a key that answers an alert or wakes the saver was theirs, and the screens under them
+        // never see it (the key that wakes the TV does nothing else).
+        let key_like = matches!(input, Input::Key { .. } | Input::Pointer { .. });
+        let layer_had = key_like && self.sys.wants(&self.kinds);
+        let system_had = key_like && self.system_wants();
         if self.kinds.osd {
             for e in self.volume.update(input, now) {
                 self.carry(e, now, acts);
@@ -289,7 +294,7 @@ impl Shell {
         self.panel_events(now, acts);
         if self.kinds.home {
             // a system-layer kind that has the keys (a panel up over Home) takes them before Home sees them
-            let taken = matches!(input, Input::Key { .. } | Input::Pointer { .. }) && self.system_wants();
+            let taken = system_had;
             if !taken {
                 for e in self.home.update(input, now) {
                     self.carry(e, now, acts);
@@ -318,13 +323,13 @@ impl Shell {
             }
         }
         // the Cameras viewer takes the keys unless an alert, a PIN prompt or the keyboard is up over it
-        if self.kinds.cameras && (!matches!(input, Input::Key { .. }) || !self.sys.busy()) {
+        if self.kinds.cameras && (!matches!(input, Input::Key { .. }) || !self.sys.busy()) && !layer_had {
             for e in self.cameras.update(input, now) {
                 self.carry(e, now, acts);
             }
             self.cameras_intents.extend(self.cameras.take_intents());
         }
-        if self.kinds.settings {
+        if self.kinds.settings && !layer_had {
             for e in self.settings.update(input, now) {
                 self.carry(e, now, acts);
             }
@@ -754,12 +759,16 @@ impl Shell {
             }
         }
         if let Some(file) = self.settings.take_theme_file() {
-            self.reload_theme(&file);
+            let theme = self.reload_theme(&file);
+            // the saver's own numbers (clockLevel, dim, style, own) and the placements are in it
+            for e in self.sys.set_theme(&theme, now) {
+                self.carry(e, now, acts);
+            }
         }
     }
 
-    /// The owner's theme file changed (Settings wrote it): the look in force is the shipped theme under it.
-    pub fn reload_theme(&mut self, file: &Value) {
+    /// The owner's theme file changed (Settings wrote it): the look in force is the shipped theme under it. Returns the merged theme.
+    pub fn reload_theme(&mut self, file: &Value) -> Value {
         let tokens = lumatv_tokens::Tokens::from_json(file);
         let mode = match tokens.material {
             lumatv_tokens::Material::Dark => ui::lucent::palette::Mode::Dark,
@@ -769,7 +778,8 @@ impl Shell {
         let scale = file.pointer("/type/scale").and_then(Value::as_f64).map_or(self.kit.text_scale, |s| (s as f32).clamp(1.0, 2.0));
         let theme = tokens.json().clone();
         self.kit.retheme(tokens, mode, scale);
-        self.settings.set_theme(theme);
+        self.settings.set_theme(theme.clone());
         self.restyle();
+        theme
     }
 }

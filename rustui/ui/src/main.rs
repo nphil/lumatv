@@ -61,6 +61,7 @@ struct Options {
     backdrop: Option<PathBuf>,
     theme: Option<Value>,
     log: Option<PathBuf>,
+    clock: Option<u64>,
 }
 
 fn env_path(name: &str) -> Option<PathBuf> {
@@ -91,6 +92,7 @@ fn parse() -> Result<Options, String> {
         backdrop: None,
         theme: None,
         log: None,
+        clock: None,
     };
     let mut args = std::env::args().skip(1);
     let value = |args: &mut std::iter::Skip<std::env::Args>, flag: &str| args.next().ok_or_else(|| format!("{flag} needs a value"));
@@ -163,6 +165,10 @@ fn parse() -> Result<Options, String> {
             "--backdrop" => o.backdrop = Some(PathBuf::from(value(&mut args, "--backdrop")?)),
             "--theme" => o.theme = Some(serde_json::from_str(&value(&mut args, "--theme")?).map_err(|e| format!("--theme: {e}"))?),
             "--log" => o.log = Some(PathBuf::from(value(&mut args, "--log")?)),
+            "--clock" => {
+                let text = value(&mut args, "--clock")?;
+                o.clock = Some(lumatv_ui::host::clock::parse_local(&text).ok_or("--clock YYYY-MM-DDTHH:MM[:SS]")?);
+            }
             other => return Err(format!("unknown option {other}")),
         }
     }
@@ -362,6 +368,9 @@ fn read_png(path: &std::path::Path) -> io::Result<(u32, u32, Vec<u8>)> {
 fn run_host(o: Options) -> io::Result<()> {
     // SAFETY: nothing else in this process reads the environment while it is set.
     unsafe { std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1") };
+    if let Some(ms) = o.clock {
+        lumatv_ui::host::set_clock(ms);
+    }
     let mut log = Log { file: o.log.as_ref().and_then(|p| std::fs::File::create(p).ok()) };
     std::fs::create_dir_all(&o.shm)?;
     let (width, height) = (1920u32, 1080u32);

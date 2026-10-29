@@ -32,6 +32,39 @@ fn civil_from_days(days: i64) -> (i32, u8, u8) {
     ((y + i64::from(m <= 2)) as i32, m, d)
 }
 
+/// Days since 1970-01-01 of a calendar date (the inverse of [`civil_from_days`]).
+fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+    let y = y - i64::from(m <= 2);
+    let era = y.div_euclid(400);
+    let yoe = y.rem_euclid(400);
+    let doy = (153 * ((m + 9) % 12) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
+/// The epoch milliseconds of a local civil time `offset_s` seconds east of UTC.
+pub fn epoch_of(year: i32, month: u8, day: u8, hour: u8, minute: u8, second: u8, offset_s: i32) -> u64 {
+    let days = days_from_civil(i64::from(year), i64::from(month), i64::from(day));
+    let secs = days * 86_400 + i64::from(hour) * 3600 + i64::from(minute) * 60 + i64::from(second) - i64::from(offset_s);
+    (secs * 1000).max(0) as u64
+}
+
+/// `2026-10-29T10:08:35` (or with a space) as epoch milliseconds in the system's zone: what the harness's `--clock` takes.
+pub fn parse_local(text: &str) -> Option<u64> {
+    let (date, time) = text.trim().split_once(['T', ' '])?;
+    let mut d = date.split('-').map(|p| p.parse::<i32>().ok());
+    let (year, month, day) = (d.next()??, d.next()??, d.next()??);
+    let mut t = time.split(':').map(|p| p.parse::<u8>().ok());
+    let (hour, minute) = (t.next()??, t.next()??);
+    let second = t.next().flatten().unwrap_or(0);
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) || hour > 23 || minute > 59 || second > 59 {
+        return None;
+    }
+    let guess = epoch_of(year, month as u8, day as u8, hour, minute, second, 0);
+    let offset = system_offset_s(guess);
+    Some(epoch_of(year, month as u8, day as u8, hour, minute, second, offset))
+}
+
 /// The civil time at `epoch_ms` in a zone `offset_s` seconds east of UTC.
 pub fn civil_at(epoch_ms: u64, offset_s: i32) -> Civil {
     let local_ms = epoch_ms as i64 + i64::from(offset_s) * 1000;
@@ -101,6 +134,18 @@ mod tests {
         assert_eq!((leap.year, leap.month, leap.day), (2000, 2, 29), "2000 was a leap year");
         let before = civil_at(0, -3600);
         assert_eq!((before.year, before.month, before.day, before.hour), (1969, 12, 31, 23));
+    }
+
+    #[test]
+    fn a_local_time_is_read_back_as_the_same_calendar_and_clock() {
+        assert_eq!(epoch_of(1970, 1, 1, 0, 0, 0, 0), 0);
+        assert_eq!(epoch_of(2026, 10, 29, 2, 35, 12, 0), 1_793_241_312_000);
+        assert_eq!(epoch_of(2000, 2, 29, 0, 0, 0, 0), 951_782_400_000, "a leap day");
+        let ms = parse_local("2026-10-29T10:08:35").expect("a time");
+        let c = civil_at(ms, system_offset_s(ms));
+        assert_eq!((c.year, c.month, c.day, c.hour, c.minute, c.second), (2026, 10, 29, 10, 8, 35));
+        assert_eq!(parse_local("2026-10-29 07:30").map(|m| civil_at(m, system_offset_s(m)).minute), Some(30), "a space for the T, no seconds");
+        assert!(parse_local("2026-13-01T00:00:00").is_none() && parse_local("nonsense").is_none());
     }
 
     #[test]
