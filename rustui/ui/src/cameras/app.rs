@@ -71,6 +71,8 @@ pub enum Target {
     Tab(Tab),
     Card(usize),
     Option(usize),
+    /// The way back of the options page: what Back does.
+    Back,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1133,6 +1135,7 @@ impl App {
             }
             Target::Retry => self.ensure_live(true, &mut fx),
             Target::Backdrop => {}
+            Target::Back => self.back(now, &mut fx),
             Target::Tile(i) => {
                 if let Screen::Grid(g) = &mut self.screen {
                     g.focus = GFocus::Tile(i);

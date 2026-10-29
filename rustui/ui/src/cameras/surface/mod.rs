@@ -15,14 +15,20 @@
 pub mod common;
 pub mod full;
 pub mod grid;
+pub mod options;
 pub mod pic;
 pub mod pill;
+pub mod root;
+pub mod sheet;
 pub mod strip;
+pub mod toast;
 
 use crate::kit::Engine;
 use crate::kit::Kit;
 use crate::kit::focus::{Id, Region, Scope};
 use pic::PictureStore;
+
+pub use root::CamerasSurface;
 
 /// The identity of everything the surfaces register with the focus engine: the base of the cameras' ids, then the screen's.
 pub mod ids {

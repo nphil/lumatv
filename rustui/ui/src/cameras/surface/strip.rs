@@ -573,17 +573,24 @@ impl StripUi {
         self.parts.layers() + 5 + self.axis.layers() + self.buttons.iter().map(|(b, _)| b.layers()).sum::<usize>() + self.bubble.as_ref().map_or(0, |b| 4 + usize::from(b.kind.is_some()))
     }
 
+    /// Gives the engine back what the strip registered (the controls, the bar, the scope).
+    pub fn retire_engine(&mut self, engine: &mut crate::kit::Engine) {
+        for (b, _) in &self.buttons {
+            b.detach(engine);
+        }
+        engine.focus.unregister(ids::STRIP_BAR);
+        if self.modal {
+            engine.focus.close_modal();
+            self.modal = false;
+        }
+    }
+
     /// Gives the engine back what the strip registered and fades the panel out over `ms` (0: at once); the strip is dropped by its owner
     /// when the fade is over.
     pub fn retire(&mut self, cx: &mut Cx, ms: u32) {
+        self.retire_engine(cx.engine);
         for (b, _) in &mut self.buttons {
-            b.detach(cx.engine);
             b.hide(cx.kit, ms == 0);
-        }
-        cx.engine.focus.unregister(ids::STRIP_BAR);
-        if self.modal {
-            cx.engine.focus.close_modal();
-            self.modal = false;
         }
         self.parts.fade(cx.kit, false, ms);
         self.axis.fade(cx.kit, false, ms);
