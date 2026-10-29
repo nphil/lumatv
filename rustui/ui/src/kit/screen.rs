@@ -57,7 +57,10 @@ pub enum Effect {
         body: Option<Value>,
     },
     /// `POST` to the compositor's UI channel (`/v1/switcher`: the app switcher's requests); nothing comes back.
-    Channel { path: String, body: Value },
+    Channel {
+        path: String,
+        body: Value,
+    },
     /// A patch of the owner's theme (`theme/theme.json`), merged one level deep and written atomically by the host; the merged file
     /// comes back as [`Input::Fetched`] with the tag (status 200), or status 500 with the reason when it could not be written.
     Theme {

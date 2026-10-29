@@ -60,7 +60,11 @@ impl Apps {
 
     /// The owner's names (`theme.apps.names`).
     pub fn set_names(&mut self, theme: &Value) {
-        self.names = theme.pointer("/apps/names").and_then(Value::as_object).map(|o| o.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect()).unwrap_or_default();
+        self.names = theme
+            .pointer("/apps/names")
+            .and_then(Value::as_object)
+            .map(|o| o.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect())
+            .unwrap_or_default();
         self.rebuild();
     }
 
@@ -142,7 +146,11 @@ mod tests {
         assert_eq!(a.list().iter().map(|x| x.id.as_str()).collect::<Vec<_>>(), vec!["netflix", "com.webos.app.livetv", "com.webos.app.discovery"]);
         assert_eq!(a.by_id("netflix").map(|x| x.icon.as_str()), Some("/media/netflix-l.png"), "the largest icon");
         assert_eq!(a.by_id("com.webos.app.livetv").map(|x| x.icon.as_str()), Some("/usr/livetv.png"), "a file URL is a path");
-        assert_eq!(a.by_id("com.webos.app.discovery").map(|x| (x.title.as_str(), x.icon.as_str())), Some(("LG Content Store", "")), "an icon at another URL is none");
+        assert_eq!(
+            a.by_id("com.webos.app.discovery").map(|x| (x.title.as_str(), x.icon.as_str())),
+            Some(("LG Content Store", "")),
+            "an icon at another URL is none"
+        );
         assert_eq!(a.by_id("netflix").map(|x| x.launch_point_id.as_str()), Some("netflix_default"));
     }
 

@@ -34,7 +34,18 @@ pub struct Gate {
 
 impl Default for Gate {
     fn default() -> Self {
-        Self { active: false, helper_up: false, stale_ms: STALE_MS, topic: None, answer: None, topic_at: 0, answer_at: 0, stale: true, expiry: None, asking: false }
+        Self {
+            active: false,
+            helper_up: false,
+            stale_ms: STALE_MS,
+            topic: None,
+            answer: None,
+            topic_at: 0,
+            answer_at: 0,
+            stale: true,
+            expiry: None,
+            asking: false,
+        }
     }
 }
 
@@ -57,7 +68,10 @@ impl Gate {
 
     pub fn fresh(&self) -> bool {
         let r = self.newest();
-        self.active && self.helper_up && r.is_some_and(|r| r.get("reachable").and_then(Value::as_bool) == Some(true) && r.get("fresh").and_then(Value::as_bool) == Some(true)) && !self.stale
+        self.active
+            && self.helper_up
+            && r.is_some_and(|r| r.get("reachable").and_then(Value::as_bool) == Some(true) && r.get("fresh").and_then(Value::as_bool) == Some(true))
+            && !self.stale
     }
 
     pub fn doc(&self) -> Option<&Value> {

@@ -160,6 +160,17 @@ impl Hub {
         self.connected.iter().find(|(i, _)| i == id).map(|(_, n)| n.clone()).unwrap_or_else(|| id.to_string())
     }
 
+    /// The helper's `saver` topic as it last was: the board's items, the rules of what shows while the saver is up, the lines kept for its
+    /// notification area and the count of requests to wake the screen. `Null` before the first answer.
+    pub fn saver_doc(&self) -> &Value {
+        &self.saver
+    }
+
+    /// Whether `id` is a plugin that is connected (a source of complications that is a plugin, not a tool that posted one).
+    pub fn is_plugin(&self, id: &str) -> bool {
+        self.connected.iter().any(|(i, _)| i == id)
+    }
+
     /// Every notification of every connected plugin.
     pub fn notes(&self) -> Vec<Note> {
         let mut out = Vec::new();

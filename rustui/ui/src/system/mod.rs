@@ -8,6 +8,7 @@ pub mod format;
 pub mod layer;
 pub mod parts;
 pub mod plugins;
+pub mod saver;
 pub mod toast;
 pub mod toast_surface;
 pub mod volume;

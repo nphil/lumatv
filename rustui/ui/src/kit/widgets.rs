@@ -348,7 +348,10 @@ impl Toggle {
         let look = &kit.ui.look;
         let track = if on { look.accent() } else { kit.ui.look.theme.materials.track_off };
         let thumb_fill = if on { look.accent_ink() } else { look.ink() };
-        (plate::solid(track, h / 2.0), Shape { corner_radius: (h - 2.0 * Self::pad(kit)) / 2.0, fill: Fill::Solid(thumb_fill), border_width: 1.0, border: lit_edge(kit) })
+        (
+            plate::solid(track, h / 2.0),
+            Shape { corner_radius: (h - 2.0 * Self::pad(kit)) / 2.0, fill: Fill::Solid(thumb_fill), border_width: 1.0, border: lit_edge(kit) },
+        )
     }
 
     fn thumb_x(&self, kit: &Kit, on: bool) -> f32 {
@@ -476,7 +479,12 @@ impl Stepper {
     fn track_shape(kit: &Kit, focused: bool) -> Shape {
         // a shade on dark: the track's own ink wash read the value 3.7:1 over a bright wallpaper
         let fill = if kit.mode == Mode::Light { kit.ui.look.theme.materials.track_off } else { Rgba(0, 0, 0, 56) };
-        Shape { corner_radius: kit.tokens.radius(Radius::Control), fill: Fill::Solid(fill), border_width: 1.0, border: if focused { lit_edge(kit) } else { edge(kit) } }
+        Shape {
+            corner_radius: kit.tokens.radius(Radius::Control),
+            fill: Fill::Solid(fill),
+            border_width: 1.0,
+            border: if focused { lit_edge(kit) } else { edge(kit) },
+        }
     }
 
     fn paint_arrows(kit: &mut Kit, px: &mut Px, focused: bool) {
@@ -638,7 +646,14 @@ mod tests {
         let scene = kit.ui.scene.clone();
         let root = scene.group(None, GroupPose::IDENTITY).expect("a group");
         let before = kit.room();
-        let spot = Spot { id: Id(9), screen: Frame::new(100.0, 100.0, 300.0, 80.0), local: Frame::new(100.0, 100.0, 300.0, 80.0), region: Region(0), scope: Scope::BASE, z: 5 };
+        let spot = Spot {
+            id: Id(9),
+            screen: Frame::new(100.0, 100.0, 300.0, 80.0),
+            local: Frame::new(100.0, 100.0, 300.0, 80.0),
+            region: Region(0),
+            scope: Scope::BASE,
+            z: 5,
+        };
         let plate = Plate::new(&mut kit, &mut engine, &root, spot, Lift::Row, 22.0).expect("a plate");
         let after = kit.room();
         assert_eq!(before.layers - after.layers, plate.layers());

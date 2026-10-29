@@ -1,0 +1,754 @@
+//! The screensaver's model: when it is up, what tvpower asks it, when it moves and dims, and what it does on a key (`Screensaver.qml` and
+//! `SaverVote.qml`, case for case).
+//!
+//! **When it is up.** `active` is the owner's saver not being off and either a preview (`forced`), LG's power state `Screen Saver` (LG's saver
+//! was started: under LumaTV's compositor this one is drawn above it) or `owned`: tvpower asked, while Home was in front and this saver wanted
+//! to draw, whether LG's saver may start, and the answer was no (the power state stays `Active`, LG's saver is never started). It is *up* when
+//! it is active and Home is in front. `owned` ends on a key, a pointer that moves more than a few pixels, Home no longer in front, the TV
+//! switched off and the owner turning the saver off.
+//!
+//! **The vote.** While Home is in front and the saver is wanted (`takesOver`: `own` is not false and the style not off) the model is on
+//! tvpower's two screen-saver lists, `/power2` and `/power`, with `registerScreenSaverRequest {clientName, subscribe: true}`, asks again when a
+//! list has not taken it (3 s, five times, then once a minute) and answers each question it hears: no while wanted (and then `owned`), yes
+//! otherwise. Nothing here is a setting of the TV: the subscription is the client's connection, so a shell that is not running leaves LG's saver
+//! as it always was.
+//!
+//! **A key.** Any key while it is up asks the TV to turn the screen on when LG's state is `Screen Saver` (or a preview), and ends the saver when
+//! it is the only one; the key does nothing else. **Standby** after `standbyHours` up (never a wake from standby: the panel is not left on a
+//! picture overnight, and it is not lit again by the saver).
+//!
+//! The block's own timeline is here too, so that it is a model and a test: the spot, the shift, the dim, and the fade out and in at each move.
+
+use super::look::{self, Config, Rng};
+use crate::kit::screen::{Effect, Input};
+use serde_json::{Value, json};
+
+const TVPOWER: &str = "luna://com.webos.service.tvpower";
+const LISTS: [&str; 2] = ["/power2", "/power"];
+const TAG_SUB: [u64; 2] = [0x5359_0010, 0x5359_0011];
+const TAG_WAKE: u64 = 0x5359_0020;
+const TAG_STANDBY: u64 = 0x5359_0021;
+/// The answers to tvpower's questions: one tag each, in a ring.
+const TAG_ANSWER: u64 = 0x5359_0100;
+const ANSWER_RING: u64 = 64;
+/// A list that has not taken the subscription is asked again after this long, this many times, then once in `RETRY_SLOW_MS`.
+pub const RETRY_MS: u64 = 3000;
+pub const RETRY_FAST: u32 = 5;
+pub const RETRY_SLOW_MS: u64 = 60_000;
+/// A pointer that moves more than this many pixels from where it was when the saver came up wakes it.
+pub const POINTER_MOVE: f32 = 12.0;
+/// How often the dim and the shift are looked at (they change in steps far smaller than this).
+pub const LOOK_MS: u64 = 5000;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Sub {
+    tag: Option<u64>,
+    live: bool,
+    fails: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Phase {
+    /// Showing, until the move at `next_move`.
+    Shown,
+    /// Faded out; the new spot is taken at `at` and the block fades in.
+    Out { at: u64 },
+}
+
+/// What the surface draws.
+#[derive(Clone, Debug, PartialEq)]
+pub struct View {
+    pub up: bool,
+    /// The block's brightness of its first, from the dim.
+    pub level: f32,
+    /// The block's top-left corner, with the shift.
+    pub pos: (i32, i32),
+    /// 1 shown, 0 faded out, and how long the fade takes.
+    pub fade: f32,
+    pub fade_ms: u32,
+    pub cap: f32,
+    pub glance: bool,
+    pub reduced: bool,
+}
+
+pub struct Saver {
+    cfg: Config,
+    client: String,
+    // what the channel and the helper say
+    home_front: bool,
+    power_state: String,
+    tv_on: bool,
+    forced: bool,
+    owned: bool,
+    // the vote
+    subs: [Sub; 2],
+    voting: bool,
+    retry_at: Option<u64>,
+    asked: u32,
+    refused: u32,
+    answers: u64,
+    last_refusal: String,
+    // the timeline
+    up_since: Option<u64>,
+    spot: (f32, f32),
+    rng: Rng,
+    phase: Phase,
+    next_move: u64,
+    look_at: u64,
+    standby_sent: bool,
+    screen: (f32, f32),
+    block: (f32, f32),
+    pointer: Option<(f32, f32)>,
+    /// The helper's count of requests to wake the screen; `None` until the first document.
+    wake_seen: Option<u64>,
+    redraw: bool,
+}
+
+impl Saver {
+    pub fn new(cfg: Config, client: &str, seed: u64) -> Self {
+        Self {
+            cfg,
+            client: client.to_string(),
+            home_front: false,
+            power_state: String::new(),
+            tv_on: true,
+            forced: false,
+            owned: false,
+            subs: [Sub::default(); 2],
+            voting: false,
+            retry_at: None,
+            asked: 0,
+            refused: 0,
+            answers: 0,
+            last_refusal: String::new(),
+            up_since: None,
+            spot: (0.36, 0.58),
+            rng: Rng::new(seed),
+            phase: Phase::Shown,
+            next_move: 0,
+            look_at: 0,
+            standby_sent: false,
+            screen: (1920.0, 1080.0),
+            block: (900.0, 540.0),
+            pointer: None,
+            wake_seen: None,
+            redraw: false,
+        }
+    }
+
+    pub fn config(&self) -> &Config {
+        &self.cfg
+    }
+
+    /// A new theme: the owner may have turned the saver off or taken LG's back.
+    pub fn set_config(&mut self, cfg: Config, now: u64) -> Vec<Effect> {
+        self.cfg = cfg;
+        let mut out = Vec::new();
+        self.settle(now, &mut out);
+        out
+    }
+
+    /// The screen and the block it moves, in pixels.
+    pub fn set_geometry(&mut self, screen: (f32, f32), block: (f32, f32)) {
+        self.screen = screen;
+        self.block = block;
+    }
+
+    /// A preview: shown without LG's power state (Settings' button, the harness).
+    pub fn force(&mut self, on: bool, now: u64) -> Vec<Effect> {
+        self.forced = on;
+        let mut out = Vec::new();
+        self.settle(now, &mut out);
+        out
+    }
+
+    // ---- what is true now -----------------------------------------------------------------------------------------------------------
+
+    fn takes_over(&self) -> bool {
+        self.cfg.own && !self.cfg.off
+    }
+
+    fn want(&self) -> bool {
+        self.takes_over() && !self.forced && self.home_front
+    }
+
+    fn active(&self) -> bool {
+        !self.cfg.off && (self.forced || self.power_state == "Screen Saver" || self.owned)
+    }
+
+    pub fn up(&self) -> bool {
+        self.active() && (self.home_front || self.forced)
+    }
+
+    /// LG's own state is the saver's (a key must ask the TV to turn the screen on), or this is a preview.
+    fn lg(&self) -> bool {
+        self.power_state == "Screen Saver" || self.forced
+    }
+
+    // ---- input ------------------------------------------------------------------------------------------------------------------
+
+    pub fn update(&mut self, input: &Input, now: u64) -> Vec<Effect> {
+        let mut out = Vec::new();
+        match input {
+            Input::Topic { topic, data } if topic == "foreground" => {
+                self.home_front = data.get("home").and_then(Value::as_bool) == Some(true);
+            }
+            Input::Helper { topic, data } if topic == "screen" => {
+                self.power_state = data.get("state").and_then(Value::as_str).unwrap_or("").to_string();
+                let on = data.get("on").and_then(Value::as_bool) != Some(false);
+                if on != self.tv_on {
+                    self.tv_on = on;
+                    // the TV came on again after being off: the subscription is made anew, in case tvpower kept none through standby
+                    if on && self.voting {
+                        self.close_vote(&mut out);
+                        self.open_vote(now, &mut out);
+                    }
+                }
+            }
+            Input::Helper { topic, data } if topic == "saver" => {
+                // the helper asks for the screen to be woken (a doorbell): acted on when the count has moved since the first document
+                let seq = data.pointer("/wake/seq").and_then(Value::as_u64).unwrap_or(0);
+                match self.wake_seen {
+                    None => self.wake_seen = Some(seq),
+                    Some(seen) if seq != seen => {
+                        self.wake_seen = Some(seq);
+                        if self.up() {
+                            self.wake(now, &mut out);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Input::Luna { tag, payload } => self.heard(*tag, payload, now, &mut out),
+            Input::Key { down: true, .. } if self.up() => self.wake(now, &mut out),
+            Input::Pointer { x, y, buttons, visible } if self.up() && self.owned && *visible => {
+                if *buttons != 0 {
+                    self.wake(now, &mut out);
+                } else {
+                    match self.pointer {
+                        None => self.pointer = Some((*x, *y)),
+                        Some((px, py)) if (x - px).abs() + (y - py).abs() > POINTER_MOVE => self.wake(now, &mut out),
+                        _ => {}
+                    }
+                }
+            }
+            Input::Tick => self.tick(now, &mut out),
+            _ => {}
+        }
+        self.settle(now, &mut out);
+        out
+    }
+
+    /// Any key, the pointer or the helper's request: the TV is asked to turn the screen on when LG's state is the saver's; a saver that is
+    /// the only one simply ends.
+    fn wake(&mut self, _now: u64, out: &mut Vec<Effect>) {
+        let lg = self.lg();
+        self.owned = false;
+        if lg {
+            out.push(Effect::Luna { tag: TAG_WAKE, uri: format!("{TVPOWER}/power/turnOnScreen"), payload: json!({}), subscribe: false });
+        }
+        out.push(Effect::Redraw);
+    }
+
+    // ---- the vote ---------------------------------------------------------------------------------------------------------------------
+
+    fn open_vote(&mut self, now: u64, out: &mut Vec<Effect>) {
+        for (i, list) in LISTS.iter().enumerate() {
+            if self.subs[i].tag.is_some() {
+                continue;
+            }
+            self.subs[i].tag = Some(TAG_SUB[i]);
+            out.push(Effect::Luna {
+                tag: TAG_SUB[i],
+                uri: format!("{TVPOWER}{list}/registerScreenSaverRequest"),
+                payload: json!({"clientName": self.client, "subscribe": true}),
+                subscribe: true,
+            });
+        }
+        self.arm(now);
+    }
+
+    fn close_vote(&mut self, out: &mut Vec<Effect>) {
+        for sub in &mut self.subs {
+            if let Some(tag) = sub.tag.take() {
+                out.push(Effect::Cancel { tag });
+            }
+            *sub = Sub::default();
+        }
+        self.retry_at = None;
+    }
+
+    fn pending(&self) -> bool {
+        self.subs.iter().any(|s| !s.live)
+    }
+
+    fn delay(&self) -> u64 {
+        if self.subs.iter().any(|s| !s.live && s.fails < RETRY_FAST) { RETRY_MS } else { RETRY_SLOW_MS }
+    }
+
+    fn arm(&mut self, now: u64) {
+        if !(self.voting && self.pending()) {
+            self.retry_at = None;
+        } else if self.retry_at.is_none() {
+            self.retry_at = Some(now + self.delay());
+        }
+    }
+
+    /// An answer of tvpower: to a subscription (live, or refused), or a question on it (it has a timestamp).
+    fn heard(&mut self, tag: u64, payload: &Value, now: u64, out: &mut Vec<Effect>) {
+        let Some(i) = TAG_SUB.iter().position(|t| *t == tag) else {
+            return;
+        };
+        if payload.get("returnValue").and_then(Value::as_bool) == Some(false) {
+            // tvpower said no (not up yet, not in a state to take it): the call is let go, and asked for again
+            if let Some(t) = self.subs[i].tag.take() {
+                out.push(Effect::Cancel { tag: t });
+            }
+            self.subs[i].live = false;
+            self.subs[i].fails += 1;
+            self.last_refusal = format!("{} {}", LISTS[i], payload.to_string().replace(['{', '}', '"', '\\'], "").chars().take(160).collect::<String>());
+            self.retry_at = None;
+            self.arm(now);
+            return;
+        }
+        if !self.subs[i].live {
+            self.subs[i].live = true;
+            self.subs[i].fails = 0;
+            out.push(Effect::Log(format!("[saver] on tvpower's list {}", LISTS[i])));
+        }
+        self.arm(now);
+        // the subscription's own answer has no timestamp; a question has one
+        let stamp = payload.get("timestamp").filter(|t| !t.is_null() && t.as_str() != Some(""));
+        let Some(stamp) = stamp else {
+            return;
+        };
+        let yes = !self.want();
+        self.asked += 1;
+        if !yes {
+            self.refused += 1;
+        }
+        self.answers += 1;
+        out.push(Effect::Luna {
+            tag: TAG_ANSWER + self.answers % ANSWER_RING,
+            uri: format!("{TVPOWER}{}/responseScreenSaverRequest", LISTS[i]),
+            payload: json!({"clientName": self.client, "timestamp": stamp.clone(), "ack": yes}),
+            subscribe: false,
+        });
+        out.push(Effect::Log(format!(
+            "[saver] {} asked: {} -> {}",
+            LISTS[i],
+            payload,
+            if yes { "yes (not ours to draw)" } else { "no (LumaTV's saver draws)" }
+        )));
+        if !yes {
+            self.owned = true;
+        }
+    }
+
+    // ---- time -------------------------------------------------------------------------------------------------------------------------
+
+    fn tick(&mut self, now: u64, out: &mut Vec<Effect>) {
+        if self.retry_at.is_some_and(|t| now >= t) {
+            self.retry_at = None;
+            for sub in &mut self.subs {
+                if sub.live {
+                    continue;
+                }
+                if let Some(tag) = sub.tag.take() {
+                    out.push(Effect::Cancel { tag });
+                    sub.fails += 1;
+                }
+            }
+            self.open_vote(now, out);
+        }
+        let Some(since) = self.up_since else {
+            return;
+        };
+        if self.cfg.standby_ms > 0 && !self.standby_sent && now.saturating_sub(since) >= self.cfg.standby_ms {
+            self.standby_sent = true;
+            out.push(Effect::Luna { tag: TAG_STANDBY, uri: format!("{TVPOWER}/power/powerOff"), payload: json!({"reason": "remoteKey"}), subscribe: false });
+        }
+        match self.phase {
+            Phase::Shown if now >= self.next_move => {
+                self.phase = Phase::Out { at: now + u64::from(self.cfg.fade_ms) };
+                self.redraw = true;
+            }
+            Phase::Out { at } if now >= at => {
+                self.spot = look::pick(&mut self.rng, self.spot, look::room(self.screen, self.block));
+                self.phase = Phase::Shown;
+                self.next_move = now + self.cfg.move_every_ms + u64::from(self.cfg.fade_ms);
+                self.redraw = true;
+            }
+            _ => {}
+        }
+        if now >= self.look_at {
+            self.look_at = now + LOOK_MS.min(self.cfg.shift_every_ms.max(1000));
+            self.redraw = true;
+        }
+    }
+
+    /// After every input: what changed in what is wanted and what is up.
+    fn settle(&mut self, now: u64, out: &mut Vec<Effect>) {
+        // `owned` ends with the things it depends on
+        if !self.home_front || !self.tv_on || !self.takes_over() {
+            self.owned = false;
+        }
+        let want = self.want();
+        if want != self.voting {
+            self.voting = want;
+            if want {
+                self.open_vote(now, out);
+            } else {
+                self.close_vote(out);
+            }
+        }
+        let up = self.up();
+        if up && self.up_since.is_none() {
+            self.up_since = Some(now);
+            self.spot = look::pick(&mut self.rng, self.spot, look::room(self.screen, self.block));
+            self.phase = Phase::Shown;
+            self.next_move = now + self.cfg.move_every_ms + u64::from(self.cfg.fade_ms);
+            self.look_at = now + LOOK_MS;
+            self.standby_sent = false;
+            self.pointer = None;
+            self.redraw = true;
+        } else if !up && self.up_since.is_some() {
+            self.up_since = None;
+            self.pointer = None;
+            self.redraw = true;
+        }
+        if self.redraw {
+            self.redraw = false;
+            out.push(Effect::Redraw);
+        }
+    }
+
+    pub fn due_at(&self) -> Option<u64> {
+        let mut due = self.retry_at;
+        if self.up_since.is_some() {
+            let next = match self.phase {
+                Phase::Shown => self.next_move,
+                Phase::Out { at } => at,
+            };
+            due = [due, Some(next), Some(self.look_at)].into_iter().flatten().min();
+            if let (Some(since), false) = (self.up_since, self.standby_sent) {
+                if self.cfg.standby_ms > 0 {
+                    due = due.into_iter().chain([since + self.cfg.standby_ms]).min();
+                }
+            }
+        }
+        due
+    }
+
+    pub fn view(&self, now: u64) -> View {
+        let up_ms = self.up_since.map_or(0, |s| now.saturating_sub(s));
+        let shift = look::drift(&self.cfg, up_ms);
+        let base = look::place(self.screen, self.block, self.spot);
+        View {
+            up: self.up(),
+            level: look::level(&self.cfg, up_ms),
+            pos: (base.0 + shift.0, base.1 + shift.1),
+            fade: if matches!(self.phase, Phase::Out { .. }) { 0.0 } else { 1.0 },
+            fade_ms: self.cfg.fade_ms,
+            cap: self.cfg.cap,
+            glance: self.cfg.glance,
+            reduced: self.cfg.reduced,
+        }
+    }
+
+    /// What the compositor is told: the saver is up (OLED care stands aside; the helper's rules read it), and a read of the vote for the gate.
+    pub fn state(&self) -> Value {
+        json!({"up": self.up(), "active": self.active(), "owned": self.owned, "forced": self.forced,
+               "vote": {"want": self.want(), "registered": self.subs.iter().any(|s| s.live), "power2": self.subs[0].live, "power": self.subs[1].live,
+                        "fails": self.subs[0].fails + self.subs[1].fails, "asked": self.asked, "refused": self.refused, "lastRefusal": self.last_refusal}})
+    }
+
+    /// Whether the saver wants every key (any key wakes it): while it is up.
+    pub fn wants_keys(&self) -> bool {
+        self.up()
+    }
+
+    pub fn power_state(&self) -> &str {
+        &self.power_state
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const NOW: u64 = 1_000_000;
+
+    fn saver() -> Saver {
+        Saver::new(Config::from_theme(&json!({}), false, 90), "org.nphil.lumatv", 5)
+    }
+
+    fn topic(t: &str, v: Value) -> Input {
+        Input::Topic { topic: t.into(), data: v }
+    }
+
+    fn helper(t: &str, v: Value) -> Input {
+        Input::Helper { topic: t.into(), data: v }
+    }
+
+    fn home(s: &mut Saver, now: u64) -> Vec<Effect> {
+        s.update(&topic("foreground", json!({"app": "", "home": true})), now)
+    }
+
+    fn luna_calls(fx: &[Effect]) -> Vec<(u64, String, Value, bool)> {
+        fx.iter()
+            .filter_map(|e| match e {
+                Effect::Luna { tag, uri, payload, subscribe } => Some((*tag, uri.clone(), payload.clone(), *subscribe)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn question(s: &mut Saver, list: usize, stamp: u64, now: u64) -> Vec<Effect> {
+        s.update(&Input::Luna { tag: TAG_SUB[list], payload: json!({"returnValue": true, "timestamp": stamp}) }, now)
+    }
+
+    #[test]
+    fn with_home_in_front_it_is_on_both_of_tvpowers_lists_and_with_an_app_in_front_it_is_on_neither() {
+        let mut s = saver();
+        assert!(luna_calls(&s.update(&topic("foreground", json!({"app": "netflix", "home": false})), NOW)).is_empty());
+        let fx = home(&mut s, NOW + 1);
+        let calls = luna_calls(&fx);
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].1, "luna://com.webos.service.tvpower/power2/registerScreenSaverRequest");
+        assert_eq!(calls[1].1, "luna://com.webos.service.tvpower/power/registerScreenSaverRequest");
+        assert_eq!(calls[0].2, json!({"clientName": "org.nphil.lumatv", "subscribe": true}));
+        assert!(calls.iter().all(|c| c.3), "subscriptions");
+        let fx = s.update(&topic("foreground", json!({"app": "netflix", "home": false})), NOW + 2);
+        assert_eq!(fx.iter().filter(|e| matches!(e, Effect::Cancel { .. })).count(), 2, "left again when Home goes");
+    }
+
+    #[test]
+    fn the_owner_taking_lgs_saver_back_or_turning_it_off_leaves_no_vote() {
+        let mut s = Saver::new(Config::from_theme(&json!({"screensaver": {"own": false}}), false, 90), "c", 1);
+        assert!(luna_calls(&home(&mut s, NOW)).is_empty(), "own: false leaves LG's saver alone");
+        let mut s = Saver::new(Config::from_theme(&json!({"screensaver": {"style": "off"}}), false, 90), "c", 1);
+        assert!(luna_calls(&home(&mut s, NOW)).is_empty());
+        let mut s = saver();
+        home(&mut s, NOW);
+        let fx = s.set_config(Config::from_theme(&json!({"screensaver": {"own": false}}), false, 90), NOW + 5);
+        assert_eq!(fx.iter().filter(|e| matches!(e, Effect::Cancel { .. })).count(), 2, "the switch is read live");
+    }
+
+    #[test]
+    fn a_question_while_wanted_is_answered_no_and_the_saver_is_up_owned_and_a_question_when_not_wanted_is_answered_yes() {
+        let mut s = saver();
+        home(&mut s, NOW);
+        let fx = question(&mut s, 0, 77, NOW + 10);
+        let calls = luna_calls(&fx);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].1, "luna://com.webos.service.tvpower/power2/responseScreenSaverRequest");
+        assert_eq!(calls[0].2, json!({"clientName": "org.nphil.lumatv", "timestamp": 77, "ack": false}), "no: LG's saver is not started");
+        assert!(!calls[0].3);
+        assert!(s.up() && s.state()["owned"] == true && s.state()["vote"]["refused"] == 1);
+        assert!(fx.contains(&Effect::Redraw));
+        // the subscription's own answer has no timestamp and asks nothing
+        let mut t = saver();
+        home(&mut t, NOW);
+        assert!(luna_calls(&t.update(&Input::Luna { tag: TAG_SUB[1], payload: json!({"returnValue": true}) }, NOW + 1)).is_empty());
+        assert_eq!(t.state()["vote"]["power"], true);
+        // an app comes to the front: the question that arrives then is yes
+        let mut u = saver();
+        home(&mut u, NOW);
+        u.update(&Input::Luna { tag: TAG_SUB[0], payload: json!({"returnValue": true}) }, NOW + 1);
+        u.update(&topic("foreground", json!({"app": "netflix", "home": false})), NOW + 2);
+        let late = luna_calls(&question(&mut u, 0, 5, NOW + 3));
+        assert_eq!(late[0].2["ack"], true, "not wanted: yes, as if this client were not there");
+        assert!(!u.up());
+    }
+
+    #[test]
+    fn it_ends_on_a_key_and_asks_the_tv_to_turn_the_screen_on_only_when_lgs_state_is_the_saver() {
+        let mut s = saver();
+        home(&mut s, NOW);
+        question(&mut s, 0, 1, NOW + 1);
+        assert!(s.up());
+        let fx = s.update(&Input::Key { name: "left".into(), down: true, repeat: false }, NOW + 50);
+        assert!(luna_calls(&fx).is_empty(), "the state is Active: there is nothing to ask, it simply ends");
+        assert!(!s.up());
+        // LG's state is Screen Saver: the TV is asked
+        let mut t = saver();
+        home(&mut t, NOW);
+        t.update(&helper("screen", json!({"on": true, "state": "Screen Saver"})), NOW + 1);
+        assert!(t.up());
+        let fx = t.update(&Input::Key { name: "ok".into(), down: true, repeat: false }, NOW + 2);
+        let calls = luna_calls(&fx);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].1, "luna://com.webos.service.tvpower/power/turnOnScreen");
+        t.update(&helper("screen", json!({"on": true, "state": "Active"})), NOW + 3);
+        assert!(!t.up(), "the power state ends it");
+        // a key while it is not up is not its business
+        assert!(luna_calls(&t.update(&Input::Key { name: "ok".into(), down: true, repeat: false }, NOW + 4)).is_empty());
+        // a release does not wake
+        let mut u = saver();
+        home(&mut u, NOW);
+        u.update(&helper("screen", json!({"state": "Screen Saver"})), NOW + 1);
+        assert!(luna_calls(&u.update(&Input::Key { name: "ok".into(), down: false, repeat: false }, NOW + 2)).is_empty());
+        assert!(u.up());
+    }
+
+    #[test]
+    fn a_pointer_that_moves_wakes_an_owned_saver_and_the_first_sample_is_only_where_it_rests() {
+        let mut s = saver();
+        home(&mut s, NOW);
+        question(&mut s, 0, 1, NOW + 1);
+        let at = |x: f32, y: f32, buttons: u32| Input::Pointer { x, y, buttons, visible: true };
+        s.update(&at(500.0, 500.0, 0), NOW + 2);
+        s.update(&at(505.0, 503.0, 0), NOW + 3);
+        assert!(s.up(), "a few pixels is not a move");
+        s.update(&at(520.0, 500.0, 0), NOW + 4);
+        assert!(!s.up(), "twenty is");
+        let mut t = saver();
+        home(&mut t, NOW);
+        question(&mut t, 0, 1, NOW + 1);
+        t.update(&at(5.0, 5.0, 1), NOW + 2);
+        assert!(!t.up(), "a button wakes at once");
+        // LG's own state wakes on the pointer by itself: it is not this model's
+        let mut u = saver();
+        home(&mut u, NOW);
+        u.update(&helper("screen", json!({"state": "Screen Saver"})), NOW + 1);
+        u.update(&at(1.0, 1.0, 0), NOW + 2);
+        u.update(&at(900.0, 900.0, 0), NOW + 3);
+        assert!(u.up());
+    }
+
+    #[test]
+    fn the_saver_ends_when_home_is_not_in_front_the_tv_goes_off_or_the_owner_turns_it_off_and_a_tv_that_comes_back_asks_again() {
+        let mut s = saver();
+        home(&mut s, NOW);
+        question(&mut s, 0, 1, NOW + 1);
+        s.update(&topic("foreground", json!({"app": "netflix", "home": false})), NOW + 2);
+        assert!(!s.up() && s.state()["owned"] == false);
+        let mut t = saver();
+        home(&mut t, NOW);
+        question(&mut t, 0, 1, NOW + 1);
+        t.update(&helper("screen", json!({"on": false, "state": "Active Standby"})), NOW + 2);
+        assert!(!t.up(), "off");
+        let fx = t.update(&helper("screen", json!({"on": true, "state": "Active"})), NOW + 3);
+        let calls = luna_calls(&fx);
+        assert_eq!(calls.iter().filter(|c| c.3).count(), 2, "the subscriptions are made anew when the TV comes on");
+        let mut u = saver();
+        home(&mut u, NOW);
+        question(&mut u, 0, 1, NOW + 1);
+        u.set_config(Config::from_theme(&json!({"screensaver": {"style": "off"}}), false, 90), NOW + 2);
+        assert!(!u.up());
+    }
+
+    #[test]
+    fn a_subscription_that_was_refused_is_asked_again_in_three_seconds_five_times_and_then_once_a_minute() {
+        let mut s = saver();
+        home(&mut s, NOW);
+        assert_eq!(s.due_at(), Some(NOW + RETRY_MS));
+        let refuse =
+            |s: &mut Saver, now: u64| s.update(&Input::Luna { tag: TAG_SUB[0], payload: json!({"returnValue": false, "errorText": "not ready"}) }, now);
+        s.update(&Input::Luna { tag: TAG_SUB[1], payload: json!({"returnValue": true}) }, NOW + 1);
+        let fx = refuse(&mut s, NOW + 2);
+        assert!(fx.iter().any(|e| matches!(e, Effect::Cancel { tag } if *tag == TAG_SUB[0])), "the refused call is let go");
+        assert_eq!(s.state()["vote"]["fails"], 1);
+        assert!(s.state()["vote"]["lastRefusal"].as_str().unwrap().contains("/power2"));
+        let mut now = NOW + 2;
+        for fails in 2..=5 {
+            let due = s.due_at().unwrap();
+            assert_eq!(due, now + RETRY_MS, "fast retries: {fails}");
+            now = due;
+            let fx = s.update(&Input::Tick, now);
+            assert_eq!(luna_calls(&fx).iter().filter(|c| c.3).count(), 1, "only the list that has not taken it is asked");
+            refuse(&mut s, now);
+            let _ = fails;
+        }
+        assert_eq!(s.due_at(), Some(now + RETRY_SLOW_MS), "after five fails: once a minute");
+        let due = s.due_at().unwrap();
+        s.update(&Input::Tick, due);
+        s.update(&Input::Luna { tag: TAG_SUB[0], payload: json!({"returnValue": true}) }, due + 1);
+        assert_eq!(s.due_at(), None, "both lists have it: nothing more is asked");
+    }
+
+    #[test]
+    fn the_block_moves_every_so_often_fading_out_and_in_and_the_dim_runs_down() {
+        let mut s = Saver::new(Config::from_theme(&json!({"screensaver": {"moveEverySec": 60, "fadeMs": 2000}}), false, 90), "c", 3);
+        home(&mut s, NOW);
+        s.update(&helper("screen", json!({"state": "Screen Saver"})), NOW);
+        assert!(s.up());
+        let v0 = s.view(NOW);
+        assert_eq!((v0.fade, v0.level), (1.0, 1.0));
+        let first = v0.pos;
+        s.update(&Input::Tick, NOW + 62_000);
+        assert_eq!(s.view(NOW + 62_000).fade, 0.0, "fading out");
+        assert!(s.due_at().unwrap() <= NOW + 64_001);
+        s.update(&Input::Tick, NOW + 64_100);
+        let v = s.view(NOW + 64_100);
+        assert_eq!(v.fade, 1.0, "and in at the new spot");
+        assert_ne!(v.pos, first);
+        assert!(v.level < 1.0);
+        let late = s.view(NOW + 30 * 60_000);
+        assert!((late.level - 0.4).abs() < 0.006);
+    }
+
+    #[test]
+    fn after_the_standby_hours_the_tv_is_put_in_standby_once() {
+        let mut s = Saver::new(Config::from_theme(&json!({"screensaver": {"standbyHours": 1}}), false, 90), "c", 3);
+        home(&mut s, NOW);
+        for tag in TAG_SUB {
+            s.update(&Input::Luna { tag, payload: json!({"returnValue": true}) }, NOW);
+        }
+        s.update(&helper("screen", json!({"state": "Screen Saver"})), NOW);
+        let mut now = NOW;
+        let mut sent = 0;
+        while now < NOW + 2 * 3_600_000 {
+            now = s.due_at().unwrap().max(now);
+            for c in luna_calls(&s.update(&Input::Tick, now)) {
+                assert_eq!((c.1.as_str(), c.2.clone()), ("luna://com.webos.service.tvpower/power/powerOff", json!({"reason": "remoteKey"})));
+                assert!(now >= NOW + 3_600_000, "not before the hour");
+                sent += 1;
+            }
+            now += 1;
+        }
+        assert_eq!(sent, 1);
+        let mut never = Saver::new(Config::from_theme(&json!({"screensaver": {"standbyHours": 0}}), false, 90), "c", 3);
+        home(&mut never, NOW);
+        never.update(&helper("screen", json!({"state": "Screen Saver"})), NOW);
+        assert!(luna_calls(&never.update(&Input::Tick, NOW + 9 * 3_600_000)).iter().all(|c| !c.1.ends_with("powerOff")), "0 hours is never");
+    }
+
+    #[test]
+    fn the_helper_asking_for_a_wake_ends_a_saver_that_is_up_but_the_first_document_is_only_the_count() {
+        let mut s = saver();
+        home(&mut s, NOW);
+        s.update(&helper("screen", json!({"state": "Screen Saver"})), NOW);
+        s.update(&helper("saver", json!({"items": [], "wake": {"seq": 4}})), NOW + 1);
+        assert!(s.up(), "the first document is the count it starts from");
+        let fx = s.update(&helper("saver", json!({"items": [], "wake": {"seq": 5, "class": "doorbell"}})), NOW + 2);
+        assert_eq!(luna_calls(&fx).len(), 1, "the TV is asked to turn the screen on");
+        let same = s.update(&helper("saver", json!({"items": [], "wake": {"seq": 5}})), NOW + 3);
+        assert!(luna_calls(&same).is_empty());
+    }
+
+    #[test]
+    fn a_preview_is_up_without_lgs_state_and_needs_no_vote() {
+        let mut s = saver();
+        let fx = s.force(true, NOW);
+        assert!(s.up() && luna_calls(&fx).is_empty());
+        assert!(s.wants_keys());
+        let fx = s.update(&Input::Key { name: "ok".into(), down: true, repeat: false }, NOW + 1);
+        assert_eq!(luna_calls(&fx).len(), 1, "it asks the TV, as it always did");
+    }
+
+    #[test]
+    fn the_view_is_inside_the_safe_area_whatever_the_shift() {
+        let mut s = saver();
+        s.set_geometry((1920.0, 1080.0), (900.0, 540.0));
+        home(&mut s, NOW);
+        s.update(&helper("screen", json!({"state": "Screen Saver"})), NOW);
+        for step in 0..400u64 {
+            let t = NOW + step * 4000;
+            s.update(&Input::Tick, t);
+            let v = s.view(t);
+            assert!(v.pos.0 >= 96 - 30 && v.pos.1 >= 54 - 20 && v.pos.0 + 900 <= 1920 - 96 + 30 && v.pos.1 + 540 <= 1080 - 54 + 20, "{:?}", v.pos);
+        }
+    }
+}

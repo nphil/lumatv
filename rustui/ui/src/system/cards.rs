@@ -19,7 +19,7 @@ use super::plugins::{Card, Note};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 
-pub const CLASSES: [&str; 5] = ["doorbell", "alarm", "timer", "alert", "score"];
+pub use lumatv_saver::rules::{CARD_CLASSES as CLASSES, card_class as class_of};
 /// Cards waiting or shown, all classes.
 pub const MAX_QUEUE: usize = 24;
 
@@ -144,36 +144,6 @@ pub struct Entry {
     pub hidden_at: u64,
     pub visible: bool,
     seq_no: u64,
-}
-
-fn base(name: &str) -> String {
-    name.rsplit('/').next().unwrap_or("").to_lowercase()
-}
-
-fn is_one_of(s: &str, names: &[&str]) -> bool {
-    names.contains(&s)
-}
-
-/// The class of a record, from what a plugin says of it: an explicit `kind` when it has one, else by what the plugin called its channel and its
-/// icon, else an alert.
-pub fn class_of(kind: &str, channel: &str, channel_icon: &str) -> &'static str {
-    if let Some(c) = CLASSES.iter().find(|c| **c == kind) {
-        return c;
-    }
-    let (ch, icon) = (base(channel), base(channel_icon));
-    if is_one_of(&ch, &["doorbell", "door-bell", "ring", "rings", "visitor"]) || is_one_of(&icon, &["doorbell", "bell-ring"]) {
-        return "doorbell";
-    }
-    if is_one_of(&ch, &["alarm", "alarms", "wake", "wakeup"]) || is_one_of(&icon, &["alarm", "alarm-clock"]) {
-        return "alarm";
-    }
-    if is_one_of(&ch, &["timer", "timers", "countdown"]) || is_one_of(&icon, &["timer", "hourglass"]) {
-        return "timer";
-    }
-    if is_one_of(&ch, &["score", "scores", "sport", "sports", "game", "games", "match", "matches"]) || is_one_of(&icon, &["trophy", "score", "sports"]) {
-        return "score";
-    }
-    "alert"
 }
 
 fn tone_of(level: &str, role: &str, default: &str) -> String {
