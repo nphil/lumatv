@@ -1,0 +1,140 @@
+{
+ "when": "2026-10-29 19:20:29 EDT",
+ "power": "Active",
+ "foreground": "com.webos.app.home",
+ "pictureMode": "filmMaker",
+ "inputs": {
+  "ok": true,
+  "inputs": {
+   "ports": [
+    {
+     "port": 0,
+     "open": false,
+     "connect": "UNKNOWN"
+    },
+    {
+     "port": 1,
+     "open": false,
+     "connect": "UNKNOWN"
+    }
+   ],
+   "running": [],
+   "held": ""
+  }
+ },
+ "md5": {
+  "theme.json": "a44d06a0745cf1e0595b9a4d2c353675",
+  "layout.json": "f5954cd081e327426bab31ae456eef9b",
+  "helper.json": "48b5aabe4f840a071f221552d21f9b00",
+  "Tokens.js": "ee51e2db1fe737b763b2886f61f5f269"
+ },
+ "keyboard": {
+  "ok": true,
+  "on": false,
+  "patched": false,
+  "keyboard": "lg"
+ },
+ "transitions": {
+  "ok": true,
+  "transitions": {
+   "on": true,
+   "compositor": "own"
+  }
+ },
+ "wallpaper": {
+  "ok": true,
+  "wallpaper": {
+   "source": "gpu",
+   "ready": true,
+   "missing": [],
+   "compositor": "own",
+   "vplane": {
+    "installed": true,
+    "role": true,
+    "clips": 6,
+    "walls": 2,
+    "running": true,
+    "pid": 16876
+   },
+   "player": {
+    "state": "idle",
+    "role": ""
+   }
+  }
+ },
+ "compositor": {
+  "bundle": true,
+  "enabled": true,
+  "flag": "persistent",
+  "mounted": true,
+  "live": true,
+  "lgBinary": "mounted",
+  "firmware": "verified",
+  "escaped": false,
+  "unsettled": false,
+  "failures": 0,
+  "lastFallback": "",
+  "smLog": "[19:19:31] watchdog: drawn 14268 flips 14218 mapped 3 set ACTIVE"
+ },
+ "ctl_shell": "ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.\n{\"can\":[\"quick\",\"picker\",\"drawer\",\"switcher\",\"keyboard\"],\"connected\":true,\"enabled\":true,\"error\":null,\"gaveUp\":false,\"homeCommits\":2458,\"homeDrawn\":true,\"homeMapped\":true,\"lunaOpen\":[{\"subscribe\":true,\"tag\":1,\"uri\":\"luna://com.webos.service.applicationmanager/listLaunchPoints\"},{\"subscribe\":true,\"tag\":2,\"uri\":\"luna://com.webos.notification/getPincodePromptNotification\"},{\"subscribe\":true,\"tag\":3,\"uri\":\"luna://com.webos.notification/getInputAlertNotification\"},{\"subscribe\":true,\"tag\":4,\"uri\":\"luna://com.webos.notification/getAlertNotification\"},{\"subscribe\":true,\"tag\":5,\"uri\":\"luna://com.webos.notification/getToastNotification\"},{\"subscribe\":true,\"tag\":8,\"uri\":\"luna://com.webos.service.homelaunchpoints/listLaunchPoints\"},{\"subscribe\":true,\"tag\":9,\"uri\":\"luna://com.webos.notification/getToastNotification\"},{\"subscribe\":true,\"tag\":10,\"uri\":\"luna://com.webos.applicationManager/running\"},{\"subscribe\":true,\"tag\":12,\"uri\":\"luna://com.webos.service.connectionmanager/getStatus\"},{\"subscribe\":true,\"tag\":19,\"uri\":\"luna://com.webos.service.panelcontroller/getPanelUsageTime\"},{\"subscribe\":true,\"tag\":75,\"uri\":\"luna://com.webos.service.eim/getAllInputStatus\"},{\"subscribe\":true,\"tag\":76,\"uri\":\"luna://com.webos.service.applicationmanager/getForegroundAppInfo\"}],\"ok\":true,\"pid\":30907,\"rust\":{\"can\":[\"settings\",\"displaylab\",\"keyboard\",\"quick\",\"picker\",\"drawer\",\"switcher\"],\"connected\":true,\"enabled\":true,\"engine\":true,\"error\":null,\"gaveUp\":false,\"kinds\":[\"alert\",\"confirm\",\"displaylab\",\"drawer\",\"entry\",\"home\",\"keyboard\",\"menu\",\"osd\",\"picker\",\"quick\",\"saver\",\"settings\",\"switcher\",\"toast\"],\"lunaOpen\":[{\"subscribe\":true,\"tag\":28737,\"uri\":\"luna://com.webos.notification/getToastNotification\"},{\"subscribe\":true,\"tag\":1398341633,\"uri\":\"luna://com.webos.notification/getAlertNotification\"},{\"subscribe\":true,\"tag\":1398341634,\"uri\":\"luna://com.webos.notification/getInputAlertNotification\"},{\"subscribe\":true,\"tag\":1398341635,\"uri\":\"luna://com.webos.notification/getPincodePromptNotification\"},{\"subscribe\":true,\"tag\":1398342659,\"uri\":\"luna://com.webos.applicationManager/running\"},{\"subscribe\":true,\"tag\":300,\"uri\":\"luna://com.webos.service.homelaunchpoints/listLaunchPoints\"},{\"subscribe\":true,\"tag\":1308622849,\"uri\":\"luna://com.webos.service.connectionmanager/getStatus\"},{\"subscribe\":true,\"tag\":1358954752,\"uri\":\"luna://com.webos.notification/getToastNotification\"},{\"subscribe\":true,\"tag\":1358955008,\"uri\":\"luna://com.webos.service.applicationmanager/listLaunchPoints\"},{\"subscribe\":true,\"tag\":1593835263,\"uri\":\"luna://com.webos.service.applicationmanager/listLaunchPoints\"},{\"subscribe\":true,\"tag\":1398341648,\"uri\":\"luna://com.webos.service.tvpower/power2/registerScreenSaverRequest\"},{\"subscribe\":true,\"tag\":1398341649,\"uri\":\"luna://com.webos.service.tvpower/power/registerScreenSaverRequest\"},{\"subscribe\":true,\"tag\":1224736772,\"uri\":\"luna://com.webos.service.eim/ge",
+ "pixelRefresher": {
+  "returnValue": true,
+  "jbLastTime": 4142,
+  "jbCount": 11,
+  "jbInterval": 500,
+  "pnwashKeyLock": true,
+  "offrsInterval": 4,
+  "offrsLastTime": 4343,
+  "offrsCount": 612,
+  "subscribed": false
+ },
+ "panelUsage": {
+  "returnValue": true,
+  "panelUsageTimeStore": 0,
+  "panelUsageTime": 26083
+ },
+ "panelTopic": {
+  "api": 1,
+  "boot": 1793311528021,
+  "now": 1793316031246,
+  "ok": true,
+  "seq": 307,
+  "topic": "panel",
+  "value": {
+   "due": true,
+   "error": null,
+   "guard": {
+    "deferrals": 0,
+    "enabled": false,
+    "last": null
+   },
+   "intervalHours": 4.0,
+   "lastRunHours": 4343.0,
+   "lastStandbyMinutes": null,
+   "offrsCount": 612,
+   "read": true,
+   "readAt": 1793315728341,
+   "standby": null,
+   "usageHours": 4347.0
+  }
+ },
+ "oledcare": "",
+ "theme_switches": {
+  "appDim": "",
+  "appShift": "",
+  "boxDim": "",
+  "overlays": "",
+  "capture": "",
+  "cameras": "",
+  "refreshGuard": ""
+ },
+ "helper_json": "{\"cameras\":{\"enabled\":true}}",
+ "always_ready": {
+  "ok": true,
+  "on": false,
+  "mode": "alwaysReady",
+  "prev": ""
+ },
+ "uptime": "19:20:31 up  2:30,  0 users,  load average: 14.19, 14.50, 14.95\nMemAvailable:     489864 kB\nCmaFree:           29184 kB",
+ "lumatv_procs": "8138 ?        00:00:12 lumatv-helper\n16848 ?        00:00:00 lumatv-capture\n16876 ?        00:00:00 lumatv-vplane\n27124 ?        00:00:03 lumatv"
+}

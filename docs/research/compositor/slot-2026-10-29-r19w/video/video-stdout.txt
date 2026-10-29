@@ -1,0 +1,8 @@
+start 19:42:50 --only video --video-apps youtube,netflix
+power state: active
+home stub before the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+avr: left to the agent (True)
+already mounted; 'cutover.sh status' says what runs
+
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 411309 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
