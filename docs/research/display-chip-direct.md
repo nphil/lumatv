@@ -120,7 +120,7 @@ Hardware limits, not driver limits: one blended graphics layer at 2K; the AFBC d
 | LG user space | `pqcontroller`, `panelcontroller`, `eplmanager` through V4L2 VBE and PQ controls (OSD gain, LSR/GSR, orbit; the gamma control is documented as set every 30 ms) | `v4l2-ext-vbe.h:777-3345`, `v4l2-ext-pq.h:4083`; `hardware-census.md` holders |
 | LumaTV today | DRM atomic commits; the 120 Hz mode writes `fbdev_vsync_cnt_on_flip`; the helper writes `fr_rate` | `compositor/crates/lumatv-compositor/src/{kms,refresh.rs}`, `framerate-result.md` |
 
-Live state of OSD0 (TV `scanout-hw-02.txt`, LumaTV's compositor on screen, XR24 pages): input 1920×1080 (`hdr1 0x07800438`); output 3860×2170 (`hdr2 0x0f14087a`, line 288); crop 3840×2160 at (10, 5) of that canvas (`crop_ctrl_1/2 0x000a0f00`, `0x00050870`, lines 314-315); global alpha 0xff enabled (`hdr3 0xeeff03c0`, the XR24 rule of `fbdev_drm.c:319-328`); `chip/diag`: `hw_wa.pqwfw_osd0_out_ctrl 1`, `hw_wa_flag 0x5`, `osd_sr.sw_status 1`, `support_4kosd 0`, `vsync_clk 120Hz`.
+Live state of OSD0 (TV `scanout-hw-02.txt`, LumaTV's compositor on screen, XR24 pages): input 1920×1080 (`hdr1 0x07800438`); output 3860×2170 (`hdr2 0x0f14087a`, line 288); crop 3840×2160 at (10, 5) of that canvas (`crop_ctrl_1/2 0x000a0f00`, `0x00050870`, lines 314-315); global alpha 0xff enabled (`hdr3 0xeeff03c0`, the XR24 rule of `fbdev_drm.c:319-328`); `chip/diag`: `hw_wa.pqwfw_osd0_out_ctrl 1`, `hw_wa_flag 0x5` (bit 0: cursor-width workaround on the blend path; bit 2: the PQE firmware owns OSD0's output window; `chip/o22/fbdev/fbdev_hw_o22.h:483-486`), `osd_sr.sw_status 1`, `support_4kosd 0`, `vsync_clk 120Hz`.
 
 The 3860×2170 canvas with a 20×10 margin matches LG's OLED orbit arrangement [INFERENCE]: LG's VSC orbit document gives an "overscan" example that scales a 1908×1074 crop to 3860×2170 (`v4l2-ext-vsc.h:2090-2165`), and LG's Screen Shift is on (`hearth-update-result.md:30`). The measured scale is 2.0104 horizontally and 2.0093 vertically, not exactly 2. The same document's "just scan" orbit scales the OSD to exactly 3840×2160; which arrangement applies is `videooutputd`'s decision and panel-care policy.
 
@@ -290,7 +290,7 @@ VSP and holes: read `0xCC480360-0xCC48036C` (VSP) and the three hole rectangles 
 3. **What do `CRTC_X/Y` do on the panel** (units, gaps, firmware rewrite, Screen Shift)? § 4.1.
 4. **Does the cursor plane work under LumaTV's DRM master**, and does the pointer stay put through a direct frame? § 4.2.
 5. **Does the OSD accept a 1280×720 or 1440×810 buffer** under the firmware, and what is the largest magnification? § 4.3.
-6. **Who rewrites OSD0's VSP and crop registers, and how often?** Three `regdump` reads one second apart with the screen changing.
+6. **Who rewrites OSD0's VSP, crop and mixer-hole registers, and how often?** Three `regdump` reads one second apart with the screen changing.
 7. **Do the OSD status monitor and the AFBC error flags give a camera-free verdict?** `osd_status_mon_cfg/pos/data` and the AFBC error status (`error_detection_flag`, `sync_error`, `y_div16_error`) could say whether a buffer was decoded right, which would settle `scanout-research.md` check (b) case b without photographs [INFERENCE: field names only]. Read first; the monitor takes two config writes.
 8. OSD0_1 blending at 2K (the existing probe).
 9. GPSC sampling cost and the VTG protocol (§ 4.5).
