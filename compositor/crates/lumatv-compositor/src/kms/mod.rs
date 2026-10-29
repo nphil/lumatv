@@ -1020,6 +1020,22 @@ impl Output for Kms {
         self.gl.ui_fd()
     }
 
+    fn ui_attach(&mut self, driver: &str, system_z: i32, shm: std::path::PathBuf) -> io::Result<std::os::unix::net::UnixStream> {
+        self.gl.ui_attach(driver, system_z, shm)
+    }
+
+    fn ui_handshake(&mut self) -> io::Result<bool> {
+        self.gl.ui_handshake()
+    }
+
+    fn ui_detach(&mut self) {
+        self.gl.ui_detach();
+    }
+
+    fn ui_attached(&self) -> bool {
+        self.gl.ui_attached()
+    }
+
     fn query_buffer(&mut self, buffer: &WlBuffer) -> Option<((i32, i32), bool)> {
         self.gl.query_buffer(buffer)
     }

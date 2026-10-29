@@ -51,6 +51,9 @@ pub struct Config {
     pub input_dir: PathBuf,
     /// Exercise the optional system-layer renderer without replacing any TV surfaces.
     pub ui_demo: bool,
+    /// The kinds the Rust shell (`lumatv-ui`, `shell_rust.rs`) answers instead of the QML client: `osd` (the volume and mute display),
+    /// `toast` (LG's toast feed); `ctl shell rust +kind -kind` changes it at run time. Empty: the Rust shell is not started.
+    pub shell_rust: Vec<String>,
     /// LumaTV's data directory (`/var/lib/lumatv` on the set): the theme the remote's app buttons are read from (`theme/theme.json`) and
     /// the key codes taught to the routing (`compositor/keys.conf`).
     pub data_dir: PathBuf,
@@ -123,6 +126,7 @@ impl Default for Config {
             input: false,
             input_dir: PathBuf::from("/dev/input"),
             ui_demo: false,
+            shell_rust: Vec::new(),
             data_dir: PathBuf::from("/var/lib/lumatv"),
             rt_priority: 20,
             rt_mali: 19,
@@ -164,6 +168,9 @@ pub const USAGE: &str = "lumatv-compositor [options]
                          compositor/keys.conf the key codes the routing was taught (`NAME CODE` per line)
   --ui-demo              draw the system-layer diagnostic (requires feature ui and gl|kms); LUMATV_UI_DEMO_HZ (ticker rate,
                          default 60) and LUMATV_UI_DEMO_VOLUME_S (the volume bar up 2 s every N s) pace it
+  --shell-rust LIST      the kinds the Rust shell (bin/lumatv-ui, drawn by the engine inside the compositor) answers instead of
+                         the QML client: osd, toast (comma-separated; requires feature ui and gl|kms); `ctl shell rust +osd -toast`
+                         changes the list at run time. Default: none, the QML shell answers everything
   --rt-priority N        SCHED_FIFO priority of the frame loop's thread, 1-99 (default 20; 0 keeps it time-shared)
   --mlock off|auto       pin the pages the compositor touches in RAM, so memory pressure from the apps in front never evicts or swaps them
                          (default auto: mlockall on fault, when RLIMIT_MEMLOCK or CAP_IPC_LOCK and the free memory allow)
@@ -266,6 +273,7 @@ impl Config {
                 "--input-dir" => c.input_dir = PathBuf::from(value()?),
                 "--data-dir" => c.data_dir = PathBuf::from(value()?),
                 "--ui-demo" => c.ui_demo = true,
+                "--shell-rust" => c.shell_rust = crate::shell_rust::parse_kinds(&value()?),
                 "--rt-priority" => {
                     c.rt_priority = value()?.parse().map_err(|_| "--rt-priority")?;
                     if !(0..=99).contains(&c.rt_priority) {
@@ -340,6 +348,16 @@ impl Config {
         }
         if c.ui_demo && (!cfg!(feature = "ui") || c.renderer == RendererKind::Software) {
             return Err("--ui-demo requires a build with feature ui and --renderer gl|kms".into());
+        }
+        // Without the flag, the kinds `ctl shell rust` kept in the data directory (a flip from the workstation survives a restart).
+        if c.shell_rust.is_empty() && cfg!(feature = "ui") && c.renderer != RendererKind::Software {
+            c.shell_rust = crate::shell_rust::read_kinds(&c.data_dir);
+        }
+        if !c.shell_rust.is_empty() && (!cfg!(feature = "ui") || c.renderer == RendererKind::Software) {
+            return Err("--shell-rust requires a build with feature ui and --renderer gl|kms".into());
+        }
+        if c.ui_demo && !c.shell_rust.is_empty() {
+            return Err("--ui-demo and --shell-rust both want the engine; one or the other".into());
         }
         if c.scanout.mode == crate::scanout::Mode::Direct && c.renderer != RendererKind::Kms {
             return Err("--scanout direct needs --renderer kms (the plane it scans out on)".into());

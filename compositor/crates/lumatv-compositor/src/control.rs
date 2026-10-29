@@ -103,7 +103,16 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             match words.next() {
                 Some("restart") => {
                     state.shell_restart();
+                    state.shell_rust_restart();
                     state.shell_report()
+                }
+                Some("rust") => {
+                    // shell rust [+kind | -kind ...]: the kinds the Rust shell answers (`shell_rust.rs`); none lists them.
+                    let changes: Vec<&str> = words.collect();
+                    match state.shell_rust_set_kinds(&changes) {
+                        Ok(()) => json!({"ok": true, "rust": state.shell_rust_report()}),
+                        Err(e) => json!({"ok": false, "error": e}),
+                    }
                 }
                 Some("show") => {
                     let kind = words.next().unwrap_or("quick");

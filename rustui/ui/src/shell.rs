@@ -291,6 +291,11 @@ impl Shell {
         })
     }
 
+    /// The volume model's own account (`--eval volume`).
+    pub fn debug(&self) -> Value {
+        self.volume.debug()
+    }
+
     /// The theme or the text size changed: the surfaces are made again at the next draw.
     pub fn restyle(&mut self) {
         self.volume_surface.restyle();

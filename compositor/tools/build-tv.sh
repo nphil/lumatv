@@ -23,6 +23,11 @@ rm -rf "$out"
 mkdir -p "$out/bin" "$out/lib"
 printf '%s\n' "$features" > "$out/FEATURES"
 cp target/aarch64-unknown-linux-gnu/release/lumatv-compositor target/aarch64-unknown-linux-gnu/release/lumatv-testclient target/aarch64-unknown-linux-gnu/release/lumatv-loadgen "$out/bin/"
+# The Rust shell (rustui/ui, bin/lumatv-ui beside the compositor: shell_rust.rs finds it there) goes with the engine host.
+case ",$features," in *,ui,*)
+    (cd "$here/../rustui" && cargo zigbuild --release --target aarch64-unknown-linux-gnu.2.36 -p lumatv-ui)
+    cp "$here/../rustui/target/aarch64-unknown-linux-gnu/release/lumatv-ui" "$out/bin/" ;;
+esac
 x2=$here/../docs/research/arch/x2
 zig cc -target arm-linux-gnueabi.2.28 -O1 -s -o "$out/bin/x2cli" "$x2/x2cli.c" "$x2/../sysroot32/libwayland-client.so.0.20.0" -ldl -Wl,--allow-shlib-undefined
 cp "$m64"/* "$out/lib/"

@@ -146,6 +146,8 @@ pub struct State {
     pub ime: super::ime::ImeState,
     /// The shell client and its UI channel (`shell.rs`).
     pub shell: crate::shell::Shell,
+    /// The Rust shell client (`shell_rust.rs`): the kinds it answers, its channel and its supervision.
+    pub shell_rust: crate::shell_rust::RustShell,
     /// The app switcher (`switcher.rs`).
     pub switcher: crate::switcher::Switcher,
     /// The owner's switch for the transitions (`transition.rs`): the theme file, and `ctl transitions` over it.
@@ -167,6 +169,8 @@ pub struct State {
     /// Whether the shell client's frame callbacks go out ahead of their flip ([`Owed::ahead`]); `ctl callbacks shell landing` turns it
     /// off, at the flip like any client's, for an A/B on the set.
     pub shell_ahead: bool,
+    /// The Rust shell's engine socket is new (its handshake just finished): the main loop adds it to its poll set and clears this.
+    pub ui_socket_new: bool,
     serial: u32,
     /// Buffers released at the end of the tick that presented the frame which stopped reading them.
     release_after_present: Vec<WlBuffer>,
@@ -210,6 +214,7 @@ impl State {
             keys,
             ime: super::ime::ImeState::default(),
             shell: crate::shell::Shell::default(),
+            shell_rust: crate::shell_rust::RustShell::default(),
             switcher: crate::switcher::Switcher::default(),
             motion,
             stats: Stats::default(),
@@ -223,6 +228,7 @@ impl State {
             webos_shells: HashMap::new(),
             started: Instant::now(),
             shell_ahead: true,
+            ui_socket_new: false,
             serial: 0,
             release_after_present: Vec::new(),
             display_held: Vec::new(),

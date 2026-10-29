@@ -421,6 +421,13 @@ impl State {
             self.seat.last_input = "key";
             return;
         }
+        // The Rust shell's layer: every key but the compositor's own while it wants them, and its cards' OK and Back (`shell_rust.rs`).
+        if !matches!(code, code::KEY_HOME | code::KEY_HOMEPAGE | code::KEY_RF_HOME | code::KEY_VOLUMEUP | code::KEY_VOLUMEDOWN | code::KEY_MUTE)
+            && self.shell_rust_takes_key(seat, code, pressed, out.swallow, now)
+        {
+            self.seat.last_input = "key";
+            return;
+        }
         if out.swallow {
             self.seat.last_input = "key";
             return;
@@ -495,6 +502,9 @@ impl State {
             self.luna.send(ToBridge::Fallback { reason: "hold Home 650 ms".into() });
         }
         self.shell_tick(now);
+        if self.shell_rust_tick(now) {
+            self.ui_socket_new = true;
+        }
         self.motion_tick(now);
         crate::server::ime::own_tick(self, now);
         if self.keys.router.waiting() {

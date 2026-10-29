@@ -445,3 +445,40 @@ Phase 0 plus the volume OSD and the toast of phase 1, as one deliverable:
 
 Nothing of the QML is touched by this slice; `VolumeOsd.qml` and the toast of `Notify.qml` are deleted when the gate
 has passed twice.
+
+## 6. Phase 0 as built, and what the next TV round runs
+
+Built on the host (2026-10-29, after this plan): `rustui/tokens` (`lumatv-tokens`), `rustui/ui` (`lumatv-ui`: the kit, the
+volume display, the toasts, the host harness; `docs/research/rust-shell-kit.md`), the compositor's `--shell-rust LIST` with
+`ctl shell rust +osd -toast` (`shell_rust.rs`: the second client's channel on `--shell-port` plus one, its supervision, the
+engine's socket and the key socket handed to it at its start, the `audio` topic and the toast feed withheld from the QML client
+for a kind on the list), `compositor/tools/build-tv.sh` bundling `bin/lumatv-ui` with `LUMATV_FEATURES=ui`. Host evidence:
+`rustui/ui` tests (the models, the focus engine, the flowing lift measured at 120 Hz, the glyphs), `compositor/tests/shell_rust.rs`
+(the compositor starts the real binary and draws its display and toast on Mesa, and a restart drops and brings them back),
+`tests/test_rust_shell.py` (the client against the stand-in channel: the OSD over an app at the lifted edge, the toast in the
+corner, damage-only frames, every label glyph quads). Nothing of the QML is touched; the default is off.
+
+The set has not run any of it. The next round, in a KMS maintenance window, from the repository root:
+
+1. `python3 compositor/tools/tv_ui_measure.py` (about 5 minutes): the idle, anim60, volume and direct phases of the demo. The
+   idle gate is under 1 ms of GPU a frame; `direct` must show direct frames and no GL error. A fail here is the shape A fallback
+   of section 5.2.
+2. `LUMATV_FEATURES=ui sh compositor/tools/build-tv.sh`, deploy and cut over as the round does; the bundle carries `bin/lumatv-ui`
+   and `FEATURES` says `ui`.
+3. On the set, over the normal cutover (LG's Home, the QML shell up): `ctl shell rust +osd +toast`. That writes
+   `/var/lib/lumatv/compositor/shell-rust.conf` (read at every later start, so the flip survives a restart) and starts the
+   client. `ctl shell` must show `rust.connected`, `rust.engine` true and `rust.ui.kinds ["osd","toast"]`; the journal has
+   `shell-rust: client started`, `shell-rust: the client is on the engine`.
+4. Volume keys over Home and over an app: the bar is the Rust one (the QML client no longer gets `audio`: `ctl shell` → `topics`
+   has no `audio` for it, `rust.topics` has). `ctl shell` → `rust.ui.osd` true while it is up, `rust.ui.source` `tv` or
+   `receiver`; `ctl status` → `ui frames … gl errors 0`; `ctl capture /tmp/osd.png` with the bar up, for the record beside
+   `docs/mocks/shots/11-volume-osd.png`.
+5. A toast (`luna-send -n 1 luna://com.webos.notification/createToast '{"message":"Remote battery low"}'`): the card at the top
+   right; `rust.ui.toasts` 1; the journal's `shell-rust: toast delivered` against `shell-rust: system layer live`, the toast's own
+   part of its first frame (the gate's 50 ms bar).
+6. `python3 compositor/tools/tv_gate.py --only shell,frames`, twice: the gate reads `rust.ui` of `ctl shell` for a kind on
+   `rust.kinds` (`tv_gate.py` and `gate.sh` do not yet; that change goes with the round, since it is checked on the set). `osd ok`
+   and the toast's first frame under 50 ms are the exit of this phase; `VolumeOsd.qml` and the toast of `Notify.qml` go when
+   both runs pass.
+7. Off at any point, without a deploy: `ctl shell rust -osd -toast` (the QML client gets `audio` back at once and the toast feed
+   at its next push).

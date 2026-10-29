@@ -54,18 +54,18 @@ use crate::window::WindowType;
 pub const RUNNER: &str = "/usr/bin/qml-runner";
 /// The app id the shell gives its windows (`appId` property); journal lines and `ctl windows` show it.
 pub const APP_ID: &str = "org.nphil.lumatv.shell";
-const TOKEN_FILE: &str = "lumatv-shell.token";
+pub(crate) const TOKEN_FILE: &str = "lumatv-shell.token";
 /// A client that has not polled for this long is gone (its own long poll is 25 s).
-const POLL_TIMEOUT: Duration = Duration::from_secs(40);
+pub(crate) const POLL_TIMEOUT: Duration = Duration::from_secs(40);
 /// Restarts: after this many within [`RESTART_WINDOW`] the shell is given up until `ctl shell restart`.
-const RESTART_LIMIT: usize = 5;
-const RESTART_WINDOW: Duration = Duration::from_secs(600);
+pub(crate) const RESTART_LIMIT: usize = 5;
+pub(crate) const RESTART_WINDOW: Duration = Duration::from_secs(600);
 /// Events kept for a client that is behind; one that is further behind is told to read the state again.
-const EVENTS_KEPT: usize = 512;
+pub(crate) const EVENTS_KEPT: usize = 512;
 /// The client starts once SAM's Home has mapped, or this long after the compositor started.
 const START_ALONE: Duration = Duration::from_secs(15);
 /// The client's nice level: below the apps (nice 0), so an app's frames win the CPU over the shell's.
-const NICE: i32 = 10;
+pub(crate) const NICE: i32 = 10;
 /// The kernel's trace buffer. The frame gate's captures (`docs/research/perf/capture.sh`) read their markers from it; the compositor
 /// leaves two kinds of its own there (`Q:<panel>-show` when it asks the shell for a panel on a key, `Q:<feed>-delivered` when a
 /// notification reaches it from the service), so the gate can tell what the shell is asked, and when, from what the shell does with it.
@@ -74,7 +74,7 @@ pub const TRACE_MARKER: &str = "/sys/kernel/debug/tracing/trace_marker";
 /// app's, so a doorbell card never costs the person the film's controls.
 pub const TAKEABLE: &[&str] = &["ok", "back"];
 /// A press the layer took whose release has not come for this long was a release lost: the next press is a new one, not a repeat.
-const TOOK_STALE: Duration = Duration::from_secs(3);
+pub(crate) const TOOK_STALE: Duration = Duration::from_secs(3);
 
 /// The bus names the shell may call through the bridge: the services LumaTV's QML calls under LG's compositor (read off
 /// `payload/compositor/<module>`), and the compositor's own names, which the bridge routes back to `luna_methods.rs`.
@@ -125,10 +125,7 @@ pub const ALLOWED_SERVICES: &[&str] = &[
 /// Single methods of a service that is not open as a whole. The Homebrew Channel's service also runs commands as root (`exec`, `spawn`), so
 /// only its two settings calls are open, for Settings > System > Support > Update's block switch (`blockUpdates`): without them the page
 /// reads "Homebrew Channel: not allowed by the compositor" and cannot change the flag.
-pub const ALLOWED_METHODS: &[&str] = &[
-    "org.webosbrew.hbchannel.service/getConfiguration",
-    "org.webosbrew.hbchannel.service/setConfiguration",
-];
+pub const ALLOWED_METHODS: &[&str] = &["org.webosbrew.hbchannel.service/getConfiguration", "org.webosbrew.hbchannel.service/setConfiguration"];
 
 /// Whether the shell may make this call: `luna://<service>/...` with the service on the allowlist (a sub-name such as
 /// `com.webos.service.audio/tv` counts as its service), or one of the single methods in `ALLOWED_METHODS`.
@@ -175,7 +172,7 @@ pub struct Outbox {
 }
 
 impl Outbox {
-    fn push(&mut self, topic: &str, data: Value) -> u64 {
+    pub(crate) fn push(&mut self, topic: &str, data: Value) -> u64 {
         self.seq += 1;
         self.events.push_back((self.seq, topic.to_string(), data.clone()));
         while self.events.len() > EVENTS_KEPT {
@@ -194,13 +191,13 @@ impl Outbox {
     }
 }
 
-struct Link {
-    outbox: Arc<Mutex<Outbox>>,
+pub(crate) struct Link {
+    pub(crate) outbox: Arc<Mutex<Outbox>>,
     /// Written when the outbox grew: the server thread answers its pending long polls.
-    wake_out: OwnedFd,
-    inbox: Receiver<Msg>,
+    pub(crate) wake_out: OwnedFd,
+    pub(crate) inbox: Receiver<Msg>,
     /// Written by the server thread when the inbox grew; the loop polls it ([`State::shell_fd`]).
-    wake_in: OwnedFd,
+    pub(crate) wake_in: OwnedFd,
 }
 
 /// How the client is started.
@@ -242,7 +239,7 @@ pub struct Stats {
 
 pub struct Shell {
     launch: Option<Launch>,
-    link: Option<Link>,
+    pub(crate) link: Option<Link>,
     child: Option<Child>,
     /// A start on its thread (`spawn_client`) whose child has not arrived yet.
     spawning: Option<Receiver<Result<Child, SpawnFailure>>>,
@@ -450,7 +447,7 @@ impl State {
     }
 
     /// Whether SAM's Home (the Home stub) has a mapped window.
-    fn sam_home_mapped(&self) -> bool {
+    pub(crate) fn sam_home_mapped(&self) -> bool {
         self.scene.windows().any(|w| w.app_id() == crate::scene::HOME_APP && w.map_serial > 0)
     }
 
@@ -766,11 +763,16 @@ impl State {
         false
     }
 
-    /// An answer to one of the compositor's calls: the shell's, if a tag owns the token. Returns whether it was.
+    /// An answer to one of the compositor's calls: the shell's, if a tag of either client owns the token. Returns whether it was. A
+    /// push of the toast feed to the QML client is withheld while the Rust shell answers `toast` (`shell_rust.rs`): one shell draws it.
     pub fn shell_luna_event(&mut self, token: u64, payload: &Value) -> bool {
-        let Some(i) = self.shell.luna_tags.iter().position(|t| t.token == token) else { return false };
+        let Some(i) = self.shell.luna_tags.iter().position(|t| t.token == token) else { return self.shell_rust_luna_event(token, payload) };
         let tag = self.shell.luna_tags[i].tag;
-        if let Some(feed) = notification_feed(&self.shell.luna_tags[i].uri, payload) {
+        let feed = notification_feed(&self.shell.luna_tags[i].uri, payload);
+        let withheld = feed == Some("toast") && self.shell_rust.answers("toast");
+        if let Some(feed) = feed
+            && !withheld
+        {
             self.shell.mark(&format!("Q:{feed}-delivered"));
             // The journal's clock against `shell: system layer live; its last commit N ms ago`: the time the client took from the
             // delivery to its first frame of the toast or alert.
@@ -779,44 +781,55 @@ impl State {
         if !self.shell.luna_tags[i].subscribe {
             self.shell.luna_tags.remove(i);
         }
-        self.shell.push("luna", json!({"tag": tag, "payload": payload}));
+        if !withheld {
+            self.shell.push("luna", json!({"tag": tag, "payload": payload}));
+        }
         true
     }
 
-    /// The audio service's state (the compositor's own subscription): the UI's `LS.audioService` reads it.
+    /// The audio service's state (the compositor's own subscription): the UI's `LS.audioService` reads it; the Rust shell's volume
+    /// display when `osd` is its, and the QML client not then.
     pub fn shell_audio(&mut self, payload: &Value) {
-        if self.shell.enabled() || self.shell.connected {
+        if self.shell_rust.enabled() {
+            self.shell_rust.push("audio", payload.clone());
+        }
+        if (self.shell.enabled() || self.shell.connected) && !self.shell_rust.answers("osd") {
             self.shell.push("audio", payload.clone());
         }
     }
 
-    /// Pushes the topics the UI follows when they changed: what is in front, the screen, the keyboard, the cursor. Called
-    /// wherever the scene or the input state changed (`luna_notify` and the shell's own mappings).
-    pub fn shell_sync_topics(&mut self) {
-        if !self.shell.enabled() && !self.shell.connected {
-            return;
-        }
+    /// The topics both clients follow, computed once: what is in front, the transitions, the screen, the keyboard, the cursor, the
+    /// wallpaper's hole, the refresh.
+    pub fn shell_topic_values(&mut self) -> Vec<(String, Value)> {
         let home_shown = self.shell_home_drawn();
         // Under an app card that is still growing (a transition holds Home as its underlay) Home is still on the screen: it is told so, and the
         // video wallpaper's player is not stopped, until the card is whole.
         let covered = !home_shown || (!self.scene.transitions.holds_home() && self.scene.shell_home_covered(&self.surfaces));
-        let fg = json!({"app": self.foreground_app(), "home": home_shown, "covered": covered});
-        self.shell.push_if_changed("foreground", fg);
         let motion = self.scene.transitions.settings;
-        self.shell.push_if_changed("transitions", json!({"on": motion.enabled, "reduced": motion.reduced}));
-        let screen = json!({"on": self.luna_state.power.rendering});
-        self.shell.push_if_changed("screen", screen);
-        let keyboard = json!({"up": self.keyboard_up()});
-        self.shell.push_if_changed("keyboard", keyboard);
-        let cursor = json!({"visible": self.seat.cursor_visible});
-        self.shell.push_if_changed("cursor", cursor);
-        // The moving wallpaper's hole is under Home: the shell takes its own wallpaper away only while this holds, and puts it back in the
-        // frame after it stops (an app taking the front stops it at once: the wallpaper's window is left out of the stack with Home).
-        let wall = json!({"hole": home_shown && self.scene.wall_hole()});
-        self.shell.push_if_changed("wall", wall);
-        // The refresh the output runs at (`refresh`): the shell draws its frames per refresh and trims what a frame costs at 120.
-        let refresh = json!({"hz": self.config.refresh_hz});
-        self.shell.push_if_changed("refresh", refresh);
+        vec![
+            ("foreground".into(), json!({"app": self.foreground_app(), "home": home_shown, "covered": covered})),
+            ("transitions".into(), json!({"on": motion.enabled, "reduced": motion.reduced})),
+            ("screen".into(), json!({"on": self.luna_state.power.rendering})),
+            ("keyboard".into(), json!({"up": self.keyboard_up()})),
+            ("cursor".into(), json!({"visible": self.seat.cursor_visible})),
+            // The moving wallpaper's hole is under Home: the shell takes its own wallpaper away only while this holds, and puts it back in
+            // the frame after it stops (an app taking the front stops it at once: the wallpaper's window is left out of the stack with Home).
+            ("wall".into(), json!({"hole": home_shown && self.scene.wall_hole()})),
+            // The refresh the output runs at (`refresh`): the shell draws its frames per refresh and trims what a frame costs at 120.
+            ("refresh".into(), json!({"hz": self.config.refresh_hz})),
+        ]
+    }
+
+    /// Pushes the topics the UI follows when they changed: what is in front, the screen, the keyboard, the cursor. Called
+    /// wherever the scene or the input state changed (`luna_notify` and the shell's own mappings). The Rust client gets the same.
+    pub fn shell_sync_topics(&mut self) {
+        self.shell_rust_sync_topics();
+        if !self.shell.enabled() && !self.shell.connected {
+            return;
+        }
+        for (topic, value) in self.shell_topic_values() {
+            self.shell.push_if_changed(&topic, value);
+        }
         crate::server::ime::own_publish(self);
         self.switcher_sync_topics();
         self.screencap_publish();
@@ -852,8 +865,12 @@ impl State {
         self.shell_sync_topics();
     }
 
-    /// Whether the client is connected and said it can show `kind` ("quick", "picker", "drawer") now.
+    /// Whether the client that answers `kind` ("quick", "picker", "drawer") is connected and said it can show it now: the Rust shell
+    /// for a kind on its list, the QML client for the rest.
     pub fn shell_can(&self, kind: &str) -> bool {
+        if self.shell_rust.answers(kind) {
+            return self.shell_rust.connected && self.shell_rust.can.iter().any(|c| c == kind);
+        }
         self.shell.connected && self.shell.can.iter().any(|c| c == kind)
     }
 
@@ -863,6 +880,14 @@ impl State {
     pub fn shell_show(&mut self, kind: &str, warm: bool) -> bool {
         if !self.shell_can(kind) {
             return false;
+        }
+        if self.shell_rust.answers(kind) {
+            self.shell_rust.stats.shows += 1;
+            if !warm {
+                self.shell_rust.mark(&format!("Q:{kind}-show"));
+            }
+            self.shell_rust.push("show", json!({"kind": kind, "warm": warm, "n": self.shell_rust.stats.shows}));
+            return true;
         }
         self.shell.stats.shows += 1;
         if !warm {
@@ -954,6 +979,7 @@ impl State {
             "topics": s.pushed,
             "lunaOpen": s.luna_tags.iter().map(|t| json!({"tag": t.tag, "uri": t.uri, "subscribe": t.subscribe})).collect::<Vec<_>>(),
             "stats": {"starts": s.stats.starts, "exits": s.stats.exits, "events": s.stats.events, "lunaCalls": s.stats.luna_calls, "lunaRefused": s.stats.luna_refused, "lunaCancelledEarly": s.stats.luna_cancelled_early, "shows": s.stats.shows},
+            "rust": self.shell_rust_report(),
         })
     }
 }
@@ -961,7 +987,7 @@ impl State {
 /// The feed of LG's notification service a push belongs to, when the push is a notification the shell shows: a toast with a message,
 /// an alert that opens. The compositor marks the trace when one reaches it (`Shell::mark`): the frame gate times the shell's own part
 /// of a toast from there, since the service hands it over at its own pace (2 to 4 s after `luna-send` returned under LG's compositor).
-fn notification_feed(uri: &str, payload: &Value) -> Option<&'static str> {
+pub(crate) fn notification_feed(uri: &str, payload: &Value) -> Option<&'static str> {
     if uri.ends_with("/getToastNotification") && payload.get("message").and_then(Value::as_str).is_some_and(|m| !m.is_empty()) {
         return Some("toast");
     }
@@ -981,7 +1007,7 @@ fn bundle_shell() -> Option<PathBuf> {
 
 /// LumaTV's QML module as `tools/lumatv` stages it: the directory under `<data dir>/qml/WebOSCompositor` that holds
 /// `LumaHome.qml` (named by the brand's `qmlModule`).
-fn module_dir(data_dir: &Path) -> Option<PathBuf> {
+pub(crate) fn module_dir(data_dir: &Path) -> Option<PathBuf> {
     let root = data_dir.join("qml/WebOSCompositor");
     let mut dirs: Vec<PathBuf> = std::fs::read_dir(&root).ok()?.flatten().map(|e| e.path()).filter(|p| p.join("LumaHome.qml").is_file()).collect();
     dirs.sort();
@@ -1083,7 +1109,7 @@ fn spawn_client(job: SpawnJob) -> Result<Child, SpawnFailure> {
 }
 
 /// Writes a fresh token (32 hex digits from the kernel's random source) readable by the owner only.
-fn write_token(path: &Path) -> std::io::Result<String> {
+pub(crate) fn write_token(path: &Path) -> std::io::Result<String> {
     let mut bytes = [0u8; 16];
     std::fs::File::open("/dev/urandom")?.read_exact(&mut bytes)?;
     let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
@@ -1096,7 +1122,7 @@ fn write_token(path: &Path) -> std::io::Result<String> {
     Ok(token)
 }
 
-fn eventfd() -> std::io::Result<OwnedFd> {
+pub(crate) fn eventfd() -> std::io::Result<OwnedFd> {
     // SAFETY: eventfd returns a new descriptor or -1.
     let fd = unsafe { libc::eventfd(0, libc::EFD_NONBLOCK | libc::EFD_CLOEXEC) };
     if fd < 0 {
@@ -1106,20 +1132,20 @@ fn eventfd() -> std::io::Result<OwnedFd> {
     Ok(unsafe { OwnedFd::from_raw_fd(fd) })
 }
 
-fn wake(fd: &OwnedFd) {
+pub(crate) fn wake(fd: &OwnedFd) {
     let one = 1u64.to_ne_bytes();
     // SAFETY: writing 8 bytes to an eventfd.
     unsafe { libc::write(fd.as_raw_fd(), one.as_ptr() as *const libc::c_void, 8) };
 }
 
-fn drain(fd: &OwnedFd) {
+pub(crate) fn drain(fd: &OwnedFd) {
     let mut buf = [0u8; 8];
     // SAFETY: reading the eventfd's 8-byte counter; EAGAIN when there is none.
     unsafe { libc::read(fd.as_raw_fd(), buf.as_mut_ptr() as *mut libc::c_void, 8) };
 }
 
 /// Starts the server thread on `listener`; the handles the loop keeps.
-fn spawn_server(listener: TcpListener, token: String) -> std::io::Result<Link> {
+pub(crate) fn spawn_server(listener: TcpListener, token: String) -> std::io::Result<Link> {
     let wake_out = eventfd()?;
     let wake_in = eventfd()?;
     let outbox = Arc::new(Mutex::new(Outbox { seq: 0, events: VecDeque::new(), topics: BTreeMap::new(), boot: boot_ms() }));

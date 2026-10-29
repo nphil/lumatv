@@ -614,6 +614,11 @@ impl Volume {
         self.pill
     }
 
+    /// What the model holds, for the host harness's `--eval volume`.
+    pub fn debug(&self) -> Value {
+        json!({"helperUp": self.helper_up, "stale": self.stale, "expiry": self.expiry, "rc": self.rc, "tv": {"output": self.tv.output, "known": self.tv.known(), "arc": self.tv.arc()}, "deciding": self.deciding, "keyed": self.keyed})
+    }
+
     /// The state for the compositor's gate (`ctl shell`'s `ui.osd`).
     pub fn state(&self) -> Value {
         let v = self.view();

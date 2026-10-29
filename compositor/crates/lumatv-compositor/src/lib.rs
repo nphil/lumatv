@@ -37,6 +37,7 @@ pub mod sched;
 pub mod screencap;
 pub mod server;
 pub mod shell;
+pub mod shell_rust;
 pub mod surface;
 pub mod switcher;
 pub mod system_ui;

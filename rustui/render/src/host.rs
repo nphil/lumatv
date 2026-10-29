@@ -364,6 +364,21 @@ impl Engine {
         Ok(())
     }
 
+    /// Whether the handshake is still awaited (the app has not said hello, or nothing has been finished yet).
+    pub fn handshake_pending(&self) -> bool {
+        self.handshake.is_some()
+    }
+
+    /// Finishes the handshake if the app has answered, without waiting: `Ok(true)` when it is complete now, `Ok(false)` while the
+    /// app has not connected yet or there is nothing to finish; a handshake that failed (the wrong hello, the socket closed) is the
+    /// error, and nothing is left to finish.
+    pub fn try_finish_handshake(&mut self) -> io::Result<bool> {
+        if !self.handshake.as_ref().is_some_and(|h| h.is_finished()) {
+            return Ok(false);
+        }
+        self.finish_handshake().map(|()| true)
+    }
+
     pub fn gles(&self) -> &Gles {
         self.renderer.gles()
     }

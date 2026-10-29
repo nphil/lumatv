@@ -137,6 +137,9 @@ fn run(config: Config) -> io::Result<()> {
 
     #[cfg(feature = "ui")]
     let mut ui_demo = None;
+    // The Rust shell's engine (`shell_rust.rs`), attached before the loop so that KMS makes its UI pages: the client's end of its
+    // socket is handed to the client when it starts.
+    let mut rust_socket: Option<std::os::unix::net::UnixStream> = None;
     #[allow(unused_mut)]
     let mut make_gl = || -> io::Result<Gl> {
         #[allow(unused_mut)]
@@ -148,6 +151,12 @@ fn run(config: Config) -> io::Result<()> {
             let app = gl.attach_ui(config.driver.as_deref().unwrap(), lumatv_compositor::ui::demo::SYSTEM_Z, shm.clone())?;
             ui_demo = Some(lumatv_compositor::ui::demo::Demo::with(app, &shm, lumatv_compositor::ui::demo::Options::from_env())?);
             gl.ui().unwrap().finish_handshake()?;
+        }
+        #[cfg(feature = "ui")]
+        if !config.shell_rust.is_empty() {
+            let shm = config.runtime_dir.join("ui-shm");
+            std::fs::create_dir_all(&shm)?;
+            rust_socket = Some(gl.attach_ui(config.driver.as_deref().unwrap(), lumatv_compositor::shell_rust::SYSTEM_Z, shm)?);
         }
         Ok(gl)
     };
@@ -242,6 +251,7 @@ fn run(config: Config) -> io::Result<()> {
     const TAG_INPUT: u64 = 1 << 33;
     const TAG_UI: u64 = 10;
     const TAG_SHELL: u64 = 11;
+    const TAG_SHELL_RUST: u64 = 12;
     epoll.add(display.backend().poll_fd().as_raw_fd(), TAG_WL)?;
     epoll.add(listener.as_raw_fd(), TAG_LISTEN)?;
     epoll.add(tick.raw_fd(), TAG_TICK)?;
@@ -257,10 +267,18 @@ fn run(config: Config) -> io::Result<()> {
     if let Some(fd) = state.output.ui_fd() {
         epoll.add(fd, TAG_UI)?;
     }
-    // The shell client (shell.rs): its UI channel's wake-up; started once the socket listens, so it finds the display.
+    // The shell client (shell.rs): its UI channel's wake-up; started once the socket listens, so it finds the display. The Rust
+    // shell (shell_rust.rs) beside it, on a channel of its own.
     state.shell_start();
     if let Some(fd) = state.shell_fd() {
         epoll.add(fd, TAG_SHELL)?;
+    }
+    if let Some(socket) = rust_socket.take() {
+        state.shell_rust.adopt_socket(socket);
+    }
+    state.shell_rust_start();
+    if let Some(fd) = state.shell_rust_fd() {
+        epoll.add(fd, TAG_SHELL_RUST)?;
     }
     let mut inputs: Vec<Option<lumatv_compositor::input::Device>> =
         if config.input { lumatv_compositor::input::open_all(&config.input_dir).into_iter().map(Some).collect() } else { Vec::new() };
@@ -355,6 +373,13 @@ fn run(config: Config) -> io::Result<()> {
                     }
                     state.tick();
                     state.poll_holds();
+                    // The Rust shell's engine socket arrives with its handshake (shell_rust.rs): a commit then wakes the loop.
+                    if state.ui_socket_new {
+                        state.ui_socket_new = false;
+                        if let Some(fd) = state.output.ui_fd() {
+                            epoll.add(fd, TAG_UI)?;
+                        }
+                    }
                     tick.rearm(&state)?;
                 }
                 TAG_OUTPUT => {
@@ -385,6 +410,12 @@ fn run(config: Config) -> io::Result<()> {
                 }
                 TAG_SHELL => {
                     if state.shell_poll() {
+                        handled |= 1 << 9;
+                        tick.rearm(&state)?;
+                    }
+                }
+                TAG_SHELL_RUST => {
+                    if state.shell_rust_poll() {
                         handled |= 1 << 9;
                         tick.rearm(&state)?;
                     }

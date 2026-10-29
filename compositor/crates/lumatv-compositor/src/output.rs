@@ -155,6 +155,28 @@ pub trait Output {
         None
     }
 
+    /// Makes the UI engine in this output's context, for a client in another process (`shell_rust.rs`): the client's end of the
+    /// engine's socket, to hand that process at its start. The handshake completes later ([`Output::ui_handshake`]). An output
+    /// without the engine, or with a client already attached, says so.
+    fn ui_attach(&mut self, _driver: &str, _system_z: i32, _shm: std::path::PathBuf) -> io::Result<std::os::unix::net::UnixStream> {
+        Err(io::Error::other("this output has no UI engine"))
+    }
+
+    /// Finishes the engine's handshake once the client has said hello: `true` the first time it is complete (the socket is then
+    /// [`Output::ui_fd`]), `false` while the client has not connected yet or there is nothing to finish.
+    fn ui_handshake(&mut self) -> io::Result<bool> {
+        Ok(false)
+    }
+
+    /// Drops the engine and the client's layers with it (the client is gone or is being restarted); the next frame draws
+    /// everything without them.
+    fn ui_detach(&mut self) {}
+
+    /// Whether an engine is attached (a client's, connected or awaited).
+    fn ui_attached(&self) -> bool {
+        false
+    }
+
     /// Draws the plan into the output's target.
     fn render(&mut self, plan: &Plan, surfaces: &Surfaces) -> io::Result<RenderStats>;
 

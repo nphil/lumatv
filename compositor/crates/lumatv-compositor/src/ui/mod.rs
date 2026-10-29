@@ -92,6 +92,16 @@ impl Ui {
         self.engine.finish_handshake()
     }
 
+    /// Finishes the handshake if the app has said hello, without waiting ([`Engine::try_finish_handshake`]).
+    pub fn try_finish_handshake(&mut self) -> io::Result<bool> {
+        self.engine.try_finish_handshake()
+    }
+
+    /// Whether the app has connected (the handshake is done and its socket is this engine's).
+    pub fn connected(&self) -> bool {
+        !self.engine.handshake_pending() && self.engine.fd().is_some()
+    }
+
     /// The engine, for what this module does not wrap (housekeeping, the idle moments, a test's reads).
     pub fn engine(&mut self) -> &mut Engine {
         &mut self.engine
@@ -120,13 +130,15 @@ impl Ui {
     }
 
     /// A tick with no frame due: the commits that show nothing by themselves (a glyph atlas made, chunks of it) are applied, and
-    /// a round of housekeeping is done while there is any left. What they change asks for a frame through [`Ui::wants_frame`].
-    /// Nothing enters the context when there is neither.
+    /// the upload work they leave is done now (`tidy_more` only says what the last tidy left over), then a round of housekeeping
+    /// while there is any left. What they change asks for a frame through [`Ui::wants_frame`]. Nothing enters the context when
+    /// there is neither.
     pub fn idle(&mut self, now_ns: u64) {
-        if self.engine.has_waiting() {
+        let had = self.engine.has_waiting();
+        if had {
             self.engine.apply_waiting(now_ns);
         }
-        if self.engine.tidy_more() {
+        if had || self.engine.tidy_more() {
             self.engine.tidy();
         }
     }

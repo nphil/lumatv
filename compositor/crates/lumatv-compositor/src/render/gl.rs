@@ -330,6 +330,23 @@ impl Gl {
         self.ui.as_mut()
     }
 
+    /// Drops the engine (the client is gone or is being restarted): its layers go, and the next frame draws everything without them.
+    pub fn detach_ui(&mut self) {
+        #[cfg(feature = "ui")]
+        if self.ui.take().is_some() {
+            self.redraw_all = true;
+        }
+    }
+
+    /// Finishes the engine's handshake once the client has connected, without waiting (`Output::ui_handshake`).
+    pub fn ui_try_handshake(&mut self) -> io::Result<bool> {
+        #[cfg(feature = "ui")]
+        if let Some(ui) = &mut self.ui {
+            return ui.try_finish_handshake();
+        }
+        Ok(false)
+    }
+
     pub fn has_ui(&self) -> bool {
         #[cfg(feature = "ui")]
         {
@@ -1673,6 +1690,30 @@ impl Output for Gl {
         {
             None
         }
+    }
+
+    fn ui_attach(&mut self, driver: &str, system_z: i32, shm: std::path::PathBuf) -> io::Result<std::os::unix::net::UnixStream> {
+        #[cfg(feature = "ui")]
+        {
+            self.attach_ui(driver, system_z, shm)
+        }
+        #[cfg(not(feature = "ui"))]
+        {
+            let _ = (driver, system_z, shm);
+            Err(io::Error::other("built without feature ui"))
+        }
+    }
+
+    fn ui_handshake(&mut self) -> io::Result<bool> {
+        self.ui_try_handshake()
+    }
+
+    fn ui_detach(&mut self) {
+        self.detach_ui();
+    }
+
+    fn ui_attached(&self) -> bool {
+        self.has_ui()
     }
 
     fn render(&mut self, plan: &Plan, surfaces: &Surfaces) -> io::Result<RenderStats> {
