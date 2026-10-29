@@ -689,7 +689,7 @@ impl HomeSurface {
                 Content::Clock(cl) => cl.tick(kit, &t),
                 Content::Weather(w) => w.set(kit, &mut self.pictures, &home.weather),
                 Content::News(n) => n.set(kit, &home.news, if mine { inner_index.unwrap_or(0) } else { self.news_index }, now),
-                Content::AtHome(a) => a.set(kit, &home.ha_cards, row, &mut self.pictures),
+                Content::AtHome(a) => a.set(kit, &home.ha_items(), &home.ha_lane(), row, &mut self.pictures),
                 Content::Cameras(cm) => cm.set(kit, &home.cameras, &home.stills, row, now),
                 Content::Unknown(_) => {}
             }
@@ -1047,9 +1047,10 @@ mod tests {
         let news = json!({"doc": {"fetchedAt": 5, "items": [{"tag": "WORLD", "src": "BBC News", "title": "Denmark says Russian warship fired flares at military helicopter",
             "summary": "The Danish prime minister has accused Russia of reckless behaviour, while the Kremlin is yet to comment. The helicopter was on a routine patrol over the Baltic when the flares were fired.", "pubMs": 0}]}});
         h.update(&Input::Helper { topic: "news".into(), data: news }, 1003);
+        h.update(&Input::Helper { topic: "plugins".into(), data: json!({"plugins": [{"id": "home-assistant", "state": "connected"}], "firstParty": []}) }, 1003);
         let cards = json!({"items": [{"id": "living", "revision": 1, "card": {"content": {"title": "Living room", "icon": "base.icons/lightbulb", "role": "warning", "facts": [{"label": "Lights", "value": "3 on"}]}}},
             {"id": "door", "revision": 1, "card": {"content": {"title": "Front door", "icon": "base.icons/lock", "role": "positive", "facts": [{"label": "State", "value": "Locked"}]}}}]});
-        h.update(&Input::Helper { topic: "plugin.homeassistant.cards".into(), data: cards }, 1004);
+        h.update(&Input::Helper { topic: "plugin.home-assistant.cards".into(), data: cards }, 1004);
         let profiles = json!({"ready": true, "active": "nitin", "owner": "nitin", "canAdmin": true, "switchedAt": 1, "profiles": [
             {"id": "nitin", "name": "Nitin", "initial": "N", "color": "#A79BF5", "active": true, "locked": false}, {"id": "isabel", "name": "Isabel", "initial": "I", "color": "#EB6F92", "active": false, "locked": false}]});
         h.update(&Input::Helper { topic: "profiles".into(), data: profiles }, 1005);

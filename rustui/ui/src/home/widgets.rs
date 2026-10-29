@@ -7,6 +7,7 @@
 
 use super::clock::{self, Civil};
 use crate::kit::Kit;
+use crate::panels::hub::Lane;
 use crate::kit::picture::{self, Fit, Picture};
 use crate::kit::text::role_style;
 use compositor_protocol::{Props, Rgba};
@@ -1089,9 +1090,13 @@ impl AtHome {
     }
 
     /// The plugin's cards, `inner` the row the inner focus is on.
-    pub fn set(&mut self, kit: &mut Kit, topic: &Value, inner: Option<usize>, pictures: &mut Pictures) {
-        let items: Vec<Value> = topic.get("items").and_then(Value::as_array).cloned().unwrap_or_default();
-        let key = (items.iter().map(|i| format!("{}:{}", i.get("id").and_then(Value::as_str).unwrap_or(""), i.get("revision").and_then(Value::as_u64).unwrap_or(0))).collect::<Vec<_>>().join("|"), inner);
+    pub fn set(&mut self, kit: &mut Kit, items: &[Value], lane: &Lane, inner: Option<usize>, pictures: &mut Pictures) {
+        let key = (
+            items.iter().map(|i| format!("{}/{}:{}", i.get("pluginId").and_then(Value::as_str).unwrap_or(""), i.get("id").and_then(Value::as_str).unwrap_or(""), i.get("revision").and_then(Value::as_u64).unwrap_or(0))).collect::<Vec<_>>().join("|")
+                + if items.is_empty() { lane.sub } else { "" }
+                + if items.is_empty() { lane.role } else { "" },
+            inner,
+        );
         if self.shown.as_ref() == Some(&key) {
             return;
         }
@@ -1104,6 +1109,7 @@ impl AtHome {
             "danger" => look.colour(ui::lucent::palette::PaletteRole::Danger),
             "positive" => look.colour(ui::lucent::palette::PaletteRole::Positive),
             "info" => look.colour(ui::lucent::palette::PaletteRole::Info),
+            "muted" => ink2,
             _ => look.accent(),
         };
         let mut changes: Vec<(usize, String, Rgba)> = Vec::new();
@@ -1127,11 +1133,13 @@ impl AtHome {
                 }
             }
         }
-        if items.is_empty() {
-            if let Some((a, b)) = self.rows.first() {
-                changes.push((*a, "Nothing to show".into(), ink2));
-                changes.push((*b, "The Home Assistant plugin has no cards".into(), ink2));
-            }
+        if items.is_empty()
+            && let Some((a, b)) = self.rows.first()
+        {
+            // no card: the one chip that says why (`HomeAssistantWidget.qml`), drawn with the glyph of the plugin
+            changes[0] = (*a, lane.title.into(), ink);
+            changes[1] = (*b, lane.sub.into(), ink2);
+            tiles.push((self.row_top, role_colour(lane.role), "house-wifi".into()));
         }
         let refs: Vec<(usize, &str, Rgba)> = changes.iter().map(|(i, s, c)| (*i, s.as_str(), *c)).collect();
         self.block.set_many(kit, &refs);
@@ -1144,10 +1152,16 @@ impl AtHome {
             let px = if icon.is_empty() { None } else { kit.icons.draw(icon, 28, *colour).or_else(|| pictures.get(&format!("base/{icon}")).map(|p| p.fitted(28, 28, Fit::Contain).rgba)) };
             icons.push((*y, *colour, px));
         }
+        // the chip that says why points on to the page
+        let chevron = if items.is_empty() { kit.icons.draw("chevron-right", 22, ink2) } else { None };
         self.art.clear();
         {
             let mut canvas = Canvas { px: self.art.pixels_mut(), w, h };
             for (i, (y, colour, px)) in icons.iter().enumerate() {
+                if let Some(px) = &chevron {
+                    let pic = Picture { width: 22, height: 22, rgba: px.clone() };
+                    canvas.picture(&pic, self.w as i32 - 22, (y + (self.row_h - 4.0 - 22.0) / 2.0).round() as i32, 22, 22);
+                }
                 if inner == Some(i) {
                     canvas.rounded(Frame::new(-8.0, *y, self.w + 16.0, self.row_h - 4.0), radius, focus_ring);
                 }

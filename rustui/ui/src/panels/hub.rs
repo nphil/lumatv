@@ -158,6 +158,97 @@ pub fn tiles(topics: &Topics) -> Vec<Tile> {
     out
 }
 
+/// The plugin of the roster (`plugins`: the owner's, then the helper's own as `firstParty`) with this id, connected or not.
+pub fn plugin_of<'a>(roster: &'a Value, id: &str) -> Option<&'a Value> {
+    let list = |k: &str| roster.get(k).and_then(Value::as_array).into_iter().flatten();
+    list("plugins").chain(list("firstParty")).find(|p| p.get("id").and_then(Value::as_str) == Some(id))
+}
+
+/// Where Home Assistant stands, in one word (`PluginHub.haState`): `off` (not switched on), `inert` (switched on but this TV will not run
+/// it), `waiting` (its program is not up), then what the helper's lease (`ha.link`, `Null` before the helper has said) says: `unlinked`,
+/// `refused`, `offline`, `connecting` or `connected`.
+pub fn ha_state(roster: &Value, link: &Value) -> String {
+    let Some(p) = plugin_of(roster, HA) else { return "off".into() };
+    match p.get("state").and_then(Value::as_str) {
+        Some("inert") => return "inert".into(),
+        Some("connected") => {}
+        _ => return "waiting".into(),
+    }
+    match link.get("state").and_then(Value::as_str) {
+        Some("auth_failed") => "refused".into(),
+        None | Some("off" | "unconfigured") => "unlinked".into(),
+        Some(s) => s.into(),
+    }
+}
+
+/// A short phrase for a row that opens the page (`PluginHub.haWords`).
+pub fn ha_words(roster: &Value, link: &Value) -> &'static str {
+    let stuck = || plugin_of(roster, HA).and_then(|p| p.get("reason")).is_some_and(|r| !r.is_null());
+    match ha_state(roster, link).as_str() {
+        "off" => "Not switched on",
+        "inert" => "Cannot run",
+        "waiting" if stuck() => "Not running",
+        "waiting" => "Starting",
+        "unlinked" => "Not linked",
+        "refused" => "Token refused",
+        "offline" => "Offline",
+        "connecting" => "Connecting",
+        _ => "Connected",
+    }
+}
+
+/// What the At-home card says when no plugin has a card (`PluginHub.laneNone`): a name, the state under it, and the tone of its glyph
+/// (`danger`, `warning`, or `muted`).
+pub struct Lane {
+    pub title: &'static str,
+    pub sub: &'static str,
+    pub role: &'static str,
+}
+
+pub fn lane_none(roster: &Value, link: &Value) -> Lane {
+    let state = ha_state(roster, link);
+    let stuck = state == "waiting" && plugin_of(roster, HA).and_then(|p| p.get("reason")).is_some_and(|r| !r.is_null());
+    let role = if state == "refused" {
+        "danger"
+    } else if matches!(state.as_str(), "inert" | "offline") || stuck {
+        "warning"
+    } else {
+        "muted"
+    };
+    Lane { title: "Home Assistant", sub: if state == "connected" { "Nothing to show" } else { ha_words(roster, link) }, role }
+}
+
+/// The plugins whose cards Home draws in full in their own widgets.
+const HOME_EXCLUDED: [&str; 3] = ["weather", "news", "clock"];
+
+/// What the At-home card draws as chips (`PluginHub.homeCards`): the cards of every connected plugin but those Home draws elsewhere, the
+/// most urgent first (`ringing`, `running`, `new`, any other), each as the helper published it with the plugin's id as `pluginId`.
+pub fn home_cards(topics: &Topics) -> Vec<Value> {
+    let mut out: Vec<Value> = Vec::new();
+    for (pid, _) in connected(topics) {
+        if HOME_EXCLUDED.contains(&pid.as_str()) {
+            continue;
+        }
+        for mut it in items(topics, &pid, "cards") {
+            if let Some(o) = it.as_object_mut() {
+                o.insert("pluginId".into(), Value::String(pid.clone()));
+            }
+            out.push(it);
+        }
+    }
+    let rank = |c: &Value| match c.pointer("/card/priority").and_then(Value::as_str).unwrap_or("new") {
+        "ringing" => 0,
+        "running" => 1,
+        "new" => 2,
+        _ => 3,
+    };
+    out.sort_by_key(rank);
+    out
+}
+
+/// The Home Assistant plugin's id.
+pub const HA: &str = "home-assistant";
+
 /// What a tile says when its plugin cannot be reached or may not act.
 pub fn unavailable_text(reason: &str) -> &'static str {
     match reason {

@@ -14,6 +14,7 @@ use super::search::{Search, SearchOut};
 use super::wallvideo::{Ctx, WallVideo};
 use crate::kit::focus::{Dir, Focus, Id, Moved, Region, Scope};
 use crate::kit::screen::{Effect, Input};
+use crate::panels::hub;
 use crate::system::extras::{Intent, Note, Page, Pick, Tile};
 use serde_json::{Value, json};
 
@@ -100,7 +101,8 @@ pub struct Home {
     pub tint: Value,
     pub weather: Value,
     pub news: Value,
-    pub ha_cards: Value,
+    /// The helper's `plugins` roster, its `ha.link` and the plugins' `plugin.<id>.cards`: what the At-home card is drawn from.
+    pub plugins: hub::Topics,
     pub cameras: Value,
     pub stills: super::stills::Stills,
     /// What the bell's badge counts (the panels' log and the plugins' notes since the drawer was last open).
@@ -181,7 +183,7 @@ impl Home {
             tint: Value::Null,
             weather: Value::Null,
             news: Value::Null,
-            ha_cards: Value::Null,
+            plugins: Default::default(),
             voice_ready: false,
             cameras: Value::Null,
             stills: super::stills::Stills::default(),
@@ -685,7 +687,12 @@ impl Home {
             "up" => self.helper_up = data.as_bool().unwrap_or(false),
             "weather" => self.weather = data.clone(),
             "news" => self.news = data.clone(),
-            "plugin.homeassistant.cards" => self.ha_cards = data.clone(),
+            "plugins" | "ha.link" => {
+                self.plugins.insert(topic.to_owned(), data.clone());
+            }
+            t if t.starts_with("plugin.") && t.ends_with(".cards") => {
+                self.plugins.insert(topic.to_owned(), data.clone());
+            }
             "cameras" => self.cameras = data.clone(),
             "voice" => {
                 self.voice_ready = data.get("ready").and_then(Value::as_bool) == Some(true);
@@ -1168,7 +1175,12 @@ impl Home {
 
     // ---- cards
     fn has_inner(&self, wid: &str) -> bool {
-        matches!(self.cards().iter().find(|e| e.id == wid).map(|e| e.kind.as_str()), Some("homeassistant" | "cameras" | "news"))
+        match self.cards().iter().find(|e| e.id == wid).map(|e| e.kind.as_str()) {
+            // the plugins' chips take the keys only while there are some; with none the card opens Home Assistant's page
+            Some("homeassistant") => !self.ha_items().is_empty(),
+            Some("cameras" | "news") => true,
+            _ => false,
+        }
     }
 
     /// A key inside a card: the content's rows. Returns false when the content gives the keys back.
@@ -1192,8 +1204,9 @@ impl Home {
                     && let Some(card) = self.ha_items().get(i)
                     && let Some(a) = card.pointer("/card/actions/0/action").and_then(Value::as_str)
                 {
-                    let id = card.get("id").and_then(Value::as_str).unwrap_or("").to_owned();
-                    out.push(Effect::Post { path: format!("/v1/plugins/homeassistant/actions/{a}"), body: json!({"card": id}) });
+                    let plugin = card.get("pluginId").and_then(Value::as_str).unwrap_or(hub::HA).to_owned();
+                    let target = card.pointer("/card/actions/0/target").and_then(Value::as_str);
+                    out.push(Effect::Post { path: format!("/v1/plugins/{plugin}/actions/{a}"), body: target.map_or_else(|| json!({}), |t| json!({"target": t})) });
                 }
                 if kind == "news"
                     && let Some(item) = self.news_items().get(i)
@@ -1228,11 +1241,20 @@ impl Home {
 
     fn activate_card(&mut self, wid: &str, out: &mut Vec<Effect>) {
         let kind = self.cards().iter().find(|e| e.id == wid).map(|e| e.kind.clone()).unwrap_or_default();
+        if kind == "homeassistant" {
+            self.requests.push(Request::SettingsPage("homeassistant".into()));
+        }
         out.push(Effect::Log(format!("card {wid} ({kind}) activated")));
     }
 
+    /// The chips of the At-home card: every connected plugin's cards but those Home draws in full elsewhere, the most urgent first.
     pub fn ha_items(&self) -> Vec<Value> {
-        self.ha_cards.get("items").and_then(Value::as_array).cloned().unwrap_or_default()
+        hub::home_cards(&self.plugins)
+    }
+
+    /// What the At-home card says when there is no chip: Home Assistant's own state, from the same roster and lease as Settings' page.
+    pub fn ha_lane(&self) -> hub::Lane {
+        hub::lane_none(self.plugins.get("plugins").unwrap_or(&Value::Null), self.plugins.get("ha.link").unwrap_or(&Value::Null))
     }
 
     pub fn news_items(&self) -> Vec<Value> {
@@ -1808,6 +1830,71 @@ mod tests {
         let mut out = h.update(&Input::Key { name: name.into(), down: true, repeat: false }, at);
         out.extend(h.update(&Input::Key { name: name.into(), down: false, repeat: false }, at + 30));
         out
+    }
+
+    /// The helper's `plugins` topic as the TV answers it, with the roster of the helper's own plugins and the owner's.
+    fn roster(owner: Value) -> Value {
+        let own = |id: &str| json!({"class": "S", "firstParty": true, "id": id, "name": id, "registered": true, "state": "connected", "version": "1"});
+        json!({"firstParty": [own("weather"), own("news"), own("clock")], "plugins": owner, "problem": null})
+    }
+
+    fn lane(h: &Home) -> (&'static str, &'static str, &'static str) {
+        let l = h.ha_lane();
+        (l.title, l.sub, l.role)
+    }
+
+    #[test]
+    fn the_at_home_card_with_no_chip_says_what_home_assistants_page_says_from_the_same_roster_and_lease() {
+        let mut h = home();
+        let helper = |h: &mut Home, topic: &str, data: Value| {
+            h.update(&Input::Helper { topic: topic.into(), data }, 1100);
+        };
+        helper(&mut h, "plugins", roster(json!([])));
+        assert_eq!(lane(&h), ("Home Assistant", "Not switched on", "muted"), "the TV's own answer: no owner plugins");
+        let plugin = |state: &str| json!([{"id": "home-assistant", "name": "Home Assistant", "state": state}]);
+        helper(&mut h, "plugins", roster(plugin("inert")));
+        assert_eq!(lane(&h), ("Home Assistant", "Cannot run", "warning"));
+        helper(&mut h, "plugins", roster(json!([{"id": "home-assistant", "state": "waiting", "reason": "crashed"}])));
+        assert_eq!(lane(&h), ("Home Assistant", "Not running", "warning"));
+        helper(&mut h, "plugins", roster(plugin("connected")));
+        assert_eq!(lane(&h), ("Home Assistant", "Not linked", "muted"), "no lease topic yet");
+        helper(&mut h, "ha.link", json!({"state": "auth_failed"}));
+        assert_eq!(lane(&h), ("Home Assistant", "Token refused", "danger"));
+        helper(&mut h, "ha.link", json!({"state": "offline"}));
+        assert_eq!(lane(&h), ("Home Assistant", "Offline", "warning"));
+        helper(&mut h, "ha.link", json!({"state": "connected"}));
+        assert_eq!(lane(&h), ("Home Assistant", "Nothing to show", "muted"));
+        assert!(h.ha_items().is_empty());
+    }
+
+    #[test]
+    fn the_at_home_chips_are_every_connected_plugins_cards_but_the_ones_home_draws_itself_the_most_urgent_first_and_a_tap_goes_to_the_plugin_that_owns_it() {
+        let mut h = home();
+        h.update(&Input::Helper { topic: "plugins".into(), data: roster(json!([{"id": "home-assistant", "state": "connected"}, {"id": "lock", "state": "waiting"}])) }, 1100);
+        let card = |id: &str, priority: &str, action: Option<&str>| {
+            let actions = action.map(|a| json!([{"id": "a", "label": "Do", "action": a, "target": "movie"}])).unwrap_or(json!([]));
+            json!({"id": id, "revision": 1, "card": {"size": "half", "priority": priority, "content": {"type": "facts", "title": id, "role": "accent", "facts": []}, "actions": actions}})
+        };
+        h.update(&Input::Helper { topic: "plugin.home-assistant.cards".into(), data: json!({"items": [card("room", "new", None), card("doorbell", "ringing", Some("answer"))]}) }, 1101);
+        h.update(&Input::Helper { topic: "plugin.weather.cards".into(), data: json!({"items": [card("now", "new", None)]}) }, 1102);
+        h.update(&Input::Helper { topic: "plugin.lock.cards".into(), data: json!({"items": [card("front", "new", None)]}) }, 1103);
+        let ids: Vec<(String, String)> = h.ha_items().iter().map(|c| (c["pluginId"].as_str().unwrap().into(), c["id"].as_str().unwrap().into())).collect();
+        assert_eq!(ids, vec![("home-assistant".to_string(), "doorbell".to_string()), ("home-assistant".to_string(), "room".to_string())], "ringing first; weather is Home's own card; lock is not connected");
+        let wid = h.cards().iter().find(|e| e.kind == "homeassistant").map(|e| e.id.clone()).expect("the card");
+        let mut out = Vec::new();
+        h.inner_index = Some(0);
+        assert!(h.inner_key(&wid, "ok", &mut out));
+        assert_eq!(out, vec![Effect::Post { path: "/v1/plugins/home-assistant/actions/answer".into(), body: json!({"target": "movie"}) }]);
+    }
+
+    #[test]
+    fn ok_on_the_at_home_card_with_no_chip_opens_home_assistants_page() {
+        let mut h = home();
+        let wid = h.cards().iter().find(|e| e.kind == "homeassistant").map(|e| e.id.clone()).expect("the card");
+        assert!(!h.has_inner(&wid), "no chip, no inner layer");
+        let mut out = Vec::new();
+        h.activate_card(&wid, &mut out);
+        assert_eq!(h.take_requests(), vec![Request::SettingsPage("homeassistant".into())]);
     }
 
     #[test]

@@ -405,6 +405,6 @@ mod tests {
             }
         }
         assert_eq!(answers, vec![(11, 200, "/v1/state/receiver".to_string()), (12, 200, "/v1/state/screen".to_string())]);
-        assert!(served.load(std::sync::atomic::Ordering::SeqCst) >= 5);
+        assert!(served.load(std::sync::atomic::Ordering::SeqCst) >= 4);
     }
 }

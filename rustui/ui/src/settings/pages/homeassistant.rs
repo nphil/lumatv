@@ -7,6 +7,7 @@
 //! (`lumatv-helper ha-link`, the token on standard input) so that no key press, no route of the helper and no plugin can set either. This
 //! page shows the address and whether a token is kept, and can forget them: that only ever takes access away.
 
+use crate::panels::hub;
 use super::plugin_rows::{Plugin, ask_all, field_rows, fields};
 use crate::settings::ctx::{Ctx, ask};
 use crate::settings::page::{Page, Read};
@@ -38,42 +39,14 @@ fn opened(_: &Ctx) -> Vec<Op> {
     vec![Op::Set("asked".into(), json!(""))]
 }
 
-fn plugin<'a>(c: &'a Ctx) -> Option<&'a Value> {
-    let roster = c.helper("plugins")?;
-    let list = |k: &str| roster.get(k).and_then(Value::as_array).into_iter().flatten();
-    list("plugins").chain(list("firstParty")).find(|p| p.get("id").and_then(Value::as_str) == Some(ID))
-}
-
-/// Where it stands, in one word (`PluginHub.haState`): `off` (not switched on), `inert` (switched on but this TV will not run it), `waiting`
-/// (its program is not up), then what the helper's lease says: `unlinked`, `refused`, `offline`, `connecting` or `connected`.
+/// Where it stands, in one word (`PluginHub.haState`; see [`hub::ha_state`]).
 pub fn state(c: &Ctx) -> String {
-    let Some(p) = plugin(c) else { return "off".into() };
-    match p.get("state").and_then(Value::as_str) {
-        Some("inert") => return "inert".into(),
-        Some("connected") => {}
-        _ => return "waiting".into(),
-    }
-    match c.helper("ha.link").and_then(|l| l.get("state")).and_then(Value::as_str) {
-        Some("auth_failed") => "refused".into(),
-        None | Some("off" | "unconfigured") => "unlinked".into(),
-        Some(s) => s.into(),
-    }
+    hub::ha_state(c.helper("plugins").unwrap_or(&Value::Null), c.helper("ha.link").unwrap_or(&Value::Null))
 }
 
 /// A short phrase for a row that opens the page (`PluginHub.haWords`).
 pub fn words(c: &Ctx) -> String {
-    match state(c).as_str() {
-        "off" => "Not switched on",
-        "inert" => "Cannot run",
-        "waiting" if plugin(c).and_then(|p| p.get("reason")).is_some_and(|r| !r.is_null()) => "Not running",
-        "waiting" => "Starting",
-        "unlinked" => "Not linked",
-        "refused" => "Token refused",
-        "offline" => "Offline",
-        "connecting" => "Connecting",
-        _ => "Connected",
-    }
-    .into()
+    hub::ha_words(c.helper("plugins").unwrap_or(&Value::Null), c.helper("ha.link").unwrap_or(&Value::Null)).into()
 }
 
 fn chip(c: &Ctx) -> Option<(String, &'static str)> {

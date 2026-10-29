@@ -332,6 +332,22 @@ mod tests {
         assert!(!tiles(&e).remove(1).enabled, "a receiver switched off in Settings is not reached");
     }
 
+    /// The topic as the helper publishes it on the set: `updatedAt` moves without an event, so the copy the panel holds is old by the time it opens.
+    #[test]
+    fn the_receivers_tile_opened_on_an_old_copy_asks_the_helper_and_shows_the_answer_with_the_helper_up() {
+        let doc = |at: u64| json!({"enabled": true, "error": null, "fresh": true, "host": "192.168.1.93", "input": "TV", "mute": true, "polling": true, "power": "on", "reachable": true, "signal": "PCM", "soundMode": "DOLBY AUDIO-DSUR", "updatedAt": at, "volumeAbs": 36.0, "volumeDb": -44.0, "volumeDisplay": "absolute", "volumeMax": 69.5, "volumeText": "36"});
+        let mut e = Env::new(json!({}));
+        e.update(&Input::Helper { topic: "up".into(), data: json!(true) }, 1_793_283_000_000);
+        e.update(&Input::Helper { topic: "receiver".into(), data: doc(1_793_283_000_000) }, 1_793_283_000_000);
+        let opened = 1_793_283_133_000;
+        let ask = e.gate.set_active(true, opened);
+        assert!(matches!(ask.as_slice(), [crate::kit::screen::Effect::Fetch { path, .. }] if path == "/v1/state/receiver"), "the copy is two minutes old: the helper is asked");
+        assert_eq!(tiles(&e).remove(1).detail, "Not answering", "until it answers");
+        e.update(&Input::Fetched { tag: crate::host::receiver::TAG, status: 200, data: json!({"api": 1, "ok": true, "topic": "receiver", "value": doc(1_793_283_132_900)}) }, opened + 40);
+        let r = tiles(&e).remove(1);
+        assert_eq!((r.label.as_str(), r.detail.as_str(), r.value.as_str()), ("Receiver", "TV \u{b7} DOLBY AUDIO-DSUR", "36"));
+    }
+
     #[test]
     fn a_plugins_tiles_are_toggles_or_buttons_and_an_unavailable_one_takes_no_focus() {
         let mut e = env();
