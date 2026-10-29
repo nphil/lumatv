@@ -11,6 +11,7 @@
 
 #[cfg(test)]
 mod alloc_tests;
+pub mod afbc;
 pub mod boxdim;
 pub mod buffer;
 pub mod capture;
@@ -28,6 +29,7 @@ pub mod output;
 /// LumaShow's frame pacer, copied verbatim by `tools/sync-lumashow.sh` (`vendor/LUMASHOW_REV` names the commit).
 #[path = "vendor/pacer.rs"]
 pub mod pacer;
+pub mod pointer;
 pub mod refresh;
 pub mod render;
 pub mod ring;
@@ -46,6 +48,7 @@ pub mod transition;
 /// LumaTV's UI engine drawing into the compositor's pages (feature `ui`, `rustui/`).
 #[cfg(feature = "ui")]
 pub mod ui;
+pub mod vwin;
 pub mod wake;
 pub mod window;
 

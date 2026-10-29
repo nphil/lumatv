@@ -84,6 +84,19 @@ pub struct Config {
     pub scanout_probe: bool,
     /// More environment for the shell client, so that its window buffers are ones the plane can take (`--scanout-shell-env`).
     pub scanout_shell_env: Vec<(String, String)>,
+    /// Where the Magic Remote's pointer is drawn: into the frame (`gpu`, the default) or by the cursor plane (`plane`, `pointer`). `ctl pointer
+    /// plane|gpu` switches it while running.
+    pub pointer: crate::pointer::Mode,
+    /// How the cursor plane reads its image's alpha (`--pointer-alpha`).
+    pub pointer_alpha: crate::pointer::Alpha,
+    /// The primary plane's pages carry alpha (AR24) instead of ignoring it (XR24), which the display driver reads as a constant alpha of 0xff:
+    /// a hole cleared to transparent is opaque black on the panel with XR24 (`hw-planes-result.md`, "The holes"). Implied by `--vwin` and
+    /// `--afbc on`.
+    pub page_alpha: bool,
+    /// The scan-out pages as AFBC (`afbc`): `off`, `probe` (query only) or `on`.
+    pub afbc: crate::afbc::Mode,
+    /// The hardware video windows beyond the app's own video (`vwin`): `off`, `idle` or `apps`, and how many windows the display has.
+    pub vwin: crate::vwin::Policy,
 }
 
 /// Where the trace ring lives.
@@ -139,6 +152,11 @@ impl Default for Config {
             scanout: crate::scanout::Policy::default(),
             scanout_probe: false,
             scanout_shell_env: Vec::new(),
+            pointer: crate::pointer::Mode::default(),
+            pointer_alpha: crate::pointer::Alpha::default(),
+            page_alpha: false,
+            afbc: crate::afbc::Mode::default(),
+            vwin: crate::vwin::Policy::default(),
         }
     }
 }
@@ -193,6 +211,18 @@ pub const USAGE: &str = "lumatv-compositor [options]
   --scanout-probe        the off-screen proof: record every driver-served buffer's descriptor and PRIME-import it into the display driver
                          without taking master or showing anything (tools/tv-scanout-proof.sh; needs --buffers driver)
   --scanout-shell-env K=V  one more environment variable for the shell client (repeatable), the way to ask its window for a layout the plane takes
+  --pointer gpu|plane    where the Magic Remote's pointer is drawn (default gpu: a sprite in the frame; plane: the cursor plane, which moves it with no frame
+                         drawn; needs --renderer kms). `ctl pointer [plane|gpu|X Y]` reads the counters, switches it or moves it (docs/research/hw-planes-result.md)
+  --pointer-alpha premultiplied|straight  how the cursor plane reads its image's alpha (default premultiplied, as the frame is)
+  --page-alpha on|off    the primary plane's pages carry alpha (AR24, default off: XR24, whose holes the display driver shows opaque black); implied by --vwin and
+                         --afbc on. Starts with the compositor: the pages are made once
+  --afbc off|probe|on    the scan-out pages as ARM AFBC (modifier 0x0800000000000062, AB24; default off; needs --renderer kms): probe only asks the GPU driver and
+                         the plane what they list (`ctl afbc`), on makes the pages AFBC and falls back to linear ones with the reason when the driver refuses
+  --vwin off|idle|apps   the display's spare video windows for LumaTV's own video (default off): idle gives the camera pop-up, the Cameras live view and a
+                         picture-in-picture a window while no app has a video element, apps also next to an app's video (the sub window, 1080p30);
+                         `ctl vwin [off|idle|apps|claim|release|...]` and POST /v1/vwin on the UI channel (docs/research/hw-planes-result.md)
+  --vwin-slots N         how many video windows the display is taken to have (default 2: main and sub; the O22 source has NUM_WIN_MAX 2, win2 and win3 are proc
+                         slots only)
   ctl CMD                talk to a running compositor's control socket (status, windows, capture PATH, quit)
 ";
 
@@ -210,6 +240,7 @@ impl Config {
         let mut c = Config::default();
         let mut it = args.into_iter();
         let mut renderer_set = false;
+        let mut page_alpha_set: Option<bool> = None;
         while let Some(a) = it.next() {
             let mut value = || it.next().ok_or_else(|| format!("{a} needs a value"));
             match a.as_str() {
@@ -336,6 +367,37 @@ impl Config {
                     let (k, val) = v.split_once('=').filter(|(k, _)| !k.is_empty()).ok_or("--scanout-shell-env NAME=VALUE")?;
                     c.scanout_shell_env.push((k.to_string(), val.to_string()));
                 }
+                "--pointer" => {
+                    let v = value()?;
+                    c.pointer = crate::pointer::Mode::parse(&v).ok_or_else(|| format!("--pointer takes gpu or plane, not {v}"))?;
+                }
+                "--pointer-alpha" => {
+                    let v = value()?;
+                    c.pointer_alpha = crate::pointer::Alpha::parse(&v).ok_or_else(|| format!("--pointer-alpha takes premultiplied or straight, not {v}"))?;
+                }
+                "--page-alpha" => {
+                    c.page_alpha = match value()?.as_str() {
+                        "on" => true,
+                        "off" => false,
+                        o => return Err(format!("--page-alpha takes on or off, not {o}")),
+                    };
+                    page_alpha_set = Some(c.page_alpha);
+                }
+                "--afbc" => {
+                    let v = value()?;
+                    c.afbc = crate::afbc::Mode::parse(&v).ok_or_else(|| format!("--afbc takes off, probe or on, not {v}"))?;
+                }
+                "--vwin" => {
+                    let v = value()?;
+                    c.vwin.mode = crate::vwin::Mode::parse(&v).ok_or_else(|| format!("--vwin takes off, idle or apps, not {v}"))?;
+                }
+                "--vwin-slots" => {
+                    let n: usize = value()?.parse().map_err(|_| "--vwin-slots takes a number")?;
+                    if !(1..=crate::vwin::MAX_SLOTS).contains(&n) {
+                        return Err(format!("--vwin-slots takes 1 to {}", crate::vwin::MAX_SLOTS));
+                    }
+                    c.vwin.slots = n;
+                }
                 "-h" | "--help" => return Err(USAGE.to_string()),
                 o => return Err(format!("unknown option {o}\n{USAGE}")),
             }
@@ -364,6 +426,20 @@ impl Config {
         }
         if c.scanout_probe && c.renderer == RendererKind::Software {
             return Err("--scanout-probe needs --renderer gl|kms and --buffers driver (the driver's buffers are what it records)".into());
+        }
+        if c.pointer == crate::pointer::Mode::Plane && c.renderer != RendererKind::Kms {
+            return Err("--pointer plane needs --renderer kms (the cursor plane it drives)".into());
+        }
+        if c.afbc != crate::afbc::Mode::Off && c.renderer != RendererKind::Kms {
+            return Err("--afbc needs --renderer kms (the plane that scans the pages out)".into());
+        }
+        // The holes a video window needs and the AB24 pages of AFBC both carry alpha: they ask for it (`--page-alpha off` after them is refused,
+        // since the combination shows black holes).
+        if c.vwin.mode != crate::vwin::Mode::Off || c.afbc == crate::afbc::Mode::On {
+            if page_alpha_set == Some(false) {
+                return Err("--page-alpha off cannot go with --vwin or --afbc on: their holes and pages need alpha".into());
+            }
+            c.page_alpha = true;
         }
         if c.capture_every == 0 {
             c.capture_every = 1;

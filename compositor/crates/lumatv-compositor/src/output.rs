@@ -139,6 +139,29 @@ pub trait Output {
         Err(io::Error::other("this output has no direct scan-out"))
     }
 
+    /// The pointer on the cursor plane (`pointer`): `Some(at)` shows it with its hotspot at `at` (output pixels), `None` takes it away. Returns
+    /// whether the plane carries the pointer now; `false` (the default, and any output without the plane or whose plane failed) means the caller
+    /// draws the sprite into the frame.
+    fn set_pointer(&mut self, _at: Option<(i32, i32)>) -> bool {
+        false
+    }
+
+    /// Moves the pointer between the frame and the cursor plane (`ctl pointer plane|gpu`); an output without a cursor plane says so.
+    fn set_pointer_mode(&mut self, _mode: crate::pointer::Mode) -> io::Result<()> {
+        Err(io::Error::other("this output has no cursor plane"))
+    }
+
+    /// The cursor plane's state and counters, for `ctl pointer` and `ctl status`; `None` for an output without one.
+    fn pointer_report(&self) -> Option<serde_json::Value> {
+        None
+    }
+
+    /// What the scan-out pages are (linear without alpha, linear with alpha, AFBC), what the display and the GPU driver list, and the bandwidth
+    /// the layout costs and saves (`ctl afbc`, `afbc`); `None` for an output without scan-out pages.
+    fn afbc_report(&self) -> Option<serde_json::Value> {
+        None
+    }
+
     /// Journal lines the output has to tell (direct scan-out's changes of state), taken once.
     fn take_journal(&mut self) -> Vec<String> {
         Vec::new()
