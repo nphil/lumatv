@@ -297,12 +297,12 @@ class Settings(HostCase):
     def test_choosing_writes_one_entry_each_and_leaving_the_default_removes_it(self):
         with tempfile.TemporaryDirectory() as d:
             data = os.path.join(d, "data")
-            # Remote page, Keys tab: Hold Home (shows its help), number keys, gear hold, quick panel, input picker, quick panel tiles, recent apps, Quick
-            # Access, then Netflix. Right enters, Up and Right pick the tab, Down x9 lands on Netflix, OK opens the chooser
+            # Remote page, Keys tab: Hold Home (shows its help), number keys, gear hold, quick panel, input picker, quick panel tiles, app switcher, recent apps, Quick
+            # Access, then Netflix. Right enters, Up and Right pick the tab, Down x10 lands on Netflix, OK opens the chooser
             # on LG's default; Down + OK is "Does nothing" and returns to the page; Down is Prime Video, the same; Up and OK reopens Netflix on
             # "Does nothing" (the one in force), Up + OK is LG's default again, which removes the entry. One key every 350 ms: each choice is
             # written to the file before the next, as a person's presses are.
-            steps = ["right", "up", "right"] + ["down"] * 9 + ["ok", "down", "ok", "down", "ok", "down", "ok", "up", "ok", "up", "ok"]
+            steps = ["right", "up", "right"] + ["down"] * 10 + ["ok", "down", "ok", "down", "ok", "down", "ok", "up", "ok", "up", "ok"]
             presses = [a for i, s in enumerate(steps) for a in self.keys(READY + 1500 + 350 * i, s)]
             end = READY + 1500 + 350 * len(steps)
             rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.keys(READY + 600, *(["down"] * RAIL["remote"])), *presses,
@@ -369,7 +369,7 @@ class Settings(HostCase):
         # the first app row: Down x2 from LG's default (past Does nothing and the heading), then OK
         with tempfile.TemporaryDirectory() as d:
             data = os.path.join(d, "data")
-            rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("remote", "right", "up", "right", *["down"] * 9, "ok", "down", "down", "ok"),
+            rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("remote", "right", "up", "right", *["down"] * 10, "ok", "down", "down", "ok"),
                                 "--eval", "%d:JSON.stringify(root.theme.remote.appKeys)" % (READY + 3200), "--wait", str(READY + 3800), data=data)
             self.assertEqual(rc, 0, out[-1500:])
             self.assertEqual(self.docs(out)[-1], {"netflix": "com.webos.app.discovery"})        # the dock's first tile: the all-apps store
