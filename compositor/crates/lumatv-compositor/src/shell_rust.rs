@@ -911,7 +911,7 @@ mod tests {
         assert!(state.shell_rust_set_kinds(&["-osd"]).is_ok());
         assert_eq!(state.shell.topic("audio").unwrap()["volumeStatus"]["volume"], 6, "given back: the state it missed is pushed");
         assert!(state.shell_rust_set_kinds(&["quick"]).is_err());
-        assert!(state.shell_rust_set_kinds(&["+quick"]).is_err());
+        assert!(state.shell_rust_set_kinds(&["+bogus"]).is_err());
     }
 
     #[test]
@@ -1002,6 +1002,6 @@ mod tests {
         assert_eq!(change_kinds(&kinds, &["+toast"]).unwrap(), vec!["osd", "toast"]);
         assert_eq!(change_kinds(&kinds, &["-osd", "+toast"]).unwrap(), vec!["toast"]);
         assert!(change_kinds(&kinds, &["osd"]).is_err());
-        assert!(change_kinds(&kinds, &["+quick"]).is_err());
+        assert!(change_kinds(&kinds, &["+bogus"]).is_err());
     }
 }

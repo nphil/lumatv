@@ -566,7 +566,8 @@ impl QuickSurface {
                 let foot_h = btn_h + if hints_h > 0.0 { hints_h + kit.space(2) } else { 0.0 };
                 let foot_y = sheet_bottom - foot_h;
                 let place = Place { id: Target::Foot.id(), frame: Frame::new(sheet.x + pad, foot_y, inner, btn_h), region: REGION_FOOT, scope: SCOPE, z: z + 3 };
-                let button = Button::new(kit, engine, place, Spec::new("All settings", Tone::Plain).with_icon("settings"))?;
+                let mut button = Button::new(kit, engine, place, Spec::new("All settings", Tone::Plain).with_icon("settings"))?;
+                button.show(kit, true);
                 let mut hint_rows = Vec::new();
                 if hints_h > 0.0 {
                     let gap = kit.space(7);
