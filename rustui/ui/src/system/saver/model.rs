@@ -260,10 +260,23 @@ impl Saver {
     fn wake(&mut self, _now: u64, out: &mut Vec<Effect>) {
         let lg = self.lg();
         self.owned = false;
+        self.forced = false;
+        if self.power_state == "Screen Saver" {
+            self.power_state = "Active".into();
+        }
         if lg {
             out.push(Effect::Luna { tag: TAG_WAKE, uri: format!("{TVPOWER}/power/turnOnScreen"), payload: json!({}), subscribe: false });
         }
         out.push(Effect::Redraw);
+    }
+
+    pub fn wake_for_event(&mut self, now: u64) -> Vec<Effect> {
+        let mut out = Vec::new();
+        if self.up() {
+            self.wake(now, &mut out);
+            self.settle(now, &mut out);
+        }
+        out
     }
 
     // ---- the vote ---------------------------------------------------------------------------------------------------------------------
