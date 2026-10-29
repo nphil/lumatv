@@ -103,6 +103,7 @@ pub struct RowArt {
     _chevron: Option<ImageLayer>,
     _plate: Option<ShapeLayer>,
     _arrows: Vec<ImageLayer>,
+    _bars: Vec<ShapeLayer>,
     mark: Option<ImageLayer>,
     trailing: Trailing,
     moment: Moment,
@@ -121,7 +122,7 @@ pub fn signature(row: &Row) -> String {
     let value = if row.kind == Kind::Slider { String::new() } else { row.value.clone() };
     let own = if row.kind == Kind::Value { format!("{}", row.selected) } else { String::new() };
     format!(
-        "{:?}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
+        "{:?}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{:?}",
         row.kind,
         row.icon,
         row.label,
@@ -140,7 +141,8 @@ pub fn signature(row: &Row) -> String {
         row.text,
         row.strip,
         row.unit,
-        own
+        own,
+        row.zones
     )
 }
 
@@ -281,6 +283,7 @@ impl RowArt {
             _chevron: None,
             _plate: None,
             _arrows: Vec::new(),
+            _bars: Vec::new(),
             mark: None,
             trailing: Trailing::None,
             moment: Moment::default(),
@@ -292,7 +295,7 @@ impl RowArt {
             Kind::Head => art.build_head(env, row)?,
             Kind::Note => art.build_note(env, row)?,
             Kind::Empty => art.build_empty(env, row)?,
-            Kind::Figure => {}
+            Kind::Figure => art.build_figure(env, row)?,
             Kind::Cards => art.build_cards(env, row)?,
             _ => art.build_row(env, row)?,
         }
@@ -368,6 +371,42 @@ impl RowArt {
         let _ = row;
         let frame = Frame::new(self.rect.x + self.geom.text_x, self.rect.y, self.geom.text_w, self.rect.h);
         self._words = Some(make_text(env, frame, env.z + 4, &items)?);
+        Ok(())
+    }
+
+    /// A small TV with an accent bar along each edge that is lit (top, bottom, left, right), and a caption beside it (`cFigure`).
+    fn build_figure(&mut self, env: &mut Env, row: &Row) -> std::io::Result<()> {
+        let sz = env.sz;
+        let paint = env.paint;
+        let tv_w = (sz.target * 2.4).round();
+        let tv_h = (tv_w * 0.56).round();
+        let (x, y) = (self.rect.x + sz.s2, self.rect.y + sz.s4);
+        let inset = 6.0;
+        let bar = 4.0;
+        let z = env.z;
+        let radius = env.kit.tokens.radius(Radius::Control).min(4.0);
+        self._plate = Some(make_shape(env, tv_w - 2.0 * inset, tv_h - 2.0 * inset, z + 3, pill(paint.wash_selected, paint.edge, radius, 1.0), Props::at(x + inset, y + inset)));
+        let [top, bottom, left, right] = row.zones;
+        let bars = [
+            (top, Frame::new(x + inset, y, tv_w - 2.0 * inset, bar)),
+            (bottom, Frame::new(x + inset, y + tv_h - bar, tv_w - 2.0 * inset, bar)),
+            (left, Frame::new(x, y + inset, bar, tv_h - 2.0 * inset)),
+            (right, Frame::new(x + tv_w - bar, y + inset, bar, tv_h - 2.0 * inset)),
+        ];
+        for (lit, f) in bars {
+            if lit {
+                let l = make_shape(env, f.w, f.h, z + 4, pill(paint.accent, CLEAR, bar / 2.0, 0.0), Props::at(f.x, f.y));
+                self._bars.push(l);
+            }
+        }
+        let tx = x + tv_w + sz.s6;
+        let room = (self.rect.right() - tx - sz.s2).max(40.0);
+        let ty = env.kit.ty(TypeRole::Caption);
+        let lines = ui::components::text::wrap(&mut env.kit.ui.fonts, &row.text, ty, room);
+        let line = line_height(ty);
+        let top_y = y + ((tv_h - lines.len() as f32 * line) / 2.0).round();
+        let items: Vec<Item> = lines.iter().enumerate().map(|(i, l)| Item::Text(Run { text: l, ty, colour: paint.ink2, x: 0.0, y: i as f32 * line, w: room, align: Align::Left })).collect();
+        self._words = Some(make_text(env, Frame::new(tx, top_y, room, lines.len() as f32 * line), z + 4, &items)?);
         Ok(())
     }
 

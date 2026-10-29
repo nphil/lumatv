@@ -50,6 +50,19 @@ def saver_rules():
         cls('plugin:chores', 'Chores', 'plug', 'inside')]}
 
 
+def owner_doc(fields):
+    """A helper owner's document (`GET /v1/settings/<owner>`) from (key, kind, value)."""
+    return {'ok': True, 'version': 1, 'effective': {k: {'value': v} for k, t, v in fields},
+            'schema': {'sections': [{'id': 's', 'fields': [{'key': k, 'kind': {'type': t}} for k, t, v in fields]}]}}
+
+
+AMBIENT = owner_doc([('enabled', 'bool', True), ('brightness', 'integer', 70), ('mode', 'choice', 'picture'), ('sound', 'choice', 'picture'),
+                     ('top', 'integer', 18), ('right', 'integer', 11), ('bottom', 'integer', 18), ('left', 'integer', 11), ('delay_ms', 'integer', 40),
+                     ('still_colour', 'choice', 'warm'), ('saturation', 'integer', 100), ('dark_hold', 'bool', False), ('skip_bars', 'bool', True),
+                     ('game_edges', 'bool', False)])
+AMBIENT_ROUTES = {'GET /v1/settings/base.ambient': AMBIENT, 'GET /v1/ambient': {'ok': True, 'state': 'running', 'strip': True, 'sections': 58}}
+
+
 class Scene:
     def __init__(self, name, page, keys=(), routes=None, topics=None, theme=None, lg=None, tab=None, layout=None):
         self.name, self.page, self.keys = name, page, list(keys)
@@ -66,6 +79,10 @@ SCENES = [
           keys=['right', 'down', 'down', 'down', 'down']),
     Scene('saver-picker', 'duringsaver', routes={'GET /v1/saver/rules': lambda b: saver_rules()}, topics={'saver': {'rules': {}}},
           keys=['right', 'down', 'down', 'down', 'down', 'ok', 'down']),
+]
+SCENES += [
+    Scene('ambient', 'ambient', routes=AMBIENT_ROUTES, keys=['right', 'down', 'down']),
+    Scene('ambient-layout', 'ambient', routes=AMBIENT_ROUTES, keys=['right', 'up', 'right', 'down']),
 ]
 BY_NAME = {s.name: s for s in SCENES}
 

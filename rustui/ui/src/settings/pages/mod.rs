@@ -4,9 +4,11 @@
 use super::page::Page;
 
 pub mod access;
+pub mod ambient;
 pub mod capture;
 pub mod home;
 pub mod language;
+pub mod owner;
 pub mod picture;
 pub mod privacy;
 pub mod profiles;
@@ -24,6 +26,7 @@ pub fn all() -> Vec<Page> {
         profiles::page(),
         picture::page(),
         sound::page(),
+        ambient::page(),
         home::page(),
         system::page(),
         privacy::held(),

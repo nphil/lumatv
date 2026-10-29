@@ -388,6 +388,15 @@ impl Row {
         r
     }
 
+    /// A small TV with its edges lit (top, bottom, left, right) and a caption beside it; shown, never focused.
+    pub fn figure(id: &str, text: &str, zones: [bool; 4], tab: usize) -> Self {
+        let mut r = Self::new(Kind::Figure, id);
+        r.text = text.into();
+        r.zones = zones;
+        r.tab = tab;
+        r
+    }
+
     /// What a tab has nothing to list: a glyph tile, a title and a line under it.
     pub fn empty(title: &str, text: &str, icon: &str, tab: usize) -> Self {
         let mut r = Self::new(Kind::Empty, &format!("empty:{title}"));
