@@ -5,6 +5,8 @@ stays the default until the TV gate has passed twice; no QML was touched.
 
 ## Resume here
 
+Recovery 2026-10-29: Home widgets preserves the interrupted layout changes and is registered; Settings changes write Home’s owner layout and redraw it immediately. Ambient light and Remote & pointer were already committed. Remaining B work: AI access, Home Assistant, camera Settings intent, rendered host checks and lean captures. Layout launch and text entry are coordinated with SystemResume and PanelsResume respectively.
+
 Done (parity with the QML Settings, by screen):
 
 - Framework: `settings/{model,view,row,page,ctx,src,host}.rs` (pure model: rail, tabs, rows, held-OK help, confirm, small picker, owner

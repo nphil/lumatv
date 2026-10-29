@@ -21,6 +21,7 @@ pub mod sound;
 pub mod support;
 pub mod system;
 pub mod util;
+pub mod widgets;
 
 /// Every page: the rail's sections in the rail's order (Privacy and Profiles first, then LG's order), then the pages that hang under one.
 pub fn all() -> Vec<Page> {
@@ -38,6 +39,7 @@ pub fn all() -> Vec<Page> {
         profiles::person(),
         profiles::avatars(),
         home::popups(),
+        widgets::page(),
         saver::page(),
         remote::app_key(),
         system::clock(),

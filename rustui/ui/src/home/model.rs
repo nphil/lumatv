@@ -217,6 +217,16 @@ impl Home {
         self.dirty = true;
     }
 
+    /// Settings changed the layout (a card shown, sized or moved, or put back to the shipped one): written as the owner's file and drawn at once.
+    pub fn set_layout_from_settings(&mut self, layout: &Value, out: &mut Vec<Effect>) {
+        let file = grid::for_file(layout, &self.shipped_layout);
+        let text = serde_json::to_string_pretty(&file).unwrap_or_default() + "\n";
+        self.layout_text = file.to_string();
+        out.push(Effect::Write { path: "theme/layout.json".into(), text });
+        self.apply_layout(file);
+        self.redraw(out);
+    }
+
     /// Home draws `layout` now (the editor's preview); nothing is written.
     pub fn preview_layout(&mut self, layout: Value) {
         self.layout = layout;

@@ -115,6 +115,8 @@ pub struct Shell {
     /// The system layer's kinds that sit over everything: the alerts, the cards, the pop-up, the capture mark, the saver.
     sys: Layer,
     home: Home,
+    /// The text of the layout file Settings has seen (Home's), to hand it the layout again when Home changes it.
+    settings_layout: String,
     home_surface: HomeSurface,
     /// The Cameras app (the grid, the full view, the strip, the sheet, the options page): a kind of its own over the panels.
     cameras: Cameras,
@@ -138,17 +140,20 @@ impl Shell {
     /// `icons` is the module's `icons/audio` directory; `theme` the merged theme and `layout` Home's layout, for the placements.
     pub fn new(kit: Kit, kinds: Kinds, system_z: i32, icons: &Path, theme: &Value, layout: &Value) -> std::io::Result<Self> {
         let engine = Engine::new(&kit).map_err(|e| std::io::Error::other(format!("{e}")))?;
+        let home = Home::new(theme.clone(), crate::home::grid::shipped(), layout.clone());
         Ok(Self {
             volume: Volume::default(),
             volume_surface: VolumeSurface::new(system_z + crate::kit::z::SYSTEM, icons, theme, layout),
             toasts: Toasts::new(),
             toast_surface: ToastSurface::new(system_z + crate::kit::z::SYSTEM + 10, theme, layout),
             sys: Layer::new(system_z + crate::kit::z::SYSTEM, theme, layout),
-            home: Home::new(theme.clone(), crate::home::grid::shipped(), layout.clone()),
+            // Settings reads the layout as Home has merged and tidied it
+            settings: SettingsHost::new(system_z, theme, &home.layout),
+            settings_layout: home.layout_text.clone(),
+            home,
             home_surface: HomeSurface::new(system_z),
             cameras: Cameras::new(system_z + crate::kit::z::CAMERAS, CamerasConfig::from_theme(&kit, theme)),
             cameras_intents: Vec::new(),
-            settings: SettingsHost::new(system_z, theme, layout),
             panels: Panels::new(system_z + crate::kit::z::PANELS, theme),
             kit,
             engine,
@@ -762,8 +767,29 @@ impl Shell {
                     tag: None,
                 })),
                 ShellRequest::Layout { item } => acts.push(Act::Log(format!("settings: the layout editor was asked for ({item:?})"))),
+                ShellRequest::HomeLayout(layout) => {
+                    let mut out = Vec::new();
+                    self.home.set_layout_from_settings(&layout, &mut out);
+                    for e in out {
+                        self.carry(e, now, acts);
+                    }
+                }
+                ShellRequest::EditHome => {
+                    for e in self.settings.close(now) {
+                        self.carry(e, now, acts);
+                    }
+                    let mut out = Vec::new();
+                    self.home.edit_home("", &mut out);
+                    for e in out {
+                        self.carry(e, now, acts);
+                    }
+                }
                 ShellRequest::Text { .. } => acts.push(Act::Log("settings: text was asked for".into())),
             }
+        }
+        if self.settings_layout != self.home.layout_text {
+            self.settings_layout = self.home.layout_text.clone();
+            self.settings.set_layout(self.home.layout.clone());
         }
         if let Some(file) = self.settings.take_theme_file() {
             let theme = self.reload_theme(&file);

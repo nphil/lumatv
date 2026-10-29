@@ -195,6 +195,10 @@ pub enum ShellRequest {
     Launch { app: String, params: Value },
     /// Opens the layout editor of the pop-ups (kind `layout`), at an item when one is named.
     Layout { item: Option<String> },
+    /// Home's layout is now this one (a card shown, sized or moved): Home writes the owner's `layout.json` and draws it at once.
+    HomeLayout(Value),
+    /// Closes Settings and opens Home's layout editor.
+    EditHome,
     /// Asks the keyboard for text (a Wi-Fi password, the TV's name); the answer comes back as `entered` or `entry_cancelled`.
     Text { prompt: String, text: String, secret: bool },
 }
