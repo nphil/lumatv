@@ -142,6 +142,9 @@ pub fn scrim_of(theme: &Value, mode: ui::lucent::palette::Mode) -> [f32; 3] {
     [at(0), at(1), at(2)]
 }
 
+/// The scrim the Silk wallpaper's shader applies by itself, at the top, the middle and the bottom (`SILK_SCRIM` in `rustui/render/src/wallpapers.rs`).
+pub const SILK_SCRIM: [f32; 3] = [0.10, 0.18, 0.46];
+
 pub struct WallpaperSurface {
     layer: Option<WallpaperLayer>,
     scrim_top: Option<ShapeLayer>,
@@ -214,7 +217,12 @@ impl WallpaperSurface {
             return;
         }
         self.generation = kit.generation();
-        let a = scrim_of(theme, kit.mode);
+        // The Silk wallpaper has the dark three-stop scrim in its own shader (`SILK_SCRIM`), as the QML Home's live wallpaper has its mode's: what
+        // Home puts over it is only what is still owed to reach the mode's scrim. Home used to lay the whole mode scrim over it, so the page was
+        // scrimmed twice (the bottom at .46 twice: 0.29 of the picture, the QML Home's 0.54). A scrim lighter than Silk's (the light material) cannot
+        // be taken off again, so it is nothing.
+        let target = scrim_of(theme, kit.mode);
+        let a: [f32; 3] = std::array::from_fn(|i| (1.0 - (1.0 - target[i]) / (1.0 - SILK_SCRIM[i])).max(0.0));
         let black = |alpha: f32| Rgba(0, 0, 0, (alpha.clamp(0.0, 1.0) * 255.0).round() as u8);
         let top_h = (H as f32 * 0.55).round() as u32;
         let props = Props { opacity: if self.hole { 0.0 } else { 1.0 }, visible: !self.hole, ..Props::at(0.0, 0.0) };

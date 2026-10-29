@@ -761,7 +761,14 @@ impl HomeSurface {
                 }
                 let title = home.dock.points.get(i).map(|p| p.title.clone()).unwrap_or_default();
                 let id = Id(model::DOCK_ID + i as u32);
-                if d.pill_for != Some(id) {
+                // The name comes only once the focus has rested (`Tile.qml`: the name pill comes after `rested`, so a glide across the dock makes none): a
+                // pill made for every tile the focus crosses is a pane and a line of text made and dropped at each step.
+                if !home.focus_view().rested {
+                    if d.pill_for.take().is_some() {
+                        d.pill.set(HIDDEN);
+                        d.pill_text.set_props(HIDDEN);
+                    }
+                } else if d.pill_for != Some(id) {
                     d.pill_for = Some(id);
                     let ink = kit.ui.look.ink();
                     let style = role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Centre);
@@ -1263,7 +1270,15 @@ mod tests {
                 }
                 let mut s = HomeSurface::new(1000);
                 s.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
-                s.apply(&mut kit, &mut engine, &mut home, 2500).expect("Home drawn");
+                // a glide: no name yet; once the focus has rested for restMs (150), the name
+                s.apply(&mut kit, &mut engine, &mut home, 2400).expect("Home drawn");
+                assert_eq!(pill_side(&s, &home), None, "{scale}: no name while the focus is still moving");
+                assert!(s.dock.as_ref().unwrap().pill_for.is_none());
+                let due = home.due_at().expect("a tick is due when the focus rests");
+                assert!(due <= 2300 + 150 + 5, "{due}");
+                let out = home.update(&Input::Tick, due);
+                assert!(out.contains(&crate::kit::screen::Effect::Redraw), "the rest is drawn");
+                s.apply(&mut kit, &mut engine, &mut home, due).expect("Home drawn");
                 assert_eq!(home.dock.row_of(home.dock.index), 0, "{scale}: the dock's top row has the focus");
                 assert_eq!(pill_side(&s, &home), Some(true), "{scale}, {count} apps: the top row's name is above its tile");
                 // the name stays on the dock's card
@@ -1273,6 +1288,9 @@ mod tests {
                 if second_row {
                     assert_eq!(home.dock.total_rows(), 2);
                     press(&mut home, "down", 3000);
+                    s.apply(&mut kit, &mut engine, &mut home, 3040).expect("Home drawn");
+                    assert!(s.dock.as_ref().unwrap().pill_for.is_none(), "{scale}: the name goes the moment the focus moves on");
+                    home.update(&Input::Tick, 3300);
                     s.apply(&mut kit, &mut engine, &mut home, 3300).expect("Home drawn");
                     assert_eq!(home.dock.row_of(home.dock.index), 1, "{scale}");
                     assert_eq!(pill_side(&s, &home), Some(false), "{scale}: the second row's name is below its tile");

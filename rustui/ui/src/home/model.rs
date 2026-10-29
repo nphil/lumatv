@@ -171,6 +171,8 @@ pub struct Home {
     ok_down_at: Option<u64>,
     ok_held: bool,
     moved_at: u64,
+    /// The redraw that shows what waits for the focus to rest (the dock tile's name) has been asked for since the last move.
+    rest_drawn: bool,
     rest_ms: u64,
     hold_ms: u64,
     next_poll: u64,
@@ -248,6 +250,7 @@ impl Home {
             ok_down_at: None,
             ok_held: false,
             moved_at: 0,
+            rest_drawn: true,
             rest_ms,
             hold_ms,
             next_poll: 0,
@@ -591,6 +594,11 @@ impl Home {
         {
             self.click_press = None;
             self.hold(out);
+            self.redraw(out);
+        }
+        // the focus has rested: what waited for it (the dock tile's name) is drawn now
+        if !self.rest_drawn && now >= self.moved_at + self.rest_ms {
+            self.rest_drawn = true;
             self.redraw(out);
         }
         // an answer that never came (the host restarted) does not stop the next look
@@ -942,6 +950,7 @@ impl Home {
 
     fn action(&mut self, name: &str, out: &mut Vec<Effect>) {
         self.moved_at = self.now;
+        self.rest_drawn = false;
         let dir = Self::dir_of(name);
         match self.layer {
             Layer::Apps => self.apps_key(name, dir, out),
