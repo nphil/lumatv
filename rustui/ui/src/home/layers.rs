@@ -290,11 +290,7 @@ impl AppsSurface {
 impl HomeSurface {
     /// A launch point's icon for a cell of `side`: the tile rule (edge to edge when the canvas is painted, inset otherwise).
     pub fn tile_icon_pub(kit: &mut Kit, path: &str, side: u32, inset: u32, radius: f32, z: i32) -> std::io::Result<Option<ImageLayer>> {
-        if path.is_empty() {
-            return Ok(None);
-        }
-        let Ok(bytes) = std::fs::read(path) else { return Ok(None) };
-        let Ok(pic) = picture::decode(&bytes) else { return Ok(None) };
+        let Some(pic) = picture::load_icon(path, None) else { return Ok(None) };
         let mut sum = 0u64;
         let mut n = 0u64;
         for y in 0..pic.height {

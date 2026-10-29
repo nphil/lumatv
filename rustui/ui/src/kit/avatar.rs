@@ -65,7 +65,7 @@ pub fn contained(file: &str, w: u32, h: u32) -> Option<Picture> {
         if let Some(hit) = cache.get(&key) {
             return hit.clone();
         }
-        let made = std::fs::read(file).ok().and_then(|bytes| decode(&bytes).ok()).map(|p| p.fitted(w, h, Fit::Contain));
+        let made = super::picture::load_icon(file, None).map(|p| p.fitted(w, h, Fit::Contain));
         if cache.len() >= KEPT {
             cache.clear();
         }

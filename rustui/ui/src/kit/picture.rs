@@ -38,6 +38,27 @@ pub fn decode(bytes: &[u8]) -> Result<Picture, String> {
     }
 }
 
+/// Where an app's icon is, as the QML Home's `Image` takes it (`Dock.iconUrl`, `Dock.themeIcon`): an absolute path, a `file://` URL, or a
+/// name in `<data>/theme/` (what the owner's `tiles.icons` may hold). A URL of another scheme is not a file.
+pub fn icon_file(src: &str, data: Option<&std::path::Path>) -> Option<std::path::PathBuf> {
+    if let Some(path) = src.strip_prefix("file://") {
+        return Some(path.into());
+    }
+    if src.starts_with('/') {
+        return Some(src.into());
+    }
+    let scheme = src.split_once(':').is_some_and(|(s, _)| s.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) && s.chars().all(|c| c.is_ascii_alphanumeric() || "+.-".contains(c)));
+    if src.is_empty() || scheme {
+        return None;
+    }
+    data.map(|d| d.join("theme").join(src))
+}
+
+/// The picture of an app's icon (see [`icon_file`]); `None` for a file that is not there or not one this shell reads.
+pub fn load_icon(src: &str, data: Option<&std::path::Path>) -> Option<Picture> {
+    decode(&std::fs::read(icon_file(src, data)?).ok()?).ok()
+}
+
 fn check(width: u32, height: u32) -> Result<(), String> {
     if width == 0 || height == 0 || width > MAX_SIDE || height > MAX_SIDE {
         return Err(format!("a picture of {width} by {height}"));
@@ -134,8 +155,12 @@ fn decode_bmp(b: &[u8]) -> Result<Picture, String> {
     Ok(Picture { width: w, height: h, rgba })
 }
 
+/// Any PNG a launch point can have: palette pictures (most app icons: Plex, Prime, LG's own), 1 to 4 bit greys and 16-bit channels are
+/// expanded to eight-bit grey, RGB or RGBA, with `tRNS` as the alpha, before the pixels are read.
 fn decode_png(bytes: &[u8]) -> Result<Picture, String> {
-    let mut reader = png::Decoder::new(std::io::Cursor::new(bytes)).read_info().map_err(|e| format!("png: {e}"))?;
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+    decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+    let mut reader = decoder.read_info().map_err(|e| format!("png: {e}"))?;
     let mut buf = vec![0; reader.output_buffer_size()];
     let info = reader.next_frame(&mut buf).map_err(|e| format!("png: {e}"))?;
     check(info.width, info.height)?;
@@ -339,6 +364,53 @@ mod tests {
         assert!(q.rgba.chunks_exact(4).any(|px| px[3] == 255) && q.rgba.chunks_exact(4).any(|px| px[3] == 0));
         assert!(decode(b"hello").is_err());
         assert!(decode(&[]).is_err());
+    }
+
+    fn png(color: png::ColorType, depth: png::BitDepth, (w, h): (u32, u32), data: &[u8], setup: impl FnOnce(&mut png::Encoder<&mut Vec<u8>>)) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut enc = png::Encoder::new(&mut out, w, h);
+        enc.set_color(color);
+        enc.set_depth(depth);
+        setup(&mut enc);
+        let mut writer = enc.write_header().expect("header");
+        writer.write_image_data(data).expect("pixels");
+        writer.finish().expect("finished");
+        out
+    }
+
+    #[test]
+    fn a_palette_png_with_a_transparent_entry_a_sixteen_bit_png_and_a_four_bit_grey_png_are_read_like_the_eight_bit_ones() {
+        // the shapes app icons come in (Plex, Prime and LG's own are palette pictures): two entries, the second clear
+        let indexed = png(png::ColorType::Indexed, png::BitDepth::Eight, (2, 1), &[0, 1], |e| {
+            e.set_palette(vec![200, 10, 20, 1, 2, 3]);
+            e.set_trns(vec![255, 0]);
+        });
+        let p = decode(&indexed).expect("a palette picture");
+        assert_eq!((p.width, p.height), (2, 1));
+        assert_eq!(p.at(0, 0), [200, 10, 20, 255]);
+        assert_eq!(p.at(1, 0)[3], 0, "the transparent entry is clear");
+        // a palette picture with no transparency is opaque
+        let plain = png(png::ColorType::Indexed, png::BitDepth::Two, (2, 1), &[0b0001_0000], |e| e.set_palette(vec![9, 8, 7, 1, 1, 1]));
+        assert_eq!(decode(&plain).expect("two bits").at(1, 0), [1, 1, 1, 255]);
+        // 16 bits a channel keep their high byte
+        let deep = png(png::ColorType::Rgba, png::BitDepth::Sixteen, (1, 1), &[0x80, 0x00, 0x40, 0x00, 0xff, 0x00, 0xff, 0xff], |_| {});
+        assert_eq!(decode(&deep).expect("sixteen bits").at(0, 0), [0x80, 0x40, 0xff, 255]);
+        // a grey picture of four bits: 0 and 15 are black and white
+        let grey = png(png::ColorType::Grayscale, png::BitDepth::Four, (2, 1), &[0x0f], |_| {});
+        let g = decode(&grey).expect("four bits");
+        assert_eq!((g.at(0, 0), g.at(1, 0)), ([0, 0, 0, 255], [255, 255, 255, 255]));
+    }
+
+    #[test]
+    fn an_icon_is_a_path_a_file_url_or_a_name_in_the_theme_folder_and_never_another_url() {
+        let data = std::path::Path::new("/var/lib/lumatv");
+        let at = |s: &str| icon_file(s, Some(data)).map(|p| p.display().to_string());
+        assert_eq!(at("/media/developer/apps/x/icon.png").as_deref(), Some("/media/developer/apps/x/icon.png"));
+        assert_eq!(at("file:///usr/palm/applications/y/icon.png").as_deref(), Some("/usr/palm/applications/y/icon.png"));
+        assert_eq!(at("plex.png").as_deref(), Some("/var/lib/lumatv/theme/plex.png"));
+        assert_eq!(at("http://x/y.png"), None);
+        assert_eq!(at(""), None);
+        assert_eq!(icon_file("plex.png", None), None, "no data folder, no theme folder");
     }
 
     #[test]

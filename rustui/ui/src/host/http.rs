@@ -36,9 +36,11 @@ pub struct Outbound {
     pub tag: Option<u64>,
 }
 
-/// One HTTP exchange on `stream`; the status and the body. `Host` is the peer's address with its port, which the helper requires
-/// (`helper/app/src/http.rs` `host_is_local`; refused 403 `host_not_allowed` otherwise); writes carry `X-Luma-Client`.
-pub fn exchange(stream: &mut TcpStream, method: &str, path: &str, token: Option<&str>, body: Option<&[u8]>) -> io::Result<(u16, Vec<u8>)> {
+/// One HTTP exchange on `stream`: the status, the body, and whether the server keeps the connection for another request (the helper
+/// answers `Connection: close` and shuts the socket after every response; the compositor's channel keeps it). `Host` is the peer's
+/// address with its port, which the helper requires (`helper/app/src/http.rs` `host_is_local`; refused 403 `host_not_allowed`
+/// otherwise); writes carry `X-Luma-Client`.
+pub fn exchange(stream: &mut TcpStream, method: &str, path: &str, token: Option<&str>, body: Option<&[u8]>) -> io::Result<(u16, Vec<u8>, bool)> {
     let host = stream.peer_addr()?;
     let mut req = format!("{method} {path} HTTP/1.1\r\nHost: {host}\r\nConnection: keep-alive\r\nAccept: application/json, image/*;q=0.9, */*;q=0.1\r\n");
     if let Some(t) = token {
@@ -63,6 +65,7 @@ pub fn exchange(stream: &mut TcpStream, method: &str, path: &str, token: Option<
     let status: u16 = line.split_whitespace().nth(1).and_then(|s| s.parse().ok()).ok_or_else(|| io::Error::other(format!("status line {line:?}")))?;
     let mut length = 0usize;
     let mut chunked = false;
+    let mut keep = line.starts_with("HTTP/1.1");
     loop {
         line.clear();
         reader.read_line(&mut line)?;
@@ -75,6 +78,8 @@ pub fn exchange(stream: &mut TcpStream, method: &str, path: &str, token: Option<
             length = v.trim().parse().unwrap_or(0);
         } else if lower.starts_with("transfer-encoding:") && lower.contains("chunked") {
             chunked = true;
+        } else if let Some(v) = lower.strip_prefix("connection:") {
+            keep &= !v.contains("close");
         }
     }
     let mut out = Vec::new();
@@ -96,7 +101,7 @@ pub fn exchange(stream: &mut TcpStream, method: &str, path: &str, token: Option<
         out.resize(length, 0);
         reader.read_exact(&mut out)?;
     }
-    Ok((status, out))
+    Ok((status, out, keep))
 }
 
 fn connect(host: &str, port: u16, read_timeout: Duration) -> io::Result<TcpStream> {
@@ -130,6 +135,46 @@ pub fn follow_filter(base: &str, roster: &Value) -> Option<String> {
         }
     }
     if names.len() > 16 { None } else { Some(names.join(",")) }
+}
+
+/// The connection a loop's next request goes out on: kept while the server keeps it, a new one when it closed it (the helper closes after
+/// every answer). A request that fails on a connection already used is made once more on a new one: the server had closed it between
+/// the two and never read the request.
+struct Link {
+    port: u16,
+    read_timeout: Duration,
+    stream: Option<TcpStream>,
+}
+
+impl Link {
+    fn new(port: u16, read_timeout: Duration) -> Self {
+        Self { port, read_timeout, stream: None }
+    }
+
+    fn request(&mut self, method: &str, path: &str, token: Option<&str>, body: Option<&[u8]>) -> io::Result<(u16, Vec<u8>)> {
+        for attempt in 0..2 {
+            let reused = self.stream.is_some();
+            if self.stream.is_none() {
+                self.stream = Some(connect("127.0.0.1", self.port, self.read_timeout)?);
+            }
+            let Some(stream) = self.stream.as_mut() else { unreachable!("connected above") };
+            match exchange(stream, method, path, token, body) {
+                Ok((status, bytes, keep)) => {
+                    if !keep {
+                        self.stream = None;
+                    }
+                    return Ok((status, bytes));
+                }
+                Err(e) => {
+                    self.stream = None;
+                    if !reused || attempt == 1 {
+                        return Err(e);
+                    }
+                }
+            }
+        }
+        Err(io::Error::other("no answer"))
+    }
 }
 
 /// A feed: the requests it makes for the loop; its events come on the receiver [`Feed::start`] returns beside it.
@@ -174,19 +219,11 @@ impl Feed {
 }
 
 fn poll_loop(port: u16, token: Option<String>, topics: Topics, tx: Sender<Event>) {
-    let host = "127.0.0.1";
     let mut failures = 0u32;
     'session: loop {
-        let mut stream = match connect(host, port, Duration::from_secs(35)) {
-            Ok(s) => s,
-            Err(_) => {
-                failures += 1;
-                let _ = tx.send(Event::Up(false));
-                thread::sleep(Duration::from_millis((2000 * (1u64 << failures.saturating_sub(1).min(3))).min(10_000)));
-                continue;
-            }
-        };
-        let state = exchange(&mut stream, "GET", "/v1/state", token.as_deref(), None)
+        let mut link = Link::new(port, Duration::from_secs(35));
+        let state = link
+            .request("GET", "/v1/state", token.as_deref(), None)
             .ok()
             .and_then(|(status, body)| (status == 200).then(|| serde_json::from_slice::<Value>(&body).ok()).flatten());
         let Some(state) = state.filter(|s| s.get("ok").and_then(Value::as_bool) == Some(true)) else {
@@ -218,7 +255,7 @@ fn poll_loop(port: u16, token: Option<String>, topics: Topics, tx: Sender<Event>
                 path.push_str(&format!("&topics={t}"));
             }
             let began = std::time::Instant::now();
-            let answer = exchange(&mut stream, "GET", &path, token.as_deref(), None);
+            let answer = link.request("GET", &path, token.as_deref(), None);
             let doc = match answer {
                 Ok((200, body)) => serde_json::from_slice::<Value>(&body).unwrap_or(Value::Null),
                 _ => {
@@ -257,30 +294,10 @@ fn poll_loop(port: u16, token: Option<String>, topics: Topics, tx: Sender<Event>
 }
 
 fn send_loop(port: u16, token: Option<String>, rx: Receiver<Outbound>, tx: Sender<Event>) {
-    let host = "127.0.0.1";
-    let mut stream: Option<TcpStream> = None;
+    let mut link = Link::new(port, Duration::from_secs(10));
     for out in rx {
         let body = out.body.as_ref().map(|b| serde_json::to_vec(b).unwrap_or_default());
-        let mut answer = None;
-        for attempt in 0..2 {
-            if stream.is_none() {
-                stream = connect(host, port, Duration::from_secs(10)).ok();
-            }
-            let Some(s) = stream.as_mut() else { break };
-            match exchange(s, out.method, &out.path, token.as_deref(), body.as_deref()) {
-                Ok(a) => {
-                    answer = Some(a);
-                    break;
-                }
-                Err(_) => {
-                    // the connection went (the server closed it between requests): once more on a new one
-                    stream = None;
-                    if attempt == 1 {
-                        break;
-                    }
-                }
-            }
-        }
+        let answer = link.request(out.method, &out.path, token.as_deref(), body.as_deref()).ok();
         if let Some(tag) = out.tag {
             // a body that is JSON is the answer; one that is not (a still, a thumbnail) comes as bytes
             let event = match answer {
@@ -314,5 +331,80 @@ mod tests {
         assert_eq!(follow_filter("screen", &Value::Null).as_deref(), Some("screen"), "no roster yet: the base list");
         let many = json!({"plugins": [{"id": "a", "state": "connected"}, {"id": "b", "state": "connected"}, {"id": "c", "state": "connected"}, {"id": "d", "state": "connected"}]});
         assert_eq!(follow_filter("screen,receiver,plugins", &many), None, "past the helper's 16 names: every topic");
+    }
+
+    /// The helper as it is (`helper/app/src/http.rs`): one request a connection, `Connection: close` and the socket shut after the answer,
+    /// the `Host` checked for its port.
+    fn one_request_a_connection(port_tx: std::sync::mpsc::Sender<u16>, served: std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bound");
+        let port = listener.local_addr().expect("addr").port();
+        port_tx.send(port).expect("sent");
+        for conn in listener.incoming() {
+            let Ok(mut conn) = conn else { return };
+            let served = served.clone();
+            thread::spawn(move || {
+                let mut head = Vec::new();
+                let mut byte = [0u8; 1];
+                while !head.ends_with(b"\r\n\r\n") {
+                    if conn.read(&mut byte).unwrap_or(0) == 0 {
+                        return;
+                    }
+                    head.push(byte[0]);
+                }
+                let head = String::from_utf8_lossy(&head).to_string();
+                let n = served.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let path = head.split_whitespace().nth(1).unwrap_or("").to_string();
+                let host_ok = head.to_ascii_lowercase().contains(&format!("host: 127.0.0.1:{port}\r\n"));
+                let (status, body) = if !host_ok {
+                    (403, json!({"ok": false}))
+                } else if path == "/v1/state" {
+                    (200, json!({"ok": true, "boot": 7, "seq": 1, "topics": {"receiver": {"reachable": true}}}))
+                } else if path.starts_with("/v1/events") {
+                    // the first poll has news, the next ones wait their turn as a long poll does
+                    if n > 1 {
+                        thread::sleep(Duration::from_millis(700));
+                    }
+                    (200, json!({"ok": true, "boot": 7, "seq": 2 + n, "reset": false, "events": if n > 1 { json!([]) } else { json!([{"topic": "receiver", "data": {"reachable": false}}]) }}))
+                } else {
+                    (200, json!({"ok": true, "value": {"path": path}}))
+                };
+                let body = serde_json::to_vec(&body).expect("json");
+                let _ = write!(conn, "HTTP/1.1 {status} OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+                let _ = conn.write_all(&body);
+                let _ = conn.shutdown(std::net::Shutdown::Both);
+            });
+        }
+    }
+
+    #[test]
+    fn a_helper_that_closes_after_every_answer_is_followed_without_the_feed_ever_saying_it_is_down() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let served = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = served.clone();
+        thread::spawn(move || one_request_a_connection(tx, counted));
+        let port = rx.recv().expect("a port");
+        let (feed, events) = Feed::start_following("test", port, None, "screen,receiver").expect("started");
+        let mut seen = Vec::new();
+        // the state, then the first poll's news, then a long poll that has none: three requests on three connections
+        while seen.len() < 3 {
+            seen.push(events.recv_timeout(Duration::from_secs(5)).expect("an event of the feed"));
+        }
+        assert_eq!(seen[0], Event::Up(true));
+        assert!(matches!(&seen[1], Event::State(t) if t.iter().any(|(k, _)| k == "receiver")));
+        assert_eq!(seen[2], Event::Topic { topic: "receiver".into(), data: json!({"reachable": false}) });
+        // asks made one after the other each get their answer, the second on a new connection
+        feed.get("/v1/state/receiver", 11);
+        feed.get("/v1/state/screen", 12);
+        let mut answers = Vec::new();
+        while answers.len() < 2 {
+            match events.recv_timeout(Duration::from_secs(5)).expect("an answer") {
+                Event::Answer { tag, status, body } => answers.push((tag, status, body["value"]["path"].as_str().unwrap_or("").to_string())),
+                Event::Up(up) => assert!(up, "the feed said the helper went down while it answered"),
+                _ => {}
+            }
+        }
+        assert_eq!(answers, vec![(11, 200, "/v1/state/receiver".to_string()), (12, 200, "/v1/state/screen".to_string())]);
+        assert!(served.load(std::sync::atomic::Ordering::SeqCst) >= 5);
     }
 }

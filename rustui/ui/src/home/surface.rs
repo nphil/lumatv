@@ -486,7 +486,7 @@ impl HomeSurface {
             let (plate_layer, icon) = scene.adopting(&group, || -> std::io::Result<_> {
                 let shape = Shape { corner_radius: radius, fill: compositor_protocol::Fill::Solid(plate_colour), border_width: 1.0, border: faded(Rgba(255, 255, 255, 255), 0.13) };
                 let plate_layer = kit.ui.scene.shape(tile as u32, tile as u32, Z_DOCK + 3, shape, Props::at(0.0, 0.0));
-                let icon = Self::tile_icon(kit, &p.icon, tile as u32, inset as u32, radius, Z_DOCK + 4)?;
+                let icon = Self::tile_icon(kit, &p.icon, self.data.as_deref(), tile as u32, inset as u32, radius, Z_DOCK + 4)?;
                 Ok((plate_layer, icon))
             })?;
             engine.flow.lift(id, Lifted { group, rest, scale: kit.tokens.focus.tile_scale, rise: 6.0, lit: None });
@@ -500,12 +500,8 @@ impl HomeSurface {
 
     /// The icon of a tile: edge to edge when the picture fills its canvas (the plate then is its own colour), inset on the plate when
     /// its edges are clear.
-    fn tile_icon(kit: &mut Kit, path: &str, tile: u32, inset: u32, radius: f32, z: i32) -> std::io::Result<Option<ImageLayer>> {
-        if path.is_empty() {
-            return Ok(None);
-        }
-        let Ok(bytes) = std::fs::read(path) else { return Ok(None) };
-        let Ok(pic) = picture::decode(&bytes) else { return Ok(None) };
+    fn tile_icon(kit: &mut Kit, path: &str, data: Option<&Path>, tile: u32, inset: u32, radius: f32, z: i32) -> std::io::Result<Option<ImageLayer>> {
+        let Some(pic) = picture::load_icon(path, data) else { return Ok(None) };
         let s = wallpaper::sample(&pic.rgba);
         // the edge alpha: the mean alpha of the outer ring of pixels
         let mut sum = 0u64;
