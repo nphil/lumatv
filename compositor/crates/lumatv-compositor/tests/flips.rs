@@ -83,6 +83,8 @@ fn wait_drawn(drawn_at: &Mutex<Vec<Instant>>, n: usize) {
 #[test]
 fn a_landed_flip_has_its_callbacks_out_before_the_next_frame_is_drawn() {
     let (mut server, landed, drawn_at) = flipping(DRAW);
+    // The flip path: `ctl callbacks clients landing`.
+    server.eval(|s| s.clients_early = false);
     let mut client = Client::connect(&mut server);
     let card = client.card("_WEBOS_WINDOW_TYPE_CARD", "X1");
     let first = client.shm_buffer(1920, 1080, 0xff19_80e6);
@@ -139,7 +141,7 @@ fn a_shell_windows_callback_goes_out_when_its_frame_is_the_oldest_on_its_way() {
 }
 
 #[test]
-fn with_the_switch_off_a_shell_windows_callback_waits_for_its_flip_like_any_clients() {
+fn with_the_switch_off_a_shell_windows_callback_waits_for_its_flip() {
     let (mut server, landed, drawn_at) = flipping(QUICK_DRAW);
     server.eval(|s| s.shell_ahead = false);
     let mut client = Client::connect(&mut server);
@@ -171,8 +173,29 @@ fn a_shell_windows_replaced_buffer_is_released_when_the_frame_that_replaced_it_l
 }
 
 #[test]
-fn a_cards_replaced_buffer_is_released_when_the_frame_that_replaced_it_is_drawn() {
+fn a_cards_callback_and_replaced_buffer_go_out_when_its_frame_is_the_oldest_on_its_way() {
+    let (mut server, landed, drawn_at) = flipping(QUICK_DRAW);
+    let mut client = Client::connect(&mut server);
+    let card = client.card("_WEBOS_WINDOW_TYPE_CARD", "X1");
+    let first = commit(&mut client, &card, 0xff19_80e6).id().protocol_id();
+    wait_drawn(&drawn_at, 1);
+    assert!(client.wait_until(Duration::from_secs(3), |s| s.frames_done >= 1), "nothing is ahead of the first frame: its callback goes out when it is drawn");
+    commit(&mut client, &card, 0xffe6_8019);
+    wait_drawn(&drawn_at, 2);
+    assert!(
+        !client.wait_until(Duration::from_millis(100), |s| s.frames_done >= 2 || s.releases.contains(&first)),
+        "behind a frame on its way, neither the callback nor the buffer the second frame replaced goes out"
+    );
+    landed.store(1, Ordering::SeqCst);
+    assert!(client.wait_until(Duration::from_secs(3), |s| s.releases.contains(&first)), "the first landed: the buffer is back");
+    assert_eq!(client.state.frames_done, 2, "with the second frame's callback");
+    assert_eq!(server.eval(|s| s.stats.callbacks_ahead), 2);
+}
+
+#[test]
+fn with_client_callbacks_at_the_flip_a_cards_replaced_buffer_is_released_when_the_frame_that_replaced_it_is_drawn() {
     let (mut server, _landed, drawn_at) = flipping(QUICK_DRAW);
+    server.eval(|s| s.clients_early = false);
     let mut client = Client::connect(&mut server);
     let card = client.card("_WEBOS_WINDOW_TYPE_CARD", "X1");
     let first = commit(&mut client, &card, 0xff19_80e6).id().protocol_id();
@@ -181,4 +204,53 @@ fn a_cards_replaced_buffer_is_released_when_the_frame_that_replaced_it_is_drawn(
     wait_drawn(&drawn_at, 2);
     assert!(client.wait_until(Duration::from_secs(3), |s| s.releases.contains(&first)), "no flip has landed, and the buffer is back");
     assert_eq!(server.eval(|s| s.stats.callbacks_ahead), 0);
+}
+
+/// PlxNative's close as LG's libmali and SDL make it (2026-10-29). libmali gives the app a buffer to draw into once the compositor
+/// releases one, and presents each swap on a thread of its own: it waits there for the frame callback of the frame before (up to
+/// 1 s), then attaches and commits on the `wl_surface` it kept. LG's SDL destroys that `wl_surface` before `eglTerminate`. A present
+/// still waiting at the destroy runs on the freed surface when its callback comes (round 16), or, with the callback destroyed with
+/// the surface, waits out the second while `eglTerminate` waits for it and SDL's force-quit crashes (round 17).
+///
+/// The client here: two frames, the flip of the first landed before the second is drawn (as on the set: a flip lands 10.5 ms after
+/// its draw, the next tick 16.7 ms after it), then the buffer the second replaced comes back and the app draws its third frame into
+/// it and swaps; SDL's teardown follows. Returns whether that swap's present was left waiting on the compositor at the destroy.
+fn mali_close_leaves_a_present_waiting(clients_early: bool) -> bool {
+    let (mut server, landed, drawn_at) = flipping(QUICK_DRAW);
+    server.eval(move |s| s.clients_early = clients_early);
+    let mut client = Client::connect(&mut server);
+    let card = client.card("_WEBOS_WINDOW_TYPE_CARD", "plxnative");
+    let first = commit(&mut client, &card, 0xff19_80e6).id().protocol_id();
+    wait_drawn(&drawn_at, 1);
+    landed.store(1, Ordering::SeqCst);
+    assert!(client.wait_until(Duration::from_secs(3), |s| s.frames_done >= 1), "the first frame's callback");
+    commit(&mut client, &card, 0xffe6_8019);
+    wait_drawn(&drawn_at, 2);
+    // libmali's dequeue: the app draws its next frame once a buffer is back.
+    assert!(client.wait_until(Duration::from_secs(3), |s| s.releases.contains(&first)), "the buffer the second frame replaced is back");
+    // The swap: its present waits for the second frame's callback unless that came already.
+    let waiting = client.state.frames_done < 2;
+    if !waiting {
+        commit(&mut client, &card, 0xff80_e619);
+    }
+    // SDL's Wayland_DestroyWindow: the window's surface goes before eglTerminate (its shell surface only on the client's side).
+    card.surface.destroy();
+    client.roundtrip();
+    if waiting {
+        assert!(
+            !client.wait_until(Duration::from_millis(300), |s| s.frames_done >= 2),
+            "the destroyed surface's callback never comes: libmali's present waits out its second"
+        );
+    }
+    waiting
+}
+
+#[test]
+fn a_mali_clients_close_leaves_no_present_waiting_on_the_compositor() {
+    assert!(!mali_close_leaves_a_present_waiting(true), "the callback came with the buffer, before the swap");
+}
+
+#[test]
+fn with_client_callbacks_at_the_flip_a_mali_clients_close_leaves_its_last_present_waiting() {
+    assert!(mali_close_leaves_a_present_waiting(false), "the buffer came at the draw, the callback waits for a flip that has not landed");
 }

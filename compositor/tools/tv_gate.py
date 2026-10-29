@@ -11,7 +11,7 @@ The gate's rule for the frame check is 60 s with no gap over 20 ms (tv-gate.sh, 
 can only fail it. Checks that can be skipped: firmware, homeheld, volume, x1, netflix, hdmi, apps, keys, ime, standby, homekey,
 wd-hang, wd-crash, escape. --only runs just the named ones (in one session, the live check and the evidence included); the
 step-1 test of the remote's keys and the keyboard is `--only keys,ime`. --frames-callbacks landing runs the surface frame gate with
-the shell client's frame callbacks at the flip like every client's (`ctl callbacks shell landing`), against the default of a frame
+the shell client's frame callbacks at the flip (`ctl callbacks shell landing`), against the default of a frame
 ahead of it inside a run of its frames, so that a round says what the change made. The surface frame gate runs the whole set of surfaces
 (Home's D-pad, the panels, the screens walked with the D-pad, the switcher, the keyboards and the launches with smooth transitions); --frames-quick
 runs the quick set, which starts no app and changes a setting only if the owner has the remote's number keys off or Quick Access on, for a regular round.

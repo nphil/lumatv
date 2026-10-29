@@ -363,18 +363,14 @@ impl Surfaces {
         (others, named)
     }
 
-    /// Takes every retired buffer (released after the frame that last read them): the buffers of the surfaces `ahead` names apart
-    /// from the others (`State::frames_in_flight`).
-    pub fn take_retired(&mut self, ahead: impl Fn(SurfaceId) -> bool) -> (Vec<WlBuffer>, Vec<WlBuffer>) {
-        let (mut others, mut named) = (Vec::new(), Vec::new());
+    /// Takes every retired buffer (released after the frame that last read them), each into the bucket `bucket` names for its surface
+    /// (`State::tick_at`: given back now, with its frame's callbacks, or when its frame lands).
+    pub fn take_retired<const N: usize>(&mut self, bucket: impl Fn(SurfaceId) -> usize) -> [Vec<WlBuffer>; N] {
+        let mut out = std::array::from_fn(|_| Vec::new());
         for (id, s) in self.map.iter_mut() {
-            if ahead(*id) {
-                named.append(&mut s.current.retired);
-            } else {
-                others.append(&mut s.current.retired);
-            }
+            out[bucket(*id)].append(&mut s.current.retired);
         }
-        (others, named)
+        out
     }
 
     /// Clears per-surface damage after a presented frame.

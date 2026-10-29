@@ -61,6 +61,10 @@ LGBIN=${LUMATV_LG:-/usr/bin/surface-manager}
 MOUNTINFO=${LUMATV_MOUNTINFO:-/proc/self/mountinfo}
 RECOVER_LOCK=${LUMATV_RECOVER_LOCK:-/tmp/lumatv-recover.lock}
 MESSAGES=${LUMATV_MESSAGES:-/var/log/messages}
+# PlxNative's own crash log (a `*** SIGNAL` report per crash): SAM's exit line for its crash at the close was missing or read as a
+# clean close in 4 of 9 crashes (round 17), and the report is written about 1.05 s after the close.
+PLX_CRASH_LOG=${LUMATV_PLX_CRASH_LOG:-/tmp/plxnative-crash.log}
+CRASH_SETTLE=${LUMATV_CRASH_SETTLE:-3}
 PROC=${LUMATV_PROC:-/proc}
 GAP_LIMIT_MS=20
 GATE_SECONDS=60
@@ -117,6 +121,15 @@ exit_status_of() {
 exit_wait() {
     end=$(($(date +%s) + $3))
     while [ "$(date +%s)" -lt "$end" ] && ! sort -u "$1" | grep -vxFf "$1.before" | grep -q "\"pid\":\"$2\""; do sleep 1; done
+}
+# An app's own crash log (PlxNative keeps one), the reports in it, and the wait until SECS ($CRASH_SETTLE) after the close request
+# taken at UPTIME_CS, on /proc/uptime: `date +%s` would cut a wait in its first second to nothing.
+crash_log() { case $1 in com.beb.plxnative) echo "$PLX_CRASH_LOG" ;; esac; }
+crash_reports() { if [ -f "$1" ]; then grep -c '^\*\*\* SIGNAL' "$1" || :; else echo 0; fi; }
+uptime_cs() { awk '{ printf "%d", $1 * 100 }' /proc/uptime; }
+settle_after() {
+    end=$(($1 + $(awk -v s="$CRASH_SETTLE" 'BEGIN { printf "%d", s * 100 }')))
+    while [ "$(uptime_cs)" -lt "$end" ]; do sleep 0.1; done
 }
 # Where the screen stands, for a check's failure line.
 where_now() { echo "foreground $(fg), windows mapped: $(mapped_apps | tr '\n' ' ' | sed 's/ $//')"; }
@@ -414,16 +427,18 @@ hdmi)
     ;;
 apps)
     # YouTube (cobalt) and PlxNative (LG's SDL) died under LumaTV's compositor while every other app ran (2026-10-28): Cobalt wants
-    # touch on every seat and no wl_seat.name, LG's SDL wants wl_starfish_pointer, and PlxNative's close waits for the frame callback
-    # of its last swap (it crashed 1 s after the close when that never came, SIGSEGV 11). Each is launched from a fresh start: its card
-    # mapped and SAM naming it foreground within 5 s, still running and mapped 10 s later with its connection kept, ended through SAM
-    # within 15 s and SAM logging no exit status for its pid. YouTube may play sound; the driver muted the receiver. Then NVIDIA's
-    # GeForce NOW, which opens LG's browser and ends itself: Home launched over the browser stays in front (the browser took the front
-    # back the same day). A later app that fails the same way is added here.
+    # touch on every seat and no wl_seat.name, LG's SDL wants wl_starfish_pointer, and PlxNative's close needs the frame callback of
+    # its last frame before SDL destroys its surface (it crashed 0.5 to 1 s after the close otherwise, SIGSEGV 11). Each is launched
+    # from a fresh start: its card mapped and SAM naming it foreground within 5 s, still running and mapped 10 s later with its
+    # connection kept, ended through SAM within 15 s, SAM logging no exit status for its pid, and no new report in the app's own crash
+    # log 3 s after the close. YouTube may play sound; the driver muted the receiver. Then NVIDIA's GeForce NOW, which opens LG's
+    # browser and ends itself: Home launched over the browser stays in front (the browser took the front back the same day). A later
+    # app that fails the same way is added here.
     bad=""; kd=""
     for app in youtube.leanback.v4 com.beb.plxnative; do
         if app_running "$app"; then close_app "$app"; wait_app_gone "$app" 15; sleep 3; fi
         ctl note apps-$app > /dev/null
+        log=$(crash_log "$app"); reports=$(crash_reports "$log")
         exit_watch_start "$app" $OUT/apps-$app.exit
         ls1 com.webos.applicationManager/launch "{\"id\":\"$app\"}" > /dev/null
         n=0; up=none
@@ -437,14 +452,27 @@ apps)
         sleep 10
         alive=no; app_running "$app" && app_mapped "$app" && alive=yes
         dropped=$(journal_after apps-$app | grep -c "client disconnected: pid ${pid:-none} ")
+        closed_cs=$(uptime_cs)
         close_app "$app"
         gone=no; wait_app_gone "$app" 15 && gone=yes
         exit_wait $OUT/apps-$app.exit "${pid:-none}" 5
         exit_watch_stop "$app" $OUT/apps-$app.exit
         died=$(exit_status_of $OUT/apps-$app.exit "$pid")
+        crashed=0
+        if [ -n "$log" ]; then
+            settle_after "$closed_cs"
+            now=$(crash_reports "$log")
+            # A log that shrank was started anew: all of it is new.
+            crashed=$((now >= reports ? now - reports : now))
+        fi
         journal_after apps-$app > $OUT/apps-$app.txt
         what="$app pid ${pid:-none} foreground-in-ms ${up} alive-at-10s $alive connection-lost $dropped closed-in-15s $gone${died:+ $died}"
-        if [ "$up" != none ] && [ "$alive" = yes ] && [ "$dropped" = 0 ] && [ "$gone" = yes ] && [ -z "$died" ]; then kd="$kd $what;"; else bad="$bad $what;"; fi
+        [ "$crashed" = 0 ] || what="$what crash-reports +$crashed"
+        if [ "$up" != none ] && [ "$alive" = yes ] && [ "$dropped" = 0 ] && [ "$gone" = yes ] && [ -z "$died" ] && [ "$crashed" = 0 ]; then
+            kd="$kd $what;"
+        else
+            bad="$bad $what;"
+        fi
         home; sleep 4
     done
     if ls1 com.webos.applicationManager/getAppInfo '{"id":"com.geforcenow.play"}' | tr -d ' \n' | grep -q '"returnValue":true'; then
@@ -696,11 +724,11 @@ evidence)
     echo "evidence: $(grep -c applicationManager $OUT/sm-subscriptions.txt) subscription(s) from SAM, $(wc -l < $OUT/clients.txt) client lines, $(grep -c 'loop:' $OUT/compositor.log) loop stalls, $(wc -l < $OUT/sm-watchdog.txt) watchdog lines"
     ;;
 callbacks)
-    # The shell client's frame callbacks (`ctl callbacks shell early|landing`): with an argument it sets them, then says how many went
-    # out ahead of their flip so far. Not a check: no GATE line.
+    # The shell client's frame callbacks (`ctl callbacks shell early|landing`): with an argument it sets them, then says how many of all
+    # clients' callbacks went out ahead of their flip so far (every client's go ahead by default). Not a check: no GATE line.
     [ -z "${2:-}" ] || ctl callbacks shell "$2" > /dev/null
     st=$(ctl status)
-    echo "shell callbacks${2:+ set to $2}: $(echo "$st" | grep -o '"callbacksAhead":[0-9]*' | cut -d: -f2) of $(echo "$st" | grep -o '"callbacks":[0-9]*' | cut -d: -f2) sent ahead of their flip"
+    echo "callbacks${2:+ (the shell's set to $2)}: $(echo "$st" | grep -o '"callbacksAhead":[0-9]*' | cut -d: -f2) of $(echo "$st" | grep -o '"callbacks":[0-9]*' | cut -d: -f2) sent ahead of their flip"
     ;;
 refresh)
     # The refresh test mode: switch (60, 120), reset or read; then SECS of the screen as it is, counted three ways (the OSD plane's flips,

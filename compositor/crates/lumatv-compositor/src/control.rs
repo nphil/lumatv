@@ -228,14 +228,18 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             (Some("mali"), Some("other")) => json!({"ok": true, "threads": crate::sched::mali_threads(None)}),
             _ => json!({"ok": false, "error": "sched mali fifo [PRIO] | sched mali other"}),
         },
-        // When the shell client's frame callbacks go out, for an A/B on the set without a restart: `callbacks shell early` (a frame ahead
-        // of the flip, the default) or `callbacks shell landing` (at the flip, as every other client's).
+        // When frame callbacks go out, for an A/B on the set without a restart: `callbacks shell|clients early` (a frame ahead of the
+        // flip, the default for both) or `callbacks shell|clients landing` (at the flip). `clients` is every client but the shell.
         "callbacks" => match (words.next(), words.next()) {
-            (Some("shell"), Some(how @ ("early" | "landing"))) => {
-                state.shell_ahead = how == "early";
-                json!({"ok": true, "shell": how})
+            (Some(who @ ("shell" | "clients")), Some(how @ ("early" | "landing"))) => {
+                if who == "shell" {
+                    state.shell_ahead = how == "early";
+                } else {
+                    state.clients_early = how == "early";
+                }
+                json!({"ok": true, who: how})
             }
-            _ => json!({"ok": false, "error": "callbacks shell early | callbacks shell landing"}),
+            _ => json!({"ok": false, "error": "callbacks shell|clients early|landing"}),
         },
         // The process's memory as the frame path sees it: resident, pinned, and what malloc holds from the kernel (`mem::report`).
         "mem" => crate::mem::report(),
@@ -339,7 +343,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
         }
         "" => json!({"ok": false, "error": "empty command"}),
         other => {
-            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, screencap [status|shot|record start|record stop], key CODE, remote CODE, pointer X Y, click, sched mali fifo|other, callbacks shell early|landing, mem, wake [reset|probe start|probe stop], ring [N], idle [MS], refresh [60|120], scanout [off|direct], fallback [reason], quit")})
+            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, screencap [status|shot|record start|record stop], key CODE, remote CODE, pointer X Y, click, sched mali fifo|other, callbacks shell|clients early|landing, mem, wake [reset|probe start|probe stop], ring [N], idle [MS], refresh [60|120], scanout [off|direct], fallback [reason], quit")})
         }
     };
     Reply::Now(reply.to_string())

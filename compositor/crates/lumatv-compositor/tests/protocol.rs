@@ -1207,6 +1207,8 @@ fn frame_callbacks_wait_for_the_frame_to_land() {
     let mut server = Server::start_with(Box::new(move || {
         Box::new(FlipOutput { inner: lumatv_compositor::render::software::Software::new(1920, 1080), landings: l2, drew: false, paced: false })
     }));
+    // The flip path (`ctl callbacks clients landing`); by default a card's callback goes out at its draw (`tests/flips.rs`).
+    server.eval(|s| s.clients_early = false);
     let mut client = Client::connect(&mut server);
     let win = client.card("_WEBOS_WINDOW_TYPE_CARD", "Paced");
     let buf = client.shm_buffer(64, 64, 0xff00_ff00);
@@ -1239,6 +1241,8 @@ fn a_destroyed_surfaces_frame_callbacks_are_destroyed_and_never_answered() {
         Box::new(FlipOutput { inner: lumatv_compositor::render::software::Software::new(1920, 1080), landings: l2, drew: false, paced: true })
     }));
     server.ticking.store(false, Ordering::SeqCst);
+    // With the callbacks at the flip, so that they wait in every place a callback can (`ctl callbacks clients landing`).
+    server.eval(|s| s.clients_early = false);
     let mut client = Client::connect(&mut server);
     let land = |server: &mut Server, landings: &AtomicU32| {
         landings.store(1, Ordering::SeqCst);

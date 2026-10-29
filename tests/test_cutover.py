@@ -944,6 +944,14 @@ def sam_log(app, status):
             f.write('2026-10-28T17:28:04.285632Z user.info sam [] SAM APP_CLOSED {"app_id":"%s","type":"native","pid":"%d","exit_status":%d} \n' % (app, pid_of(app), status))
 
 
+def crash_report(app):
+    """PlxNative's own crash report, as LG's SDL appends it to its log."""
+    path = os.environ.get("LUMATV_PLX_CRASH_LOG")
+    if path and app == "com.beb.plxnative":
+        with open(path, "a") as f:
+            f.write("\n*** SIGNAL 11 (SIGSEGV) addr=0x18 pc=0xf7c075c6 lr=0xf7bf24b5\ntime: 1793249407\n")
+
+
 uri = [a for a in sys.argv[1:] if a.startswith("luna://")][0]
 payload = sys.argv[-1] if not sys.argv[-1].startswith("luna://") else "{}"
 method = uri.rsplit("/", 1)[1]
@@ -983,15 +991,17 @@ elif method == "closeByAppId":
     app = json.loads(payload)["id"]
     s["closed"].append(app)
     if any(w[0] == app for w in s["windows"]):
-        if app in cfg.get("crashes_at_close", []):
-            # PlxNative's SIGSEGV after its close: SAM logs it after the app has left its running list (round 16, about a second)
+        if app in cfg.get("crashes_at_close", []) or app in cfg.get("crash_report_at_close", []):
+            # PlxNative's SIGSEGV after its close: its report and SAM's line come after the app has left SAM's running list (round 16,
+            # about a second); SAM's line was missing or read exit 0 for 4 of 9 crashes (round 17)
             if os.fork() == 0:
                 import time
                 null = os.open(os.devnull, os.O_RDWR)
                 for fd in (0, 1, 2):
                     os.dup2(null, fd)
                 time.sleep(0.3)
-                sam_log(app, 11)
+                crash_report(app)
+                sam_log(app, 11 if app in cfg.get("crashes_at_close", []) else 0)
                 os._exit(0)
         else:
             sam_log(app, 0)
@@ -1181,8 +1191,14 @@ class GateKeysAndIme(FakeSet):
     def apps(self, **cfg):
         messages = os.path.join(self.tmp.name, "messages")
         write(messages, "old lines\n")
+        # One report from before the check, which it does not count.
+        write(self.crash_log, "*** SIGNAL 11 (SIGSEGV) addr=0x0 pc=0xf7c24acc lr=0xf7c24f21\n")
         self.configure(**cfg)
-        return self.gate("apps", env={"LUMATV_MESSAGES": messages})
+        return self.gate("apps", env={"LUMATV_MESSAGES": messages, "LUMATV_PLX_CRASH_LOG": self.crash_log, "LUMATV_CRASH_SETTLE": "0.6"})
+
+    @property
+    def crash_log(self):
+        return os.path.join(self.tmp.name, "plxnative-crash.log")
 
     def test_youtube_plxnative_and_home_over_geforce_nows_browser_pass_the_apps_check(self):
         rc, out = self.apps()
@@ -1261,7 +1277,13 @@ class GateKeysAndIme(FakeSet):
         rc, out = self.apps(crashes_at_close=["com.beb.plxnative"])
         self.assertIn("GATE apps: FAIL failed: com.beb.plxnative pid ", out)
         self.assertIn('alive-at-10s yes connection-lost 0 closed-in-15s yes APP_CLOSED {"app_id":"com.beb.plxnative","type":"native","pid":"', out)
-        self.assertIn('"exit_status":11; ok: youtube.leanback.v4 pid ', out)
+        self.assertIn('"exit_status":11 crash-reports +1; ok: youtube.leanback.v4 pid ', out)
+
+    def test_a_crash_report_after_the_close_fails_the_apps_check_when_sams_line_reads_a_clean_close(self):
+        # Round 17: SAM's line for 4 of 9 of PlxNative's crashes at its close was missing or read exit 0; its own log had the report.
+        rc, out = self.apps(crash_report_at_close=["com.beb.plxnative"])
+        self.assertIn("GATE apps: FAIL failed: com.beb.plxnative pid ", out)
+        self.assertIn("alive-at-10s yes connection-lost 0 closed-in-15s yes crash-reports +1; ok: youtube.leanback.v4 pid ", out)
 
     def test_a_browser_that_takes_the_front_back_from_home_fails_the_apps_check(self):
         rc, out = self.apps(stray_browser=True)
