@@ -90,11 +90,10 @@ Paths are under `payload/compositor/lumatv/` unless noted. "Guard" is the QML-si
 Needs the TV (no TV access when this was written), in this order:
 
 1. **Teach the keys.** Press the mic, on-screen remote and Search buttons with `ctl journal` open and read `input: key N has no name in the key table`
-   (it names codes from 768 up only; a lower code shows in `ctl keys` after a press with the journal's trace). Add `voice N`, `screenremote N` and
-   `search N` to `/var/lib/lumatv/compositor/keys.conf` and start a session. Until then the three keys stay LG's, as they were under the Rust Home.
+   (that line names codes from 768 up only; a code below it has to be read off the device another way). Add `voice N`, `screenremote N` and `search N`
+   to `/var/lib/lumatv/compositor/keys.conf` and start a session. Until then the three keys stay LG's, as they were under the Rust Home. A button this
+   remote does not have has no check: its screen is opened by the harness only.
 2. **TV checks** below, each twice, then the deletions in the table.
-3. If the set's Magic Remote has no on-screen-remote or Search button, the checks for them are the harness's (`ctl shell show` has no door for them: press
-   the Rust `screenremote` key by teaching any spare button).
 
 ## TV checks
 
