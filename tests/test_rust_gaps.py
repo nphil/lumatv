@@ -143,6 +143,66 @@ class RustGaps(unittest.TestCase):
         ev = self.ok(self.shot(ai_scene('ai-input', ai_doc(kind='tv_switch_input', title='Switch to HDMI 2', detail=long_detail), foreground=APP), 'ai-input', scale=2.0))
         self.assertEqual(ev['lint'], [])
 
+    # ---- the input banners
+    def banner_scene(self, name, page=None, spec=None, keys=(), theme=None, foreground=None):
+        pushes = [(OPEN, 'banner.show', spec)] if spec else []
+        return Scene(name, 'banner', pushes=pushes, keys=keys, theme=theme, helper={'foreground': foreground or WIDE},
+                     show={'kind': 'banner', 'page': page} if page else None)
+
+    def test_the_input_pill_is_shown_for_a_moment_takes_no_key_and_goes_by_itself(self):
+        ev = self.ok(run(self.banner_scene('banner-pill', 'pill'), evals=('state', 'report', 'geometry', 'lint')))
+        self.assertEqual(ev['state']['banner']['kind'], 'input')
+        self.assertFalse(ev['report']['wants'], 'a pill takes no key: the keys are the app\'s')
+        self.assertIn('banner', ev['report']['can'], 'the compositor may ask for it by name')
+        self.assertEqual(ev['lint'], [])
+        self.assertEqual(ev['geometry']['banner']['pill']['x'], 64.0)
+
+    def test_the_bar_with_buttons_takes_the_keys_moves_picks_and_the_inputs_button_asks_for_the_input_picker(self):
+        r = run(self.banner_scene('banner-bar', 'bar', keys=[(OPEN + 600, 'right', 0), (OPEN + 1100, 'ok', 0)]), evals=('state', 'report', 'geometry', 'lint'))
+        ev = self.ok(r)
+        self.assertFalse(ev['state']['banner']['up'], 'OK on Inputs ended the banner: %s' % ev['state']['banner'])
+        self.assertFalse(ev['report']['wants'], 'the keys are given back')
+        launched = [c for c in r['chan'].luna if 'launch' in str(c)]
+        self.assertTrue(any('homeconnect' in str(c) for c in launched), 'without the Rust input picker it is LG\'s Home Hub that opens, as the compositor does for the Input key: %s' % r['chan'].luna)
+        held = self.ok(run(self.banner_scene('banner-bar-held', 'bar', keys=[(OPEN + 600, 'right', 0)]), evals=('state', 'report', 'geometry', 'lint')))
+        self.assertTrue(held['state']['banner']['up'] and held['state']['banner']['keys'])
+        self.assertTrue(held['report']['wants'])
+        self.assertEqual(held['state']['banner']['index'], 1, 'Right moved the focus to Inputs')
+        self.assertEqual(held['geometry']['banner']['focus'], 1)
+        self.assertEqual(held['lint'], [])
+
+    def test_no_signal_takes_the_keys_and_home_goes_home(self):
+        r = run(self.banner_scene('banner-nosignal', 'nosignal', keys=[(OPEN + 600, 'right', 0), (OPEN + 1100, 'ok', 0)]), evals=('state', 'report', 'lint'))
+        ev = self.ok(r)
+        self.assertFalse(ev['state']['banner']['up'])
+        self.assertTrue(any('launchDefaultApp' in str(c) for c in r['chan'].luna), 'Home: %s' % r['chan'].luna)
+        up = self.ok(run(self.banner_scene('banner-nosignal-up', 'nosignal'), evals=('state', 'report', 'lint', 'geometry')))
+        self.assertEqual((up['state']['banner']['kind'], up['state']['banner']['buttons']), ('nosignal', ['inputs', 'home']))
+        self.assertTrue(up['report']['wants'])
+        self.assertEqual(up['lint'], [])
+        self.assertEqual(up['geometry']['banner']['spot'], 0)
+
+    def test_an_input_that_comes_to_the_front_shows_its_pill_when_the_owner_switched_the_banners_on_and_not_otherwise(self):
+        on = Scene('banner-switch', 'banner', theme={'banners': {'own': True}}, helper={'foreground': HOME}, end=OPEN + 3600,
+                   pushes=[(OPEN, 'foreground', {'app': 'com.webos.app.hdmi2', 'home': False, 'covered': True})])
+        ev = self.ok(run(on, evals=('state', 'geometry')))
+        self.assertEqual(ev['state']['banner']['kind'], 'input')
+        self.assertEqual(ev['geometry']['banner']['name'], 'HDMI 2', 'the list gave no answer in the stand-in: the port alone')
+        off = Scene('banner-switch-off', 'banner', helper={'foreground': HOME}, end=OPEN + 3600, pushes=[(OPEN, 'foreground', {'app': 'com.webos.app.hdmi2', 'home': False, 'covered': True})])
+        self.assertFalse(self.ok(run(off, evals=('state',)))['state']['banner']['up'], 'LG\'s own banners draw the moment unless the owner asks for these')
+
+    def test_renders_of_the_banners(self):
+        if not RENDERS:
+            self.skipTest('RUST_GAPS_RENDERS is not set')
+        channel = {'kind': 'channel', 'number': '7', 'call': 'KABC', 'title': 'Evening News', 'sub': '6:00 PM - 6:30 PM', 'progress': 0.4, 'next': 'Jeopardy!', 'chips': ['1080i', 'Stereo', 'CC']}
+        scenes = [('banner-pill', self.banner_scene('banner-pill', 'pill')), ('banner-bar', self.banner_scene('banner-bar', 'bar')),
+                  ('banner-nosignal', self.banner_scene('banner-nosignal', 'nosignal')), ('banner-channel', self.banner_scene('banner-channel', spec=channel))]
+        for mode in ('dark', 'light'):
+            for scale in (1.0, 2.0):
+                for name, scene in scenes:
+                    ev = self.ok(self.shot(scene, name, mode, scale))
+                    self.assertEqual(ev['lint'], [], '%s %s at %s: %s' % (name, mode, scale, ev['lint']))
+
 
 if __name__ == '__main__':
     unittest.main()

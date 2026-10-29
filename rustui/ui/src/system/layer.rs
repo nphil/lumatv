@@ -8,6 +8,8 @@
 
 use super::ai::AiPrompt;
 use super::ai_surface::AiSurface;
+use super::banner::{self, Banner};
+use super::banner_surface::BannerSurface;
 use super::alert::{Alerts, Target};
 use super::alert_surface::AlertSurface;
 use super::capture::{Capture, CaptureSurface};
@@ -38,6 +40,7 @@ pub mod z {
     pub const POPUP: i32 = 90;
     pub const ALERT: i32 = 110;
     pub const AI: i32 = 150;
+    pub const BANNER: i32 = 35;
     pub const CAPTURE: i32 = 180;
 }
 
@@ -46,6 +49,8 @@ const SAVER_CLIENT: &str = "org.nphil.lumatv.saver";
 
 /// The tag the layout editor's write of `layout.overlays` comes back with.
 pub const LAYOUT_TAG: u64 = 0x5359_0300;
+/// The tag of the app launches the system layer asks for (a banner's buttons when the panels are not this process's).
+pub const LAUNCH_TAG: u64 = 0x5359_0301;
 
 /// What a card of the layer asks the shell to do, which is not the layer's to do.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -54,6 +59,18 @@ pub enum Intent {
     OpenCamera(String),
     /// OK on a card with no action of its own: the notification drawer.
     OpenDrawer,
+    /// Inputs on a banner: the input picker.
+    OpenPicker,
+    /// Picture on a banner: the quick panel.
+    OpenQuick,
+}
+
+/// What a banner's buttons ask for, as the layer's intents (the input picker and the quick panel are other kinds' surfaces).
+fn banner_intent(i: banner::Intent) -> Intent {
+    match i {
+        banner::Intent::OpenPicker => Intent::OpenPicker,
+        banner::Intent::OpenQuick => Intent::OpenQuick,
+    }
 }
 
 /// What the channel says is in front.
@@ -79,6 +96,9 @@ pub struct Layer {
     /// The AI access prompt (kind `ai`): shown over everything, and no way to answer it ([`super::ai`]).
     ai: AiPrompt,
     ai_surface: AiSurface,
+    /// The input banners (kind `banner`): the pill of an input that came to the front, the one with buttons, no signal, the channel banner.
+    banner: Banner,
+    banner_surface: BannerSurface,
     capture: Capture,
     capture_surface: CaptureSurface,
     overlay: Overlay,
@@ -129,6 +149,8 @@ impl Layer {
             popup_surface: PopupSurface::new(base + z::POPUP, theme, layout),
             ai: AiPrompt::new(),
             ai_surface: AiSurface::new(base + z::AI),
+            banner: Banner::new(theme),
+            banner_surface: BannerSurface::new(base + z::BANNER),
             layout: None,
             layout_surface: LayoutSurface::new(base + crate::kit::z::EDITOR - crate::kit::z::SYSTEM),
             user: Registry::shipped().user_from_json(theme.pointer("/layout/overlays").unwrap_or(&Value::Null)),
@@ -155,7 +177,7 @@ impl Layer {
     /// Something has the screen that the cards and the pop-up must wait for: an alert, the input popup, a PIN prompt, the keyboard, the
     /// screen off.
     pub fn busy(&self) -> bool {
-        self.alerts.wants() || self.ai.wants() || self.keyboard_up || !self.screen_on
+        self.alerts.wants() || self.ai.wants() || self.banner.wants() || self.keyboard_up || !self.screen_on
     }
 
     /// Something that is not the layer's has the screen: a panel or Settings is up (`host_busy`), the Cameras app's viewer is up (`viewer_up`).
@@ -182,6 +204,20 @@ impl Layer {
     /// What the cards and the pop-up asked of the shell.
     pub fn take_intents(&mut self) -> Vec<Intent> {
         std::mem::take(&mut self.intents)
+    }
+
+    /// What a banner's buttons asked for goes to the shell with the cards' intents.
+    fn take_banner_intents(&mut self) {
+        for i in self.banner.take_intents() {
+            self.intents.push(banner_intent(i));
+        }
+    }
+
+    /// A banner asked for by name (`ctl shell show banner pill|bar|nosignal`, a TV check).
+    pub fn show_banner(&mut self, page: &str, now: u64) -> Vec<Effect> {
+        let out = self.banner.show_sample(page, now);
+        self.redraw = true;
+        out
     }
 
     /// The rectangles of the pop-up and the cards that are up: what the mute mark keeps clear of.
@@ -211,6 +247,7 @@ impl Layer {
     pub fn set_theme(&mut self, theme: &Value, now: u64) -> Vec<Effect> {
         self.capture.set_reduced(theme.pointer("/motion/reduced").and_then(Value::as_bool) == Some(true));
         self.overlay.set_config(theme.get("overlays").unwrap_or(&Value::Null));
+        self.banner.set_theme(theme);
         let out = self.saver.set_config(saver_config(theme), now);
         self.redraw = true;
         out
@@ -259,6 +296,14 @@ impl Layer {
         }
         if kinds.ai {
             out.extend(self.ai.update(input, now));
+        }
+        if kinds.banner {
+            // its keys are its while it has buttons, unless a question of the alerts (or the editor) is the one that has them
+            let key = matches!(input, Input::Key { .. });
+            if !(key && (alert_has_keys || self.layout_open())) {
+                out.extend(self.banner.update(input, now));
+                self.take_banner_intents();
+            }
         }
         if kinds.capture {
             out.extend(self.capture.update(input, now));
@@ -478,6 +523,13 @@ impl Layer {
                 Err(e) => return Err(format!("alerts: {e}")),
             }
         }
+        if kinds.banner {
+            let view = self.banner.view();
+            match self.banner_surface.apply(kit, engine, view.as_ref(), self.app_front(), now_ms, now_ns) {
+                Ok(on) => live |= on,
+                Err(e) => return Err(format!("banner: {e}")),
+            }
+        }
         if kinds.ai {
             let view = self.ai.view(now_ms);
             match self.ai_surface.apply(kit, view.as_ref(), self.app_front(), now_ms) {
@@ -541,11 +593,21 @@ impl Layer {
     /// A key of the remote: the pointer's cue goes.
     pub fn on_key(&mut self, kit: &Kit, engine: &mut Engine) {
         self.alert_surface.on_key(kit, engine);
+        self.banner_surface.on_key(kit, engine);
         self.layout_surface.on_key(kit, engine);
     }
 
     /// A sample of the pointer: a click is the target to press.
     pub fn pointer(&mut self, kit: &Kit, engine: &mut Engine, now_ns: u64, now_ms: u64, sample: Sample) -> Option<Target> {
+        if self.banner.wants() && !self.alerts.wants() {
+            // a banner with buttons: a click is the button it ended on, and what the pointer does here is not the screens under it
+            if let Some(crate::system::banner_surface::Target::Button(i)) = self.banner_surface.pointer(kit, engine, now_ns, sample) {
+                self.effects.extend(self.banner.picked(i));
+                self.take_banner_intents();
+                self.redraw = true;
+            }
+            return None;
+        }
         if let Some(editor) = &mut self.layout {
             // the editor is the whole screen: the pointer is its own, and nothing under it sees it
             let effects = self.layout_surface.pointer(kit, engine, now_ns, now_ms, sample, editor);
@@ -565,6 +627,9 @@ impl Layer {
         if kinds.saver {
             redraw |= self.saver_surface.tick(now_ms);
         }
+        if kinds.banner {
+            redraw |= self.banner_surface.tick(now_ms);
+        }
         if kinds.ai {
             redraw |= self.ai_surface.tick(now_ms);
         }
@@ -582,6 +647,9 @@ impl Layer {
 
     pub fn due_at(&self, kinds: &Kinds) -> Option<u64> {
         let mut due = None;
+        if kinds.banner {
+            due = [due, self.banner.due_at(), self.banner_surface.due_at()].into_iter().flatten().min();
+        }
         if kinds.ai {
             due = [due, self.ai.due_at(), self.ai_surface.due_at()].into_iter().flatten().min();
         }
@@ -608,12 +676,12 @@ impl Layer {
 
     /// Whether the layer wants every key: an alert, the input popup or a PIN prompt is up, or the saver is (any key wakes it).
     pub fn wants(&self, kinds: &Kinds) -> bool {
-        (kinds.alert && self.alerts.wants()) || (kinds.ai && self.ai.wants()) || (kinds.saver && self.saver.wants_keys()) || (kinds.layout && self.layout_open())
+        (kinds.alert && self.alerts.wants()) || (kinds.ai && self.ai.wants()) || (kinds.banner && self.banner.wants()) || (kinds.saver && self.saver.wants_keys()) || (kinds.layout && self.layout_open())
     }
 
     /// The keys the layer takes by name while an app has the focus (the cards' OK and Back).
     pub fn takes(&self, kinds: &Kinds) -> Vec<&'static str> {
-        let quiet = !(kinds.alert && self.alerts.wants()) && !(kinds.ai && self.ai.wants()) && !(kinds.saver && self.saver.wants_keys());
+        let quiet = !(kinds.alert && self.alerts.wants()) && !(kinds.ai && self.ai.wants()) && !(kinds.banner && self.banner.wants()) && !(kinds.saver && self.saver.wants_keys());
         if quiet && !self.layout_open() && ((kinds.popup && self.popup.armed_now()) || (kinds.cards && self.overlay.armed())) { vec!["ok", "back"] } else { Vec::new() }
     }
 
@@ -625,6 +693,9 @@ impl Layer {
     /// The kinds' own words for the compositor: what the gate reads of `ctl shell`.
     pub fn state(&self, kinds: &Kinds) -> Value {
         let mut s = json!({});
+        if kinds.banner {
+            s["banner"] = self.banner.state();
+        }
         if kinds.ai {
             s["ai"] = self.ai.state();
         }
@@ -655,6 +726,9 @@ impl Layer {
     /// Where the surfaces are (the harness reads them).
     pub fn geometry(&self, kinds: &Kinds, kit: &Kit) -> Value {
         let mut g = json!({});
+        if kinds.banner {
+            g["banner"] = self.banner_surface.geometry();
+        }
         if kinds.ai {
             g["ai"] = self.ai_surface.geometry();
         }
@@ -681,6 +755,9 @@ impl Layer {
 
     /// Describes what is on the screen to a lint.
     pub fn feed_lint(&self, kinds: &Kinds, kit: &mut Kit, lint: &mut crate::kit::lint::Lint) {
+        if kinds.banner {
+            self.banner_surface.feed_lint(kit, lint);
+        }
         if kinds.ai {
             self.ai_surface.feed_lint(kit, lint);
         }
@@ -709,6 +786,7 @@ impl Layer {
         self.alert_surface.restyle(engine);
         self.saver_surface.restyle();
         self.ai_surface.restyle();
+        self.banner_surface.restyle(engine);
         self.capture_surface.restyle();
         self.popup_surface.restyle();
         self.cards_surface.restyle();

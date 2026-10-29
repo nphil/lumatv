@@ -73,6 +73,7 @@ Item {
     property var rustKinds: []
     readonly property bool rustCards: rustKinds.indexOf("cards") >= 0
     readonly property bool rustPopup: rustKinds.indexOf("popup") >= 0
+    readonly property bool rustBanner: rustKinds.indexOf("banner") >= 0          // its input pill, the one with buttons and the no-signal screen are the Rust kind's
     readonly property bool overlaysOn: !!theme.overlays && theme.overlays.enabled === true && !rustCards
     readonly property bool overlaysLive: !!overlaysRes.item && overlaysRes.item.live
     readonly property bool overlaysUp: !!overlaysRes.item && overlaysRes.item.up
@@ -290,7 +291,7 @@ Item {
 
     // ---- banners
     function showBanner(spec) {
-        if (!appFront || !bannerRes.item || !spec || !spec.kind) return false
+        if (rustBanner || !appFront || !bannerRes.item || !spec || !spec.kind) return false
         if (surface === "drawer") return false           // the drawer is what the person asked for
         bannerRes.item.show(spec)
         if (bannerRes.item.interactive) { surface = "banner"; idle.restart() }

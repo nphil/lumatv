@@ -61,6 +61,8 @@ pub struct Kinds {
     pub entry: bool,
     /// The AI access prompt: the question the helper asks on the TV, shown over everything with no way to answer it.
     pub ai: bool,
+    /// The input banners: the pill of an input that came to the front, the one with buttons, the no-signal screen and the channel banner.
+    pub banner: bool,
     pub keyboard: bool,
 }
 
@@ -89,6 +91,7 @@ impl Kinds {
                 "switcher" => k.switcher = true,
                 "entry" => k.entry = true,
                 "ai" => k.ai = true,
+                "banner" => k.banner = true,
                 "keyboard" => k.keyboard = true,
                 _ => {}
             }
@@ -117,6 +120,7 @@ impl Kinds {
             (self.switcher, "switcher"),
             (self.entry, "entry"),
             (self.ai, "ai"),
+            (self.banner, "banner"),
             (self.keyboard, "keyboard"),
         ]
         .into_iter()
@@ -503,6 +507,13 @@ impl Shell {
                 // `ctl shell show layout ITEM` names the item as the page
                 self.start_layout(data.get("item").or_else(|| data.get("page")).and_then(Value::as_str));
             }
+            Event::Topic { topic, data } if topic == "show" && data.get("kind").and_then(Value::as_str) == Some("banner") && self.kinds.banner => {
+                // `ctl shell show banner pill|bar|nosignal`: what the QML's development door was, for a TV check
+                for e in self.sys.show_banner(data.get("page").and_then(Value::as_str).unwrap_or("pill"), now) {
+                    self.carry(e, now, &mut acts);
+                }
+                self.redraw = true;
+            }
             Event::Topic { topic, data } => {
                 self.feed(&Input::Topic { topic: topic.clone(), data: data.clone() }, now, &mut acts);
             }
@@ -760,7 +771,24 @@ impl Shell {
                         self.carry(e, now, acts);
                     }
                 }
+                // a banner's Inputs and Picture buttons: this process's input picker and quick panel when they are kinds of it, else what the
+                // compositor opens for the gear and Input when LumaTV's panels are not up (`system_ui.rs`: the Home Hub, LG's Settings)
+                crate::system::layer::Intent::OpenPicker => self.open_panel_or_app(Which::Picker, self.kinds.picker, "com.webos.app.homeconnect", now, acts),
+                crate::system::layer::Intent::OpenQuick => self.open_panel_or_app(Which::Quick, self.kinds.quick, "com.palm.app.settings", now, acts),
             }
+        }
+    }
+
+    /// Opens `panel` when it is a kind of this process, else LG's `app` (what the compositor's own routes launch for the same key).
+    fn open_panel_or_app(&mut self, panel: Which, is_kind: bool, app: &str, now: u64, acts: &mut Vec<Act>) {
+        if is_kind {
+            let mut out = Vec::new();
+            self.panels.show(panel, false, &self.kinds, now, &mut out);
+            for e in out {
+                self.carry(e, now, acts);
+            }
+        } else {
+            self.carry(Effect::Luna { tag: crate::system::layer::LAUNCH_TAG, uri: "luna://com.webos.applicationManager/launch".into(), payload: json!({"id": app}), subscribe: false }, now, acts);
         }
     }
 
@@ -769,6 +797,9 @@ impl Shell {
     /// something on screen, and its state for the gate.
     pub fn report(&self) -> Value {
         let mut can: Vec<&str> = Vec::new();
+        if self.kinds.banner {
+            can.push("banner");
+        }
         if self.kinds.layout {
             can.push("layout");
         }
