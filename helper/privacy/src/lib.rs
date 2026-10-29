@@ -90,6 +90,9 @@ struct State {
     prime: Option<prime::Front>,
     error: Option<String>,
 }
+/// The file the compositor looks for before it lets LG's Remote Service (`com.webos.app.remoteservice`) open. Absent is blocked, which is
+/// the default; only an owner's confirmed change here writes it (`apply`), and no assistant has a route to it.
+pub const REMOTE_SERVICE: &str = "remoteservice.allowed";
 pub struct Privacy {
     paths: Paths,
     platform: Arc<dyn Platform>,
@@ -215,6 +218,7 @@ impl Privacy {
         rows.push(json!({"id":"amazoff","title":"Block Prime Video ads","detail":"Takes the ads out of Prime Video. Prime Video restarts when this is turned on or off.","kind":"switch","on":self.paths.state("prime.enabled").is_file(),"running":state.prime.is_some(),"protection":protection,"available":missing.is_none(),"routes":routes.as_deref(),"reason":reason,"admin":true,"confirm":true}));
         drop(routes);
         drop(state);
+        rows.push(json!({"id":"remoteservice","title":"Allow LG Remote Service","detail":"LG's remote support: with a code read out to LG, its staff can see and control this TV. Blocked unless the owner allows it here; it opens only while this is on.","kind":"switch","on":self.paths.state(REMOTE_SERVICE).is_file(),"available":true,"admin":true,"confirm":true}));
         match self.consent_data() {
             Ok((flags, docs, groups)) => {
                 if let Some(flags) = flags.as_object() {
@@ -259,6 +263,9 @@ impl Privacy {
         match key {
             "hosts" => Ok(
                 json!({"key":key,"on":on,"hosts":hosts::names(&self.country()),"mechanism":"writable hosts table bind-mounted at /etc/hosts; original file never written"}),
+            ),
+            "remoteservice" => Ok(
+                json!({"key":key,"on":on,"changes":[REMOTE_SERVICE],"notice":if on {"LG's remote support may open on this TV. With a code read out to LG, its staff can see the screen and control the TV. LumaTV has no menu for it; LG's own screens open it."} else {"LG's remote support stays closed: LumaTV drops any launch of it."}}),
             ),
             "amazoff" => Ok(
                 json!({"key":key,"on":on,"changes":[prime::CERT_DIR,prime::JAIL_HOSTS],"notice":if on {"Prime Video restarts, and the old AmazOff app, if it is installed, is switched off."} else {"Prime Video restarts and shows its ads again."}}),
@@ -319,6 +326,13 @@ impl Privacy {
         } else {
             match key {
                 "hosts" => self.set_hosts(on)?,
+                "remoteservice" => {
+                    if on {
+                        atomic(&self.paths.state(REMOTE_SERVICE), b"on\n", false)?;
+                    } else {
+                        remove(&self.paths.state(REMOTE_SERVICE))?;
+                    }
+                }
                 "amazoff" => {
                     if on && state.prime.is_none() {
                         prime::retire_old(&self.paths, self.platform.as_ref())?;

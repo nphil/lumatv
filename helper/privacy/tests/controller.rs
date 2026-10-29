@@ -104,6 +104,7 @@ fn read_is_nonintrusive_and_menu_has_every_item_and_existing_links() {
         "push",
         "hosts",
         "amazoff",
+        "remoteservice",
         "consent.acrAllowed",
         "permissions",
         "deletedata",
@@ -169,6 +170,26 @@ fn consent_writes_both_documents_and_flags_and_rejects_changed_agreements() {
             .contains("agreements changed")
     );
     assert!(privacy.prepare("consent.networkAllowed", false).is_err());
+}
+#[test]
+fn lg_remote_service_is_blocked_until_the_owner_confirms_and_blocked_again_when_turned_off() {
+    let (_d, paths, p, privacy) = rig();
+    let row = |privacy: &Privacy| privacy.status(true)["items"].as_array().unwrap().iter().find(|r| r["id"] == "remoteservice").cloned().unwrap();
+    assert_eq!((row(&privacy)["on"].clone(), row(&privacy)["admin"].clone()), (json!(false), json!(true)), "blocked by default");
+    // preparing changes nothing, and a token for another item or the other state does not apply it
+    let token = privacy.prepare("remoteservice", true).unwrap()["confirmation"].as_str().unwrap().to_owned();
+    assert!(!paths.state("remoteservice.allowed").exists());
+    assert!(privacy.apply("remoteservice", false, &token).is_err());
+    assert!(!paths.state("remoteservice.allowed").exists());
+    let token = privacy.prepare("remoteservice", true).unwrap()["confirmation"].as_str().unwrap().to_owned();
+    privacy.apply("remoteservice", true, &token).unwrap();
+    assert!(paths.state("remoteservice.allowed").is_file());
+    assert_eq!(row(&privacy)["on"], json!(true));
+    assert!(privacy.apply("remoteservice", true, &token).is_err(), "single use");
+    let token = privacy.prepare("remoteservice", false).unwrap()["confirmation"].as_str().unwrap().to_owned();
+    privacy.apply("remoteservice", false, &token).unwrap();
+    assert!(!paths.state("remoteservice.allowed").exists());
+    assert!(p.calls.lock().iter().all(|v| v["method"] != "setSystemSettings"), "no LG setting is written for it");
 }
 #[test]
 fn hosts_on_off_preserves_other_owners_and_boot_resumes_only_saved_choices() {

@@ -205,3 +205,12 @@ The updater itself, its alert and any staged image are not touched: nothing is s
 ### TV check for the next round
 
 On a cold `reboot` and on a `/sys/power/mode` `resume` boot, with persist on, the channel's block on and the push group on: `declutter.sh status` has `updateBlock.thisBoot` true, `last.state` `bound`, `last.startSec` about 13 to 14 (before the network's 22.7 s); `/var/lib/lumatv/declutter/log` has the `updateblock:` line with its uptime and the later "knows an image of 0 bytes"; `/var/lib/lumatv/log` has `update block early:`; no "update now?" notification in `/var/log/messages` of the boot; `com.webos.service.update/getStatus` `nsuImageSize` 0. `early.last.stubbed` lists the IoT client's path, `/var/log/messages` has no `iot-client` line other than the stub's exit, no `LSHUB_SRV_LNCH` of it that outlives about 70 ms, and no connection to `aic.api.lgtviot.com`. Then `touch /var/lib/lumatv/declutter/skip` and reboot: `updateBlock.last.why` is the skip reason and nothing is laid (the channel's block still comes at 27 s); remove the file.
+
+## LG Remote Service
+
+LG's remote support (`com.webos.app.remoteservice`: with a code read out to LG, its staff see and control the TV) was reachable from LG's hidden support menu (`com.webos.app.tvhotkey`, `mute-hidden-action`), which three gear taps used to open and which no longer opens. It is a remote-access feature, so it is human-only (Principle 0):
+
+- Blocked by default. The compositor drops any luna launch of the app (`launch`, `open`, `launchDefaultApp` naming it, from the shell, a key rule or its own code) unless `<data>/privacy/remoteservice.allowed` exists (`system_ui.rs`, `remote_service_refused`).
+- The file is written only by the helper's owner-only, confirmed change (`POST /v1/privacy/prepare` then `apply`, item `remoteservice`, shown as Settings > Privacy > Consent > Allow LG Remote Service, off). A non-owner is refused with 403 before anything else, the token is single use and expires in 60 s.
+- No assistant route: no AI tool, MCP tool or helper capability is added or extended for it, and LumaTV's Settings has no row that opens the app. Anything that would give an assistant a way to write that file or call the switch breaks this rule.
+- LG's own screens can still launch the app through LG's application manager, which does not pass the compositor; the switch governs LumaTV's side only. Turning it off removes the file again.
