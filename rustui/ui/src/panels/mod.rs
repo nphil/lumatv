@@ -16,6 +16,7 @@ pub mod hub;
 pub mod layer;
 pub mod life;
 pub mod menu;
+pub mod menu_surface;
 pub mod notelog;
 pub mod picker;
 pub mod picker_surface;

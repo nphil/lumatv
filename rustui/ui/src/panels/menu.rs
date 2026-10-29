@@ -16,6 +16,7 @@
 //! it is moved back inside the safe area when the given place would put it outside. What was picked is told to the owner as the event
 //! `menu.picked {id, index}` and the menu closes: the owner decides what follows.
 
+use super::life::Life;
 use super::{K, Out};
 use serde_json::{Value, json};
 use ui::geometry::Frame;
@@ -166,6 +167,7 @@ pub struct View {
 
 #[derive(Debug, Default)]
 pub struct Menu {
+    pub life: Life,
     spec: Option<Spec>,
     index: usize,
     seg: usize,

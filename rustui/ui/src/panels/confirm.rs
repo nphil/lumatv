@@ -7,6 +7,7 @@
 //! spec = { icon | iconUrl, title, body, answers: [{ id, label, danger, icon }], focus: 0 }
 //! ```
 
+use super::life::Life;
 use super::{K, Out};
 use serde_json::{Value, json};
 
@@ -58,6 +59,7 @@ pub struct View {
 
 #[derive(Debug, Default)]
 pub struct Confirm {
+    pub life: Life,
     spec: Option<Spec>,
     index: usize,
     up: bool,

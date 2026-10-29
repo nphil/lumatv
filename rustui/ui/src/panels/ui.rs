@@ -97,6 +97,17 @@ pub fn scrim_set(layer: &ShapeLayer, on: bool) {
     layer.set(if on { Props::at(0.0, 0.0) } else { HIDDEN });
 }
 
+/// A picture file shown whole inside `w` by `h` (an app's own icon), as a layer at `at`; none when the file is not a picture.
+pub fn picture_layer(kit: &mut Kit, file: &str, w: u32, h: u32, z: i32, at: Props) -> std::io::Result<Option<ui::scene::ImageLayer>> {
+    if file.is_empty() {
+        return Ok(None);
+    }
+    let Some(p) = crate::kit::avatar::contained(file, w, h) else { return Ok(None) };
+    let mut layer = kit.ui.scene.image(p.width, p.height, z, at)?;
+    p.paint(&mut layer);
+    Ok(Some(layer))
+}
+
 /// A window onto content taller than itself, moved by whole rows on the focus's spring: `inner` holds the content in screen coordinates at
 /// offset 0, the window clips it, and the offset is a motion track of the compositor bound to `inner`'s translation.
 pub struct Scroll {
