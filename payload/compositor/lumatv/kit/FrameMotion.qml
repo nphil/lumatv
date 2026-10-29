@@ -1,4 +1,5 @@
 import QtQuick 2.4
+import "."
 
 // A motion stepped once per rendered frame, for the 120 Hz refresh mode (Lu.fast; docs/research/ui120-result.md).
 //
