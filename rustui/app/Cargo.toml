@@ -8,7 +8,7 @@ description = "LumaHome and the card app drawn with LumaShow's Rust UI toolkit a
 
 [dependencies]
 lumatv-render = { path = "../render" }
-ui = { path = "../../../LumaShow/lumashow/crates/ui" }
+ui = { path = "../lumashow-ui" }
 compositor-protocol = { path = "../../../LumaShow/lumashow/crates/compositor-protocol" }
 device-profile = { path = "../../../LumaShow/lumashow/crates/device-profile" }
 libc = "0.2"

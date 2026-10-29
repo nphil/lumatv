@@ -27,15 +27,32 @@ for file in "$base"/render/src/*.rs "$base"/render/src/*/*.rs; do
   (cd "$base/render/src" && diff -u --label "a/$name" --label "b/$name" "$name" "$here/render/src/$name") >"$out" || true
   echo "patches/$(basename "$out")"
 done
+# the ui crate (lumashow-ui/): the same, one patch a changed file, in patches/ui/
+ubase=$base/ui
+mkdir -p "$ubase"
+cp "$src/crates/ui/Cargo.toml" "$src/crates/ui/build.rs" "$ubase/"
+cp -r "$src/crates/ui/src" "$ubase/src"
+rm -f "$here"/patches/ui/lumatv-*.patch
+mkdir -p "$here/patches/ui"
+for name in Cargo.toml build.rs $(cd "$here/lumashow-ui" && find src -name '*.rs'); do
+  cmp -s "$ubase/$name" "$here/lumashow-ui/$name" && continue
+  out="$here/patches/ui/lumatv-$(echo "${name%.*}" | tr / -).patch"
+  (cd "$ubase" && diff -u --label "a/$name" --label "b/$name" "$name" "$here/lumashow-ui/$name") >"$out" || true
+  echo "patches/ui/$(basename "$out")"
+done
 # the patches, applied to a fresh sync, make the tree
 check=$(mktemp -d)
 mkdir -p "$check/tools" "$check/patches" "$check/render/src"
 cp "$here/tools/sync-lumashow.sh" "$check/tools/"
 cp "$here"/patches/*.patch "$check/patches/"
+cp -r "$here/patches/ui" "$check/patches/ui"
 LUMASHOW_SRC=$src sh "$check/tools/sync-lumashow.sh" >/dev/null
 for file in "$check"/render/src/*.rs "$check"/render/src/*/*.rs; do
   name=${file#"$check"/render/src/}
   case $name in lib.rs | host.rs | tiles.rs) continue ;; esac
   cmp -s "$file" "$here/render/src/$name" || { echo "the patches do not make render/src/$name" >&2; rm -rf "$check"; exit 1; }
+done
+for name in Cargo.toml build.rs $(cd "$here/lumashow-ui" && find src -name '*.rs'); do
+  cmp -s "$check/lumashow-ui/$name" "$here/lumashow-ui/$name" || { echo "the patches do not make lumashow-ui/$name" >&2; rm -rf "$check"; exit 1; }
 done
 rm -rf "$check"

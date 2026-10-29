@@ -1,0 +1,17 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -6,8 +6,13 @@
+ publish = false
+ description = "The app side of the compositor: layers the app owns, groups, motion tracks, prepared backdrops and glyph atlases, a nonblocking submission writer"
+ 
++[lib]
++# LumaShow's unit tests are LumaShow's and are not copied (tools/sync-lumashow.sh); the TV kit's tests are in lumatv-ui.
++test = false
++doctest = false
++
+ [dependencies]
+-compositor-protocol = { path = "../compositor-protocol" }
++compositor-protocol = { path = "../../../LumaShow/lumashow/crates/compositor-protocol" }
+ fontdue = "0.9"
+ libc = "0.2"
+ memmap2 = "0.9"

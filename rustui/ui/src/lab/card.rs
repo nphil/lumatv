@@ -96,6 +96,39 @@ const SAMPLE: [(u32, &str); 5] = [
     (24, "24 px  Waltz, bad nymph, for quick jigs vex"),
 ];
 
+/// The two rasterisers of the text step: the shell's own (`plain`) and the grid-fitted one, each made when first asked for and kept. They are the lab's
+/// own, whatever the theme's `text.gridFit` says, so A and B are the same two looks on every device.
+#[derive(Default)]
+pub struct TextFaces {
+    plain: Option<Fonts>,
+    grid: Option<Fonts>,
+}
+
+impl TextFaces {
+    pub fn get(&mut self, grid: bool) -> &mut Fonts {
+        if grid {
+            self.grid.get_or_insert_with(|| {
+                let mut fonts = Fonts::new();
+                fonts.set_glyph_source(Some(Box::new(crate::kit::gridfit::GridFit::new())));
+                fonts
+            })
+        } else {
+            self.plain.get_or_insert_with(Fonts::new)
+        }
+    }
+}
+
+/// The lines of the type card: the shell's roles as the theme sets them (title 40 semibold, body 28, label 26, caption 24, all medium) and the two
+/// small regular sizes the warm-up list carries (21 and 19).
+const TYPE_SAMPLE: [(u32, Weight, &str); 6] = [
+    (40, Weight::SemiBold, "Settings and Picture"),
+    (28, Weight::Medium, "Living room lights, 21 degrees"),
+    (26, Weight::Medium, "Hamburger fonts illuminate Settings"),
+    (24, Weight::Medium, "Now playing: The quick brown fox 0123456789"),
+    (21, Weight::Regular, "Kitchen ceiling light, Bedroom lamp"),
+    (19, Weight::Regular, "Small print for the caption row, 19 px"),
+];
+
 /// Paints `card` into `pixels` (a whole page: [`BYTES`] long).
 pub fn paint(card: Card, pixels: &mut [u8], fonts: &mut Fonts) {
     assert_eq!(pixels.len(), BYTES, "a card is a whole page");
@@ -110,6 +143,20 @@ pub fn paint(card: Card, pixels: &mut [u8], fonts: &mut Fonts) {
             page.lines(fonts, (x + 16) as f32, (y + 16) as f32, 10.0, BLACK, &SAMPLE);
             page.rect(x, y + 310, w, 290, [18, 18, 18]);
             page.lines(fonts, (x + 16) as f32, (y + 326) as f32, 10.0, WHITE, &SAMPLE);
+        }
+        Card::Type => {
+            let lines = |page: &mut Page<'_>, fonts: &mut Fonts, ink: [u8; 3], y0: f32| {
+                let mut top = y0;
+                for (px, weight, text) in TYPE_SAMPLE {
+                    let e = fonts.measure(text, Type { px, weight });
+                    page.text(fonts, text, (px, weight), (x + 16) as f32, (top + e.ascent).round(), ink);
+                    top += e.height().ceil() + 4.0;
+                }
+            };
+            page.rect(x, y, w, 290, WHITE);
+            lines(&mut page, fonts, BLACK, (y + 8) as f32);
+            page.rect(x, y + 310, w, 290, [18, 18, 18]);
+            lines(&mut page, fonts, WHITE, (y + 318) as f32);
         }
         Card::Lines => {
             // four tiles of one-pixel structure: rows, columns, a checkerboard and a diagonal
@@ -234,11 +281,33 @@ mod tests {
 
     #[test]
     fn every_card_is_a_whole_opaque_page() {
-        for c in [Card::Text, Card::Lines, Card::Colour, Card::Saver, Card::Hues, Card::Window] {
+        for c in [Card::Text, Card::Type, Card::Lines, Card::Colour, Card::Saver, Card::Hues, Card::Window] {
             let px = card(c);
             assert!(px.chunks_exact(4).all(|p| p[3] == 255), "{c:?}: opaque everywhere");
             assert!(px.chunks_exact(4).any(|p| p[0] != 0 || p[1] != 0 || p[2] != 0), "{c:?}: something is drawn");
         }
+    }
+
+    #[test]
+    fn the_text_card_is_drawn_both_ways_the_grid_fitted_one_has_more_whole_black_and_the_same_words() {
+        let mut faces = TextFaces::default();
+        let (mut a, mut b) = (vec![0u8; BYTES], vec![0u8; BYTES]);
+        paint(Card::Type, &mut a, faces.get(false));
+        paint(Card::Type, &mut b, faces.get(true));
+        assert_ne!(a, b, "the two looks differ");
+        let z = Card::Type.zone();
+        let (x, y) = (z.x as usize, z.y as usize);
+        let black = |px: &[u8]| (y..y + 290).flat_map(|yy| (x..x + 760).map(move |xx| (xx, yy))).filter(|(xx, yy)| at(px, *xx, *yy) == BLACK).count();
+        let ink = |px: &[u8]| (y..y + 290).flat_map(|yy| (x..x + 760).map(move |xx| (xx, yy))).filter(|(xx, yy)| at(px, *xx, *yy) != WHITE).count();
+        assert!(black(&b) > black(&a), "stems are whole pixels: {} against {}", black(&b), black(&a));
+        let ratio = ink(&b) as f64 / ink(&a) as f64;
+        assert!((0.8..1.2).contains(&ratio), "the same letters in the same places: {ratio:.2}");
+        // outside the card's zone nothing is drawn either way, and the page is the same size
+        assert_eq!(lit(&b, 900, 150, 600, 600), 0);
+        // A is what the shell draws without the source: the lab's plain face is the built-in rasteriser, whatever the theme says
+        let mut again = vec![0u8; BYTES];
+        paint(Card::Type, &mut again, &mut Fonts::new());
+        assert_eq!(a, again);
     }
 
     #[test]
@@ -274,6 +343,20 @@ mod tests {
         assert!(first_ink(y + 4, y + 40).is_some(), "the 12 px line");
         assert!(first_ink(y + 120, y + 290).is_some(), "the 24 px line");
         // nothing outside the zone
+        assert_eq!(lit(&px, 900, 150, 600, 600), 0);
+    }
+
+    #[test]
+    fn the_type_card_has_the_shells_roles_black_on_white_and_white_on_black_with_the_biggest_first() {
+        let px = card(Card::Type);
+        let z = Card::Type.zone();
+        let (x, y) = (z.x as usize, z.y as usize);
+        assert_eq!(at(&px, x + 2, y + 2), WHITE);
+        assert_eq!(at(&px, x + 2, y + 312), [18, 18, 18]);
+        assert!(lit(&px, x, y, 760, 290) > 4000 && lit(&px, x, y + 310, 760, 290) > 4000);
+        // six lines that all fit: ink in the first rows (the 40 px title) and in the last band (the 19 px line), none past the block
+        let ink_rows: Vec<usize> = (y..y + 290).filter(|yy| (x..x + 760).any(|xx| at(&px, xx, *yy) != WHITE)).collect();
+        assert!(ink_rows.first().is_some_and(|r| *r < y + 25) && ink_rows.last().is_some_and(|r| *r > y + 225), "{:?}", (ink_rows.first(), ink_rows.last()));
         assert_eq!(lit(&px, 900, 150, 600, 600), 0);
     }
 
@@ -342,7 +425,7 @@ mod tests {
     fn the_cards_as_pictures() {
         let Some(dir) = std::env::var_os("LAB_CARDS") else { return };
         std::fs::create_dir_all(&dir).unwrap();
-        for c in [Card::Text, Card::Lines, Card::Colour, Card::Saver, Card::Hues, Card::Window] {
+        for c in [Card::Text, Card::Type, Card::Lines, Card::Colour, Card::Saver, Card::Hues, Card::Window] {
             let px = card(c);
             let file = std::fs::File::create(std::path::Path::new(&dir).join(format!("{c:?}.png").to_lowercase())).unwrap();
             let mut enc = png::Encoder::new(std::io::BufWriter::new(file), W as u32, H as u32);

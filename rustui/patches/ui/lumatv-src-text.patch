@@ -1,0 +1,110 @@
+--- a/src/text.rs
++++ b/src/text.rs
+@@ -10,9 +10,9 @@
+ /// assets/fonts/Manrope-OFL.txt and Manrope.SOURCE). The glyph rasteriser cannot select a variable font's
+ /// weight, and the variable font's default instance is ExtraLight.
+ const FACES: [&[u8]; 3] = [
+-    include_bytes!("../../../assets/fonts/Manrope-Regular.ttf"),
+-    include_bytes!("../../../assets/fonts/Manrope-Medium.ttf"),
+-    include_bytes!("../../../assets/fonts/Manrope-SemiBold.ttf"),
++    include_bytes!("../../../../LumaShow/lumashow/assets/fonts/Manrope-Regular.ttf"),
++    include_bytes!("../../../../LumaShow/lumashow/assets/fonts/Manrope-Medium.ttf"),
++    include_bytes!("../../../../LumaShow/lumashow/assets/fonts/Manrope-SemiBold.ttf"),
+ ];
+ 
+ /// The Lucent weights: body and captions Regular (400), display and labels Medium (500), titles SemiBold (600).
+@@ -40,8 +40,26 @@
+ /// units), which is what a browser lays out `font-variant-numeric: tabular-nums` with.
+ pub const TABULAR_EM: f32 = 0.62;
+ 
++/// The pixels of one glyph made by a [`GlyphSource`]: the bitmap's left edge is `xmin` from the pen and its bottom edge `ymin` above the
++/// baseline, as the rasteriser's own metrics say it, and `coverage` is `width * height` bytes, rows packed, 0 to 255.
++pub struct Raster {
++    pub xmin: i32,
++    pub ymin: i32,
++    pub width: usize,
++    pub height: usize,
++    pub coverage: Vec<u8>,
++}
++
++/// A rasteriser that stands in for the built-in one (LumaTV's grid-fitted glyphs). `face` is the font file of the weight, `px` the size and
++/// `glyph` the font's glyph index; `None` leaves that glyph to the built-in rasteriser. The advance is the built-in one's whatever the source
++/// does, so layout and measure never change.
++pub trait GlyphSource: Send {
++    fn raster(&mut self, face: &'static [u8], px: f32, glyph: u16) -> Option<Raster>;
++}
++
+ pub struct Fonts {
+     faces: [Font; 3],
++    source: Option<Box<dyn GlyphSource>>,
+     glyphs: HashMap<(Type, char), (Metrics, Vec<u8>)>,
+     /// The tabular forms of the digits, by the digit they stand for.
+     tabular: HashMap<(Type, char), (Metrics, Vec<u8>)>,
+@@ -91,26 +109,61 @@
+         });
+         Self {
+             faces,
++            source: None,
+             glyphs: HashMap::new(),
+             tabular: HashMap::new(),
+         }
+     }
+ 
++    /// Puts `source` in place of the built-in rasteriser for every glyph made from now on (or takes it away with `None`); what was rastered
++    /// before is forgotten, so a change of source is made before the first text, or its atlases are made again.
++    pub fn set_glyph_source(&mut self, source: Option<Box<dyn GlyphSource>>) {
++        self.source = source;
++        self.glyphs.clear();
++        self.tabular.clear();
++    }
++
++    /// The glyph `index` of the face of `weight` at `px`: the source's pixels when it has them, else the built-in rasteriser's.
++    fn make(
++        font: &Font,
++        face: &'static [u8],
++        source: &mut Option<Box<dyn GlyphSource>>,
++        index: u16,
++        px: f32,
++    ) -> (Metrics, Vec<u8>) {
++        let mut metrics = font.metrics_indexed(index, px);
++        if let Some(r) = source.as_mut().and_then(|s| s.raster(face, px, index)) {
++            assert_eq!(r.coverage.len(), r.width * r.height, "a source's glyph has its pixels");
++            metrics.xmin = r.xmin;
++            metrics.ymin = r.ymin;
++            metrics.width = r.width;
++            metrics.height = r.height;
++            return (metrics, r.coverage);
++        }
++        font.rasterize_indexed(index, px)
++    }
++
+     fn glyph(&mut self, ty: Type, c: char) -> &(Metrics, Vec<u8>) {
+         let font = &self.faces[ty.weight as usize];
+-        self.glyphs
+-            .entry((ty, c))
+-            .or_insert_with(|| font.rasterize(c, ty.px as f32))
++        let source = &mut self.source;
++        self.glyphs.entry((ty, c)).or_insert_with(|| {
++            let index = font.lookup_glyph_index(c);
++            if source.is_none() {
++                return font.rasterize(c, ty.px as f32);
++            }
++            Self::make(font, FACES[ty.weight as usize], source, index, ty.px as f32)
++        })
+     }
+ 
+     /// What `c` is drawn with: its tabular form when `tabular` is asked for and it is a digit, else the glyph it always is.
+     fn form(&mut self, ty: Type, c: char, tabular: bool) -> &(Metrics, Vec<u8>) {
+         if tabular && c.is_ascii_digit() {
+             let font = &self.faces[ty.weight as usize];
++            let source = &mut self.source;
+             let index = TABULAR_ZERO + (c as u16 - '0' as u16);
+-            self.tabular
+-                .entry((ty, c))
+-                .or_insert_with(|| font.rasterize_indexed(index, ty.px as f32))
++            self.tabular.entry((ty, c)).or_insert_with(|| {
++                Self::make(font, FACES[ty.weight as usize], source, index, ty.px as f32)
++            })
+         } else {
+             self.glyph(ty, c)
+         }

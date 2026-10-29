@@ -1,0 +1,11 @@
+--- a/build.rs
++++ b/build.rs
+@@ -124,7 +124,7 @@
+ 
+ fn main() {
+     let path = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap())
+-        .join("../../assets/lucent/palettes.json");
++        .join("../../../LumaShow/lumashow/assets/lucent/palettes.json");
+     println!("cargo:rerun-if-changed={}", path.display());
+     println!("cargo:rerun-if-changed=build.rs");
+     let data: Value = serde_json::from_str(&fs::read_to_string(&path).expect("palettes.json"))

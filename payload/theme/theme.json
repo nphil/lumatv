@@ -121,6 +121,9 @@
     "reduced": false,
     "transitions": false
   },
+  "text": {
+    "gridFit": false
+  },
   "tiles": {
     "inset": 19,
     "fullCanvasEdgeAlpha": 0.9,

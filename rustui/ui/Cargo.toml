@@ -18,12 +18,16 @@ lumatv-tokens = { path = "../tokens" }
 lumatv-render = { path = "../render" }
 lumatv-placement = { path = "../../placement" }
 lumatv-saver = { path = "../../saver" }
-ui = { path = "../../../LumaShow/lumashow/crates/ui" }
+ui = { path = "../lumashow-ui" }
 compositor-protocol = { path = "../../../LumaShow/lumashow/crates/compositor-protocol" }
 serde_json = "1"
 png = "0.17"
 jpeg-decoder = { version = "0.3", default-features = false }
 libc = "0.2"
+# the grid-fitted glyphs (kit/gridfit.rs): the automatic hinter, in Rust
+skrifa = { version = "0.44", default-features = false, features = ["std"] }
 
 [dev-dependencies]
-ui = { path = "../../../LumaShow/lumashow/crates/ui", features = ["testing"] }
+ui = { path = "../lumashow-ui", features = ["testing"] }
+# examples/textcov.rs: the text study's coverage canvases
+fontdue = "0.9"

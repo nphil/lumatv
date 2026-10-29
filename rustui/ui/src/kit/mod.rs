@@ -9,6 +9,7 @@ pub mod button;
 pub mod flow;
 pub mod focus;
 pub mod glyph;
+pub mod gridfit;
 pub mod hint;
 pub mod icon;
 pub mod lint;
@@ -73,6 +74,9 @@ impl Kit {
     pub fn new(scene: Scene, tokens: Tokens, mode: Mode, tier: MaterialTier, text_scale: f32) -> std::io::Result<Self> {
         let look = tokens.look(mode, 1, tier, text_scale);
         let mut ui = Ui::with_look(scene, look);
+        if tokens.grid_fit() {
+            ui.fonts.set_glyph_source(Some(Box::new(gridfit::GridFit::new())));
+        }
         ui.enable_glyph_text().map_err(|e| std::io::Error::other(format!("{e}")))?;
         let mut kit = Self { ui, tokens, mode, tier, text_scale, icons: icon::Icons::default(), generation: 1, wall_backdrop: None };
         kit.warm();

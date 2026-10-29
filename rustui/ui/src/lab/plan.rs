@@ -29,6 +29,8 @@ pub enum Ask {
 pub enum Card {
     /// Small letters, black on white and white on black.
     Text,
+    /// The shell's own type roles, 40 down to 19 px in the weights it uses, black on white and white on black.
+    Type,
     /// Lines one pixel wide, and checkerboards.
     Lines,
     /// Letters and colour patches on a ramp of greys.
@@ -47,6 +49,7 @@ impl Card {
     pub fn zone(self) -> Frame {
         match self {
             Card::Text => Frame::new(72.0, 150.0, 760.0, 600.0),
+            Card::Type => Frame::new(72.0, 150.0, 760.0, 600.0),
             Card::Lines => Frame::new(72.0, 150.0, 760.0, 600.0),
             Card::Colour => Frame::new(72.0, 150.0, 760.0, 600.0),
             Card::Saver => Frame::new(72.0, 150.0, 760.0, 600.0),
@@ -80,7 +83,15 @@ pub struct StepDef {
 const NORMAL: Opt = Opt { id: "normal", name: "Normal" };
 const WINDOW_OFF: Opt = Opt { id: "off", name: "Window off" };
 
-pub const STEPS: [StepDef; 6] = [
+/// The controls the shell sets itself, with no word to the helper and no register: what the lab shows is drawn by the lab. B of such a step is
+/// on the screen as soon as it is asked for.
+pub const LOCAL: [&str; 1] = ["text"];
+
+pub fn is_local(control: &str) -> bool {
+    LOCAL.contains(&control)
+}
+
+pub const STEPS: [StepDef; 7] = [
     StepDef {
         id: "sharpness-strong",
         group: "Sharpness",
@@ -158,6 +169,19 @@ pub const STEPS: [StepDef; 6] = [
         look: "The window",
         hint: "The picture behind shows through.",
         ask: Ask::Question("Does the window show the picture cleanly?"),
+    },
+    StepDef {
+        id: "text-grid-fit",
+        group: "Text",
+        nth: 1,
+        of: 1,
+        control: "text",
+        a: Opt { id: "plain", name: "Current" },
+        b: Opt { id: "grid", name: "Grid-fitted" },
+        card: Card::Type,
+        look: "The shell's letters",
+        hint: "Stems on whole pixels. Crisper?",
+        ask: Ask::Compare,
     },
 ];
 
@@ -240,7 +264,7 @@ mod tests {
     #[test]
     fn the_steps_are_the_assignments_in_its_order_and_each_is_whole() {
         let ids: Vec<&str> = STEPS.iter().map(|s| s.id).collect();
-        assert_eq!(ids, ["sharpness-strong", "sharpness-medium", "sharpness-medium-strong", "sharpness-soft", "sharpness-off", "window"]);
+        assert_eq!(ids, ["sharpness-strong", "sharpness-medium", "sharpness-medium-strong", "sharpness-soft", "sharpness-off", "window", "text-grid-fit"]);
         let mut unique = ids.clone();
         unique.sort();
         unique.dedup();
@@ -259,9 +283,13 @@ mod tests {
         }
         // the sharpness steps are comparisons, the window asks whether a look is acceptable
         assert!(STEPS[..5].iter().all(|s| s.ask == Ask::Compare && s.group == "Sharpness"));
-        assert!(STEPS[5..].iter().all(|s| matches!(s.ask, Ask::Question(_)) && s.group == "Window"));
+        assert!(STEPS[5..6].iter().all(|s| matches!(s.ask, Ask::Question(_)) && s.group == "Window"));
         // one window step: a group of one is not counted
         assert_eq!(STEPS[5].counter(), "");
+        // the text step is a comparison of two ways of drawing the same letters, done by the lab itself
+        assert!(STEPS[6].ask == Ask::Compare && STEPS[6].group == "Text" && is_local(STEPS[6].control));
+        assert_eq!(STEPS[6].counter(), "");
+        assert_eq!(STEPS.iter().filter(|s| is_local(s.control)).count(), 1);
         // OSD0's dimming is the firmware's (it puts its own value back at once, and grey showed nothing on LumaTV's plane): no step offers it
         assert!(STEPS.iter().all(|s| s.control != "dimming"));
         assert_eq!(step_index("nothing"), None);
@@ -280,7 +308,7 @@ mod tests {
 
     #[test]
     fn a_zone_is_clear_of_the_panel_and_inside_the_page() {
-        for card in [Card::Text, Card::Lines, Card::Colour, Card::Saver, Card::Hues, Card::Window] {
+        for card in [Card::Text, Card::Type, Card::Lines, Card::Colour, Card::Saver, Card::Hues, Card::Window] {
             let z = card.zone();
             assert!(z.x >= 64.0 && z.y >= 54.0 && z.x + z.w <= 1264.0 - 24.0 && z.y + z.h <= 1026.0, "{card:?}: {z:?}");
         }
@@ -330,6 +358,8 @@ mod tests {
                 assert!(s.a.id == options[0] || s.id == "sharpness-medium-strong", "{}: A is the set's own state", s.id);
             }
         }
-        assert!(STEPS.iter().all(|s| ["sharpness", "window"].contains(&s.control)));
+        // every control is the helper's or the lab's own
+        assert!(STEPS.iter().all(|s| ["sharpness", "window"].contains(&s.control) || is_local(s.control)));
+        assert!(LOCAL.iter().all(|c| !allow.contains(&format!("\"{c}\""))), "a local control is not on the helper's list");
     }
 }

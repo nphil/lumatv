@@ -271,7 +271,9 @@ fn plan_step(kit: &mut Kit, v: &StepView) -> StepLay {
 
 struct StepBuilt {
     lay: StepLay,
-    _card: ImageLayer,
+    card: ImageLayer,
+    /// How the text step's letters are drawn on it now (see `StepView::fit`).
+    fit: Option<bool>,
     _mark: ShapeLayer,
     _tag: ShapeLayer,
     _eye: Option<ImageLayer>,
@@ -328,12 +330,14 @@ pub struct LabSurface {
     stage: Stage,
     z: i32,
     built: Option<(String, Built)>,
+    /// The rasterisers of the text step's two looks.
+    faces: card::TextFaces,
 }
 
 impl LabSurface {
     /// `z` is the lab's band base.
     pub fn new(z: i32) -> Self {
-        Self { stage: Stage::new(z, SCOPE).hiding(), z, built: None }
+        Self { stage: Stage::new(z, SCOPE).hiding(), z, built: None, faces: card::TextFaces::default() }
     }
 
     pub fn is_up(&self) -> bool {
@@ -404,6 +408,14 @@ impl LabSurface {
     fn follow(&mut self, kit: &mut Kit, engine: &mut Engine, v: &View) {
         let _ = engine;
         let (Some((_, Built::Step(b))), Body::Step(s)) = (self.built.as_mut(), &v.body) else { return };
+        if let Some(fit) = s.fit
+            && b.fit != Some(fit)
+        {
+            // the text step: the same letters again, drawn the other way
+            card::paint(s.card, b.card.pixels_mut(), self.faces.get(fit));
+            b.card.damage(None);
+            b.fit = Some(fit);
+        }
         if b.shown != s.shown || b.letter.text() != s.options[s.shown].letter {
             b.shown = s.shown;
             b.letter.set(kit, s.options[s.shown].letter);
@@ -422,7 +434,8 @@ impl LabSurface {
         match &v.body {
             Body::Step(s) => {
                 let lay = plan_step(kit, s);
-                let mut b = scene.adopting_view(root, || Self::build_step(kit, engine, z, s, lay)).map_err(std::io::Error::other)?;
+                let faces = &mut self.faces;
+                let mut b = scene.adopting_view(root, || Self::build_step(kit, engine, faces, z, s, lay)).map_err(std::io::Error::other)?;
                 b.layers = before.saturating_sub(kit.room().layers);
                 Ok(Built::Step(Box::new(b)))
             }
@@ -448,11 +461,14 @@ impl LabSurface {
         }
     }
 
-    fn build_step(kit: &mut Kit, engine: &mut Engine, z: i32, s: &StepView, lay: StepLay) -> std::io::Result<StepBuilt> {
+    fn build_step(kit: &mut Kit, engine: &mut Engine, faces: &mut card::TextFaces, z: i32, s: &StepView, lay: StepLay) -> std::io::Result<StepBuilt> {
         let (ink, ink2, accent) = (kit.ui.look.ink(), kit.ui.look.ink2(), kit.ui.look.accent());
         // the card: the whole page, painted in place
         let mut card_layer = kit.ui.scene.image(card::W as u32, card::H as u32, z + 1, Props::at(0.0, 0.0))?;
-        card::paint(s.card, card_layer.pixels_mut(), &mut kit.ui.fonts);
+        match s.fit {
+            Some(fit) => card::paint(s.card, card_layer.pixels_mut(), faces.get(fit)),
+            None => card::paint(s.card, card_layer.pixels_mut(), &mut kit.ui.fonts),
+        }
         card_layer.damage(None);
         // the frame round the zone, the word on it, and the arrow
         let radius = kit.tokens.radius(Radius::Card);
@@ -546,7 +562,8 @@ impl LabSurface {
         }
         Ok(StepBuilt {
             lay,
-            _card: card_layer,
+            card: card_layer,
+            fit: s.fit,
             _mark: mark,
             _tag: tag,
             _eye: eye,
@@ -1038,6 +1055,33 @@ mod tests {
     }
 
     #[test]
+    fn the_text_step_draws_its_card_again_when_the_look_is_switched_and_no_other_step_does() {
+        let mut u = Up::new(Mode::Dark, 1.0);
+        u.go_to_step(STEPS.len() - 1);
+        u.apply();
+        let sum = |u: &mut Up| match u.s.built.as_mut() {
+            Some((_, Built::Step(b))) => b.card.pixels_mut().iter().map(|p| u64::from(*p)).sum::<u64>(),
+            _ => panic!("a step is up"),
+        };
+        let a = sum(&mut u);
+        u.key("right");
+        u.apply();
+        let b = sum(&mut u);
+        assert_ne!(a, b, "B is drawn grid-fitted");
+        u.key("left");
+        u.apply();
+        assert_eq!(sum(&mut u), a, "and A again is what it was");
+        // a sharpness step is drawn with the shell's fonts however it is switched
+        let mut v = Up::new(Mode::Dark, 1.0);
+        v.go_to_step(0);
+        v.apply();
+        let before = sum(&mut v);
+        v.key("right");
+        v.apply();
+        assert_eq!(sum(&mut v), before, "a register change is not on the card");
+    }
+
+    #[test]
     fn a_new_step_is_a_new_card_and_the_old_one_is_let_go() {
         let mut u = Up::new(Mode::Dark, 1.0);
         u.go_to_step(0);
@@ -1261,6 +1305,7 @@ mod probe {
                     hint: s.hint,
                     options: [OptView { letter: "A", name: s.a.name }, OptView { letter: "B", name: s.b.name }],
                     shown: 0,
+                    fit: None,
                     question: match s.ask {
                         Ask::Compare => "Which looks better?",
                         Ask::Question(q) => q,

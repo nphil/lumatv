@@ -75,8 +75,8 @@ def refused():
 # the keys that go from a step to the next one: Skip is the last answer, and the focus starts on the first
 SKIP_COMPARE = ['down', 'down', 'ok']
 SKIP_QUESTION = ['down', 'down', 'down', 'ok']
-# the steps of the plan, in order, each with the way past it: five comparisons of the sharpener, then the window
-PAST = [SKIP_COMPARE] * 5 + [SKIP_QUESTION]
+# the steps of the plan, in order, each with the way past it: five comparisons of the sharpener, the window, then the text step
+PAST = [SKIP_COMPARE] * 5 + [SKIP_QUESTION] + [SKIP_COMPARE]
 
 
 def to_step(n):
@@ -110,8 +110,10 @@ SCENES = [
     Scene('window', to_step(5)),
     Scene('window-on', to_step(5) + ['right']),
     Scene('window-nothing-behind', to_step(5), app='com.webos.app.home'),
-    # the window is the last step: any answer to it ends the run
-    Scene('results', to_step(5) + ['ok']),
+    # the window is followed by the text step, the lab's own (nothing goes to the helper); any answer to that ends the run
+    Scene('text-grid-fit', to_step(5) + ['ok']),
+    Scene('text-grid-fit-b', to_step(5) + ['ok', 'right']),
+    Scene('results', to_step(5) + ['ok'] + SKIP_COMPARE),
 ]
 BY_NAME = {s.name: s for s in SCENES}
 
@@ -123,6 +125,7 @@ EXTRA = {
     'sharpness-not-applied': [('dark', 2.0), ('light', 1.0)],
     'window': [('dark', 2.0), ('light', 1.0)],
     'window-on': [('dark', 2.0)],
+    'text-grid-fit-b': [('dark', 2.0), ('light', 1.0)],
     'results': [('dark', 2.0), ('light', 1.0)],
 }
 

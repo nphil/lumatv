@@ -37,7 +37,7 @@ serde_json = "1"
 # The toolkit and LumaShow's crates are read by path (as `rustui/` reads them): a build, with the feature or without, needs them
 # beside this repository. `ui` is named `lumashow-ui` here because `ui` is this crate's module.
 lumatv-render = { path = "../../../rustui/render", optional = true }
-lumashow-ui = { package = "ui", path = "../../../../LumaShow/lumashow/crates/ui", optional = true }
+lumashow-ui = { package = "ui", path = "../../../rustui/lumashow-ui", optional = true }
 compositor-protocol = { path = "../../../../LumaShow/lumashow/crates/compositor-protocol", optional = true }
 
 # On the set the server runs on the C libwayland-server (loaded at run time), so the Mali blob's eglBindWaylandDisplayWL can

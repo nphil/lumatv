@@ -47,6 +47,14 @@ class DisplayLab(unittest.TestCase):
         self.assertEqual(len(posts(helper, 'begin')), 1)
         self.assertTrue(all(p.get('control') in ('sharpness', 'window') for p in posts(helper, 'set')), 'only names of looks')
 
+    def test_the_text_step_is_the_labs_own_b_is_on_the_screen_with_no_word_to_the_helper(self):
+        helper, got = self.play(rd.Scene('text', rd.to_step(5) + ['ok', 'right']))
+        lab = self.lab(got)
+        self.assertEqual((lab['step'], lab['shown']), ('text-grid-fit', 1))
+        self.assertNotIn('text', [c for c, o in sets(helper)], 'a control of the lab is not written to the helper')
+        self.assertEqual(sets(helper)[-1], ('window', 'off'), 'the window is put back on the way in, and nothing after it')
+        self.assertEqual([a['label'] for a in got['geometry']['displaylab']['answers']], ['This one is better', "Can't tell", 'Skip'])
+
     def test_the_wheel_press_is_ok_and_left_and_right_switch_between_the_two_looks(self):
         helper, got = self.play(rd.Scene('switch', ['ok', 'right', 'left', 'right']))
         looks = sets(helper)
@@ -55,18 +63,18 @@ class DisplayLab(unittest.TestCase):
         self.assertEqual((self.lab(got)['shown'], self.lab(got)['answers']), (1, {}), 'B after right, left, right; switching never answers')
 
     def test_a_whole_run_is_kept_and_sent_to_the_helper_with_what_each_answer_was_and_whether_both_looks_were_seen(self):
-        # B on the first step, then past the rest; Yes on the window, the last step
-        helper, got = self.play(rd.Scene('run', ['ok', 'right', 'ok'] + rd.PAST[1] + rd.PAST[2] + rd.PAST[3] + rd.PAST[4] + ['ok']))
+        # B on the first step, then past the rest; Yes on the window, then past the text step, the last
+        helper, got = self.play(rd.Scene('run', ['ok', 'right', 'ok'] + rd.PAST[1] + rd.PAST[2] + rd.PAST[3] + rd.PAST[4] + ['ok'] + rd.PAST[6]))
         lab = self.lab(got)
         self.assertEqual((lab['open'], lab['stage']), (True, 'results'))
         sent = posts(helper, 'results')
         self.assertEqual(len(sent), 1)
         run = sent[0]
         self.assertTrue(run['complete'])
-        self.assertEqual([s['id'] for s in run['steps']], ['sharpness-strong', 'sharpness-medium', 'sharpness-medium-strong', 'sharpness-soft', 'sharpness-off', 'window'])
+        self.assertEqual([s['id'] for s in run['steps']], ['sharpness-strong', 'sharpness-medium', 'sharpness-medium-strong', 'sharpness-soft', 'sharpness-off', 'window', 'text-grid-fit'])
         first = run['steps'][0]
         self.assertEqual((first['answer'], first['verdict'], first['sawBoth'], first['switches']), ('b', 'Strong looks better', True, 1))
-        self.assertEqual([s['answer'] for s in run['steps'][1:]], ['skipped'] * 4 + ['yes'])
+        self.assertEqual([s['answer'] for s in run['steps'][1:]], ['skipped'] * 4 + ['yes', 'skipped'])
         self.assertIn('startedMs', run)
 
     def test_a_look_the_firmware_puts_back_at_once_is_said_on_the_screen_and_is_recorded_as_not_applied_not_as_an_opinion(self):
@@ -104,7 +112,7 @@ class DisplayLab(unittest.TestCase):
         self.assertIsNone(self.lab(got)['note'])
 
     def test_every_step_reads_clean_in_both_looks_at_both_text_sizes(self):
-        names = ['intro', 'sharpness-strong', 'sharpness-medium-b', 'sharpness-not-applied', 'window-on', 'results']
+        names = ['intro', 'sharpness-strong', 'sharpness-medium-b', 'sharpness-not-applied', 'window-on', 'text-grid-fit-b', 'results']
         jobs = [(rd.BY_NAME[n], mode, scale) for n in names for mode, scale in (('dark', 1.0), ('light', 2.0))]
         with concurrent.futures.ThreadPoolExecutor(2) as pool:
             for (scene, mode, scale), (rc, text, findings, png) in zip(jobs, pool.map(lambda j: rd.render(*j), jobs)):

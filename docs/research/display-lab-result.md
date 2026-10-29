@@ -38,6 +38,7 @@ Opened from Settings > Picture > Expert > **Display lab**, or `ctl shell show di
 | 4 Sharpness 4 of 5 | Normal / Soft (gain `0x00`) | Thin lines: 1-px lines and a checkerboard | Lines turn fainter and blurrier. | Which looks better? |
 | 5 Sharpness 5 of 5 | Normal / Sharpener off | Letters and colours: bars, ramps, text in colour | Plainer letters, colours may shift. | Which looks better? |
 | 6 Window | Window off / Window on (a mixer hole: 960x540 panel pixels in the middle, `0x105A03C0` / `0x0032A21C` / select `0x3`, measured in round 19W) | The window: a grey rectangle in the middle, framed | The picture behind shows through. | Does the window show the picture cleanly? |
+| 7 Text | Current / Grid-fitted letters (the lab draws both with its own rasterisers; no register, nothing for the helper) | The shell's letters: 40 to 19 px, white and dark | Stems on whole pixels. Crisper? | Which looks better? |
 
 On every step: a frame round the zone with a tag (an eye, then two or three words) and, where there is room, a large arrow from the
 sheet to it. The sheet beside it: the group and counter, the one line on the difference, the option on the screen as a big letter and its
@@ -72,9 +73,12 @@ it and puts `0x02000001` back at once when `0x01000001` is written (the session 
 the watch never saw `0x01000001`), and grey `0x02000003` stayed in the register but showed nothing on LumaTV's plane. The helper still
 lists the `dimming` control (its tests are built on it as the register example); no step offers it. Taking it off the list is a follow-up.
 
+The text step (7) is the lab's own: `lab/plan.rs` `LOCAL` names the controls the shell sets itself, the model puts B on the screen at once and sends the
+helper nothing, and the card (`Card::Type`) is painted again with the other rasteriser (`docs/research/text-render-result.md`).
+
 ## 2. How it is built
 
-- **The screens** (`rustui/ui/src/lab/`, no QML): `plan.rs` the steps (five of sharpness, one of the window), `card.rs` the test cards (painted once into a full-screen
+- **The screens** (`rustui/ui/src/lab/`, no QML): `plan.rs` the steps (five of sharpness, one of the window, one of text), `card.rs` the test cards (painted once into a full-screen
   image, theme-independent), `model.rs` the state (one request to the helper at a time, a ping every second while open, the exits),
   `surface.rs` the sheet and the frame, `host.rs` the part the shell feeds. Layer band `kit::z::LAB` (400): over Settings, which stays
   behind it for the way back, under the layout editor and the system layer.
@@ -135,7 +139,7 @@ Install needs Nitin's Face ID. `tools/displaylab-tv.sh` (copied to the set, read
    `0x0` as the boot left it, holes `0`), then `displaylab-tv.sh door`: `available true`, the three controls `usable` (`why` says what is not).
 3. Open it (Settings > Picture > Expert > Display lab, and `ctl shell show displaylab`). Press OK (the wheel press) once: **one**
    step happens. Turn the wheel: A and B switch. Move the remote without pressing: nothing happens.
-4. Step through all six with a video playing behind (the window step, with `ctl pagealpha on`: under XR24 pages no video shows anywhere); on Medium and Medium / Strong say whether Medium is crisp without the jagged edges close up. Watch for: whether the frame on the card is where the hole
+4. Step through all seven with a video playing behind (the window step, with `ctl pagealpha on`: under XR24 pages no video shows anywhere); on Medium and Medium / Strong say whether Medium is crisp without the jagged edges close up. Watch for: whether the frame on the card is where the hole
    opens, whether the hole shows the picture cleanly, and what each sharpness and dimming look is (Nitin's answers).
 5. Every way out, with a look that changes a register on the screen (step 4, 5 or 6 at B), then `displaylab-tv.sh check LABEL`: Back; the
    Home key; another app in front; kill the UI client (`kill -9 lumatv-ui`, with `watch` running: back within about six seconds);

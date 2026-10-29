@@ -336,6 +336,12 @@ impl Tokens {
         }
     }
 
+    /// Whether the glyphs are grid-fitted (`text.gridFit`, off by default): stems and bars on whole pixels, so an edge is not smeared over two
+    /// panel pixels by the OSD scaler (`kit/gridfit.rs`, `docs/research/text-render-result.md`). Read when the shell starts.
+    pub fn grid_fit(&self) -> bool {
+        self.json.get("text").and_then(|t| t.get("gridFit")).and_then(Value::as_bool).unwrap_or(false)
+    }
+
     /// The merged document, for what a screen reads of its own block (`overlays`, `screensaver`, `layout.overlays`).
     pub fn json(&self) -> &Value {
         &self.json
@@ -415,6 +421,14 @@ impl Tokens {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn grid_fit_text_is_off_in_the_shipped_theme_and_an_owners_theme_turns_it_on() {
+        assert!(!Tokens::shipped().grid_fit());
+        assert!(Tokens::from_json(&json!({"text": {"gridFit": true}})).grid_fit());
+        assert!(!Tokens::from_json(&json!({"text": {"gridFit": "yes"}})).grid_fit(), "only a boolean turns it on");
+        assert!(!Tokens::from_json(&json!({"clock": {"style": "digital"}})).grid_fit());
+    }
 
     #[test]
     fn qml_colours_are_read_in_qts_argb_order() {

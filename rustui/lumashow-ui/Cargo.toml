@@ -1,0 +1,26 @@
+[package]
+name = "ui"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "The app side of the compositor: layers the app owns, groups, motion tracks, prepared backdrops and glyph atlases, a nonblocking submission writer"
+
+[lib]
+# LumaShow's unit tests are LumaShow's and are not copied (tools/sync-lumashow.sh); the TV kit's tests are in lumatv-ui.
+test = false
+doctest = false
+
+[dependencies]
+compositor-protocol = { path = "../../../LumaShow/lumashow/crates/compositor-protocol" }
+fontdue = "0.9"
+libc = "0.2"
+memmap2 = "0.9"
+postcard = { version = "1", default-features = false, features = ["use-std"] }
+
+[features]
+# Test support (a UI on a recording compositor) for the crates that build on this one.
+testing = []
+
+[build-dependencies]
+serde_json = "1"

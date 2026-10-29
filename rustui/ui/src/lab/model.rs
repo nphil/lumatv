@@ -10,7 +10,7 @@
 //! out (Back, Home, the screen going off, another app coming up, the end of the run). A word that does not come (the shell died, the link
 //! broke) is the helper's to answer: it puts everything back after six seconds of silence.
 
-use super::plan::{Answer, Ask, STEPS, StepDef};
+use super::plan::{Answer, Ask, STEPS, StepDef, is_local, step_index};
 use crate::kit::screen::{Effect, Input};
 use crate::panels::life::{Change, ENTER_MS, EXIT_MS, Life, Phase};
 use serde_json::{Value, json};
@@ -129,6 +129,9 @@ pub struct StepView {
     pub options: [OptView; 2],
     /// The option on the screen (0: A, 1: B).
     pub shown: usize,
+    /// For the text step, how its card's letters are drawn now: `Some(true)` grid-fitted (B), `Some(false)` as the shell draws them (A); `None`
+    /// for every other step, whose card is drawn with the shell's own fonts.
+    pub fit: Option<bool>,
     pub question: &'static str,
     pub replies: Vec<Reply>,
     pub focus: usize,
@@ -368,6 +371,16 @@ impl Lab {
     // ---- the queue of requests
 
     fn push(&mut self, cmd: Cmd) {
+        // a control of the lab's own is on the screen at once: no request, nothing for the helper to hold
+        if let Cmd::Set(control, option) = &cmd
+            && is_local(control)
+        {
+            self.confirmed.insert(control, option);
+            if self.step().is_some_and(|s| s.control == *control && s.b.id == *option) {
+                self.applied_b[self.at] = true;
+            }
+            return;
+        }
         if let Cmd::Set(control, _) = &cmd {
             // a switch that has not gone out is replaced by the newer one for the same control
             self.queue.retain(|c| !matches!(c, Cmd::Set(other, _) if other == control));
@@ -850,6 +863,7 @@ impl Lab {
                     hint: s.hint,
                     options: [OptView { letter: "A", name: s.a.name }, OptView { letter: "B", name: s.b.name }],
                     shown: self.shown,
+                    fit: (s.control == "text").then_some(self.shown == 1),
                     question: match s.ask {
                         Ask::Compare => "Which looks better?",
                         Ask::Question(q) => q,
@@ -1162,21 +1176,48 @@ mod tests {
         lab.update(&key("down"), now);
         lab.update(&key("ok"), now);
         assert_eq!(lab.answers()[5], Some(Answer::No));
-        assert_eq!(lab.stage(), Stage::Results);
+        // the text step is the last; it is the lab's own, so the window's control is put back and nothing is written for the new one
+        assert_eq!(lab.step().map(|s| s.id), Some("text-grid-fit"));
+        assert_eq!(lab.stage(), Stage::Step);
     }
 
     #[test]
-    fn every_answer_to_the_window_step_ends_the_run() {
+    fn the_text_step_is_the_labs_own_b_is_on_the_screen_at_once_and_the_helper_hears_nothing_of_it() {
+        let (mut lab, now) = begun();
+        lab.update(&fetched(TAG_SET, 200, session(true)), now);
+        let fx = lab.update(&key("ok"), now);
+        settle(&mut lab, &fx, now);
+        lab.at = step_index("text-grid-fit").unwrap();
+        lab.shown = 0;
+        let Some(View { body: Body::Step(s), .. }) = lab.view() else { panic!() };
+        assert_eq!((s.group, s.counter.as_str(), s.fit, s.options[0].name, s.options[1].name), ("Text", "", Some(false), "Current", "Grid-fitted"));
+        // B: no request goes out, the card is told to be drawn grid-fitted, and B counts as having been on the screen
+        let fx = lab.update(&key("right"), now);
+        assert!(requests(&fx).is_empty(), "nothing for the helper: {fx:?}");
+        let Some(View { body: Body::Step(s), .. }) = lab.view() else { panic!() };
+        assert_eq!((s.shown, s.fit), (1, Some(true)));
+        assert_eq!(s.replies, vec![Reply::Pick, Reply::Same, Reply::Skip], "B showed: the answers are the comparison's");
+        assert_eq!(lab.update(&key("left"), now).iter().filter(|e| matches!(e, Effect::Request { .. })).count(), 0);
+        let Some(View { body: Body::Step(s), .. }) = lab.view() else { panic!() };
+        assert_eq!(s.fit, Some(false));
+        // the other steps draw with the shell's own fonts
+        lab.at = 0;
+        let Some(View { body: Body::Step(s), .. }) = lab.view() else { panic!() };
+        assert_eq!(s.fit, None);
+    }
+
+    #[test]
+    fn every_answer_to_the_window_step_goes_on_to_the_text_step() {
         for first in [Reply::Yes, Reply::No, Reply::Same, Reply::Skip] {
             let (mut lab, now) = begun();
             let fx = lab.update(&key("ok"), now);
             settle(&mut lab, &fx, now);
-            // straight to the window step, the last
+            // straight to the window step
             lab.at = step_index("window").unwrap();
             let i = replies(STEPS[lab.at].ask).iter().position(|r| *r == first).unwrap();
             lab.click(Target::Answer(i), now);
-            assert_eq!(lab.stage(), Stage::Results, "{first:?}: the last step ends the run");
-            assert_eq!(lab.step().map(|s| s.id), None);
+            assert_eq!(lab.stage(), Stage::Step, "{first:?}: the text step is next");
+            assert_eq!(lab.step().map(|s| s.id), Some("text-grid-fit"));
         }
     }
 
