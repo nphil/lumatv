@@ -1,6 +1,7 @@
 //! Remote & pointer (`settings/PageRemote.qml`, `docs/mocks/03-settings-remote`) and the app chooser behind its keys (`PageAppKey.qml`).
 //! The Magic Remote's pointer is the TV's own switch (`general.remotePointer`): off gives a button-only remote and removes accidental hover
-//! moves. Speed and size are the service's own settings. Holding Home for LG's Home stays on: it is the escape if LumaTV's Home ever
+//! moves. Speed and size are the service's own settings. What shows the pointer is LumaTV's own (`remote.pointerShow` in the theme, which the
+//! compositor reads): a turn of the wheel by default, so that picking the remote up never shows it, or any movement, as LG's does. Holding Home for LG's Home stays on: it is the escape if LumaTV's Home ever
 //! misbehaves, so it is shown, not switchable. Whether the number keys open the dock's tiles is LumaTV's own (`remote.numberKeys` in the
 //! theme, default on). Each app key (Netflix, Prime Video, Disney+, LG Channels) opens the chooser and keeps its answer in
 //! `remote.appKeys` (`settings/AppKeys.js`): LG's app where it is installed until the owner picks another app or nothing. Voice search is
@@ -25,6 +26,8 @@ pub const KEYS: [(&str, &str, &str, &str); 4] = [
     ("disneyplus", "Disney+", "sparkles", "com.disney.disneyplus-prod"),
     ("lgchannels", "LG Channels", "tv-minimal-play", "com.webos.app.lgchannels"),
 ];
+/// What `remote.pointerShow` says, in the order of the row's options; the first is the default and what any other word means.
+const POINTER_SHOW: [&str; 2] = ["wheel", "movement"];
 const DIGITS: [&str; 10] = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"];
 
 /// LG's times for a long press and for the repeat: "Basic", or a number of seconds.
@@ -129,6 +132,11 @@ fn number_target(c: &Ctx, digit: &str) -> (&'static str, String) {
 
 // --------------------------------------------------------------------------------------------------------------------------- rows
 
+/// The row's option in force: Movement where the theme says so, else the wheel.
+fn pointer_show_index(c: &Ctx) -> usize {
+    usize::from(c.theme_str("remote.pointerShow") == Some(POINTER_SHOW[1]))
+}
+
 fn remote_toggle(c: &Ctx, id: &str, icon: &str, label: &str, help: &str, key: &str, default: bool) -> Row {
     let key = format!("remote.{key}");
     Row::toggle(id).tab(1).icon(icon).label(label).help(help).on(c.theme_flag(&key, default)).act(move |a| match a {
@@ -166,6 +174,16 @@ fn voice_status(c: &Ctx) -> &'static str {
 fn rows(c: &Ctx) -> Vec<Row> {
     let mut rows = vec![
         c.toggle(Spec::new("general.remotePointer").tab(0).icon("mouse-pointer-2").label("Magic Remote pointer").help("Use the pointer on screen. Turn off if you only use a button remote.")),
+        Row::seg("pointershow", &["Wheel turn", "Movement"])
+            .tab(0)
+            .icon("mouse-pointer-2")
+            .label("Show pointer")
+            .help("Wheel turn: the pointer appears when the wheel is turned, and moving the remote never shows it. Movement: any movement shows it, as on LG's own. A direction key hides it either way.")
+            .index(Some(pointer_show_index(c)))
+            .act(|a| match a {
+                Arg::Index(i) => POINTER_SHOW.get(i).map(|v| vec![Op::Patch(patch_of("remote.pointerShow", json!(v)))]).unwrap_or_default(),
+                _ => Vec::new(),
+            }),
         c.seg(Spec::new("option.pointerSpeed").tab(0).icon("gauge").label("Pointer speed").options(&["Slow", "Normal", "Fast"]).values(&["slow", "normal", "fast"])),
         c.seg(Spec::new("option.pointerSize").tab(0).icon("scan-eye").label("Pointer size").options(&["Small", "Medium", "Large"]).values(&["small", "medium", "large"])),
         Row::info("holdhome").tab(1).icon("house").label("Hold Home for LG's Home").value("Always on").help("Press and hold Home for 650 ms to open LG's own Home if LumaTV misbehaves."),
@@ -335,11 +353,30 @@ mod tests {
         assert_eq!(summary(&c), "Pointer on");
         let r = rows(&c);
         let tab0: Vec<&str> = r.iter().filter(|x| x.tab == 0).map(|x| x.id.as_str()).collect();
-        assert_eq!(tab0, vec!["general.remotePointer", "option.pointerSpeed", "option.pointerSize"]);
+        assert_eq!(tab0, vec!["general.remotePointer", "pointershow", "option.pointerSpeed", "option.pointerSize"]);
         assert!(row(&r, "general.remotePointer").on);
         assert_eq!(row(&r, "option.pointerSpeed").index, Some(1));
         let hold = row(&r, "holdhome");
         assert!(hold.info && !hold.chevron && hold.value == "Always on" && hold.focusable(), "shown, not switchable, and its help can be reached");
+    }
+
+    #[test]
+    fn show_pointer_is_the_wheel_until_the_theme_says_movement_and_writes_the_one_key() {
+        let mut w = world();
+        let r = rows(&w.ctx());
+        let show = row(&r, "pointershow");
+        assert_eq!((show.index, show.tab), (Some(0), 0), "the wheel is the default");
+        let write = |r: &Row, i| match &(r.act.as_ref().unwrap())(Arg::Index(i))[..] {
+            [Op::Patch(p)] => p.clone(),
+            other => panic!("one patch: {}", other.len()),
+        };
+        assert_eq!(write(show, 1), json!({"remote": {"pointerShow": "movement"}}));
+        assert_eq!(write(show, 0), json!({"remote": {"pointerShow": "wheel"}}));
+        assert!((show.act.as_ref().unwrap())(Arg::Index(2)).is_empty(), "no third option");
+        w.theme = json!({"remote": {"pointerShow": "movement"}});
+        assert_eq!(row(&rows(&w.ctx()), "pointershow").index, Some(1));
+        w.theme = json!({"remote": {"pointerShow": "tilt"}});
+        assert_eq!(row(&rows(&w.ctx()), "pointershow").index, Some(0), "a word the compositor does not know is the default");
     }
 
     #[test]
