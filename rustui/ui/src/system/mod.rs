@@ -3,6 +3,7 @@
 
 pub mod alert;
 pub mod alert_surface;
+pub mod capture;
 pub mod cards;
 pub mod format;
 pub mod layer;

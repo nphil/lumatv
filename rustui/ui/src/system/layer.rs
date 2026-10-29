@@ -8,6 +8,7 @@
 
 use super::alert::{Alerts, Target};
 use super::alert_surface::AlertSurface;
+use super::capture::{Capture, CaptureSurface};
 use super::plugins::Hub;
 use super::saver::glance::{self, Glance};
 use super::saver::look::Config as SaverConfig;
@@ -53,6 +54,8 @@ pub struct Layer {
     alert_surface: AlertSurface,
     saver: Saver,
     saver_surface: SaverSurface,
+    capture: Capture,
+    capture_surface: CaptureSurface,
     /// What the plugin broker publishes (cards, notes, the saver topic): the saver's slots and notices, and the overlay queue's records.
     hub: Hub,
     /// The helper's `weather` topic as it last was.
@@ -75,6 +78,8 @@ impl Layer {
             alert_surface: AlertSurface::new(base + z::ALERT, theme, layout),
             saver: Saver::new(saver_config(theme), SAVER_CLIENT, seed),
             saver_surface: SaverSurface::new(base + z::SAVER),
+            capture: Capture::new(theme.pointer("/motion/reduced").and_then(Value::as_bool) == Some(true)),
+            capture_surface: CaptureSurface::new(base + z::CAPTURE),
             hub: Hub::new(),
             weather: Value::Null,
             foreground: Foreground::default(),
@@ -106,6 +111,7 @@ impl Layer {
 
     /// The owner's theme changed: the saver may have been turned off, given another brightness or its own time back.
     pub fn set_theme(&mut self, theme: &Value, now: u64) -> Vec<Effect> {
+        self.capture.set_reduced(theme.pointer("/motion/reduced").and_then(Value::as_bool) == Some(true));
         let out = self.saver.set_config(saver_config(theme), now);
         self.redraw = true;
         out
@@ -140,6 +146,9 @@ impl Layer {
         let alert_has_keys = kinds.alert && self.alerts.wants();
         if kinds.alert {
             out.extend(self.alerts.update(input, now));
+        }
+        if kinds.capture {
+            out.extend(self.capture.update(input, now));
         }
         let key_like = matches!(input, Input::Key { .. } | Input::Pointer { .. });
         if kinds.saver && !(key_like && alert_has_keys) {
@@ -194,6 +203,13 @@ impl Layer {
                 Err(e) => return Err(format!("saver: {e}")),
             }
         }
+        if kinds.capture {
+            let over = self.app_front();
+            match self.capture_surface.apply(kit, &self.capture.view(), over, now_ms) {
+                Ok(on) => live |= on,
+                Err(e) => return Err(format!("capture: {e}")),
+            }
+        }
         Ok(live)
     }
 
@@ -214,6 +230,9 @@ impl Layer {
         if kinds.saver {
             redraw |= self.saver_surface.tick(now_ms);
         }
+        if kinds.capture {
+            redraw |= self.capture_surface.tick(now_ms);
+        }
         redraw
     }
 
@@ -224,6 +243,9 @@ impl Layer {
         }
         if kinds.saver {
             due = [due, self.saver.due_at(), self.saver_surface.due_at(), self.hub.due_at()].into_iter().flatten().min();
+        }
+        if kinds.capture {
+            due = [due, self.capture.due_at(), self.capture_surface.due_at()].into_iter().flatten().min();
         }
         due
     }
@@ -256,17 +278,23 @@ impl Layer {
             s["saver"] = json!(self.saver.up());
             s["saverState"] = self.saver.state();
         }
+        if kinds.capture {
+            s["capture"] = self.capture.state(self.capture_surface.dot_up());
+        }
         s
     }
 
     /// Where the surfaces are (the harness reads them).
-    pub fn geometry(&self, kinds: &Kinds) -> Value {
+    pub fn geometry(&self, kinds: &Kinds, kit: &Kit) -> Value {
         let mut g = json!({});
         if kinds.alert {
             g["alert"] = self.alert_surface.geometry();
         }
         if kinds.saver {
             g["saver"] = self.saver_surface.geometry();
+        }
+        if kinds.capture {
+            g["capture"] = self.capture_surface.geometry(kit);
         }
         g
     }
@@ -279,12 +307,16 @@ impl Layer {
         if kinds.saver {
             self.saver_surface.feed_lint(lint);
         }
+        if kinds.capture {
+            self.capture_surface.feed_lint(kit, lint);
+        }
     }
 
     /// The look changed: the surfaces are made again at the next draw.
     pub fn restyle(&mut self, engine: &mut Engine) {
         self.alert_surface.restyle(engine);
         self.saver_surface.restyle();
+        self.capture_surface.restyle();
         self.redraw = true;
     }
 

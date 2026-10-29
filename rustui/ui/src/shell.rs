@@ -690,7 +690,7 @@ impl Shell {
             "osd": self.volume_surface.pane_rect().map(|r| json!({"x": r.x, "y": r.y, "w": r.w, "h": r.h})),
             "toasts": self.toast_surface.rects().iter().map(|r| json!({"x": r.x, "y": r.y, "w": r.w, "h": r.h})).collect::<Vec<_>>(),
         });
-        for (k, v) in self.sys.geometry(&self.kinds).as_object().into_iter().flatten() {
+        for (k, v) in self.sys.geometry(&self.kinds, &self.kit).as_object().into_iter().flatten() {
             g[k] = v.clone();
         }
         for (k, v) in self.panels.geometry(&self.kinds, &self.engine).as_object().into_iter().flatten() {
