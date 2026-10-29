@@ -84,10 +84,24 @@ Home Assistant first and put back at the end. Stop after any FAIL that moves a g
 
 ## 4. The Rust kinds, one at a time [-] (the first look of each on the panel is [N])
 
-Each kind is opt-in per kind and the QML stays the fallback until a kind passes this list twice on the set. Gate for each step:
-`ctl shell` shows the kind in `rust.ui.kinds` and `rust.connected`; if a kind is not in the installed build, the step is `SKIPPED (not built)`.
-`tv_gate.py`'s `shell` and frame checks do not read `rust.ui` yet: the readings below are `ctl` ones, and the frame gate over a Rust kind is
-`python3 docs/research/perf/gate.py --surfaces <surface> --tag r18-rust-<kind>` run twice. Common off switch, no deploy: `ctl shell rust -<kind>`.
+Each kind is opt-in per kind and the QML stays the fallback until a kind passes this list twice on the set. The gate reads the client's report:
+`python3 compositor/tools/tv_gate.py --only rust` (every kind) or `--only rust --rust-kinds home,quick,settings` runs `gate.sh rust`, which for each kind
+switches it on (`ctl shell rust +KIND`, the client restarts with it), requires it in `rust.ui.kinds`, shows it the way the set does, reads the first reading
+that says it is up (a poll of `ctl shell`: the line states the poll's own cost, about 30 to 120 ms, and the bar is the documented one plus two polls: 150 ms
+for quick, picker and drawer, none elsewhere), checks that the compositor drew frames and left no GL error while it was up, closes it, switches it off
+(`-KIND`: gone from the list and from the client's kinds) and leaves the list as found. Driven: `home` (shown, and the D-pad moves its focus and back),
+`osd` (the volume key, undone by Volume-), `toast`, `alert` (OK closes it), `saver` (a key ends it), `quick`, `picker`, `drawer`, `settings`, `cameras`.
+**SKIPPED**, never failed: a kind the compositor refuses or the client does not have (`not built: …`), and a built one the gate cannot open
+(`not driven: …`): `menu`, `confirm`, `switcher`, `cards`, `popup`, `capture`, `layout`, each with its reason. The line is `GATE rust: PASS|FAIL …` with a
+clause per kind, and `GATE rust: SKIPPED no kind ran` (no verdict) when the bundle has no Rust shell. It runs in the first session, after the `shell`
+check, evidence in `rust-<kind>.json`/`.txt` of the gate's output directory, and the first session's timer grows by 2 minutes a kind. `ctl shell rust -<kind>`
+is the off switch by hand, no deploy. The steps below keep the readings that need eyes or the remote, and the frame gate over a Rust kind is
+`python3 docs/research/perf/gate.py --surfaces <surface> --tag r18-rust-<kind>`, run twice.
+
+10a. The Rust shell's kinds, automated: `python3 compositor/tools/tv_gate.py --only rust` [-] (about 25 minutes for all sixteen with their restarts). Expected:
+    `GATE rust: PASS`, every built kind `ok (first … ms …, drawn +N, gl errors +0 …; off ok)`, the unbuilt ones SKIPPED with their reason; `kinds found [...]`
+    equal to what the start state recorded. A FAIL names the kind and what was missing (not shown within 10 s, no frame drawn, GL errors, first frame over the bar,
+    still answered after `-KIND`, the list not restored). Revert: nothing (it restores); `ctl shell rust -<kind>` if a run was cut.
 
 11. Core: `ctl shell rust +osd +toast` (`rust-shell-plan.md` section 6, steps 3 to 5). `ctl shell`: `rust.connected`, `rust.engine` true,
     `rust.ui.kinds ["osd","toast"]`; journal `shell-rust: client started`, `…the client is on the engine`. Volume keys over Home and an app: the Rust

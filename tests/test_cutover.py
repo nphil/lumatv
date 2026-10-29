@@ -6,7 +6,9 @@ gate driver's verdict and its record of a passed build (tv_gate.py), the slot's 
 remote (tv-uinput-key.py), the supervisor's own C tests (compositor/sm/build.sh) and the rule that nothing here ever
 restarts, stops or kills SAM.
 """
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import re
@@ -917,6 +919,58 @@ def front():
 
 def pid_of(app):
     return 1000 + sum(map(ord, app)) % 1000
+
+
+RUST_PANELS = ("quick", "picker", "drawer")
+
+
+def rust_state():
+    """The Rust shell's client as `ctl shell` reports it: the kinds the compositor was asked for (kept across calls, as shell-rust.conf is), and what the
+    client built of them. cfg: rust_built (the client's kinds), rust_known (the compositor's names), rust_no_ui (no lumatv-ui), rust_dead (kinds whose trigger shows
+    nothing), rust_no_frames (the compositor draws nothing), rust_gl (every show leaves a GL error), rust_kinds0 (the list found), rust_stuck (kinds the client keeps
+    answering after they are taken off)."""
+    r = s.setdefault("rust", {"kinds": list(cfg.get("rust_kinds0", [])), "toast_ttl": 0, "drawn": 100, "gl": 0,
+                              "ui": {"osd": False, "toasts": 0, "alerts": 0, "saver": False, "panels": {}, "settings": {"open": False},
+                                     "cameras": {"screen": {"mode": ""}}, "home": {"home": True, "focusLayer": "dock"}}})
+    return r
+
+
+def rust_built(r):
+    return [k for k in r["kinds"] if k in cfg.get("rust_built", ["home", "osd", "toast", "alert", "quick", "picker", "drawer", "settings", "cameras", "saver", "menu"]) or k in cfg.get("rust_stuck", [])]
+
+
+def rust_drew():
+    r = rust_state()
+    if not cfg.get("rust_no_frames"):
+        r["drawn"] += 12
+    if cfg.get("rust_gl"):
+        r["gl"] += 1
+
+
+def rust_tap(code):
+    r = rust_state()
+    ui, kinds = r["ui"], r["kinds"]
+    if code == 115 and "osd" in kinds and "osd" not in cfg.get("rust_dead", []):
+        ui["osd"] = True
+        rust_drew()
+    elif code == 114 and ui["osd"]:
+        ui["osd"] = False
+    elif code == 28 and ui["alerts"]:
+        ui["alerts"] = 0
+    elif code == 106 and ui["saver"]:
+        ui["saver"] = False
+    elif code == 103 and ui["home"]["focusLayer"] == "dock":
+        ui["home"]["focusLayer"] = "widgets"
+        rust_drew()
+    elif code == 108 and ui["home"]["focusLayer"] == "widgets":
+        ui["home"]["focusLayer"] = "dock"
+        rust_drew()
+    elif code == 412:
+        for k in RUST_PANELS:
+            if ui["panels"].get(k) == "open":
+                ui["panels"][k] = "parked"
+        ui["settings"]["open"] = False
+        ui["cameras"]["screen"]["mode"] = ""
 '''
 SIM_LOADER = '#!/bin/sh\nshift 2\nexec "$@"\n'
 SIM_COMPOSITOR = SIM_PRELUDE + r'''
@@ -943,6 +997,7 @@ def ok():
 
 
 def tap(code):
+    rust_tap(code)
     s["keys"].append(code)
     focused = s["windows"][-1][0]
     if code == 139:
@@ -1001,9 +1056,51 @@ elif cmd == "windows":
 elif cmd == "keys":
     out({"ok": True, "table": [{"name": n, "code": c} for n, c in (("gear", 139), ("input", 241), ("netflix", 1037))], "appKeys": cfg.get("app_keys", {}),
          "unnamed": cfg.get("unnamed", []), "foreground": s["windows"][-1][0], "keyboardUp": s["panel"] is not None, "delivered": 0, "dropped": 0})
+elif cmd == "shell" and rest[:1] == ["rust"]:
+    r = rust_state()
+    known = cfg.get("rust_known", ["home", "osd", "toast", "alert", "quick", "picker", "drawer", "settings", "cameras", "saver", "menu", "confirm", "switcher", "cards", "popup", "capture", "layout"])
+    kinds = list(r["kinds"])
+    bad = None
+    for w in rest[1:]:
+        name = w[1:]
+        if name not in known:
+            bad = name + ": not a kind"
+        elif w[0] == "+" and name not in kinds:
+            kinds.append(name)
+        elif w[0] == "-" and name in kinds:
+            kinds.remove(name)
+    if bad:
+        out({"ok": False, "error": bad})
+    else:
+        r["kinds"] = sorted(kinds)
+        out({"ok": True})
+elif cmd == "shell" and rest[:1] == ["show"]:
+    r = rust_state()
+    kind = rest[1]
+    ui = r["ui"]
+    if kind in rust_built(r) and kind not in cfg.get("rust_dead", []):
+        if kind in RUST_PANELS:
+            ui["panels"][kind] = "open"
+        elif kind == "settings":
+            ui["settings"]["open"] = True
+        elif kind == "cameras":
+            ui["cameras"]["screen"]["mode"] = "grid"
+        rust_drew()
+    out({"ok": True, "kind": kind, "taken": kind in rust_built(r)})
 elif cmd == "shell":
-    # the shell client's report as `ctl shell` carries it: the refresh it draws for and its per-frame slides (`Lu.slides`)
-    out({"ok": True, "connected": True, "ui": {"state": {"refreshHz": cfg.get("refresh_hz", 60), "slides": cfg.get("slides", [])}}})
+    # the shell client's report as `ctl shell` carries it: the refresh it draws for and its per-frame slides (`Lu.slides`), and the Rust shell's
+    r = rust_state()
+    if r["toast_ttl"] > 0:
+        r["toast_ttl"] -= 1
+        if r["toast_ttl"] == 0:
+            r["ui"]["toasts"] = 0
+    built = [] if cfg.get("rust_no_ui") else rust_built(r) + [k for k in cfg.get("rust_stuck", []) if k not in r["kinds"]]
+    ui = dict(r["ui"], kinds=built)
+    out({"ok": True, "connected": True, "ui": {"state": {"refreshHz": cfg.get("refresh_hz", 60), "slides": cfg.get("slides", [])}},
+         "rust": {"kinds": r["kinds"], "connected": bool(built), "error": "no lumatv-ui" if cfg.get("rust_no_ui") else None, "can": built, "ui": ui}})
+elif cmd == "status":
+    r = rust_state()
+    out({"ok": True, "summary": "uptime 1.0s clients 2 gl errors %d render last 5 us" % r["gl"], "stats": {"drawn": r["drawn"]}})
 elif cmd == "ime":
     up = s["panel"] is not None
     out({"ok": True, "asked": 1, "methods": [{"id": 5, "display": 0}] * cfg.get("methods", 1), "models": 1, "panel": s["panel"],
@@ -1089,6 +1186,19 @@ elif method == "closeByAppId":
     if app == "com.webos.app.voice":
         s["panel"] = None
         s["ctx"] = False
+    out({"returnValue": True})
+elif method in ("createToast", "createAlert", "turnOnScreenSaver"):
+    r = rust_state()
+    kind = {"createToast": "toast", "createAlert": "alert", "turnOnScreenSaver": "saver"}[method]
+    if kind in rust_built(r) and kind not in cfg.get("rust_dead", []):
+        if kind == "toast":
+            r["ui"]["toasts"] = 1
+            r["toast_ttl"] = 4
+        elif kind == "alert":
+            r["ui"]["alerts"] = 1
+        else:
+            r["ui"]["saver"] = True
+        rust_drew()
     out({"returnValue": True})
 elif method == "executeOneShot":
     out({"returnValue": True, "writtenBytes": 4321})
@@ -1409,6 +1519,98 @@ BLOCK = ("build 10.2.1-5202 2026-10-26\nrelease Rockhopper release 10.2.1-5202 (
          + "".join("file %064x %d /usr/lib/lib%d.so\n" % (i + 1, 100 + i, i) for i in range(10)) + "end\n")
 
 
+class GateRustKinds(FakeSet):
+    """tv-gate.sh rust against a small model of the Rust shell's report: kinds the compositor keeps, the ones the client built, what each shows when
+    it is switched on and opened, and the compositor's counters. The waits are one second so that a kind that never comes is quick to fail."""
+
+    def setUp(self):
+        super().setUp()
+        write(os.path.join(self.dep, "lib", "ld-linux-aarch64.so.1"), SIM_LOADER, 0o755)
+        write(os.path.join(self.dep, "bin", "lumatv-compositor"), SIM_COMPOSITOR, 0o755)
+        write(os.path.join(self.fakebin, "luna-send"), SIM_LUNA, 0o755)
+        shutil.copy(os.path.join(TOOLS, "tv-rustjson.py"), os.path.join(self.dep, "rustjson.py"))
+
+    def rust(self, kinds, **cfg):
+        write(os.path.join(self.tmp.name, "sim-config.json"), json.dumps(cfg))
+        rc, out = self.gate("rust", env={"LUMATV_RUST_KINDS": kinds, "LUMATV_RUST_WAIT": "1", "LUMATV_RUST_OPEN_WAIT": "1"})
+        return out
+
+    def found(self):
+        return json.loads(read(os.path.join(self.tmp.name, "sim.json")))["rust"]["kinds"]
+
+    def test_built_kinds_are_shown_timed_closed_and_switched_off_and_the_list_is_as_found(self):
+        out = self.rust("home osd toast quick settings")
+        self.assertIn("GATE rust: PASS", out)
+        for k in ("home", "osd", "toast", "quick", "settings"):
+            self.assertRegex(out, r"%s ok \(.*?drawn \+\d+, gl errors \+0.*?; off ok\)" % k)
+        self.assertRegex(out, r"quick ok \(first \d+ ms \(a poll of about \d+ ms\)")
+        self.assertIn("dpad ok (dock -> widgets -> dock)", out)
+        self.assertEqual(self.found(), [], "every kind the gate switched on is off again")
+        self.assertIn("kinds found []; 5 run, 0 skipped", out)
+        self.assertTrue(os.path.exists(os.path.join(self.out, "rust-quick.json")))
+
+    def test_a_kind_that_was_on_is_left_on_and_the_others_as_they_were(self):
+        out = self.rust("quick", rust_kinds0=["osd", "toast"])
+        self.assertIn("GATE rust: PASS quick ok", out)
+        self.assertEqual(self.found(), ["osd", "toast"])
+        out = self.rust("osd", rust_kinds0=["osd", "toast"])
+        self.assertIn("osd ok", out)
+        self.assertEqual(self.found(), ["osd", "toast"], "osd was on: the off-switch check puts it back")
+
+    def test_a_kind_the_client_did_not_build_or_the_compositor_does_not_know_is_skipped_not_failed(self):
+        out = self.rust("osd settings nosuchkind", rust_built=["osd"], rust_known=["osd", "settings"])
+        self.assertIn("GATE rust: PASS", out)
+        self.assertIn("osd ok", out)
+        self.assertIn("settings SKIPPED (not built: settings is not in rust.ui.kinds []", out)
+        self.assertIn("nosuchkind SKIPPED (not built: the compositor refuses it (nosuchkind: not a kind))", out)
+        self.assertIn("2 skipped", out)
+        self.assertEqual(self.found(), [], "the kinds asked for and not built are taken off again")
+
+    def test_a_built_kind_the_gate_cannot_open_is_skipped_with_the_reason(self):
+        out = self.rust("menu quick", rust_built=["menu", "quick"])
+        self.assertIn("GATE rust: PASS", out)
+        self.assertIn("menu SKIPPED (not driven: a tile's menu opens on a hold of OK on Home", out)
+        self.assertIn("quick ok", out)
+
+    def test_without_the_rust_shell_nothing_runs_and_the_line_is_no_verdict(self):
+        out = self.rust("home quick", rust_no_ui=True)
+        self.assertIn("GATE rust: SKIPPED no kind ran:", out)
+        self.assertIn("error 'no lumatv-ui'", out)
+        self.assertNotIn("GATE rust: PASS", out)
+        self.assertNotIn("GATE rust: FAIL", out)
+        self.assertEqual(self.found(), [])
+
+    def test_a_kind_that_never_shows_fails_by_name_and_the_others_still_run(self):
+        out = self.rust("quick osd", rust_dead=["quick"])
+        self.assertIn("GATE rust: FAIL", out)
+        self.assertRegex(out, r"NOT: quick \(not shown within 1 s of the trigger \(rust.ui.panels.quick reads ''")
+        self.assertIn("osd ok", out)
+        self.assertEqual(self.found(), [])
+
+    def test_a_kind_that_draws_no_frame_or_leaves_a_gl_error_fails(self):
+        out = self.rust("osd", rust_no_frames=True)
+        self.assertRegex(out, r"GATE rust: FAIL .*osd \(.*the compositor drew no frame while it was up")
+        out = self.rust("osd", rust_gl=True)
+        self.assertRegex(out, r"GATE rust: FAIL .*osd \(.*gl errors \+1.*GL errors")
+
+    def test_a_client_that_keeps_answering_a_kind_after_it_is_taken_off_fails(self):
+        out = self.rust("osd", rust_stuck=["osd"])
+        self.assertRegex(out, r"GATE rust: FAIL .*osd \(.*the client still answers osd 1 s after -osd")
+
+    def test_the_gate_reads_the_set_through_one_small_json_reader(self):
+        doc = json.dumps({"rust": {"kinds": ["osd", "toast"], "connected": True, "ui": {"toasts": 2, "x": None, "o": {"b": 1}}}})
+        reader = os.path.join(TOOLS, "tv-rustjson.py")
+
+        def get(path, text=doc):
+            return subprocess.run(["python3", reader, path], input=text, capture_output=True, text=True).stdout.strip()
+        self.assertEqual(get("rust.kinds"), "osd,toast")
+        self.assertEqual(get("rust.connected"), "true")
+        self.assertEqual(get("rust.ui.toasts"), "2")
+        self.assertEqual(get("rust.ui.o"), '{"b":1}')
+        self.assertEqual(get("rust.kinds.1"), "toast")
+        self.assertEqual((get("rust.ui.x"), get("rust.nothing.here"), get("rust.kinds", "not json")), ("", "", ""))
+
+
 class GateDriver(unittest.TestCase):
     """tv_gate.py: the verdict, the record of a passed build, and the order the checks run in."""
 
@@ -1437,6 +1639,37 @@ class GateDriver(unittest.TestCase):
     @staticmethod
     def session(minutes):
         return "cutover enable --session --max-minutes %d" % minutes
+
+    def test_the_apps_check_repeats_its_pair_and_the_first_session_is_long_enough_for_them(self):
+        calls, code, _ = self.run_main(argv=["--only", "apps", "--apps-repeat", "15"])
+        self.assertEqual(code, 0)
+        self.assertIn("LUMATV_APPS_REPEAT=15 sh /tmp/lumatv/gate.sh apps", calls)
+        # 14 more passes of about 45 s: ten and a half minutes more than the one pass the base session counts
+        self.assertEqual([c for c in self.checks(calls) if c.startswith("cutover enable")][0], "cutover enable --session --max-minutes %d" % (self.first + 11))
+        calls, _, _ = self.run_main(argv=["--only", "apps"])
+        self.assertIn("sh /tmp/lumatv/gate.sh apps", calls)
+        with mock.patch.object(sys, "argv", ["tv_gate.py", "--apps-repeat", "0"]), contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as ex:
+            self.gate.main()
+        self.assertNotEqual(ex.exception.code, 0)
+
+    def test_the_rust_check_runs_only_when_asked_and_takes_its_kinds_and_its_minutes(self):
+        calls, _, _ = self.run_main()
+        self.assertNotIn("rust", self.checks(calls), "off in a regular gate")
+        calls, code, _ = self.run_main(argv=["--only", "rust", "--rust-kinds", "home,quick"])
+        self.assertEqual(code, 0)
+        self.assertIn("LUMATV_RUST_KINDS=home,quick sh /tmp/lumatv/gate.sh rust", calls)
+        self.assertEqual([c for c in self.checks(calls) if c.startswith("cutover enable")][0], "cutover enable --session --max-minutes %d" % (self.first + 2 * self.gate.RUST_KIND_MINUTES))
+        self.assertTrue(any(c.args[1] == "/tmp/lumatv/rustjson.py" for c in self.gate.tv.put.call_args_list), "the JSON reader goes to the set with the gate")
+        calls, _, _ = self.run_main(argv=["--only", "shell,rust"])
+        self.assertIn("sh /tmp/lumatv/gate.sh rust", calls, "--only names it: every kind")
+        self.assertEqual([c for c in self.checks(calls) if c.startswith("cutover enable")][0],
+                         "cutover enable --session --max-minutes %d" % (self.first + self.gate.RUST_KIND_MINUTES * self.gate.RUST_KINDS_ALL))
+        calls, _, _ = self.run_main(argv=["--rust-kinds", "all", "--only", "rust,shell"])
+        self.assertIn("sh /tmp/lumatv/gate.sh rust", calls)
+        for bad in ("home;reboot", "Home", "home,,quick"):
+            with mock.patch.object(sys, "argv", ["tv_gate.py", "--rust-kinds", bad]), contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as ex:
+                self.gate.main()
+            self.assertNotEqual(ex.exception.code, 0, bad)
 
     def test_a_line_that_is_no_verdict_does_not_fail_the_gate(self):
         # `GATE standby: requested ({` is only the power-off call going out; counted as a failure it made every gate fail

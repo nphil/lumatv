@@ -26,6 +26,8 @@
 #                     layer takes the keys and lets go), the volume display on a volume key, a toast, the screensaver when tvpower
 #                     starts it, and the idle cost (commits a second and CPU on Home at rest, none with an app covering Home);
 #                     Home in front and no app left at the end
+#   gate.sh rust      the Rust shell's kinds one at a time (LUMATV_RUST_KINDS names them; default: all): on, shown, first frame, frames drawn and GL errors, closed,
+#                     off, put back as found; a kind the compositor or the client does not have is SKIPPED (tv_gate.py --rust-kinds)
 #   gate.sh evidence  no check: SAM's subscriptions, the clients (command lines, globals) and both logs, while live
 #   gate.sh key CODE  one remote key through the compositor's routing (the volume check in tv_gate.py)
 #   gate.sh standby   power off (remoteKey); the driver wakes the set; `gate.sh woke` then checks the rounds
@@ -169,6 +171,152 @@ shell_idle_cost() {
     c1=$(shell_num homeCommits); t1=$(awk '{print $14+$15}' /proc/$sp/stat 2>/dev/null)
     hz=$(getconf CLK_TCK 2>/dev/null || echo 100)
     echo "$(( (${c1:-0} - ${c0:-0}) / $1 )) $(( (${t1:-0} - ${t0:-0}) * 100 / hz / $1 ))"
+}
+
+# The Rust shell's kinds (`gate.sh rust`). Its report is `ctl shell`'s `rust` object: `kinds` (what the compositor was asked for, kept in
+# shell-rust.conf), `connected`, and `ui`, the client's own state, whose `kinds` are the ones the client built and answers. rustjson.py reads
+# a dotted path out of JSON on stdin.
+RUSTJSON=$D/rustjson.py
+# Seconds a restart of the client is waited for, and a kind's trigger (the host tests shorten both).
+RUST_WAIT=${LUMATV_RUST_WAIT:-30}
+RUST_OPEN=${LUMATV_RUST_OPEN_WAIT:-10}
+rust_get() { ctl shell | python3 $RUSTJSON "$1"; }
+rust_kinds_on() { rust_get rust.kinds; }
+# A kinds list in one order (the compositor keeps its own sorted; a list is compared as a set).
+rust_sorted() { echo "$1" | tr ',' '\n' | sort | tr '\n' ','; }
+rust_answers() { [ "$(rust_get rust.connected)" = true ] && case ",$(rust_get rust.ui.kinds)," in *",$1,"*) return 0 ;; esac; return 1; }
+# Waits, SECS at most, for the client to answer KIND (WANT yes) or not to (WANT no: the client is gone or its kinds lack it).
+rust_wait_answers() {
+    end=$(( $(uptime_cs) + $3 * 100 ))
+    while :; do
+        if rust_answers "$1"; then have=yes; else have=no; fi
+        [ "$have" = "$2" ] && return 0
+        [ "$(uptime_cs)" -ge "$end" ] && return 1
+        sleep 0.3
+    done
+}
+# Where each kind says it is shown (a path of `ctl shell`) and what that reading must be. A panel's phase is opening, open, closing, parked or gone.
+rust_path() {
+    case $1 in
+        osd) echo rust.ui.osd ;; toast) echo rust.ui.toasts ;; alert) echo rust.ui.alerts ;; saver) echo rust.ui.saver ;; home) echo rust.ui.home.home ;;
+        quick|picker|drawer) echo rust.ui.panels.$1 ;; settings) echo rust.ui.settings.open ;; cameras) echo rust.ui.cameras.screen.mode ;;
+    esac
+}
+rust_is_open() {
+    case $1 in
+        osd|saver|home|settings) [ "$2" = true ] ;;
+        toast|alert) [ "${2:-0}" -ge 1 ] 2> /dev/null ;;
+        quick|picker|drawer) [ "$2" = opening ] || [ "$2" = open ] ;;
+        cameras) [ "$2" = grid ] || [ "$2" = full ] ;;
+        *) return 1 ;;
+    esac
+}
+# What opens each kind the way the set does: the volume key, LG's notification service, tvpower, or the compositor's `show` (the gear and Input do the same).
+rust_trigger() {
+    case $1 in
+        osd) key_tap 115 ;;
+        toast) ls1 com.webos.notification/createToast '{"message":"LumaTV gate: a toast of the Rust shell","sourceId":"org.nphil.lumatv"}' > /dev/null ;;
+        alert) ls1 com.webos.notification/createAlert '{"sourceId":"com.webos.app.home","title":"LumaTV gate","message":"Closed with OK.","showTimeout":false,"buttons":[{"label":"OK"}]}' > /dev/null ;;
+        saver) ls1 com.webos.service.tvpower/power2/turnOnScreenSaver '{}' > /dev/null ;;
+        quick|picker|drawer|settings|cameras) ctl shell show "$1" > /dev/null ;;
+    esac
+}
+# The way back: the volume key undoing the one pressed, OK on the alert, a key ending the saver, Back (one step each) for a panel or a page.
+rust_close() {
+    case $1 in
+        osd) key_tap 114 ;;
+        alert) key_tap 28 ;;
+        saver) key_tap 106 ;;
+        quick|picker|drawer|settings|cameras) n=0; while [ $n -lt 4 ]; do key_tap 412; sleep 0.7; rust_is_open "$1" "$(rust_get "$(rust_path "$1")")" || break; n=$((n+1)); done ;;
+    esac
+}
+# Why a kind that is built is not driven here (empty: it is).
+rust_undriven() {
+    case $1 in
+        menu) echo "a tile's menu opens on a hold of OK on Home, which the gate does not press" ;;
+        confirm) echo "a panel asks it for an action, which the gate does not take" ;;
+        switcher) echo "the app switcher needs open apps; the frames gate's switcher surface covers it" ;;
+        cards|popup) echo "the owner's switch (overlays.enabled, cameras) is off and the gate does not set it" ;;
+        capture) echo "needs capture.enabled and the encoder, which are the owner's (docs/research/capture-result.md)" ;;
+        layout) echo "Back asks whether to save the layout; the gate does not answer it" ;;
+    esac
+}
+# The documented bar for a kind's first frame, in ms (rust-panels-result.md: a panel opens in under 150 ms), or nothing: the reading is then INFO.
+rust_budget() { case $1 in quick|picker|drawer) echo 150 ;; esac; }
+# The compositor's counter of frames drawn and of GL errors, from `ctl status`.
+rust_drawn() { ctl status | python3 $RUSTJSON stats.drawn; }
+rust_gl_errors() { ctl status | sed -n 's/.*gl errors \([0-9][0-9]*\).*/\1/p' | head -n 1; }
+# What one `ctl shell` takes (ms, to three reads): a first-frame reading is a poll of it, so it is good to about twice this.
+rust_poll_ms() { t=$(uptime_cs); for i in 1 2 3; do rust_get rust.connected > /dev/null; done; echo $(( ($(uptime_cs) - t) * 10 / 3 )); }
+# Leaves KIND as it was found (WAS yes or no): back on when it was, off when it was not, and the client's answer waited for.
+rust_restore() {
+    if [ "$2" = yes ]; then ctl shell rust +$1 > /dev/null; rust_wait_answers $1 yes $RUST_WAIT; else ctl shell rust -$1 > /dev/null; rust_wait_answers $1 no $RUST_WAIT; fi
+}
+# One kind's checks, in this shell: sets RC (ok, no or skip) and RT (the words for the gate's line). Not built (the compositor refuses the name, or the
+# client's kinds lack it after the restart a change of kinds makes) is skip; so is a kind that is built and that the gate has no way to open (why: rust_undriven).
+rust_check_kind() {
+    k=$1; RC=ok; RT=""
+    was=no; case ",$(rust_kinds_on)," in *",$k,"*) was=yes ;; esac
+    ans=$(ctl shell rust +$k)
+    case "$ans" in
+        *'"ok":true'*) ;;
+        *) RC=skip; RT="not built: the compositor refuses it ($(echo "$ans" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p'))"; return ;;
+    esac
+    if ! rust_wait_answers $k yes $RUST_WAIT; then
+        RC=skip; RT="not built: $k is not in rust.ui.kinds [$(rust_get rust.ui.kinds)], connected $(rust_get rust.connected), error '$(rust_get rust.error)'"
+        rust_restore $k $was
+        return
+    fi
+    why=$(rust_undriven $k)
+    if [ -n "$why" ]; then RC=skip; RT="not driven: $why"; rust_restore $k $was; return; fi
+    home; sleep 2
+    ctl note rust-$k > /dev/null
+    path=$(rust_path $k); pm=$(rust_poll_ms)
+    d0=$(rust_drawn); g0=$(rust_gl_errors)
+    open=no; first=""
+    if [ $k = home ]; then
+        rust_is_open home "$(rust_get $path)" && open=yes
+    else
+        t0=$(uptime_cs); end=$((t0 + RUST_OPEN * 100))
+        rust_trigger $k
+        while [ "$(uptime_cs)" -lt "$end" ]; do
+            if rust_is_open $k "$(rust_get $path)"; then open=yes; first=$((($(uptime_cs) - t0) * 10)); break; fi
+            sleep 0.05
+        done
+    fi
+    if [ $open = yes ]; then
+        sleep 1
+        dpad=""
+        if [ $k = home ]; then
+            # The D-pad as the QML check reads it: Up from where Home's focus is moves it to another layer and Down brings it back. The frames it draws are Home's.
+            f0=$(rust_get rust.ui.home.focusLayer); key_tap 103; sleep 1
+            f1=$(rust_get rust.ui.home.focusLayer); key_tap 108; sleep 1
+            f2=$(rust_get rust.ui.home.focusLayer)
+            if [ "$f1" != "$f0" ] && [ "$f2" = "$f0" ]; then dpad="; dpad ok ($f0 -> $f1 -> $f2)"; else RC=no; dpad="; dpad: focus '$f0' then '$f1' after Up, '$f2' after Down"; fi
+        fi
+        ctl shell > $OUT/rust-$k.json
+        d1=$(rust_drawn); g1=$(rust_gl_errors)
+        drawn=$(( ${d1:-0} - ${d0:-0} )); gl=$(( ${g1:-0} - ${g0:-0} ))
+        RT="${first:+first $first ms (a poll of about $pm ms), }drawn +$drawn, gl errors +$gl$dpad"
+        bud=$(rust_budget $k)
+        if [ -n "$bud" ] && [ "${first:-0}" -gt $(( bud + 2 * pm )) ]; then RC=no; RT="$RT; first frame over the $bud ms bar"; fi
+        [ "$drawn" -ge 1 ] || { RC=no; RT="$RT; the compositor drew no frame while it was up"; }
+        [ "$gl" -eq 0 ] || { RC=no; RT="$RT; GL errors"; }
+        if [ $k != home ]; then
+            rust_close $k
+            n=0; while [ $n -lt $((RUST_OPEN * 2)) ] && rust_is_open $k "$(rust_get $path)"; do sleep 0.5; n=$((n+1)); done
+            if rust_is_open $k "$(rust_get $path)"; then RC=no; RT="$RT; still up $RUST_OPEN s after its close"; fi
+        fi
+    else
+        RC=no; RT="not shown within $RUST_OPEN s of the trigger ($path reads '$(rust_get $path)'; can $(rust_get rust.can))"
+        [ $k = home ] || rust_close $k
+    fi
+    journal_after rust-$k > $OUT/rust-$k.txt
+    # The off switch: the kind goes from the list at once and the client stops answering it; then it is left as it was found.
+    ctl shell rust -$k > /dev/null
+    case ",$(rust_kinds_on)," in *",$k,"*) RC=no; RT="$RT; still on the compositor's list after -$k" ;; esac
+    if rust_wait_answers $k no $RUST_WAIT; then RT="$RT; off ok"; else RC=no; RT="$RT; the client still answers $k $RUST_WAIT s after -$k"; fi
+    rust_restore $k $was
 }
 # What the input method has sent to the fields so far (commits, preedits and keysyms), from the `ctl ime` JSON in file $1.
 ime_typed() { c=$(jnum commits < "$1"); p=$(jnum preedits < "$1"); k=$(jnum keysyms < "$1"); echo $(( ${c:-0} + ${p:-0} + ${k:-0} )); }
@@ -730,6 +878,40 @@ shell)
     detail="${sd# }${bad:+ NOT:$bad} (shell pid $(shell_num pid), starts $(ctl shell | grep -o '"starts":[0-9]*' | cut -d: -f2), exits $(ctl shell | grep -o '"exits":[0-9]*' | cut -d: -f2), luna calls $(ctl shell | grep -o '"lunaCalls":[0-9]*' | cut -d: -f2), refused $(ctl shell | grep -o '"lunaRefused":[0-9]*' | cut -d: -f2); $(where_now))"
     echo "$detail" > $OUT/shell-result.txt
     if [ -z "$bad" ]; then pass shell "$detail"; else fail shell "$detail"; fi
+    ;;
+rust)
+    # The Rust shell's kinds one at a time (docs/research/rust-shell-plan.md, section 6; LUMATV_RUST_KINDS, space or comma separated, names the kinds,
+    # tv_gate.py --rust-kinds): each is switched on (`ctl shell rust +KIND`, which restarts the client with it), read back from the client's own report (it
+    # must be in rust.ui.kinds), shown the way the set shows it, timed to the first reading that says it is up, checked for frames drawn and GL errors
+    # while it is up, closed, and switched off (`-KIND`: gone from the list and from the client's kinds), then left as it was found. A kind the compositor
+    # refuses or the client does not have is SKIPPED, not failed, and so is a built one the gate has no way to open (rust_undriven); the line says which and why.
+    # With the Rust shell unavailable (a bundle without `ui`) nothing runs, and the line says so without a verdict. The kinds list is put back exactly.
+    asked=$(echo "${LUMATV_RUST_KINDS:-home osd toast alert quick picker drawer settings cameras saver menu confirm switcher cards popup capture layout}" | tr ',' ' ')
+    home; sleep 3
+    k0=$(rust_kinds_on)
+    ctl shell > $OUT/rust-start.json
+    sd=""; bad=""; ran=0; skipped=0
+    for k in $asked; do
+        rust_check_kind $k
+        case $RC in
+            ok) ran=$((ran+1)); sd="$sd $k ok ($RT);" ;;
+            skip) skipped=$((skipped+1)); sd="$sd $k SKIPPED ($RT);" ;;
+            *) ran=$((ran+1)); bad="$bad $k ($RT);" ;;
+        esac
+    done
+    # Whatever happened above, the compositor's list is what it was.
+    now=$(rust_kinds_on)
+    if [ "$(rust_sorted "$now")" != "$(rust_sorted "$k0")" ]; then
+        for k in $(echo "$k0" | tr ',' ' '); do ctl shell rust +$k > /dev/null; done
+        for k in $(echo "$now" | tr ',' ' '); do case ",$k0," in *",$k,"*) ;; *) ctl shell rust -$k > /dev/null ;; esac; done
+        [ "$(rust_sorted "$(rust_kinds_on)")" = "$(rust_sorted "$k0")" ] || bad="$bad kinds not restored (found [$k0], now [$(rust_kinds_on)]);"
+    fi
+    home; sleep 1
+    detail="${sd# }${bad:+ NOT:$bad} (kinds found [$k0]; $ran run, $skipped skipped)"
+    echo "$detail" > $OUT/rust-result.txt
+    if [ -n "$bad" ]; then fail rust "$detail"
+    elif [ "$ran" -eq 0 ]; then echo "GATE rust: SKIPPED no kind ran: $detail"
+    else pass rust "$detail"; fi
     ;;
 ime)
     # A text field brings up maliit's keyboard under LumaTV's compositor. LG's Search app (a Qt app, com.webos.app.voice) is launched in its

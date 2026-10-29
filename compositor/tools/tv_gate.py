@@ -5,7 +5,7 @@ the standby check, and the checks that end the live session (Home held on a virt
 killed, the compositor's own hold-Home escape) each get a fresh session. Exit 0 only when every check passed; the result
 lines and files land in /tmp/lumatv-tv-out/out/gate and docs/research/compositor/gate-<date>.txt.
 
-    tv_gate.py [--skip netflix,hdmi,apps,...] [--only keys,ime] [--x1-seconds N] [--x1-strict] [--apps-repeat N] [--x1-rt N] [--x1-callbacks early|landing] [--enable-after] [--frames-callbacks landing] [--frames-quick] [--refresh 120] [--scanout direct] [--force-wake]
+    tv_gate.py [--skip netflix,hdmi,apps,...] [--only keys,ime] [--x1-seconds N] [--x1-strict] [--apps-repeat N] [--rust-kinds home,quick,...|all] [--x1-rt N] [--x1-callbacks early|landing] [--enable-after] [--frames-callbacks landing] [--frames-quick] [--refresh 120] [--scanout direct] [--force-wake]
 
 The gate's rule for the frame check (the x1 probe, 60 s) fails on a gap that is the compositor's: a late flip, the loop slow to take a flip up
 or waiting, callbacks that went out late. A gap that is the client's own wake-up after callbacks that came on time is reported with its count and
@@ -66,8 +66,14 @@ WAKE_GUARD_MINUTES = 15
 # --force-wake (set by the drivers' argument parsers): wake() does not wait for LG's panel refresh.
 FORCE_WAKE = False
 LATER_SESSION_MINUTES = 6
+# The apps check's pass (YouTube then PlxNative, with its waits) is about 45 s, and the rust check's kind takes the client's restarts (on, off, back as found)
+# and its own waits: both lengthen the first session, whose timer must outlast them.
+APPS_PASS_SECONDS = 45
+RUST_KIND_MINUTES = 2
+# The kinds the rust check drives by default (tools/tv-gate.sh: LUMATV_RUST_KINDS unset).
+RUST_KINDS_ALL = 16
 # Every check that can be skipped or picked with --only, in the order the gate runs them.
-CHECKS = ["firmware", "homeheld", "volume", "x1", "netflix", "hdmi", "apps", "keys", "ime", "shell", "frames", "frames-load", "standby", "homekey", "wd-hang", "wd-crash", "escape"]
+CHECKS = ["firmware", "homeheld", "volume", "x1", "netflix", "hdmi", "apps", "keys", "ime", "shell", "rust", "frames", "frames-load", "standby", "homekey", "wd-hang", "wd-crash", "escape"]
 # The surface frame gate (docs/research/perf/gate.py) under LumaTV's compositor: LumaTV's own surfaces, drawn by the shell client. A regular round
 # runs the quick set (--frames-quick): the original four and the walks that press nothing but the D-pad on Home, Settings and the library. The
 # full set (the default) adds the ones that change a setting for their run and put it back (the app switcher, smooth transitions, which
@@ -293,6 +299,7 @@ def main():
     ap.add_argument("--only", default="")
     ap.add_argument("--x1-seconds", type=int, default=60)
     ap.add_argument("--apps-repeat", type=int, default=1, help="run the apps check's YouTube-then-PlxNative pair this many times (1 to 30): PlxNative's close crashed in 9 of 10 of round 17's, so the fix is judged over a run of them")
+    ap.add_argument("--rust-kinds", default="", help="run the rust check (the Rust shell's kinds one at a time: on, shown, first frame, frames, GL errors, off, put back; a kind not built is SKIPPED) over these kinds, comma separated, or `all`; the check is off unless this is given or --only names it. The kinds the compositor keeps (shell-rust.conf) are put back")
     ap.add_argument("--x1-rt", type=int, default=0, help="run the x1 client SCHED_FIFO N (1 to 99) instead of time-shared: an A/B for the client's own wake-ups against the set's other tasks, the rule unchanged")
     ap.add_argument("--x1-callbacks", choices=["early", "landing"], help="when every client's frame callbacks go out for the x1 run (`ctl callbacks clients`): with the frame's draw (early, the default since 112d9cc) or at the flip (landing), the rule unchanged")
     ap.add_argument("--enable-after", action="store_true")
@@ -310,6 +317,8 @@ def main():
     ap.add_argument("--force-wake", action="store_true",
                     help="wake the set without waiting for LG's panel refresh (a run due at standby is left alone until 15 minutes of standby have passed: refresh_guard.py)")
     a = ap.parse_args()
+    if a.rust_kinds and not re.fullmatch(r"all|[a-z]+(,[a-z]+)*", a.rust_kinds):
+        ap.error("--rust-kinds is `all` or kind names (lowercase letters) separated by commas")
     if not 1 <= a.apps_repeat <= 30:
         ap.error("--apps-repeat is a count of passes, 1 to 30")
     if not 0 <= a.x1_rt <= 99:
@@ -329,6 +338,7 @@ def main():
     tv.put(os.path.join(here, "tv-recover-home.sh"), "/tmp/lumatv/recover-home.sh")
     tv.put(os.path.join(here, "tv-uinput-key.py"), "/tmp/lumatv/uinput-key.py")
     tv.put(os.path.join(here, "tv-wlprobe.py"), "/tmp/lumatv/wlprobe.py")
+    tv.put(os.path.join(here, "tv-rustjson.py"), "/tmp/lumatv/rustjson.py")
     tv.put(LIBRARY, "/tmp/lumatv/compositor.sh")
     if os.path.exists(VERIFIED_LIST):
         tv.put(VERIFIED_LIST, "/tmp/lumatv/verified.list")
@@ -346,6 +356,12 @@ def main():
     # The loaded run is opt-in: `--frames-load` adds it (whatever --only names, unless --skip names it), `--only frames-load` is it alone.
     run_load = "frames-load" in only or (a.frames_load and "frames-load" not in skipped)
     first_minutes = FIRST_SESSION_MINUTES + max(0, a.x1_seconds - 60 + 59) // 60
+    if "apps" not in skip:
+        first_minutes += (APPS_PASS_SECONDS * (a.apps_repeat - 1) + 59) // 60
+    run_rust = "rust" not in skip and ("rust" in only or bool(a.rust_kinds))
+    rust_kinds = [k for k in a.rust_kinds.split(",") if k not in ("", "all")]
+    if run_rust:
+        first_minutes += RUST_KIND_MINUTES * (len(rust_kinds) or RUST_KINDS_ALL)
     if "standby" not in skip and not a.force_wake:
         first_minutes += WAKE_GUARD_MINUTES
     # The frame gate's `enable --session` finds the first session live and does not re-arm its timer, so the first session's timer must cover the frame gate too
@@ -409,6 +425,9 @@ def main():
         if "shell" not in skip:
             step("shell", "sh /tmp/lumatv/gate.sh shell", 400)
             avr_mute(True)   # the volume key of the check moved the receiver's mute
+        if run_rust:
+            step("rust", "%ssh /tmp/lumatv/gate.sh rust" % ("LUMATV_RUST_KINDS=%s " % ",".join(rust_kinds) if rust_kinds else ""),
+                 120 + 150 * (len(rust_kinds) or RUST_KINDS_ALL))
         step("evidence", "sh /tmp/lumatv/gate.sh evidence", 120)
         if run_frames or run_load:
             # A session of its own: the surface gate waits for a 90 s old compositor and runs several minutes.
