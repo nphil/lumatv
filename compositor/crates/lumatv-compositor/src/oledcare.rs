@@ -12,7 +12,7 @@
 //! shell window is on the screen: the clock stands still while none is, so the time on each position is the time shown, and nothing
 //! costs anything while hidden.
 //!
-//! While the shell's screensaver is up the care stands aside (the saver moves, is mostly black and dims over an hour: [`Care::saver`]).
+//! While the shell's screensaver is up the care stands aside (the saver moves, is mostly black and dims over minutes: [`Care::saver`]).
 //!
 //! **Dim.** Home (the status bar, the clock and the dock stay put for hours on a Home nobody touches, when the saver is off) that has been
 //! still (no key or pointer, and fewer than [`MOVING_PER_S`] commits a second) for `dimAfterMin` is dimmed over `dimOverMin` down to
