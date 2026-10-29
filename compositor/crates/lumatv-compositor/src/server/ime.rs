@@ -974,7 +974,19 @@ pub fn own_publish(state: &mut State) {
         }
         None => serde_json::json!({"active": false, "show": false}),
     };
-    state.shell.push_if_changed("ime", doc);
+    // the client that answers the keyboard gets the field; the other is told there is none (a client that was the keyboard's a moment ago)
+    let none = serde_json::json!({"active": false, "show": false});
+    if state.shell_rust.answers("keyboard") {
+        state.shell_rust.push_if_changed("ime", doc);
+        if state.shell.enabled() || state.shell.connected {
+            state.shell.push_if_changed("ime", none);
+        }
+    } else {
+        state.shell.push_if_changed("ime", doc);
+        if state.shell_rust.enabled() {
+            state.shell_rust.push_if_changed("ime", none);
+        }
+    }
 }
 
 /// The field asks for its keyboard: the shell is told, and has [`OWN_SHOW_WITHIN`] to say it is up.
@@ -1124,7 +1136,12 @@ pub fn own_op(state: &mut State, body: &serde_json::Value) {
 fn own_nav(state: &mut State, code: u32, pressed: bool, repeat: bool) {
     let Some(name) = own_key_name(code) else { return };
     state.ime.own.counts.nav += 1;
-    state.shell.push("imekey", serde_json::json!({"k": name, "d": pressed, "r": repeat}));
+    let event = serde_json::json!({"k": name, "d": pressed, "r": repeat});
+    if state.shell_rust.answers("keyboard") {
+        state.shell_rust.push("imekey", event);
+    } else {
+        state.shell.push("imekey", event);
+    }
 }
 
 /// The shell's client went: a field it served leaves (the next one goes to LG's keyboard until the shell is back).

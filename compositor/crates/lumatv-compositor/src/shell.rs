@@ -574,7 +574,9 @@ impl State {
     }
 
     fn shell_client_gone(&mut self, why: &str) {
-        crate::server::ime::own_gone(self);
+        if !self.shell_rust.answers("keyboard") {
+            crate::server::ime::own_gone(self);
+        }
         self.switcher_reset();
         if self.shell.connected || !self.shell.luna_tags.is_empty() {
             self.journal(format!("shell: client gone ({why}); {} luna subscription(s) cancelled", self.shell.luna_tags.iter().filter(|t| t.subscribe).count()));
@@ -742,7 +744,9 @@ impl State {
             }
             Msg::Ime(body) => {
                 self.shell.note_seen(now);
-                crate::server::ime::own_op(self, &body);
+                if !self.shell_rust.answers("keyboard") {
+                    crate::server::ime::own_op(self, &body);
+                }
             }
             Msg::Switcher(body) => {
                 self.shell.note_seen(now);
@@ -850,13 +854,14 @@ impl State {
     /// wherever the scene or the input state changed (`luna_notify` and the shell's own mappings). The Rust client gets the same.
     pub fn shell_sync_topics(&mut self) {
         self.shell_rust_sync_topics();
+        // the field that is asking goes to the client that answers the keyboard, the other is told there is none
+        crate::server::ime::own_publish(self);
         if !self.shell.enabled() && !self.shell.connected {
             return;
         }
         for (topic, value) in self.shell_topic_values() {
             self.shell.push_if_changed(&topic, value);
         }
-        crate::server::ime::own_publish(self);
         self.switcher_sync_topics();
         self.screencap_publish();
     }

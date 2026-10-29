@@ -417,3 +417,76 @@ fn a_field_that_never_asks_for_its_keyboard_still_gets_the_shells_at_activation(
     a.client.conn.flush().unwrap();
     until(&server, "the keyboard is hidden by the app", |s| s.shell.topic("ime").is_some_and(|t| t["show"] == false));
 }
+
+/// [`setup`] with the Rust client answering the kind `keyboard` (its channel is open and nothing runs behind it) instead of the QML client.
+fn setup_rust() -> (Server, PathBuf) {
+    let server = Server::start();
+    let dir = std::env::temp_dir().join(format!("lumatv-ime-own-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::SeqCst)));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join(OWN_FLAG), "").unwrap();
+    let port = {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        l.local_addr().unwrap().port()
+    };
+    let d = dir.clone();
+    server.eval(move |s| {
+        s.config.data_dir = d;
+        s.shell_rust.kinds = vec!["keyboard".to_string()];
+        s.shell_rust_open(port, "token".into()).unwrap();
+        s.shell_rust_handle(Msg::Connected);
+        s.shell_rust_handle(Msg::Ui { can: Some(vec!["keyboard".to_string()]), wants: None, live: None, state: None });
+    });
+    (server, dir)
+}
+
+fn rust_topic(server: &Server, name: &'static str) -> Value {
+    server.eval(move |s| s.shell_rust.topic(name).cloned().unwrap_or(Value::Null))
+}
+
+#[test]
+fn the_rust_client_that_answers_the_keyboard_is_told_the_field_and_the_keys_and_what_it_types_reaches_the_field() {
+    let (mut server, dir) = setup_rust();
+    assert!(server.eval(|s| s.shell_can("keyboard")), "the Rust client's word is the one that counts");
+    let mut a = app(&mut server, "Search");
+    a.model.set_content_type(0x7, 6);
+    a.model.set_enter_key_type(5);
+    a.model.set_surrounding_text("abc".into(), 3, 3);
+    a.activate();
+    a.model.show_input_panel();
+    a.client.conn.flush().unwrap();
+    assert!(a.client.wait_until(WAIT, |s| s.ime.model_enters == 1), "the field is told it entered");
+    until(&server, "the Rust client is told the field wants its keyboard", |s| s.shell_rust.topic("ime").is_some_and(|t| t["show"] == true));
+    let t = rust_topic(&server, "ime");
+    assert_eq!((t["purpose"].clone(), t["enter"].clone(), t["text"].clone()), (json!(6), json!(5), json!(true)));
+    assert!(!t.to_string().contains("abc"), "the field's words never leave the compositor: {t}");
+    assert_eq!(server.eval(|s| s.ime.asked), 0, "LG's input method was never asked for");
+    let model = t["model"].as_u64().unwrap();
+
+    // what the QML client says is not the keyboard's while the Rust client answers it
+    say(&server, json!({"op": "shown", "model": model, "x": 0, "y": 626, "w": 1920, "h": 454}));
+    a.client.roundtrip();
+    assert!(!server.eval(|s| s.keyboard_up()), "a request through the QML client's route is dropped");
+
+    // the Rust client's sheet on the screen: the field is told where, the remote's keys are the keyboard's
+    server.eval(move |s| s.shell_rust_handle(Msg::Ime(json!({"op": "shown", "model": model, "x": 0, "y": 626, "w": 1920, "h": 454}))));
+    assert!(a.client.wait_until(WAIT, |s| s.ime.panel_states == vec![1]), "{:?}", a.client.state.ime.panel_states);
+    assert!(server.eval(|s| s.keyboard_up() && s.ime_grabbing()));
+    server.eval(|s| s.key_event(SeatId(0), KEY_RIGHT, true, false));
+    assert_eq!(rust_topic(&server, "imekey"), json!({"k": "right", "d": true, "r": false}));
+    server.eval(|s| s.key_event(SeatId(0), KEY_RIGHT, false, false));
+    assert_eq!(rust_topic(&server, "imekey"), json!({"k": "right", "d": false, "r": false}));
+    assert!(server.eval(|s| s.shell.topic("imekey").is_none()), "the QML client hears nothing");
+
+    // what it types: text and Enter, then Back hides it and the field stays
+    server.eval(move |s| {
+        s.shell_rust_handle(Msg::Ime(json!({"op": "text", "model": model, "text": "h"})));
+        s.shell_rust_handle(Msg::Ime(json!({"op": "key", "model": model, "key": "enter"})));
+    });
+    assert!(a.client.wait_until(WAIT, |s| s.ime.commits == ["h"] && s.ime.keysyms.len() >= 2), "the text and Enter reach the field");
+    server.eval(move |s| s.shell_rust_handle(Msg::Ime(json!({"op": "hide", "model": model}))));
+    assert!(a.client.wait_until(WAIT, |s| s.ime.panel_states == vec![1, 0]));
+    assert_eq!(rust_topic(&server, "ime")["show"], false);
+    assert!(!server.eval(|s| s.keyboard_up()));
+
+    let _ = std::fs::remove_dir_all(dir);
+}

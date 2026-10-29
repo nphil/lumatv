@@ -334,7 +334,9 @@ pub fn pointer_motion(state: &mut State, x: i32, y: i32) -> bool {
     state.seat.cursor_shown_at = Some(std::time::Instant::now());
     state.seat.motions += 1;
     state.pointer_sync();
-    let hit = state.scene.surface_at(x, y);
+    // the Rust client's layers have the pointer where they are (the sample goes over its key socket) and the app under them hears nothing
+    let rust = state.shell_rust_pointer_sample(x, y, true);
+    let hit = if rust { None } else { state.scene.surface_at(x, y) };
     let target = hit.map(|(s, _)| s);
     let time = crate::output::monotonic_ms();
     if target != state.seat.pointer_focus {
@@ -358,8 +360,8 @@ pub fn pointer_motion(state: &mut State, x: i32, y: i32) -> bool {
     } else if let Some((_, r)) = hit {
         state.seat.pointer_focus_rect = r;
     }
-    let Some(n) = state.seat.pointer_focus else { return false };
-    let Some(res) = state.seat.surfaces.get(&n).cloned() else { return false };
+    let Some(n) = state.seat.pointer_focus else { return rust };
+    let Some(res) = state.seat.surfaces.get(&n).cloned() else { return rust };
     let r = state.seat.pointer_focus_rect;
     let mut sent = false;
     for p in of_client(&state.seat.pointers, &res) {
@@ -371,6 +373,11 @@ pub fn pointer_motion(state: &mut State, x: i32, y: i32) -> bool {
 
 /// OK while the cursor shows: `BTN_LEFT` to the surface under the pointer.
 pub fn pointer_button(state: &mut State, pressed: bool) -> bool {
+    if state.shell_rust_pointer_button(pressed) {
+        state.seat.last_input = "pointer";
+        state.seat.cursor_shown_at = Some(std::time::Instant::now());
+        return true;
+    }
     let Some(n) = state.seat.pointer_focus else { return false };
     let Some(res) = state.seat.surfaces.get(&n).cloned() else { return false };
     let serial = state.next_serial();
@@ -389,6 +396,8 @@ pub fn pointer_button(state: &mut State, pressed: bool) -> bool {
 /// is left, so a hover state does not linger.
 pub fn hide_cursor(state: &mut State) {
     set_cursor_visible(state, false);
+    let (x, y) = state.seat.pointer_position;
+    state.shell_rust_pointer_sample(x, y, false);
     if let Some(old) = state.seat.pointer_focus.take()
         && let Some(res) = state.seat.surfaces.get(&old).cloned()
     {

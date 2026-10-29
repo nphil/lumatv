@@ -34,7 +34,7 @@ use crate::shell::{
 
 /// The kinds the Rust shell may answer, in the order `ctl shell` lists them. `quick`, `picker` and `drawer` are the panels LumaTV opens
 /// itself (`State::shell_show`): while the Rust shell answers one, its `show` goes to it and the QML client's panel stays shut.
-pub const KINDS: &[&str] = &["home", "osd", "settings", "toast", "cameras", "quick", "picker", "drawer", "menu", "confirm", "switcher", "entry", "alert", "saver", "capture", "cards", "popup", "layout"];
+pub const KINDS: &[&str] = &["home", "osd", "settings", "toast", "cameras", "quick", "picker", "drawer", "menu", "confirm", "switcher", "entry", "keyboard", "alert", "saver", "capture", "cards", "popup", "layout"];
 /// Where the system layer's layers begin in the engine's z: everything the Rust shell draws over the windows is at this or more.
 pub const SYSTEM_Z: i32 = 1000;
 const TOKEN_FILE: &str = "lumatv-ui.token";
@@ -99,6 +99,12 @@ pub struct RustShell {
     pub wants: bool,
     pub takes: Vec<String>,
     pub took: Vec<(u32, Instant)>,
+    /// The pointer is over the client's layers: its samples go over the key socket until it leaves (`State::shell_rust_pointer_sample`).
+    pub pointer_in: bool,
+    /// Where the last sample was.
+    pointer_at: (f32, f32),
+    /// The buttons of the last sample (bit 0: the left button).
+    pub buttons: u32,
     pub live: bool,
     pub ui_state: Value,
     pub luna_tags: Vec<LunaTag>,
@@ -135,6 +141,9 @@ impl Default for RustShell {
             wants: false,
             takes: Vec::new(),
             took: Vec::new(),
+            pointer_in: false,
+            pointer_at: (0.0, 0.0),
+            buttons: 0,
             live: false,
             ui_state: Value::Null,
             luna_tags: Vec::new(),
@@ -328,6 +337,14 @@ impl State {
         self.shell_rust.next_start = Some(Instant::now() + START_ALONE);
     }
 
+    /// Opens the channel on `port` with `token` for a client the caller runs itself (the tests, which answer for it).
+    pub fn shell_rust_open(&mut self, port: u16, token: String) -> std::io::Result<()> {
+        let listener = TcpListener::bind(("127.0.0.1", port))?;
+        self.shell_rust.link = Some(spawn_server(listener, token)?);
+        self.shell_rust.port = port;
+        Ok(())
+    }
+
     /// Starts the client at the next tick instead of waiting for SAM's Home (the tests, `ctl shell restart`).
     pub fn shell_rust_start_now(&mut self) {
         if self.shell_rust.link.is_some() && self.shell_rust.child.is_none() {
@@ -507,6 +524,9 @@ impl State {
     }
 
     fn shell_rust_client_gone(&mut self, why: &str) {
+        if self.shell_rust.answers("keyboard") {
+            crate::server::ime::own_gone(self);
+        }
         if self.shell_rust.connected || !self.shell_rust.luna_tags.is_empty() {
             self.journal(format!(
                 "shell-rust: client gone ({why}); {} luna subscription(s) cancelled",
@@ -705,9 +725,12 @@ impl State {
                     self.shell_rust.cancelled_early.push(tag);
                 }
             }
-            Msg::Ime(_) => {
-                // the keyboard is the QML client's until its kind moves
+            Msg::Ime(body) => {
                 self.shell_rust.note_seen(now);
+                // the keyboard of the apps' fields: the QML client's until the kind moves
+                if self.shell_rust.answers("keyboard") {
+                    crate::server::ime::own_op(self, &body);
+                }
             }
             Msg::Switcher(body) => {
                 self.shell_rust.note_seen(now);
@@ -831,11 +854,45 @@ impl State {
         true
     }
 
-    /// A pointer sample for the Rust client, while its layer wants the keys (the sample's rate is the pacer's).
+    /// A pointer sample for the Rust client (the caller decides that it has the pointer: [`State::shell_rust_pointer_sample`]).
     pub fn shell_rust_pointer(&mut self, x: f32, y: f32, buttons: u32, visible: bool) {
-        if self.shell_rust_wants_keys() {
-            self.shell_rust.send_pointer(x, y, buttons, visible);
+        self.shell_rust.send_pointer(x, y, buttons, visible);
+    }
+
+    /// Whether the Rust client has the pointer at (`x`, `y`): its layer wants the keys (Home in front, a panel up), or the point is on the sheet of
+    /// its keyboard (the apps' fields: the app keeps the keys, the sheet is the client's).
+    pub fn shell_rust_owns_pointer(&self, x: i32, y: i32) -> bool {
+        self.shell_rust.connected
+            && self.shell_rust.keys.is_some()
+            && (self.shell_rust.wants || (self.shell_rust.answers("keyboard") && self.scene.shell_pointer.is_some_and(|r| r.contains(x, y))))
+    }
+
+    /// The pointer is at (`x`, `y`), shown or not: the client that has it gets the sample, and the client that had it is told once that it
+    /// went. Returns whether the Rust client has it (the app under it hears nothing).
+    pub fn shell_rust_pointer_sample(&mut self, x: i32, y: i32, visible: bool) -> bool {
+        let owns = visible && self.shell_rust_owns_pointer(x, y);
+        if owns {
+            self.shell_rust.pointer_in = true;
+            self.shell_rust.pointer_at = (x as f32, y as f32);
+            let buttons = self.shell_rust.buttons;
+            self.shell_rust.send_pointer(x as f32, y as f32, buttons, true);
+        } else if self.shell_rust.pointer_in {
+            self.shell_rust.pointer_in = false;
+            self.shell_rust.buttons = 0;
+            self.shell_rust.send_pointer(x as f32, y as f32, 0, false);
         }
+        owns
+    }
+
+    /// The remote's OK (or a button) while the pointer is over the Rust client's layers: its click.
+    pub fn shell_rust_pointer_button(&mut self, pressed: bool) -> bool {
+        if !self.shell_rust.pointer_in {
+            return false;
+        }
+        self.shell_rust.buttons = u32::from(pressed);
+        let (x, y) = self.shell_rust.pointer_at;
+        self.shell_rust.send_pointer(x, y, self.shell_rust.buttons, true);
+        true
     }
 
     /// `ctl shell`'s `rust` part.
@@ -1193,5 +1250,87 @@ mod tests {
         assert_eq!(change_kinds(&kinds, &["-osd", "+toast"]).unwrap(), vec!["toast"]);
         assert!(change_kinds(&kinds, &["osd"]).is_err());
         assert!(change_kinds(&kinds, &["+bogus"]).is_err());
+    }
+
+    /// The state of `keys_go_over_the_key_socket...`: a connected Rust client with a key socket whose other end is returned.
+    fn with_key_socket(state: &mut State) -> UnixStream {
+        let (ours, theirs) = UnixStream::pair().unwrap();
+        ours.set_nonblocking(true).unwrap();
+        state.shell_rust.keys = Some(ours);
+        theirs
+    }
+
+    fn lines(mut reader: UnixStream) -> Vec<Value> {
+        reader.set_read_timeout(Some(Duration::from_millis(200))).unwrap();
+        let mut text = String::new();
+        let mut buf = [0u8; 4096];
+        while let Ok(n) = reader.read(&mut buf) {
+            if n == 0 {
+                break;
+            }
+            text.push_str(std::str::from_utf8(&buf[..n]).unwrap());
+            if n < buf.len() {
+                break;
+            }
+        }
+        text.lines().map(|l| serde_json::from_str(l).unwrap()).collect()
+    }
+
+    #[test]
+    fn the_pointer_goes_to_the_rust_client_where_its_layer_wants_the_keys_or_on_the_sheet_of_its_keyboard_and_nowhere_else() {
+        let (mut state, _dir) = state_with("keyboard");
+        state.shell_rust_handle(Msg::Connected);
+        state.shell_rust_handle(Msg::Ui { can: Some(vec!["keyboard".into()]), wants: Some(false), live: None, state: None });
+        let theirs = with_key_socket(&mut state);
+        // the layer does not want the keys and no keyboard is up: the pointer is the apps'
+        assert!(!state.shell_rust_pointer_sample(100, 900, true));
+        assert!(!state.shell_rust_pointer_button(true), "no click is the client's either");
+        // a keyboard sheet at the foot: a sample over it is the client's, one beside it is the app's, and the client is told once that it left
+        state.scene.shell_pointer = Some(crate::Rect::new(0, 700, 1920, 380));
+        assert!(state.shell_rust_pointer_sample(100, 900, true));
+        assert!(state.shell_rust_pointer_button(true));
+        assert!(state.shell_rust_pointer_button(false));
+        assert!(state.shell_rust_pointer_sample(110, 900, true));
+        assert!(!state.shell_rust_pointer_sample(110, 400, true));
+        assert!(!state.shell_rust_pointer_sample(120, 400, true), "nothing more once it is gone");
+        assert_eq!(
+            lines(theirs),
+            vec![
+                json!({"pointer": {"x": 100.0, "y": 900.0, "buttons": 0, "visible": true}}),
+                json!({"pointer": {"x": 100.0, "y": 900.0, "buttons": 1, "visible": true}}),
+                json!({"pointer": {"x": 100.0, "y": 900.0, "buttons": 0, "visible": true}}),
+                json!({"pointer": {"x": 110.0, "y": 900.0, "buttons": 0, "visible": true}}),
+                json!({"pointer": {"x": 110.0, "y": 400.0, "buttons": 0, "visible": false}}),
+            ]
+        );
+        // a QML keyboard is not the Rust client's sheet
+        let (mut qml, _dir2) = state_with("osd");
+        qml.shell_rust_handle(Msg::Connected);
+        let _theirs = with_key_socket(&mut qml);
+        qml.scene.shell_pointer = Some(crate::Rect::new(0, 700, 1920, 380));
+        assert!(!qml.shell_rust_pointer_sample(100, 900, true));
+        // while its layer wants the keys the pointer is the client's everywhere, and the cursor going ends it
+        state.shell_rust_handle(Msg::Ui { can: None, wants: Some(true), live: None, state: None });
+        assert!(state.shell_rust_pointer_sample(5, 5, true));
+        assert!(!state.shell_rust_pointer_sample(5, 5, false), "a cursor that is hidden is nobody's");
+    }
+
+    #[test]
+    fn the_field_and_the_keys_of_the_keyboard_go_to_the_client_that_answers_it_and_the_other_is_told_there_is_none() {
+        let (mut state, _dir) = state_with("keyboard");
+        state.shell_handle(Msg::Connected);
+        state.shell_rust_handle(Msg::Connected);
+        state.shell_sync_topics();
+        assert_eq!(state.shell_rust.topic("ime"), Some(&json!({"active": false, "show": false})));
+        assert_eq!(state.shell.topic("ime"), Some(&json!({"active": false, "show": false})));
+        state.shell_handle(Msg::Ui { can: Some(vec!["keyboard".into()]), wants: None, live: None, state: None });
+        assert!(!state.shell_can("keyboard"), "the QML client's word does not count while the Rust client answers the kind");
+        state.shell_rust_handle(Msg::Ui { can: Some(vec!["keyboard".into()]), wants: None, live: None, state: None });
+        assert!(state.shell_can("keyboard"));
+        // a kind that is not the Rust client's stays the QML client's
+        let (mut qml, _dir2) = state_with("osd");
+        qml.shell_handle(Msg::Connected);
+        qml.shell_handle(Msg::Ui { can: Some(vec!["keyboard".into()]), wants: None, live: None, state: None });
+        assert!(qml.shell_can("keyboard"));
     }
 }

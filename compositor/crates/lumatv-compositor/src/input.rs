@@ -387,7 +387,7 @@ impl State {
         self.scene.input(crate::output::monotonic_ns());
         // While the Magic Remote's cursor shows, OK is a click on what it points at (LG's behaviour); an arrow or
         // Back hides the cursor and goes on as a key.
-        if matches!(code, code::KEY_ENTER | code::KEY_OK) && self.seat.cursor_visible && self.seat.pointer_focus.is_some() {
+        if matches!(code, code::KEY_ENTER | code::KEY_OK) && self.seat.cursor_visible && (self.seat.pointer_focus.is_some() || self.shell_rust.pointer_in) {
             if seat::pointer_button(self, pressed) {
                 self.keys.delivered += 1;
                 return;
