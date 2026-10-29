@@ -414,6 +414,16 @@ impl Queue {
         had
     }
 
+    /// The plugin ended some records (or they expired): the cards of `src` (`note` or `card`) whose key is not in `present` go, and a record
+    /// gone from the hub is forgotten as dismissed, so that its id posted again is news. Returns whether a card went.
+    pub fn reconcile(&mut self, src: &str, present: &std::collections::HashSet<String>) -> bool {
+        let before = self.list.len();
+        self.list.retain(|e| e.src != src || present.contains(&e.key));
+        let prefix = if src == "note" { "n:" } else { "c:" };
+        self.dismissed.retain(|k, _| !k.starts_with(prefix) || present.contains(k));
+        before != self.list.len()
+    }
+
     /// The person dismissed it (Back, or OK after its action ran): gone, and not back for this revision.
     pub fn dismiss(&mut self, key: &str, now: u64) -> bool {
         let Some(e) = self.remove(key) else { return false };
@@ -482,7 +492,8 @@ impl Queue {
             });
             let best = if ctx.camera { 0 } else { order.first().map_or(0, |&i| self.list[i].priority) };
             let slots = cfg.max_visible.saturating_sub(usize::from(ctx.camera));
-            let mut y = if ctx.camera { ctx.top } else { cfg.top };
+            // the column's start is the caller's: the placement's place for it, under the camera's card when that is up
+            let mut y = ctx.top;
             let mut have_score = false;
             for &i in &order {
                 if chosen.len() >= slots {

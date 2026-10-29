@@ -142,6 +142,8 @@ pub struct Shell {
     settings: SettingsHost,
     /// The panels: the quick panel, the input picker and the notification drawer.
     panels: Panels,
+    /// The press of OK or Back that is being routed was taken by a card (the pop-up's or the overlay queue's): the screens under do not see it.
+    cards_took: bool,
     /// The last report sent, so an unchanged one is not sent again.
     reported: Option<Value>,
     live: bool,
@@ -174,6 +176,7 @@ impl Shell {
             kit,
             engine,
             kinds,
+            cards_took: false,
             reported: None,
             live: false,
             redraw: false,
@@ -294,8 +297,9 @@ impl Shell {
         // Who had the keys when this input arrived: a key that answers an alert or wakes the saver was theirs, and the screens under them
         // never see it (the key that wakes the TV does nothing else).
         let key_like = matches!(input, Input::Key { .. } | Input::Pointer { .. });
-        let layer_had = key_like && self.sys.wants(&self.kinds);
-        let system_had = key_like && self.system_wants();
+        let cards_had = matches!(input, Input::Key { .. }) && self.cards_took;
+        let layer_had = key_like && (self.sys.wants(&self.kinds) || cards_had);
+        let system_had = key_like && (self.system_wants() || cards_had);
         if self.kinds.osd {
             for e in self.volume.update(input, now) {
                 self.carry(e, now, acts);
@@ -498,6 +502,9 @@ impl Shell {
                     self.settings.key_taken(&mut self.engine);
                     self.panels.on_key(&self.kit, &mut self.engine);
                 }
+                // a card that has been up long enough takes OK and Back, and the press' release and repeats: nothing under it sees them
+                let key_input = Input::Key { name: name.clone(), down: *down, repeat: *repeat };
+                self.cards_took = self.sys.takes_key(&self.kinds, &key_input, now);
                 // a question of the system layer (an alert, a PIN prompt) has the keys before Settings does
                 let sys_asks = self.settings.is_open() && self.sys.wants(&self.kinds);
                 if sys_asks {
@@ -507,8 +514,8 @@ impl Shell {
                 } else {
                     self.feed(&Input::Key { name: name.clone(), down: *down, repeat: *repeat }, now, &mut acts);
                 }
-                // a panel has the keys unless a question of the system layer or Settings is over it
-                if !self.sys.wants(&self.kinds) && !self.settings.is_open() {
+                // a panel has the keys unless a question of the system layer or Settings is over it, or a card took the key
+                if !self.sys.wants(&self.kinds) && !self.settings.is_open() && !self.cards_took {
                     for e in self.panels.key(&self.kinds, name, *down, *repeat, now) {
                         self.carry(e, now, &mut acts);
                     }
@@ -516,6 +523,7 @@ impl Shell {
                 }
             }
             KeyEvent::Pointer { x, y, buttons, visible } => {
+                self.cards_took = false;
                 let now_ns = self.kit.ui.scene.now_ns();
                 let sample = Sample { x: *x, y: *y, buttons: *buttons, visible: *visible };
                 if let Some(target) = self.sys.pointer(&self.kit, &mut self.engine, now_ns, sample) {
@@ -542,6 +550,7 @@ impl Shell {
             }
             KeyEvent::Closed => {}
         }
+        self.cards_took = false;
         self.after(now, &mut acts);
         acts
     }
@@ -575,6 +584,13 @@ impl Shell {
 
     /// Draws what changed and reports when the report changed.
     fn after(&mut self, now: u64, acts: &mut Vec<Act>) {
+        // what the panels, Settings and the Cameras viewer have up is what the cards and the pop-up wait for
+        let host_busy = self.panels.wants(&self.kinds) || (self.kinds.settings && self.settings.is_open());
+        let viewer = self.kinds.cameras && self.cameras.wants();
+        for e in self.sys.set_host(&self.kinds, host_busy, viewer, now) {
+            self.carry(e, now, acts);
+        }
+        self.layer_intents(now, acts);
         if self.sys.take_redraw() {
             self.redraw = true;
         }
@@ -599,6 +615,9 @@ impl Shell {
             self.redraw = false;
             let mut live = false;
             if self.kinds.osd {
+                // a mute mark the owner placed drifts about its place, clear of the cards that are up
+                let avoid = self.sys.avoid(&self.kinds);
+                self.volume.set_placed(self.volume_surface.mark_places(&avoid));
                 let view = self.volume.view();
                 match self.volume_surface.apply(&mut self.kit, &view, now) {
                     Ok(on) => live |= on,
@@ -652,6 +671,29 @@ impl Shell {
             if self.reported.as_ref() != Some(&report) {
                 self.reported = Some(report.clone());
                 acts.push(Act::Channel(Outbound { method: "POST", path: "/v1/ui".into(), body: Some(report), tag: None }));
+            }
+        }
+    }
+
+    /// What the cards and the pop-up ask that is not theirs to do: OK on the camera card opens the Cameras app's full view, OK on a card with no
+    /// action of its own opens the notification drawer.
+    fn layer_intents(&mut self, now: u64, acts: &mut Vec<Act>) {
+        for i in self.sys.take_intents() {
+            match i {
+                crate::system::layer::Intent::OpenCamera(camera) if self.kinds.cameras => {
+                    for e in self.cameras.open_full(&camera, now) {
+                        self.carry(e, now, acts);
+                    }
+                    self.redraw = true;
+                }
+                crate::system::layer::Intent::OpenCamera(camera) => acts.push(Act::Log(format!("camera card: the full view of {camera} is not this process's"))),
+                crate::system::layer::Intent::OpenDrawer => {
+                    let mut out = Vec::new();
+                    self.panels.show(Which::Drawer, false, &self.kinds, now, &mut out);
+                    for e in out {
+                        self.carry(e, now, acts);
+                    }
+                }
             }
         }
     }
@@ -883,6 +925,14 @@ impl Shell {
         }
     }
 
+    /// The owner placed the pop-ups somewhere else (`layout.overlays`): every surface that has a place reads it from now on.
+    fn set_places(&mut self, theme: &Value) {
+        let user = lumatv_placement::Registry::shipped().user_from_json(theme.pointer("/layout/overlays").unwrap_or(&Value::Null));
+        self.volume_surface.set_user(user.clone());
+        self.toast_surface.set_user(user.clone());
+        self.sys.set_user(user);
+    }
+
     /// The owner's theme file changed (Settings wrote it): the look in force is the shipped theme under it. Returns the merged theme.
     pub fn reload_theme(&mut self, file: &Value) -> Value {
         let tokens = lumatv_tokens::Tokens::from_json(file);
@@ -894,6 +944,7 @@ impl Shell {
         let scale = file.pointer("/type/scale").and_then(Value::as_f64).map_or(self.kit.text_scale, |s| (s as f32).clamp(1.0, 2.0));
         let theme = tokens.json().clone();
         self.kit.retheme(tokens, mode, scale);
+        self.set_places(&theme);
         self.settings.set_theme(theme.clone());
         self.restyle();
         theme

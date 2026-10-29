@@ -3,10 +3,14 @@
 //! opens and drops the [`Sheet`] when it has gone (the scene's budget rule), so nothing hidden is kept alive.
 
 use crate::kit::Kit;
+use crate::kit::glyph;
+use crate::kit::hint::{self, Hint};
 use crate::kit::icon;
 use crate::kit::motion::Beat;
 use crate::kit::pane::Pane;
-use crate::kit::text::Text;
+use crate::kit::text::{Text, role_style, width_of};
+use lumatv_tokens::TypeRole;
+use ui::components::Align;
 use compositor_protocol::{Props, Rgba};
 use lumatv_tokens::Radius;
 use ui::components::plate;
@@ -104,6 +108,20 @@ impl Sheet {
         self.parts.get(i).map(|(_, at)| *at)
     }
 
+    /// Moves every part by (`dx`, `dy`): the rests move, and the layers glide there while the sheet is shown (a card that moves up to the first place).
+    pub fn shift(&mut self, kit: &Kit, dx: f32, dy: f32) {
+        for (part, at) in &mut self.parts {
+            at.x += dx;
+            at.y += dy;
+            if let Part::Pane(p) = part {
+                p.move_to(at.x, at.y);
+            }
+            if self.shown {
+                kit.glide(part.layer(), *at, Beat::Card);
+            }
+        }
+    }
+
     /// Moves part `i`'s rest place (and its layer, when the sheet is shown).
     pub fn move_part(&mut self, i: usize, at: Props) {
         if let Some((part, rest)) = self.parts.get_mut(i) {
@@ -120,6 +138,33 @@ impl Sheet {
             kit.arrive(part.layer(), *at, Beat::Layer, at_once);
         }
         self.shown = true;
+    }
+
+    /// Shows every part sliding in `dx` px from the side it comes from while it fades in over the card beat (a card's own motion), or at once.
+    pub fn slide_in(&mut self, kit: &Kit, dx: f32, at_once: bool) {
+        for (part, at) in &self.parts {
+            let layer = part.layer();
+            if at_once || kit.beat_ms(Beat::Card) == 0 {
+                layer.set(*at);
+            } else {
+                layer.set(Props { opacity: 0.0, x: at.x + dx, ..*at });
+                layer.animate(*at, kit.beat_ms(Beat::Card), compositor_protocol::Ease::Out);
+            }
+        }
+        self.shown = true;
+    }
+
+    /// Takes every part away sliding `dx` px out and fading, quicker than it came.
+    pub fn slide_out(&mut self, kit: &Kit, dx: f32) {
+        for (part, at) in &self.parts {
+            let gone = Props { opacity: 0.0, visible: false, x: at.x + dx, ..*at };
+            if kit.beat_ms(Beat::Rest) == 0 {
+                part.layer().set(gone);
+            } else {
+                part.layer().animate(gone, kit.beat_ms(Beat::Rest), compositor_protocol::Ease::In);
+            }
+        }
+        self.shown = false;
     }
 
     /// Takes every part away: fading out over the layer beat, or at once.
@@ -139,11 +184,17 @@ impl Sheet {
 /// `accent`, the icon at 55 % of the tile. Returns the plate and the icon (`None` for a name that is not an icon), to be added to a
 /// sheet at the tile's place.
 pub fn icon_tile(kit: &mut Kit, size: f32, z: i32, name: &str, accent: bool) -> std::io::Result<(ShapeLayer, Option<ImageLayer>)> {
+    let ink = if accent { kit.ui.look.accent_ink() } else { kit.ui.look.ink() };
+    tile(kit, size, z, name, accent, ink)
+}
+
+/// [`icon_tile`] with the icon in `glyph_ink` (a card's tone: the quiet tile with a warning's or a danger's own colour in it).
+pub fn tile(kit: &mut Kit, size: f32, z: i32, name: &str, accent: bool, glyph_ink: Rgba) -> std::io::Result<(ShapeLayer, Option<ImageLayer>)> {
     let look = &kit.ui.look;
-    let (fill, border, glyph_ink) = if accent {
-        (look.accent(), Rgba(0, 0, 0, 0), look.accent_ink())
+    let (fill, border) = if accent {
+        (look.accent(), Rgba(0, 0, 0, 0))
     } else {
-        (crate::kit::button::faded(look.ink(), kit.tokens.states.selected_wash), look.colour(ui::lucent::palette::PaletteRole::Edge), look.ink())
+        (crate::kit::button::faded(look.ink(), kit.tokens.states.selected_wash), look.colour(ui::lucent::palette::PaletteRole::Edge))
     };
     let radius = (size * 0.32).round();
     let shape = compositor_protocol::Shape {
@@ -167,4 +218,48 @@ pub fn tile_glyph_at(at: (f32, f32), size: f32) -> (f32, f32) {
 /// A solid plate of the theme's radius, for a scrim or a cell.
 pub fn plate_of(kit: &Kit, frame: Frame, z: i32, fill: Rgba, radius: Radius) -> ShapeLayer {
     plate::shape(&kit.ui, frame, z, plate::solid(fill, kit.tokens.radius(radius)))
+}
+
+/// A hint (`kit::hint`) laid into `sheet` at (`x`, `y`) in a row `h` high: its key glyphs and then its label, as parts of the sheet, so the
+/// row comes and goes with the card. Returns the row's width and its accessible name.
+#[allow(clippy::too_many_arguments)]
+pub fn hint_into(kit: &mut Kit, sheet: &mut Sheet, hint: &Hint, role: TypeRole, x: f32, y: f32, h: f32, z: i32, ink: Rgba) -> std::io::Result<(f32, String)> {
+    let side = hint::glyph_side(kit, role);
+    let gap = kit.space(2);
+    let mut pen = x;
+    for name in hint.glyphs() {
+        let colour = hint::glyph_colour_of(kit, name, ink);
+        let at = (pen, (y + (h - side as f32) / 2.0).round());
+        let mut layer = kit.ui.scene.image(side, side, z, HIDDEN)?;
+        glyph::draw(name, side, colour, layer.pixels_mut());
+        layer.damage(None);
+        sheet.image(layer, at);
+        pen += side as f32 + gap;
+    }
+    match &hint.label {
+        Some(label) => {
+            let style = role_style(kit, role, None, ink, Align::Left);
+            let w = width_of(kit, style, label);
+            let line = kit.line(role);
+            let t = Text::new(kit, ui::geometry::Frame::new(pen, (y + (h - line) / 2.0).round(), w, line), z, style, label)?;
+            sheet.text(t);
+            pen += w;
+        }
+        None => pen -= gap,
+    }
+    Ok((pen - x, hint.name()))
+}
+
+/// The width a hint's row takes, measured the way [`hint_into`] lays it.
+pub fn hint_width(kit: &mut Kit, hint: &Hint, role: TypeRole) -> f32 {
+    let side = hint::glyph_side(kit, role) as f32;
+    let gap = kit.space(2);
+    let n = hint.glyphs().len() as f32;
+    match &hint.label {
+        Some(label) => {
+            let style = role_style(kit, role, None, Rgba(0, 0, 0, 255), Align::Left);
+            n * (side + gap) + width_of(kit, style, label)
+        }
+        None => n * (side + gap) - gap,
+    }
 }

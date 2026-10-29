@@ -58,6 +58,8 @@ pub struct View {
     /// The mute mark stays shown, at this place of its round.
     pub mark_up: bool,
     pub mark_place: usize,
+    /// The places the mark visits, top left corners, in the order of its round.
+    pub spots: Vec<(i32, i32)>,
     pub over_video: bool,
     pub avoid_top_right: bool,
     /// Nothing to read: "Receiver not answering".
@@ -195,6 +197,8 @@ pub struct Volume {
     hop_due: Option<u64>,
     pub still: bool,
     pub avoid_top_right: bool,
+    /// The places of a mark the owner placed (`placement`'s drift), top left corners; none while the mark has its own corners.
+    placed: Option<Vec<(i32, i32)>>,
     over_video: bool,
     changed: bool,
 }
@@ -243,6 +247,7 @@ impl Volume {
             hop_due: None,
             still: false,
             avoid_top_right: false,
+            placed: None,
             over_video: false,
             changed: false,
         }
@@ -377,6 +382,7 @@ impl Volume {
             format,
             mark_up,
             mark_place: self.mark_place,
+            spots: self.mark_spots(),
             over_video: self.over_video,
             avoid_top_right: self.avoid_top_right,
             offline: self.pill && source == Source::None,
@@ -384,7 +390,24 @@ impl Volume {
     }
 
     pub fn mark_spots(&self) -> Vec<(i32, i32)> {
-        mark_spots(self.over_video, self.avoid_top_right)
+        match &self.placed {
+            Some(spots) if !spots.is_empty() => spots.clone(),
+            _ => mark_spots(self.over_video, self.avoid_top_right),
+        }
+    }
+
+    /// The owner placed the mute mark: it visits these places (a small square that leans into the screen, so no pixel of the panel holds a
+    /// still mark) in turn, none for the mark's own corners. Returns whether the places changed.
+    pub fn set_placed(&mut self, spots: Option<Vec<(i32, i32)>>) -> bool {
+        if self.placed == spots {
+            return false;
+        }
+        self.placed = spots;
+        if self.mark_place >= self.mark_spots().len() {
+            self.mark_place = 0;
+        }
+        self.changed = true;
+        true
     }
 
     // ---- the keys' answer before the receiver's

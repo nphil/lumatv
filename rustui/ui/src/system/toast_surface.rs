@@ -52,6 +52,11 @@ impl ToastSurface {
         Self { z, registry, user, frame, slots: Vec::new(), generation: 0, text_scale: 1.0, height: 0.0 }
     }
 
+    /// The owner's places changed (`layout.overlays`).
+    pub fn set_user(&mut self, user: User) {
+        self.user = user;
+    }
+
     /// One card's height: the title and the body lines inside the padding, never less than the tile's row.
     fn card_height(kit: &Kit) -> f32 {
         let pad = kit.space(3);

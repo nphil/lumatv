@@ -170,7 +170,7 @@ pub fn glyph_side(kit: &Kit, role: TypeRole) -> u32 {
 }
 
 /// The colour a glyph is drawn in: the colour keys in their own colour, every other glyph in `ink`.
-fn glyph_colour(kit: &Kit, name: &str, ink: Rgba) -> Rgba {
+pub fn glyph_colour_of(kit: &Kit, name: &str, ink: Rgba) -> Rgba {
     match name {
         "key-red" => kit.ui.look.colour(PaletteRole::Danger),
         "key-green" => kit.ui.look.colour(PaletteRole::Positive),
@@ -207,7 +207,7 @@ impl HintRow {
         for name in hint.glyphs() {
             let at = Props::at(pen, (y + (h - side as f32) / 2.0).round());
             let mut layer = kit.ui.scene.image(side, side, z, at)?;
-            let colour = glyph_colour(kit, name, ink);
+            let colour = glyph_colour_of(kit, name, ink);
             glyph::draw(name, side, colour, layer.pixels_mut());
             layer.damage(None);
             glyphs.push((layer, at));

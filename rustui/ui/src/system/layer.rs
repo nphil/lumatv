@@ -9,7 +9,11 @@
 use super::alert::{Alerts, Target};
 use super::alert_surface::AlertSurface;
 use super::capture::{Capture, CaptureSurface};
+use super::cards_surface::{CardsSurface, Column};
+use super::overlay::{self, Overlay};
 use super::plugins::Hub;
+use super::popup::{self, Popup};
+use super::popup_surface::PopupSurface;
 use super::saver::glance::{self, Glance};
 use super::saver::look::Config as SaverConfig;
 use super::saver::model::Saver;
@@ -34,6 +38,15 @@ pub mod z {
 /// The client name the saver votes on tvpower's lists with.
 const SAVER_CLIENT: &str = "org.nphil.lumatv.saver";
 
+/// What a card of the layer asks the shell to do, which is not the layer's to do.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Intent {
+    /// OK on the camera pop-up: the Cameras app's full view of this camera.
+    OpenCamera(String),
+    /// OK on a card with no action of its own: the notification drawer.
+    OpenDrawer,
+}
+
 /// What the channel says is in front.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Foreground {
@@ -56,6 +69,10 @@ pub struct Layer {
     saver_surface: SaverSurface,
     capture: Capture,
     capture_surface: CaptureSurface,
+    overlay: Overlay,
+    cards_surface: CardsSurface,
+    popup: Popup,
+    popup_surface: PopupSurface,
     /// What the plugin broker publishes (cards, notes, the saver topic): the saver's slots and notices, and the overlay queue's records.
     hub: Hub,
     /// The helper's `weather` topic as it last was.
@@ -63,6 +80,12 @@ pub struct Layer {
     foreground: Foreground,
     screen_on: bool,
     keyboard_up: bool,
+    /// Something of the host has the screen that the cards and the pop-up wait for (a panel, Settings), and the Cameras app's viewer is up.
+    host_busy: bool,
+    viewer_up: bool,
+    /// The keys of OK and Back whose press a card took: their release and repeats are the card's too.
+    taken: Vec<String>,
+    intents: Vec<Intent>,
     /// Something the surfaces must draw again.
     redraw: bool,
 }
@@ -80,11 +103,19 @@ impl Layer {
             saver_surface: SaverSurface::new(base + z::SAVER),
             capture: Capture::new(theme.pointer("/motion/reduced").and_then(Value::as_bool) == Some(true)),
             capture_surface: CaptureSurface::new(base + z::CAPTURE),
+            overlay: Overlay::new(theme.get("overlays").unwrap_or(&Value::Null)),
+            cards_surface: CardsSurface::new(base + z::CARDS, theme, layout),
+            popup: Popup::new(),
+            popup_surface: PopupSurface::new(base + z::POPUP, theme, layout),
             hub: Hub::new(),
             weather: Value::Null,
             foreground: Foreground::default(),
             screen_on: true,
             keyboard_up: false,
+            host_busy: false,
+            viewer_up: false,
+            taken: Vec::new(),
+            intents: Vec::new(),
             redraw: false,
         }
     }
@@ -100,8 +131,48 @@ impl Layer {
         self.alerts.wants() || self.keyboard_up || !self.screen_on
     }
 
+    /// Something that is not the layer's has the screen: a panel or Settings is up (`host_busy`), the Cameras app's viewer is up (`viewer_up`).
+    /// The cards and the camera pop-up wait for it (the pop-up steps aside, the cards keep what they hold).
+    pub fn set_host(&mut self, kinds: &Kinds, host_busy: bool, viewer_up: bool, now: u64) -> Vec<Effect> {
+        self.host_busy = host_busy;
+        self.viewer_up = viewer_up;
+        self.sync_context(kinds, now)
+    }
+
+    /// The facts the cards and the pop-up wait on, given to both.
+    fn sync_context(&mut self, kinds: &Kinds, now: u64) -> Vec<Effect> {
+        let busy = self.busy() || self.host_busy || (kinds.saver && self.saver.up());
+        let mut out = Vec::new();
+        if kinds.popup {
+            out.extend(self.popup.set_context(busy, self.app_front(), self.viewer_up, now));
+        }
+        if kinds.cards {
+            self.overlay.set_dnd(busy || self.viewer_up);
+        }
+        out
+    }
+
+    /// What the cards and the pop-up asked of the shell.
+    pub fn take_intents(&mut self) -> Vec<Intent> {
+        std::mem::take(&mut self.intents)
+    }
+
+    /// The rectangles of the pop-up and the cards that are up: what the mute mark keeps clear of.
+    pub fn avoid(&self, kinds: &Kinds) -> Vec<lumatv_placement::Rect> {
+        let mut out = Vec::new();
+        if kinds.popup {
+            out.extend(self.popup_surface.frame());
+        }
+        if kinds.cards {
+            out.extend(self.cards_surface.rect());
+        }
+        out
+    }
+
     /// The subscriptions the kinds ask for at the start.
     pub fn start(&mut self, kinds: &Kinds) -> Vec<Effect> {
+        self.popup.set_can_expand(kinds.cameras);
+        self.overlay.set_drawer_ready(kinds.drawer);
         let mut out = Vec::new();
         if kinds.alert {
             out.extend(self.alerts.subscribe());
@@ -112,6 +183,7 @@ impl Layer {
     /// The owner's theme changed: the saver may have been turned off, given another brightness or its own time back.
     pub fn set_theme(&mut self, theme: &Value, now: u64) -> Vec<Effect> {
         self.capture.set_reduced(theme.pointer("/motion/reduced").and_then(Value::as_bool) == Some(true));
+        self.overlay.set_config(theme.get("overlays").unwrap_or(&Value::Null));
         let out = self.saver.set_config(saver_config(theme), now);
         self.redraw = true;
         out
@@ -142,6 +214,17 @@ impl Layer {
         if (changed.saver || changed.notes || changed.cards) && kinds.saver && self.saver.up() {
             self.redraw = true;
         }
+        if kinds.cards {
+            if !changed.posted.is_empty() {
+                self.overlay.posted(&changed.posted, now);
+            }
+            if changed.notes {
+                self.overlay.reconcile(&self.hub.notes());
+            }
+            if changed.cards {
+                self.overlay.sync_cards(&self.hub.cards(), now);
+            }
+        }
         // an alert that has the keys takes them: the saver never sees a key that was meant to answer it
         let alert_has_keys = kinds.alert && self.alerts.wants();
         if kinds.alert {
@@ -154,12 +237,74 @@ impl Layer {
         if kinds.saver && !(key_like && alert_has_keys) {
             out.extend(self.saver.update(input, now));
         }
+        // the pop-up and the cards: a key that answers an alert or wakes the saver was not meant for them
+        let key_theirs = !matches!(input, Input::Key { .. }) || !(alert_has_keys || (kinds.saver && self.saver.wants_keys()));
+        // the camera card is above the cards: a key it takes is not theirs
+        let popup_had = kinds.popup && self.popup.armed(now);
+        if kinds.popup && key_theirs {
+            out.extend(self.popup.update(input, now));
+        }
+        if kinds.cards {
+            if let Input::Key { name, down: true, repeat: false } = input
+                && key_theirs
+                && !popup_had
+            {
+                self.overlay.key(name, now, &mut out);
+            }
+            for i in self.overlay.take_intents() {
+                match i {
+                    overlay::Intent::OpenDrawer => self.intents.push(Intent::OpenDrawer),
+                }
+            }
+        }
+        if kinds.popup {
+            for i in self.popup.take_intents() {
+                match i {
+                    popup::Intent::Expand(camera) => self.intents.push(Intent::OpenCamera(camera)),
+                    popup::Intent::Shown(kind) => {
+                        if kinds.cards {
+                            self.overlay.camera_shown(&kind, now);
+                        }
+                    }
+                }
+            }
+        }
+        out.extend(self.sync_context(kinds, now));
+        if kinds.cards {
+            self.overlay.set_camera(kinds.popup && self.popup.up());
+            if self.overlay.needs_refresh(now) {
+                self.redraw = true;
+            }
+        }
         for e in &out {
             if matches!(e, Effect::Redraw) {
                 self.redraw = true;
             }
         }
         out
+    }
+
+    /// Whether this key event is a card's: OK or Back while the top card (the camera pop-up first) has been up long enough for the keys to be its,
+    /// and the release and the repeats of a press a card took. The shell does not hand such a key to the screens under the cards.
+    pub fn takes_key(&mut self, kinds: &Kinds, input: &Input, now: u64) -> bool {
+        let Input::Key { name, down, repeat } = input else { return false };
+        if name != "ok" && name != "back" {
+            return false;
+        }
+        if let Some(i) = self.taken.iter().position(|k| k == name) {
+            if !*down {
+                self.taken.remove(i);
+            }
+            return true;
+        }
+        if !*down || *repeat {
+            return false;
+        }
+        let yes = !(self.alerts.wants() && kinds.alert) && !(kinds.saver && self.saver.wants_keys()) && ((kinds.popup && self.popup.armed(now)) || (kinds.cards && self.overlay.armed()));
+        if yes {
+            self.taken.push(name.clone());
+        }
+        yes
     }
 
     /// A press of a surface (a click of the pointer).
@@ -203,8 +348,33 @@ impl Layer {
                 Err(e) => return Err(format!("saver: {e}")),
             }
         }
+        let over = self.app_front();
+        if kinds.popup {
+            let view = self.popup.view();
+            if view.up {
+                let (_, picture) = self.popup_surface.measure(kit, &view);
+                self.popup.set_picture_size(picture.0, picture.1);
+            }
+            match self.popup_surface.apply(kit, &view, self.popup.best(), self.popup.revision, over, now_ms) {
+                Ok(on) => live |= on,
+                Err(e) => return Err(format!("camera pop-up: {e}")),
+            }
+        }
+        if kinds.cards {
+            let popup = if kinds.popup && self.popup.up() { self.popup_surface.frame().map(|r| lumatv_placement::Size::new(r.w, r.h)) } else { None };
+            let (width, gap) = (self.overlay.config().width as f32, self.overlay.config().gap as f32);
+            let drawer_ready = self.overlay.drawer_ready();
+            if self.overlay.needs_refresh(now_ms) {
+                let top = self.cards_surface.top(popup, width);
+                self.overlay.refresh(top, &mut |e| f64::from(CardsSurface::height_of(kit, e, width, drawer_ready)), now_ms);
+            }
+            let column = Column { width, gap, popup, drawer_ready, over_video: over };
+            match self.cards_surface.apply(kit, self.overlay.shown(), &column, now_ms) {
+                Ok(on) => live |= on,
+                Err(e) => return Err(format!("cards: {e}")),
+            }
+        }
         if kinds.capture {
-            let over = self.app_front();
             match self.capture_surface.apply(kit, &self.capture.view(), over, now_ms) {
                 Ok(on) => live |= on,
                 Err(e) => return Err(format!("capture: {e}")),
@@ -233,6 +403,12 @@ impl Layer {
         if kinds.capture {
             redraw |= self.capture_surface.tick(now_ms);
         }
+        if kinds.popup {
+            redraw |= self.popup_surface.tick(now_ms);
+        }
+        if kinds.cards {
+            redraw |= self.cards_surface.tick(now_ms) || self.overlay.needs_refresh(now_ms);
+        }
         redraw
     }
 
@@ -242,7 +418,16 @@ impl Layer {
             due = [due, self.alerts.due_at(), self.alert_surface.due_at()].into_iter().flatten().min();
         }
         if kinds.saver {
-            due = [due, self.saver.due_at(), self.saver_surface.due_at(), self.hub.due_at()].into_iter().flatten().min();
+            due = [due, self.saver.due_at(), self.saver_surface.due_at()].into_iter().flatten().min();
+        }
+        if kinds.saver || kinds.cards {
+            due = [due, self.hub.due_at()].into_iter().flatten().min();
+        }
+        if kinds.popup {
+            due = [due, self.popup.due_at(), self.popup_surface.due_at()].into_iter().flatten().min();
+        }
+        if kinds.cards {
+            due = [due, self.overlay.due_at(), self.cards_surface.due_at()].into_iter().flatten().min();
         }
         if kinds.capture {
             due = [due, self.capture.due_at(), self.capture_surface.due_at()].into_iter().flatten().min();
@@ -257,8 +442,8 @@ impl Layer {
 
     /// The keys the layer takes by name while an app has the focus (the cards' OK and Back).
     pub fn takes(&self, kinds: &Kinds) -> Vec<&'static str> {
-        let _ = kinds;
-        Vec::new()
+        let quiet = !(kinds.alert && self.alerts.wants()) && !(kinds.saver && self.saver.wants_keys());
+        if quiet && ((kinds.popup && self.popup.armed_now()) || (kinds.cards && self.overlay.armed())) { vec!["ok", "back"] } else { Vec::new() }
     }
 
     /// Whether the saver is up: what the compositor's OLED care and the helper's rules read (`state.saver`).
@@ -281,6 +466,12 @@ impl Layer {
         if kinds.capture {
             s["capture"] = self.capture.state(self.capture_surface.dot_up());
         }
+        if kinds.popup {
+            s["popup"] = self.popup.state();
+        }
+        if kinds.cards {
+            s["cards"] = self.overlay.state();
+        }
         s
     }
 
@@ -296,6 +487,12 @@ impl Layer {
         if kinds.capture {
             g["capture"] = self.capture_surface.geometry(kit);
         }
+        if kinds.popup {
+            g["popup"] = self.popup_surface.geometry();
+        }
+        if kinds.cards {
+            g["cards"] = self.cards_surface.geometry();
+        }
         g
     }
 
@@ -310,6 +507,12 @@ impl Layer {
         if kinds.capture {
             self.capture_surface.feed_lint(kit, lint);
         }
+        if kinds.popup {
+            self.popup_surface.feed_lint(kit, lint);
+        }
+        if kinds.cards {
+            self.cards_surface.feed_lint(kit, lint);
+        }
     }
 
     /// The look changed: the surfaces are made again at the next draw.
@@ -317,11 +520,15 @@ impl Layer {
         self.alert_surface.restyle(engine);
         self.saver_surface.restyle();
         self.capture_surface.restyle();
+        self.popup_surface.restyle();
+        self.cards_surface.restyle();
         self.redraw = true;
     }
 
     /// The owner's places changed (`layout.overlays`).
     pub fn set_user(&mut self, user: lumatv_placement::User) {
+        self.popup_surface.set_user(user.clone());
+        self.cards_surface.set_user(user.clone());
         self.alert_surface.set_user(user);
         self.redraw = true;
     }

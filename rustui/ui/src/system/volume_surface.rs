@@ -131,6 +131,24 @@ impl VolumeSurface {
         Self { z, logos, registry, user, frame, built: None, mark: None, shown: false, last: None, edge }
     }
 
+    /// The owner's places changed (`layout.overlays`): the bar is made again for its edge at the next draw.
+    pub fn set_user(&mut self, user: User) {
+        self.edge = self.registry.placement_of("volume", &user).map_or(Anchor::Bottom, |p| p.placement.anchor);
+        self.user = user;
+        self.built = None;
+        self.shown = false;
+    }
+
+    /// Where a mute mark the owner placed drifts to (top left corners; `avoid`: the cards that are up are kept clear of), none while the mark
+    /// has its own corners.
+    pub fn mark_places(&self, avoid: &[lumatv_placement::Rect]) -> Option<Vec<(i32, i32)>> {
+        if self.registry.is_auto("mute", &self.user) {
+            return None;
+        }
+        let size = Size::new(MARK as i32, MARK as i32);
+        Some(self.registry.drift_spots("mute", &self.user, &self.frame, size, avoid).into_iter().map(|p| (p.x, p.y)).collect())
+    }
+
     /// The pane's size for `view` at the kit's text size: (width, height) as the bar lies, before any turn to an edge.
     fn measure(&self, kit: &mut Kit, view: &View) -> (f32, f32, f32, f32, f32) {
         let pad_x = kit.space(6);
@@ -338,8 +356,7 @@ impl VolumeSurface {
     }
 
     fn mark_spot(view: &View, place: usize) -> (f32, f32) {
-        let spots = super::volume::mark_spots(view.over_video, view.avoid_top_right);
-        let (x, y) = spots[place.min(spots.len() - 1)];
+        let (x, y) = view.spots[place.min(view.spots.len().saturating_sub(1))];
         (x as f32, y as f32)
     }
 

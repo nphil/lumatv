@@ -278,5 +278,159 @@ class RustSystem(unittest.TestCase):
                 os.remove(shot)
 
 
+    # ---- the camera pop-up (test_camera_popup.py, cameras-ui-spec.md "The pop-up")
+
+    def popup_run(self, kinds='popup', scale=1.0, mode='dark', foreground=APP, until_ms=120000, wait=3200, **record):
+        import rust_cameras_scenes as sc
+        now = int(time.time() * 1000)
+        r = sc.Run(scale=scale, mode=mode, wait=wait, backdrop='game', kinds=kinds)
+        r.channel(200, 'foreground', foreground).channel(220, 'screen', {'on': True})
+        r.helper(250, 'cameras', sc.cameras_topic(3, per={0: {'name': 'Front door'}}))
+        doc = {'id': 41, 'event': 'e41', 'camera': '300', 'name': 'Front door', 'kind': 'person', 'at': now, 'untilMs': now + until_ms, 'thumbnail': False, 'seq': 1}
+        doc.update(record)
+        # the helper holds the record as the real one does (a poll that found it gone would clear the card)
+        r.setup(lambda chan, st: st.topics.__setitem__('cameras.popup', doc))
+        r.helper(600, 'cameras.popup', doc)
+        return sc, r
+
+    def test_a_camera_event_is_a_card_in_the_corner_that_asks_for_stills_takes_ok_and_back_only_after_600_ms_and_tells_the_helper(self):
+        sc, r = self.popup_run()
+        r.eval(900, 'report').eval(1500, 'report').eval(1500, 'geometry')
+        r.press(1800, 'back').eval(2200, 'report')
+        r.press(2400, 'left').eval(2600, 'report')
+        r.wait = 3000
+        res = sc.run(r)
+        self.assertEqual(res['rc'], 0, res['out'][-3000:])
+        reports = [e for e in res['evals'] if isinstance(e, dict) and 'wants' in e]
+        self.assertEqual(reports[0]['takes'], [], "just arrived: the keys are the app's for the first 600 ms")
+        self.assertEqual(reports[1]['takes'], ['ok', 'back'], "then OK and Back are the card's, and nothing else")
+        self.assertFalse(reports[1]['wants'], "the arrows stay the app's")
+        geo = [e for e in res['evals'] if isinstance(e, dict) and 'popup' in e][0]['popup']
+        self.assertEqual(geo['x'] + geo['w'], 1856, "flush where Home's status bar ends: %s" % geo)
+        self.assertEqual(geo['y'], 134)
+        asked = res['helper'].frames
+        self.assertTrue(asked and all((c, w, h) == ('300', geo['picture']['w'], geo['picture']['h']) for c, w, h, _ in asked), "stills at the picture's size: %s" % asked[:3])
+        self.assertIn(['/v1/cameras/popup/clear', {}], res['helper'].posts, "Back clears it and the helper is told")
+        self.assertEqual(reports[2]['takes'], [], "gone: no keys")
+
+    def test_ok_on_the_card_opens_the_cameras_full_view_when_the_app_is_the_rust_shells(self):
+        sc, r = self.popup_run(kinds='popup,cameras')
+        r.press(1700, 'ok').eval(2300, 'state')
+        r.wait = 2800
+        res = sc.run(r)
+        self.assertEqual(res['rc'], 0, res['out'][-3000:])
+        state = [e for e in res['evals'] if isinstance(e, dict) and 'cameras' in e and 'kinds' in e][-1]
+        self.assertEqual(state['cameras']['screen']['mode'], 'full', "OK expands to the camera's full view: %s" % state['cameras'])
+        self.assertIn(['/v1/cameras/popup/clear', {}], res['helper'].posts)
+
+    def test_a_card_waits_for_an_alert_and_with_over_apps_off_stays_off_an_app_and_shows_on_home(self):
+        sc, r = self.popup_run(kinds='popup', overApps=False)
+        r.eval(1500, 'state')
+        r.channel(1700, 'foreground', HOME).eval(2400, 'state')
+        r.wait = 2800
+        res = sc.run(r)
+        self.assertEqual(res['rc'], 0, res['out'][-3000:])
+        states = [e for e in res['evals'] if isinstance(e, dict) and 'kinds' in e]
+        self.assertFalse(states[0]['popup']['up'], "an app is in front and the owner's switch says not over apps")
+        self.assertTrue(states[1]['popup']['up'], "Home: it shows, still in date")
+
+    def test_what_the_camera_card_draws_reads_clean_at_both_text_sizes_in_both_materials(self):
+        try:
+            from PIL import Image
+        except ImportError:
+            Image = None
+        for scale in (1.0, 2.0):
+            for mode in ('dark', 'light'):
+                sc, r = self.popup_run(scale=scale, mode=mode, kind='doorbell', label='')
+                shot = os.path.join(tempfile.gettempdir(), 'rustsystem-popup-%s-%s-%d.png' % (scale, mode, os.getpid()))
+                r.eval(1800, 'lint').eval(1800, 'atlas').snap(1900, shot)
+                r.wait = 2300
+                res = sc.run(r)
+                self.assertEqual(res['rc'], 0, res['out'][-3000:])
+                self.assertEqual(res['evals'][0], [], "%s at %s: %s" % (mode, scale, res['evals'][0]))
+                self.assertEqual(res['evals'][1]['pictures'], 0, "every word is glyph quads of the atlas")
+                if Image and os.path.exists(shot):
+                    im = Image.open(shot).convert('RGB')
+                    folder = render_dir()
+                    if folder:
+                        import shutil
+                        out = os.path.join(folder, 'system')
+                        os.makedirs(out, exist_ok=True)
+                        im.resize((1280, 720)).save(os.path.join(out, 'popup-%s%s.jpg' % (mode, '' if scale == 1.0 else '-text200')), 'JPEG', quality=80)
+                if os.path.exists(shot):
+                    os.remove(shot)
+
+    # ---- the overlay cards (test_overlays.py)
+
+    def cards_run(self, scale=1.0, mode='dark', foreground=APP, wait=4200, extra_kinds='', notes=None, backdrop='game'):
+        import rust_cameras_scenes as sc
+        r = sc.Run(scale=scale, mode=mode, wait=wait, backdrop=backdrop, kinds='cards' + extra_kinds)
+        r.channel(200, 'foreground', foreground).channel(220, 'screen', {'on': True})
+        r.helper(250, 'plugins', {'plugins': [{'id': 'kitchen', 'name': 'Kitchen Show', 'state': 'connected'}], 'firstParty': []})
+        r.helper(300, 'plugin.kitchen.notifications', {'items': []})
+        items = notes if notes is not None else [
+            {'id': 'pasta', 'channel': 'timer', 'channelTitle': 'Kitchen Show', 'channelIcon': 'base.icons/timer', 'revision': 1, 'receivedAt': 1, 'expiresAt': 0,
+             'post': {'title': 'Pasta', 'body': "Time's up", 'kind': 'timer', 'actions': [{'id': 'stop', 'label': 'Stop', 'action': 'stop'}]}},
+            {'id': 'door', 'channel': 'doorbell', 'channelTitle': 'Kitchen Show', 'channelIcon': 'base.icons/doorbell', 'revision': 1, 'receivedAt': 2, 'expiresAt': 0,
+             'post': {'title': 'Front door', 'body': 'Someone is at the door', 'kind': 'doorbell', 'actions': []}}]
+        # the hub marks what is there 1.5 s after the helper came up: news arrives after that
+        r.helper(2200, 'plugin.kitchen.notifications', {'items': items})
+        return sc, r
+
+    def test_a_notification_is_a_card_whose_keys_are_the_cards_after_600_ms_ok_runs_its_action_and_back_dismisses(self):
+        sc, r = self.cards_run()
+        r.eval(2400, 'report').eval(3000, 'report').eval(3000, 'geometry')
+        r.press(3200, 'ok').eval(3600, 'report')
+        r.press(3700, 'back').eval(4000, 'report')
+        r.wait = 4400
+        res = sc.run(r)
+        self.assertEqual(res['rc'], 0, res['out'][-3000:])
+        reports = [e for e in res['evals'] if isinstance(e, dict) and 'wants' in e]
+        self.assertEqual(reports[0]['takes'], [], "it just arrived: a press made as it did was the app's")
+        self.assertEqual(reports[1]['takes'], ['ok', 'back'])
+        cards = [e for e in res['evals'] if isinstance(e, dict) and 'cards' in e][0]['cards']
+        self.assertEqual(len(cards), 2, cards)
+        self.assertEqual(cards[0]['x'] + cards[0]['w'], 1856)
+        self.assertEqual(cards[1]['y'], cards[0]['y'] + cards[0]['h'] + 16)
+        self.assertIn(['/v1/plugins/kitchen/actions/stop', {}], res['helper'].posts, "OK ran the record's first action")
+        self.assertEqual(reports[3]['takes'], [], "both cards dismissed: the keys are the app's again")
+
+    def test_what_the_cards_draw_reads_clean_at_both_text_sizes_in_both_materials_and_over_the_camera_card(self):
+        try:
+            from PIL import Image
+        except ImportError:
+            Image = None
+        for scale in (1.0, 2.0):
+            for mode in ('dark', 'light'):
+                sc, r = self.cards_run(scale=scale, mode=mode, extra_kinds=',popup')
+                now = int(time.time() * 1000)
+                r.helper(2000, 'cameras', sc.cameras_topic(3, per={0: {'name': 'Front door'}}))
+                doc = {'id': 41, 'event': 'e41', 'camera': '300', 'name': 'Front door', 'kind': 'person', 'at': now, 'untilMs': now + 120000, 'thumbnail': False}
+                r.setup(lambda chan, st, doc=doc: st.topics.__setitem__('cameras.popup', doc))
+                r.helper(2100, 'cameras.popup', doc)
+                shot = os.path.join(tempfile.gettempdir(), 'rustsystem-cards-%s-%s-%d.png' % (scale, mode, os.getpid()))
+                r.eval(3600, 'lint').eval(3600, 'geometry').snap(3700, shot)
+                r.wait = 4100
+                res = sc.run(r)
+                self.assertEqual(res['rc'], 0, res['out'][-3000:])
+                self.assertEqual(res['evals'][0], [], "%s at %s: %s" % (mode, scale, res['evals'][0]))
+                geo = res['evals'][1]
+                self.assertTrue(geo['popup'], "the camera card is up: %s" % geo)
+                if scale == 1.0:
+                    self.assertTrue(geo['cards'], "a card under it: %s" % geo)
+                    self.assertGreaterEqual(geo['cards'][0]['y'], geo['popup']['y'] + geo['popup']['h'], "the cards go under the camera's card: %s" % geo)
+                else:
+                    self.assertEqual(geo['cards'], [], "at 200 %% the card would end below the limit beside the window, so it waits: %s" % geo)
+                if Image and os.path.exists(shot):
+                    im = Image.open(shot).convert('RGB')
+                    folder = render_dir()
+                    if folder:
+                        out = os.path.join(folder, 'system')
+                        os.makedirs(out, exist_ok=True)
+                        im.resize((1280, 720)).save(os.path.join(out, 'cards-%s%s.jpg' % (mode, '' if scale == 1.0 else '-text200')), 'JPEG', quality=80)
+                if os.path.exists(shot):
+                    os.remove(shot)
+
+
 if __name__ == "__main__":
     unittest.main()
