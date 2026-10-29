@@ -10,6 +10,7 @@ pub mod banner_surface;
 pub mod capture;
 pub mod cards;
 pub mod cards_surface;
+pub mod extras;
 pub mod format;
 pub mod layer;
 pub mod layout_surface;
