@@ -13,6 +13,9 @@
 #   layerdeep-tv.sh hole         raw: a 960x540 hole with alpha 0 in the middle of B.OSD1's OSD0 input, hole select 0 then 1, 4 s each
 #   layerdeep-tv.sh osd01        raw: /tmp/lumatv/osd01-probe.sh all (tools/osd01-probe.sh copied beside this script; its own dead-man), then
 #                                the 4K mode bit and the combiner's bypass, 4 s each
+#   layerdeep-tv.sh scaler       raw: OSD0's scaler filter (0xCC480310): vertical cubic select 1, 2, 3, the bilinear bit, the GFX
+#                                sampling mode, HOLD s each, text photographed at each (docs/research/ui-sharpness-result.md)
+#   layerdeep-tv.sh shift        LG's Screen Shift (picture.screenShift) off for 20 s, then on: the OSD's output size and crop at each
 #   layerdeep-tv.sh revert       run the last raw step's revert file now
 #   -n before a step: dry run, the writes are printed and nothing is written
 #
@@ -41,6 +44,11 @@ HOLE0_WX=0xCC4802C8      # B.OSD1 muxa: hole0 w 0:12, x 13:25, en bit 28, revers
 HOLE0_HY=0xCC4802CC      # B.OSD1 muxb: hole0 h 0:11, y 12:23, alpha 24:31
 OSD01_4K=0xCC480440      # OSD0_1 reg_4k_osd_main_ctrl_0: reg_4k_mode_en bit 31 (the probe's bit 0 was the layer's osd_sync_enable)
 TOP_FBDC0=0xCC480060     # TOP ctrl_fbdc0: reg_osd0_1x2_bypass_en bit 0 (live 0x000ff111)
+SCALER0=0xCC480310       # OSD0.osd_ctrl_scaler: reg_osd_bilinear bit 3, reg_osd_sampling_mode bit 8, hsc/vsc phase 10:18/19:27, reg_osd_vcubic_filter_sel 28:29
+                         # (live 0; lg1k writes it at the layer's init only, "KEEP HW DEFAULT", fbdev_hw_o22_cmn.c:868-927: a value holds across flips)
+OSD_HDR2=0xCC480328      # OSD0.osd_ctrl_hdr2: the scaler's output size (h_out 0:11, w_out 16:27; live 0x0f14087a = 3860x2170)
+OSD_CROP1=0xCC480390     # OSD0.osd_crop_ctrl_1/2: the crop's x and width, y and height (3840x2160 at LG's orbit offset)
+OSD_CROP2=0xCC480394
 
 cs() { read -r _up _ < /proc/uptime; echo "${_up%.*}${_up#*.}"; }
 T0=$(cs)
@@ -265,6 +273,53 @@ step_osd01() {
     log "osd01 done"
 }
 
+# The OSD scaler's filter: the one hardware knob on the x2 kernel that takes the 1080p page to the panel. Each value holds for HOLD s on
+# the same text (Home at rest); the photographs decide, the register is restored by read-back. The write is the live value with the
+# field set, so nothing else in the register changes.
+step_scaler() {
+    mk_revert $SCALER0
+    live=$(rd $SCALER0)
+    log "scaler: $SCALER0 reads $live (expected 0x00000000: the hardware default filter, cubic select 0)"
+    set -- "$(( 1 << 28 )) cubic-1" "$(( 2 << 28 )) cubic-2" "$(( 3 << 28 )) cubic-3" "$(( 1 << 3 )) bilinear" "$(( 1 << 8 )) sampling-gfx"
+    : > "$OUT/$STEP.writes"
+    for pair in "$@"; do
+        printf '%s\n' "$DEVMEM $SCALER0 32 $(printf '0x%08X' $(( live | ${pair%% *} )))   # ${pair#* }, $HOLD s" >> "$OUT/$STEP.writes"
+    done
+    photo "BEFORE: Home's text (the status bar and a card's title) at the live filter"
+    confirm; dumps before; arm
+    for pair in "$@"; do
+        w $SCALER0 "$(printf '0x%08X' $(( live | ${pair%% *} )))" || return 1
+        photo "the same text with ${pair#* } (sharper, softer, ringing, or no change; a broken picture means stop)"
+        nap "$HOLD"; header
+    done
+    revert_now
+    log "after the revert: $SCALER0 reads $(rd $SCALER0); flips $(flips)"
+    dumps after
+    log "scaler done"
+}
+
+# LG's Screen Shift off: whether the OSD's output becomes exactly 3840x2160 (the x2 'just scan' arrangement, every UI pixel on two panel
+# pixels with a fixed phase) or stays the 3860x2170 canvas. A user setting through LG's settings service, put back as it was.
+step_shift() {
+    was=$(luna-send -n 1 luna://com.webos.settingsservice/getSystemSettings '{"category":"picture","keys":["screenShift"]}' 2>/dev/null | tr -d '\n ' | sed -n 's/.*"screenShift":"\([a-z]*\)".*/\1/p')
+    log "shift: picture.screenShift is '${was:-unknown}'; hdr2 $(rd $OSD_HDR2) crop $(rd $OSD_CROP1) $(rd $OSD_CROP2); fb0 out=$(fb hdr.w_out)x$(fb hdr.h_out)"
+    log "last orbit move: $(dmesg | grep vsc_set_orbit_move | tail -1 | cut -c1-160)"
+    photo "BEFORE: Home's text with Screen Shift ${was:-?}"
+    [ "$DRY" = 1 ] && { log "DRY  luna-send setSystemSettings picture.screenShift off, 20 s, then '${was:-on}'"; return 0; }
+    [ -n "$was" ] || { log "!! the setting could not be read; not changed"; return 1; }
+    luna-send -n 1 luna://com.webos.settingsservice/setSystemSettings '{"category":"picture","settings":{"screenShift":"off"}}' > /dev/null 2>&1
+    for i in 5 10 20; do
+        sleep 5; [ $i = 20 ] && sleep 5
+        log "off +${i}s: hdr2 $(rd $OSD_HDR2) (0x0f000870 would be 3840x2160) crop $(rd $OSD_CROP1) $(rd $OSD_CROP2); fb0 out=$(fb hdr.w_out)x$(fb hdr.h_out); flips $(flips)"
+    done
+    log "last orbit move: $(dmesg | grep vsc_set_orbit_move | tail -1 | cut -c1-160)"
+    photo "the same text with Screen Shift off (a difference only if the output size changed)"
+    luna-send -n 1 luna://com.webos.settingsservice/setSystemSettings "{\"category\":\"picture\",\"settings\":{\"screenShift\":\"$was\"}}" > /dev/null 2>&1
+    sleep 5
+    log "back to '$was': hdr2 $(rd $OSD_HDR2) crop $(rd $OSD_CROP1) $(rd $OSD_CROP2); fb0 out=$(fb hdr.w_out)x$(fb hdr.h_out)"
+    log "shift done"
+}
+
 case "$STEP" in
     observe) step_observe ;;
     orbit) step_orbit ;;
@@ -273,6 +328,8 @@ case "$STEP" in
     vsp) step_vsp ;;
     hole) step_hole ;;
     osd01) step_osd01 ;;
+    scaler) step_scaler ;;
+    shift) step_shift ;;
     revert) [ -f "$OUT/revert.sh" ] && sh "$OUT/revert.sh" && echo "reverted: $(cat "$OUT/revert.sh" | grep -c devmem) writes" || echo "no revert file" ;;
-    *) sed -n '2,19p' "$0"; exit 2 ;;
+    *) sed -n '2,23p' "$0"; exit 2 ;;
 esac
