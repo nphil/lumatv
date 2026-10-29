@@ -310,6 +310,9 @@ def main():
     ap.add_argument("--kwait", action="store_true", help="trace the x1 run (the default unless --x1-strict; with --x1-strict the run is traced and the rule stays strict)")
     ap.add_argument("--frames-callbacks", choices=["early", "landing"], default="early",
                     help="when the shell client's frame callbacks go out in the surface frame gate: a frame ahead of the flip inside a run of its frames (early, the default) or at the flip (landing)")
+    ap.add_argument("--frames-clients", choices=["commit", "early", "landing"],
+                    help="when every other client's frame callbacks go out in the surface frame gate (`ctl callbacks clients`): with the commit (the default since round 19), the frame's draw (early) or the flip (landing): "
+                         "an A/B of the apps' pacing against the default, the rule unchanged; the default is put back after the gate and the line `callbacks` says how many went out with a commit")
     ap.add_argument("--refresh", type=int, choices=[60, 120], default=60,
                     help="the refresh the surface frame gate runs at: 120 switches the compositor's refresh test mode on for it (gate.sh refresh 120) and off after")
     ap.add_argument("--scanout", choices=["off", "direct"], default="off",
@@ -432,8 +435,9 @@ def main():
         if run_frames or run_load:
             # A session of its own: the surface gate waits for a 90 s old compositor and runs several minutes.
             session(frames_minutes * (run_frames + run_load), "frames")
-            if a.frames_callbacks == "landing":
-                print(pty("sh /tmp/lumatv/gate.sh callbacks landing", 60))
+            if a.frames_callbacks == "landing" or a.frames_clients:
+                print(pty("%ssh /tmp/lumatv/gate.sh callbacks%s" % ("LUMATV_CLIENTS_CALLBACKS=%s " % a.frames_clients if a.frames_clients else "",
+                                                                   " landing" if a.frames_callbacks == "landing" else ""), 60))
         if run_frames:
             if a.scanout == "direct":
                 # The shell asked for buffers the plane takes, the switch on, the shell started again; then what the compositor counts.
@@ -455,12 +459,15 @@ def main():
             # Where the interrupts are served and what wakes at Home just after the gate (docs/research/lpc-tv-result.md, items 5 and 7): reads of /proc, nothing changed.
             print(pty("sh /tmp/lumatv/lpc-probe.sh irq 10 home", 60))
             print(pty("sh /tmp/lumatv/lpc-probe.sh wakeups 10 home", 60))
-            # How many of the shell's callbacks went out ahead of their flip during the gate: zero says the change was not in play.
+            # How many of the callbacks went out ahead of their flip and with their commit during the gate: the commit ones are the apps', and
+            # none says the change that moved them was not in play over Home.
             print(pty("sh /tmp/lumatv/gate.sh callbacks", 60))
         if run_load:
             print(pty("sh /tmp/lumatv/gate.sh wake reset", 60))
             lines.append(frames_check(a.frames_cycles, load=True, quick=a.frames_quick))
             step("wake", "sh /tmp/lumatv/gate.sh wake loaded", 60)
+        if a.frames_clients and (run_frames or run_load):
+            print(pty("LUMATV_CLIENTS_CALLBACKS=commit sh /tmp/lumatv/gate.sh callbacks", 60))
         if "standby" not in skip:
             step("standby", "sh /tmp/lumatv/gate.sh standby", 60)
             standby_at = time.time()

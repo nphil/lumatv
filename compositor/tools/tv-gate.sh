@@ -7,8 +7,8 @@
 #                     stub) mapped and on the panel, the watchdog reading the compositor's counters and the power state
 #   gate.sh x1 SECS   the X1 probe client (64-bit, LG's blob) for SECS: the frame rule below. LUMATV_GATE_KWAIT traces the run, which is what lets the
 #                     rule tell the compositor's gaps from the client's (tv_gate.py sets it unless --x1-strict); LUMATV_X1_STRICT is the PLAN's rule
-#                     (every gap, untraced). A/Bs, the rule unchanged: LUMATV_X1_RT=N the client runs SCHED_FIFO N; LUMATV_X1_CALLBACKS=early|landing
-#                     the clients' frame callbacks go out with the frame's draw or at the flip (tv_gate.py --x1-rt, --x1-callbacks)
+#                     (every gap, untraced). A/Bs, the rule unchanged: LUMATV_X1_RT=N the client runs SCHED_FIFO N; LUMATV_X1_CALLBACKS=commit|early|landing
+#                     the clients' frame callbacks go out with the commit (the default), the frame's draw or at the flip (tv_gate.py --x1-rt, --x1-callbacks)
 #   gate.sh netflix   the Dolby Vision test film by deep link, from a fresh Netflix instance (a running one is
 #                     closed first): card mapped, video window exported, Picture Mode dolbyHdrCinema while
 #                     playing, filmMaker back on Home
@@ -42,6 +42,9 @@
 #   gate.sh wake [reset|probe SECS]  the loop's wake-up latency (p50/p99/max of the tick, the flip, the input) since the last reset, or a
 #                     SECS-long cyclictest-style probe at the loop's class, the Mali submission threads' class and a time-shared one. A report, no rule
 #   gate.sh mem       what the compositor has resident and pinned, malloc's mmapped blocks, and what the set has left (report)
+#   gate.sh callbacks [early|landing]   no check: the frame callbacks' pacing (`ctl callbacks`). An argument sets the shell client's, and
+#                     LUMATV_CLIENTS_CALLBACKS=commit|early|landing every other client's (tv_gate.py --frames-callbacks, --frames-clients); then how many of
+#                     all the callbacks went out ahead of their flip and how many with their commit so far, and the clients' setting. A report
 #   gate.sh load start SECS [KINDS] | stop | status   synthetic background load (decode, ws, ble, download) for the frame gate's loaded run
 #   gate.sh scanout [direct|off|read]   direct scan-out (docs/research/scanout-research.md): `direct` asks the shell for buffers the plane takes (`ctl scanout
 #                     shell-env WAYLAND_AFBC=0`), switches the compositor's scan-out on and starts the shell again, so that its Home window makes buffers the
@@ -155,11 +158,16 @@ jnum() { grep -o "\"$1\":-\{0,1\}[0-9]*" | head -n 1 | cut -d: -f2; }
 # The first string, or the first true/false, of that name in the JSON on stdin.
 jstr() { grep -o "\"$1\":\"[^\"]*\"" | head -n 1 | cut -d'"' -f4; }
 jbool() { grep -o "\"$1\":\(true\|false\)" | head -n 1 | cut -d: -f2; }
-# The shell client (`ctl shell`): whether it says it can show a panel of KIND now, and its own state's fields.
-shell_can() { ctl shell | grep -o '"can":\[[^]]*\]' | grep -q "\"$1\""; }
-shell_str() { ctl shell | jstr "$1"; }
-shell_bool() { ctl shell | jbool "$1"; }
-shell_num() { ctl shell | jnum "$1"; }
+# The shell client (`ctl shell`): whether it says it can show a panel of KIND now, and its own state's fields. The report is read without its
+# `rust` object (the Rust client's own report): the compositor's JSON has its keys in alphabetical order, `rust` sorts before `stats`,
+# `takes`, `topics`, `ui` and `wants`, and has keys of those names, so the first `"wants":` was the Rust client's (false while no Rust kind
+# is on) and `quick-app` failed on a layer that did want the keys (round 18b). rustjson.py reads the JSON, as for the rust check.
+RUSTJSON=$D/rustjson.py
+shell_json() { ctl shell | python3 $RUSTJSON --without rust; }
+shell_can() { shell_json | grep -o '"can":\[[^]]*\]' | grep -q "\"$1\""; }
+shell_str() { shell_json | jstr "$1"; }
+shell_bool() { shell_json | jbool "$1"; }
+shell_num() { shell_json | jnum "$1"; }
 # Waits, SECS at most, for the shell's string field NAME to be VALUE.
 wait_shell_str() { w=0; while [ "$w" -lt "$3" ]; do [ "$(shell_str "$1")" = "$2" ] && return 0; sleep 0.5; w=$((w+1)); done; [ "$(shell_str "$1")" = "$2" ]; }
 wait_shell_bool() { w=0; while [ "$w" -lt "$3" ]; do [ "$(shell_bool "$1")" = "$2" ] && return 0; sleep 0.5; w=$((w+1)); done; [ "$(shell_bool "$1")" = "$2" ]; }
@@ -176,7 +184,6 @@ shell_idle_cost() {
 # The Rust shell's kinds (`gate.sh rust`). Its report is `ctl shell`'s `rust` object: `kinds` (what the compositor was asked for, kept in
 # shell-rust.conf), `connected`, and `ui`, the client's own state, whose `kinds` are the ones the client built and answers. rustjson.py reads
 # a dotted path out of JSON on stdin.
-RUSTJSON=$D/rustjson.py
 # Seconds a restart of the client is waited for, and a kind's trigger (the host tests shorten both).
 RUST_WAIT=${LUMATV_RUST_WAIT:-30}
 RUST_OPEN=${LUMATV_RUST_OPEN_WAIT:-10}
@@ -840,7 +847,7 @@ shell)
     # The quick panel and the input picker on Home: the gear's tap and Input, Back closes each.
     ctl note shell-quick > /dev/null; key_tap 139
     if wait_shell_str layer quick 10; then key_tap 412; if wait_shell_str layer "" 10; then res ok quick-home; else res no quick-home "Back left the layer '$(shell_str layer)'"; fi
-    else res no quick-home "layer '$(shell_str layer)' after the gear; can $(ctl shell | grep -o '"can":\[[^]]*\]')"; fi
+    else res no quick-home "layer '$(shell_str layer)' after the gear; can $(shell_json | grep -o '"can":\[[^]]*\]')"; fi
     journal_after shell-quick > $OUT/shell-quick.txt
     ctl note shell-picker > /dev/null; key_tap 241
     if wait_shell_str layer picker 10; then key_tap 412; if wait_shell_str layer "" 10; then res ok picker-home; else res no picker-home "Back left the layer '$(shell_str layer)'"; fi
@@ -849,7 +856,7 @@ shell)
     # The volume display: a volume key through the compositor's own route; the audio service's push reaches the client as the audio topic.
     key_tap 115
     if wait_shell_bool osd true 8 && wait_shell_bool systemMapped true 6; then res ok osd
-    else res no osd "osd $(shell_bool osd), system window mapped $(shell_bool systemMapped) after Volume+ (audio topic: $(ctl shell | grep -o '"audio":{[^}]*' | cut -c1-120))"; fi
+    else res no osd "osd $(shell_bool osd), system window mapped $(shell_bool systemMapped) after Volume+ (audio topic: $(shell_json | grep -o '"audio":{[^}]*' | cut -c1-120))"; fi
     # A toast through the notification service, as any app raises one.
     ls1 com.webos.notification/createToast '{"message":"LumaTV gate: a toast under its own compositor","sourceId":"org.nphil.lumatv"}' > /dev/null
     if wait_shell_num_ge toasts 1 10 && wait_shell_bool systemMapped true 6; then res ok toast
@@ -867,16 +874,17 @@ shell)
         # Covered by the app: Home draws nothing and the client sleeps (its tick is held, `covered` in the foreground topic).
         sleep 2
         set -- $(shell_idle_cost 10); ac=$1; acpu=$2
-        if [ "${ac:-99}" -eq 0 ] && [ "${acpu:-999}" -le 3 ]; then res ok "idle-covered(${acpu}%)"; else res no idle-covered "$ac commits/s, $acpu % cpu with the Home Hub in front; covered $(ctl shell | grep -o '"covered":[a-z]*')"; fi
+        if [ "${ac:-99}" -eq 0 ] && [ "${acpu:-999}" -le 3 ]; then res ok "idle-covered(${acpu}%)"; else res no idle-covered "$ac commits/s, $acpu % cpu with the Home Hub in front; covered $(shell_json | grep -o '"covered":[a-z]*')"; fi
     else res no quick-app "the Home Hub did not map: $(where_now)"; fi
     close_app com.webos.app.homeconnect; sleep 3; home; sleep 4
     # The screensaver: tvpower asked to start it; LumaTV's own answers and draws (on Home, LumaHome's). Any key ends it.
     ls1 com.webos.service.tvpower/power2/turnOnScreenSaver '{}' > /dev/null
     if wait_shell_bool saver true 15; then key_tap 106; if wait_shell_bool saver false 10; then res ok saver; else res no saver "a key did not end it"; fi
-    else res no saver "saver $(shell_bool saver) after turnOnScreenSaver; $(ctl shell | grep -oE '"vote":\{"shell":(null|\{[^}]*\}),"home":(null|\{[^}]*\})\}')"; fi
+    else res no saver "saver $(shell_bool saver) after turnOnScreenSaver; $(shell_json | grep -oE '"vote":\{"shell":(null|\{[^}]*\}),"home":(null|\{[^}]*\})\}')"; fi
     sleep 2; home; sleep 2
     ctl shell > $OUT/shell-end.json
-    detail="${sd# }${bad:+ NOT:$bad} (shell pid $(shell_num pid), starts $(ctl shell | grep -o '"starts":[0-9]*' | cut -d: -f2), exits $(ctl shell | grep -o '"exits":[0-9]*' | cut -d: -f2), luna calls $(ctl shell | grep -o '"lunaCalls":[0-9]*' | cut -d: -f2), refused $(ctl shell | grep -o '"lunaRefused":[0-9]*' | cut -d: -f2); $(where_now))"
+    sj=$(shell_json)
+    detail="${sd# }${bad:+ NOT:$bad} (shell pid $(echo "$sj" | jnum pid), starts $(echo "$sj" | jnum starts), exits $(echo "$sj" | jnum exits), luna calls $(echo "$sj" | jnum lunaCalls), refused $(echo "$sj" | jnum lunaRefused); $(where_now))"
     echo "$detail" > $OUT/shell-result.txt
     if [ -z "$bad" ]; then pass shell "$detail"; else fail shell "$detail"; fi
     ;;
@@ -991,11 +999,14 @@ evidence)
     echo "evidence: $(grep -c applicationManager $OUT/sm-subscriptions.txt) subscription(s) from SAM, $(wc -l < $OUT/clients.txt) client lines, $(grep -c 'loop:' $OUT/compositor.log) loop stalls, $(wc -l < $OUT/sm-watchdog.txt) watchdog lines"
     ;;
 callbacks)
-    # The shell client's frame callbacks (`ctl callbacks shell early|landing`): with an argument it sets them, then says how many of all
-    # clients' callbacks went out ahead of their flip so far (every client's go ahead by default). Not a check: no GATE line.
+    # The frame callbacks' pacing (`ctl callbacks`): with an argument it sets the shell client's (`ctl callbacks shell early|landing`), and
+    # LUMATV_CLIENTS_CALLBACKS=commit|early|landing sets every other client's (`ctl callbacks clients`). It then says how many of all the
+    # callbacks went out ahead of their flip so far (the shell's, by default) and how many with the commit that carried them (a card's, by
+    # default): over Home alone the apps send next to none, so a pacing that changed only theirs was not in play. Not a check: no GATE line.
     [ -z "${2:-}" ] || ctl callbacks shell "$2" > /dev/null
+    [ -z "${LUMATV_CLIENTS_CALLBACKS:-}" ] || ctl callbacks clients "$LUMATV_CLIENTS_CALLBACKS" > /dev/null
     st=$(ctl status)
-    echo "callbacks${2:+ (the shell's set to $2)}: $(echo "$st" | grep -o '"callbacksAhead":[0-9]*' | cut -d: -f2) of $(echo "$st" | grep -o '"callbacks":[0-9]*' | cut -d: -f2) sent ahead of their flip"
+    echo "callbacks${2:+ (the shell's set to $2)}${LUMATV_CLIENTS_CALLBACKS:+ (the clients' set to $LUMATV_CLIENTS_CALLBACKS)}: $(echo "$st" | jnum callbacksAhead) of $(echo "$st" | jnum callbacks) sent ahead of their flip, $(echo "$st" | jnum callbacksAtCommit) with their commit; clients $(echo "$st" | jstr clientCallbacks)"
     ;;
 refresh)
     # The refresh test mode: switch (60, 120), reset or read; then SECS of the screen as it is, counted three ways (the OSD plane's flips,
@@ -1026,7 +1037,7 @@ refresh)
     mali=$(awk -v b0="${b0:-0}" -v b1="${b1:-0}" -v i0="${i0:-0}" -v i1="${i1:-0}" 'BEGIN { t = (b1 - b0) + (i1 - i0); if (t > 0) printf "%.1f", 100 * (b1 - b0) / t; else print "?" }')
     temp=$(tr -d '\n' < /proc/lg/pm/temperature 2>/dev/null | head -c 40)
     m=$(ctl refresh)
-    r_shell=$(ctl shell)
+    r_shell=$(shell_json)
     shell_hz=$(echo "$r_shell" | grep -o '"refreshHz":[0-9]*' | head -n 1 | cut -d: -f2)
     # the per-frame motions' own count (kit/FrameMotion.qml): the last few slides as the shell's state reports them (`Lu.slides`, steps/ms/duration
     # each; round 15 found no line of theirs in the shell's stdout file), else the `[FrameMotion]` lines of the runner's log, which QML's console

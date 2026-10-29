@@ -971,6 +971,80 @@ def rust_tap(code):
                 ui["panels"][k] = "parked"
         ui["settings"]["open"] = False
         ui["cameras"]["screen"]["mode"] = ""
+
+
+def qml():
+    """The QML shell client as `ctl shell` reports it (cfg qml): its layer on Home or its overlay over an app, the volume display, the toast, the
+    screen saver, the keys it has counted and whether its layer wants the keys. cfg: qml_no_wants (an overlay opens and the layer never asks
+    for the keys), qml_back_stuck (Back leaves the overlay up), rust_wants (the Rust client's report says `wants` true)."""
+    return s.setdefault("qml", {"layer": "", "overlay": "", "focus": "dock", "osd": False, "toasts": 0, "saver": False, "keys": 0, "wants": False,
+                                "home_commits": 100})
+
+
+def qml_home():
+    return front() == "com.webos.app.home"
+
+
+def qml_lets_go():
+    q = qml()
+    if q["wants"]:
+        q["wants"] = False
+        s["journal"].append("shell: the system layer lets go of the keys")
+
+
+def qml_tap(code):
+    """A key of the remote as the shell client takes it; whether it was the client's."""
+    q = qml()
+    q["keys"] += 2                       # the client counts the press and the release
+    if code == 103 and qml_home() and q["focus"] == "dock":
+        q["focus"] = "widgets"
+    elif code == 108 and qml_home() and q["focus"] == "widgets":
+        q["focus"] = "dock"
+    elif code in (139, 241):
+        name = "quick" if code == 139 else "picker"
+        s["journal"].append("input: gear tap: Quick Settings -> LumaTV's quick panel" if code == 139 else "input: Input tap: the input picker -> LumaTV's input picker")
+        if qml_home():
+            q["layer"] = name
+        else:
+            q["overlay"] = name
+            if not cfg.get("qml_no_wants"):
+                q["wants"] = True
+                s["journal"].append("shell: the system layer wants the keys")
+    elif code == 412:
+        q["layer"] = ""
+        if q["overlay"] and not cfg.get("qml_back_stuck"):
+            q["overlay"] = ""
+            qml_lets_go()
+    elif code == 115:
+        q["osd"] = True
+    elif code == 106:
+        q["saver"] = False
+    else:
+        return False
+    return True
+
+
+def qml_report(built, ui_rust):
+    """`ctl shell` as the compositor prints it: the QML client's report at the top level, the Rust client's in `rust`, keys in alphabetical order.
+    The Rust object has keys of the same names (`wants`, `stats`, `ui`...) and sorts before `stats`, `takes`, `topics`, `ui` and `wants`."""
+    q = qml()
+    home = qml_home()
+    if home and q["overlay"]:
+        q["overlay"] = ""                # an app that leaves the front ends the panel over it (Shell.qml, onFgAppChanged)
+        qml_lets_go()
+    if home:
+        q["home_commits"] += 20
+    rust = {"can": built, "connected": bool(built), "enabled": bool(built), "engine": False, "error": None, "gaveUp": False, "kinds": rust_state()["kinds"],
+            "lunaOpen": [], "pid": None, "stats": {"events": 0, "exits": 0, "lunaCalls": 0, "lunaCancelledEarly": 0, "lunaRefused": 0, "shows": 0, "starts": 0},
+            "systemLive": False, "takes": [], "topics": {}, "ui": ui_rust if built else None, "wants": bool(cfg.get("rust_wants"))}
+    ui = {"alert": False, "baseCached": False, "beat": True, "dropped": 0, "focus": q["focus"], "homeLoaded": True, "hostActive": home, "idleHold": not home,
+          "keys": q["keys"], "layer": q["layer"], "osd": q["osd"], "overlay": q["overlay"], "pin": False, "refreshHz": cfg.get("refresh_hz", 60),
+          "saver": q["saver"], "slides": cfg.get("slides", []), "toasts": q["toasts"]}
+    return {"can": ["quick", "picker", "drawer", "switcher", "keyboard"], "connected": True, "enabled": True, "error": None, "gaveUp": False,
+            "homeCommits": q["home_commits"], "homeDrawn": home, "homeMapped": True, "lunaOpen": [], "ok": True, "pid": 99999999, "rust": rust,
+            "stats": {"events": 227, "exits": 0, "lunaCalls": 171, "lunaCancelledEarly": 0, "lunaRefused": 0, "shows": 5, "starts": 1},
+            "systemCommits": 173, "systemLive": bool(q["layer"] or q["overlay"] or q["osd"] or q["toasts"] or q["saver"]), "systemMapped": True, "takes": [],
+            "topics": {"foreground": {"app": front(), "covered": not home, "home": home}}, "ui": ui, "wants": q["wants"]}
 '''
 SIM_LOADER = '#!/bin/sh\nshift 2\nexec "$@"\n'
 SIM_COMPOSITOR = SIM_PRELUDE + r'''
@@ -999,6 +1073,8 @@ def ok():
 def tap(code):
     rust_tap(code)
     s["keys"].append(code)
+    if cfg.get("qml") and qml_tap(code):
+        return
     focused = s["windows"][-1][0]
     if code == 139:
         say("input: gear tap: Quick Settings has no window of its own here yet, launching com.palm.app.settings")
@@ -1096,11 +1172,19 @@ elif cmd == "shell":
             r["ui"]["toasts"] = 0
     built = [] if cfg.get("rust_no_ui") else rust_built(r) + [k for k in cfg.get("rust_stuck", []) if k not in r["kinds"]]
     ui = dict(r["ui"], kinds=built)
-    out({"ok": True, "connected": True, "ui": {"state": {"refreshHz": cfg.get("refresh_hz", 60), "slides": cfg.get("slides", [])}},
-         "rust": {"kinds": r["kinds"], "connected": bool(built), "error": "no lumatv-ui" if cfg.get("rust_no_ui") else None, "can": built, "ui": ui}})
+    if cfg.get("qml"):
+        out(qml_report(built, ui))
+    else:
+        out({"ok": True, "connected": True, "ui": {"state": {"refreshHz": cfg.get("refresh_hz", 60), "slides": cfg.get("slides", [])}},
+             "rust": {"kinds": r["kinds"], "connected": bool(built), "error": "no lumatv-ui" if cfg.get("rust_no_ui") else None, "can": built, "ui": ui}})
+elif cmd == "callbacks":
+    s.setdefault("pacing", {"shell": "early", "clients": "commit"})[rest[0]] = rest[1]
+    out({"ok": True, rest[0]: rest[1]})
 elif cmd == "status":
     r = rust_state()
-    out({"ok": True, "summary": "uptime 1.0s clients 2 gl errors %d render last 5 us" % r["gl"], "stats": {"drawn": r["drawn"]}})
+    out({"ok": True, "summary": "uptime 1.0s clients 2 gl errors %d render last 5 us" % r["gl"],
+         "stats": {"drawn": r["drawn"], "callbacks": 16657, "callbacksAhead": 15682, "callbacksAtCommit": 3,
+                   "clientCallbacks": s.get("pacing", {}).get("clients", "commit")}})
 elif cmd == "ime":
     up = s["panel"] is not None
     out({"ok": True, "asked": 1, "methods": [{"id": 5, "display": 0}] * cfg.get("methods", 1), "models": 1, "panel": s["panel"],
@@ -1188,6 +1272,11 @@ elif method == "closeByAppId":
         s["ctx"] = False
     out({"returnValue": True})
 elif method in ("createToast", "createAlert", "turnOnScreenSaver"):
+    if cfg.get("qml"):
+        if method == "createToast":
+            qml()["toasts"] = 1
+        elif method == "turnOnScreenSaver":
+            qml()["saver"] = True
     r = rust_state()
     kind = {"createToast": "toast", "createAlert": "alert", "turnOnScreenSaver": "saver"}[method]
     if kind in rust_built(r) and kind not in cfg.get("rust_dead", []):
@@ -1219,6 +1308,7 @@ class GateKeysAndIme(FakeSet):
         write(os.path.join(self.dep, "lib", "ld-linux-aarch64.so.1"), SIM_LOADER, 0o755)
         write(os.path.join(self.dep, "bin", "lumatv-compositor"), SIM_COMPOSITOR, 0o755)
         write(os.path.join(self.fakebin, "luna-send"), SIM_LUNA, 0o755)
+        shutil.copy(os.path.join(TOOLS, "tv-rustjson.py"), os.path.join(self.dep, "rustjson.py"))
 
     def configure(self, **cfg):
         write(os.path.join(self.tmp.name, "sim-config.json"), json.dumps(cfg))
@@ -1611,6 +1701,103 @@ class GateRustKinds(FakeSet):
         self.assertEqual((get("rust.ui.x"), get("rust.nothing.here"), get("rust.kinds", "not json")), ("", "", ""))
 
 
+class GateShell(FakeSet):
+    """tv-gate.sh shell against a small model of the QML shell client's report as `ctl shell` carries it, with the Rust client's report beside it:
+    the `rust` object has keys of the same names (`wants`, `stats`, `ui`...) and sorts before some of them, so a first-match read took the Rust
+    client's `wants` (false, no Rust kind on) for the QML client's: round 18b's `quick-app` failed on a layer that did want the keys."""
+
+    def setUp(self):
+        super().setUp()
+        write(os.path.join(self.dep, "lib", "ld-linux-aarch64.so.1"), SIM_LOADER, 0o755)
+        write(os.path.join(self.dep, "bin", "lumatv-compositor"), SIM_COMPOSITOR, 0o755)
+        write(os.path.join(self.fakebin, "luna-send"), SIM_LUNA, 0o755)
+        shutil.copy(os.path.join(TOOLS, "tv-rustjson.py"), os.path.join(self.dep, "rustjson.py"))
+
+    def shell(self, **cfg):
+        """The check's GATE line on a set that starts at Home with nothing open."""
+        sim = os.path.join(self.tmp.name, "sim.json")
+        if os.path.exists(sim):
+            os.remove(sim)
+        write(os.path.join(self.tmp.name, "sim-config.json"), json.dumps(dict(cfg, qml=True)))
+        rc, out = self.gate("shell")
+        return [ln for ln in out.splitlines() if ln.startswith("GATE shell:")][0]
+
+    def sim(self):
+        return json.loads(read(os.path.join(self.tmp.name, "sim.json")))
+
+    def test_a_healthy_shell_passes_every_row_and_the_quick_panel_over_an_app_is_judged_on_the_qml_clients_wants(self):
+        line = self.shell()
+        self.assertTrue(line.startswith("GATE shell: PASS connected ok; home-loaded ok; idle-home("), line)
+        for row in ("dpad ok", "quick-home ok", "picker-home ok", "osd ok", "toast ok", "quick-app ok", "idle-covered(0%) ok", "saver ok"):
+            self.assertIn(row, line)
+        self.assertIn("(shell pid 99999999, starts 1, exits 0, luna calls 171, refused 0; foreground com.webos.app.home, windows mapped: com.webos.app.home)", line)
+        sim = self.sim()
+        self.assertEqual(sim["windows"], [["com.webos.app.home", "Card"]], "Home alone is left: the Home Hub the check opened is closed")
+        self.assertEqual(sim["closed"], ["com.webos.app.homeconnect"])
+        self.assertEqual(read(os.path.join(self.out, "shell-quick-app.txt")).splitlines(),
+                         ["input: gear tap: Quick Settings -> LumaTV's quick panel", "shell: the system layer wants the keys",
+                          "shell: the system layer lets go of the keys"])
+        self.assertIn('"rust":{', read(os.path.join(self.out, "shell-end.json")), "the evidence file keeps the whole report")
+
+    def test_a_layer_that_never_wants_the_keys_fails_the_check_and_the_rust_clients_wants_does_not_rescue_it(self):
+        for cfg in ({"qml_no_wants": True}, {"qml_no_wants": True, "rust_wants": True}):
+            line = self.shell(**cfg)
+            self.assertTrue(line.startswith("GATE shell: FAIL"), line)
+            self.assertIn("NOT: quick-app (overlay 'quick', wants false, system mapped true, home drawn false);", line)
+            self.assertIn("saver ok", line, "the rows after it still run")
+
+    def test_a_back_that_leaves_the_panel_over_the_app_fails_the_check(self):
+        line = self.shell(qml_back_stuck=True)
+        self.assertIn("NOT: quick-app (Back left overlay 'quick', wants true);", line)
+
+    def test_the_clients_own_fields_are_read_and_not_the_rust_clients_of_the_same_name(self):
+        doc = {"can": ["quick"], "connected": True, "pid": 77, "ok": True,
+               "rust": {"can": [], "connected": False, "pid": None, "stats": {"starts": 0, "exits": 0, "lunaCalls": 0, "lunaRefused": 0}, "ui": {"osd": True, "layer": "settings"},
+                        "wants": False},
+               "stats": {"starts": 1, "exits": 2, "lunaCalls": 3, "lunaRefused": 4}, "ui": {"overlay": "quick", "osd": False, "layer": ""}, "wants": True}
+        text = json.dumps(doc, sort_keys=True, separators=(",", ":"))
+        reads = "$(shell_bool wants) $(shell_str overlay) $(shell_bool osd) $(shell_str layer) $(shell_num pid) $(shell_num starts) $(shell_num exits) $(shell_num lunaCalls) $(shell_num lunaRefused)"
+        script = ". %s\nctl() { echo \"$DOC\"; }\necho \"%s\"\nshell_can quick && echo can\nshell_can picker || echo no-picker\necho \"$DOC\" | jbool wants\n" % (GATE, reads)
+        r = subprocess.run(["sh", "-c", script], env=dict(self.env, GATE_LIB="1", DOC=text), capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(r.stdout.split("\n")[:3], ["true quick false  77 1 2 3 4", "can", "no-picker"], r.stdout)
+        self.assertEqual(r.stdout.split("\n")[3], "false", "the first `wants` in the text is the Rust client's: a grep on the whole report reads it")
+
+    def test_the_reader_leaves_out_the_keys_it_is_told_to(self):
+        reader = os.path.join(TOOLS, "tv-rustjson.py")
+
+        def run(*args, text):
+            return subprocess.run(["python3", reader, *args], input=text, capture_output=True, text=True).stdout.strip()
+        doc = json.dumps({"b": {"wants": False}, "a": 1, "rust": {"wants": True}, "wants": None})
+        self.assertEqual(run("--without", "rust", text=doc), '{"a":1,"b":{"wants":false},"wants":null}')
+        self.assertEqual(run("--without", "rust,b", text=doc), '{"a":1,"wants":null}')
+        self.assertEqual(run("--without", "rust", "b.wants", text=doc), "false")
+        self.assertEqual(run("--without", "rust", "rust.wants", text=doc), "", "a key taken out is not there to read")
+        self.assertEqual(run("--without", "rust", text="not json"), "")
+        self.assertEqual(run("rust.wants", text=doc), "true", "without the option the document is whole")
+
+
+class GateCallbacks(FakeSet):
+    """tv-gate.sh callbacks: the frame callbacks' pacing, set and read back."""
+
+    def setUp(self):
+        super().setUp()
+        write(os.path.join(self.dep, "lib", "ld-linux-aarch64.so.1"), SIM_LOADER, 0o755)
+        write(os.path.join(self.dep, "bin", "lumatv-compositor"), SIM_COMPOSITOR, 0o755)
+
+    def test_it_says_how_many_went_ahead_of_their_flip_and_how_many_with_their_commit(self):
+        rc, out = self.gate("callbacks")
+        self.assertEqual(out.strip(), "callbacks: 15682 of 16657 sent ahead of their flip, 3 with their commit; clients commit")
+
+    def test_the_shells_pacing_is_set_by_the_argument_and_the_clients_by_the_environment(self):
+        rc, out = self.gate("callbacks", "landing", env={"LUMATV_CLIENTS_CALLBACKS": "early"})
+        self.assertEqual(out.strip(), "callbacks (the shell's set to landing) (the clients' set to early): 15682 of 16657 sent ahead of their flip, 3 with their commit; clients early")
+        self.assertEqual(json.loads(read(os.path.join(self.tmp.name, "sim.json")))["pacing"], {"shell": "landing", "clients": "early"})
+        rc, out = self.gate("callbacks")
+        self.assertIn("; clients early", out, "what was set stays until it is set again")
+
+
+
 class GateDriver(unittest.TestCase):
     """tv_gate.py: the verdict, the record of a passed build, and the order the checks run in."""
 
@@ -1873,6 +2060,24 @@ class GateDriver(unittest.TestCase):
                          [self.session(self.first + self.full), "live", "evidence",
                           self.session(self.full), "live frames", "callbacks landing", "wake reset", "wake frames", "mem", "callbacks",
                           "cutover disable"])
+
+    def test_the_frame_gate_can_run_with_the_apps_callbacks_at_the_draw_and_puts_the_default_back(self):
+        # an A/B in one session: the apps' pacing is set before the surfaces, read after them, and the default is back before the next check
+        calls, code, _ = self.run_main(argv=["--only", "frames", "--frames-clients", "early"])
+        self.assertEqual(code, 0)
+        paced = [c for c in calls if "gate.sh callbacks" in c]
+        self.assertEqual(paced, ["LUMATV_CLIENTS_CALLBACKS=early sh /tmp/lumatv/gate.sh callbacks", "sh /tmp/lumatv/gate.sh callbacks",
+                                 "LUMATV_CLIENTS_CALLBACKS=commit sh /tmp/lumatv/gate.sh callbacks"])
+        self.assertLess(calls.index(paced[0]), calls.index("sh /tmp/lumatv/gate.sh wake reset"), "set before the surfaces")
+        self.assertLess(calls.index("sh /tmp/lumatv/gate.sh wake frames"), calls.index(paced[1]), "read after them")
+        calls, code, _ = self.run_main(argv=["--only", "frames", "--frames-clients", "landing", "--frames-callbacks", "landing"])
+        self.assertIn("LUMATV_CLIENTS_CALLBACKS=landing sh /tmp/lumatv/gate.sh callbacks landing", calls, "the shell's setting goes with it")
+        calls, code, _ = self.run_main(argv=["--only", "frames"])
+        self.assertNotIn("LUMATV_CLIENTS_CALLBACKS", " ".join(calls), "the compositor's default stands unless it is asked")
+        calls, code, _ = self.run_main(argv=["--only", "x1", "--frames-clients", "early"])
+        self.assertNotIn("LUMATV_CLIENTS_CALLBACKS", " ".join(calls), "no frame run, nothing to set")
+        calls, code, _ = self.run_main(argv=["--only", "frames", "--frames-clients", "sometimes"])
+        self.assertEqual((calls, code), ([], 2))
 
     def test_the_loaded_frame_run_is_opt_in_and_a_report_the_verdict_does_not_read(self):
         calls, code, _ = self.run_main()
