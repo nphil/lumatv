@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>sharpness card</title>
+<!-- Test card for the OSD sharpener (layerdeep-tv.sh sharp): 1920x1080 CSS px at 1:1, so every 1 px line is 2 panel pixels at the
+     OSD scaler. The big label follows an embedded schedule from ?t0=<epoch ms>; the shell script that writes the registers uses
+     the same times, so the label is the state on screen. The schedule is SCHEDULE below (seconds from t0). -->
+<style>
+html,body{margin:0;padding:0;background:#000;overflow:hidden;width:1920px;height:1080px;font-family:Arial,Helvetica,sans-serif;color:#fff}
+.z{position:absolute;box-sizing:border-box}
+.t{position:absolute;font-size:10px;color:#8f8}
+#label{position:absolute;left:960px;top:0;width:960px;height:270px;display:flex;align-items:center;justify-content:center;font-size:215px;font-weight:bold;line-height:1;letter-spacing:-6px}
+#next{position:absolute;left:960px;top:270px;width:960px;height:50px;font-size:34px;line-height:50px;text-align:center;background:#222}
+.hl{background:repeating-linear-gradient(to bottom,#fff 0,#fff 1px,#000 1px,#000 2px)}
+.vl{background:repeating-linear-gradient(to right,#fff 0,#fff 1px,#000 1px,#000 2px)}
+.dl{background:repeating-linear-gradient(45deg,#fff 0,#fff 1px,#000 1px,#000 3px)}
+.cb1{background:conic-gradient(#fff 25%,#000 0 50%,#fff 0 75%,#000 0);background-size:2px 2px}
+.cb2{background:conic-gradient(#fff 25%,#000 0 50%,#fff 0 75%,#000 0);background-size:4px 4px}
+.tx{white-space:nowrap}
+.w{background:#fff;color:#000}
+.b{background:#000;color:#fff}
+</style></head><body>
+<div id="stage" style="position:absolute;left:0;top:0;width:1920px;height:980px"><div id="label"></div><div id="next"></div>
+
+<!-- row 1: 1 px line patterns and checkerboards -->
+<div class="z hl" style="left:10px;top:20px;width:225px;height:225px"></div><div class="t" style="left:10px;top:8px">1px horizontal</div>
+<div class="z vl" style="left:245px;top:20px;width:225px;height:225px"></div><div class="t" style="left:245px;top:8px">1px vertical</div>
+<div class="z dl" style="left:480px;top:20px;width:225px;height:225px"></div><div class="t" style="left:480px;top:8px">diagonal</div>
+<div class="z cb1" style="left:715px;top:20px;width:225px;height:225px"></div><div class="t" style="left:715px;top:8px">1px checker</div>
+
+<!-- row 2: zone plate, converging lines, coloured 1 px lines -->
+<canvas id="zp" class="z" width="300" height="270" style="left:10px;top:290px"></canvas><div class="t" style="left:10px;top:278px">zone plate</div>
+<canvas id="cv" class="z" width="300" height="270" style="left:320px;top:290px"></canvas><div class="t" style="left:320px;top:278px">converging lines</div>
+<div class="z" id="col" style="left:630px;top:290px;width:310px;height:270px"></div><div class="t" style="left:630px;top:278px">1px coloured lines on black</div>
+
+<!-- right: black-on-white text 12/16/20/24 -->
+<div class="z w" style="left:960px;top:330px;width:960px;height:230px;padding:6px 12px">
+ <div class="tx" style="font-size:12px">12px  The quick brown fox jumps over the lazy dog 0123456789 fiflffl AVWT.,;:</div>
+ <div class="tx" style="font-size:16px;margin-top:6px">16px  The quick brown fox jumps over the lazy dog 0123456789</div>
+ <div class="tx" style="font-size:20px;margin-top:6px">20px  The quick brown fox jumps over the lazy dog</div>
+ <div class="tx" style="font-size:24px;margin-top:6px">24px  The quick brown fox jumps over</div>
+ <div class="tx" style="font-size:14px;margin-top:8px;font-family:'Courier New',monospace">14px mono  if (x &lt; 10 &amp;&amp; y[3] == 0) { return 1; }</div>
+</div>
+
+<!-- row 3: white-on-black text 12/16/20/24, gratings of pitch 1..4 px -->
+<div class="z b" style="left:10px;top:580px;width:930px;height:230px;padding:6px 12px">
+ <div class="tx" style="font-size:12px">12px  The quick brown fox jumps over the lazy dog 0123456789 fiflffl AVWT.,;:</div>
+ <div class="tx" style="font-size:16px;margin-top:6px">16px  The quick brown fox jumps over the lazy dog 0123456789</div>
+ <div class="tx" style="font-size:20px;margin-top:6px">20px  The quick brown fox jumps over the lazy dog</div>
+ <div class="tx" style="font-size:24px;margin-top:6px">24px  The quick brown fox jumps over</div>
+ <div class="tx" style="font-size:14px;margin-top:8px;font-family:'Courier New',monospace">14px mono  if (x &lt; 10 &amp;&amp; y[3] == 0) { return 1; }</div>
+</div>
+<div class="z" id="grat" style="left:960px;top:580px;width:960px;height:230px"></div>
+
+<!-- row 4: step edges (ringing/halo), checker 2/4 px, grey ramp -->
+<div class="z" id="edges" style="left:10px;top:830px;width:600px;height:130px"></div><div class="t" style="left:10px;top:818px">edges: white/black steps, grey on black, black on grey</div>
+<div class="z cb2" style="left:630px;top:830px;width:130px;height:130px"></div><div class="t" style="left:630px;top:818px">2px checker</div>
+<div class="z" style="left:770px;top:830px;width:1140px;height:60px;background:linear-gradient(to right,#000,#fff)"></div><div class="t" style="left:770px;top:818px">grey ramp</div>
+<div class="z" id="thin" style="left:770px;top:900px;width:1140px;height:60px"></div>
+<div class="z" id="info" style="left:10px;top:965px;width:1900px;height:15px;font-size:14px;line-height:15px;color:#8f8"></div>
+
+</div>
+<script>
+// seconds from t0: [start, state, text for NEXT]; the last entry ends the run. States: NORMAL STRONG SOFT OFF
+document.documentElement.style.zoom=1/devicePixelRatio; // the browser runs at a device pixel ratio above 1 (1.25 seen): zoom back so 1 layout px = 1 panel-plane px
+var SCHEDULE=[];
+function pair(t,other){for(var k=0;k<6;k++)SCHEDULE.push([t+3*k,k%2?other:'NORMAL']);}
+SCHEDULE.push([0,'NORMAL','NEXT: NORMAL <-> STRONG (0x80)']);
+pair(3,'STRONG');
+SCHEDULE.push([21,'NORMAL','NEXT: NORMAL <-> SOFT (0x00)']);
+pair(24,'SOFT');
+SCHEDULE.push([42,'NORMAL','NEXT: NORMAL <-> OFF (sharpener off)']);
+pair(45,'OFF');
+SCHEDULE.push([63,'NORMAL','DONE']);
+var COL={NORMAL:['#0a4','#fff'],STRONG:['#c00','#fff'],SOFT:['#06c','#fff'],OFF:['#fd0','#000']};
+var q=location.search.match(/t0=(\d+)/),t0=q?+q[1]:(window.T0||Date.now()); // window.T0 is set by the launcher when the page is a data: URL
+(function(){ // static content
+ var g='',p,y=0;for(p=1;p<=4;p++){g+='<div style="position:absolute;left:0;top:'+y+'px;width:960px;height:50px;background:repeating-linear-gradient(to right,#fff 0,#fff '+p+'px,#000 '+p+'px,#000 '+2*p+'px)"></div><div class="t" style="left:6px;top:'+(y+36)+'px;background:#000">pitch '+2*p+'px</div>';y+=58;}
+ document.getElementById('grat').innerHTML=g;
+ var c='',cols=['#f00','#0f0','#00f','#0ff','#f0f','#ff0','#fff'],i;for(i=0;i<cols.length;i++)c+='<div style="position:absolute;left:0;width:310px;top:'+(i*38+10)+'px;height:1px;background:'+cols[i]+'"></div><div style="position:absolute;left:0;width:1px;top:10px;height:'+(cols.length*38)+'px;background:'+cols[i]+';margin-left:'+(i*44+4)+'px"></div>';
+ document.getElementById('col').innerHTML=c;
+ document.getElementById('edges').innerHTML='<div style="position:absolute;left:0;top:0;width:300px;height:130px;background:#fff"></div><div style="position:absolute;left:150px;top:30px;width:150px;height:70px;background:#000"></div><div style="position:absolute;left:300px;top:0;width:300px;height:130px;background:#000"></div><div style="position:absolute;left:340px;top:20px;width:100px;height:90px;background:#777"></div><div style="position:absolute;left:480px;top:20px;width:100px;height:90px;background:#777"></div><div style="position:absolute;left:520px;top:40px;width:20px;height:50px;background:#000"></div>';
+ var th='',j;for(j=0;j<14;j++)th+='<div style="position:absolute;left:'+(j*80)+'px;top:0;width:'+(1+j%4)+'px;height:60px;background:#fff"></div>';
+ document.getElementById('thin').innerHTML=th;
+ var zp=document.getElementById('zp').getContext('2d'),W=300,H=270,im=zp.createImageData(W,H),x,y2,r,v;
+ for(y2=0;y2<H;y2++)for(x=0;x<W;x++){r=(x-W/2)*(x-W/2)+(y2-H/2)*(y2-H/2);v=127+127*Math.cos(r*0.0055);i=(y2*W+x)*4;im.data[i]=im.data[i+1]=im.data[i+2]=v;im.data[i+3]=255;}
+ zp.putImageData(im,0,0);
+ var cv=document.getElementById('cv').getContext('2d');cv.fillStyle='#000';cv.fillRect(0,0,300,270);cv.strokeStyle='#fff';cv.lineWidth=1;cv.beginPath();
+ for(i=0;i<=60;i++){cv.moveTo(0.5+i*5,0);cv.lineTo(150.5,135);cv.moveTo(0.5+i*5,270);cv.lineTo(150.5,135);}cv.stroke();
+})();
+function tick(){
+ var t=(Date.now()-t0)/1000,L=document.getElementById('label'),N=document.getElementById('next'),cur=null,i;
+ if(t<0){L.style.background='#333';L.style.color='#fff';L.textContent=Math.ceil(-t);N.textContent='starting - the registers change in '+Math.ceil(-t)+' s';}
+ else{for(i=0;i<SCHEDULE.length;i++)if(SCHEDULE[i][0]<=t)cur=SCHEDULE[i];
+  L.style.background=COL[cur[1]][0];L.style.color=COL[cur[1]][1];L.textContent=cur[1];
+  var nx='';for(i=SCHEDULE.length-1;i>=0;i--)if(SCHEDULE[i][2]&&SCHEDULE[i][0]<=t+6&&SCHEDULE[i][0]>t-3){nx=SCHEDULE[i][2];}
+  N.textContent=nx||('t = '+t.toFixed(0)+' s');}
+ document.getElementById('info').innerHTML='viewport '+innerWidth+'x'+innerHeight+' dpr '+devicePixelRatio+' &nbsp; clock '+new Date().toLocaleTimeString()+' &nbsp; (page area is 1920x981 under the browser toolbar)';
+}
+setInterval(tick,100);tick();
+</script></body></html>

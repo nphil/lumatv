@@ -197,9 +197,40 @@ Evidence in `compositor/display-hw-2026-10-29/`. Only `observe` and the first `p
   frame or the last one. The compositor's watchdog fired at 15:20:37 (`output frozen: 60 frames drawn and no page flip for 6 s`, crash bundle
   `20261029-152037-001`, `failures` 1) and the supervisor fell back to LG's compositor (Home back at 15:20:44). `lumatv compositor on` brought
   LumaTV back at 15:23 (`failures` 0, `gate.sh live` PASS, Home in `img/restored-home.jpg`). The second probe (1440x810) did not run.
-- Not run: `orbit`, `sharp`, `vsp`, `hole`, `osd01`.
+- `sharp` (OSD sharpener gain 0x00 / 0x40 / 0x80 and `osd_sr` 0, 15 s each, first on Home, then labelled with toasts on LG's Settings, then as
+  A/B flicker pairs on a test card): Nitin could not tell the states apart by eye in any of the three runs, so the sharpener at the x2 OSD scale
+  has no visible effect that he could find; the readbacks were correct each time (`chip/diag` `ti_gain`, `osd_sr.sw_status`).
+- Not run: `orbit`, `vsp`, `hole`, `osd01` (the next test is a guided on-screen app Nitin drives with the remote).
 
 Fix the probe needs before another run: do a `DRM_MODE_ATOMIC_TEST_ONLY` commit of the probe's plane state first and show it only if that
 passes; on any commit error of a probe frame, put the normal page back at once (the next frame) instead of repeating the refused commit.
 Reading: the driver's `atomic_check` refuses an OSD plane `SRC` of 1280x720 under `CRTC` 3840x2160 (or the framebuffer's stride/format for it);
 which is not known, the property values of the refused state were not logged (add them to the error line).
+
+### 8.1 Findings for the next test
+
+- Wheel press on the Magic Remote (`event2`, `LGE M-RCU`): key code 1199 down and up; no `BTN_LEFT`, no `KEY_ENTER`. Pointer motion is absolute X/Y with
+  key code 1198 pulsing every 0.5 s while it moves. The TV's userland is 32-bit: `struct input_event` is 16 bytes (`evrec.py`).
+- LG's browser (`com.webos.app.browser`, `luna://com.webos.service.applicationmanager/launch` with `params.target`): `file://` (in `/tmp` and
+  `/media/developer`) is refused ("webpage is not available"); a `data:text/html;base64,...` URL works (`open-card.sh`). Its toolbar takes the top
+  99 panel px; the page area is 1920x981 with `devicePixelRatio` 1.25 (viewport 1536x785), so a page that wants 1 CSS px = 1 plane px sets
+  `document.documentElement.style.zoom = 1/devicePixelRatio` (`tools/sharpness-card.html`). `closeByAppId` ends it; `launch com.webos.app.home` brings Home back.
+- `com.webos.notification/createToast` as a label raises entries in the notification centre (bell badge 17 after the runs; db8 kind
+  `com.webos.notificationhistory:1` is not readable by `luna-send` as root, no list method, so they cannot be removed by API). Do not use it for labels.
+- The LG Settings app launched by `com.palm.app.settings` is not closed by launching Home; `closeByAppId` is needed.
+- OSD0 VSP (`0xCC480360`, `0xCC480364`) reads 0 and the B.OSD1 hole registers read 0 on this boot (a resume boot, `/sys/power/mode` `resume`); at 15:12
+  on the previous boot the VSP read `0x02000001` / `0x02008000`. The script's "expected 0x02000001" is therefore boot-dependent.
+
+### 8.2 Registers and switches used (restored by read-back)
+
+| What | Address / path | Original | Test values | Restore |
+|---|---|---|---|---|
+| OSD sharpener gain | `/proc/lg/fbdev/chip/osd_sr_gain` (0..255) | `0x10` (`chip/diag` `sr_ctrl[0].ti_gain`) | `0x00`, `0x40`, `0x80` | `echo 0x10`; read `ti_gain` |
+| OSD sharpener on/off | `/proc/lg/fbdev/chip/osd_sr` (0 off, 1 on) | 1 (`chip/diag` `osd_sr.sw_status` 0x1) | 0 | `echo 1`; read `sw_status` |
+| OSD0 VSP contrast / gray | `0xCC480360` (`vspyc_en` bit 0, `graycolor_en` bit 1, `r_center` 8:15, `r_contrast` 16:25) | 0x00000000 on this boot (0x02000001 on the previous) | `0x01000001` (half contrast), `0x02000003` (gray) | write the read-back original; not written today |
+| B.OSD1 hole 0 | `0xCC4802C8` (w 0:12, x 13:25, en 28), `0xCC4802CC` (h 0:11, y 12:23, alpha 24:31), `0xCC48029C` (`osd0_en` bit 0, `hole_sel` 1:3) | all 0x00000000 | `0x10B403C0`, `0x0032A21C`, sel `1` then `3` | all three back to 0; not written today |
+| Compositor scanout mode | `ctl scanout [off|direct]` | `off` | `direct` for `orbit` | `ctl scanout off`; not changed today |
+| Page probe | `ctl pageprobe WxH SECONDS` | inactive | 1280x720 | commit refused; see above, do not use until the probe does a TEST_ONLY commit |
+
+Each write step arms a detached dead-man (`sleep N; restore`) before the first write and the dead-man is longer than the whole sequence. At the end:
+`osd_sr_gain` `0x10`, `osd_sr` 1, VSP and hole registers 0, scanout `off`, no probe, Home foreground, LumaTV's compositor live (`gate.sh live` PASS, `failures` 0).
