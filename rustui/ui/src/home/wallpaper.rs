@@ -12,7 +12,7 @@ use crate::kit::picture::{self, Fit, Picture};
 use compositor_protocol::{Fill, Props, Rgba, Shape, Wallpaper as WallSpec, WallpaperKind};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
-use ui::scene::{ShapeLayer, WallpaperLayer};
+use ui::scene::{ImageLayer, ShapeLayer, WallpaperLayer};
 
 pub const W: u32 = 1920;
 pub const H: u32 = 1080;
@@ -142,10 +142,19 @@ pub fn scrim_of(theme: &Value, mode: ui::lucent::palette::Mode) -> [f32; 3] {
     [at(0), at(1), at(2)]
 }
 
+/// Whether the theme asks for the `clear` card glass (the default) and not `frosted`.
+pub fn clear_glass(theme: &Value) -> bool {
+    theme.get("cardGlass").and_then(Value::as_str) != Some("frosted")
+}
+
 /// The scrim the Silk wallpaper's shader applies by itself, at the top, the middle and the bottom (`SILK_SCRIM` in `rustui/render/src/wallpapers.rs`).
 pub const SILK_SCRIM: [f32; 3] = [0.10, 0.18, 0.46];
 
 pub struct WallpaperSurface {
+    /// The prepared set of the plain picture (the `clear` card glass), then the plain picture it captures, then the Silk layer: dropped in this order.
+    backdrop: Option<ui::PreparedBackdrop>,
+    plain: Option<ImageLayer>,
+    plain_hidden: bool,
     layer: Option<WallpaperLayer>,
     scrim_top: Option<ShapeLayer>,
     scrim_bottom: Option<ShapeLayer>,
@@ -161,7 +170,7 @@ pub struct WallpaperSurface {
 
 impl WallpaperSurface {
     pub fn new(z: i32) -> Self {
-        Self { layer: None, scrim_top: None, scrim_bottom: None, z, source: String::new(), sample: None, hole: false, generation: 0, spec: None, shown: false }
+        Self { backdrop: None, plain: None, plain_hidden: false, layer: None, scrim_top: None, scrim_bottom: None, z, source: String::new(), sample: None, hole: false, generation: 0, spec: None, shown: false }
     }
 
     /// The motion the theme asks for: Silk at the theme's fps and amplitude, still when the motion is off or reduced.
@@ -189,6 +198,7 @@ impl WallpaperSurface {
             return Ok(None);
         }
         self.source = source;
+        self.drop_backdrop(kit);
         self.layer = None;
         let Some(path) = path else {
             self.sample = None;
@@ -209,6 +219,52 @@ impl WallpaperSurface {
         self.sample = Some(s);
         self.shown = !self.hole;
         Ok(Some(s))
+    }
+
+    fn drop_backdrop(&mut self, kit: &mut Kit) {
+        kit.wall_backdrop = None;
+        self.backdrop = None;
+        self.plain = None;
+        self.plain_hidden = false;
+    }
+
+    /// The glass over the picture, as the person chose it (theme `cardGlass`): `clear` (the default) shows the picture alone, blurred, as the QML Home's
+    /// Glass does (it samples the graded wallpaper, and the scrim over the page is not under it); `frosted` shows the page below the glass, scrim and
+    /// all, which is the more opaque look. The picture's blur is a prepared set of a plain copy of it, made once; the copy is on the screen (under the
+    /// wallpaper that covers it) until the compositor has made the set, then hidden, and the glass is told only when the set can be shown.
+    pub fn sync_backdrop(&mut self, kit: &mut Kit, theme: &Value, data_dir: Option<&Path>, module_dir: Option<&Path>) {
+        let want = clear_glass(theme) && kit.tier != ui::lucent::material::MaterialTier::T0 && self.layer.is_some();
+        if !want {
+            if self.backdrop.is_some() {
+                self.drop_backdrop(kit);
+            }
+            return;
+        }
+        if self.backdrop.is_none() {
+            let Some(path) = path_of(theme, data_dir, module_dir) else { return };
+            let Ok(bytes) = std::fs::read(&path) else { return };
+            let Ok(pic) = picture::decode(&bytes) else { return };
+            let fitted = pic.fitted(W, H, Fit::Cover);
+            let on = Props::at(0.0, 0.0);
+            let Ok(mut plain) = kit.ui.scene.image(W, H, self.z - 1, on) else { return };
+            plain.pixels_mut().copy_from_slice(&fitted.rgba);
+            plain.damage(None);
+            let spec = ui::BackdropSpec { wallpaper: Some(plain.id()), plates: Vec::new(), radius: kit.tokens.blur, downsample: 4 };
+            let Ok(set) = kit.ui.scene.prepare_backdrop(&spec) else { return };
+            set.request_refresh(ui::ContentGeneration(1));
+            self.backdrop = Some(set);
+            self.plain = Some(plain);
+            self.plain_hidden = false;
+        }
+        if let (Some(set), Some(plain)) = (&self.backdrop, &self.plain)
+            && set.ready().is_some()
+        {
+            if !self.plain_hidden {
+                plain.set(Props { opacity: 0.0, visible: false, ..Props::at(0.0, 0.0) });
+                self.plain_hidden = true;
+            }
+            kit.wall_backdrop = Some(set.wire_id());
+        }
     }
 
     /// The scrim for the mode, made again when the look changes.

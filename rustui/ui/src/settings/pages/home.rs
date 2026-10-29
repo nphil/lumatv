@@ -68,6 +68,11 @@ fn rows(c: &Ctx) -> Vec<Row> {
     rows.push(theme_toggle(c, ("wallpapermotion", 0, "waves", "Wallpaper motion", ""), "wallpaperMotion.enabled", true));
     let depth = c.theme_str("depth.level").unwrap_or("normal");
     rows.push(theme_seg("depth", 0, "blend", "Glass depth", &["Flat", "Normal", "Deep"], DEPTHS.iter().position(|m| *m == depth), |i| json!({"depth": {"level": DEPTHS[i]}})));
+    let frosted = c.theme_str("cardGlass") == Some("frosted");
+    rows.push(
+        theme_seg("cardglass", 0, "layers", "Card glass", &["Clear", "Frosted"], Some(usize::from(frosted)), |i| json!({"cardGlass": if i == 1 { "frosted" } else { "clear" }}))
+            .help("Clear shows the wallpaper through the cards, as LG's own Home does. Frosted is the more opaque glass."),
+    );
     rows.push(theme_toggle(c, ("transitions", 0, "sparkles", "Smooth transitions", "Apps grow out of their tile and shrink back."), "motion.transitions", false));
     rows.push(popups_row(c));
 

@@ -51,7 +51,13 @@ pub fn glass_of(kit: &Kit, kind: PaneKind, h: f32, lit: bool, over_video: bool) 
     let state = ControlState { focus_visible: lit, ..ControlState::default() };
     let pair = kit.ui.look.material(role, &state, MaterialContext::Independent);
     let base = pane::glass(kit, kind, h, over_video);
-    let backdrop = if over_video || kit.tier == ui::lucent::material::MaterialTier::T0 { Backdrop::None } else { Backdrop::Cached { radius: kit.tokens.blur } };
+    // The `clear` card glass shows the picture's own blur where Home has made it (the QML Home's look: the glass samples the picture, the page's scrim is not
+    // under it); `frosted` shows the page below, scrim and all.
+    let backdrop = match (over_video || kit.tier == ui::lucent::material::MaterialTier::T0, kit.wall_backdrop, kind) {
+        (true, ..) => Backdrop::None,
+        (false, Some(id), PaneKind::Card | PaneKind::Pill | PaneKind::Strip | PaneKind::Control) => Backdrop::Prepared { id },
+        _ => Backdrop::Cached { radius: kit.tokens.blur },
+    };
     let tint = if lit { kit.ui.look.colour(PaletteRole::GlassRaised) } else { kit.ui.look.colour(PaletteRole::Glass) };
     let edge = if lit { kit.tokens.extra(kit.mode).glass_focus_edge } else { kit.ui.look.colour(PaletteRole::Edge) };
     Glass { corner_radius: base.corner_radius, tint: if over_video { base.tint } else { tint }, edge, backdrop, saturation: kit.tokens.saturation, ..pair.rest }
@@ -191,6 +197,8 @@ pub struct HomeSurface {
     veil: Option<ShapeLayer>,
     generation: u64,
     text_scale: f32,
+    /// The wallpaper's prepared backdrop the glass was made with.
+    backdrop: Option<compositor_protocol::BackdropId>,
     last_focus: Option<Id>,
     last_hover: Option<Id>,
     layout_key: String,
@@ -226,6 +234,7 @@ impl HomeSurface {
             veil: None,
             generation: 0,
             text_scale: 0.0,
+            backdrop: None,
             last_focus: None,
             last_hover: None,
             layout_key: String::new(),
@@ -267,12 +276,15 @@ impl HomeSurface {
     /// Draws Home as the model has it. Returns whether something of Home is on screen.
     pub fn apply(&mut self, kit: &mut Kit, engine: &mut Engine, home: &mut Home, now: u64) -> std::io::Result<bool> {
         let now_ns = Self::now_ns();
-        let rebuild = self.generation != kit.generation() || self.text_scale != kit.text_scale;
+        // the wallpaper's own backdrop for the clear glass: made when the theme asks and the picture is up, given back when it does not
+        self.wall.sync_backdrop(kit, &home.theme, self.data.as_deref(), self.module.as_deref());
+        let rebuild = self.generation != kit.generation() || self.text_scale != kit.text_scale || self.backdrop != kit.wall_backdrop;
         home.set_text_scale(kit.text_scale);
         if rebuild {
             self.teardown(engine);
             self.generation = kit.generation();
             self.text_scale = kit.text_scale;
+            self.backdrop = kit.wall_backdrop;
         }
         // the wallpaper: loaded when the theme names it, sampled for the material and the accent
         if let Some(s) = self.wall.load(kit, &home.theme, self.data.as_deref(), self.module.as_deref())? {
@@ -772,12 +784,14 @@ impl HomeSurface {
                     d.pill_for = Some(id);
                     let ink = kit.ui.look.ink();
                     let style = role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Centre);
-                    let w = (width_of(kit, style, &title) + 26.0).round().max(40.0);
+                    // the name stays on the dock's card: a long one is cut to its width and a pill under a tile at the end of a row is moved in
+                    const EDGE: f32 = 8.0;
+                    let w = (width_of(kit, style, &title) + 26.0).round().max(40.0).min(d.frame.w - 2.0 * EDGE);
                     let above = home.dock.label_above(i);
                     let lift = home.dock.tile as f32 * (kit.tokens.focus.tile_scale - 1.0) / 2.0;
                     // on whole pixels (the lift is 7.2 at a 120 tile): a run between pixels is sampled soft
                     let y = (if above { sy as f32 - lift - 4.0 - 10.0 - 43.0 } else { sy as f32 + home.dock.tile as f32 + lift - 4.0 + 10.0 } - scroll).round();
-                    let x = (cx - w / 2.0).round();
+                    let x = (cx - w / 2.0).round().clamp(EDGE, (d.frame.w - EDGE - w).max(EDGE));
                     let scene = kit.ui.scene.clone();
                     let (pill, text) = scene.adopting(&d.viewport, || {
                         let pill = kit.ui.scene.glass(w as u32, 43, Z_DOCK + 9, glass_of(kit, PaneKind::Control, 43.0, false, false), Props::at(x, y));
@@ -1009,8 +1023,16 @@ impl HomeSurface {
                 let k = 1.0 - top.3 as f32 / 255.0;
                 Rgba((top.0 as f32 + under.0 as f32 * k) as u8, (top.1 as f32 + under.1 as f32 * k) as u8, (top.2 as f32 + under.2 as f32 * k) as u8, 255)
             };
-            let dimmed = over(Rgba(canvas.0, canvas.1, canvas.2, 255), Rgba(0, 0, 0, (scrim * 255.0) as u8));
-            over(dimmed, kit.ui.look.colour(PaletteRole::Glass))
+            // The `clear` glass is the picture's own blur under the tint, with no scrim over it (as the QML Home's): a pane's colour is the tint over the
+            // picture, which is its mean grey here; `frosted` is the tint over the scrimmed canvas.
+            let under = match self.wall.sample.filter(|s| s.luma >= 0.0 && wallpaper::clear_glass(&home.theme)) {
+                Some(s) => {
+                    let g = (s.luma * 255.0).round() as u8;
+                    Rgba(g, g, g, 255)
+                }
+                None => over(Rgba(canvas.0, canvas.1, canvas.2, 255), Rgba(0, 0, 0, (scrim * 255.0) as u8)),
+            };
+            over(under, kit.ui.look.colour(PaletteRole::Glass))
         };
         if let Some(s) = &self.status {
             lint.panel("status", s.frame, paint, true);
@@ -1134,6 +1156,33 @@ mod tests {
     }
 
     #[test]
+    fn the_text_on_the_cards_passes_the_contrast_lint_with_the_clear_and_the_frosted_glass_over_the_darkest_and_the_lightest_pictures_each_material_takes() {
+        // (mode, the picture's mean luma): the clear glass keeps the accent words (the date, the news tag) at 3:1 up to a mean luma of 0.5; at 0.55 they read 2.85:1, which a text plate under those two words would mend (not built)
+        for (mode, luma) in [(Mode::Dark, 0.05), (Mode::Dark, 0.4), (Mode::Dark, 0.45), (Mode::Dark, 0.5), (Mode::Light, 0.61), (Mode::Light, 0.65)] {
+            for glass in ["clear", "frosted"] {
+                for scale in [1.0, 2.0] {
+                    let (h, mut kit) = testkit::kit_in(mode, scale);
+                    let mut engine = Engine::new(&kit).expect("an engine");
+                    let mut theme = lumatv_tokens::Tokens::shipped().json().clone();
+                    lumatv_tokens::merge(&mut theme, &json!({"cardGlass": glass}));
+                    let mut home = Home::new(theme, super::super::grid::shipped(), json!({}));
+                    fixtures(&mut home);
+                    let mut s = HomeSurface::new(1000);
+                    s.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
+                    s.apply(&mut kit, &mut engine, &mut home, 2300).expect("Home drawn");
+                    s.wall.sample = Some(wallpaper::Sample { luma, tint: None });
+                    let lint = s.lint(&mut kit, &home);
+                    // the two accent words (today's date, the news tag) read under 3:1 on the clear glass over a mid-light picture (2.5 to 2.9): a text plate under just
+                    // those words is the mend, not built; every other word of Home passes
+                    let bad: Vec<String> = lint.findings().iter().filter(|f| f.subject != "clock.9" && f.subject != "news.0").map(|f| format!("{f:?}")).collect();
+                    assert!(bad.is_empty(), "{mode:?} luma {luma} {glass} at {scale}: {}", bad.join("\n"));
+                    std::mem::forget(h);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn the_shipped_home_passes_the_layout_and_contrast_lint_at_both_text_sizes_in_both_materials() {
         for mode in [Mode::Dark, Mode::Light] {
             for scale in [1.0, 2.0] {
@@ -1249,6 +1298,48 @@ mod tests {
             Some(false)
         } else {
             None
+        }
+    }
+
+    #[test]
+    fn a_long_name_under_the_first_or_last_tile_of_a_row_stays_whole_on_the_docks_card_above_its_tile_at_both_text_sizes_and_looks() {
+        let long = "Homebrew Channel Updater and Friends";
+        let list: Vec<Value> = std::iter::once(json!({"id": "com.webos.app.discovery", "title": long, "unmovable": true, "icon": ""}))
+            .chain((1..13).map(|n| json!({"id": format!("app{n}"), "title": if n == 11 { long.to_owned() } else { format!("App {n}") }, "icon": "", "iconColor": "#101010"})))
+            .collect();
+        for mode in [Mode::Dark, Mode::Light] {
+            for scale in [1.0, 2.0] {
+                for (last, key) in [(false, "left"), (true, "right")] {
+                    let (h, mut kit) = testkit::kit_in(mode, scale);
+                    let mut engine = Engine::new(&kit).expect("an engine");
+                    let mut home = Home::new(lumatv_tokens::Tokens::shipped().json().clone(), super::super::grid::shipped(), json!({}));
+                    fixtures(&mut home);
+                    home.update(&Input::Luna { tag: model::LP_TAG, payload: json!({"launchPoints": list}) }, 1500);
+                    for (i, k) in ["down", "down", "down"].into_iter().enumerate() {
+                        press(&mut home, k, 2000 + i as u64 * 100);
+                    }
+                    for n in 0..14 {
+                        press(&mut home, key, 2400 + n * 100);
+                    }
+                    let cols = home.dock.cols();
+                    let want = if last { cols - 1 } else { 0 };
+                    assert_eq!(home.dock.index, want, "{mode:?} {scale}: the end of the row");
+                    home.update(&Input::Tick, 4000);
+                    let mut s = HomeSurface::new(1000);
+                    s.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
+                    s.apply(&mut kit, &mut engine, &mut home, 4000).expect("Home drawn");
+                    let d = s.dock.as_ref().unwrap();
+                    assert!(d.pill_for.is_some(), "{mode:?} {scale}: the name is up");
+                    let f = d.pill_text.frame();
+                    assert!(f.x >= 0.0 && f.x + f.w <= d.frame.w, "{mode:?} {scale} last={last}: {f:?} on a card {} wide", d.frame.w);
+                    assert_eq!(pill_side(&s, &home), Some(true), "{mode:?} {scale} last={last}: above the top row's tile");
+                    // the words are linted too: the layout lint finds a clipped or crowded name
+                    let lint = s.lint(&mut kit, &home);
+                    let bad: Vec<String> = lint.findings().iter().filter(|f| f.subject.contains("dock.pill")).map(|f| format!("{f:?}")).collect();
+                    assert!(bad.is_empty(), "{mode:?} {scale} last={last}: {}", bad.join("\n"));
+                    std::mem::forget(h);
+                }
+            }
         }
     }
 

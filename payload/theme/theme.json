@@ -84,6 +84,7 @@
   "row": 80,
   "blurRadius": 30,
   "saturation": 0.25,
+  "cardGlass": "clear",
   "depth": {
     "level": "normal",
     "steps": { "flat": 0, "normal": 1, "deep": 1.5 }

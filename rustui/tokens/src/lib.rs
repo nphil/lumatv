@@ -147,6 +147,8 @@ pub struct Tokens {
     pub motion: Motion,
     pub blur: f32,
     pub saturation: f32,
+    /// Theme `cardGlass`: `clear` (the QML Home's translucent glass, the default) or `frosted` (the glass over the page, scrim and all, which is more opaque).
+    pub clear_glass: bool,
 }
 
 /// A QML colour (`#RRGGBB` or `#AARRGGBB`) as a straight colour.
@@ -329,6 +331,7 @@ impl Tokens {
             motion,
             blur: f(json.get("blurRadius"), 30.0),
             saturation: 1.0 + f(json.get("saturation"), 0.25),
+            clear_glass: json.get("cardGlass").and_then(serde_json::Value::as_str) != Some("frosted"),
             json,
         }
     }
@@ -452,6 +455,9 @@ mod tests {
         assert_eq!(t.motion.rest_ms, 60);
         assert_eq!(t.blur, 30.0);
         assert_eq!(t.saturation, 1.25);
+        assert!(t.clear_glass, "the card glass is clear unless the theme says frosted");
+        assert!(!Tokens::from_json(&json!({"cardGlass": "frosted"})).clear_glass);
+        assert!(Tokens::from_json(&json!({"cardGlass": "milk"})).clear_glass, "a word it does not know is the default");
     }
 
     #[test]

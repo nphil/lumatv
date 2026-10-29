@@ -62,6 +62,9 @@ pub struct Kit {
     /// The Lucide icons of the module (`kit/icon.rs`); empty until the shell is given its module directory.
     pub icons: icon::Icons,
     generation: u64,
+    /// The blurred wallpaper picture alone, as a prepared set Home has made (the `clear` card glass): the glass of Home's panes shows it, not the page below
+    /// them, which has the scrim on it. The QML Home's glass samples the graded picture and not the scrim over it.
+    pub wall_backdrop: Option<compositor_protocol::BackdropId>,
 }
 
 impl Kit {
@@ -71,7 +74,7 @@ impl Kit {
         let look = tokens.look(mode, 1, tier, text_scale);
         let mut ui = Ui::with_look(scene, look);
         ui.enable_glyph_text().map_err(|e| std::io::Error::other(format!("{e}")))?;
-        let mut kit = Self { ui, tokens, mode, tier, text_scale, icons: icon::Icons::default(), generation: 1 };
+        let mut kit = Self { ui, tokens, mode, tier, text_scale, icons: icon::Icons::default(), generation: 1, wall_backdrop: None };
         kit.warm();
         Ok(kit)
     }
