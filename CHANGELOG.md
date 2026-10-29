@@ -273,6 +273,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Device gate: with Rust kinds on, the shell and keys checks read the Rust client's panels, keys and
   saver (`tv-rustjson.py --merge-rust`), and the Home check starts its D-pad walk on the status bar.
+- Display chip: the mixer's hole 0 opens the video plane through the UI (hole register `0xCC48029C` value 3; `x` in
+  1920-wide UI units, `y`, `w` and `h` in panel pixels), measured over a playing video with
+  `tools/holetest-tv.sh`; the Display lab's window registers opened a quarter-size window at the right edge, and the
+  notes carry the values for the centred one.
 - Privacy: tracking, ad and uploader programs are stubbed and masked first in the boot hook;
   each menu row distinguishes this boot's result from an older pass.
 - Volume: the mute mark stays in the top corners (hopping between four places against
