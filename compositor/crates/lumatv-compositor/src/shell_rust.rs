@@ -32,7 +32,7 @@ use crate::shell::{
 };
 
 /// The kinds the Rust shell may answer, in the order `ctl shell` lists them.
-pub const KINDS: &[&str] = &["home", "osd", "toast"];
+pub const KINDS: &[&str] = &["home", "osd", "toast", "cameras"];
 /// Where the system layer's layers begin in the engine's z: everything the Rust shell draws over the windows is at this or more.
 pub const SYSTEM_Z: i32 = 1000;
 const TOKEN_FILE: &str = "lumatv-ui.token";

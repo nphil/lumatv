@@ -133,9 +133,10 @@ cases and renders the scenes into `docs/mocks/host-rust/home/`.
 
 Everything at the compositor's `system_z` or more is stack 1, over the windows (`compositor/src/ui/mod.rs`). `kit::z` gives each
 kind a band of 200 above it: `PANELS` (+100: the quick panel, the picker, Quick Access, the drawer, menus, confirm, the switcher's
-chrome), `SETTINGS` (+300), `EDITOR` (+500, the overlay layout editor), `KEYBOARD` (+600), `SYSTEM` (+800: the volume display, the
-toasts, the alerts and cards, the capture mark, the saver), so a bar or a toast stays over a panel or Settings. A kind draws at
-`system_z + z::<BAND> + its own offsets` and never outside its band. Home (stack 0) is below `system_z`.
+chrome), `CAMERAS` (+200: the Cameras app), `SETTINGS` (+300), `EDITOR` (+500, the overlay layout editor), `KEYBOARD` (+600),
+`SYSTEM` (+800: the volume display, the toasts, the alerts and cards, the capture mark, the saver), so a bar or a toast stays over a
+panel or Settings. A kind draws at `system_z + z::<BAND> + its own offsets` and never outside its band. Home (stack 0) is below
+`system_z`.
 
 ## The scene's budget
 
@@ -192,3 +193,18 @@ rest between moves. Reduced motion: no scale and no rise, the lit state crossfad
 are the compositor's, evaluated at its predicted present time, so a frame of the motion costs this process nothing. The tilt
 of tvOS is not in it (nothing measured at 120 Hz yet says it is cheap). `rustui/ui/tests/flow.rs` holds the measurement on the
 mirrors of the tracks: at no frame are both tiles at rest between moves, and a retarget keeps the velocity.
+
+## The Cameras app (`rustui/ui/src/cameras/`, kind `cameras`)
+
+The full-screen Cameras app in `z::CAMERAS`: the grid of stills, the full view (a hole over the video plane while the stream plays,
+stills before it and over an app), the strip with its scrub bubble, the events and clips sheet and the per-camera options page.
+`app.rs` is the model (`Model`); the words, the helper's `cameras*` data, the grid's layout, the strip's maths, the sheet, the options
+and the picture pacing are modules beside it, each with host tests that state the QML viewer's cases and the spec's vectors.
+`surface/` draws the view; `host.rs` joins the two and decodes the stills the helper answers with, so the model never sees bytes. A
+kind opens it with `shell.cameras().open_grid(now)`, `open_full(id, now)` or `open_events(now)` and reads `take_cameras_intents()`
+(the grid's `Settings` button); `cameras::options` is the model and view of the per-camera page that Settings › Cameras renders from
+its schema. A still is a layer at its own size that the compositor scales (`Props.scale` and a clip): one upload and no resampling
+here. The grid builds the shown rows and one row each side, the strip's bar is one painted canvas, and every tile, card, row and
+button lifts on the shared flowing focus. `tests/rust_cameras_scenes.py` renders the scenes to `docs/mocks/host-rust/cameras/` (dark
+and light, 100 % and 200 % text) with the lint; `tests/test_rust_cameras.py` runs the cases against the fake helper. Status and the
+TV checks: `rust-cameras-result.md`.

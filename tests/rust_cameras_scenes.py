@@ -205,7 +205,7 @@ def open_grid(r, ms=900):
     return r.channel(ms, 'show', {'kind': 'cameras', 'warm': False, 'n': 1})
 
 
-def timeline(r, gap=False):
+def timeline(r, camera='300', gap=False):
     """What the helper answers for the strip: a recording with a gap, `unknown` cells and events."""
     def setup(chan, st):
         now = NOW()
@@ -213,23 +213,23 @@ def timeline(r, gap=False):
         ranges = [{'from': now - 50 * m, 'to': now - 10 * m}, {'from': now - 8 * m, 'to': now}]
         if gap:
             ranges = [{'from': now - 25 * m, 'to': now}]
-        st.camera_routes[('300', 'recordings')] = {'camera': '300', 'from': now - 60 * m, 'to': now, 'step_ms': 60000, 'complete': False, 'probed': 5,
+        st.camera_routes[(camera, 'recordings')] = {'camera': camera, 'from': now - 60 * m, 'to': now, 'step_ms': 60000, 'complete': False, 'probed': 5,
                                                    'ranges': ranges, 'unknown': [{'from': now - 10 * m, 'to': now - 8 * m}] if not gap else []}
-        st.camera_routes[('300', 'events')] = {'camera': '300', 'truncated': False, 'events': [
+        st.camera_routes[(camera, 'events')] = {'camera': camera, 'truncated': False, 'events': [
             {'at': now - 42 * m, 'kind': 'person', 'label': 'person'}, {'at': now - 25 * m, 'kind': 'doorbell', 'label': 'doorbell'},
             {'at': now - 6 * m, 'kind': 'person', 'label': 'person'}]}
     return r.setup(setup)
 
 
-def sheet_data(r):
+def sheet_data(r, camera='300'):
     def setup(chan, st):
         now = NOW()
         m = 60000
-        st.camera_routes[('300', 'events')] = {'camera': '300', 'truncated': False, 'events': [
+        st.camera_routes[(camera, 'events')] = {'camera': camera, 'truncated': False, 'events': [
             {'at': now - 6 * m, 'kind': 'person', 'label': 'person'}, {'at': now - 39 * m, 'kind': 'doorbell', 'label': 'doorbell'},
             {'at': now - 145 * m, 'kind': 'animal', 'label': 'Domestic Cat'}, {'at': now - 233 * m, 'kind': 'vehicle', 'label': 'vehicle'},
             {'at': now - 5 * 60 * m, 'kind': 'package', 'label': 'package'}]}
-        st.camera_routes[('300', 'clips')] = {'camera': '300', 'truncated': False, 'clips': [
+        st.camera_routes[(camera, 'clips')] = {'camera': camera, 'truncated': False, 'clips': [
             {'id': 'c1.a', 'at': now - 6 * m, 'duration': 30000, 'kind': 'person', 'label': 'person', 'description': 'Person at the front door', 'has_thumbnail': True, 'has_video': True},
             {'id': 'c2.b', 'at': now - 39 * m, 'duration': 42000, 'kind': 'doorbell', 'label': 'doorbell', 'description': 'Doorbell at the front door', 'has_thumbnail': True, 'has_video': True},
             {'id': 'c3.c', 'at': now - 145 * m, 'duration': 18000, 'kind': 'animal', 'label': 'Domestic Cat', 'description': 'Cat on the porch', 'has_thumbnail': True, 'has_video': True},
@@ -424,11 +424,17 @@ def run_scene(name, scale=1.0, mode='dark', out=None, wait=None):
 
 
 def one(args):
+    """One scene in one look at one text size, saved as a JPEG (the pictures in them would make PNGs of 2 MB each)."""
+    from PIL import Image
     name, scale, mode, outdir = args
     suffix = ('-light' if mode == 'light' else '') + ('-text200' if scale >= 2 else '')
-    path = os.path.join(outdir, '%s%s.png' % (name, suffix))
-    res = run_scene(name, scale, mode, path)
+    path = os.path.join(outdir, '%s%s.jpg' % (name, suffix))
+    shot = tempfile.mktemp(prefix='rustcameras-shot-', suffix='.png')
+    res = run_scene(name, scale, mode, shot)
     lint = next((e for e in res['evals'] if isinstance(e, list)), [])
+    if os.path.exists(shot):
+        Image.open(shot).convert('RGB').save(path, 'JPEG', quality=82, optimize=True)
+        os.remove(shot)
     return name, scale, mode, res['rc'], lint, path
 
 

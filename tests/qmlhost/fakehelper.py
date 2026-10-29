@@ -190,7 +190,7 @@ class State:
         self.ambient_strip = True
         self.pending = None     # (prompt doc, what to do when a physical remote approves it)
         self.voice_session = 0
-        self.frames = []        # the camera pictures asked for: (camera, w, h), read back at /__frames
+        self.frames = []        # the camera pictures asked for: (camera, w, h, when in ms), read back at /__frames
         self.crash = None       # the newest crash bundle as helper/app/src/crash.rs says it ({pending, kind, at, reason, ...}); set at POST /__crash
         self.capture = None     # the `capture` object of helper/app/src/capture.rs's GET /v1/capture (None: switched off); set at POST /__capture
         self.topics["cameras.popup"] = None
@@ -416,7 +416,7 @@ def handler(st):
             if u.path.startswith("/v1/cameras/") and u.path.endswith("/frame"):
                 # a camera's picture, as the helper's GET /v1/cameras/{id}/frame?w=&h= (the file itself: no decoder on the host)
                 camera = u.path[len("/v1/cameras/"):-len("/frame")]
-                st.frames.append([camera, int(q.get("w", ["0"])[0]), int(q.get("h", ["0"])[0])])
+                st.frames.append([camera, int(q.get("w", ["0"])[0]), int(q.get("h", ["0"])[0]), NOW()])
                 if camera in st.no_picture:
                     return self.send(404, {"ok": False, "api": 1, "error": {"code": "no_picture", "message": "no picture yet"}})
                 return self.jpeg(st.pictures.get(camera, JPEG))

@@ -283,6 +283,26 @@ fn a_foreground_change_stops_or_starts_the_stream() {
     assert_eq!(live_posts(&fx), [json!({"camera": "273"})]);
 }
 
+#[test]
+fn the_feeders_own_window_in_front_is_the_picture_and_not_an_app_over_it() {
+    let mut r = Rig::new(three());
+    r.app.open_full("273", T0);
+    r.at(100);
+    r.helper("cameras.live", live_topic("273", "live", "playing"));
+    // over Home the stream plays in the feeder's window, which the foreground topic then names
+    let fx = r.topic("foreground", json!({"app": "com.lumatv.app.cameras", "home": false}));
+    assert!(requests(&fx).is_empty(), "nothing to stop: {fx:?}");
+    assert!(!r.view().over_app);
+    assert!(r.app.hole(), "the picture is still the hole");
+    // and over an app it was the app that stays in front: the stream is not asked for, and the window does not change that
+    r.at(200);
+    r.topic("foreground", json!({"app": "netflix", "home": false}));
+    r.at(300);
+    let fx = r.topic("foreground", json!({"app": "com.lumatv.app.cameras", "home": false}));
+    assert!(fx.is_empty());
+    assert!(r.view().over_app);
+}
+
 // ---------------------------------------------------------------------------- the grid
 
 #[test]

@@ -489,6 +489,11 @@ impl App {
     fn topic(&mut self, topic: &str, data: &Value, now: u64, fx: &mut Vec<Effect>) {
         match topic {
             "foreground" => {
+                // the feeder's window (`<brand app id>.cameras`, helper/app/src/scrypted/mod.rs) comes to the front while a stream plays: it is
+                // the picture, not an app in front of it, and the app the stream plays over is still the one that was
+                if data.get("app").and_then(Value::as_str).is_some_and(|a| a.ends_with(".cameras")) {
+                    return;
+                }
                 let front = data.get("home").and_then(Value::as_bool).is_some_and(|h| !h);
                 if front != self.app_front {
                     self.app_front = front;
