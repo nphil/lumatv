@@ -271,6 +271,8 @@ All additive to `docs/scrypted-bridge-api.md`; a client ignores what it does not
              {"quality": "light", "codec": "h264", "width": 640, "height": 360, "fps": 10, "prebuffered": false}]}
 ```
 
+`room` is `null` when Scrypted has none; `streams` is empty for an offline camera or one that did not describe its streams within 1.5 s; `recording_active`, `earliest` and `native` are `null` for a camera that does not record.
+
 **Live** (`POST /v1/live {"camera": "273", "quality": "native", "accept": {"codecs": ["h264","h265"], "max_width": 4096, "max_height": 2304, "max_fps": 60}}`):
 
 ```json
@@ -278,14 +280,18 @@ All additive to `docs/scrypted-bridge-api.md`; a client ignores what it does not
  "video": {"codec": "h265", "width": 3840, "height": 2160, "fps": 15}, "audio": null, "prebuffered": true, "expires_in_ms": 60000}
 ```
 
-The address is the camera's rebroadcast address with its host replaced by the address the client reached the bridge on (or Scrypted's one-client address, whichever 1.7 #1 shows to work); it is a
-capability: never in a log, a topic or an error. `404 camera_not_found`, `409 offline`, `502 upstream_error`.
+The address is the camera's Rebroadcast address read from the camera's settings (the muted one, without audio, when there is one: then `audio` is `null`) with its host replaced by the address the client reached the bridge on; a camera
+without Rebroadcast gets Scrypted's one-client address from `getVideoStream` (host swapped the same way; it waits 30 s for its one client). `expires_in_ms` is 60000 for the first, 25000 for the second. It is a capability: never in a log,
+a topic or an error. A stream outside `accept` is never chosen (a 4K camera falls to its next stream); when none fits the answer is `501 not_supported`. `video` and `audio` members the camera does not say are left out.
+`404 camera_not_found`, `409 offline`, `501 not_supported`, `502 upstream_error`, `400`.
 
-**Stills.** `GET /v1/still?camera=&w=&h=` is one fresh JPEG (at most 400 KB). `GET /v1/stills?camera=&w=&fps=` (`w` 160 to 1280, `fps` 1 to 10) is `multipart/x-mixed-replace; boundary=lumashow`,
-each part `Content-Type: image/jpeg` with `X-Captured-At: <epoch ms>`; at most 8 cameras and 12 readers at once (`429 busy`); a reader is dropped after 10 s without reading.
+**Stills.** `GET /v1/still?camera=&w=&h=` is one fresh JPEG (at most 400 KB; the camera's own snapshot, else a picture of its stream; `Cache-Control: no-store`). `GET /v1/stills?camera=&w=&fps=` (`w` 160 to 1280, default 480; `fps` 1 to 10,
+default 5) is `multipart/x-mixed-replace; boundary=lumashow`, each part `Content-Type: image/jpeg`, `Content-Length` and `X-Captured-At: <epoch ms>`; the first picture is awaited before the answer starts, so a camera that gives none is an
+ordinary error answer; at most 8 cameras and 12 readers at once (`429 busy`); a reader is dropped after 10 s without reading. **Streaming answers (stills and events) have no `Content-Length` and are not chunked: the body runs to the end of the
+connection (`Connection: close`).**
 
-**Events, pushed.** `GET /v1/events/stream[?cameras=273,274&kinds=person,doorbell]` is `text/event-stream`. `Last-Event-ID` resumes from the last 200 events (10 minutes), an unknown id
-answers `event: reset` first; a `: ping` comment every 15 s.
+**Events, pushed.** `GET /v1/events/stream[?cameras=273,274&kinds=person,doorbell]` is `text/event-stream` (`kinds` default: all but `motion`; `cameras` at most 32; 4 clients at once, `429 busy`). `hello` is first on every connection;
+`Last-Event-ID` resumes from the last 200 events (10 minutes); an id the bridge cannot continue from (older, from another run, not a number) answers `event: reset` before `hello`; a `: ping` comment every 15 s. The `id:` line is the message's number.
 
 ```
 event: hello
@@ -297,17 +303,21 @@ data: {"id": "e4021", "camera": "273", "name": "Front Door", "kind": "person", "
 ```
 
 `kind` is one of `person`, `vehicle`, `animal`, `package`, `doorbell`, `motion`, `other` (v1's six plus `package`; `face` and `people` map to `person`, `dog_cat` and `bird` to `animal`,
-`package` to `package`); `label` is a name the recorder gave (a species, a person) else the class; `phase` is `new` the first time a tracked object is seen, `update` when the same object
-gains a label or a score 0.1 better within 10 s (never a new pop-up), `end` when it leaves. The bridge listens to `ObjectDetector`, `BinarySensor` and, only when asked in `kinds`,
-`MotionSensor`. `GET /v1/event-thumbnail?id=e4021&w=&h=` is a JPEG taken when the event arrived (`getDetectionInput`, else a fresh still); the bridge keeps the last 100 for 30 minutes.
+`package` to `package`); `label` is a name the recorder gave (a species, a person) else the class; `score` is left out when the detector gave none; `phase` is `new` the first time a tracked object is seen, `update` when the same object
+gains a label or a score 0.1 better within 10 s of the first sighting (never a new pop-up), `end` when it leaves (not reported for 6 s, or the detector reported nothing for the camera). **`id` is the story's: the `new` event's id in all three
+phases, and the id of its picture.** A doorbell press is a `new` only (a second within 2 s is the same press); a `motion` story is ended by its sensor. The bridge listens to `ObjectDetector`, `BinarySensor` and, only when asked in `kinds`,
+`MotionSensor`. `GET /v1/event-thumbnail?id=e4021&w=&h=` is a JPEG taken when the event arrived (`getDetectionInput`, else a fresh still); the bridge keeps the last 100 for 30 minutes (`404 event_not_found` when it is unknown, expired or of an unticked camera, `502 upstream_error` when the camera gave none).
 
-**Playback with limits.** `POST /v1/playback` and `/v1/clip-playback` accept the same `accept` object; with it the bridge copies any codec and size inside it and the answer's `video` and `mode`
-say what the client gets; without it nothing changes (the Show's 1280x720 H.264). The SDP carries H.265 parameter sets (`sprop-vps`, `sprop-sps`, `sprop-pps`).
+**Playback with limits.** `POST /v1/playback`, `/v1/clip-playback` and `/v1/playback/seek` accept the same `accept` object (a seek keeps the session's limits unless it names new ones); with it the bridge copies any recording or clip inside it
+(H.264 or H.265) and encodes the rest to H.264 inside it (the rate thinned to `max_fps`), and the answer's `video` and `mode` say what the client gets; without it nothing changes (the Show's 1280x720 H.264). The SDP carries H.265 parameter
+sets (`a=rtpmap:96 H265/90000`, `sprop-vps`, `sprop-sps`, `sprop-pps`). A session belongs to the token that made it.
 
-**Devices.** The settings page gains a **Devices** list (name, SHA-256 verifier, added, last used, remove) and an "Add a device" form (name, verifier); the existing "Make a token" stays for the Show.
-`TokenStore` verifies a presented token against every verifier in constant time. Removing a device ends its streams at once, as deleting the token does (`design.md` 3).
+**Devices.** The settings page gains a **Devices** list (name, added, last used, remove) and an "Add a device" form (name, SHA-256 verifier as 64 hexadecimal digits; at most 8); the existing "Make a token" stays for the Show.
+`TokenStore` verifies a presented token against every verifier in constant time. Removing a device ends its streams at once (playback, pictures, events), as deleting the token does (`design.md` 3). Connections that showed a valid token: 16 per address,
+32 in all; keep-alive only when the client sends `Connection: keep-alive`.
 
-Also in v1.1: `package` in the class table (`mapping.ts`), `/v1/health` `device` (the name the token belongs to), `selftest` lines for the six questions of 1.7.
+Also in v1.1: `package` in the class table (`mapping.ts`), `/v1/health` `device` (the name the token belongs to, `null` for the Show's), the errors `409 offline` and `404 event_not_found`, `selftest` lines for the six questions of 1.7. The finished text is
+`docs/scrypted-bridge-api.md` section 12 of the bridge repo (branch `bridge-v1.1`).
 
 ### 3.4 The helper's contract to the shell (the contract between slices B and C)
 
