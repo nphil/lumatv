@@ -402,6 +402,16 @@ class VolumeOsd(HostCase):
         self.assertEqual(got["keys"], "false|false|false", "the volume keys are the app's and OK is nobody's here")
         self.assertEqual(got["gone"], "false")
 
+    def test_when_the_rust_shell_answers_osd_this_one_draws_no_bar_and_no_mute_mark(self):
+        found = "(function(){var f=function(p){if(p.staleMs!==undefined)return p;for(var i=0;i<p.children.length;i++){var r=f(p.children[i]);if(r)return r}return null};return f(overlay) ? 'found' : 'none'})()"
+        steps = lambda kinds: [(10, "(function(){ overlay.rustKinds = %s; return 1 })()" % json.dumps(kinds), "kinds"), (B, sound_out(), "out"), (B + 200, rx(RX), "rx"),
+                               (B + 2000, rx(dict(RX, mute=True)), "mute"), (B + 2000, press("muteOn", 31, True), "key"),
+                               (B + 3500, "[overlay.visible, overlay.osdLive, %s].join('|')" % found, "state")]
+        mine, _ = self.run_osd(steps([]), B + 4200, home=True)
+        self.assertTrue(mine["state"].startswith("true|true|found"), "without the Rust kind the mute shows here: " + mine["state"])
+        rust, _ = self.run_osd(steps(["osd"]), B + 4200, home=True)
+        self.assertEqual(rust["state"], "false|false|none", "with it, this display is not built and its layer is not drawn")
+
     def test_home_holds_no_second_display(self):
         rc, out = self.host("--eval", "7000:(function(){var f=function(p){if(p.staleMs!==undefined)return p;for(var i=0;i<p.children.length;i++){var r=f(p.children[i]);if(r)return r}return null};"
                             "return 'osd=' + (f(root) ? 'found' : 'none')})()", "--wait", "7600")

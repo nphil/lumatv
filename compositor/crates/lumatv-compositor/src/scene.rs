@@ -587,8 +587,13 @@ impl Scene {
     /// X1 probe as an overlay): the client stops drawing it then, as nothing of it can be seen. Builds the stack.
     pub fn shell_home_covered(&mut self, surfaces: &Surfaces) -> bool {
         self.build_stack(surfaces);
-        let Some(home) = self.stack.iter().position(|(layer, _, _)| *layer == Layer::Home) else { return true };
-        self.stack[home + 1..].iter().any(|(_, _, id)| {
+        // The Rust shell's Home is on the engine and has no window of its own in the stack: it sits under every layer above Home's.
+        let from = match self.stack.iter().position(|(layer, _, _)| *layer == Layer::Home) {
+            Some(home) => home + 1,
+            None if self.home_rust => self.stack.iter().position(|(layer, _, _)| *layer > Layer::Home).unwrap_or(self.stack.len()),
+            None => return true,
+        };
+        self.stack[from..].iter().any(|(_, _, id)| {
             self.windows.get(id).is_some_and(|w| {
                 !w.kind.is_shell()
                     && w.kind != WindowType::VideoWindow

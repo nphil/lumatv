@@ -73,6 +73,7 @@ Item {
     property var rustKinds: []
     readonly property bool rustCards: rustKinds.indexOf("cards") >= 0
     readonly property bool rustPopup: rustKinds.indexOf("popup") >= 0
+    readonly property bool rustOsd: rustKinds.indexOf("osd") >= 0                  // the volume bar and the mute mark are the Rust kind's: this one draws neither
     readonly property bool rustBanner: rustKinds.indexOf("banner") >= 0          // its input pill, the one with buttons and the no-signal screen are the Rust kind's
     readonly property bool overlaysOn: !!theme.overlays && theme.overlays.enabled === true && !rustCards
     readonly property bool overlaysLive: !!overlaysRes.item && overlaysRes.item.live
@@ -83,7 +84,7 @@ Item {
     property bool systemBusy: false                           // set by the shell: the notifications' alert, input popup or PIN prompt, the keyboard, the saver
     readonly property bool dnd: surface !== "" || homeBusy || systemBusy || viewerUp || panelLeaving || switcherUp
     // the volume display has something on screen or is fading: this layer is drawn for it whatever else is up
-    readonly property bool osdLive: !!osdRes.item && osdRes.item.live
+    readonly property bool osdLive: !rustOsd && !!osdRes.item && osdRes.item.live
     // a panel that has been told to go is still sliding away: this layer stays drawn until it has gone
     readonly property bool panelLeaving: (!!quickRes.item && quickRes.item.leaving === true) || (!!pickerRes.item && pickerRes.item.leaving === true)
     // and one that has gone is parked in the scene for a few seconds, off the screen (panels/PanelMotion.qml): this layer stays in the scene too
@@ -196,8 +197,8 @@ Item {
         source: "panels/VolumeOsd.qml"
         anchors.fill: parent
         z: 3
-        build: ov.warm
-        shown: ov.warm
+        build: ov.warm && !ov.rustOsd
+        shown: ov.warm && !ov.rustOsd
     }
     Binding { target: osdRes.item; property: "overVideo"; value: ov.appFront; when: !!osdRes.item }
     // The cameras: the pop-up over whatever plays, the viewer it expands to (panels/Cameras.qml). Above the panels and below the volume display,

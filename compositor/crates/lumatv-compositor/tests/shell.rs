@@ -160,6 +160,35 @@ fn lumatv_home_takes_the_card_slot_and_the_keys_while_the_stub_is_in_front() {
     drop(home.win);
 }
 
+/// The Rust shell's Home has no window in the scene (`set_home_rust`): it is covered only by a full-screen window above it, and is not
+/// reported covered just because there is no QML Home window.
+#[test]
+fn the_rust_home_is_uncovered_until_a_full_screen_window_is_over_it() {
+    let mut server = Server::start();
+    server.eval(|s| {
+        s.shell_handle(Msg::Connected);
+        s.scene.set_home_rust(true)
+    });
+    let foreground = |server: &Server| {
+        server.eval(|s| {
+            s.tick();
+            s.luna_notify();
+            s.shell.topic("foreground").cloned()
+        })
+    };
+    let _stub = shown(&mut server, true, "_WEBOS_WINDOW_TYPE_CARD", "Stub", HOME_STUB, 0xffff_0000);
+    assert_eq!(foreground(&server), Some(json!({"app": HOME_STUB, "home": true, "covered": false})), "nothing full-screen is mapped");
+    let mut overlay = shown(&mut server, false, "_WEBOS_WINDOW_TYPE_OVERLAY", "Probe", "org.nphil.lumatv.x1", 0xffff_ffff);
+    assert_eq!(foreground(&server), Some(json!({"app": HOME_STUB, "home": true, "covered": false})), "a 64x64 overlay covers nothing");
+    let big = overlay.client.shm_buffer(1920, 1080, 0xffff_ffff);
+    overlay.client.present(&overlay.win.surface, &big);
+    assert!(overlay.client.wait_until(WAIT, |s| s.frames_done >= 2));
+    assert_eq!(foreground(&server), Some(json!({"app": HOME_STUB, "home": true, "covered": true})), "a full-screen overlay covers it");
+    let mut app = shown(&mut server, false, "_WEBOS_WINDOW_TYPE_CARD", "Netflix", "netflix", 0xff00_ff00);
+    app.client.roundtrip();
+    assert_eq!(foreground(&server), Some(json!({"app": "netflix", "home": false, "covered": true})));
+}
+
 #[test]
 fn a_plain_window_is_a_shell_window_by_its_title() {
     let mut server = Server::start();

@@ -36,12 +36,16 @@ pub struct Outbound {
     pub tag: Option<u64>,
 }
 
-/// One HTTP exchange on `stream`; the status and the body.
-pub fn exchange(stream: &mut TcpStream, host: &str, method: &str, path: &str, token: Option<&str>, body: Option<&[u8]>) -> io::Result<(u16, Vec<u8>)> {
+/// One HTTP exchange on `stream`; the status and the body. `Host` is the peer's address with its port, which the helper requires
+/// (`helper/app/src/http.rs` `host_is_local`; refused 403 `host_not_allowed` otherwise); writes carry `X-Luma-Client`.
+pub fn exchange(stream: &mut TcpStream, method: &str, path: &str, token: Option<&str>, body: Option<&[u8]>) -> io::Result<(u16, Vec<u8>)> {
+    let host = stream.peer_addr()?;
     let mut req = format!("{method} {path} HTTP/1.1\r\nHost: {host}\r\nConnection: keep-alive\r\nAccept: application/json, image/*;q=0.9, */*;q=0.1\r\n");
     if let Some(t) = token {
         req.push_str(&format!("X-Luma-Token: {t}\r\n"));
     }
+    // The helper refuses a write without it (`CLIENT_HEADER`); the compositor's channel ignores it.
+    req.push_str("X-Luma-Client: lumatv-ui\r\n");
     if let Some(b) = body {
         req.push_str(&format!("Content-Type: application/json\r\nContent-Length: {}\r\n", b.len()));
     } else if method != "GET" {
@@ -182,7 +186,7 @@ fn poll_loop(port: u16, token: Option<String>, topics: Topics, tx: Sender<Event>
                 continue;
             }
         };
-        let state = exchange(&mut stream, host, "GET", "/v1/state", token.as_deref(), None)
+        let state = exchange(&mut stream, "GET", "/v1/state", token.as_deref(), None)
             .ok()
             .and_then(|(status, body)| (status == 200).then(|| serde_json::from_slice::<Value>(&body).ok()).flatten());
         let Some(state) = state.filter(|s| s.get("ok").and_then(Value::as_bool) == Some(true)) else {
@@ -214,7 +218,7 @@ fn poll_loop(port: u16, token: Option<String>, topics: Topics, tx: Sender<Event>
                 path.push_str(&format!("&topics={t}"));
             }
             let began = std::time::Instant::now();
-            let answer = exchange(&mut stream, host, "GET", &path, token.as_deref(), None);
+            let answer = exchange(&mut stream, "GET", &path, token.as_deref(), None);
             let doc = match answer {
                 Ok((200, body)) => serde_json::from_slice::<Value>(&body).unwrap_or(Value::Null),
                 _ => {
@@ -263,7 +267,7 @@ fn send_loop(port: u16, token: Option<String>, rx: Receiver<Outbound>, tx: Sende
                 stream = connect(host, port, Duration::from_secs(10)).ok();
             }
             let Some(s) = stream.as_mut() else { break };
-            match exchange(s, host, out.method, &out.path, token.as_deref(), body.as_deref()) {
+            match exchange(s, out.method, &out.path, token.as_deref(), body.as_deref()) {
                 Ok(a) => {
                     answer = Some(a);
                     break;
