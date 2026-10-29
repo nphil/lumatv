@@ -312,7 +312,8 @@ def main():
                     help="when the shell client's frame callbacks go out in the surface frame gate: a frame ahead of the flip inside a run of its frames (early, the default) or at the flip (landing)")
     ap.add_argument("--frames-clients", choices=["commit", "early", "landing"],
                     help="when every other client's frame callbacks go out in the surface frame gate (`ctl callbacks clients`): with the commit (the default since round 19), the frame's draw (early) or the flip (landing): "
-                         "an A/B of the apps' pacing against the default, the rule unchanged; the default is put back after the gate and the line `callbacks` says how many went out with a commit")
+                         "an A/B of the apps' pacing against the default, the rule unchanged; the default is put back after the gate and the line `callbacks` says how many went out with a commit. "
+                         "The quick set has no app drawing: the A/B is for the full set (the switcher, the app launches, the keyboard's Search app)")
     ap.add_argument("--refresh", type=int, choices=[60, 120], default=60,
                     help="the refresh the surface frame gate runs at: 120 switches the compositor's refresh test mode on for it (gate.sh refresh 120) and off after")
     ap.add_argument("--scanout", choices=["off", "direct"], default="off",

@@ -10,7 +10,7 @@
 #   gate.sh, lpc-probe.sh                           the gate (tools/tv-gate.sh) and the read-only interrupt, wake-up and memory-limit probes (tools/tv-lpc-probe.sh)
 #   scanout-proof.sh                                the off-screen proof of direct scan-out (tools/tv-scanout-proof.sh: the 256x256 LG-driver client on a private socket)
 #   hwplanes.sh                                     the hardware-planes steps (tools/tv-hwplanes.sh, driven by tools/tv_hwplanes.py)
-#   rustjson.py                                     the gate's reader of `ctl shell` (tools/tv-rustjson.py: the rust check)
+#   rustjson.py                                     the gate's reader of `ctl shell` (tools/tv-rustjson.py: the rust check, and the QML client's part of the shell check)
 # The bundle is not committed; tools/tv-first-light.sh deploy copies it to /tmp/lumatv on the set. LUMATV_FEATURES names cargo
 # features for the compositor and defaults to `ui` (the engine host, the Rust shell's bin/lumatv-ui and --ui-demo): the deploy that a
 # round's installer runs sets no environment, and a bundle without `ui` (round 17's) has no Rust shell to switch on. `LUMATV_FEATURES=`
