@@ -262,5 +262,5 @@ case "$STEP" in
     hole) step_hole ;;
     osd01) step_osd01 ;;
     revert) [ -f "$OUT/revert.sh" ] && sh "$OUT/revert.sh" && echo "reverted: $(cat "$OUT/revert.sh" | grep -c devmem) writes" || echo "no revert file" ;;
-    *) sed -n '2,20p' "$0"; exit 2 ;;
+    *) sed -n '2,19p' "$0"; exit 2 ;;
 esac

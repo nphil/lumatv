@@ -6,6 +6,8 @@ Research only, 2026-10-29. No TV access and no hardware write. The question: can
 
 Done: this document, and `tools/regdecode.py` (item 6: names `regdump` registers by plane window, diffs two dumps with a noise pair, finds a register by name) with `tests/test_regdecode.py`. No TV access, nothing written to any hardware; committed to forge/main.
 
+Continued in `layer-deep-result.md` (2026-10-29): item 1 ran (`docs/research/compositor/layerdeep-2026-10-29/`), item 2 is built (`--scanout-offset`), item 4 has its probe (`ctl pageprobe`), items 5, 7 and 8 have their set-side steps (`tools/layerdeep-tv.sh`), and OSD0_1 is settled as the 4K path's right-half reader (a dead end as a layer). Read that document first.
+
 Next, in order:
 
 1. A read-only TV slot with the commands in § TV checks (answers open questions 1, 2, 6, 7). Needs a TV window, no display change. LayerDeep took it on 2026-10-29; its captures go to `docs/research/compositor/layerdeep-2026-10-29/`; decode them with `tools/regdecode.py` (the dumps a second apart are the noise pair for any later diff).

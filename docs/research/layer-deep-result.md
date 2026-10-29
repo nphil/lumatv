@@ -96,8 +96,8 @@ Verdict: closed as an overlay route. The second hardware layer this chip offers 
 | 10 | Kernel module | a persistent dim or a plane remap | it would load (`IGNORE_SUBVER`) | nothing it buys that 1-6 do not | high | parked |
 
 Principle 0: every write below the DRM layer in § 6 is typed by Nitin at the set; `layerdeep-tv.sh` is not reachable
-from any AI-facing tool and refuses to run its raw steps when `/dev/dri/card0` has no master or when it is not run from
-a terminal. The two switches built in the compositor are reads and standard DRM commits.
+from any AI-facing tool, and its raw steps print their writes and their revert file, then wait for a typed `yes` from a
+terminal (no terminal, no writes). The two switches built in the compositor are reads and standard DRM commits.
 
 ## 5. Built on the host
 
@@ -119,6 +119,13 @@ shift up or left would land at 4093 panel pixels. At radius 3, 7 of the 24 ring 
 has shown the units, a ring whose origin is (r, r) makes every beat direct; that is one line in `oledcare` (the offset
 plus `(r, r)`) and a 3 px average shift of Home that no eye sees, and it is left until the units are known so the strips
 are the ones the software orbit shows.
+
+What it serves: a client window the plane takes and the care moves, so the QML shell's Home (its buffers linear,
+`--scanout-shell-env WAYLAND_AFBC=0`) and an app's card under `appShift`. The Rust UI engine draws its Home into the
+composed page, not as a client window, so a Rust Home is never direct and the offset does nothing for it; a direct Rust
+Home would need the engine's page on the plane with the same offset, which the commit already allows for a composed
+page (`Assignment::at` is 0 for one today). The strip the plane leaves at the left or top shows what is under the OSD:
+the mixer's black, as the composed frame's clear colour is black [INFERENCE: `reg_mixer_out_*` 0; `orbit`'s photo].
 
 ### 5.2 The page probe (`ctl pageprobe WxH SECONDS`)
 
