@@ -1,6 +1,6 @@
 """Run with: cd tests && python3 -m unittest test_rust_panels   (needs rustui/target/debug/lumatv-ui and Mesa; skipped without them)
 
-The Rust shell's panels (rustui/ui/src/panels: the kinds quick, picker, drawer, menu, confirm, switcher and entry) on the host harness
+The Rust shell's panels (rustui/ui/src/panels: the kinds quick, picker, drawer, menu, confirm, switcher, entry and keyboard) on the host harness
 (`lumatv-ui --host`: the shell's logic against the engine in its own process on Mesa) against the stand-in of the compositor's UI channel
 (tests/qmlhost/channel.py), LG's settings service stood in (qmlhost/lgsettings.py) and the fake helper, on the cases the QML tests state
 (test_quick_panels.py, test_panels.py, test_switcher.py, test_shell_switcher.py, test_plugins_surfaces.py): the gear's `show` opens the quick
@@ -8,7 +8,8 @@ panel and a second one closes it; a locked profile asks its PIN on the pad in pl
 stepper's value opens its card; a connected plugin's tiles reach the panel through the helper poll (and a plugin that is not connected shows
 none); the owners' menu and dialog take the keys and close; the switcher places its cards for the compositor's
 pictures, activates the one chosen and is offered by the Home key at rest; Settings' typed text goes to the entry sheet and the answer comes
-back to Settings once. Every screen is checked by the host's layout and contrast lint, and `RUST_PANELS_RENDERS=<dir>` writes the renders
+back to Settings once; a text field of an app asks for the keyboard (the `ime` topic), the remote's keys reach it as `imekey` events and
+what it types, where its sheet is and its Back go to the compositor as `POST /v1/ime`. Every screen is checked by the host's layout and contrast lint, and `RUST_PANELS_RENDERS=<dir>` writes the renders
 (1280-wide JPEGs) the docs keep beside the mocks (docs/mocks/host-rust/panels/).
 """
 import concurrent.futures
@@ -56,6 +57,15 @@ DOCK_MENU = {'title': 'Crunchyroll', 'sub': 'Streaming', 'icon': 'play', 'anchor
                        {'id': 'uninstall', 'icon': 'trash-2', 'label': 'Uninstall', 'detail': 'Asks first', 'danger': True}]}
 UNINSTALL = {'icon': 'trash-2', 'title': 'Uninstall Crunchyroll?', 'body': 'The app and its data are removed from this TV. Your account stays where it is.',
              'answers': [{'id': 'keep', 'label': 'Keep it'}, {'id': 'uninstall', 'label': 'Uninstall', 'danger': True}], 'focus': 0}
+
+
+def field(purpose=0, enter=5, text=True, show=True, model=5, hint=0):
+    """The `ime` topic of a field that asks for the keyboard (compositor server/ime.rs `own_publish`)."""
+    return {'active': True, 'show': show, 'model': model, 'app': 'youtube.leanback.v4', 'hint': hint, 'purpose': purpose, 'enter': enter, 'max': 0, 'text': text}
+
+
+def imekey(ms, name, down=True, repeat=False):
+    return (ms, 'imekey', {'k': name, 'd': down, 'r': repeat})
 
 
 class Scene:
@@ -133,6 +143,9 @@ def scenes():
         # Settings > Network > Join: the password of "Basement" is typed on the entry sheet
         Scene('entry', 'settings,entry', lg=rs.with_network, show={'kind': 'settings', 'page': 'wifi'},
               keys=[(OPEN + 600, 'right', 0), (OPEN + 1100, 'up', 0), (OPEN + 1600, 'ok', 0), (OPEN + 2100, 'ok', 0), (OPEN + 2600, '2', 0)]),
+        Scene('keyboard', 'keyboard', pushes=[(OPEN, 'ime', field(enter=5)), imekey(OPEN + 700, 'right'), imekey(OPEN + 1000, 'down')]),
+        Scene('keyboard-email', 'keyboard', pushes=[(OPEN, 'ime', field(purpose=6, enter=2)), imekey(OPEN + 700, 'down')]),
+        Scene('keyboard-pad', 'keyboard', pushes=[(OPEN, 'ime', field(purpose=3, enter=0)), imekey(OPEN + 700, 'down')]),
         quick('quick-pin', [(OPEN + 600, 'up', 0), (OPEN + 1100, 'left', 0), (OPEN + 1600, 'ok', 0)], active='mia'),
         quick('quick-edit', [(OPEN + 600, 'ok', 900)], theme=EDIT_ON),
         quick('quick-card', [(OPEN + 600, 'ok', 0)], theme=EDIT_ON),
@@ -288,6 +301,43 @@ class RustPanels(unittest.TestCase):
         ev = self.ok(r)
         self.assertIsNone(ev['state']['settings']['sheet'])
         self.assertIn('the entry kind is not on', r['out'])
+
+    # ---- the apps' keyboard
+    def test_a_field_asks_for_the_keyboard_the_sheet_is_told_to_the_compositor_and_the_keys_it_types_go_back_as_posts(self):
+        s = Scene('ime-type', 'keyboard', pushes=[(OPEN, 'ime', field()), imekey(OPEN + 700, 'right'), imekey(OPEN + 900, 'ok'), imekey(OPEN + 1100, '7'),
+                                                  imekey(OPEN + 1300, 'ok', False), imekey(OPEN + 1500, 'back')])
+        r = run(s, evals=('geometry', 'report', 'state'))
+        ev = self.ok(r)
+        self.assertIn('keyboard', ev['report']['can'])
+        self.assertFalse(ev['report']['wants'], 'the app keeps the keys: the keyboard never asks for them')
+        g = ev['geometry']['keyboard']
+        self.assertEqual((g['sheet']['x'], g['sheet']['w']), (0.0, 1920.0))
+        self.assertEqual(g['sheet']['y'] + g['sheet']['h'], 1080.0)
+        self.assertEqual(len(g['keys']), 51)
+        posts = [(d['op'], d.get('text'), d.get('key')) for d in r['chan'].ime]
+        self.assertEqual(posts[0][0], 'shown', posts)
+        shown = r['chan'].ime[0]
+        self.assertEqual((shown['x'], shown['w'], shown['y'] + shown['h'], shown['model']), (0, 1920, 1080, 5), 'the compositor keeps the field clear of the sheet at the foot')
+        self.assertEqual(posts[1:], [('text', 'h', None), ('text', '7', None), ('hide', None, None)], 'right then OK types h, a digit types itself, Back puts it away')
+        self.assertTrue(all(d['model'] == 5 for d in r['chan'].ime), 'each request names the field it is for')
+
+    def test_a_search_field_finishes_with_its_own_enter_key_and_a_pad_field_gets_a_number_pad(self):
+        done = run(Scene('ime-search', 'keyboard', pushes=[(OPEN, 'ime', field(enter=5)), imekey(OPEN + 600, 'up'), imekey(OPEN + 900, 'right'), imekey(OPEN + 1000, 'right'),
+                                                             imekey(OPEN + 1100, 'right'), imekey(OPEN + 1200, 'right'), imekey(OPEN + 1300, 'right'), imekey(OPEN + 1400, 'right'),
+                                                             imekey(OPEN + 1500, 'ok')]), evals=('geometry',))
+        ev = self.ok(done)
+        self.assertEqual(ev['geometry']['keyboard']['caps'][23], 'Search')
+        self.assertEqual([(d['op'], d.get('key')) for d in done['chan'].ime[1:]], [('key', 'enter'), ('hide', None)], 'Search is a key of the field and the keyboard goes')
+        pad = self.ok(run(Scene('ime-pad', 'keyboard', pushes=[(OPEN, 'ime', field(purpose=3))]), evals=('geometry',)))['geometry']['keyboard']
+        self.assertEqual((pad['layout'], pad['padded'], len(pad['keys'])), ('pad-number', True, 15))
+        self.assertLess(pad['sheet']['w'], 1000)
+
+    def test_a_field_that_hides_it_takes_it_away_and_a_hidden_keyboard_is_not_asked_to_be_told_again(self):
+        gone = Scene('ime-hide', 'keyboard', pushes=[(OPEN, 'ime', field()), (OPEN + 1000, 'ime', field(show=False))])
+        r = run(gone, evals=('state', 'report'))
+        ev = self.ok(r)
+        self.assertIn(ev['state']['panels']['keyboard']['up'], (False,))
+        self.assertEqual([d['op'] for d in r['chan'].ime], ['shown'])
 
     # ---- every screen reads clean and the renders
     def test_every_panel_screen_reads_clean_at_both_text_sizes_in_both_looks_and_the_renders_are_written_when_asked(self):

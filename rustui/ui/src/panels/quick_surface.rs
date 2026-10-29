@@ -9,11 +9,11 @@
 //! dots, the card's slider, the clock) is changed in place; what changes the layout builds the panel's content again under the same root.
 
 use super::life::Phase;
-use super::stage::Dim;
 use super::quick::tiles::Row;
 use super::quick::{EditView, Focus, PadView, Person, PopupView, Target, View};
 use super::quick_layout::{self as lay, PopupLayout, RowLayout, Trail};
-use super::ui::{Arrive, Line, Root, Scroll, WordLine, Words, follow, hints_width, scrim, scrim_set};
+use super::stage::{Stage, Touch};
+use super::ui::{Arrive, Line, Scroll, WordLine, Words, hints_width};
 use crate::kit::avatar::{self, Who};
 use crate::kit::button::{Button, Place, Spec, Tone};
 use crate::kit::focus::{Id, Region, Scope};
@@ -21,9 +21,11 @@ use crate::kit::hint::{HintRow, RowAt, glyph_side};
 use crate::kit::icon;
 use crate::kit::lint::Lint;
 use crate::kit::pane::{Pane, PaneKind};
-use crate::kit::pointer::{Gesture, Pointer, Sample};
+use crate::kit::pointer::Sample;
 use crate::kit::text::{role_style, width_of};
-use crate::kit::widgets::{Chip, Hover, Lift, Plate, Px, Slider, Spot, Stepper, Toggle, edge as wash_edge, focus_wash, lit_edge, rotate_cw, selected_wash, tile};
+use crate::kit::widgets::{
+    Chip, Hover, Lift, Plate, Px, Slider, Spot, Stepper, Toggle, edge as wash_edge, focus_wash, lit_edge, rotate_cw, selected_wash, tile,
+};
 use crate::kit::wrap;
 use crate::kit::{Engine, Kit};
 use compositor_protocol::{Ease, Fill, GroupPose, Props, Shape};
@@ -160,7 +162,6 @@ struct Built {
     sig: String,
     pane: Pane,
     head: Head,
-    backdrop: Id,
     strip: Vec<StripCell>,
     list: Option<ListParts>,
     edit: Option<EditParts>,
@@ -198,19 +199,13 @@ struct PopupBuilt {
 }
 
 pub struct QuickSurface {
-    z: i32,
-    root: Option<Root>,
-    scrim: Option<ShapeLayer>,
+    /// The root, the dim, the modal scope, the first focus and the pointer's cue and click.
+    stage: Stage,
     built: Option<Built>,
     popup: Option<PopupBuilt>,
-    pointer: Pointer,
-    dim: Dim,
-    hover: Hover,
+    /// The cue over a card's options: the card has a group of its own over the panel's.
     popup_hover: Hover,
-    modal: bool,
     popup_modal: bool,
-    /// A focus follows without a lift's animation the first time after the panel comes up.
-    first_focus: bool,
     shake_due: Option<(u64, usize)>,
 }
 
@@ -221,25 +216,11 @@ fn person_who(p: &Person) -> Who {
 impl QuickSurface {
     /// `z` is the panels' band base.
     pub fn new(z: i32) -> Self {
-        Self {
-            z,
-            root: None,
-            scrim: None,
-            built: None,
-            popup: None,
-            pointer: Pointer::new(),
-            dim: Dim::default(),
-            hover: Hover::new(z + 4),
-            popup_hover: Hover::new(z + 24),
-            modal: false,
-            popup_modal: false,
-            first_focus: true,
-            shake_due: None,
-        }
+        Self { stage: Stage::new(z, SCOPE), built: None, popup: None, popup_hover: Hover::new(z + 24), popup_modal: false, shake_due: None }
     }
 
     pub fn is_up(&self) -> bool {
-        self.root.is_some()
+        self.stage.is_up()
     }
 
     // ---- building
@@ -266,7 +247,19 @@ impl QuickSurface {
 
     // the arguments are the places `Spot` names, passed through
     #[allow(clippy::too_many_arguments)]
-    fn make_plate(kit: &mut Kit, engine: &mut Engine, parent: &Group, id: Id, frame: Frame, local: Frame, region: Region, scope: Scope, z: i32, lift: Lift, radius: Radius) -> std::io::Result<Plate> {
+    fn make_plate(
+        kit: &mut Kit,
+        engine: &mut Engine,
+        parent: &Group,
+        id: Id,
+        frame: Frame,
+        local: Frame,
+        region: Region,
+        scope: Scope,
+        z: i32,
+        lift: Lift,
+        radius: Radius,
+    ) -> std::io::Result<Plate> {
         let r = kit.tokens.radius(radius);
         Plate::new(kit, engine, parent, Spot { id, screen: frame, local, region, scope, z }, lift, r)
     }
@@ -292,13 +285,32 @@ impl QuickSurface {
                 } else {
                     None
                 };
-                let chev = if *chevron { icon::layer(kit, "chevron-right", side as u32, ink2, z, Props::at(x + l.trail_at.0 + w - side, y + l.trail_at.1 + ((h - side) / 2.0).round()))? } else { None };
+                let chev = if *chevron {
+                    icon::layer(
+                        kit,
+                        "chevron-right",
+                        side as u32,
+                        ink2,
+                        z,
+                        Props::at(x + l.trail_at.0 + w - side, y + l.trail_at.1 + ((h - side) / 2.0).round()),
+                    )?
+                } else {
+                    None
+                };
                 Ctrl::Value { _text: text_line, _chevron: chev }
             }
         })
     }
 
-    fn build_list(kit: &mut Kit, engine: &mut Engine, root: &Group, rows: &[Row], layouts: Vec<RowLayout>, window: Frame, z: i32) -> std::io::Result<ListParts> {
+    fn build_list(
+        kit: &mut Kit,
+        engine: &mut Engine,
+        root: &Group,
+        rows: &[Row],
+        layouts: Vec<RowLayout>,
+        window: Frame,
+        z: i32,
+    ) -> std::io::Result<ListParts> {
         let spacing = kit.space(1);
         let mut tops = Vec::new();
         let mut top = 0.0;
@@ -320,10 +332,14 @@ impl QuickSurface {
             let (x, y) = (x0, window.y + top);
             let visible = scroll.fits(top, l.h, 0.0);
             let cell = scene
-                .group(Some(scroll.inner.id()), GroupPose { visible, opacity: if r.enabled { 1.0 } else { kit.tokens.states.disabled_opacity }, ..GroupPose::IDENTITY })
+                .group(
+                    Some(scroll.inner.id()),
+                    GroupPose { visible, opacity: if r.enabled { 1.0 } else { kit.tokens.states.disabled_opacity }, ..GroupPose::IDENTITY },
+                )
                 .map_err(other)?;
             let local = Frame::new(x, y, window.w, l.h);
-            let plate = Self::make_plate(kit, engine, &cell, id, if visible { local } else { zero() }, local, REGION_LIST, SCOPE, z + 1, Lift::Row, Radius::Row)?;
+            let plate =
+                Self::make_plate(kit, engine, &cell, id, if visible { local } else { zero() }, local, REGION_LIST, SCOPE, z + 1, Lift::Row, Radius::Row)?;
             engine.focus.set_enabled(id, r.enabled);
             let (tile_px, words, ctrl) = scene.adopting(&cell, || -> std::io::Result<_> {
                 let tile_px = tile(kit, l.tile.w as u32, &l.icon, false).layer(kit, z + 2, Props::at(x + l.tile.x, y + l.tile.y))?;
@@ -354,7 +370,14 @@ impl QuickSurface {
             let avatar_layer = px.layer(kit, z + 2, Props::at(ax, f.y + kit.space(2)))?;
             let tint = if p.active { ink } else { ink2 };
             let name = wrap::elide(kit, role_style(kit, TypeRole::Caption, None, tint, Align::Centre), &p.name, f.w);
-            let words = Words::new(kit, f.x, f.y + kit.space(2) + sl.avatar + kit.space(1), f.w, z + 2, &[WordLine::new(&name, TypeRole::Caption, tint).aligned(Align::Centre)])?;
+            let words = Words::new(
+                kit,
+                f.x,
+                f.y + kit.space(2) + sl.avatar + kit.space(1),
+                f.w,
+                z + 2,
+                &[WordLine::new(&name, TypeRole::Caption, tint).aligned(Align::Centre)],
+            )?;
             cells.push(StripCell { id, plate, _avatar: avatar_layer, _name: words });
         }
         Ok((cells, sl.h))
@@ -363,7 +386,8 @@ impl QuickSurface {
     fn dot_shape(kit: &Kit, filled: bool, d: f32) -> Shape {
         let look = &kit.ui.look;
         // an empty place is a ring in the muted ink: a hairline of the glass edge is gone on the light material
-        let (fill, edge, width) = if filled { (look.accent(), look.colour(PaletteRole::Edge), 1.0) } else { (look.colour(PaletteRole::Glass), look.ink2(), 2.0) };
+        let (fill, edge, width) =
+            if filled { (look.accent(), look.colour(PaletteRole::Edge), 1.0) } else { (look.colour(PaletteRole::Glass), look.ink2(), 2.0) };
         Shape { corner_radius: d / 2.0, fill: Fill::Solid(fill), border_width: width, border: edge }
     }
 
@@ -373,10 +397,19 @@ impl QuickSurface {
         let ink2 = kit.ui.look.ink2();
         let (ox, oy) = (area.x, area.y);
         let avatar_layer = match &p.avatar {
-            Some(person) if l.avatar.w > 0.0 => Some(avatar::px(kit, &person_who(person), l.avatar.w as u32, false).layer(kit, z + 2, Props::at(ox + l.avatar.x, oy + l.avatar.y))?),
+            Some(person) if l.avatar.w > 0.0 => {
+                Some(avatar::px(kit, &person_who(person), l.avatar.w as u32, false).layer(kit, z + 2, Props::at(ox + l.avatar.x, oy + l.avatar.y))?)
+            }
             _ => None,
         };
-        let name = Words::new(kit, ox, oy + l.name.y, l.name.w, z + 2, &[WordLine::new(&p.pin.name, TypeRole::Title, ink).weight(Weight::SemiBold).aligned(Align::Centre)])?;
+        let name = Words::new(
+            kit,
+            ox,
+            oy + l.name.y,
+            l.name.w,
+            z + 2,
+            &[WordLine::new(&p.pin.name, TypeRole::Title, ink).weight(Weight::SemiBold).aligned(Align::Centre)],
+        )?;
         let dots = l
             .dots
             .iter()
@@ -393,11 +426,24 @@ impl QuickSurface {
         for (i, c) in l.cells.iter().enumerate() {
             let f = Frame::new(ox + c.x, oy + c.y, c.w, c.h);
             let id = Target::Pad(i).id();
-            let plate_parts = Plate::new(kit, engine, root, Spot { id, screen: f, local: f, region: REGION_PAD, scope: SCOPE, z: z + 1 }, Lift::Button, radius)?;
+            let plate_parts =
+                Plate::new(kit, engine, root, Spot { id, screen: f, local: f, region: REGION_PAD, scope: SCOPE, z: z + 1 }, Lift::Button, radius)?;
             let look = &kit.ui.look;
-            let base = plate::shape(&kit.ui, f, z, Shape { corner_radius: radius, fill: Fill::Solid(look.colour(PaletteRole::Glass)), border_width: 1.0, border: look.colour(PaletteRole::Edge) });
+            let base = plate::shape(
+                &kit.ui,
+                f,
+                z,
+                Shape { corner_radius: radius, fill: Fill::Solid(look.colour(PaletteRole::Glass)), border_width: 1.0, border: look.colour(PaletteRole::Edge) },
+            );
             let face = match super::pin::cell(i) {
-                super::pin::Cell::Digit(d) => PadFace::Words(Words::new(kit, f.x, f.y + ((f.h - label_line) / 2.0).round(), f.w, z + 2, &[WordLine::new(&d.to_string(), TypeRole::Label, ink).weight(Weight::SemiBold).aligned(Align::Centre)])?),
+                super::pin::Cell::Digit(d) => PadFace::Words(Words::new(
+                    kit,
+                    f.x,
+                    f.y + ((f.h - label_line) / 2.0).round(),
+                    f.w,
+                    z + 2,
+                    &[WordLine::new(&d.to_string(), TypeRole::Label, ink).weight(Weight::SemiBold).aligned(Align::Centre)],
+                )?),
                 cell => {
                     let name = if matches!(cell, super::pin::Cell::Delete) { "delete" } else { "x" };
                     let side = 32u32;
@@ -434,7 +480,8 @@ impl QuickSurface {
             let fits = scroll.fits(top, row_h, 0.0);
             let plate = Self::make_plate(kit, engine, &scroll.inner, id, if fits { f } else { zero() }, f, REGION_LIST, SCOPE, z + 1, Lift::Row, Radius::Row)?;
             let (tile_px, words, grip) = scene.adopting(&scroll.inner, || -> std::io::Result<_> {
-                let tile_px = tile(kit, tile_side as u32, &r.icon, false).layer(kit, z + 2, Props::at(f.x + kit.space(3), f.y + ((row_h - tile_side) / 2.0).round()))?;
+                let tile_px =
+                    tile(kit, tile_side as u32, &r.icon, false).layer(kit, z + 2, Props::at(f.x + kit.space(3), f.y + ((row_h - tile_side) / 2.0).round()))?;
                 let label = wrap::elide(kit, role_style(kit, TypeRole::Label, None, ink, Align::Left), &r.label, words_w);
                 let detail = wrap::elide(kit, role_style(kit, TypeRole::Caption, None, ink2, Align::Left), &r.detail, words_w);
                 let mut lines = vec![WordLine::new(&label, TypeRole::Label, ink)];
@@ -443,7 +490,11 @@ impl QuickSurface {
                 }
                 let wh = Words::height_of(kit, &lines);
                 let words = Words::new(kit, f.x + words_x, f.y + ((row_h - wh) / 2.0).round(), words_w, z + 3, &lines)?;
-                let grip = Px::new(grip_w as u32, mark as u32).layer(kit, z + 3, Props::at(f.x + area.w - kit.space(3) - grip_w, f.y + ((row_h - mark) / 2.0).round()))?;
+                let grip = Px::new(grip_w as u32, mark as u32).layer(
+                    kit,
+                    z + 3,
+                    Props::at(f.x + area.w - kit.space(3) - grip_w, f.y + ((row_h - mark) / 2.0).round()),
+                )?;
                 Ok((tile_px, words, grip))
             })?;
             // the marks are pointer targets too: up, down and remove
@@ -462,13 +513,22 @@ impl QuickSurface {
         let add_id = Target::EditAdd.id();
         let f = Frame::new(area.x, area.y + add_top, area.w, row_h);
         let fits = scroll.fits(add_top, row_h, 0.0);
-        let add_plate = Self::make_plate(kit, engine, &scroll.inner, add_id, if fits { f } else { zero() }, f, REGION_LIST, SCOPE, z + 1, Lift::Row, Radius::Row)?;
+        let add_plate =
+            Self::make_plate(kit, engine, &scroll.inner, add_id, if fits { f } else { zero() }, f, REGION_LIST, SCOPE, z + 1, Lift::Row, Radius::Row)?;
         let radius = kit.tokens.radius(Radius::Row);
         let parts = scene.adopting(&scroll.inner, || -> std::io::Result<_> {
             let outline = plate::shape(&kit.ui, f, z, plate::ring(wash_edge(kit), radius, 1.0));
-            let plus = icon::layer(kit, "plus", 28, ink2, z + 2, Props::at(f.x + kit.space(4), f.y + ((row_h - 28.0) / 2.0).round()))?.ok_or_else(|| std::io::Error::other("no plus icon"))?;
+            let plus = icon::layer(kit, "plus", 28, ink2, z + 2, Props::at(f.x + kit.space(4), f.y + ((row_h - 28.0) / 2.0).round()))?
+                .ok_or_else(|| std::io::Error::other("no plus icon"))?;
             let lh = kit.line(TypeRole::Label);
-            let words = Words::new(kit, f.x + kit.space(4) + 28.0 + kit.space(3), f.y + ((row_h - lh) / 2.0).round(), area.w - 80.0, z + 2, &[WordLine::new("Add a tile", TypeRole::Label, ink)])?;
+            let words = Words::new(
+                kit,
+                f.x + kit.space(4) + 28.0 + kit.space(3),
+                f.y + ((row_h - lh) / 2.0).round(),
+                area.w - 80.0,
+                z + 2,
+                &[WordLine::new("Add a tile", TypeRole::Label, ink)],
+            )?;
             Ok((outline, plus, words))
         })?;
         let gx = area.w - kit.space(3) - grip_w;
@@ -525,10 +585,6 @@ impl QuickSurface {
         let ink2 = kit.ui.look.ink2();
         scene.adopting_view(root_group, || -> std::io::Result<Built> {
             let pane = Pane::new(kit, sheet, z + 1, PaneKind::Sheet, view.over_video);
-            // a click on nothing is Back: the whole screen is a focusable under everything else, absent from the keys
-            let backdrop = Target::Backdrop.id();
-            engine.focus.register(backdrop, Frame::new(0.0, 0.0, 1920.0, 1080.0), REGION_LIST, SCOPE);
-            engine.focus.set_enabled(backdrop, false);
             // ---- the head
             let hl = lay::head_layout(kit, view, inner);
             let title_lines: Vec<WordLine> = hl.title.iter().map(|t| WordLine::new(t, TypeRole::Title, ink).weight(Weight::SemiBold)).collect();
@@ -566,7 +622,8 @@ impl QuickSurface {
                 let hints_h = if view.hints_foot.is_empty() { 0.0 } else { kit.line(TypeRole::Caption) };
                 let foot_h = btn_h + if hints_h > 0.0 { hints_h + kit.space(2) } else { 0.0 };
                 let foot_y = sheet_bottom - foot_h;
-                let place = Place { id: Target::Foot.id(), frame: Frame::new(sheet.x + pad, foot_y, inner, btn_h), region: REGION_FOOT, scope: SCOPE, z: z + 3 };
+                let place =
+                    Place { id: Target::Foot.id(), frame: Frame::new(sheet.x + pad, foot_y, inner, btn_h), region: REGION_FOOT, scope: SCOPE, z: z + 3 };
                 let mut button = Button::new(kit, engine, place, Spec::new("All settings", Tone::Plain).with_icon("settings"))?;
                 button.show(kit, true);
                 let mut hint_rows = Vec::new();
@@ -590,15 +647,22 @@ impl QuickSurface {
                 let window = Frame::new(sheet.x + pad, cursor, inner, (foot_y - kit.space(4) - cursor).max(1.0));
                 list = Some(Self::build_list(kit, engine, root_group, &view.rows, rows, window, z)?);
             }
-            Ok(Built { sig, pane, head, backdrop, strip, list, edit, pad: pad_parts, foot, over_video: view.over_video })
+            Ok(Built { sig, pane, head, strip, list, edit, pad: pad_parts, foot, over_video: view.over_video })
         })
     }
 
     fn popup_signature(kit: &Kit, p: &PopupView) -> String {
         match p {
-            PopupView::Slider { title, text, from, to, step, marks, icons, .. } => format!("slider|{}|{}|{title}|{text}|{from}|{to}|{step}|{marks:?}|{icons:?}", kit.generation(), kit.text_scale),
+            PopupView::Slider { title, text, from, to, step, marks, icons, .. } => {
+                format!("slider|{}|{}|{title}|{text}|{from}|{to}|{step}|{marks:?}|{icons:?}", kit.generation(), kit.text_scale)
+            }
             PopupView::Pick { title, text, options, .. } => {
-                format!("pick|{}|{}|{title}|{text}|{:?}", kit.generation(), kit.text_scale, options.iter().map(|o| (&o.label, &o.icon, &o.detail, o.current)).collect::<Vec<_>>())
+                format!(
+                    "pick|{}|{}|{title}|{text}|{:?}",
+                    kit.generation(),
+                    kit.text_scale,
+                    options.iter().map(|o| (&o.label, &o.icon, &o.detail, o.current)).collect::<Vec<_>>()
+                )
             }
         }
     }
@@ -628,10 +692,28 @@ impl QuickSurface {
                 PopupView::Slider { from, to, value, marks, icons: ends, .. } => {
                     let s = layout.slider.clone().expect("a slider layout");
                     let bx = Frame::new(f.x + s.box_.x, f.y + s.box_.y, s.box_.w, s.box_.h);
-                    box_shape = Some(plate::shape(&kit.ui, bx, z + 1, Shape { corner_radius: kit.tokens.radius(Radius::Row), fill: Fill::Solid(focus_wash(kit)), border_width: 1.0, border: lit_edge(kit) }));
+                    box_shape = Some(plate::shape(
+                        &kit.ui,
+                        bx,
+                        z + 1,
+                        Shape { corner_radius: kit.tokens.radius(Radius::Row), fill: Fill::Solid(focus_wash(kit)), border_width: 1.0, border: lit_edge(kit) },
+                    ));
                     for (k, m) in marks.iter().enumerate() {
-                        let al = if k == 0 { Align::Left } else if k == 2 { Align::Right } else { Align::Centre };
-                        marks_words.push(Words::new(kit, f.x + s.marks.x + k as f32 * s.mark_w, f.y + s.marks.y, s.mark_w, z + 2, &[WordLine::new(m, TypeRole::Caption, ink3).aligned(al)])?);
+                        let al = if k == 0 {
+                            Align::Left
+                        } else if k == 2 {
+                            Align::Right
+                        } else {
+                            Align::Centre
+                        };
+                        marks_words.push(Words::new(
+                            kit,
+                            f.x + s.marks.x + k as f32 * s.mark_w,
+                            f.y + s.marks.y,
+                            s.mark_w,
+                            z + 2,
+                            &[WordLine::new(m, TypeRole::Caption, ink3).aligned(al)],
+                        )?);
                     }
                     for (k, name) in ends.iter().enumerate() {
                         let fr = if k == 0 { s.icon_l } else { s.icon_r };
@@ -643,7 +725,13 @@ impl QuickSurface {
                     let slider = Slider::new(kit, track, z + 2, *from, *to, *value);
                     let vstyle = role_style(kit, TypeRole::Title, Some(Weight::SemiBold), ink, Align::Right);
                     let vw = layout.value.as_ref().map_or(80.0, |v| width_of(kit, vstyle, "100").max(v.1 + 2.0));
-                    let value_line = Line::new(kit, Frame::new(f.x + f.w - pad - vw, f.y + pad, vw, kit.line(TypeRole::Title)), z + 2, vstyle, &format!("{}", value.round() as i64))?;
+                    let value_line = Line::new(
+                        kit,
+                        Frame::new(f.x + f.w - pad - vw, f.y + pad, vw, kit.line(TypeRole::Title)),
+                        z + 2,
+                        vstyle,
+                        &format!("{}", value.round() as i64),
+                    )?;
                     PopupFace::Slider { slider, value: value_line, shown: *value }
                 }
                 PopupView::Pick { options, .. } => {
@@ -655,16 +743,37 @@ impl QuickSurface {
                         let id = Target::Option(i).id();
                         let plate_parts = Self::make_plate(kit, engine, &group, id, rf, rf, REGION_POPUP, POPUP_SCOPE, z + 1, Lift::Row, Radius::Row)?;
                         let x = kit.space(4) + if o.icon.is_empty() { 0.0 } else { 28.0 + kit.space(4) };
-                        let icon_layer = if o.icon.is_empty() { None } else { icon::layer(kit, &o.icon, 28, ink2, z + 2, Props::at(rf.x + kit.space(4), rf.y + ((rf.h - 28.0) / 2.0).round()))? };
+                        let icon_layer = if o.icon.is_empty() {
+                            None
+                        } else {
+                            icon::layer(kit, &o.icon, 28, ink2, z + 2, Props::at(rf.x + kit.space(4), rf.y + ((rf.h - 28.0) / 2.0).round()))?
+                        };
                         let lines = wrap::lines(kit, label_style, &o.label, rf.w - x - 120.0, 4);
                         let wl: Vec<WordLine> = lines.iter().map(|t| WordLine::new(t, TypeRole::Label, ink).weight(Weight::SemiBold)).collect();
                         let wh = Words::height_of(kit, &wl);
                         let words = Words::new(kit, rf.x + x, rf.y + ((rf.h - wh) / 2.0).round(), rf.w - x - 120.0, z + 2, &wl)?;
                         let (detail, tick) = if o.current {
-                            (None, icon::layer(kit, "check", 28, kit.ui.look.accent(), z + 2, Props::at(rf.x + rf.w - kit.space(4) - 28.0, rf.y + ((rf.h - 28.0) / 2.0).round()))?)
+                            (
+                                None,
+                                icon::layer(
+                                    kit,
+                                    "check",
+                                    28,
+                                    kit.ui.look.accent(),
+                                    z + 2,
+                                    Props::at(rf.x + rf.w - kit.space(4) - 28.0, rf.y + ((rf.h - 28.0) / 2.0).round()),
+                                )?,
+                            )
                         } else if !o.detail.is_empty() {
                             let dw = width_of(kit, role_style(kit, TypeRole::Caption, None, ink2, Align::Right), &o.detail) + 2.0;
-                            let w = Words::new(kit, rf.x + rf.w - kit.space(4) - dw, rf.y + ((rf.h - kit.line(TypeRole::Caption)) / 2.0).round(), dw, z + 2, &[WordLine::new(&o.detail, TypeRole::Caption, ink2).aligned(Align::Right)])?;
+                            let w = Words::new(
+                                kit,
+                                rf.x + rf.w - kit.space(4) - dw,
+                                rf.y + ((rf.h - kit.line(TypeRole::Caption)) / 2.0).round(),
+                                dw,
+                                z + 2,
+                                &[WordLine::new(&o.detail, TypeRole::Caption, ink2).aligned(Align::Right)],
+                            )?;
                             (Some(w), None)
                         } else {
                             (None, None)
@@ -674,7 +783,18 @@ impl QuickSurface {
                     PopupFace::Pick { rows }
                 }
             };
-            Ok(PopupBuilt { sig, _group: None, _pane: pane, _title: title, _text: text, face, layout: layout.clone(), _box: box_shape, _marks: marks_words, _icons: icons })
+            Ok(PopupBuilt {
+                sig,
+                _group: None,
+                _pane: pane,
+                _title: title,
+                _text: text,
+                face,
+                layout: layout.clone(),
+                _box: box_shape,
+                _marks: marks_words,
+                _icons: icons,
+            })
         })?;
         built._group = Some(group);
         Ok(built)
@@ -698,8 +818,8 @@ impl QuickSurface {
     }
 
     fn drop_built(&mut self, engine: &mut Engine) {
+        self.stage.drop_backdrop(engine);
         let Some(b) = self.built.take() else { return };
-        engine.focus.unregister(b.backdrop);
         for c in b.strip {
             c.plate.destroy(engine);
         }
@@ -731,26 +851,14 @@ impl QuickSurface {
     pub fn drop_all(&mut self, engine: &mut Engine) {
         self.drop_popup(engine);
         self.drop_built(engine);
-        self.root = None;
-        self.scrim = None;
-        self.hover = Hover::new(self.z + 4);
-        self.popup_hover = Hover::new(self.z + 24);
-        if self.modal {
-            engine.focus.close_modal();
-            self.modal = false;
-        }
-        self.first_focus = true;
+        self.stage.drop_all(engine);
+        self.popup_hover = Hover::new(self.stage.z() + 24);
         self.shake_due = None;
     }
 
     pub fn restyle(&mut self, engine: &mut Engine) {
         self.drop_all(engine);
     }
-}
-
-/// How long the panel slides: its own beat, or the fade of reduced motion.
-fn slide_ms(kit: &Kit, ms: u32) -> u32 {
-    if kit.ui.look.reduced_motion { kit.beat_ms(crate::kit::motion::Beat::Label) } else { ms }
 }
 
 fn set_cell(cell: &Group, visible: bool, enabled: bool, disabled: f32) {
@@ -766,61 +874,30 @@ impl QuickSurface {
             self.drop_all(engine);
             return Ok(false);
         }
-        if self.root.is_none() {
-            self.root = Some(Root::new(kit, Arrive::Right(lay::TRAVEL), phase == Phase::Open)?);
-            self.scrim = Some(scrim(kit, self.z, false));
-        }
+        self.stage.ensure(kit, phase, Arrive::Right(lay::TRAVEL), true)?;
         let width = lay::SHEET_W - 2.0 * kit.space(6);
-        let layouts: Vec<RowLayout> = if view.editing || view.pad.is_some() { Vec::new() } else { view.rows.iter().map(|r| lay::row_layout(kit, r, width)).collect() };
+        let layouts: Vec<RowLayout> =
+            if view.editing || view.pad.is_some() { Vec::new() } else { view.rows.iter().map(|r| lay::row_layout(kit, r, width)).collect() };
         let sig = Self::signature(kit, view, &layouts);
         if self.built.as_ref().is_none_or(|b| b.sig != sig) {
             self.drop_built(engine);
-            let root_group = &self.root.as_ref().expect("a root").group;
-            let built = Self::build(kit, engine, root_group, self.z, view, layouts, sig)?;
+            // a click on nothing is Back: the whole screen is a focusable under everything else, absent from the keys
+            self.stage.backdrop(engine, Target::Backdrop.id(), REGION_LIST);
+            let built = Self::build(kit, engine, self.stage.group(), self.stage.z(), view, layouts, sig)?;
             if kit.ui.scene.take_overflow() {
                 drop(built);
                 return Err(std::io::Error::other("the scene is full: the quick panel could not be drawn whole"));
             }
             self.built = Some(built);
             // the focused row of what was just made is lifted at once, not flown to
-            self.first_focus = true;
+            self.stage.refocus();
         }
         self.apply_popup(kit, engine, view, phase)?;
-        let (enter, exit) = (slide_ms(kit, super::life::ENTER_MS), slide_ms(kit, super::life::EXIT_MS));
-        match phase {
-            Phase::Opening | Phase::Open => {
-                if !self.modal {
-                    engine.focus.open_modal(SCOPE);
-                    self.modal = true;
-                    self.first_focus = true;
-                }
-                if let Some(root) = self.root.as_mut().filter(|r| !r.is_shown()) {
-                    root.show(enter);
-                }
-                if let Some(s) = &self.scrim {
-                    scrim_set(s, true);
-                }
-                self.update(kit, engine, view, now_ms, now_ns);
-            }
-            Phase::Leaving => {
-                if let Some(root) = self.root.as_mut().filter(|r| r.is_shown()) {
-                    root.hide(exit);
-                }
-            }
-            Phase::Parked => {
-                self.drop_popup(engine);
-                if let Some(root) = self.root.as_mut() {
-                    root.park();
-                }
-                if let Some(s) = &self.scrim {
-                    scrim_set(s, false);
-                }
-                if self.modal {
-                    engine.focus.close_modal();
-                    self.modal = false;
-                }
-            }
-            Phase::Gone => {}
+        if phase == Phase::Parked {
+            self.drop_popup(engine);
+        }
+        if self.stage.phase(kit, engine, phase) {
+            self.update(kit, engine, view, now_ms, now_ns);
         }
         Ok(true)
     }
@@ -836,15 +913,14 @@ impl QuickSurface {
         let sig = Self::popup_signature(kit, p);
         if self.popup.as_ref().is_none_or(|c| c.sig != sig) {
             self.drop_popup(engine);
-            let root_group = &self.root.as_ref().expect("a root").group;
-            let built = Self::build_popup(kit, engine, root_group, self.z, p, sig)?;
+            let built = Self::build_popup(kit, engine, self.stage.group(), self.stage.z(), p, sig)?;
             if kit.ui.scene.take_overflow() {
                 return Err(std::io::Error::other("the scene is full: the card could not be drawn whole"));
             }
             self.popup = Some(built);
             engine.focus.open_modal(POPUP_SCOPE);
             self.popup_modal = true;
-            self.first_focus = true;
+            self.stage.refocus();
         }
         // the slider follows the value
         if let (Some(PopupBuilt { face: PopupFace::Slider { slider, value, shown }, .. }), PopupView::Slider { value: v, .. }) = (self.popup.as_mut(), p)
@@ -924,16 +1000,7 @@ impl QuickSurface {
             self.shake_step(kit, step, now_ms);
         }
         // the focus follows the model's; the first one after the panel comes up is lifted at once
-        let want = Self::focus_id(view);
-        match want {
-            Some(id) if self.first_focus => {
-                if engine.focus.focus(id) {
-                    let _ = engine.flow.snap(id, true, now_ns);
-                    self.first_focus = false;
-                }
-            }
-            w => follow(engine, w, now_ns),
-        }
+        self.stage.focus(engine, Self::focus_id(view), now_ns);
         // the list moves to show the focused row whole
         match &view.focus {
             Some(Focus::Row(i)) => self.reveal_row(engine, *i, now_ms, disabled),
@@ -1044,8 +1111,7 @@ impl QuickSurface {
 
     /// A key of the remote: the pointer's cue goes.
     pub fn on_key(&mut self, kit: &Kit, engine: &mut Engine) {
-        self.pointer.key(engine);
-        self.hover.hide();
+        self.stage.key(engine);
         self.popup_hover.hide();
         if let Some(f) = self.built.as_mut().and_then(|b| b.foot.as_mut()) {
             f.button.set_hover(kit, false);
@@ -1062,6 +1128,7 @@ impl QuickSurface {
         }
     }
 
+    /// What the cue under the pointer does besides the stage's: "All settings" shows its hover, and the cue over a card's options is the card's own.
     fn hover_cue(&mut self, kit: &Kit, engine: &Engine, from: Option<Id>, to: Option<Id>) {
         let foot_id = Target::Foot.id();
         if let Some(f) = self.built.as_mut().and_then(|b| b.foot.as_mut()) {
@@ -1073,22 +1140,16 @@ impl QuickSurface {
             }
         }
         let target = to.and_then(Target::from_id).filter(|_| to != engine.focus.current());
-        let radius = target.and_then(|t| Self::cue_radius(kit, t));
-        let frame = to.and_then(|id| engine.focus.frame(id));
-        let popup = matches!(target, Some(Target::Option(_)));
-        let shown = radius.zip(frame);
-        let (Some(root), false) = (self.root.as_ref(), shown.is_none()) else {
-            self.hover.hide();
-            self.popup_hover.hide();
-            return;
+        let shown = match (target, to.and_then(|id| engine.focus.frame(id))) {
+            (Some(t @ Target::Option(_)), Some(f)) => Self::cue_radius(kit, t).map(|r| (f, r)),
+            _ => None,
         };
-        if popup {
-            self.hover.hide();
-            let group: &Group = self.popup.as_ref().and_then(|p| p._group.as_ref()).unwrap_or(&root.group);
-            self.popup_hover.show(kit, group, shown.map(|(r, f)| (f, r)));
-        } else {
-            self.popup_hover.hide();
-            self.hover.show(kit, &root.group, shown.map(|(r, f)| (f, r)));
+        match (shown, self.stage.root()) {
+            (Some(shown), Some(root)) => {
+                let group: &Group = self.popup.as_ref().and_then(|p| p._group.as_ref()).unwrap_or(&root.group);
+                self.popup_hover.show(kit, group, Some(shown));
+            }
+            _ => self.popup_hover.hide(),
         }
     }
 
@@ -1108,46 +1169,53 @@ impl QuickSurface {
     /// A sample of the pointer: the hover cue follows it, a press shrinks "All settings", a click is the target to act on (with the side of
     /// a stepper's control it was on).
     pub fn pointer(&mut self, kit: &Kit, engine: &mut Engine, now_ns: u64, s: Sample) -> Option<(Target, Option<i32>)> {
-        self.root.as_ref()?;
+        if !self.stage.is_up() {
+            return None;
+        }
         let foot_id = Target::Foot.id();
-        let on_dim = self.built.as_ref().is_some_and(|b| s.visible && engine.focus.hit(s.x, s.y) == Some(b.backdrop));
-        let dim_click = self.dim.feed(on_dim, &s);
-        let mut click = None;
-        for g in self.pointer.feed(engine, now_ns, s) {
-            match g {
-                Gesture::Hover { from, to } => self.hover_cue(kit, engine, from, to),
-                Gesture::Down(id) if id == foot_id => {
+        let mut touches = Vec::new();
+        // the stage's cue is over a control of the panel itself; a card's options have a cue of their own
+        let click = self.stage.pointer(kit, engine, now_ns, s, |touch| {
+            touches.push(touch);
+            match touch {
+                Touch::Hover { to, .. } => to.and_then(Target::from_id).filter(|t| !matches!(t, Target::Option(_))).and_then(|t| Self::cue_radius(kit, t)),
+                Touch::Press { .. } => None,
+            }
+        });
+        for t in touches {
+            match t {
+                Touch::Hover { from, to } => self.hover_cue(kit, engine, from, to),
+                Touch::Press { id, down } if id == foot_id => {
                     if let Some(f) = self.built.as_mut().and_then(|b| b.foot.as_mut()) {
-                        f.button.set_pressed(kit, true);
+                        f.button.set_pressed(kit, down);
                     }
                 }
-                Gesture::Up(Some(id)) if id == foot_id => {
-                    if let Some(f) = self.built.as_mut().and_then(|b| b.foot.as_mut()) {
-                        f.button.set_pressed(kit, false);
-                    }
-                }
-                Gesture::Click(id) => {
-                    if let Some(t) = Target::from_id(id) {
-                        click = Some((t, self.side_of(engine, t, s.x, s.y)));
-                    }
-                }
-                _ => {}
+                Touch::Press { .. } => {}
             }
         }
-        click.or(dim_click.then_some((Target::Backdrop, None)))
+        let t = Target::from_id(click?)?;
+        Some((t, self.side_of(engine, t, s.x, s.y)))
     }
 
     // ---- what the tests, the lint and the harness read
 
     /// How many layers the panel holds (the scene's budget).
     pub fn layers(&self) -> usize {
-        let Some(b) = &self.built else { return usize::from(self.scrim.is_some()) };
+        let Some(b) = &self.built else { return usize::from(self.stage.has_scrim()) };
         let rows = b.list.as_ref().map_or(0, |l| l.rows.iter().map(|r| r.layers).sum());
         let edit = b.edit.as_ref().map_or(0, |e| e.rows.len() * 5 + 5);
         let strip = b.strip.len() * 3;
         let pad = b.pad.as_ref().map_or(0, |p| 5 + p.cells.len() * 3);
         let foot = b.foot.as_ref().map_or(0, |f| f.button.layers() + f._hints.len() * 3);
-        1 + b.head.title.layers() + usize::from(b.head.clock.is_some()) + b.head._hints.len() * 3 + rows + edit + strip + pad + foot + usize::from(self.scrim.is_some())
+        1 + b.head.title.layers()
+            + usize::from(b.head.clock.is_some())
+            + b.head._hints.len() * 3
+            + rows
+            + edit
+            + strip
+            + pad
+            + foot
+            + usize::from(self.stage.has_scrim())
     }
 
     pub fn geometry(&self, engine: &Engine) -> Value {
@@ -1458,7 +1526,11 @@ mod tests {
         }
         assert_eq!(u.s.built.as_ref().and_then(|b| b.pad.as_ref()).map(|p| p.filled), Some(3));
         u.key(K::Digit(4));
-        let wrong = crate::kit::screen::Input::Fetched { tag: crate::panels::env::tags::PROFILE_SWITCH, status: 403, data: json!({"error": {"code": "wrong_pin", "triesLeft": 4}}) };
+        let wrong = crate::kit::screen::Input::Fetched {
+            tag: crate::panels::env::tags::PROFILE_SWITCH,
+            status: 403,
+            data: json!({"error": {"code": "wrong_pin", "triesLeft": 4}}),
+        };
         u.q.answer(&wrong, &mut u.env, u.t);
         u.apply();
         assert_eq!(u.s.built.as_ref().and_then(|b| b.pad.as_ref()).map(|p| p.filled), Some(0), "the dots are cleared");
@@ -1507,7 +1579,7 @@ mod tests {
         assert!(u.apply());
         assert_eq!(u.engine.focus.modal(), None);
         assert_eq!(u.kit.room().layers, with, "the layers are kept hidden for the next opening");
-        assert!(u.s.root.as_ref().is_some_and(|r| r.group.is_inert()));
+        assert!(u.s.stage.root().is_some_and(|r| r.group.is_inert()));
         u.q.life.tick(7000);
         assert_eq!(u.q.life.phase(), Phase::Gone);
         assert!(!u.apply());
@@ -1521,7 +1593,7 @@ mod tests {
         let at = |x: f32, y: f32, b: u32| Sample { x, y, buttons: b, visible: true };
         let t = |n: u64| (2000 + n) * 1_000_000;
         assert!(u.s.pointer(&u.kit, &mut u.engine, t(0), at(f.x + 40.0, f.y + 10.0, 0)).is_none());
-        assert!(u.s.hover.is_shown(), "a cue under the pointer");
+        assert!(u.s.stage.hover.is_shown(), "a cue under the pointer");
         assert!(u.s.pointer(&u.kit, &mut u.engine, t(10), at(f.x + 40.0, f.y + 10.0, 1)).is_none());
         let click = u.s.pointer(&u.kit, &mut u.engine, t(20), at(f.x + 40.0, f.y + 10.0, 0));
         assert_eq!(click, Some((Target::Row(1), None)));
@@ -1534,7 +1606,7 @@ mod tests {
         assert_eq!(click, Some((Target::Foot, None)));
         // a key hides the cue
         u.s.on_key(&u.kit, &mut u.engine);
-        assert!(!u.s.hover.is_shown());
+        assert!(!u.s.stage.hover.is_shown());
     }
 
     #[test]

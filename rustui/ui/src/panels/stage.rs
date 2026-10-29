@@ -73,7 +73,20 @@ pub struct Stage {
 impl Stage {
     /// `z` is the panel's depth: the dim at `z`, the hover cue above the plates at `z + 8`.
     pub fn new(z: i32, scope: Scope) -> Self {
-        Self { z, scope, arrive: None, root: None, scrim: None, backdrop: None, hover: Hover::new(z + 8), pointer: Pointer::new(), dim: Dim::default(), modal: false, hide: false, first: true }
+        Self {
+            z,
+            scope,
+            arrive: None,
+            root: None,
+            scrim: None,
+            backdrop: None,
+            hover: Hover::new(z + 8),
+            pointer: Pointer::new(),
+            dim: Dim::default(),
+            modal: false,
+            hide: false,
+            first: true,
+        }
     }
 
     /// The dim is the colour that hides the page behind the panel (`scrim_hide`), as a question's is.
@@ -120,6 +133,11 @@ impl Stage {
 
     pub fn root(&self) -> Option<&Root> {
         self.root.as_ref()
+    }
+
+    /// Whether the dim behind the panel is made.
+    pub fn has_scrim(&self) -> bool {
+        self.scrim.is_some()
     }
 
     /// A focusable the size of the screen behind everything: the pointer's click on the dim lands on it (it never takes the focus).
