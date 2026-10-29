@@ -790,6 +790,14 @@ impl State {
                         .push("luna", json!({"tag": tag, "payload": {"returnValue": false, "errorCode": -1, "errorText": "not allowed by the compositor"}}));
                     return false;
                 }
+                // Where a tile is for the transitions is the compositor's own knowledge: answered here, not sent to the bus, so it does not depend on the
+                // bridge (`lumatv-sm`) on the set knowing the method.
+                if uri == "luna://com.webos.surfacemanager/setLaunchOrigin" {
+                    self.shell_rust.stats.luna_calls += 1;
+                    let answer = self.set_launch_origin(&payload);
+                    self.shell_rust.push("luna", json!({"tag": tag, "payload": answer}));
+                    return false;
+                }
                 self.shell_rust.stats.luna_calls += 1;
                 let token = self.luna_token();
                 self.shell_rust.luna_tags.push(LunaTag { tag, token, subscribe, uri: uri.clone() });
@@ -893,7 +901,8 @@ impl State {
 
     /// Whether the Rust client's layer has the keys: the keys go over the key socket (`input.rs`).
     pub fn shell_rust_wants_keys(&self) -> bool {
-        self.shell_rust.connected && self.shell_rust.wants && self.shell_rust.keys.is_some()
+        // while an app's card is growing over Home (Home is held as its underlay) the app has the keys: Home is only drawn, not the front
+        self.shell_rust.connected && self.shell_rust.wants && self.shell_rust.keys.is_some() && !self.scene.transitions.holds_home()
     }
 
     /// Whether the Rust client's saver is up (its state says so): every key of the remote wakes it, the ones the key socket has no name for too.
@@ -1662,6 +1671,39 @@ mod tests {
             .map(|l| (l["pointer"]["buttons"].as_u64().unwrap(), l["pointer"]["visible"].as_bool().unwrap()))
             .collect();
         assert_eq!(sent, vec![(0, true), (1, true), (0, true), (1, true), (0, false)], "no release, no stray press");
+    }
+
+    #[test]
+    fn the_tile_a_launch_grows_from_is_taken_in_process_and_answered_not_sent_to_the_bus() {
+        let (mut state, _dir) = state_with("home");
+        state.shell_rust_handle(Msg::Connected);
+        state.shell_rust_handle(Msg::Luna {
+            tag: 41,
+            uri: "luna://com.webos.surfacemanager/setLaunchOrigin".into(),
+            payload: json!({"appId": "youtube.leanback.v4", "from": null, "tile": {"x": 300.0, "y": 700.0, "width": 134.4, "height": 134.4, "radius": 26.0}}),
+            subscribe: false,
+        });
+        assert!(state.scene.transitions.origin_of("youtube.leanback.v4").is_some(), "the compositor knows the tile");
+        assert!(state.shell_rust.luna_tags.is_empty(), "nothing was sent to the bus to wait for");
+        assert_eq!(state.shell_rust.topic("luna").map(|t| (t["tag"].clone(), t["payload"]["returnValue"].clone())), Some((json!(41), json!(true))));
+    }
+
+    #[test]
+    fn while_an_apps_card_grows_over_home_the_app_has_the_keys_and_home_has_them_back_when_the_card_is_whole() {
+        use crate::transition::{FRect, Kind, Party};
+        let (mut state, _dir) = state_with("home");
+        state.shell_rust_handle(Msg::Connected);
+        state.shell_rust_handle(Msg::Ui { can: None, wants: Some(true), live: None, state: None });
+        let _theirs = with_key_socket(&mut state);
+        assert!(state.shell_rust_wants_keys(), "Home in front has the keys");
+        state.scene.transitions.settings.enabled = true;
+        let full = FRect::new(0.0, 0.0, 1920.0, 1080.0);
+        let app = Party { id: crate::window::WindowId(7), app_id: "youtube.leanback.v4", rect: full, video: false };
+        assert!(state.scene.transitions.begin(Kind::Launch, 1_000_000, Some(app), None, &[(crate::scene::HOME_RUST, full)]));
+        assert!(state.scene.transitions.holds_home());
+        assert!(!state.shell_rust_wants_keys(), "Home is drawn under the card, it is not the front");
+        state.scene.transitions.clear();
+        assert!(state.shell_rust_wants_keys());
     }
 
     #[test]

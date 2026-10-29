@@ -1,0 +1,211 @@
+//! The Rust shell's Home under the compositor's transitions (feature `ui`, Mesa's software GL). Its Home is not a window: it is the engine's
+//! layers under the windows (stack 0), so an app's card grows over it and shrinks back onto it, Home is told it is still on the screen while the
+//! card moves (its launch screen and its layers stay up), and an app on the video plane (a hole) arrives on its veil and leaves with Home covering
+//! the hole at once, so the plane's black is never what shows. Every frame of every move is read back, and none has a black pixel.
+#![cfg(feature = "ui")]
+
+mod harness;
+
+use compositor_protocol::{Event, Fill, Props, Rgba, Shape};
+use harness::{Client, Server, Window};
+use lumashow_ui::{Scene, SceneOptions, Ui};
+use lumatv_compositor::output::Image;
+use lumatv_compositor::render::egl::Platform;
+use lumatv_compositor::render::gl::{BufferPath, Gl};
+use lumatv_compositor::scene::Hole;
+use lumatv_compositor::window::SHELL_HOME_TITLE;
+use serde_json::json;
+use std::path::Path;
+use std::time::{Duration, Instant};
+use wayland_client::protocol::wl_buffer::WlBuffer;
+
+const MESA: &str = "/usr/lib/x86_64-linux-gnu/libEGL.so.1";
+const MS: u64 = 1_000_000;
+const HOME_STUB: &str = "com.webos.app.home";
+const HOME: [u8; 3] = [32, 48, 96];
+const APP_A: u32 = 0xffd0_4040;
+const TILE: (i32, i32, i32, i32) = (287, 699, 120, 120);
+
+struct Rig {
+    server: Server,
+    client: Client,
+    _keep: Vec<(Window, WlBuffer)>,
+    _ui: Ui,
+    hangup: std::os::unix::net::UnixStream,
+}
+
+fn skip() -> bool {
+    if !Path::new(MESA).exists() {
+        eprintln!("skipped: no Mesa at {MESA}");
+        return true;
+    }
+    // SAFETY: nothing else in this process reads the environment while it is set.
+    unsafe { std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1") };
+    false
+}
+
+/// The Rust shell's Home as the engine's ground, the Home stub card over nothing, the compositor's `home_rust` on and transitions forced on.
+fn rig() -> Rig {
+    let shm = std::env::temp_dir().join(format!("lumatv-rust-home-transitions-{}-{:?}", std::process::id(), std::thread::current().id()));
+    std::fs::create_dir_all(&shm).unwrap();
+    let dir = shm.clone();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let mut server = Server::start_with(Box::new(move || {
+        let mut gl = Gl::new(MESA, Platform::Surfaceless, 1920, 1080, BufferPath::Own, None).unwrap();
+        tx.send(gl.attach_ui(MESA, 1000, dir).unwrap()).unwrap();
+        gl.ui().unwrap().finish_handshake().unwrap();
+        Box::new(gl)
+    }));
+    let app_end = rx.recv().unwrap();
+    let hangup = app_end.try_clone().unwrap();
+    let (scene, _, events) = Scene::over_with(app_end, SceneOptions { shm_dir: Some(shm), ..Default::default() }).unwrap();
+    let ui = Ui::new(scene);
+    let ground = Shape { corner_radius: 0.0, fill: Fill::Solid(Rgba(HOME[0], HOME[1], HOME[2], 255)), border_width: 0.0, border: Rgba(0, 0, 0, 0) };
+    let layer = ui.scene.shape(1920, 1080, 0, ground, Props::at(0.0, 0.0));
+    std::mem::forget(layer);
+    let first = ui.try_commit().unwrap().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let event = events.recv_timeout(deadline.saturating_duration_since(Instant::now())).expect("a presented UI frame");
+        ui.scene.observe(&event);
+        if matches!(event, Event::Frame { tag, .. } if tag >= first) {
+            break;
+        }
+    }
+    server.ticking.store(false, std::sync::atomic::Ordering::SeqCst);
+    let mut client = Client::connect(&mut server);
+    let stub = client.card("_WEBOS_WINDOW_TYPE_CARD", "Stub");
+    stub.webos.set_property("appId".into(), HOME_STUB.into());
+    let clear = client.shm_buffer(64, 64, 0);
+    client.present(&stub.surface, &clear);
+    client.roundtrip();
+    server.eval(|s| {
+        s.scene.set_home_rust(true);
+        s.motion.forced = Some(true);
+        s.apply_motion();
+        s.set_launch_origin(&json!({"appId": "com.example.a", "tile": {"x": TILE.0, "y": TILE.1, "width": TILE.2, "height": TILE.3, "radius": 22}}));
+        s.set_launch_origin(&json!({"appId": "com.webos.app.hdmi2", "tile": {"x": TILE.0, "y": TILE.1, "width": TILE.2, "height": TILE.3, "radius": 22}}));
+        s.tick_at(1_000 * MS);
+    });
+    let _ = SHELL_HOME_TITLE;
+    Rig { server, client, _keep: vec![(stub, clear)], _ui: ui, hangup }
+}
+
+impl Drop for Rig {
+    fn drop(&mut self) {
+        let _ = self.hangup.shutdown(std::net::Shutdown::Both);
+    }
+}
+
+fn tick(server: &Server, ns: u64) -> Image {
+    server.eval(move |s| {
+        s.tick_at(ns);
+        s.output.capture().unwrap()
+    })
+}
+
+/// Pixels of the frame that are black: opaque black is the plane's black under a UI that did not cover it, and a cleared hole ([0, 0, 0, 0])
+/// is the video plane showing through.
+fn black(image: &Image, clear_too: bool) -> usize {
+    let mut n = 0;
+    for y in (3..1080).step_by(17) {
+        for x in (3..1920).step_by(23) {
+            let p = image.pixel(x, y);
+            if p[3] == 255 && p[..3] == [0, 0, 0] || clear_too && p[3] == 0 {
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
+fn app(rig: &mut Rig, id: &str) -> (Window, WlBuffer) {
+    let win = rig.client.card("_WEBOS_WINDOW_TYPE_CARD", id);
+    win.webos.set_property("appId".into(), id.into());
+    let buf = rig.client.shm_buffer(1920, 1080, APP_A);
+    let whole = rig.client.region(0, 0, 1920, 1080);
+    win.surface.set_opaque_region(Some(&whole));
+    rig.client.present(&win.surface, &buf);
+    rig.client.roundtrip();
+    (win, buf)
+}
+
+#[test]
+fn a_launch_and_a_return_are_a_card_growing_out_of_its_tile_over_the_rust_home_and_back_with_home_told_it_stays_and_no_black_frame() {
+    if skip() {
+        return;
+    }
+    let mut rig = rig();
+    let home = tick(&rig.server, 1_100 * MS);
+    assert_eq!(home.pixel(700, 300)[..3], HOME, "Home is the engine's ground");
+    let (win, _buf) = app(&mut rig, "com.example.a");
+    // the transition is requested for the launch, and Home is told it is still the screen's while the card moves (its layers and its launch screen stay)
+    let t0 = 2_000 * MS;
+    let mut worst = 0;
+    for step in 0..16u64 {
+        let img = tick(&rig.server, t0 + step * 16 * MS);
+        worst = worst.max(black(&img, true));
+        if step == 0 {
+            assert!(rig.server.eval(|s| s.scene.transitions.stats.launches == 1 && s.scene.transitions.holds_home()), "a launch is moving and Home is held");
+            let topic = rig.server.eval(|s| s.shell_topic_values().into_iter().find(|(n, _)| n == "foreground").map(|(_, v)| v));
+            let topic = topic.expect("the foreground topic");
+            assert_eq!((topic["home"].as_bool(), topic["covered"].as_bool()), (Some(true), Some(false)), "{topic}");
+        }
+    }
+    assert_eq!(worst, 0, "no frame of the launch has a black pixel");
+    let settled = tick(&rig.server, t0 + 400 * MS);
+    assert_eq!(settled.pixel(960, 540)[..3], [0xd0, 0x40, 0x40]);
+    assert!(rig.server.eval(|s| !s.scene.transitions.holds_home()), "the card is whole: Home is covered now");
+
+    // the app goes: its last picture shrinks into the tile over Home, which is under it from the first frame
+    win.surface.destroy();
+    rig.client.roundtrip();
+    let t1 = 3_000 * MS;
+    let mut worst = 0;
+    let mut last = None;
+    for step in 0..14u64 {
+        let img = tick(&rig.server, t1 + step * 16 * MS);
+        worst = worst.max(black(&img, true));
+        last = Some(img);
+    }
+    assert_eq!(worst, 0, "no frame of the return has a black pixel");
+    assert_eq!(last.expect("frames").pixel(5, 5)[..3], HOME, "Home, whole, at the end");
+    assert_eq!(rig.server.eval(|s| (s.scene.transitions.stats.launches, s.scene.transitions.stats.leaves)), (1, 1));
+}
+
+#[test]
+fn an_app_on_the_video_plane_arrives_on_a_veil_and_leaves_with_home_covering_its_hole_at_once() {
+    if skip() {
+        return;
+    }
+    let mut rig = rig();
+    let id = "com.webos.app.hdmi2";
+    let win = rig.client.card("_WEBOS_WINDOW_TYPE_CARD", "Hdmi");
+    win.webos.set_property("appId".into(), id.into());
+    rig.client.roundtrip();
+    let sid = rig.server.eval(move |s| s.scene.windows().find(|w| w.app_id() == id).map(|w| w.surface).unwrap());
+    rig.server.eval(move |s| {
+        s.scene.set_video_expected(sid, true);
+        s.scene.holes.push(Hole { surface: sid, rect: lumatv_compositor::Rect::new(0, 0, 1920, 1080) });
+    });
+    let buf = rig.client.shm_pattern(1920, 1080, |x, y| if x < 500 && y < 120 { 0xff30_5080 } else { 0 });
+    rig.client.present(&win.surface, &buf);
+    rig.client.roundtrip();
+    let t0 = 2_000 * MS;
+    // the card arrives over Home on its veil: nowhere is the plane's black (a cleared hole) or an opaque black seen while it moves and holds
+    for ms in [0u64, 60, 130, 300, 390] {
+        let img = tick(&rig.server, t0 + ms * MS);
+        assert_eq!(black(&img, true), 0, "the veil at {ms} ms");
+    }
+    // the app goes: no frame of the way back shows the plane through the hole, and Home is whole at the end
+    win.surface.destroy();
+    rig.client.roundtrip();
+    let t1 = 3_000 * MS;
+    for ms in [0u64, 16, 48, 90, 140, 179, 200] {
+        let img = tick(&rig.server, t1 + ms * MS);
+        assert_eq!(black(&img, true), 0, "the way back at {ms} ms");
+    }
+    let end = tick(&rig.server, t1 + 400 * MS);
+    assert_eq!(end.pixel(960, 540)[..3], HOME);
+    assert_eq!(rig.server.eval(|s| (s.scene.transitions.stats.launches, s.scene.transitions.stats.leaves)), (1, 1));
+}

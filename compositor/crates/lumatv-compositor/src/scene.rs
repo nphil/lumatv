@@ -27,6 +27,11 @@ use crate::{OUTPUT_HEIGHT, OUTPUT_WIDTH, Rect};
 /// otherwise. The card LumaTV's Home is drawn in place of.
 pub const HOME_APP: &str = "com.webos.app.home";
 
+/// The Rust shell's Home in the transitions: it is the engine's layers, under every window, and has no window to move. A track of this id stands for it,
+/// so a launch holds Home (the shell is told it is still on the screen: its layers and its launch screen stay up under the card) until the card is whole,
+/// as the QML Home's window does. It is drawn by nothing here: the engine already draws it under the windows.
+pub const HOME_RUST: WindowId = WindowId(u32::MAX);
+
 /// How recent a commit of the shell's idle system layer must be to count as the frame its `live` announces: the word follows the frame by
 /// what the client's request takes, 100 ms and more under load on the set (the layer's empty frame after its last content is older still).
 const JOIN_FRESH_NS: u64 = 400_000_000;
@@ -995,14 +1000,18 @@ impl Scene {
             }
         };
         // Home's windows: under a launch Home and the moving wallpaper's window (its hole) both stay drawn; Home alone comes back on a leave.
-        let home: Vec<(WindowId, FRect)> = self
+        let mut home: Vec<(WindowId, FRect)> = self
             .windows
             .values()
             .filter(|w| matches!(w.kind, WindowType::ShellHome | WindowType::Wallpaper) && w.map_serial > 0)
             .map(|w| (w.id, full))
             .collect();
-        let home_ui: Vec<(WindowId, FRect)> =
+        let mut home_ui: Vec<(WindowId, FRect)> =
             self.windows.values().filter(|w| w.kind == WindowType::ShellHome && w.map_serial > 0).map(|w| (w.id, full)).collect();
+        if self.home_rust {
+            home.push((HOME_RUST, full));
+            home_ui.push((HOME_RUST, full));
+        }
         let started = match (prev, now) {
             (Front::Home, Front::Card(b)) if drawable(self, b) => {
                 let b_info = info(self, b);
