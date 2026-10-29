@@ -598,11 +598,11 @@ impl Allocator {
             }
             return ended;
         }
-        // more holders than windows: the lowest claims give theirs up
+        // more holders than windows: the lowest claims give theirs up. The wallpaper is not counted: a claim outranks it, and the grant that took its window
+        // had it closed (the decoder is still there for the moment its process takes to go).
         let apps = world.app_slots(self.policy.mode);
-        let wall = if world.wall { 1 + usize::from(world.wall_wide) } else { 0 };
         let width = |c: &Claim| 1 + usize::from(c.wide);
-        let mut held = apps + order.iter().map(|i| width(&self.claims[*i])).sum::<usize>() + wall;
+        let mut held = apps + order.iter().map(|i| width(&self.claims[*i])).sum::<usize>();
         order.sort_by_key(|i| (self.claims[*i].kind.priority(), std::cmp::Reverse(self.claims[*i].seq)));
         for i in order {
             if held <= self.policy.slots {
@@ -1356,6 +1356,36 @@ mod tests {
         let hfr = World { both_scalers: true, ..playing };
         assert_eq!(a.settle(&hfr), vec!["pop".to_string()]);
         assert_eq!(a.claim("pop").unwrap().state, ClaimState::Preempted(Reason::BothScalers));
+    }
+
+    #[test]
+    fn a_wallpaper_still_there_after_its_window_was_taken_does_not_end_the_claim_that_took_it() {
+        let mut a = Allocator::new(Policy { mode: Mode::Apps, slots: 1 });
+        let wall = World { wall: true, ..World::default() };
+        let d = a.request(&wall, req("pop", Kind::CameraPopup, None));
+        assert_eq!(granted(&d), Some((0, vec![Victim::Wall])));
+        assert_eq!(a.settle(&wall), Vec::<String>::new(), "its process has not gone yet");
+        assert_eq!(a.claim("pop").unwrap().state, ClaimState::Granted);
+        assert_eq!(a.occupancy(&wall), vec![Some(Holder::Claim("pop".to_string()))], "the claim holds the window, the wallpaper none");
+    }
+
+    #[test]
+    fn the_sinks_are_read_from_the_status_videooutputd_pushes() {
+        // as recorded on the set (round8/tv-2026-10-25/log.txt, LumaTV's own session), trimmed
+        let status = json!({"video": [
+            {"sink": "MAIN", "connected": true, "context": "_LvZICq56d0kLzl", "appId": "org.nphil.lumatv.vplane", "zOrder": 0, "width": 1856, "height": 1024,
+             "frameRate": 60, "videoInfo": {"lowDelayMode": true, "isGameMode": true, "subScalerOccupied": true}},
+            {"sink": "SUB0", "connected": false, "zOrder": 1, "videoInfo": {}}], "returnValue": true});
+        let sinks = Sinks::parse(&status).expect("a status with a video list");
+        assert_eq!(sinks.video.len(), 2);
+        assert_eq!((sinks.video[0].name.as_str(), sinks.video[0].connected, sinks.video[0].occupied, sinks.video[0].z), ("MAIN", true, true, 0));
+        assert_eq!((sinks.video[0].width, sinks.video[0].height, sinks.video[0].fps), (1856, 1024, 60.0));
+        assert!(!sinks.video[1].connected && !sinks.video[1].occupied && sinks.video[1].context.is_empty());
+        let on_main = sinks.of(&["_LvZICq56d0kLzl".to_string()]).map(|s| s.name.as_str());
+        assert_eq!(on_main, Some("MAIN"));
+        assert!(sinks.of(&["_other".to_string()]).is_none(), "a context that is on no connected sink");
+        assert_eq!(sinks.json()[0]["occupiesBoth"], true);
+        assert_eq!(Sinks::parse(&json!({"returnValue": true})), None, "an answer without the list is not a status");
     }
 
     #[test]
