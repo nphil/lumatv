@@ -114,6 +114,8 @@ pub struct RustShell {
     pub recorded: Vec<Value>,
     pub stats: Stats,
     pub error: Option<String>,
+    /// The journal has said that the client waits for the engine's programs, since the last attach.
+    shaders_told: bool,
     pub marker: PathBuf,
 }
 
@@ -153,6 +155,7 @@ impl Default for RustShell {
             recorded: Vec::new(),
             stats: Stats::default(),
             error: None,
+            shaders_told: false,
             marker: PathBuf::from(TRACE_MARKER),
         }
     }
@@ -459,7 +462,23 @@ impl State {
                     self.journal(format!("shell-rust: {}: {e}", shm.display()));
                 }
                 match self.output.ui_attach(&driver, SYSTEM_Z, shm.clone()) {
-                    Ok(s) => s,
+                    Ok(s) => {
+                        self.shell_rust.shaders_told = false;
+                        // The client is forked at the next tick: the attach and the fork each take a pass of their own, so that neither adds
+                        // to the other's.
+                        self.shell_rust.socket = Some(s);
+                        self.shell_rust.next_start = Some(now);
+                        return;
+                    }
+                    // The engine's programs are being linked on a thread of its own (`Output::ui_attach`): the loop goes on, and asks
+                    // again at the next tick.
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        if !std::mem::replace(&mut self.shell_rust.shaders_told, true) {
+                            self.journal("shell-rust: the engine's programs are being linked on a thread of its own; the client starts when they are".into());
+                        }
+                        self.shell_rust.next_start = Some(now + Duration::from_millis(50));
+                        return;
+                    }
                     Err(e) => {
                         self.journal(format!("shell-rust: the engine could not be attached: {e}"));
                         self.shell_rust.error = Some(format!("engine: {e}"));
@@ -630,6 +649,8 @@ impl State {
         }
         // its layers go with its socket: the engine is dropped and the next frame draws everything without them
         self.output.ui_detach();
+        // and the end of its socket that waited for the next child is the end of nothing
+        self.shell_rust.socket = None;
     }
 
     /// Whether the Rust shell draws Home now: the `home` kind is its and the client is on the engine. The scene then leaves the QML

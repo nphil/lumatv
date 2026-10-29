@@ -28,18 +28,25 @@
 //! ([`lumatv_render::Gles::enter`]), so `Gl` need not know. The toolkit's shaders are GLSL ES 3.00: the compositor's context has
 //! to be OpenGL ES 3.0 or later (`render/egl.rs` asks for 2, which Mesa answers with 3.2 and the Mali blob answers [INFERENCE: not
 //! seen on the set] with 3.x too; [`Ui::new`] refuses an ES 2 context and says which).
+//!
+//! The engine's 48 programs take the set's Mali 1.3 s to link, so an engine that attaches while the loop runs does not link them: a
+//! thread of its own does, in a context that shares the loop's ([`compile`]), and [`Ui::new`] takes them from the cache that thread
+//! left them in.
 
+pub mod compile;
 pub mod demo;
 
 use crate::Rect;
 use crate::damage::Tiles;
 use lumatv_render::host::{Engine, FrameCost, HostConfig};
+use lumatv_render::programs::Cache;
 use lumatv_render::tiles::TileSet;
 use lumatv_render::{Demand, Gles};
 use std::ffi::CString;
 use std::io;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 /// The engine, and the scratch the compositor's tiles are turned into the engine's areas with.
 pub struct Ui {
@@ -59,15 +66,18 @@ pub fn add_tiles(into: &mut Tiles, set: &TileSet, scratch: &mut Vec<[i32; 4]>) {
 impl Ui {
     /// The engine, in the context that is current on this thread (the compositor's). `driver` is the EGL/GLES library the context
     /// is the driver's (`libmali-...so` on the set, Mesa's `libEGL.so.1` on a host). `system_z` is where stack 1 begins. The app's
-    /// end of the socket is returned, and [`Ui::finish_handshake`] is called once the app has connected over it.
+    /// end of the socket is returned, and [`Ui::finish_handshake`] is called once the app has connected over it. The programs come from
+    /// `programs` where it has them and are linked here, on the calling thread, where it has not (seconds on the set: only before the
+    /// loop runs, or after [`compile`] has filled the cache), and go back to it when the `Ui` is dropped.
     ///
     /// # Safety
     /// A context of `driver` is current on this thread and stays so for as long as the `Ui` is used; every call of it is made on
     /// this thread.
-    pub unsafe fn new(driver: &str, width: u32, height: u32, system_z: i32, shm_dir: PathBuf) -> io::Result<(Self, UnixStream)> {
+    pub unsafe fn new(driver: &str, width: u32, height: u32, system_z: i32, shm_dir: PathBuf, programs: &Arc<Cache>) -> io::Result<(Self, UnixStream)> {
         let driver = CString::new(driver).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "driver path"))?;
         // SAFETY: the caller's.
-        let gles = unsafe { Gles::current(&driver) }?;
+        let mut gles = unsafe { Gles::current(&driver) }?;
+        gles.use_program_cache(Arc::clone(programs));
         let (engine, app) = Engine::new(
             gles,
             HostConfig {

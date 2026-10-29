@@ -207,7 +207,9 @@ pub trait Output {
 
     /// Makes the UI engine in this output's context, for a client in another process (`shell_rust.rs`): the client's end of the
     /// engine's socket, to hand that process at its start. The handshake completes later ([`Output::ui_handshake`]). An output
-    /// without the engine, or with a client already attached, says so.
+    /// without the engine, or with a client already attached, says so. This is called on the loop's thread and never holds it for
+    /// the engine's shader programs, which take the set's Mali seconds to link: while they are being linked on a thread of their own the
+    /// answer is `ErrorKind::WouldBlock`, and the caller asks again at its next tick.
     fn ui_attach(&mut self, _driver: &str, _system_z: i32, _shm: std::path::PathBuf) -> io::Result<std::os::unix::net::UnixStream> {
         Err(io::Error::other("this output has no UI engine"))
     }

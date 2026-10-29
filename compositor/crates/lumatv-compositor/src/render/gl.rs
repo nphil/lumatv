@@ -87,6 +87,10 @@ struct Xf {
 }
 
 pub struct Gl {
+    /// The thread that links the engine's programs, while it runs (`attach_ui_when_ready`). Declared before `egl` so that it is dropped
+    /// first: it uses the display `egl` ends.
+    #[cfg(feature = "ui")]
+    ui_compile: Option<crate::ui::compile::Compile>,
     egl: Egl,
     width: u32,
     height: u32,
@@ -144,6 +148,9 @@ pub struct Gl {
     ui_frame: Option<lumatv_render::host::FrameCost>,
     #[cfg(feature = "ui")]
     ui_stats: UiStats,
+    /// The engine's programs, linked once and handed from one engine to the next (`lumatv_render::programs`).
+    #[cfg(feature = "ui")]
+    ui_programs: std::sync::Arc<lumatv_render::programs::Cache>,
 }
 
 /// What the UI's frames added up to since the start: the summary's account of the engine (a TV measurement reads it).
@@ -269,6 +276,8 @@ impl Gl {
         unsafe { (a.glUseProgram)(program) };
         let bgra_upload = egl.has_gl_extension("GL_EXT_texture_format_BGRA8888");
         Ok(Gl {
+            #[cfg(feature = "ui")]
+            ui_compile: None,
             egl,
             width,
             height,
@@ -307,22 +316,76 @@ impl Gl {
             ui_frame: None,
             #[cfg(feature = "ui")]
             ui_stats: UiStats::default(),
+            #[cfg(feature = "ui")]
+            ui_programs: lumatv_render::programs::Cache::new(),
         })
     }
 
-    /// Attaches a system-layer client before rendering starts; the returned socket carries its scene protocol.
+    /// Attaches a system-layer client before rendering starts; the returned socket carries its scene protocol. Whatever programs the
+    /// process has not linked yet are linked on the calling thread, which takes the set's Mali seconds: the thread must not be the
+    /// loop's while the loop runs ([`Gl::attach_ui_when_ready`] is the attach for that).
     #[cfg(feature = "ui")]
     pub fn attach_ui(&mut self, driver: &str, system_z: i32, shm: std::path::PathBuf) -> io::Result<std::os::unix::net::UnixStream> {
         if self.ui.is_some() {
             return Err(io::Error::other("a UI client is already attached"));
         }
         // SAFETY: this renderer owns the current context, and drops the UI before that context.
-        let (ui, app) = unsafe { crate::ui::Ui::new(driver, self.width, self.height, system_z, shm) }?;
+        let (ui, app) = unsafe { crate::ui::Ui::new(driver, self.width, self.height, system_z, shm, &self.ui_programs) }?;
         self.ui = Some(ui);
         for target in &mut self.targets {
             target.top_down = true;
         }
         Ok(app)
+    }
+
+    /// Attaches the engine without linking a program on the calling thread, which is the loop's when the compositor runs: the first
+    /// call starts a thread that links them in a context sharing this one's (`ui::compile`), and the calls until it has ended answer
+    /// `WouldBlock`, for the caller to ask again at its next tick. What is left to do is the engine's own state, a few milliseconds.
+    /// An engine that finds a program missing from the thread's cache is refused, not given the link: [INFERENCE: not seen on the set]
+    /// that would be a driver that does not share its programs between contexts, and the loop would be held for 1.5 s.
+    #[cfg(feature = "ui")]
+    pub fn attach_ui_when_ready(&mut self, driver: &str, system_z: i32, shm: std::path::PathBuf) -> io::Result<std::os::unix::net::UnixStream> {
+        // The thread's result is taken before anything is attached, even when the cache already says it is complete: the cache is
+        // filled by the thread's last act, and the engine takes from it only after that thread has ended.
+        if self.ui_compile.is_some() || !self.ui_programs.complete() {
+            self.link_ui_programs(driver)?;
+        }
+        let began = Instant::now();
+        let app = self.attach_ui(driver, system_z, shm).map_err(|e| {
+            if e.kind() == io::ErrorKind::Unsupported {
+                io::Error::other(format!("{e}; the kinds are kept, and the next start of the compositor attaches the engine before its loop runs"))
+            } else {
+                e
+            }
+        })?;
+        log::info!("ui: the engine attached in {:.1} ms on the loop thread", began.elapsed().as_secs_f64() * 1e3);
+        Ok(app)
+    }
+
+    /// Starts the thread that links the engine's programs when none runs, and takes its result when it has ended: `Ok` once they are in the
+    /// cache, `WouldBlock` while the thread runs, the thread's error (the next call tries again) when it failed.
+    #[cfg(feature = "ui")]
+    fn link_ui_programs(&mut self, driver: &str) -> io::Result<()> {
+        let Some(compile) = &mut self.ui_compile else {
+            let (width, height) = ((self.width / 4).max(64), (self.height / 4).max(64));
+            let cache = std::sync::Arc::clone(&self.ui_programs);
+            self.ui_compile = Some(crate::ui::compile::Compile::start(self.egl.sharing(), driver, width, height, cache)?);
+            log::info!("ui: linking the engine's programs on a thread of its own; the loop is not held for them");
+            return Err(io::Error::from(io::ErrorKind::WouldBlock));
+        };
+        let Some(result) = compile.poll() else {
+            return Err(io::Error::from(io::ErrorKind::WouldBlock));
+        };
+        self.ui_compile = None;
+        let made = result.map_err(|e| io::Error::other(format!("the engine's programs: {e}")))?;
+        log::info!(
+            "ui: {} programs linked on a thread of its own in {} ms, drawn once in {} ms{}",
+            made.programs,
+            made.link_ms,
+            made.warm_ms,
+            made.gl_error.map_or(String::new(), |e| format!(" (GL error 0x{e:x})"))
+        );
+        Ok(())
     }
 
     #[cfg(feature = "ui")]
@@ -1728,7 +1791,7 @@ impl Output for Gl {
     fn ui_attach(&mut self, driver: &str, system_z: i32, shm: std::path::PathBuf) -> io::Result<std::os::unix::net::UnixStream> {
         #[cfg(feature = "ui")]
         {
-            self.attach_ui(driver, system_z, shm)
+            self.attach_ui_when_ready(driver, system_z, shm)
         }
         #[cfg(not(feature = "ui"))]
         {

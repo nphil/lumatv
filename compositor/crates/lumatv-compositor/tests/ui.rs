@@ -83,7 +83,7 @@ fn the_demo_surface_is_drawn_into_the_compositors_pages_as_the_ring_owes_them() 
     let shm = std::env::temp_dir().join(format!("lumatv-compositor-ui-{}", std::process::id()));
     std::fs::create_dir_all(&shm).expect("a shm dir");
     // SAFETY: the context is current on this thread and outlives the engine; every call is made here.
-    let (mut ui, app_end) = unsafe { Ui::new(MESA, W, H, SYSTEM_Z, shm.clone()) }.expect("the engine in the compositor's context");
+    let (mut ui, app_end) = unsafe { Ui::new(MESA, W, H, SYSTEM_Z, shm.clone(), &lumatv_render::programs::Cache::new()) }.expect("the engine in the compositor's context");
     let mut demo = Demo::new(app_end, &shm).expect("the demo surface");
     ui.finish_handshake().expect("the handshake");
 

@@ -145,6 +145,8 @@ entry_points! {
     eglChooseConfig: fn(EGLDisplay, *const EGLint, *mut EGLConfig, EGLint, *mut EGLint) -> EGLBoolean;
     eglCreateContext: fn(EGLDisplay, EGLConfig, EGLContext, *const EGLint) -> EGLContext;
     eglCreatePbufferSurface: fn(EGLDisplay, EGLConfig, *const EGLint) -> EGLSurface;
+    eglDestroyContext: fn(EGLDisplay, EGLContext) -> EGLBoolean;
+    eglDestroySurface: fn(EGLDisplay, EGLSurface) -> EGLBoolean;
     eglMakeCurrent: fn(EGLDisplay, EGLSurface, EGLSurface, EGLContext) -> EGLBoolean;
     eglQueryContext: fn(EGLDisplay, EGLContext, EGLint, *mut EGLint) -> EGLBoolean;
     eglCreateImageKHR: fn(EGLDisplay, EGLContext, GLenum, *mut c_void, *const EGLint) -> EGLImage;
@@ -228,6 +230,10 @@ pub struct Egl {
     pub opt: Optional,
     pub display: EGLDisplay,
     pub context: EGLContext,
+    /// The config `context` was made with: null for the no-config context of a driver that has no pbuffer config (`Egl::open`).
+    config: EGLConfig,
+    /// Whether the driver lists `EGL_IMG_context_priority`: a context that only links programs can ask for the lowest.
+    has_priority: bool,
     pub extensions: String,
     pub gl_extensions: String,
     pub vendor: String,
@@ -284,7 +290,7 @@ impl Egl {
         };
 
         // SAFETY: EGL calls in the documented order; every handle is checked.
-        let (display, context, extensions) = unsafe {
+        let (display, context, context_config, extensions) = unsafe {
             let mut display: EGLDisplay = std::ptr::null_mut();
             if let Some(gpd) = opt.eglGetPlatformDisplayEXT {
                 let p = match platform {
@@ -335,6 +341,7 @@ impl Egl {
             }
             levels.push((None, "the default"));
             let mut context: EGLContext = std::ptr::null_mut();
+            let mut context_config: EGLConfig = std::ptr::null_mut();
             let mut asked = "the default";
             for (level, name) in levels {
                 let ctx_attribs = match level {
@@ -353,6 +360,8 @@ impl Egl {
                             log::info!("egl: no pbuffer context at {name} priority (0x{err:x}); trying surfaceless");
                         }
                         context = std::ptr::null_mut();
+                    } else {
+                        context_config = config;
                     }
                 }
                 if context.is_null() {
@@ -387,8 +396,9 @@ impl Egl {
                 };
                 log::info!("egl: context priority {granted} (asked for {asked})");
             }
-            (display, context, extensions)
+            (display, context, context_config, extensions)
         };
+        let has_priority = extensions.split(' ').any(|e| e == "EGL_IMG_context_priority");
         // SAFETY: a context is current.
         let (vendor, version, renderer, gl_extensions) = unsafe {
             (
@@ -398,7 +408,7 @@ impl Egl {
                 cstr((api.glGetString)(GL_EXTENSIONS) as *const c_char),
             )
         };
-        Ok(Egl { lib, api, opt, display, context, extensions, gl_extensions, vendor, version, renderer })
+        Ok(Egl { lib, api, opt, display, context, config: context_config, has_priority, extensions, gl_extensions, vendor, version, renderer })
     }
 
     pub fn has_extension(&self, name: &str) -> bool {
@@ -407,6 +417,29 @@ impl Egl {
 
     pub fn has_gl_extension(&self, name: &str) -> bool {
         self.gl_extensions.split(' ').any(|e| e == name)
+    }
+
+    /// What another thread needs to make a context of its own on this display that shares its objects with this one's: a program or a
+    /// texture made in either is the other's ([`Sharing::make_current`], called on that thread).
+    pub fn sharing(&self) -> Sharing {
+        let mut level: EGLint = 0;
+        // SAFETY: a query of the context this display made, which lives as long as `self`.
+        let parent = (self.has_priority
+            && unsafe { (self.api.eglQueryContext)(self.display, self.context, EGL_CONTEXT_PRIORITY_LEVEL_IMG, &mut level) } != EGL_FALSE)
+            .then_some(level);
+        Sharing {
+            display: self.display,
+            parent: self.context,
+            config: self.config,
+            levels: [self.has_priority.then_some(EGL_CONTEXT_PRIORITY_LOW_IMG), parent, None],
+            bind_api: self.api.eglBindAPI,
+            create_context: self.api.eglCreateContext,
+            create_pbuffer: self.api.eglCreatePbufferSurface,
+            make_current: self.api.eglMakeCurrent,
+            destroy_context: self.api.eglDestroyContext,
+            destroy_surface: self.api.eglDestroySurface,
+            get_error: self.api.eglGetError,
+        }
     }
 
     /// The modifiers the driver lists for `fourcc` as `(modifier, external_only)`: `external_only` means an image of that layout can be sampled but not
@@ -584,6 +617,87 @@ impl Drop for Egl {
             (self.api.eglTerminate)(self.display);
         }
         let _ = self.lib;
+    }
+}
+
+/// How a second thread gets a context of its own that shares the objects of an [`Egl`]'s ([`Egl::sharing`]).
+#[derive(Clone, Copy)]
+pub struct Sharing {
+    display: EGLDisplay,
+    parent: EGLContext,
+    config: EGLConfig,
+    /// The GPU priorities to ask for, in turn: the lowest (what the context draws is a few small frames of warm-up, which must not hold
+    /// up the compositor's own), the parent's (a driver may take only contexts of one level in a share group), then the default.
+    levels: [Option<EGLint>; 3],
+    bind_api: unsafe extern "C" fn(GLenum) -> EGLBoolean,
+    create_context: unsafe extern "C" fn(EGLDisplay, EGLConfig, EGLContext, *const EGLint) -> EGLContext,
+    create_pbuffer: unsafe extern "C" fn(EGLDisplay, EGLConfig, *const EGLint) -> EGLSurface,
+    make_current: unsafe extern "C" fn(EGLDisplay, EGLSurface, EGLSurface, EGLContext) -> EGLBoolean,
+    destroy_context: unsafe extern "C" fn(EGLDisplay, EGLContext) -> EGLBoolean,
+    destroy_surface: unsafe extern "C" fn(EGLDisplay, EGLSurface) -> EGLBoolean,
+    get_error: unsafe extern "C" fn() -> EGLint,
+}
+
+// SAFETY: the handles are the display's and the parent context's, which the one thread that makes the context only passes back to EGL
+// while the `Egl` they belong to is alive (`ui::compile::Compile` joins that thread before the `Egl` goes); the entry points are the driver's.
+unsafe impl Send for Sharing {}
+
+impl Sharing {
+    /// Makes the context, of the same kind as the parent's (a no-config surfaceless one where the parent is, else over a pbuffer), and makes it
+    /// current on the calling thread.
+    pub fn make_current(&self) -> io::Result<SharedContext> {
+        // SAFETY: EGL calls in the documented order on the calling thread; every handle is checked.
+        unsafe {
+            (self.bind_api)(EGL_OPENGL_ES_API);
+            let mut context: EGLContext = std::ptr::null_mut();
+            for level in self.levels {
+                let attribs = match level {
+                    Some(l) => vec![EGL_CONTEXT_CLIENT_VERSION, 2, EGL_CONTEXT_PRIORITY_LEVEL_IMG, l, EGL_NONE],
+                    None => vec![EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE],
+                };
+                context = (self.create_context)(self.display, self.config, self.parent, attribs.as_ptr());
+                if !context.is_null() {
+                    break;
+                }
+            }
+            if context.is_null() {
+                return Err(other(format!("eglCreateContext sharing the compositor's: 0x{:x}", (self.get_error)())));
+            }
+            let surface = if self.config.is_null() {
+                std::ptr::null_mut()
+            } else {
+                (self.create_pbuffer)(self.display, self.config, [EGL_WIDTH, 4, EGL_HEIGHT, 4, EGL_NONE].as_ptr())
+            };
+            if (!self.config.is_null() && surface.is_null()) || (self.make_current)(self.display, surface, surface, context) == EGL_FALSE {
+                let error = (self.get_error)();
+                if !surface.is_null() {
+                    (self.destroy_surface)(self.display, surface);
+                }
+                (self.destroy_context)(self.display, context);
+                return Err(other(format!("eglMakeCurrent of the context sharing the compositor's: 0x{error:x}")));
+            }
+            Ok(SharedContext { sharing: *self, context, surface })
+        }
+    }
+}
+
+/// A context made by [`Sharing::make_current`], current on the thread that made it until it is dropped there.
+pub struct SharedContext {
+    sharing: Sharing,
+    context: EGLContext,
+    surface: EGLSurface,
+}
+
+impl Drop for SharedContext {
+    fn drop(&mut self) {
+        // SAFETY: tearing down what `make_current` made, on the thread it is current on; what it linked stays in the share group.
+        unsafe {
+            (self.sharing.make_current)(self.sharing.display, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut());
+            (self.sharing.destroy_context)(self.sharing.display, self.context);
+            if !self.surface.is_null() {
+                (self.sharing.destroy_surface)(self.sharing.display, self.surface);
+            }
+        }
     }
 }
 

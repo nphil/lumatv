@@ -64,6 +64,9 @@ pub struct Stats {
     pub held_ticks: u64,
     /// How long the last tick took, plan to callbacks.
     pub tick_us_last: u64,
+    /// The longest the loop was busy in one pass, wake-up to flush, since the start: what holds every client's callbacks and the
+    /// supervisor's heartbeat (answered by the loop) back. A frame at 60 Hz is 16,667.
+    pub pass_us_max: u64,
 }
 
 #[derive(Debug, Clone)]

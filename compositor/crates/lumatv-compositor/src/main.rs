@@ -530,6 +530,7 @@ fn run(config: Config) -> io::Result<()> {
         // Anything that holds the loop for half a refresh delays every client's callbacks and commits with it; the
         // line says what ran, on the clock the clients' own logs use.
         let spent = woke.elapsed();
+        state.stats.pass_us_max = state.stats.pass_us_max.max(spent.as_micros() as u64);
         if spent > Duration::from_millis(2) {
             ring::note(format_args!("P {:.1} ms in one pass ({})", spent.as_secs_f64() * 1000.0, handled_names(handled)));
         }

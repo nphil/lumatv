@@ -36,7 +36,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
                 "requests": state.stats.requests, "commits": state.stats.commits, "buffers": state.stats.buffers_created,
                 "ticks": state.stats.ticks, "drawn": state.stats.frames_drawn, "callbacks": state.stats.callbacks_sent, "callbacksAhead": state.stats.callbacks_ahead,
                 "releases": state.stats.releases, "skipped": state.stats.skipped_items,
-                "renderUsLast": state.stats.render_us_last, "renderUsMax": state.stats.render_us_max,
+                "renderUsLast": state.stats.render_us_last, "renderUsMax": state.stats.render_us_max, "passUsMax": state.stats.pass_us_max,
                 "prepared": state.stats.prepared, "frameImports": state.stats.frame_imports,
             },
             "check": {"ok": state.check.ok, "bad": state.check.bad, "unread": state.check.unread},
