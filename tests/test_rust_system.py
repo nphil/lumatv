@@ -55,6 +55,10 @@ class RustSystem(unittest.TestCase):
         srv = ch.serve(chan, port, say=lambda line: None)
 
         def run_steps():
+            # the steps count from the client's first report, not from this thread's start: a loaded machine takes seconds to start the process
+            give_up = time.time() + 120
+            while not chan.reports and time.time() < give_up:
+                time.sleep(0.01)
             t0 = time.time()
             for ms, fn in sorted(steps, key=lambda s: s[0]):
                 time.sleep(max(0.0, t0 + ms / 1000.0 - time.time()))
@@ -138,15 +142,15 @@ class RustSystem(unittest.TestCase):
         pin = {"pincodePromptAction": "open", "pincodePromptInfo": {"appId": "com.webos.app.hdmi3", "title": "Enter the TV PIN", "message": "HDMI 3 is locked.",
                                                                     "promptType": "parental", "retry": 0, "timestamp": 3}}
         keys = []
-        for ms, k in [(1100, 'right'), (1200, 'ok')]:
+        for ms, k in [(1000, 'right'), (1100, 'ok')]:
             keys += ['--key', '%d:%s' % (ms, k)]
-        for ms, k in [(2100, '1'), (2200, '2'), (2300, '3'), (2400, '4'), (2500, 'down'), (2600, 'down'), (2700, 'down'), (2800, 'down'), (2900, 'ok'), (3300, 'back')]:
+        for ms, k in [(2400, '1'), (2500, '2'), (2600, '3'), (2700, '4'), (2800, 'down'), (2900, 'down'), (3000, 'down'), (3100, 'down'), (3200, 'ok'), (3700, 'back')]:
             keys += ['--key', '%d:%s' % (ms, k)]
         rc, out, chan, data = self.host([
             (300, lambda c: (c.push('foreground', APP), c.push('screen', {"on": True}))),
             (700, self.feed(INPUT_TAG, popup)),
-            (1600, self.feed(PIN_TAG, pin)),
-        ], wait=3900, kinds='alert', extra=['--eval', '1000:geometry', '--eval', '1400:report', '--eval', '2050:geometry', '--eval', '3100:report', '--eval', '3600:report', *keys])
+            (1700, self.feed(PIN_TAG, pin)),
+        ], wait=4300, kinds='alert', extra=['--eval', '900:geometry', '--eval', '1500:report', '--eval', '2300:geometry', '--eval', '3400:report', '--eval', '3900:report', *keys])
         self.assertEqual(rc, 0, out[-3000:])
         evals = self.evals(out)
         self.assertEqual(evals[0]['alert']['kind'], 'input')
