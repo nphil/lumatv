@@ -1,26 +1,25 @@
 # Native privacy controls
 
-## Resume here (2026-10-29 03:35)
+## Resume here (2026-10-29 04:30)
 
 **Done, on forge/main** (worktree `/tmp/privacy-wt`, detached at forge/main):
 
 - `helper/privacy` (6e8b0aa, 79b43fd): `/v1/privacy` status, the toolkit-neutral menu, owner-only prepare/apply with a single-use confirmation, LG consents, ads-tier hosts, built-in Amazoff (per-TV Prime-only CA, per-route player filter). Adapter `helper/app/src/privacy.rs`.
-- Early boot step (b62e7b5): `tools/declutter.sh early` (masks, stubs, stop/kill, `early.json`, settle watch, `status.early`), called from `tools/autostart.sh --worker` right after `homestub-boot`; `helper/privacy/src/boot.rs` puts `boot{blocked,reason,verified,lastPass,items}` on the ads, settings, uploaders and push rows. Tests: `tests/test_declutter.py` (`Early`), `helper/privacy/tests/controller.rs` (`each_item_says_whether_it_is_blocked_from_boot_and_why`).
+- Early boot step (b62e7b5, d4cfb30): `tools/declutter.sh early` binds the stubs first, then masks the units (one reload), then stops and kills what already runs, and writes `early.json` with the boot's clock at each stage and the boot id; `tools/autostart.sh --worker` starts it first, in parallel with the Home stub and everything else; `status.early` carries `hook`, `pending`, `thisBoot`, `last`. `helper/privacy/src/boot.rs` turns that into `boot{blocked,reason,verified,lastPass,items}` on the ads, settings, uploaders and push rows; a record from an earlier boot proves nothing. Tests: `tests/test_declutter.py` (`Early`), `helper/privacy/tests/controller.rs` (`each_item_says_whether_it_is_blocked_from_boot_and_why`).
 
-**Current task (Main, 02:51 and 03:19):** LG's ACR, ad and telemetry pieces effectively removed, at the source on the TV, not after about 14 s. No router or DNS block list (dropped by Nitin); a domain list is only a verification aid inside the TV's own hosts mechanism. Two parts: (1) the earliest possible hook; (2) stubs as close to removed as possible. No TV access, no spawning, never write `/usr` or the rootfs, everything behind the existing `persist` gate.
+**Task (Main, 02:51 and 03:19):** LG's ACR, ad and telemetry pieces effectively removed at the source on the TV, not after about 14 s. No router or DNS block list (dropped by Nitin); names only as a TV-side verification aid. Two parts: the earliest possible hook, and stubs as close to removed as possible. No TV access, no spawning, never write `/usr` or the rootfs, everything behind the existing `persist` gate.
 
-**Findings so far** (all from the repo's captured evidence; nothing new read from the TV):
+**Result:** the section "Blocking from early boot" below. The hook cannot move earlier than the kdump script at about +13.4 s in any way that is allowed and stable, and it does not need to: on the stock boot every ad and recognition program starts after it, and the network comes up 4 s after it, 10 s before the first LG server call. Nothing in the repo's evidence names a data directory or a timer of these services, so none is hidden or masked.
 
-- Nothing of the mod can run before `mount-readwrite.service` (+10.8 to 13.1 s): `/var` shows only the firmware overlay until then, LG's env files planted for `ls-hubd`, `configd`, `memchute`, `tvpowerd`, `bootd` and `sam` were inert, p58's root was not read (`docs/HANDOFF.md`, "Boot: the proven mechanism" and "Tried and dead"). `/usr`, `/etc`, `/lib`, `/mnt` are read-only lowerdir-only overlays; `/run` is volatile and nothing early can fill it. The earliest hook found is `kdump.service` at +12.1 to 14.3 s (the PATH shim in `tools/lumatv`, `install_early_hook`).
-- The hibernation image is captured at about +15 s of a `mode=making` boot, so anything the mod does at +12 to 14 s may or may not be inside it; HANDOFF records that the image "cannot carry the mod" (the resumed compositor was stock). Read `docs/HANDOFF.md` lines 318 to 400 and 551 to 590 before changing anything here.
+**Next, for whoever continues** (nothing here is built, each needs a TV slot):
 
-**Next, in order:**
+1. Read the scripts of `bam`, `rec-info-adapter`, `rec-listmgr` and `nn-proxy` (`/etc/systemd/system/scripts/*.sh`, read only) to see whether one calls a bare command first; only then is a hook before kdump possible, and it gains 1.6 to 2.7 s.
+2. Run the boot timeline check below on a `reboot` and on a `snapshot-boot-manager --remove` boot; it settles whether kdump's script runs again on a resumed boot.
+3. With the groups off for one slot, list what LG's ad and recognition programs write (`find / -xdev -newer MARK -type f` after they ran); only named directories may be hidden under an empty tmpfs (reversible, nothing deleted).
+4. Optional experiment, outside the `persist` gate: bind an empty file over a service definition in `/usr/share/dbus-1/{services,system-services}` and `ls-control scan-services`, to see whether `ls-hubd` forgets the service.
 
-1. `tools/autostart.sh`: start `declutter.sh early` as the first action of `--worker`, detached and concurrent with `homestub-boot` (today it follows it), so the stubs wait for nothing.
-2. Removal-equivalent stubs in `tools/declutter.sh` and `payload/declutter/items.txt`: also mask the `.timer`, `.socket` and `.path` of a masked unit when they exist; hide the data directories of stubbed services under an empty tmpfs (reversible, no deletion) only where the repo's evidence names them; keep the stub (a bound do-nothing script) for programs, since `exit 0` is the behaviour proven on the set.
-3. Host tests for both in `tests/test_declutter.py`, the matching `boot.rs` fields, TV checks in this file.
+**Decisions taken:** the router list is dropped; nothing is deleted from `/var`; the early step stays behind `persist` and the skip file; no write to `/usr`, `/etc`, the rootfs, `/mnt`, the kernel command line or any block device; no LD_PRELOAD or library-path hook through the env files.
 
-**Decisions taken** (so nobody has to ask): item (3), the router list, is dropped; nothing is deleted from `/var`, data is hidden under tmpfs so `off` restores it; the early step stays behind `persist` and the skip file; no write to `/usr`, `/etc`, the rootfs, `/mnt` or any block device.
 
 Privacy is implemented in `helper/privacy` and exposed by the helper, not a new QML page. `GET /v1/privacy` and `GET /v1/privacy/menu` return the same toolkit-neutral menu model for the Rust shell. The existing Support › Privacy page and its App Permissions and Delete My Personal Information pages remain unchanged. No HTML mock was present or added.
 
@@ -93,46 +92,90 @@ Saved switches are resumed by the helper's privacy worker. Normal shutdown remov
 
 ## Blocking from early boot
 
-LG starts its ad, recognition and upload pieces before declutter's first boot pass, so the masks and stubs must be down earlier. Boot order on the set, from `docs/HANDOFF.md` (cold boot, measured) and `docs/research/compositor-gate9-result.md` (round 17, booted 21:53:58):
+### What the stock boot does
+
+Read from the stock boot of 2026-10-25, before declutter was on: the syslog of that boot (`/tmp/lt/dc/live/boot7.log`, which starts at +12.5 s because `/var` is not writable earlier), `ls-hubd`'s launch lines (`lnch.txt`) and the unit census (`units.json`, activation times and ordering), with `docs/HANDOFF.md` and `docs/research/compositor-gate9-result.md` (round 17). Times are the boot's clock.
 
 | Boot time | Event |
 | --- | --- |
-| +10.8 to 13.1 s | `mount-readwrite.service` active; `/var` is writable only from here |
-| +12.1 to 14.3 s | `kdump.service` starts; its shim starts `autostart.sh --worker`, the earliest point the mod runs (about +13 s is the floor for a root mod) |
-| +16.8 s | `pbs` (`com.webos.service.pbsw`) subscribes at `bootd` |
-| +19 to +43 s | `contentminer.service` active, ended by itself |
-| +22 s, +30 s | `webos-rbd.target`, `webos-bd.target` pull `user-context-manager`, `nudge`, `uploadd` |
-| +33 s | Homebrew Channel's `init.d` runs `52-declutter boot` |
-| +70 to +73 s | first declutter pass done: units killed, `ads` group on, stubs bound |
+| +1.3 s | `crashd` and `remotelogger` units start |
+| +10.7 s | `mount-readwrite.service` active: `/var` is the writable partition from here |
+| +10.8 s | `faultmanager` unit |
+| +11.8 s | `com.webos.service.pushclient` unit |
+| +13.0 s | `sdx` is running (launched on demand; kept on purpose, the store needs it) |
+| +13.4 s | `kdump.service` runs its script: the early hook |
+| +14.7 s | `snapshot-boot-resume.service`; `INSTANTBOOT_RESUME` events at +15.8 s |
+| +16.9 s | `pbs` launched, requested by the HDMI 2 app |
+| +17.3 s | DHCP starts; the wired link is up at +17.5 s |
+| +17.8 s | `service-logger` unit |
+| +18.7 s | `contentminer` and `rdxd` units |
+| +23.8 s | first LG server call: `sdx` to `us.nextlgsdp.com` |
+| +25.7 s | push client to `aic.tv.wiselg.com` |
+| +36.6 s | `uploadd`, launched by `faultmanager` |
+| +41.5, 43.0, 43.5 s | `user-context-manager` unit; `sportsalarm` and `sdp-server-notice`, launched by the activity manager |
+| +45.5 s | `adoverlay-service`, `admanager`, `acr2`, launched by the activity manager |
+| +46.0 s | `admanager` to `us.info.lgsmartad.com` |
+| +46.9, 49.3 s | `iot-client`; `nudge` unit |
+| +73 s | the first pass of declutter's init.d hook (round 17), before this change the first thing that stopped any of it |
 
-`acr2`, `admanager`, `adoverlay-service` and `sportsalarm` have no record in that window: the syslog keeps about 25 minutes and starts at +12.7 s, and no process accounting exists. `declutter.sh early` existed (masks only) but nothing called it: the kdump shim only starts the worker, and the stubs came with the first pass.
+On the stock boot `acr2`, `admanager`, `adoverlay-service` and `sportsalarm` were launched from +43 to +46 s. Round 17's boot had only declutter's init.d pass (+73 s), so the same launches very probably ran there for about 30 s [INFERENCE: the launch times of the stock boot]; the round 17 note that this window was unprovable stands as unproven for that boot. The early step precedes each of them by about 30 s.
 
-The worker now runs `declutter.sh early` right after `homestub-boot` (Home must be covered by about +14 s), under `timeout 20`. It sits in the worker, not the shim, so an app update needs no `persist on` to take effect. `early`:
+### Why the hook at +13.4 s is early enough
 
-- masks the units of every group that is on in `/run/systemd/system.control` and reloads systemd once;
-- binds the do-nothing stub over each stubbed program of those groups (`pbs`, `acr2`, `admanager`, `adoverlay-service`, `sportsalarm`, `uploadd`, `sdp-server-notice`), then stops (`--no-block`) any of the units already active and kills any real copy of the programs, so nothing launches as the real program from then on;
-- writes `early.json` (start and end uptime to the hundredth, masked, stubbed and already-running names) and starts a watch that waits for `sam`, `webapp-mgr` and the power state;
-- leaves settings, apps and list edits to LG's own persistence and the boot pass.
+- Every program of the ads, uploaders and push groups except the push client, `faultmanager`, `crashd`, `remotelogger` and `sdx` starts after the hook: `pbs` by 3.5 s, `service-logger` and `contentminer` by 4 to 5 s, the rest by 30 s or more.
+- The network comes up 4 s after the hook. Nothing contacted an LG server before +23.8 s, so the programs that start before the hook are stopped at +14 s, before they could send anything. `sdx` stays: it carries the store's authentication and is not an ad or recognition program.
+- The pass is ordered by how soon LG can start each thing: the stub over each on-demand program first (one mount each), then the masks (one systemd reload), then the stop of what runs and the kill of the programs. `early.json` records the boot's clock at each stage (`startSec`, `stubbedSec`, `maskedSec`, `uptimeSec`), so the margin to `pbs` at +16.9 s is read, not assumed.
 
-Guard against a boot loop: `early` runs only with declutter's `persist` on, no skip file, no unfinished boot (`.boot-pending`, consumed by `boot`) and no unsettled earlier early pass (`.early-pending`, cleared by the watch once the set answers, within three minutes). Any of these skips that boot once and records why; the `init.d` pass still applies everything later. `on`, `off` and `persist` drop the record, which describes only the groups that were on when it was written.
+### The earliest hook
 
-`declutter.sh status` gains `early`: `hook` (shim, persist flag, persist link and no skip file), `pending`, and `last` (the record). The privacy rows for ads, settings, uploaders and push carry `boot`: `blocked`, `reason`, `verified`, `lastPass` and per-item `blocked` / `startedBefore`; the menu root carries `boot` with `earlyStep`, `pending` and `lastPass`. `blocked` is yes only when the group is on, the hook is installed, the last pass was not skipped and found none of the group's items already running. `verified` is null until a boot has run a pass, true when the pass found nothing running, false when LG had started something first (the items are listed). The settings group persists across a reboot and is blocked whenever it is on. Hosts is reported as not blocked from boot: the helper applies it when it starts, after the early step. A `kill`-only program would be reported as stoppable only after it starts; none is in these four groups.
+- Before +10.7 s nothing the mod can write is readable. `/var` shows only the firmware overlay, LG's env files planted for `ls-hubd`, `configd`, `memchute`, `tvpowerd`, `bootd` and `sam` were inert, and p58's root was not read (`docs/HANDOFF.md`, "Boot: the proven mechanism" and "Tried and dead"). `/usr`, `/etc`, `/lib` and `/mnt` are read-only overlays on the BSP squashfs (`mountinfo`), `/run` is a tmpfs that only running code fills, and a unit drop-in needs one of them. The kernel command line, the initramfs, the rootfs and the hibernation image are the protected partitions; nothing here touches them.
+- After +10.7 s the proven mechanism is a unit's `EnvironmentFile` under `/var/systemd/system/env/`: a `PATH` that puts a shim in front of a bare command that the unit's script calls. `kdump.service` (+13.4 s) is what runs. The census names earlier script-based units with such a file, ordered after `mount-readwrite`: `rec-info-adapter` (+10.78 s) and `rec-listmgr` (+10.79 s), which exit at once, `bam` (+11.79 s) and `nn-proxy` (+11.85 s). Their scripts were never read, so whether one calls a bare command first is unknown. The best case moves the hook 1.6 to 2.7 s earlier: ahead of the push client, ahead of nothing else that matters, and onto a script of LG's with no reason to stay as it is across firmware. Not built; reading the scripts is the first TV check.
+- Library hooks (`LD_PRELOAD`, `LD_LIBRARY_PATH`) through the same files are not used.
 
-Not covered: anything LG starts before about +13 s, and a TV with LumaTV's `persist` off, where only the `init.d` pass runs.
+Before the hook run `faultmanager`, `crashd`, `remotelogger`, the push client and `sdx`. The units at +1.3 s start before `/var` is readable, and `faultmanager` (+10.76 s) 20 ms before the earliest script-based unit with an env file (+10.78 s), so no hook can pre-empt them; they are stopped about 14 s in, with the network 4 s away.
+
+### Snapshot boot
+
+`/proc/cmdline` carries `snapshot resume=`, and the stock log shows `snapshot-boot-resume.service` at +14.7 s and `INSTANTBOOT_RESUME` at +15.8 s. A resumed boot restores the processes of the image (`docs/HANDOFF.md`); whether kdump's script runs again on such a boot is not settled by the repo's evidence. The worker's own log line and `early.json` settle it, because the record carries the boot id (`/proc/sys/kernel/random/boot_id`) and `status` says whether it is this boot's (`thisBoot`). A pass of an earlier boot is never shown as this boot's: the row then reads "has not run since this boot started" and is not blocked.
+
+### What the early step leaves and removes
+
+Removed from the boot: the masked units never start or are stopped (`contentminer`, `rdxd`, `service-logger`, `crashd`, `remotelogger`, `faultmanager`, `uploadd`, the push client, `nudge`, `user-context-manager`, `iot-client`); the stubbed programs (`pbs`, `acr2`, `admanager`, `adoverlay-service`, `sportsalarm`, `uploadd`, `sdp-server-notice`) are never launched as the real program, and a copy that already runs is killed.
+
+What stays, and why: each call to a stubbed service still makes `ls-hubd` start `run-service` and the do-nothing script, about 70 ms and a log line (round 17: `pbs` 10, `sportsalarm` 12 launches in 8 minutes; none for `acr2`, `admanager`, `adoverlay-service`). The entries in `ls-hubd`'s service map stay; removing them needs a rescan that is unverified (next step 4). No privacy unit has a timer, socket or path unit (`TriggeredBy` is empty for every one in `units.json`; the set's only timers are `certupdmgr` and `systemd-tmpfiles-clean`), so there is nothing further to mask. No data directory of these services is named by any capture, so none is hidden; the check that finds them is next step 3.
+
+### Guards, record and status
+
+The step runs only with declutter's `persist` on, no skip file, no unfinished boot (`.boot-pending`, consumed by `boot`) and no unsettled earlier pass (`.early-pending`, cleared by a watch once `sam`, `webapp-mgr` and the power state answer, within three minutes). Any of these skips that boot once and records why; the `init.d` pass still applies everything later. `on`, `off` and `persist` drop the record, which describes only the groups that were on when it was written.
+
+`declutter.sh status` carries `early`: `hook` (shim, persist flag, persist link, no skip file), `pending`, `thisBoot` and `last` (the record). The privacy rows for ads, settings, uploaders and push carry `boot`: `blocked`, `reason`, `verified`, `lastPass` and per-item `blocked` and `startedBefore`; the menu root carries `boot` with `earlyStep`, `pending`, `thisBoot` and `lastPass`. `blocked` is yes only when the group is on, the hook is installed, a pass has run since this boot started and did not skip, and it found none of the group's items already running. `verified` is null until such a pass, true when it found nothing running, false when LG had started something first (the items are listed). The settings group persists across a reboot and is blocked whenever it is on. Hosts is reported as not blocked from boot: the helper applies it when it starts, after the early step.
+
+### Verification names (TV side only)
+
+The hosts the stock boot log names, by program. Not a block list and not for the router: after the early step none of the stubbed or masked programs runs, so no line of the boot's syslog may show them as the source of one of these names, and `/etc/hosts` mapping them (the ads tier) is only a second line. `us.nextlgsdp.com` and `us.ibs.nextlgsdp.com` (`sdx`, the store) must keep resolving.
+
+| Program | Names in the stock boot log |
+| --- | --- |
+| `admanager` | `us.info.lgsmartad.com` |
+| `pbs` | `aic-ngfts.tv.wiselg.com`, `aic.cdplauncher.lgtvcommon.com`, `aic.lgchhomeapp.lgtvcommon.com`, `app-lgwebos.pluto.tv`, `aic-img-ngfts.lge.com`, `images.pluto.tv` |
+| push client | `aic.tv.wiselg.com` |
+| `iot-client`, rule engine | `connect-client.lgthinq.com`, `aic.api.lgtviot.com`, `aic-connect-client.lgthinq.com`, `aic-common.lgthinq.com`, `aic-mclip.lgthinq.com`, an `iot.us-west-2.amazonaws.com` endpoint |
+| `sdx` (kept) | `us.nextlgsdp.com`, `ngfts.tv.wiselg.com`, `us.ibs.nextlgsdp.com` |
+| `accountmanager` (kept) | `us.lgeapi.com`, `us.emp.lgsmartplatform.com`, `aic-gfts.tv.wiselg.com` |
 
 ### TV check: boot timeline
 
-Preconditions: ads, uploaders and push on in Privacy; `lumatv status` shows `persist` and `early` true; `declutter.sh status` shows `early.hook` true. Note whether the boot is a cold boot or a snapshot resume (`/proc/cmdline`, boot status `snapshot-resume-done`; `docs/HANDOFF.md`, "Boot: the proven mechanism"): on a resume the pass in the log may be the one saved in the image. Then reboot and read, pressing nothing:
+Preconditions: ads, uploaders and push on in Privacy; `lumatv status` shows `persist` and `early` true; `declutter.sh status` shows `early.hook` true. Record whether the boot is a `reboot` or a boot after `snapshot-boot-manager --remove` (`/sys/power/mode`: `resume` or `making`). Read first, no key pressed: `/etc/systemd/system/scripts/{bam,rec-info-adapter,rec-listmgr,nn-proxy,kdump}.sh` (first command of each, next step 1). Then reboot and read:
 
-1. `declutter.sh status`: `early.last.ran` true, `uptimeSec` below 16.8, `running` empty, `pending` false once the set has settled (within three minutes).
-2. `/var/lib/lumatv/declutter/log`: an `early:` line with the uptime, no `killed a running copy` line for this boot, `boot: settled` and `early: settled`.
-3. `/var/lib/lumatv/log`: the worker's `declutter early:` line with its `[up N s]` stamp, before `compositor-boot`.
-4. `systemctl show contentminer.service -p LoadState,ActiveEnterTimestampMonotonic` reads `masked` and 0; the same for `nudge`, `uploadd` and `user-context-manager`.
-5. `bootd.log` and the syslog: no `pbsw` or `contentminer` start of the real programs; launches of `pbs`, `acr2`, `admanager`, `adoverlay-service` and `sportsalarm` exit 0 within about 70 ms.
-6. The mount table shows the stub on all seven programs; Home appears and the boot completes as before.
-7. Reboot again: the pass runs again. Then `touch /var/lib/lumatv/declutter/skip`, reboot and check `early.last.ran` false with the skip reason and `early.hook` false; remove the file.
+1. `declutter.sh status`: `early.thisBoot` true, `early.last.ran` true, `startSec` about 13 to 14, `stubbedSec` below 16.9 (the margin to `pbs`), `uptimeSec` below 17.5 (the network), `running` listing at most the push client, `faultmanager`, `crashd`, `remotelogger`; `pending` false once the set has settled.
+2. `/var/lib/lumatv/declutter/log`: an `early:` line with the three clock values, `boot: settled` and `early: settled`; `killed a running copy` only for a program named in `running`.
+3. `/var/lib/lumatv/log`: the worker's `declutter early:` line with its `[up N s]` stamp, before `homestub-boot`.
+4. `systemctl show contentminer.service -p LoadState,ActiveEnterTimestampMonotonic` reads `masked` and 0; the same for `rdxd`, `nudge`, `uploadd`, `user-context-manager`, `iot-client`.
+5. `/var/log/messages` of this boot: no `pbs`, `acr2`, `admanager`, `adoverlay-service`, `sportsalarm`, `contentminer`, `uploadd`, `nudge` or `iot-client` log line other than the stub's exit; none of the names in the table above attributed to them. Launch lines of `pbs`, `acr2`, `admanager`, `adoverlay-service`, `sportsalarm` end within about 70 ms.
+6. The mount table shows the stub over all seven programs; Home appears and the boot completes as before.
+7. Reboot again: the pass runs again and `bootId` changes. Then `touch /var/lib/lumatv/declutter/skip`, reboot and check `early.last.ran` false with the skip reason, `early.hook` false and the privacy rows not blocked; remove the file.
 
-A name in `running` in step 1 means LG started it before the hook could act; the row says so, and the timeline shows the margin.
+A name in `running` in step 1 means LG started it before the hook could act; the row says so, and `startSec` shows the margin.
 
 ## Host evidence and TV checklist
 
