@@ -159,6 +159,28 @@ impl Vwin {
         self.world.as_ref().map_or("off", |w| w.mode.as_str())
     }
 
+    /// What the shell reports of its claims (`ctl shell` state): the switch, the free windows and each claim's grant; `None` while nothing is asked for.
+    pub fn state(&self) -> Option<Value> {
+        if self.posted.is_empty() {
+            return None;
+        }
+        let claims: serde_json::Map<String, Value> = self
+            .posted
+            .iter()
+            .map(|(id, p)| {
+                let line = match &p.grant {
+                    Grant::None => json!({"state": "none"}),
+                    Grant::Asked => json!({"state": "asked"}),
+                    Grant::Granted { slot, placed } => json!({"state": "granted", "slot": slot, "placed": placed}),
+                    Grant::Denied { reason, .. } => json!({"state": "denied", "reason": reason}),
+                    Grant::Preempted { reason, .. } => json!({"state": "preempted", "reason": reason}),
+                };
+                (id.clone(), line)
+            })
+            .collect();
+        Some(json!({"mode": self.mode(), "free": self.free(), "claims": claims}))
+    }
+
     /// How many video windows the topic last said were free.
     pub fn free(&self) -> i64 {
         self.world.as_ref().map_or(0, |w| w.free)
@@ -466,5 +488,18 @@ mod tests {
         assert_eq!(v.due_at(), Some(1_000 + MISSING_MS), "b is still unanswered");
         let sent = posts(&v.update(&Input::Tick, 3_000));
         assert_eq!(sent.iter().map(|x| x["id"].as_str().unwrap()).collect::<Vec<_>>(), vec!["b"]);
+    }
+
+    #[test]
+    fn the_state_names_each_claim_s_grant_and_is_absent_while_nothing_is_asked() {
+        let mut v = Vwin::new();
+        assert_eq!(v.state(), None);
+        let door = Pip::new("pip-door", (0, 0, 640, 360)).request();
+        v.want(std::slice::from_ref(&door), 0);
+        assert_eq!(v.state().unwrap()["claims"]["pip-door"], json!({"state": "asked"}));
+        v.update(&topic("apps", 1, 1, json!([pip_line("pip-door", "granted", "", "sub", true)])), 10);
+        assert_eq!(v.state().unwrap(), json!({"mode": "apps", "free": 1, "claims": {"pip-door": {"state": "granted", "slot": "sub", "placed": true}}}));
+        v.update(&topic("apps", 1, 1, json!([pip_line("pip-door", "preempted", "higher", "", false)])), 20);
+        assert_eq!(v.state().unwrap()["claims"]["pip-door"], json!({"state": "preempted", "reason": "higher"}));
     }
 }

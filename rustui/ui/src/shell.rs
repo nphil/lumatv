@@ -663,6 +663,9 @@ impl Shell {
         if self.kinds.cameras {
             s["cameras"] = self.cameras.state();
         }
+        if let Some(v) = self.vwin.state() {
+            s["vwin"] = v;
+        }
         if self.kinds.settings {
             for (k, val) in self.settings.state().as_object().into_iter().flatten() {
                 s[k] = val.clone();
@@ -779,6 +782,13 @@ impl Shell {
         &mut self.cameras
     }
 
+    /// What the screens want on the display's video windows now (the claims the compositor's `vwin` is asked for): the Cameras full view's live picture.
+    /// A screen with nothing live wants nothing, and the claim it had is released. A screen that wants a picture-in-picture adds its `Pip::request()` here.
+    fn vwin_wants(&self) -> Vec<Value> {
+        let live = if self.kinds.cameras { self.cameras.app.live_claim().map(|c| c.request()) } else { None };
+        live.into_iter().collect()
+    }
+
     /// What Settings asked of the shell: to close, to launch LG's Settings app, to open the layout editor; the theme it wrote becomes the
     /// look in force.
     fn settings_requests(&mut self, now: u64, acts: &mut Vec<Act>) {
@@ -843,5 +853,62 @@ impl Shell {
         self.settings.set_theme(theme.clone());
         self.restyle();
         theme
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kit::testkit;
+
+    fn shell() -> (ui::testing::Harness, Shell) {
+        let (h, kit) = testkit::kit(1.0);
+        let shell = Shell::new(kit, Kinds::parse("cameras"), 2000, &testkit::module_dir().join("icons/audio"), &json!({}), &json!({})).expect("a shell");
+        (h, shell)
+    }
+
+    fn claims(acts: &[Act]) -> Vec<Value> {
+        acts.iter()
+            .filter_map(|a| match a {
+                Act::Channel(o) if o.path == "/v1/vwin" => o.body.clone(),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_live_full_view_claims_a_video_window_once_and_lets_it_go_when_the_view_closes() {
+        let (_h, mut shell) = shell();
+        let camera = json!({"id": "273", "name": "Front Door", "room": "", "online": true, "live": true, "recordings": true, "events": true, "clips": false, "since": 0,
+                            "native": {"codec": "h264", "width": 1920, "height": 1080, "fps": 15}, "prebuffered": true});
+        shell.helper(&Event::Topic { topic: "cameras".into(), data: json!({"state": "ready", "reason": "", "now_skew_ms": 0, "rev": 1, "cameras": [camera]}) }, 1_000);
+        assert!(claims(&shell.tick(1_050)).is_empty(), "nothing is open: nothing is asked for");
+        assert!(shell.state().get("vwin").is_none());
+
+        let mut acts = Vec::new();
+        for e in shell.cameras().app.open_full("273", 1_100) {
+            shell.carry(e, 1_100, &mut acts);
+        }
+        acts.extend(shell.tick(1_150));
+        let posted = claims(&acts);
+        assert_eq!(posted.len(), 1, "one claim for the picture: {posted:?}");
+        assert_eq!((posted[0]["op"].as_str(), posted[0]["kind"].as_str(), posted[0]["id"].as_str()), (Some("claim"), Some("camera-full"), Some("cameras-full")));
+        assert_eq!(posted[0]["rect"], json!({"x": 0, "y": 0, "w": 1920, "h": 1080}));
+        assert!(claims(&shell.tick(1_200)).is_empty(), "the same wish is not posted again");
+        assert_eq!(shell.state()["vwin"]["claims"]["cameras-full"], json!({"state": "asked"}));
+
+        // the compositor grants the sub window; the shell reads it from the topic
+        let line = json!({"id": "cameras-full", "kind": "camera-full", "state": "granted", "reason": "", "text": "", "slot": "sub", "placed": true});
+        shell.channel(&Event::Topic { topic: "vwin".into(), data: json!({"mode": "apps", "slots": 2, "free": 1, "apps": 0, "wall": false, "claims": [line]}) }, 1_300);
+        assert_eq!(shell.state()["vwin"]["claims"]["cameras-full"], json!({"state": "granted", "slot": "sub", "placed": true}));
+
+        // the view closes: the claim is released
+        let mut acts = Vec::new();
+        for e in shell.cameras().app.close(1_400) {
+            shell.carry(e, 1_400, &mut acts);
+        }
+        acts.extend(shell.tick(1_450));
+        let posted = claims(&acts);
+        assert_eq!(posted.iter().map(|b| b["op"].as_str().unwrap_or("")).collect::<Vec<_>>(), vec!["release"], "{posted:?}");
     }
 }
