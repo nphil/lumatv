@@ -935,7 +935,7 @@ impl QuickSurface {
         }
         // the list moves to show the focused row whole
         match &view.focus {
-            Some(Focus::Row(i)) => self.reveal_row(engine, *i, now_ms),
+            Some(Focus::Row(i)) => self.reveal_row(engine, *i, now_ms, disabled),
             Some(Focus::EditRow(i)) => self.reveal_edit(engine, *i),
             Some(Focus::EditAdd) => {
                 let n = self.built.as_ref().and_then(|b| b.edit.as_ref()).map_or(0, |e| e.rows.len());
@@ -957,7 +957,7 @@ impl QuickSurface {
     }
 
     /// Moves the list so that the focused row shows whole, on the focus's spring, and puts the registry's frames where the rows will be.
-    fn reveal_row(&mut self, engine: &mut Engine, i: usize, now_ms: u64) {
+    fn reveal_row(&mut self, engine: &mut Engine, i: usize, now_ms: u64, disabled: f32) {
         let Some(list) = self.built.as_mut().and_then(|b| b.list.as_mut()) else { return };
         let Some(r) = list.rows.get(i) else { return };
         let target = list.scroll.reveal(r.top, r.layout.h, &list.tops);
@@ -971,7 +971,11 @@ impl QuickSurface {
             let was = list.scroll.fits(r.top, r.layout.h, old);
             let will = list.scroll.fits(r.top, r.layout.h, target);
             // both stay drawn while it moves; the ones that will not fit go when it has landed
+            let shown = r.visible;
             r.visible = was || will;
+            if r.visible != shown {
+                set_cell(&r.cell, r.visible, r.enabled, disabled);
+            }
             engine.focus.place(r.id, if will { Frame::new(list.x0, window.y + r.top - target, window.w, r.layout.h) } else { zero() });
         }
         list.settle_due = Some(now_ms + SETTLE_MS);
