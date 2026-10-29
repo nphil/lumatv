@@ -171,11 +171,11 @@ PageList {
     readonly property string openWords: {
         if (openLive === null) return "Helper not answering"
         var n = openLive.entries
-        if (openLive.state === "holding") return "On; no app is waiting for an update"
+        if (openLive.state === "holding") return "On; no app waits for an update"
         if (openLive.state === "clearing") return "On; clearing LG's list"
         if (openLive.state === "waiting") return "On; clearing once LG's updater is idle"
         if (openLive.state === "unreadable") return "LG's list cannot be read"
-        return n > 0 ? "Off; LG lists " + n + (n === 1 ? " app" : " apps") + " as waiting for an update" : "Off"
+        return n > 0 ? "Off; " + n + (n === 1 ? " app waits" : " apps wait") + " for an update" : "Off"
     }
     function setOpen(on) { Helper.post("/v1/openapps", { enabled: on }) }
     function checkUpdatesRow() {

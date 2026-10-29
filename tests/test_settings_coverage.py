@@ -1018,13 +1018,13 @@ class Coverage(unittest.TestCase):
     # ---- Support > Update: Open apps without updating (the helper's `openapps` topic and POST /v1/openapps)
     def test_open_apps_without_updating_says_what_lgs_list_holds_while_it_is_off(self):
         d = self.probe("openapps_off_state")["res"]
-        self.assertEqual(d, {"on": False, "enabled": True, "detail": "Off; LG lists 2 apps as waiting for an update"})
+        self.assertEqual(d, {"on": False, "enabled": True, "detail": "Off; 2 apps wait for an update"})
 
     def test_turning_it_on_asks_nothing_and_posts_to_the_helper(self):
         self.assertEqual(self.probe("openapps_on_closed")["res"], {"open": False})              # no question
         self.assertEqual(self.probe("openapps_on_posts")["res"], [{"enabled": True}])
         d = self.probe("openapps_on_row")["res"]
-        self.assertEqual((d["on"], d["enabled"], d["detail"]), (True, True, "On; no app is waiting for an update"))
+        self.assertEqual((d["on"], d["enabled"], d["detail"]), (True, True, "On; no app waits for an update"))
 
     def test_the_second_line_follows_the_helpers_state(self):
         for name, words in (("openapps_clearing_row", "On; clearing LG's list"), ("openapps_waiting_row", "On; clearing once LG's updater is idle"),
@@ -1035,13 +1035,13 @@ class Coverage(unittest.TestCase):
     def test_turning_it_off_posts_and_shows_the_list_that_came_back(self):
         self.assertEqual(self.probe("openapps_off_posts")["res"], [{"enabled": True}, {"enabled": False}])
         d = self.probe("openapps_off_row")["res"]
-        self.assertEqual((d["on"], d["detail"]), (False, "Off; LG lists 2 apps as waiting for an update"))
+        self.assertEqual((d["on"], d["detail"]), (False, "Off; 2 apps wait for an update"))
 
     def test_without_the_helper_the_switch_is_dimmed_and_says_so(self):
         d = self.probe("openapps_mute_row")["res"]
         self.assertEqual((d["on"], d["enabled"], d["detail"]), (False, False, "Helper not answering"))
         d = self.probe("openapps_unmute_row")["res"]
-        self.assertEqual((d["enabled"], d["detail"]), (True, "Off; LG lists 2 apps as waiting for an update"))
+        self.assertEqual((d["enabled"], d["detail"]), (True, "Off; 2 apps wait for an update"))
 
     def test_do_not_sell_asks_then_tells_the_ad_service_and_the_setting_follows(self):
         d = self.probe("support_dns_ask")["res"]

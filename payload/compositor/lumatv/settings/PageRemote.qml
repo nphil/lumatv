@@ -97,7 +97,7 @@ PageList {
           on: function() { return !!page.theme.remote && page.theme.remote.quickPanelEdit === true },
           act: function(v) { if (page.host) page.host.patch({ remote: { quickPanelEdit: v } }) } },
         { kind: "toggle", tab: 1, icon: "layout-grid", label: "App switcher on a second Home press",
-          help: "Pressing Home again, from an app within a moment or on Home itself, shows the apps that are open as live pictures, to switch to or quit. The first press still goes Home at once. Off leaves Home as it was.",
+          help: "Pressing Home again, from an app within a moment or on Home itself, shows the open apps as live pictures to switch to or quit. The first press still goes Home at once.",
           on: function() { return !!page.theme.remote && page.theme.remote.appSwitcher === true },
           act: function(v) { if (page.host) page.host.patch({ remote: { appSwitcher: v } }) } },
         { kind: "toggle", tab: 1, icon: "history", label: "Recent apps on Back",

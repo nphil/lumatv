@@ -74,7 +74,7 @@ nothing of LG's services is called but `appUpdateService/statusAll`, once, after
 ## TV check list (a test round owns the TV; the steps that write say so)
 
 1. Read: `lumatv openapps status` → `off`, one entry (`com.webos.app.lifeonscreen`), `saved` false. Settings › System › Support ›
-   Update shows the row, off, "Off; LG lists 1 app as waiting for an update".
+   Update shows the row, off, "Off; 1 app waits for an update".
 2. Turn it on in Settings (or `wget -qO- --header 'X-Luma-Client: t' --header 'Content-Type: application/json' --post-data
    '{"enabled":true}' http://127.0.0.1:18731/v1/openapps`). Within a few seconds: state `holding`; `cat` of the file is `[]`;
    `updateInfo.saved` holds the old list; `luna-send -n 1 -f luna://com.webos.appUpdateService/statusAll '{}'` has `apps: []`;
