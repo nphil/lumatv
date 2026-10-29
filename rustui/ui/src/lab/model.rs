@@ -10,7 +10,7 @@
 //! out (Back, Home, the screen going off, another app coming up, the end of the run). A word that does not come (the shell died, the link
 //! broke) is the helper's to answer: it puts everything back after six seconds of silence.
 
-use super::plan::{Answer, Ask, STEPS, StepDef, is_local, step_index};
+use super::plan::{Answer, Ask, STEPS, StepDef, is_local};
 use crate::kit::screen::{Effect, Input};
 use crate::panels::life::{Change, ENTER_MS, EXIT_MS, Life, Phase};
 use serde_json::{Value, json};
