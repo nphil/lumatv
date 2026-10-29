@@ -437,6 +437,11 @@ struct Placed {
     pose: Option<[u32; 12]>,
 }
 
+/// Whether two plans list the same windows, every one as it was, in another order: a restack.
+fn only_restacked(last: &[Placed], now: &[Placed]) -> bool {
+    last.len() == now.len() && last.iter().all(|p| now.contains(p))
+}
+
 /// Whether two plans show the same surfaces in the same order at the same places, as far as the box dim's grid cares: a dim level or
 /// a drift of up to [`crate::oledcare::Settings::radius`]'s most (4 px, the care's orbit) does not change what is still on the screen, a
 /// different surface, a pose or a move of more does.
@@ -1322,21 +1327,29 @@ impl Scene {
             }
             None => self.plan.gain_on = false,
         }
-        if std::mem::take(&mut self.redraw_all) || self.placed != self.last_placed || self.plan.holes != self.last_holes {
+        // What changed on the screen is what is drawn again, old place and new: a window that came, went, moved, changed its pose or its dim, and
+        // a hole that came, went or moved. The windows that stayed as they were are not: a toast over a full-screen video owes the toast's
+        // rectangle, not the screen (the whole page is the hole, and redrawing it per refresh is the work this exists to avoid). A restack with
+        // the same windows changes what overlaps, wherever it does, and `redraw_all` asks for everything: those owe all of it.
+        let everything = std::mem::take(&mut self.redraw_all) || (self.placed != self.last_placed && only_restacked(&self.last_placed, &self.placed));
+        let holes_changed = self.plan.holes != self.last_holes;
+        if everything || holes_changed || self.placed != self.last_placed {
             let tiles = self.plan.tiles.as_mut().unwrap();
-            for r in self
-                .last_placed
-                .iter()
-                .chain(self.placed.iter())
-                .map(|p| &p.rect)
-                .chain(self.last_holes.iter().map(|h| &h.rect))
-                .chain(self.plan.holes.iter().map(|h| &h.rect))
-            {
-                self.plan.damage = self.plan.damage.union(r);
-                tiles.add(r);
+            let (last, now) = (&self.last_placed, &self.placed);
+            let stale = last.iter().filter(|p| everything || !now.contains(p));
+            let fresh = now.iter().filter(|p| everything || !last.contains(p));
+            let holes = (everything || holes_changed).then(|| self.last_holes.iter().chain(self.plan.holes.iter()).map(|h| h.rect)).into_iter().flatten();
+            let mut touched = Vec::new();
+            for r in stale.chain(fresh).map(|p| p.rect).chain(holes) {
+                self.plan.damage = self.plan.damage.union(&r);
+                tiles.add(&r);
+                touched.push(r);
             }
+            // their pictures are uploaded whole again; a window that stayed keeps what its own commits damaged
             for i in &mut self.plan.items {
-                i.damage = None;
+                if everything || touched.iter().any(|r| !r.intersect(&i.rect).is_empty()) {
+                    i.damage = None;
+                }
             }
         }
         std::mem::swap(&mut self.last_placed, &mut self.placed);

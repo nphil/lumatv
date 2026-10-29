@@ -370,6 +370,11 @@ impl Client {
 
     /// An shm buffer whose pixel at (x, y) is `pixel(x, y)`, premultiplied ARGB.
     pub fn shm_pattern(&mut self, w: i32, h: i32, pixel: impl Fn(i32, i32) -> u32) -> WlBuffer {
+        self.shm_pattern_in(w, h, Format::Argb8888, pixel)
+    }
+
+    /// As [`Client::shm_pattern`], in `format` (Xrgb8888: the alpha byte is whatever `pixel` puts there and means nothing).
+    pub fn shm_pattern_in(&mut self, w: i32, h: i32, format: Format, pixel: impl Fn(i32, i32) -> u32) -> WlBuffer {
         let stride = w * 4;
         let size = stride * h;
         // SAFETY: memfd for the test; sized and mapped below.
@@ -386,7 +391,7 @@ impl Client {
         }
         std::io::Write::write_all(&mut &file, &bytes).unwrap();
         let pool = self.shm.create_pool(fd.as_fd(), size, &self.qh, ());
-        let buffer = pool.create_buffer(0, w, h, stride, Format::Argb8888, &self.qh, ());
+        let buffer = pool.create_buffer(0, w, h, stride, format, &self.qh, ());
         pool.destroy();
         buffer
     }
