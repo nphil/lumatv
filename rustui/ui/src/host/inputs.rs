@@ -142,7 +142,13 @@ impl Inputs {
             });
         }
         for (i, e) in self.list.iter().enumerate() {
-            let digit = e.app_id.split("hdmi").nth(1).and_then(|r| r.chars().next()).filter(char::is_ascii_digit).map_or_else(|| (i + 1).to_string(), |d| d.to_string());
+            let digit = e
+                .app_id
+                .split("hdmi")
+                .nth(1)
+                .and_then(|r| r.chars().next())
+                .filter(char::is_ascii_digit)
+                .map_or_else(|| (i + 1).to_string(), |d| d.to_string());
             let key = format!("hdmi{digit}");
             if !visible_for(choices, &key, e.connected) {
                 continue;
@@ -155,7 +161,14 @@ impl Inputs {
                 port: format!("{}{}", e.port.to_uppercase(), if sound { " \u{b7} eARC" } else { "" }),
                 icon: e.icon.clone(),
                 name: if e.connected { if e.label.is_empty() { e.port.clone() } else { e.label.clone() } } else { "Nothing connected".into() },
-                state: if !e.connected { "Plug in a device to use it" } else if front { "In front" } else { "Connected" }.into(),
+                state: if !e.connected {
+                    "Plug in a device to use it"
+                } else if front {
+                    "In front"
+                } else {
+                    "Connected"
+                }
+                .into(),
                 on: e.connected,
                 connected: e.connected,
                 front,
@@ -180,7 +193,15 @@ impl Inputs {
             let port = port_name(&app_id);
             let up = d.get("connected").is_some_and(|v| v == &json!(true) || v == &json!("true")) || d.get("activate") == Some(&json!(true));
             let id = if text("id").is_empty() { app_id.clone() } else { text("id") };
-            out.push(Entry { id, app_id, port: port.clone(), label: label.clone(), name: if up { label.clone() } else { String::new() }, connected: up, icon: icon_for(if up { &label } else { "" }, &port).to_string() });
+            out.push(Entry {
+                id,
+                app_id,
+                port: port.clone(),
+                label: label.clone(),
+                name: if up { label.clone() } else { String::new() },
+                connected: up,
+                icon: icon_for(if up { &label } else { "" }, &port).to_string(),
+            });
         }
         if out == self.list {
             return false;
@@ -288,7 +309,10 @@ mod tests {
         let tiles = tv().tiles(&json!({"hdmi4": "always", "hdmi3": "hidden", "livetv": "hidden"}));
         assert_eq!(tiles.iter().map(|t| t.port.as_str()).collect::<Vec<_>>(), vec!["HDMI 1", "HDMI 2 \u{b7} eARC", "HDMI 4"]);
         let empty = &tiles[2];
-        assert_eq!((empty.icon.as_str(), empty.name.as_str(), empty.connected, empty.state.as_str()), ("unplug", "Nothing connected", false, "Plug in a device to use it"));
+        assert_eq!(
+            (empty.icon.as_str(), empty.name.as_str(), empty.connected, empty.state.as_str()),
+            ("unplug", "Nothing connected", false, "Plug in a device to use it")
+        );
     }
 
     #[test]

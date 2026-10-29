@@ -166,6 +166,15 @@ impl Lint {
         self.panels.len() - 1
     }
 
+    /// A panel that paints over another (a button on its sheet): the paint is laid over the parent's, so what a word is read against is
+    /// what is on the screen.
+    pub fn panel_on(&mut self, name: &str, rect: Frame, paint: Rgba, safe: bool, parent: usize) -> usize {
+        let under = self.panels.get(parent).map_or(Rgba(0, 0, 0, 0), |p| p.paint);
+        let k = 1.0 - f32::from(paint.3) / 255.0;
+        let mix = |o: u8, u: u8| (f32::from(o) + f32::from(u) * k).round().min(255.0) as u8;
+        self.panel(name, rect, Rgba(mix(paint.0, under.0), mix(paint.1, under.1), mix(paint.2, under.2), mix(paint.3, under.3)), safe)
+    }
+
     /// A run of words whose painted rectangle is known.
     pub fn word_at(&mut self, name: &str, rect: Frame, ink: Rgba, px: u32, muted: bool, panel: Option<usize>) {
         self.words.push(Word { name: name.to_string(), rect, ink, px, muted, panel });

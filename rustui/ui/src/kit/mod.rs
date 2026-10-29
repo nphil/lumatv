@@ -19,6 +19,7 @@ pub mod screen;
 #[cfg(test)]
 pub mod testkit;
 pub mod text;
+pub mod wrap;
 
 use lumatv_tokens::{Tokens, TypeRole};
 use ui::context::Ui;

@@ -27,6 +27,22 @@ pub struct Pointer {
     pressed: bool,
 }
 
+/// One sample of the pointer as the key socket gives it: where it is, which buttons are down, whether it is over the shell.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Sample {
+    pub x: f32,
+    pub y: f32,
+    pub buttons: u32,
+    pub visible: bool,
+}
+
+impl Pointer {
+    /// [`Pointer::sample`] for a [`Sample`].
+    pub fn feed(&mut self, engine: &mut Engine, now_ns: u64, s: Sample) -> Vec<Gesture> {
+        self.sample(engine, now_ns, s.x, s.y, s.buttons, s.visible)
+    }
+}
+
 impl Pointer {
     pub fn new() -> Self {
         Self::default()

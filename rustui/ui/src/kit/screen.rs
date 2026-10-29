@@ -50,7 +50,12 @@ pub enum Effect {
     },
     /// A request of any method to the helper's API whose answer comes back as [`Input::Fetched`] with the tag: the status and the
     /// body of an error answer too (`Post` drops the answer; a wrong PIN is a 403 with the tries left in its body).
-    Request { tag: u64, method: String, path: String, body: Option<Value> },
+    Request {
+        tag: u64,
+        method: String,
+        path: String,
+        body: Option<Value>,
+    },
     /// A patch of the owner's theme (`theme/theme.json`), merged one level deep and written atomically by the host; the merged file
     /// comes back as [`Input::Fetched`] with the tag (status 200), or status 500 with the reason when it could not be written.
     Theme {

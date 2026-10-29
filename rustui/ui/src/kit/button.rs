@@ -16,7 +16,7 @@ use super::text::{Text, role_style, width_of};
 use super::{Engine, Kit};
 use compositor_protocol::{Ease, Fill, GroupPose, Props, Rgba, Shape};
 use lumatv_tokens::TypeRole;
-use ui::components::Align;
+use ui::components::{Align, Style};
 use ui::geometry::Frame;
 use ui::lucent::palette::PaletteRole;
 use ui::scene::{ImageLayer, ShapeLayer};
@@ -87,11 +87,15 @@ pub struct Button {
     hover: ShapeLayer,
     label: Text,
     icon: Option<ImageLayer>,
-    /// The label's and the icon's places inside the button.
+    /// The label's and the icon's places inside the button, and the label's box and style (for the lint).
     label_at: Props,
     icon_at: Props,
+    label_box: Frame,
+    style: Style,
     shown: bool,
     hovered: bool,
+    /// Looks disabled and stays focusable (the OK of a PIN pad before four digits).
+    dimmed: bool,
 }
 
 impl Button {
@@ -158,7 +162,23 @@ impl Button {
         engine.focus.register(id, frame, region, scope);
         engine.focus.set_enabled(id, spec.enabled);
         engine.flow.lift(id, Lifted { group, rest, scale: kit.tokens.focus.button_scale, rise: 0.0, lit: Some(lit_group) });
-        Ok(Self { id, frame, spec, base, lit, hover, label, icon, label_at: Props::at(label_box.x, label_box.y), icon_at, shown: false, hovered: false })
+        Ok(Self {
+            id,
+            frame,
+            spec,
+            base,
+            lit,
+            hover,
+            label,
+            icon,
+            label_at: Props::at(label_box.x, label_box.y),
+            icon_at,
+            label_box,
+            style,
+            shown: false,
+            hovered: false,
+            dimmed: false,
+        })
     }
 
     pub fn frame(&self) -> Frame {
@@ -179,7 +199,7 @@ impl Button {
     }
 
     fn opacity(&self, kit: &Kit) -> f32 {
-        if self.spec.enabled { 1.0 } else { kit.tokens.states.disabled_opacity }
+        if self.spec.enabled && !self.dimmed { 1.0 } else { kit.tokens.states.disabled_opacity }
     }
 
     /// Shows the button (fading in over the layer beat, or at once).
@@ -262,16 +282,53 @@ impl Button {
         }
     }
 
+    /// Dims the button as a disabled one is dimmed without taking it out of the focus (it can be focused and pressed; the screen decides
+    /// what a press does).
+    pub fn set_dimmed(&mut self, kit: &Kit, on: bool) {
+        if self.dimmed == on {
+            return;
+        }
+        self.dimmed = on;
+        if self.shown {
+            let o = self.opacity(kit);
+            self.base.set(Props { opacity: o, ..Props::at(0.0, 0.0) });
+            self.label.set_props(Props { opacity: o, ..self.label_at });
+            if let Some(i) = &self.icon {
+                i.set(Props { opacity: o, ..self.icon_at });
+            }
+        }
+    }
+
+    /// Describes the button to a lint: its pill (over what `under` is, a panel of the lint) and its words.
+    pub fn feed_lint(&self, kit: &mut Kit, lint: &mut super::lint::Lint, under: usize) {
+        let look = &kit.ui.look;
+        let paint = match self.spec.tone {
+            Tone::Plain => look.colour(PaletteRole::Glass),
+            Tone::Primary => look.accent(),
+            Tone::Danger => faded(look.danger(), 0.16),
+        };
+        let panel = lint.panel_on(&format!("button {}", self.spec.label), self.frame, paint, false, under);
+        if !self.spec.label.is_empty() {
+            let at = Frame::new(self.frame.x + self.label_box.x, self.frame.y + self.label_box.y, self.label_box.w, self.label_box.h);
+            lint.word(kit, &format!("button {}", self.spec.label), &self.spec.label, at, self.style, Some(panel));
+        }
+    }
+
     /// New words on the button (the box is as wide as it was made: the words are centred in it).
     pub fn set_label(&mut self, kit: &mut Kit, text: &str) {
         self.spec.label = text.to_string();
         self.label.set(kit, text);
     }
 
-    /// Gives the button back: it leaves the engine's registry and loses its lift; its layers go with it.
-    pub fn destroy(self, engine: &mut Engine) {
+    /// Takes the button out of the engine (the registry and the lift) and leaves its layers where they are, to fade out.
+    pub fn detach(&self, engine: &mut Engine) {
         engine.focus.unregister(self.id);
         engine.flow.drop_lift(self.id);
+    }
+
+    /// Gives the button back: it leaves the engine's registry and loses its lift; its layers go with it.
+    pub fn destroy(self, engine: &mut Engine) {
+        self.detach(engine);
     }
 }
 

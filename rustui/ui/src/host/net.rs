@@ -81,7 +81,13 @@ impl Net {
             },
         };
         self.band = match int(w, "channelFrequency") {
-            Some(f) if f > 0.0 => if f > 4000.0 { "5 GHz".into() } else { "2.4 GHz".into() },
+            Some(f) if f > 0.0 => {
+                if f > 4000.0 {
+                    "5 GHz".into()
+                } else {
+                    "2.4 GHz".into()
+                }
+            }
             _ => text(w, "band"),
         };
         self.ip = text(if self.wired { e } else { w }, "ipAddress");
