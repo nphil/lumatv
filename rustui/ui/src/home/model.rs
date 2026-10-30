@@ -703,9 +703,11 @@ impl Home {
         take(self.search.due_at());
         take(self.stills.due_at(self.camera_stills_visible()));
         take(self.wall.due_at());
-        // the clock's minute, and its second hand when the analogue face shows one
-        let step = if self.theme.pointer("/clock/style").and_then(Value::as_str) == Some("analog") { 1000 } else { 60_000 };
-        take(Some((self.now / step + 1) * step));
+        // the clock's minute, and its second hand when the analogue face shows one: only while Home is in front (behind an app nothing shows it)
+        if self.active {
+            let step = if self.theme.pointer("/clock/style").and_then(Value::as_str) == Some("analog") { 1000 } else { 60_000 };
+            take(Some((self.now / step + 1) * step));
+        }
         due
     }
 

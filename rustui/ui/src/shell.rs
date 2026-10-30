@@ -760,7 +760,9 @@ impl Shell {
             self.carry(e, now, &mut acts);
         }
         self.panel_events(now, &mut acts);
-        if self.kinds.home && self.home_surface.tick(now) {
+        // Home behind an app has nothing on the screen to keep up to date: its clock's second hand and its news slide each cost the compositor a
+        // composed frame a second under a playing video (the hole wipes what they drew), so they wait for Home to be in front again.
+        if self.kinds.home && self.home.active && self.home_surface.tick(now) {
             self.redraw = true;
         }
         if self.kinds.cameras && self.cameras.surface.tick(now) {
@@ -1026,7 +1028,7 @@ impl Shell {
             due = [due, self.toasts.due_at()].into_iter().flatten().min();
         }
         if self.kinds.home {
-            due = [due, self.home.due_at(), self.home_surface.due_at()].into_iter().flatten().min();
+            due = [due, self.home.due_at(), self.home.active.then(|| self.home_surface.due_at()).flatten()].into_iter().flatten().min();
         }
         let cameras = if self.kinds.cameras { self.cameras.due_at() } else { None };
         let settings = if self.kinds.settings { self.settings.due_at() } else { None };
@@ -1866,5 +1868,45 @@ mod tests {
         shell.channel(&Event::Topic { topic: "show".into(), data: json!({"kind": "quick", "n": 1}) }, 1_100);
         shell.tick(1_200);
         assert_eq!(shell.volume.view().spots, crate::system::volume::mark_spots(false, true), "the panel is up on the right: the mark's corners are the left ones");
+    }
+
+    #[test]
+    fn a_home_behind_an_app_asks_the_engine_for_nothing_as_the_seconds_pass_and_is_right_when_it_returns() {
+        // The analogue clock's second hand, the news slide and the poses sent again each cost the compositor a composed frame a second under a
+        // playing video (round 19, YouTube: 1 to 2 page flips a second with nothing over it, each a 12 ms GPU frame the hole wipes again).
+        // (the harness's own `Commit` marker ends every read: a request is anything else)
+        let sent = |h: &mut ui::testing::Harness| h.commit().into_iter().filter(|r| !format!("{r:?}").starts_with("Commit")).collect::<Vec<_>>();
+        let (mut h, mut shell) = home_shell_with("home", &json!({"clock": {"style": "analog"}}));
+        shell.tick(1_100);
+        sent(&mut h);
+        shell.tick(2_100);
+        assert!(!sent(&mut h).is_empty(), "in front, the second hand moves: the second sends its picture");
+        shell.channel(&Event::Topic { topic: "foreground".into(), data: json!({"app": "youtube.leanback.v4", "home": false, "covered": true}) }, 2_500);
+        sent(&mut h);
+        for s in 3..40u64 {
+            let acts = shell.tick(s * 1000 + 50);
+            let reqs = sent(&mut h);
+            assert!(reqs.is_empty(), "t={s} s covered: {} requests, first {:?}", reqs.len(), reqs.first());
+            assert!(acts.is_empty(), "t={s} s covered: {acts:?}");
+        }
+        assert!(shell.due_at().is_none_or(|due| due > 40_000), "a covered Home wakes the client for no second: next due {:?}", shell.due_at());
+        shell.channel(&Event::Topic { topic: "foreground".into(), data: json!({"app": "com.webos.app.home", "home": true, "covered": false}) }, 41_000);
+        shell.tick(41_050);
+        assert!(!sent(&mut h).is_empty(), "in front again, the hands are drawn for the time it is");
+        assert!(shell.due_at().is_some_and(|due| due <= 42_100), "and the second hand is due again: {:?}", shell.due_at());
+    }
+
+    #[test]
+    fn with_every_kind_built_and_an_app_in_front_nothing_of_the_shell_is_due() {
+        // A timer that is due behind a playing video wakes the client and, if it changes a picture, costs a composed frame under it: the shell with
+        // every kind and Home covered sleeps until an event.
+        let kinds = "home,osd,settings,toast,cameras,quick,picker,drawer,menu,confirm,switcher,entry,keyboard,alert,saver,capture,cards,popup,layout,ai,banner,displaylab";
+        let (_h, mut shell) = home_shell(kinds);
+        shell.tick(1_100);
+        shell.channel(&Event::Topic { topic: "foreground".into(), data: json!({"app": "youtube.leanback.v4", "home": false, "covered": true}) }, 2_500);
+        for s in 3..6u64 {
+            shell.tick(s * 1000 + 50);
+        }
+        assert_eq!(shell.due_at(), None, "nothing is due while an app is in front");
     }
 }

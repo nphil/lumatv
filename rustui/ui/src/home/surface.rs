@@ -335,7 +335,12 @@ impl HomeSurface {
             .flat_map(|camera| camera.still_rows(&home.cameras)).collect::<Vec<_>>();
         home.stills.configure(&camera_rows);
         self.update_badge(kit, home);
-        self.update_contents(kit, home, now);
+        // The clock's hands, the news slide and the cards' words are kept up to date while Home is in front, and brought up to date by the apply
+        // that finds it in front again: a covered Home that went on doing it sent the engine a damaged picture every second, a composed frame under
+        // a playing video for nothing.
+        if home.active {
+            self.update_contents(kit, home, now);
+        }
         self.update_dock(kit, engine, home, now_ns);
         self.update_focus(kit, engine, home, now_ns);
         self.update_layers(kit, engine, home, now)?;
