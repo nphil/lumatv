@@ -346,8 +346,9 @@ pub struct CamerasConfig {
     /// The window type the feeder owns for a camera pop-up: `video`, the compositor's own video window (`--vwin`), played on once a claim is granted for the
     /// card's picture; the full view's is `feeder_window`.
     pub popup_window: String,
-    /// The app the feeder's decoder is opened for. LG's video path connects a video to its sink only for an app on SAM's foreground list, which the
-    /// video window's own id is not: `auto` (Home's id while the window is the display's main one, its own in the sub one), `home`, `own`, or an app id.
+    /// The app the feeder's decoder is opened for on the display's main window. LG's video path connects a video to its sink only for an app on SAM's
+    /// foreground list, which the video window's own id is not: `auto` or `home` (Home's id), `own`, or an app id. A picture in the sub window plays for
+    /// the app in front, whatever this says.
     pub ndl_app: String,
     /// Whether a camera pop-up plays live video where the compositor gives it a window. Off: it shows stills only.
     pub popup_live: bool,

@@ -128,6 +128,9 @@ impl Default for Timing {
     }
 }
 
+/// Which app SAM has in front (its `getForegroundAppInfo`): a picture in the sub window plays in a pipeline opened for it.
+pub type FrontApp = Arc<dyn Fn() -> Option<String> + Send + Sync>;
+
 /// What the module acts through; a test names the loopback, its own feeder and dial, and quick timing.
 pub struct Deps {
     /// Which addresses the link may name and the token may go to: the home network on the set.
@@ -136,6 +139,8 @@ pub struct Deps {
     pub feeder: Option<live::FeederSpec>,
     /// How a stream address is dialled; `None` is RTSP over TCP to a home-network address.
     pub dial: Option<live::Dial>,
+    /// Which app is in front; `None` is SAM's answer through `luna-send`.
+    pub front_app: Option<FrontApp>,
     pub timing: Timing,
 }
 
@@ -145,6 +150,7 @@ impl Deps {
             policy: AddressPolicy::HOME,
             feeder: None,
             dial: None,
+            front_app: None,
             timing: Timing::default(),
         }
     }
@@ -159,6 +165,7 @@ pub mod testing {
             policy: AddressPolicy::TESTING,
             feeder: None,
             dial: None,
+            front_app: Some(Arc::new(|| Some("org.test.front".to_owned()))),
             timing: Timing {
                 unlinked_poll: Duration::from_millis(40),
                 linked_poll: Duration::from_millis(40),
@@ -246,8 +253,15 @@ pub struct Scrypted {
 impl Scrypted {
     /// Builds the module: the topics exist (unlinked, no popup, idle), the page is registered, and nothing is running. `shared` is the
     /// plugin broker's, where the Cameras page lives.
-    pub fn new(ctx: &Ctx, deps: Deps, images: Arc<Images>, shared: &Arc<Shared>) -> Self {
+    pub fn new(ctx: &Ctx, mut deps: Deps, images: Arc<Images>, shared: &Arc<Shared>) -> Self {
         let config = ctx.config.cameras.clone();
+        if deps.front_app.is_none() {
+            let luna = crate::refreshguard::LunaSource::new(&ctx.config.luna.send);
+            deps.front_app = Some(Arc::new(move || {
+                let reply = luna.call("luna://com.webos.applicationManager/getForegroundAppInfo", "{}").ok()?;
+                crate::framerate::foreground_of(&serde_json::from_str(&reply).ok()?).ok().flatten()
+            }));
+        }
         // the feeder: a test's own, else the staged one when the live switch is on
         let feeder = deps.feeder.clone().or_else(|| {
             config.live.then(|| {

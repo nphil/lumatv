@@ -7,7 +7,7 @@ use wayland_server::Resource;
 
 use crate::State;
 use crate::luna::{Event, Inbound, Outbound, Reply, ToBridge, power};
-use crate::window::{WindowId, WindowType};
+use crate::window::WindowType;
 
 pub struct Subscription {
     pub token: u64,
@@ -421,41 +421,8 @@ impl State {
                 self.push_with_group(w, &mut items);
             }
         }
-        let mut infos: Vec<Value> = items.into_iter().filter(|w| !w.app_id().is_empty()).map(|w| self.foreground_item(w)).collect();
-        if !system_ui {
-            self.sub_foreground(&mut infos);
-        }
+        let infos: Vec<Value> = items.into_iter().filter(|w| !w.app_id().is_empty()).map(|w| self.foreground_item(w)).collect();
         json!({"returnValue": true, "mode": "normal", "foregroundAppInfo": infos})
-    }
-
-    /// While a claim holds the sub window beside an app's video, the app the feeder's pipeline is opened for (`Vwin::fg`, `cameras.ndlApp`) is on the list
-    /// beside the card in front, from the grant on: LG's media server connects a video to a sink only for an app on SAM's foreground list, and it reads the
-    /// list from here (SAM republishes it), so the pipeline that asks for the sub sink (`gfn/feeder/src/gf_smp.c`) is a foreground one beside the front
-    /// app's and not the same app's second. The entry is a plain second card; with `multiview` on (the experiment of docs/research/multiview-result.md,
-    /// `ctl vwin fg APP mv`) both are marked as the two apps of a side-by-side Multi View the way LG's compositor lists them. Nothing is listed when the card
-    /// in front is the app itself, when no claim holds the sub window (a texture is not a video), or with the switch off.
-    fn sub_foreground(&self, infos: &mut Vec<Value>) {
-        let Some(fg) = self.vwin.fg.as_ref() else { return };
-        let Some(claim) = self.vwin.alloc.granted().find(|c| !c.texture && c.slot == Some(1)) else { return };
-        let fullscreen = |i: &Value| i.get("viewType").is_some();
-        if infos.iter().any(|i| i["appId"] == fg.app) || !infos.iter().any(fullscreen) {
-            return;
-        }
-        let view_type = if fg.multiview { "mvsxs" } else { "normal" };
-        if fg.multiview {
-            for (order, item) in infos.iter_mut().filter(|i| fullscreen(i)).enumerate() {
-                let o = item.as_object_mut().unwrap();
-                for (k, v) in [("multiview", json!(true)), ("primary", json!(order == 0)), ("viewType", json!(view_type)), ("order", json!(order))] {
-                    o.insert(k.into(), v);
-                }
-            }
-        }
-        let order = infos.iter().filter(|i| fullscreen(i)).count();
-        let pid = claim.window.and_then(|w| self.scene.window(WindowId(w))).map_or_else(|| std::process::id().to_string(), |w| self.window_pid(w));
-        infos.push(json!({
-            "appId": fg.app, "displayId": 0, "processId": pid, "windowType": "_WEBOS_WINDOW_TYPE_CARD", "windowGroup": false, "params": {},
-            "multiview": fg.multiview, "pip": false, "primary": false, "viewType": view_type, "order": order,
-        }));
     }
 
     /// `w` with the mapped windows attached to the group it owns: those below it (negative z) first, those above it after. A member

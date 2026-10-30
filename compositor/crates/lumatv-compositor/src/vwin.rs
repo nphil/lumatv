@@ -826,10 +826,6 @@ pub struct Vwin {
     gone: Vec<(String, u64)>,
     /// How long after a placement, and after its video was first seen on a sink, the sink's answer is believed (nanoseconds); a test makes it nothing.
     pub settle_ns: u64,
-    /// The app the feeder's sub-window pipeline is opened for, listed on the foreground list beside the card in front while a claim holds the sub window
-    /// (`luna_methods.rs`: `sub_foreground`); it must be the app the helper opens the decoder for (`cameras.ndlApp`, Home by default). `ctl vwin fg APP [mv]`
-    /// changes it, `ctl vwin fg off` lists nothing (the sub window then stays unconnected: docs/research/multiview-result.md).
-    pub fg: Option<FgList>,
 }
 
 impl Vwin {
@@ -844,22 +840,9 @@ impl Vwin {
             placed_at: std::collections::BTreeMap::new(),
             gone: Vec::new(),
             settle_ns: SETTLE_NS,
-            fg: Some(FgList { app: SUB_APP.to_string(), multiview: false }),
         }
     }
 }
-
-/// The second entry of the foreground list while a claim holds the sub window (`Vwin::fg`): the app, and whether both apps are marked as a Multi View's.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FgList {
-    pub app: String,
-    /// The experiment form: `multiview`, `primary`, `viewType` `mvsxs` and `order` on both entries, the way LG's compositor lists its own Multi View. LG's
-    /// Multi View controller then counts itself launched and the media server ranks the front app above the sub one; plain entries leave both alone.
-    pub multiview: bool,
-}
-
-/// The app a sub-window pipeline is opened for unless the owner says otherwise: Home is always running and never the card whose video holds the main window.
-pub const SUB_APP: &str = "com.webos.app.home";
 
 /// A video window nobody has claimed for this long is closed: whoever started it did not ask first (or the claim was refused and it started anyway).
 const NEVER_BOUND_NS: u64 = 3_000_000_000;
@@ -1033,10 +1016,6 @@ impl crate::State {
         if topic != self.vwin.last_topic {
             self.vwin.last_topic = topic;
             self.shell_sync_topics();
-            if self.vwin.fg.is_some() {
-                // the foreground list carries the sub app while a claim holds the sub window (`luna_methods.rs`)
-                self.luna_notify();
-            }
         }
     }
 
@@ -1185,7 +1164,6 @@ impl crate::State {
         r["sinks"] = self.vwin.sinks.json();
         // the claims whose video was placed again where videooutputd held it elsewhere, and how often
         r["replaced"] = Value::Object(self.vwin.watch.iter().filter(|(_, w)| w.tries > 0).map(|(id, w)| (id.clone(), json!(w.tries))).collect());
-        r["fg"] = self.vwin.fg.as_ref().map_or(Value::Null, |f| json!({"app": f.app, "multiview": f.multiview}));
         r["elements"] = self.vwin_elements_json();
         r["subscribed"] = self.vwin.status_token.is_some().into();
         r["windows"] = Value::Array(
@@ -1441,7 +1419,7 @@ impl crate::State {
         }
     }
 
-    /// `ctl vwin ...` as words: no word reads; `off|idle|apps` switches; `texture on|off`; `fg APP [mv]|off`; `slots N`; `claim ID KIND X Y W H [APP] [CODEC] [WxH@FPS]`; `move ID X Y W H`;
+    /// `ctl vwin ...` as words: no word reads; `off|idle|apps` switches; `texture on|off`; `slots N`; `claim ID KIND X Y W H [APP] [CODEC] [WxH@FPS]`; `move ID X Y W H`;
     /// `release ID|all`.
     pub fn vwin_ctl(&mut self, words: &[&str]) -> Value {
         let ask = |s: &mut Self, v: Value| {
@@ -1470,22 +1448,6 @@ impl crate::State {
                 self.config.vwin.texture = on;
                 self.journal(format!("vwin: textures {}", if on { "on" } else { "off" }));
                 self.vwin_sync();
-                json!({"ok": true, "vwin": self.vwin_report()})
-            }
-            ["fg", "off"] => {
-                self.vwin.fg = None;
-                self.journal("vwin: the foreground list is the front card's alone again (no sub-window pipeline connects)".to_string());
-                self.luna_notify();
-                json!({"ok": true, "vwin": self.vwin_report()})
-            }
-            ["fg", app] | ["fg", app, "mv"] if app.len() <= 128 && app.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')) => {
-                let multiview = words.len() == 3;
-                self.vwin.fg = Some(FgList { app: (*app).to_string(), multiview });
-                self.journal(format!(
-                    "vwin: {app} is listed beside the front card while a claim holds the sub window{}",
-                    if multiview { ", both as the apps of a Multi View" } else { "" }
-                ));
-                self.luna_notify();
                 json!({"ok": true, "vwin": self.vwin_report()})
             }
             ["slots", n] => match n.parse::<usize>().ok().filter(|n| (1..=MAX_SLOTS).contains(n)) {
@@ -1527,7 +1489,7 @@ impl crate::State {
             }
             ["release", "all"] => ask(self, json!({"op": "releaseAll"})),
             ["release", id] => ask(self, json!({"op": "release", "id": id})),
-            _ => json!({"ok": false, "error": "vwin [off|idle|apps | texture on|off | fg APP|off | slots N | claim ID camera-full|camera-popup|pip X Y W H [APP] [CODEC] [WxH@FPS] | move ID X Y W H | release ID|all]"}),
+            _ => json!({"ok": false, "error": "vwin [off|idle|apps | texture on|off | slots N | claim ID camera-full|camera-popup|pip X Y W H [APP] [CODEC] [WxH@FPS] | move ID X Y W H | release ID|all]"}),
         }
     }
 }

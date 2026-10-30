@@ -46,7 +46,8 @@ struct Usage {
     window: String,
     /// The compositor gave the picture a texture, not a window: the feeder decodes it and paints its window (`live::Plan::texture`).
     texture: bool,
-    /// The compositor gave the picture the sub window beside an app's video: the starfish pipeline asking for the sub sink (`live::Plan::sub`).
+    /// The compositor gave the picture the sub window beside an app's video: the starfish pipeline asking for the sub sink (`live::Plan::sub`), opened
+    /// for the app in front whatever `ndl_app` says (with Home in front, the main window's load instead: `start_stream_for`).
     sub: bool,
     /// The quality asked for (`native`, `balanced`, `light`), for the log.
     quality: String,
@@ -54,9 +55,8 @@ struct Usage {
     side: String,
 }
 
-/// The app the decoder is opened for (`cameras.ndlApp`): the video window is no app on SAM's foreground list, so over the display's main window it plays
-/// for Home, which is in front, and beside an app's video for Home too, which the compositor lists beside the app while the claim holds the sub window
-/// (its `ctl vwin fg` app, Home unless told otherwise); `own` is the window's own id.
+/// The app the decoder is opened for on the display's main window (`cameras.ndlApp`): the video window is no app on SAM's foreground list, so it plays
+/// for Home, which is in front; `own` is the window's own id. The sub window's pipeline is the app in front's (`start_stream_for`).
 fn ndl_app_for(setting: &str) -> String {
     let plain = |id: &str| !id.is_empty() && id.len() <= 100 && id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'));
     match setting {
@@ -516,7 +516,7 @@ impl Inner {
         self: &Arc<Self>,
         camera: &str,
         mode: Mode,
-        usage: Usage,
+        mut usage: Usage,
         ask: impl FnOnce(&bridge::Bridge) -> Result<bridge::Dial, Trouble>,
     ) -> Response {
         if !self.live.available() {
@@ -528,6 +528,21 @@ impl Inner {
         let Ok(bridge) = self.bridge() else {
             return refused("not_ready", "Scrypted is not connected");
         };
+        // the sub window's pipeline is opened for the app in front: SAM lists it, so the media server and videooutputd connect the video, and LG's AV
+        // connector keeps the sub sink the load asks for. Home's media pipeline it puts on the main window whatever the load asks (Home's own
+        // picture-in-picture), so with Home in front the picture takes the main window as it would there (docs/research/multiview-result.md)
+        if usage.sub {
+            match self.deps.front_app.as_ref().and_then(|front| front()) {
+                Some(app) if app != HOME_APP => usage.ndl_app = app,
+                front => {
+                    crate::log_info!(
+                        "cameras: the sub window was granted with {} in front: the picture plays on the main window",
+                        front.as_deref().unwrap_or("no app")
+                    );
+                    usage.sub = false;
+                }
+            }
+        }
         let ticket = self.ticket.fetch_add(1, Ordering::SeqCst) + 1;
         self.live.asking(camera, mode);
         let asked_at = std::time::Instant::now();
