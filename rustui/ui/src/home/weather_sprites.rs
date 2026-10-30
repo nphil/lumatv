@@ -272,6 +272,7 @@ pub fn disc(c: &Ctx, r_u: f32, hi: Rgb, lo: Rgb) -> Raster {
     acc.finish(1.0)
 }
 
+#[allow(clippy::too_many_arguments)]
 /// One ray of the sun from `r0` to `r1` units out, `width` units wide at the root and thinner at the tip, fading out towards the tip.
 fn ray(acc: &mut Acc, c: &Ctx, (mx, my): (f32, f32), angle: f32, (r0, r1): (f32, f32), width: f32, colour: Rgb, alpha: f32) {
     let wid = c.px(width) / 2.0;
@@ -303,12 +304,17 @@ pub fn sun_rays(c: &Ctx, turn: f32, size: f32, colour: Rgb, alpha: f32) -> Raste
 
 /// A cloud of one of three silhouettes (0 the canonical cumulus about 104 by 72 units at scale 1, 1 a wide low one, 2 a small round one).
 pub fn cloud(c: &Ctx, kind: u8, scale: f32, hi: Rgb, lo: Rgb, rim: f32) -> Raster {
-    // (puffs: x, y, radius), the base (centre y, half width, half height), the box (w, h) and where the shape's origin is in it
-    type Puffs = &'static [(f32, f32, f32)];
-    let (puffs, base, bx, by, (ox, oy)): (Puffs, (f32, f32, f32), f32, f32, (f32, f32)) = match kind {
-        1 => (&[(-40.0, 4.0, 15.0), (-17.0, -8.0, 23.0), (11.0, -4.0, 20.0), (37.0, 5.0, 15.0)], (13.0, 56.0, 13.0), 150.0, 84.0, (75.0, 46.0)),
-        2 => (&[(-15.0, 3.0, 17.0), (9.0, -8.0, 22.0)], (12.0, 30.0, 12.0), 84.0, 66.0, (42.0, 38.0)),
-        _ => (&[(-27.0, 0.0, 21.0), (3.0, -12.0, 29.0), (33.0, 3.0, 19.0)], (14.0, 50.0, 17.0), 120.0, 90.0, (60.0, 50.0)),
+    // the puffs (x, y, radius), the base (centre y, half width, half height), the box (w, h) and where the shape's origin is in it
+    struct Silhouette {
+        puffs: &'static [(f32, f32, f32)],
+        base: (f32, f32, f32),
+        size: (f32, f32),
+        origin: (f32, f32),
+    }
+    let Silhouette { puffs, base, size: (bx, by), origin: (ox, oy) } = match kind {
+        1 => Silhouette { puffs: &[(-40.0, 4.0, 15.0), (-17.0, -8.0, 23.0), (11.0, -4.0, 20.0), (37.0, 5.0, 15.0)], base: (13.0, 56.0, 13.0), size: (150.0, 84.0), origin: (75.0, 46.0) },
+        2 => Silhouette { puffs: &[(-15.0, 3.0, 17.0), (9.0, -8.0, 22.0)], base: (12.0, 30.0, 12.0), size: (84.0, 66.0), origin: (42.0, 38.0) },
+        _ => Silhouette { puffs: &[(-27.0, 0.0, 21.0), (3.0, -12.0, 29.0), (33.0, 3.0, 19.0)], base: (14.0, 50.0, 17.0), size: (120.0, 90.0), origin: (60.0, 50.0) },
     };
     let s = c.k * scale;
     let (w, h) = c.size(bx * scale, by * scale);

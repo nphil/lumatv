@@ -564,7 +564,7 @@ impl WeatherSurface {
         let z = self.z + 4;
         let (ink, ink2, accent, warn) = (kit.ui.look.ink(), kit.ui.look.ink2(), kit.ui.look.accent(), kit.ui.look.warning());
         let light = kit.mode == Mode::Light;
-        let s = kit.text_scale.max(1.0).min(1.35);
+        let s = kit.text_scale.clamp(1.0, 1.35);
         self.sky(kit, d, made, true)?;
         let hours = d.hours();
         let now_code = d.num("/current/code").map(|c| c as i64).unwrap_or(0);
@@ -737,7 +737,7 @@ impl WeatherSurface {
         let z = self.z + 4;
         let (ink, ink2, accent, warn) = (kit.ui.look.ink(), kit.ui.look.ink2(), kit.ui.look.accent(), kit.ui.look.warning());
         let (good, bad) = (kit.ui.look.positive(), kit.ui.look.danger());
-        let s = kit.text_scale.max(1.0).min(1.35);
+        let s = kit.text_scale.clamp(1.0, 1.35);
         self.sky(kit, d, made, false)?;
         let alerts: Vec<Value> = d.more.get("alerts").and_then(Value::as_array).cloned().unwrap_or_default();
         let mut top = TOP;

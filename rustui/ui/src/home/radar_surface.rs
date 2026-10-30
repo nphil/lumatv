@@ -550,8 +550,8 @@ mod tests {
         assert_eq!((r.x, r.y, r.w, r.h), (0.0, 0.0, MAP_W as f32, MAP_H as f32));
         assert_eq!(e, Edges::NONE);
         // one that ends on the screen's left only fades there
-        let (r, e) = frame_clip(&Props { scale: 5.0, ..Props::at(260.0, 340.0) }, 400);
-        assert_eq!((r.x, e.left, e.right), (460.0, EDGE_FEATHER, 0.0), "{r:?}");
+        let (r, e) = frame_clip(&Props { scale: 5.0, ..Props::at(1260.0, 340.0) }, 400);
+        assert_eq!((r.x, e.left, e.right, e.top), (460.0, EDGE_FEATHER, 0.0, 0.0), "{r:?}");
     }
 
     #[test]

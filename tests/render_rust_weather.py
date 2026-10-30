@@ -214,6 +214,72 @@ def sheet(paths, cols, cell, label=None):
     return img
 
 
+def before_after(out, tmp, base='forge/main'):
+    """One sheet of the old renders (from `base` in git) above the new ones: four cards, the view's first page, its details (the old week page for the old
+    view), the radar. Written to `out/weather-redesign-before-after.png`."""
+    from PIL import Image, ImageDraw
+    rel = 'docs/mocks/host-rust/home/'
+
+    def old(name):
+        data = subprocess.run(['git', 'show', '%s:%s%s' % (base, rel, name)], cwd=ROOT, capture_output=True).stdout
+        dst = os.path.join(tmp, 'old-' + name)
+        with open(dst, 'wb') as f:
+            f.write(data)
+        return Image.open(dst).convert('RGB')
+
+    def new(name):
+        return Image.open(os.path.join(out, name)).convert('RGB')
+
+    W, gap = 2480, 20
+    label_h = 56
+    rows = []
+
+    def cards(sheet, order, cell, cols=4):
+        """The picked cells of a contact sheet of cards in a row."""
+        cw, ch = cell
+        tiles = []
+        for idx in order:
+            x, y = (idx % cols) * cw, (idx // cols) * ch
+            tiles.append(sheet.crop((x, y, x + cw, y + ch)))
+        return tiles
+
+    # the old sheet: 1840 x 1500, four across; the new one: 1792 x 1488 with 12 px gaps (433 x 480 cards)
+    old_cards = cards(old('weather-card-dark-text100.png'), [0, 7, 9, 10], (460, 500))
+    nsheet = new('weather-card-dark-text100.png')
+    new_cards = []
+    for idx in [0, 7, 9, 10]:
+        x, y = 12 + (idx % 4) * (433 + 12), 12 + (idx // 4) * (480 + 12)
+        new_cards.append(nsheet.crop((x, y, x + 433, y + 480)))
+
+    def strip(tiles, label, height):
+        img = Image.new('RGB', (W, height + label_h), (14, 12, 24))
+        d = ImageDraw.Draw(img)
+        d.text((24, 14), label, fill=(230, 226, 245))
+        x = gap
+        scale = (W - gap * (len(tiles) + 1)) / sum(t.width for t in tiles)
+        for t in tiles:
+            tw, th = int(t.width * scale), int(t.height * scale)
+            img.paste(t.resize((tw, th), Image.LANCZOS), (x, label_h))
+            x += tw + gap
+        return img
+
+    rows.append(strip(old_cards, 'BEFORE  the card (clear, rain, storm, snow)', 640))
+    rows.append(strip(new_cards, 'AFTER   the card', 640))
+    pair = lambda a, b, la, lb: strip([a, b], la + '   |   ' + lb, 650)
+    rows.append(pair(old('weather-view-now.png'), new('weather-view-now-rain-dark-text100.png'), 'BEFORE  the view, first page', 'AFTER   the view, Now (ten days, hours, sky)'))
+    rows.append(pair(old('weather-view-details.png'), new('weather-view-details-rain-dark-text100.png'), 'BEFORE  Details', 'AFTER   Details'))
+    rows.append(pair(old('weather-view-radar-forecast.png'), new('weather-radar-rain-local-dark-text100.png'), 'BEFORE  the radar', 'AFTER   the radar'))
+    height = sum(r.height for r in rows)
+    sheet_img = Image.new('RGB', (W, height), (14, 12, 24))
+    y = 0
+    for r in rows:
+        sheet_img.paste(r, (0, y))
+        y += r.height
+    dst = os.path.join(out, 'weather-redesign-before-after.png')
+    sheet_img.save(dst, optimize=True)
+    print('wrote', dst)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', default=OUT)
@@ -228,6 +294,7 @@ def main():
     ap.add_argument('--radar-at', type=int, default=26000)
     ap.add_argument('--helper-bin', default='/data/home/lumaglass/rustui/target-helper-pt/debug/lumatv-helper')
     ap.add_argument('--helper-port', type=int, default=18791)
+    ap.add_argument('--base', default='forge/main')
     args = ap.parse_args()
     run = Runner(args.bin)
     only = set(args.only.split(','))
@@ -277,6 +344,8 @@ def main():
                                 print('wrote radar', case, lvl, mode, scale)
         finally:
             helper.close()
+    if 'sheet' in only:
+        before_after(args.out, tmp, args.base)
     shutil.rmtree(tmp, ignore_errors=True)
 
 

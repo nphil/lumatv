@@ -183,7 +183,8 @@ pub(super) fn art(kit: &mut Kit, f: Frame, z: i32) -> std::io::Result<ImageLayer
     Ok(l)
 }
 
-/// The kind of content a card has.
+/// The kind of content a card has (one is made per card, when the card is: their sizes differ, which costs nothing).
+#[allow(clippy::large_enum_variant)]
 pub enum Content {
     Clock(Clock),
     Weather(super::weather_card::Weather),

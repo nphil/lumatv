@@ -124,7 +124,7 @@ fn plan(w: f32, h: f32, data: Data) -> Plan {
     let mut y = 0.0;
     let place = place_on.then(|| {
         let s = slot(0.0, y, hero_w, 30.0, 24.0, Weight::SemiBold, Align::Left);
-        y += 28.0;
+        y += 32.0;
         s
     });
     let temp = slot(0.0, y, hero_w, temp_px, temp_px, Weight::SemiBold, Align::Left);
@@ -168,7 +168,7 @@ fn plan(w: f32, h: f32, data: Data) -> Plan {
         left -= hh + 14.0;
     }
     let rows = ((left / DAY_H).floor() as usize).min(7);
-    let days = (rows >= 2 && smart.is_some()).then(|| Days { x: x0, y, w: bw, row_h: DAY_H, rows, day_w: 70.0, icon: 32.0, num_w: 52.0 });
+    let days = (rows >= 2 && smart.is_some()).then_some(Days { x: x0, y, w: bw, row_h: DAY_H, rows, day_w: 70.0, icon: 32.0, num_w: 52.0 });
     Plan { w, wide, hero_w, hero_bottom, place, temp, cond, feels, smart, hours, days }
 }
 

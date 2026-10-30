@@ -24,6 +24,7 @@ fn cov(d: f32) -> f32 {
     (0.5 - d).clamp(0.0, 1.0)
 }
 
+#[allow(clippy::too_many_arguments)]
 /// An arc of the circle of radius `r` at (`cx`, `cy`) from angle `from` to `to` (`to` not before `from`, at most a turn on), `width` thick, with round ends.
 pub fn arc(c: &mut Canvas, cx: f32, cy: f32, r: f32, width: f32, from: f32, to: f32, col: Rgba) {
     let pad = r + width + 2.0;

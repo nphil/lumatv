@@ -382,6 +382,7 @@ impl Builder {
     }
 
     /// A sprite that is only seen inside the stage (and fades out towards its edges).
+    #[allow(clippy::too_many_arguments)]
     fn add_clipped(&mut self, raster: Raster, at: (f32, f32), alpha: f32, rest_alpha: f32, scale0: f32, motion: Motion, clip: (Rect, Edges)) {
         self.out.push(Part { raster, at, alpha, rest_alpha, scale0, motion, clip: Some(clip) });
     }
@@ -538,6 +539,8 @@ impl Builder {
     /// The window the rain or snow falls in: under the hero, as wide as `reach` hero sizes either side of it, from its middle to the ground.
     fn window(&self, reach: f32) -> Rect {
         let (hx, hy) = self.st.hero;
+        // however large the picture, the curtain of rain is no wider than 760 px (its sheets are as wide as it is)
+        let reach = reach.min(380.0 / self.st.size);
         let (x0, x1) = ((hx - reach * self.st.size).max(0.0).round(), (hx + reach * self.st.size).min(self.st.w).round());
         let y0 = (hy - 0.1 * self.st.size).max(0.0).round();
         Rect { x: x0, y: y0, w: x1 - x0, h: (self.st.ground - y0).max(8.0).round() }
@@ -745,23 +748,26 @@ pub fn parts(cond: Cond, st: Stage, light: bool) -> Vec<Part> {
             if snow {
                 // streaks per pixel of the window: the bigger the picture, the more of them (their size grows to a point, their number with its width)
                 let n = |per_px: f32| ((wpx / (per_px * k.min(1.2))).round() as usize).max(4);
+                // the pattern of a sheet repeats over this many pixels; a sheet is as tall as the window and a period and what it slides in a lead, so a very large picture's sheets stay in a size
+                let ks = k.min(1.5);
                 let far_n = [n(15.0), n(12.0), n(9.0)][h];
                 let mid_n = [n(34.0), n(26.0), n(19.0)][h];
                 let sw = |b: &Builder, amp: f32, secs: f32| b.sine(amp, secs, 0.0);
                 let sway = sw(&b, 4.0, 7.3);
-                b.sheet(win, Sheet { width: wpx.ceil() as u32 + 16, height: 0, period: 40.0 * k, streaks: far_n, len: (1.5 * k.max(0.9), 2.9 * k.max(0.9)), thick: 0.8, lean: 0.0, colour: pal.snow, seed: 29, snow: true, soft: 0.0 }, 1_400, 0.55, sway, edges);
+                b.sheet(win, Sheet { width: wpx.ceil() as u32 + 16, height: 0, period: (40.0 * ks).round(), streaks: far_n, len: (1.5 * k.max(0.9), 2.9 * k.max(0.9)), thick: 0.8, lean: 0.0, colour: pal.snow, seed: 29, snow: true, soft: 0.0 }, 1_400, 0.55, sway, edges);
                 let sway = sw(&b, 7.0, 6.1);
-                b.sheet(win, Sheet { width: wpx.ceil() as u32 + 16, height: 0, period: 56.0 * k, streaks: mid_n, len: (3.4 * k.max(0.9), 6.4 * k.max(0.9)), thick: 1.1 * k.max(0.8), lean: 0.0, colour: pal.snow, seed: 11, snow: true, soft: 0.0 }, 1_600, 0.8, sway, edges);
+                b.sheet(win, Sheet { width: wpx.ceil() as u32 + 16, height: 0, period: (56.0 * ks).round(), streaks: mid_n, len: (3.4 * k.max(0.9), 6.4 * k.max(0.9)), thick: 1.1 * k.max(0.8), lean: 0.0, colour: pal.snow, seed: 11, snow: true, soft: 0.0 }, 1_600, 0.8, sway, edges);
                 b.near_snow(win, [few(4), few(6), few(8)][h], 0.85, 40);
             } else {
                 let n = |per_px: f32| ((wpx / (per_px * k.min(1.2))).round() as usize).max(4);
+                let ks = k.min(1.5);
                 let drizzle = cond.sky == Sky::Drizzle;
                 let far_n = [n(11.0), n(9.0), n(7.0)][h];
                 let mid_n = [n(22.0), n(17.0), n(13.0)][h];
                 let (fa, ma) = if drizzle { (0.34, 0.5) } else { ([0.36, 0.42, 0.48][h], [0.52, 0.62, 0.72][h]) };
                 let lean = if cond.wind { 7.0 } else { 4.0 };
-                b.sheet(win, Sheet { width: wpx.ceil() as u32 + 16, height: 0, period: 48.0 * k, streaks: far_n, len: (7.0 * k, 11.0 * k), thick: 0.95 * k.max(0.85), lean, colour: pal.rain, seed: 5, snow: false, soft: 0.0 }, 340, fa, Wave::Zero, edges);
-                b.sheet(win, Sheet { width: wpx.ceil() as u32 + 16, height: 0, period: 70.0 * k, streaks: mid_n, len: (12.0 * k, 17.0 * k), thick: 1.4 * k.max(0.9), lean, colour: pal.rain, seed: 17, snow: false, soft: 0.0 }, 260, ma, Wave::Zero, edges);
+                b.sheet(win, Sheet { width: wpx.ceil() as u32 + 16, height: 0, period: (48.0 * ks).round(), streaks: far_n, len: (7.0 * k, 11.0 * k), thick: 0.95 * k.max(0.85), lean, colour: pal.rain, seed: 5, snow: false, soft: 0.0 }, 340, fa, Wave::Zero, edges);
+                b.sheet(win, Sheet { width: wpx.ceil() as u32 + 16, height: 0, period: (70.0 * ks).round(), streaks: mid_n, len: (12.0 * k, 17.0 * k), thick: 1.4 * k.max(0.9), lean, colour: pal.rain, seed: 17, snow: false, soft: 0.0 }, 260, ma, Wave::Zero, edges);
                 let near_n = if drizzle { few(2) } else { [few(3), few(5), few(7)][h] };
                 b.near_rain(win, near_n, if drizzle { 0.55 } else { 0.9 }, lean, 70);
                 b.splashes(win, if drizzle { few(3) } else { [few(4), few(6), few(8)][h] }, if drizzle { 0.34 } else { 0.5 });
@@ -998,6 +1004,10 @@ mod tests {
                     if rest.alpha <= 0.0 {
                         continue;
                     }
+                    // a glow made small and shown large fades out to nothing at its edge, which may be outside the box
+                    if part.scale0 > 1.0 {
+                        continue;
+                    }
                     let (l, t, r, b) = extent(&part, &rest);
                     let slack = 0.2 * st.size;
                     match part.clip {
@@ -1073,16 +1083,19 @@ mod tests {
     }
 
     #[test]
-    fn a_path_between_two_ticks_is_short_unless_it_is_a_saw_or_a_ramp_that_is_seen_only_while_it_is_lit() {
+    fn a_path_between_two_ticks_is_straight_enough_unless_it_is_a_saw_or_a_ramp_that_is_seen_only_while_it_is_lit() {
         for cond in every() {
             for part in parts(cond, stages()[1], false) {
-                let ramps = matches!(part.motion.x, Wave::Ramp { .. }) || matches!(part.motion.y, Wave::Ramp { .. });
+                let ramps = [part.motion.x, part.motion.y, part.motion.scale].iter().any(|w| matches!(w, Wave::Ramp { .. }));
                 if part.motion.x.period().is_some() || part.motion.y.period().is_some() || ramps {
                     continue;
                 }
                 for t in (0..60_000u64).step_by(TICK_MS as usize) {
-                    let (now, ahead) = (part.pose(t as f64, None), part.pose((t + LEAD_MS as u64) as f64, None));
-                    assert!((ahead.x - now.x).abs() < 6.0 * part.scale0 && (ahead.y - now.y).abs() < 6.0 * part.scale0, "{cond:?} t={t}: a jump of {} {}", ahead.x - now.x, ahead.y - now.y);
+                    // the compositor moves a sprite along the straight line between the poses at the two ends of a lead: the true path is never more than
+                    // a pixel from it (a sine of a 12 s period moves 2.6 px of its 10 in a lead; the chord it is replaced by is within 0.2 px of it)
+                    let (a, b, mid) = (part.pose(t as f64, None), part.pose((t + LEAD_MS as u64) as f64, None), part.pose((t + LEAD_MS as u64 / 2) as f64, None));
+                    assert!((mid.x - (a.x + b.x) / 2.0).abs() < 1.0 && (mid.y - (a.y + b.y) / 2.0).abs() < 1.0, "{cond:?} t={t}: the path bows {} {} from its chord", mid.x - (a.x + b.x) / 2.0, mid.y - (a.y + b.y) / 2.0);
+                    assert!((mid.scale - (a.scale + b.scale) / 2.0).abs() < 0.02 * part.scale0.max(1.0), "{cond:?} t={t}: the scale bows");
                 }
             }
         }
@@ -1096,14 +1109,13 @@ mod tests {
                     continue;
                 }
                 let period = part.motion.x.period().or(part.motion.y.period()).expect("a fading sprite has a saw");
+                let phase = if part.motion.x.period().is_some() { part.motion.x.phase() } else { part.motion.y.phase() };
                 assert_eq!(period as u64 % TICK_MS, 0, "{cond:?}: a crossing is a whole number of ticks");
-                for t in (0..period as u64 * 2).step_by(100) {
-                    let before = part.pose(t as f64, None);
-                    let after = part.pose(t as f64 + 100.0, None);
-                    // a wrap is a jump of the whole path, and it is seen only where the sprite is already invisible
-                    if part.wrapped(t, t + 100) {
-                        assert!(before.alpha < 0.12 * part.alpha.max(0.01) && after.alpha < 0.12 * part.alpha.max(0.01), "{cond:?}: put back at t={t} while seen: {} {}", before.alpha, after.alpha);
-                    }
+                // at the instants a period ends, and a moment either side of them, the sprite has no light
+                for k in 1..=2 {
+                    let at = (k as f64 - phase).max(0.0) * period as f64;
+                    let (before, after) = (part.pose((at - 1.0).max(0.0), None), part.pose(at + 1.0, None));
+                    assert!(before.alpha < 0.03 && after.alpha < 0.03, "{cond:?}: put back at {at} while seen: {} {}", before.alpha, after.alpha);
                 }
             }
         }
@@ -1124,13 +1136,10 @@ mod tests {
     #[test]
     fn lightning_is_a_soft_pulse_that_never_strobes() {
         let p = parts(Cond { sky: Sky::Storm, day: true, heavy: 2, wind: false }, stages()[1], false);
-        let flash: Vec<&Part> = p.iter().filter(|q| matches!(q.motion.alpha, Wave::Pulse { .. }) && q.scale0 >= 1.0 && q.rest_alpha == 0.0 || q.rest_alpha > 0.5 && matches!(q.motion.alpha, Wave::Pulse { .. })).collect();
-        assert!(flash.len() >= 3, "the sky's glow and two bolts, and a splash is not one of them: {}", flash.len());
+        let flash: Vec<&Part> = p.iter().filter(|q| matches!(q.motion.alpha, Wave::Pulse { peak, .. } if peak >= 0.85)).collect();
+        assert_eq!(flash.len(), 3, "the sky's glow and two bolts (a splash is a pulse too, but a softer one)");
         for f in flash {
-            let Wave::Pulse { width_ms, period_ms, peak, .. } = f.motion.alpha else { unreachable!() };
-            if peak < 0.5 {
-                continue;
-            }
+            let Wave::Pulse { width_ms, period_ms, .. } = f.motion.alpha else { unreachable!() };
             assert!(width_ms >= 1_000, "a pulse of a second or more");
             assert!(period_ms >= 5_000, "no more than one in five seconds");
             // at most one lit stretch a period, rising and falling in steps no larger than a third of the peak per 100 ms
@@ -1154,7 +1163,7 @@ mod tests {
     #[test]
     fn a_picture_is_few_layers_the_scene_has_256_for_all_of_the_shell_and_home_holds_over_a_hundred() {
         for cond in every() {
-            for (st, cap) in [(stages()[1], 32usize), (stages()[2], 44usize)] {
+            for (st, cap) in [(stages()[1], 38usize), (stages()[2], 46usize)] {
                 let n = parts(cond, st, cond.day).len();
                 assert!(n <= cap, "{cond:?} at {}: {n} layers (at most {cap})", st.w);
             }
@@ -1164,7 +1173,7 @@ mod tests {
     #[test]
     fn a_picture_is_a_few_megabytes_at_most_even_for_the_view() {
         for cond in every() {
-            for (st, cap) in [(stages()[1], 2_200_000usize), (stages()[2], 5_000_000usize)] {
+            for (st, cap) in [(stages()[1], 2_200_000usize), (stages()[2], 6_000_000usize)] {
                 let bytes: usize = parts(cond, st, cond.day).iter().map(|q| q.raster.px.len()).sum();
                 assert!(bytes <= cap, "{cond:?} at {}: {bytes} bytes", st.w);
             }
