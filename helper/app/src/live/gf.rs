@@ -18,6 +18,7 @@ pub const UNLOAD: u8 = 5;
 pub const STATE: u8 = 6;
 pub const PING: u8 = 8;
 pub const APP: u8 = 9;
+pub const TEXTURE: u8 = 10;
 pub const LOADED: u8 = 16;
 pub const EVENT: u8 = 17;
 pub const ACCEPT: u8 = 18;
@@ -385,6 +386,15 @@ impl Client {
     /// The app id NDL is opened for from the next load on; empty is the window's own (`GF_APP`).
     pub fn send_app(&mut self, app: &str) -> io::Result<()> {
         self.send(APP, app.as_bytes())
+    }
+
+    /// The picture of the next load is decoded in the feeder and painted into its window's buffers at `width` x `height` (`GF_TEXTURE`); 0 x 0 is the
+    /// pipeline again. The compositor stretches the buffer over the claim's rectangle, so the size is the picture's own, not the box's.
+    pub fn send_texture(&mut self, width: u32, height: u32) -> io::Result<()> {
+        let mut payload = [0u8; 8];
+        payload[..4].copy_from_slice(&width.to_le_bytes());
+        payload[4..].copy_from_slice(&height.to_le_bytes());
+        self.send(TEXTURE, &payload)
     }
 
     pub fn send_ping(&mut self, echo: i64) -> io::Result<()> {

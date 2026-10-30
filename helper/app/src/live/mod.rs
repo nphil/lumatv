@@ -178,6 +178,9 @@ pub struct Plan {
     /// The app id the decoder is opened for (`GF_APP`): empty is the video window's own. LG's video path connects a video to its sink only for an
     /// app on SAM's foreground list, which the window's own id is not (docs/research/camera-popup-result.md).
     pub ndl_app: String,
+    /// The picture is decoded in the feeder and drawn by the compositor as a texture (a claim the windows could not carry, `slot texture`): no pipeline,
+    /// no app id, no video plane (`gfn/feeder/src/gf_swdec.c`).
+    pub texture: bool,
     /// What the stream is for, in words for the log (`popup 41`); empty for the full view.
     pub purpose: String,
     /// The window type of the feeder this stream plays in (`video`: the compositor's own video window, played on once a claim is granted to it); empty:
@@ -959,6 +962,7 @@ struct Playing {
     rate: u8,
     expect: Option<StreamInfo>,
     ndl_app: String,
+    texture: bool,
     purpose: String,
     window: String,
 }
@@ -1209,6 +1213,7 @@ impl Live {
                 rate: plan.rate.max(1),
                 expect: want,
                 ndl_app: plan.ndl_app.clone(),
+                texture: plan.texture,
                 purpose: plan.purpose.clone(),
                 window: plan.window.clone(),
             }),
@@ -1271,6 +1276,7 @@ impl Live {
         let playing = session.playing.lock();
         playing.camera == plan.camera
             && playing.ndl_app == plan.ndl_app
+            && playing.texture == plan.texture
             && playing.window == plan.window
             && match (playing.expect, want) {
                 (Some(loaded), Some(want)) => loaded.same_pipeline(&want),
@@ -1291,6 +1297,7 @@ impl Live {
             playing.started_at = plan.started_at;
             playing.rate = plan.rate.max(1);
             playing.ndl_app.clone_from(&plan.ndl_app);
+            playing.texture = plan.texture;
             playing.purpose.clone_from(&plan.purpose);
             playing.window.clone_from(&plan.window);
             if let Some(want) = stream_of(&plan) {
@@ -1488,12 +1495,26 @@ impl Drop for Answers {
 }
 
 /// Loads the pipeline with `info` in the leased feeder, for the app named (empty: the video window's own).
-fn load(lease: &mut Lease, info: StreamInfo, ndl_app: &str) -> Result<(), String> {
+/// The size of the picture the feeder paints for a texture: the stream's own, scaled down to fit 640x360 (a camera's second stream is that or less; a
+/// larger one is halved by the feeder before it is stretched over the claim's rectangle, which at the UI's 1920x1080 is about the box's own size).
+pub fn texture_size(width: u32, height: u32) -> (u32, u32) {
+    const FIT: (u32, u32) = (640, 360);
+    if width == 0 || height == 0 {
+        return FIT;
+    }
+    let scale = (f64::from(FIT.0) / f64::from(width)).min(f64::from(FIT.1) / f64::from(height)).min(1.0);
+    let even = |v: f64| ((v * scale).round() as u32).max(16) & !1;
+    (even(f64::from(width)), even(f64::from(height)))
+}
+
+fn load(lease: &mut Lease, info: StreamInfo, ndl_app: &str, texture: bool) -> Result<(), String> {
     let codec = match info.codec {
         Codec::H264 => gf::CODEC_H264,
         Codec::H265 => gf::CODEC_H265,
     };
     let client = &mut lease.feeder().client;
+    let (tw, th) = if texture { texture_size(info.width, info.height) } else { (0, 0) };
+    client.send_texture(tw, th).map_err(|e| e.to_string())?;
     client.send_app(ndl_app).map_err(|e| e.to_string())?;
     client
         .send_load(codec, info.width, info.height, info.fps)
@@ -1581,12 +1602,12 @@ fn write_session(inner: &Arc<Inner>, pool: &Arc<Pool>, session: &Arc<Session>) {
 fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease) -> bool {
     let mut loaded: Option<StreamInfo> = None;
     // the load the bridge's description allows is started before the stream is dialled
-    let (expect, ndl_app) = {
+    let (expect, ndl_app, texture) = {
         let playing = session.playing.lock();
-        (playing.expect, playing.ndl_app.clone())
+        (playing.expect, playing.ndl_app.clone(), playing.texture)
     };
     if let Some(info) = expect {
-        if let Err(why) = load(lease, info, &ndl_app) {
+        if let Err(why) = load(lease, info, &ndl_app, texture) {
             fail(inner, session, &why);
             return false;
         }
@@ -1632,7 +1653,7 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease) -> bool {
                     if lease.loaded {
                         let _ = lease.feeder().client.send_unload();
                     }
-                    if let Err(why) = load(lease, info, &ndl_app) {
+                    if let Err(why) = load(lease, info, &ndl_app, texture) {
                         fail(inner, session, &why);
                         return false;
                     }
@@ -1666,7 +1687,7 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease) -> bool {
                         ..info
                     };
                     let _ = lease.feeder().client.send_unload();
-                    if let Err(why) = load(lease, changed, &ndl_app) {
+                    if let Err(why) = load(lease, changed, &ndl_app, texture) {
                         fail(inner, session, &why);
                         return false;
                     }
@@ -2171,6 +2192,19 @@ mod tests {
     }
 
     #[test]
+    fn a_texture_is_the_streams_own_size_scaled_to_fit_640_by_360_and_even() {
+        assert_eq!(texture_size(1280, 720), (640, 360));
+        assert_eq!(texture_size(1920, 1080), (640, 360));
+        assert_eq!(texture_size(640, 360), (640, 360));
+        assert_eq!(texture_size(320, 180), (320, 180), "a small stream is not made larger");
+        assert_eq!(texture_size(640, 480), (480, 360), "the aspect is kept");
+        assert_eq!(texture_size(3840, 2160), (640, 360));
+        assert_eq!(texture_size(0, 0), (640, 360), "a stream that has not said its size");
+        let (w, h) = texture_size(721, 405);
+        assert!(w % 2 == 0 && h % 2 == 0 && w <= 640 && h <= 360, "{w}x{h}");
+    }
+
+    #[test]
     fn a_plan_names_what_the_pipeline_is_loaded_with_only_when_it_says_enough() {
         let mut plan = Plan {
             camera: "273".into(),
@@ -2183,6 +2217,7 @@ mod tests {
             started_at: 0,
             rate: 1,
             ndl_app: String::new(),
+            texture: false,
             purpose: String::new(),
             window: String::new(),
             on_end: None,

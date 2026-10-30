@@ -2599,7 +2599,7 @@ verb_vplane() {
 # The camera feeder. Installed means its program is staged where the helper starts it and its role is written; without it the cameras draw pictures
 # only, which is no fault anywhere.
 feeder_json() {
-  [ -f "$FEEDER_SH" ] && sh "$FEEDER_SH" status "$STATE" 2>/dev/null < /dev/null | tr -d '\n' || printf '{"installed":false,"role":false}'
+  [ -f "$FEEDER_SH" ] && sh "$FEEDER_SH" status "$STATE" 2>/dev/null < /dev/null | tr -d '\n' || printf '{"installed":false,"role":false,"texture":false}'
 }
 
 feeder_installed() {

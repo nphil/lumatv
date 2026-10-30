@@ -19,7 +19,11 @@ zig cc -target x86_64-linux-gnu.2.36 -O1 -g -Wall -Wextra -Werror -fsanitize=und
 for t in arm host; do
   rm -rf "$out/$t/lib"
   mkdir -p "$out/$t/lib"
-  cp -a "$out/ffmpeg/$t/lib"/lib*-lumatv.so.* "$out/$t/lib/"
+  # the soname files only (libavcodec-lumatv.so.63), as plain files: the package stages what it finds, and a link would be a second copy
+  for f in "$out/ffmpeg/$t/lib"/lib*-lumatv.so.*; do
+    case $(basename "$f") in *.so.*.*) continue ;; esac
+    cp -L "$f" "$out/$t/lib/"
+  done
 done
 zig cc -target x86_64-linux-gnu.2.36 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined,address -fno-sanitize-recover=undefined -I$here/src -o "$out/host/yuv_test" "$here/tests/yuv_test.c" "$here/src/gf_yuv.c"
 # what a picture costs as a texture, in CPU time: for the host here and for the set (tests/swdec_bench.c; the set's number is the TV check's)

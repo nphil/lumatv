@@ -123,6 +123,7 @@ payload/vplane/vplane.sh
 payload/vplane/role.json
 payload/vplane/clips/index.json
 gfn/feeder/build/arm/lumatv-gfn-feeder
+gfn/feeder/build/arm/lib
 payload/feeder/feeder.sh
 payload/feeder/role.json
 tools/cardapp.sh
@@ -368,6 +369,9 @@ chmod 755 "$DATA_ROOT/payload/vplane/lumatv-vplane" "$DATA_ROOT/payload/vplane/v
 mkdir -p "$DATA_ROOT/payload/feeder"
 cp gfn/feeder/build/arm/lumatv-gfn-feeder payload/feeder/feeder.sh payload/feeder/role.json "$DATA_ROOT/payload/feeder/"
 chmod 755 "$DATA_ROOT/payload/feeder/lumatv-gfn-feeder" "$DATA_ROOT/payload/feeder/feeder.sh"
+# ... and the decoder libraries of its texture path (FFmpeg's H.264 and H.265 decoders, LGPL, shared: `lib/` beside the program; feeder.sh stages them)
+mkdir -p "$DATA_ROOT/payload/feeder/lib"
+cp gfn/feeder/build/arm/lib/lib*-lumatv.so.* "$DATA_ROOT/payload/feeder/lib/"
 mkdir -p "$DATA_ROOT/payload/frame"
 cp "$BUILD_DIR/frame-ipk/$APP_ID.frame.ipk" "$DATA_ROOT/payload/frame/"
 mkdir -p "$DATA_ROOT/payload/card"

@@ -44,6 +44,8 @@ struct Usage {
     ndl_app: String,
     /// The window type of the feeder it plays in (empty: the configured one).
     window: String,
+    /// The compositor gave the picture a texture, not a window: the feeder decodes it and paints its window (`live::Plan::texture`).
+    texture: bool,
     /// The quality asked for (`native`, `balanced`, `light`), for the log.
     quality: String,
 }
@@ -560,6 +562,7 @@ impl Inner {
             started_at: dial.started_at,
             rate: dial.rate,
             ndl_app: usage.ndl_app,
+            texture: usage.texture,
             purpose: usage.purpose,
             window: usage.window,
             on_end: end_session(&dial),
@@ -611,6 +614,7 @@ impl Inner {
                     purpose,
                     ndl_app: ndl_app_for(&self.config.ndl_app, window),
                     window: self.config.popup_window.clone(),
+                    texture,
                     quality: quality.clone(),
                 };
                 self.start_stream_for(&camera, Mode::Live, usage, |bridge| {
@@ -630,6 +634,7 @@ impl Inner {
                     purpose: "full view".to_owned(),
                     ndl_app: ndl_app_for(&self.config.ndl_app, window),
                     window: self.config.popup_window.clone(),
+                    texture: false,
                     quality: quality.clone(),
                 };
                 self.start_stream_for(&camera, Mode::Live, usage, |bridge| {

@@ -96,7 +96,7 @@ class Script(unittest.TestCase):
             manifest = json.load(f)
         self.assertEqual((manifest["id"], manifest["roleFiles"]), ("org.nphil.lumatv.feeder", [self.role_path()]))
         self.assertEqual(self.rescans(), ["scan-volatile-dirs", "scan-services"])
-        self.assertEqual(self.status(), {"installed": True, "role": True})
+        self.assertEqual(self.status(), {"installed": True, "role": True, "texture": False})
 
     def test_the_role_names_what_the_decoder_library_registers_as_the_players_does(self):
         with open(ROLE) as f:
@@ -128,7 +128,7 @@ class Script(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertFalse(os.path.exists(self.exe()))
         self.assertFalse(os.path.exists(self.role_path()))
-        self.assertEqual(self.status(), {"installed": False, "role": False})
+        self.assertEqual(self.status(), {"installed": False, "role": False, "texture": False})
 
     def test_remove_takes_the_program_the_role_and_the_manifest_away_and_rescans_once(self):
         self.install()
@@ -139,6 +139,39 @@ class Script(unittest.TestCase):
         self.assertEqual(len(self.rescans()), before + 2)
         self.run_sh("remove", self.state)
         self.assertEqual(len(self.rescans()), before + 2, "nothing was there: the hub is not asked again")
+
+    def libs(self, where, version="1"):
+        """The decoder libraries of the texture path in a package directory's `lib/`."""
+        os.makedirs(os.path.join(where, "lib"), exist_ok=True)
+        for name in ("libavcodec-lumatv.so.63", "libavutil-lumatv.so.61"):
+            self.write(os.path.join(where, "lib", name), "lib %s %s\n" % (name, version))
+
+    def staged_libs(self):
+        d = os.path.join(self.state, "bin", "lib")
+        return {n: open(os.path.join(d, n)).read() for n in sorted(os.listdir(d))} if os.path.isdir(d) else {}
+
+    def test_the_decoder_libraries_beside_the_package_s_program_are_staged_beside_the_staged_one_and_reported(self):
+        self.libs(self.tmp)                                    # the package: <tmp>/package-feeder and <tmp>/lib/*
+        self.assertEqual(self.install().returncode, 0)
+        self.assertEqual(sorted(self.staged_libs()), ["libavcodec-lumatv.so.63", "libavutil-lumatv.so.61"])
+        self.assertEqual(self.status(), {"installed": True, "role": True, "texture": True})
+        self.assertEqual(len(self.rescans()), 2, "the libraries need no role: the hub is asked once, for the program's")
+        # an update with changed libraries stages them, an unchanged one writes nothing new, and no .new file is left
+        before = os.stat(os.path.join(self.state, "bin", "lib", "libavutil-lumatv.so.61")).st_mtime_ns
+        self.assertEqual(self.run_sh("update", self.package, self.state).returncode, 0)
+        self.assertEqual(os.stat(os.path.join(self.state, "bin", "lib", "libavutil-lumatv.so.61")).st_mtime_ns, before)
+        self.libs(self.tmp, "2")
+        self.assertEqual(self.run_sh("update", self.package, self.state).returncode, 0)
+        self.assertIn("lib libavutil-lumatv.so.61 2", self.staged_libs()["libavutil-lumatv.so.61"])
+        self.assertEqual([n for n in os.listdir(os.path.join(self.state, "bin", "lib")) if n.endswith(".new")], [])
+        # remove takes them away too
+        self.run_sh("remove", self.state)
+        self.assertFalse(os.path.exists(os.path.join(self.state, "bin", "lib")))
+
+    def test_a_package_without_libraries_installs_a_feeder_that_has_no_texture_path(self):
+        self.assertEqual(self.install().returncode, 0)
+        self.assertEqual(self.staged_libs(), {})
+        self.assertEqual(self.status()["texture"], False)
 
     def test_a_package_without_the_program_or_the_template_writes_nothing(self):
         done = self.run_sh("install", os.path.join(self.tmp, "missing"), ROLE, self.state)
@@ -181,12 +214,12 @@ class Verb(Script):
 
     def test_install_status_and_remove_are_the_verbs_and_status_is_the_default(self):
         rc, out = self.sh("verb_feeder")
-        self.assertEqual((rc, json.loads(out)), (0, {"ok": True, "feeder": {"installed": False, "role": False}}))
+        self.assertEqual((rc, json.loads(out)), (0, {"ok": True, "feeder": {"installed": False, "role": False, "texture": False}}))
         rc, out = self.sh("verb_feeder install")
-        self.assertEqual((rc, json.loads(out)), (0, {"ok": True, "feeder": {"installed": True, "role": True}}))
+        self.assertEqual((rc, json.loads(out)), (0, {"ok": True, "feeder": {"installed": True, "role": True, "texture": False}}))
         self.assertTrue(os.path.exists(self.role_path()))
         rc, out = self.sh("verb_feeder remove")
-        self.assertEqual((rc, json.loads(out)), (0, {"ok": True, "feeder": {"installed": False, "role": False}}))
+        self.assertEqual((rc, json.loads(out)), (0, {"ok": True, "feeder": {"installed": False, "role": False, "texture": False}}))
         self.assertFalse(os.path.exists(self.role_path()))
 
     def test_install_and_remove_wait_for_the_lock_and_say_so_when_they_cannot_have_it(self):

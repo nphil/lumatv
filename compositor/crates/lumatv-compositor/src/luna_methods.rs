@@ -7,7 +7,7 @@ use wayland_server::Resource;
 
 use crate::State;
 use crate::luna::{Event, Inbound, Outbound, Reply, ToBridge, power};
-use crate::window::WindowType;
+use crate::window::{WindowId, WindowType};
 
 pub struct Subscription {
     pub token: u64,
@@ -421,8 +421,40 @@ impl State {
                 self.push_with_group(w, &mut items);
             }
         }
-        let infos: Vec<Value> = items.into_iter().filter(|w| !w.app_id().is_empty()).map(|w| self.foreground_item(w)).collect();
+        let mut infos: Vec<Value> = items.into_iter().filter(|w| !w.app_id().is_empty()).map(|w| self.foreground_item(w)).collect();
+        if !system_ui {
+            self.multiview_foreground(&mut infos);
+        }
         json!({"returnValue": true, "mode": "normal", "foregroundAppInfo": infos})
+    }
+
+    /// The experiment `ctl vwin fg APP` (docs/research/multiview-result.md): while a claim plays in a hardware window, `APP` is on the list beside the
+    /// card in front, and both are marked as the two apps of a side-by-side Multi View (`multiview`, `primary`, `viewType` `mvsxs`, `order`), the way
+    /// LG's compositor lists them (`StarfishForegroundAppInfoMgr.qml`). The media server takes its foreground pipelines from this list (SAM republishes it),
+    /// so a decoder opened for `APP` is a foreground one beside the front app's, and not the same app's second. Nothing is listed when the card in front
+    /// is `APP` itself, when no claim plays in a window (a texture is not a video), or when the switch is off.
+    fn multiview_foreground(&self, infos: &mut Vec<Value>) {
+        let Some(app) = self.vwin.fg_app.as_deref() else { return };
+        let playing = self.vwin.alloc.granted().filter(|c| !c.texture).find_map(|c| {
+            let w = c.window.and_then(|w| self.scene.window(WindowId(w)))?;
+            (w.vwin_live && w.map_serial > 0).then_some(w)
+        });
+        let Some(window) = playing else { return };
+        let fullscreen = |i: &Value| i.get("viewType").is_some();
+        if infos.iter().any(|i| i["appId"] == app) || !infos.iter().any(fullscreen) {
+            return;
+        }
+        for (order, item) in infos.iter_mut().filter(|i| fullscreen(i)).enumerate() {
+            let o = item.as_object_mut().unwrap();
+            for (k, v) in [("multiview", json!(true)), ("primary", json!(order == 0)), ("viewType", json!("mvsxs")), ("order", json!(order))] {
+                o.insert(k.into(), v);
+            }
+        }
+        let order = infos.iter().filter(|i| fullscreen(i)).count();
+        infos.push(json!({
+            "appId": app, "displayId": 0, "processId": self.window_pid(window), "windowType": "_WEBOS_WINDOW_TYPE_CARD", "windowGroup": false, "params": {},
+            "multiview": true, "pip": false, "primary": false, "viewType": "mvsxs", "order": order,
+        }));
     }
 
     /// `w` with the mapped windows attached to the group it owns: those below it (negative z) first, those above it after. A member

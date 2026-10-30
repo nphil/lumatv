@@ -362,6 +362,44 @@ fn a_texture_claim_beside_an_app_that_plays_is_the_feeders_buffer_stretched_over
     std::mem::forget((pwin, pbuf, green, fwin));
 }
 
+fn foreground(server: &Server) -> Vec<Value> {
+    let info = server.eval(|s| s.luna_method("com.webos.surfacemanager", "getForegroundAppInfo", &json!({}), "com.webos.applicationManager").unwrap());
+    info["foregroundAppInfo"].as_array().unwrap().clone()
+}
+
+#[test]
+fn the_foreground_list_names_the_second_app_of_a_multi_view_only_while_a_claim_plays_in_a_window_and_the_switch_is_on() {
+    let mut server = Server::start();
+    let _app = app(&mut server, "Bg", 0xffff_0000);
+    set_mode(&server, Mode::Apps);
+    let list = foreground(&server);
+    assert_eq!((list.len(), list[0]["multiview"].as_bool(), list[0]["viewType"].as_str()), (1, Some(false), Some("normal")), "{list:?}");
+
+    // switched on, nothing plays: the list is the card's alone
+    let r = server.eval(|s| s.vwin_ctl(&["fg", "com.webos.app.home"]));
+    assert_eq!((r["ok"].as_bool(), r["vwin"]["fgApp"].as_str()), (Some(true), Some("com.webos.app.home")), "{r}");
+    assert_eq!(foreground(&server).len(), 1);
+
+    // a claim plays in a window: the card is the primary app of a side by side Multi View and the feeder's decoder app is its second
+    let _feeder = feeder(&mut server, "Cameras", "_ctx_cam");
+    let reply = ask(&server, claim("cam", "camera-popup", "org.test.cameras", POPUP));
+    assert_eq!(reply["claim"]["slot"], "main", "{reply}");
+    let list = foreground(&server);
+    assert_eq!(list.len(), 2, "{list:?}");
+    assert_eq!((list[0]["multiview"].as_bool(), list[0]["primary"].as_bool(), list[0]["viewType"].as_str(), list[0]["order"].as_u64()), (Some(true), Some(true), Some("mvsxs"), Some(0)));
+    assert_eq!(list[1]["appId"], "com.webos.app.home");
+    assert_eq!((list[1]["multiview"].as_bool(), list[1]["primary"].as_bool(), list[1]["viewType"].as_str(), list[1]["order"].as_u64()), (Some(true), Some(false), Some("mvsxs"), Some(1)));
+    assert_eq!(list[1]["windowType"], CARD);
+
+    // the app that is in front is not listed twice, a bad id is refused, and off puts the list back
+    let r = server.eval(|s| s.vwin_ctl(&["fg", "no spaces"]));
+    assert_eq!(r["ok"], false, "{r}");
+    let r = server.eval(|s| s.vwin_ctl(&["fg", "off"]));
+    assert_eq!(r["vwin"]["fgApp"], Value::Null);
+    let list = foreground(&server);
+    assert_eq!((list.len(), list[0]["multiview"].as_bool(), list[0]["viewType"].as_str()), (1, Some(false), Some("normal")), "{list:?}");
+}
+
 #[test]
 fn a_video_window_is_not_where_the_pointer_lands() {
     let mut server = Server::start();

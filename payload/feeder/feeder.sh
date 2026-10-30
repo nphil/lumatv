@@ -26,8 +26,24 @@ rescan() {
   ls-control scan-services >/dev/null 2>&1 || true
 }
 
+# The decoder libraries of the texture path (a camera's picture decoded in the feeder when no video window is free) sit in `lib/` beside the program, from
+# the package's own `lib/` beside BIN: libavcodec-lumatv.so.N and libavutil-lumatv.so.N (gfn/feeder/third_party/build-ffmpeg.sh). Staged like the program: a
+# running feeder keeps the files it has open, a new file takes the name.
+stage_libs() { # stage_libs BIN STATE
+  src=$(dirname "$1")/lib
+  [ -d "$src" ] || return 0
+  mkdir -p "$2/bin/lib" || { echo "feeder: could not make $2/bin/lib" >&2; return 1; }
+  for f in "$src"/lib*-lumatv.so.*; do
+    [ -f "$f" ] || continue
+    dst="$2/bin/lib/$(basename "$f")"
+    cmp -s "$f" "$dst" 2>/dev/null && continue
+    cp -f "$f" "$dst.new" && chmod 644 "$dst.new" && mv -f "$dst.new" "$dst" || { rm -f "$dst.new"; echo "feeder: could not stage $f" >&2; return 1; }
+  done
+}
+
 stage() { # stage BIN STATE: the binary where the helper starts it; a running one keeps its own file, the new one takes the name
   bin=$1 exe="$2/bin/$NAME"
+  stage_libs "$bin" "$2" || return 1
   cmp -s "$bin" "$exe" 2>/dev/null && return 0
   mkdir -p "$2/bin" && cp -f "$bin" "$exe.new" && chmod 755 "$exe.new" && mv -f "$exe.new" "$exe" \
     || { rm -f "$exe.new"; echo "feeder: could not stage the binary" >&2; return 1; }
@@ -62,6 +78,7 @@ remove_cmd() {
   had=0
   [ -e "$ROLE" ] || [ -e "$MANIFEST" ] && had=1
   rm -f "$MANIFEST" "$MANIFEST.new" "$ROLE" "$ROLE.new" "$state/bin/$NAME" "$state/bin/$NAME.new"
+  rm -rf "$state/bin/lib"
   [ "$had" = 1 ] && rescan
   return 0
 }
@@ -71,7 +88,9 @@ status_cmd() {
   inst=false role=false
   [ -x "$state/bin/$NAME" ] && inst=true
   [ -e "$ROLE" ] && [ -e "$MANIFEST" ] && role=true
-  printf '{"installed":%s,"role":%s}\n' "$inst" "$role"
+  tex=false
+  ls "$state"/bin/lib/libavcodec-lumatv.so.* >/dev/null 2>&1 && ls "$state"/bin/lib/libavutil-lumatv.so.* >/dev/null 2>&1 && tex=true
+  printf '{"installed":%s,"role":%s,"texture":%s}\n' "$inst" "$role" "$tex"
 }
 
 case "$1" in

@@ -819,6 +819,10 @@ pub struct Vwin {
     gone: Vec<(String, u64)>,
     /// How long apart a claim's video is placed again (nanoseconds); a test makes it long or nothing.
     pub replace_gap_ns: u64,
+    /// The experiment of `docs/research/multiview-result.md` (`ctl vwin fg APP`): while a claim plays in a hardware window, this app is listed on the
+    /// foreground list beside the card in front, as the sub app of a Multi View, the way LG's compositor lists the two apps of its own. The decoder of the
+    /// feeder is opened for this app (`cameras.ndlApp`). Off (none) unless a TV round asks for it.
+    pub fg_app: Option<String>,
 }
 
 impl Vwin {
@@ -832,6 +836,7 @@ impl Vwin {
             replaced: std::collections::BTreeMap::new(),
             gone: Vec::new(),
             replace_gap_ns: REPLACE_GAP_NS,
+            fg_app: None,
         }
     }
 }
@@ -993,6 +998,10 @@ impl crate::State {
         if topic != self.vwin.last_topic {
             self.vwin.last_topic = topic;
             self.shell_sync_topics();
+            if self.vwin.fg_app.is_some() {
+                // the foreground list lists the claim's app while the claim plays in a window (`luna_methods.rs`)
+                self.luna_notify();
+            }
         }
     }
 
@@ -1139,6 +1148,7 @@ impl crate::State {
             "wall": world.wall, "wallBoth": world.wall_wide, "standby": world.standby,
         });
         r["sinks"] = self.vwin.sinks.json();
+        r["fgApp"] = self.vwin.fg_app.clone().map_or(Value::Null, Value::String);
         r["elements"] = self.vwin_elements_json();
         r["subscribed"] = self.vwin.status_token.is_some().into();
         r["windows"] = Value::Array(
@@ -1153,7 +1163,7 @@ impl crate::State {
         );
         r["stats"] = json!({
             "granted": self.vwin.stats.granted, "denied": self.vwin.stats.denied, "ended": self.vwin.stats.ended, "released": self.vwin.stats.released,
-            "windowsClosed": self.vwin.stats.windows_closed,
+            "windowsClosed": self.vwin.stats.windows_closed, "textures": self.vwin.stats.textures,
         });
         r["limits"] = json!({
             "main": {"h264": [4096, 2304, 60], "h265": [4096, 2304, 120]},
@@ -1351,7 +1361,7 @@ impl crate::State {
         }
     }
 
-    /// `ctl vwin ...` as words: no word reads; `off|idle|apps` switches; `texture on|off`; `slots N`; `claim ID KIND X Y W H [APP] [CODEC] [WxH@FPS]`; `move ID X Y W H`;
+    /// `ctl vwin ...` as words: no word reads; `off|idle|apps` switches; `texture on|off`; `fg APP|off`; `slots N`; `claim ID KIND X Y W H [APP] [CODEC] [WxH@FPS]`; `move ID X Y W H`;
     /// `release ID|all`.
     pub fn vwin_ctl(&mut self, words: &[&str]) -> Value {
         let ask = |s: &mut Self, v: Value| {
@@ -1380,6 +1390,18 @@ impl crate::State {
                 self.config.vwin.texture = on;
                 self.journal(format!("vwin: textures {}", if on { "on" } else { "off" }));
                 self.vwin_sync();
+                json!({"ok": true, "vwin": self.vwin_report()})
+            }
+            ["fg", "off"] => {
+                self.vwin.fg_app = None;
+                self.journal("vwin: the foreground list is the front card's alone again".to_string());
+                self.luna_notify();
+                json!({"ok": true, "vwin": self.vwin_report()})
+            }
+            ["fg", app] if app.len() <= 128 && app.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')) => {
+                self.vwin.fg_app = Some((*app).to_string());
+                self.journal(format!("vwin: {app} is listed as the sub app of a Multi View while a claim plays in a window"));
+                self.luna_notify();
                 json!({"ok": true, "vwin": self.vwin_report()})
             }
             ["slots", n] => match n.parse::<usize>().ok().filter(|n| (1..=MAX_SLOTS).contains(n)) {
@@ -1421,7 +1443,7 @@ impl crate::State {
             }
             ["release", "all"] => ask(self, json!({"op": "releaseAll"})),
             ["release", id] => ask(self, json!({"op": "release", "id": id})),
-            _ => json!({"ok": false, "error": "vwin [off|idle|apps | texture on|off | slots N | claim ID camera-full|camera-popup|pip X Y W H [APP] [CODEC] [WxH@FPS] | move ID X Y W H | release ID|all]"}),
+            _ => json!({"ok": false, "error": "vwin [off|idle|apps | texture on|off | fg APP|off | slots N | claim ID camera-full|camera-popup|pip X Y W H [APP] [CODEC] [WxH@FPS] | move ID X Y W H | release ID|all]"}),
         }
     }
 }
