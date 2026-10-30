@@ -70,6 +70,7 @@ pub struct RadarPage {
     z: i32,
     _map_glass: GlassLayer,
     map: Option<ImageLayer>,
+    globe: Option<ImageLayer>,
     frames: HashMap<(i64, u32), (ImageLayer, Kind, Props)>,
     shown: Option<(i64, u32)>,
     _pin: ShapeLayer,
@@ -118,7 +119,7 @@ impl RadarPage {
                 (Frame::new(48.0, 12.0, 900.0, body_h), role_style(kit, TypeRole::Body, Some(Weight::SemiBold), ink, Align::Left), String::new()),
                 (Frame::new(bar_f.w - 48.0 - 640.0, 12.0, 640.0, body_h), role_style(kit, TypeRole::Caption, None, ink2, Align::Right), String::new()),
                 (Frame::new(48.0, bar_f.h - 14.0 - cap_h, 220.0, cap_h), role_style(kit, TypeRole::Caption, None, ink2, Align::Left), String::new()),
-                (Frame::new(bar_f.w / 2.0 - 400.0, bar_f.h - 14.0 - cap_h, 800.0, cap_h), role_style(kit, TypeRole::Caption, None, ink2, Align::Centre), String::new()),
+                (Frame::new(bar_f.w / 2.0 - 500.0, bar_f.h - 14.0 - cap_h, 1000.0, cap_h), role_style(kit, TypeRole::Caption, None, ink2, Align::Centre), String::new()),
                 (Frame::new(bar_f.w - 48.0 - 220.0, bar_f.h - 14.0 - cap_h, 220.0, cap_h), role_style(kit, TypeRole::Caption, None, ink2, Align::Right), String::new()),
             ],
         )?;
@@ -127,6 +128,7 @@ impl RadarPage {
             z,
             _map_glass: map_glass,
             map: None,
+            globe: None,
             frames: HashMap::new(),
             shown: None,
             _pin: pin,
@@ -204,6 +206,21 @@ impl RadarPage {
         if let Some(p) = home.radar.take_map() {
             self.make_map(kit, p)?;
         }
+        // the globe: one layer of the helper's picture, centred in the card, replaced when a new one comes (it turns, or its textures arrive)
+        if let Some(p) = home.radar.take_globe() {
+            let mut layer = kit.ui.scene.image(p.width, p.height, self.z + 2, HIDDEN)?;
+            p.paint(&mut layer);
+            layer.damage(None);
+            let at = Props::at((MARGIN + (MAP_W as f32 - p.width as f32) / 2.0).round(), (TOP + (MAP_H as f32 - p.height as f32) / 2.0).round());
+            layer.set(at);
+            self.globe = Some(layer);
+        }
+        if level != Level::Globe {
+            self.globe = None;
+        }
+        if let Some(m) = &self.map {
+            m.set(if level == Level::Globe { HIDDEN } else { Props::at(MARGIN, TOP) });
+        }
         for (t, rev, p) in home.radar.take_arrived() {
             self.make_frame(kit, home, t, rev, p)?;
         }
@@ -220,7 +237,7 @@ impl RadarPage {
 
     /// The frame shown: the layer before it fades out and this one in (or they swap at once under reduced motion).
     fn show(&mut self, home: &Home) {
-        let want = home.radar.current().map(|f| (f.t, f.rev)).filter(|k| self.frames.contains_key(k));
+        let want = home.radar.current().map(|f| (f.t, f.rev)).filter(|k| self.frames.contains_key(k)).filter(|_| home.radar.level() != Level::Globe);
         if want == self.shown {
             return;
         }
@@ -257,6 +274,7 @@ impl RadarPage {
         let x_of = |t: i64| track_x + track_w * ((t - t0) as f32 / (t1 - t0).max(1) as f32).clamp(0.0, 1.0);
         let track_y = bar_f.h / 2.0 - 6.0;
         // the track: a tick for every frame of the window (held ones strong), the radar's in the ink, the forecast's in the accent, and the clock
+        let win: Vec<_> = if r.level() == Level::Globe { Vec::new() } else { win };
         let key = format!("{}|{}|{}", r.now_s / 60, win.iter().map(|f| format!("{}{}", f.t, u8::from(r.holds(f)))).collect::<Vec<_>>().join(","), u8::from(kit.mode == ui::lucent::palette::Mode::Light));
         if key != self.track_key {
             self.track_key = key;
@@ -270,7 +288,9 @@ impl RadarPage {
                 layer.clear();
                 let (w, h) = (layer.width(), layer.height());
                 let mut c = Canvas { px: layer.pixels_mut(), w, h };
-                c.rounded(Frame::new(track_x, track_y + 5.0, track_w, 2.0), 1.0, faded(ink, 0.16));
+                if !win.is_empty() {
+                    c.rounded(Frame::new(track_x, track_y + 5.0, track_w, 2.0), 1.0, faded(ink, 0.16));
+                }
                 let nowx = x_of(r.now_s);
                 for f in &win {
                     let x = x_of(f.t);
@@ -278,17 +298,22 @@ impl RadarPage {
                     let colour = if f.kind == Kind::Forecast { faded(accent, if on { 0.95 } else { 0.35 }) } else { faded(ink, if on { 0.8 } else { 0.28 }) };
                     c.rounded(Frame::new(x - 1.5, track_y, 3.0, 12.0), 1.5, colour);
                 }
-                c.rounded(Frame::new(nowx - 1.0, track_y - 10.0, 2.0, 32.0), 1.0, faded(ink, 0.9));
+                if !win.is_empty() {
+                    c.rounded(Frame::new(nowx - 1.0, track_y - 10.0, 2.0, 32.0), 1.0, faded(ink, 0.9));
+                }
                 layer.damage(None);
             }
         }
         // the thumb
-        match r.current() {
+        match r.current().filter(|_| r.level() != Level::Globe) {
             Some(f) => self.thumb.set(Props::at(bar_f.x + x_of(f.t) - 4.0, bar_f.y + track_y - 11.0)),
             None => self.thumb.set(HIDDEN),
         }
         // the words
-        let (mode, mode_colour, line, sub) = match r.current() {
+        let globe = r.level() == Level::Globe;
+        let (mode, mode_colour, line, sub) = if globe {
+            ("GLOBE", ink, "Rain and cloud from space".to_owned(), "NASA IMERG rain, about 6 h behind; satellite cloud".to_owned())
+        } else { match r.current() {
             Some(f) => {
                 let delta = f.t - r.now_s;
                 let when = clock_of(f.t, twelve);
@@ -299,8 +324,10 @@ impl RadarPage {
                 }
             }
             None => ("RADAR", ink, String::new(), String::new()),
-        };
-        let status = if r.held().is_empty() {
+        } };
+        let status = if globe {
+            if r.globe_ready() { (String::new(), String::new()) } else { ("Loading the globe\u{2026}".to_owned(), String::new()) }
+        } else if r.held().is_empty() {
             match r.status.as_str() {
                 _ if !r.reached && r.now_s == 0 => ("Loading the radar\u{2026}".to_owned(), String::new()),
                 "unavailable" => (format!("The radar is not available{}", if r.why.is_empty() { String::new() } else { format!(": {}", r.why) }), String::new()),
@@ -312,14 +339,14 @@ impl RadarPage {
             (String::new(), String::new())
         };
         let place = home.weather.pointer("/doc/display/place").and_then(serde_json::Value::as_str).unwrap_or("").to_owned();
-        let hint = format!("1  Home    2  Region    Left, Right: scrub    OK: {}", if r.playing { "pause" } else { "play" });
-        let attribution = if r.attribution.is_empty() { "Radar: Iowa Environmental Mesonet, NOAA  \u{b7}  Map: OpenStreetMap, OpenFreeMap".to_owned() } else { format!("{}  \u{b7}  Map: OpenStreetMap, OpenFreeMap", r.attribution) };
+        let hint = if globe { "1  Home    2  Region    Arrows: turn    OK: back to home".to_owned() } else { format!("1  Home    2  Region    3  Globe    Left, Right: scrub    OK: {}", if r.playing { "pause" } else { "play" }) };
+        let _ = &hint;
+        let attribution = "Radar: NEXRAD and HRRR via Iowa Environmental Mesonet  \u{b7}  Map: OpenStreetMap, OpenFreeMap".to_owned();
         let key = format!("{mode}|{line}|{sub}|{}|{hint}|{attribution}|{place}|{}", status.0, r.level() as u8);
         if key != self.words_key {
             self.words_key = key;
-            let level_words = if r.level() == Level::Home { "Home" } else { "Region" };
-            self.words.set_many(kit, &[(0, mode, mode_colour), (1, &format!("{level_words}  \u{b7}  {hint}"), ink2), (2, &place, ink), (3, &status.0, ink)]);
-            self.bar_words.set_many(kit, &[(0, &line, ink), (1, &sub, ink2), (2, "\u{2212}2 h", ink2), (3, &attribution, faded(ink2, 0.8)), (4, "+6 h", ink2)]);
+            self.words.set_many(kit, &[(0, mode, mode_colour), (1, &hint, ink2), (2, &place, ink), (3, &status.0, ink)]);
+            self.bar_words.set_many(kit, &[(0, &line, ink), (1, &sub, ink2), (2, if globe { "" } else { "\u{2212}2 h" }, ink2), (3, &attribution, faded(ink2, 0.8)), (4, if globe { "" } else { "+6 h" }, ink2)]);
         }
         let _ = now;
     }

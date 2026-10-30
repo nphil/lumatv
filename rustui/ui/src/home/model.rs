@@ -987,6 +987,10 @@ impl Home {
                 if self.layer == Layer::Picker {
                     self.picker_key(name, None, out);
                     self.redraw(out);
+                } else if self.layer == Layer::Weather {
+                    // the radar page's views are 1 Home, 2 Region, 3 Globe
+                    self.weather_key(name, None, out);
+                    self.redraw(out);
                 } else {
                     self.digit(d, out);
                 }
@@ -1734,7 +1738,8 @@ impl Home {
     }
 
     fn weather_key(&mut self, name: &str, dir: Option<Dir>, out: &mut Vec<Effect>) {
-        if self.wview.page == super::weather_view::Page::Radar && matches!(name, "left" | "right" | "ok" | "1" | "2") {
+        let globe = self.radar.open && self.radar.level() == super::radar_view::Level::Globe;
+        if self.wview.page == super::weather_view::Page::Radar && (matches!(name, "left" | "right" | "ok" | "1" | "2" | "3") || (globe && matches!(name, "up" | "down"))) {
             let (fx, _) = self.radar.key(name, self.now);
             out.extend(fx);
             return;

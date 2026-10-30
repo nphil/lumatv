@@ -42,3 +42,16 @@ box of the picture bound it. GPU time is for the set (below).
 
 `ctl` ring D/L lines for 60 s on Home with a rain reading: the weather card's frames should cost the widget's box only (about 31 k px),
 and 0 widget draws with an app over Home, the screensaver up or the screen off.
+
+## The weather view's radar and globe (2026-10-30)
+
+OK on the weather card opens the view; Down walks Now, Radar, This week, Details. The Radar page shows real NEXRAD frames (two hours back) and HRRR
+forecast frames (six hours ahead, marked FORECAST, drawn at 78 %) over OpenFreeMap tiles, with a time bar (radar ticks, forecast ticks, a mark for now).
+Left and Right scrub and hold the loop, OK plays, 1 Home, 2 Region, 3 Globe (NASA IMERG rain and satellite cloud on a lit sphere; arrows turn it).
+The helper runs LumaShow's `map` crate (`helper/app/src/wxview.rs`, `/v1/wx/*`); the shell decodes a PNG once per frame into a layer that stays on the
+graphics chip, so a step of the loop is two opacity changes.
+
+Host-measured on the real network (helper, release build): radar first frame 0.4 to 0.6 s cold and 20 ms warm; all 37 frames of the window 2.5 to 5.9 s cold
+(varies with the service) and 0.1 to 0.3 s warm; base map 0.4 to 1.0 s (vector tiles drawn on the helper); globe 24 s cold (GIBS answers slowly) and 0.3 s warm.
+Renders: `docs/mocks/host-rust/home/weather-view-{now,week,details,radar-forecast,radar-scrub,globe}.png`.
+Not measured: GPU time and the 60 s ring on the set; the radar page at 200 % text; light look.

@@ -17,6 +17,7 @@ use std::collections::{HashMap, HashSet};
 pub const TAG_OPEN: u64 = 0x5700_0001;
 pub const TAG_STATE: u64 = 0x5700_0002;
 pub const TAG_MAP: u64 = 0x5700_0003;
+pub const TAG_GLOBE: u64 = 0x5700_0004;
 pub const TAG_FRAME_FIRST: u64 = 0x5700_0100;
 pub const TAG_FRAME_LAST: u64 = 0x5700_01ff;
 
@@ -55,20 +56,22 @@ pub struct Frame {
 pub enum Level {
     Home,
     Wide,
+    /// The whole earth: not a radar view but the helper's picture of the globe (NASA's rain and cloud).
+    Globe,
 }
 
 impl Level {
     /// The radar level the helper is asked for, and the zoom of the base map under it.
     pub fn radar_zoom(self) -> u8 {
         match self {
-            Level::Home => 6,
+            Level::Home | Level::Globe => 6,
             Level::Wide => 4,
         }
     }
 
     pub fn map_zoom(self) -> u8 {
         match self {
-            Level::Home => 8,
+            Level::Home | Level::Globe => 8,
             Level::Wide => 6,
         }
     }
@@ -107,6 +110,13 @@ pub struct Radar {
     retry_at: HashMap<i64, u64>,
     map_asked: Option<(Level, bool, u64)>,
     map_complete: bool,
+    map_have: bool,
+    /// The globe: where it is seen from (longitude, latitude), its picture, and what was asked.
+    pub globe_at: (f64, f64),
+    pub globe: Option<Picture>,
+    globe_asked: Option<((i64, i64), bool, u64)>,
+    globe_have: Option<((i64, i64), bool)>,
+    globe_asked_at: u64,
     next_poll: u64,
     step_at: u64,
     next_tag: u64,
@@ -127,7 +137,7 @@ impl Radar {
 
     /// The page is opened for a place: the helper starts its engines.
     pub fn open(&mut self, lat: f64, lon: f64, level: Level, dark: bool, now: u64) -> Vec<Effect> {
-        *self = Radar { open: true, level: Some(level), lat, lon, dark, playing: true, next_tag: TAG_FRAME_FIRST, next_poll: now + POLL_LOADING_MS, status: "loading".into(), ..Radar::default() };
+        *self = Radar { open: true, level: Some(level), globe_at: (lon, lat.clamp(-70.0, 70.0)), lat, lon, dark, playing: true, next_tag: TAG_FRAME_FIRST, next_poll: now + POLL_LOADING_MS, status: "loading".into(), ..Radar::default() };
         vec![self.open_request()]
     }
 
@@ -150,7 +160,26 @@ impl Radar {
             return Vec::new();
         }
         let (lat, lon, dark) = (self.lat, self.lon, self.dark);
-        self.open(lat, lon, level, dark, now)
+        if level == Level::Globe {
+            // the globe is the helper's picture: nothing is asked to start, and the radar's engines are left as they are
+            self.level = Some(level);
+            self.globe = None;
+            self.globe_have = None;
+            self.globe_asked = None;
+            self.globe_at = (lon, lat.clamp(-70.0, 70.0));
+            return self.ask(now);
+        }
+        let playing = self.playing;
+        let out = self.open(lat, lon, level, dark, now);
+        self.playing = playing;
+        out
+    }
+
+    /// The globe turned: `dlon` and `dlat` degrees.
+    pub fn turn(&mut self, dlon: f64, dlat: f64, now: u64) -> Vec<Effect> {
+        let (lon, lat) = self.globe_at;
+        self.globe_at = ((lon + dlon + 540.0).rem_euclid(360.0) - 180.0, (lat + dlat).clamp(-70.0, 70.0));
+        self.ask(now)
     }
 
     /// Frames inside the window, oldest first: what the page shows.
@@ -208,11 +237,28 @@ impl Radar {
                     }
                 }
             }
+            Input::Fetched { tag, .. } if *tag == TAG_GLOBE => {
+                self.globe_asked = None;
+                self.globe_asked_at = now + 2_000;
+            }
+            Input::Bytes { tag, status, bytes } if *tag == TAG_GLOBE => {
+                if let Some((key, dark, _)) = self.globe_asked.take() {
+                    if dark == self.dark && (*status == 200 || *status == 206) {
+                        if let Ok(p) = picture::decode(bytes) {
+                            self.globe = Some(p);
+                            self.globe_have = Some((key, *status == 200));
+                            self.globe_asked_at = now + 1_500;
+                            changed = true;
+                        }
+                    }
+                }
+            }
             Input::Bytes { tag, status, bytes } if *tag == TAG_MAP => {
                 if let Some((level, dark, _)) = self.map_asked.take() {
                     if level == self.level() && dark == self.dark && (*status == 200 || *status == 206) {
                         if let Ok(p) = picture::decode(bytes) {
                             self.map = Some(p);
+                            self.map_have = true;
                             self.map_complete = *status == 200;
                             changed = true;
                         }
@@ -272,10 +318,19 @@ impl Radar {
             out.push(Effect::Fetch { tag: TAG_STATE, path: "/v1/wx/state".into() });
         }
         let level = self.level();
-        let stale_map = self.map_asked.is_none() && (self.map.is_none() || !self.map_complete);
+        let stale_map = self.map_asked.is_none() && (!self.map_have || !self.map_complete);
         if self.reached && stale_map && now >= self.map_asked.map_or(0, |m| m.2) {
             self.map_asked = Some((level, self.dark, now));
             out.push(Effect::Fetch { tag: TAG_MAP, path: format!("/v1/wx/map?w={MAP_W}&h={MAP_H}&zoom={}&dark={}", level.map_zoom(), u8::from(self.dark)) });
+        }
+        if level == Level::Globe && self.reached {
+            let key = ((self.globe_at.0 * 10.0).round() as i64, (self.globe_at.1 * 10.0).round() as i64);
+            let wanted = self.globe_asked.is_none() && (self.globe_have.is_none_or(|(k, complete)| k != key || (!complete && now >= self.globe_retry_at())));
+            if wanted {
+                self.globe_asked = Some((key, self.dark, now));
+                out.push(Effect::Fetch { tag: TAG_GLOBE, path: format!("/v1/wx/globe?lon={:.1}&lat={:.1}&size={MAP_H}&dark={}", self.globe_at.0, self.globe_at.1, u8::from(self.dark)) });
+            }
+            return out;
         }
         // frames: the ready ones the shell does not hold, the nearest the clock first
         let mut want: Vec<Frame> = self.window().into_iter().filter(|f| f.ready && !self.loaded.contains(&(f.t, f.rev)) && !self.inflight.values().any(|v| *v == (f.t, f.rev)) && self.retry_at.get(&f.t).is_none_or(|at| now >= *at)).collect();
@@ -328,6 +383,9 @@ impl Radar {
 
     /// A key of the page: Left and Right scrub (and hold the loop where it is), OK plays and holds, 1 and 2 are the two views.
     pub fn key(&mut self, name: &str, now: u64) -> (Vec<Effect>, bool) {
+        if self.level() == Level::Globe && matches!(name, "left" | "right" | "up" | "down" | "ok") {
+            return self.globe_key(name, now);
+        }
         match name {
             "left" => {
                 self.playing = false;
@@ -344,14 +402,41 @@ impl Radar {
             }
             "1" => (self.set_level(Level::Home, now), true),
             "2" => (self.set_level(Level::Wide, now), true),
+            "3" => (self.set_level(Level::Globe, now), true),
             _ => (Vec::new(), false),
         }
+    }
+
+    fn globe_key(&mut self, name: &str, now: u64) -> (Vec<Effect>, bool) {
+        match name {
+            "left" => (self.turn(-20.0, 0.0, now), true),
+            "right" => (self.turn(20.0, 0.0, now), true),
+            "up" => (self.turn(0.0, 12.0, now), true),
+            "down" => (self.turn(0.0, -12.0, now), true),
+            _ => {
+                let (lon, lat) = (self.lon, self.lat);
+                self.globe_at = (lon, lat.clamp(-70.0, 70.0));
+                (self.ask(now), true)
+            }
+        }
+    }
+
+    pub fn globe_ready(&self) -> bool {
+        self.globe_have.is_some()
+    }
+
+    pub fn take_globe(&mut self) -> Option<Picture> {
+        self.globe.take()
     }
 
     /// The frame shown.
     pub fn current(&self) -> Option<Frame> {
         let c = self.cur?;
         self.frames.iter().copied().find(|f| f.t == c)
+    }
+
+    fn globe_retry_at(&self) -> u64 {
+        self.globe_asked_at
     }
 
     /// The pictures the surface has to make layers of.
