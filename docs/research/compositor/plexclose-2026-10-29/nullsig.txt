@@ -1,0 +1,40 @@
+PlxNative's close crash in libwayland-client (rounds 16, 17 and 19W): where it runs, what the compositor sends it, what moves its rate.
+
+The 9 reports in /tmp/plxnative-crash.log at the end of round 19W (apps-kinds-on/plxnative-crash-r19w.log) are one crash twice over. 8 are SIGSEGV addr 0x0, identical in pc, lr, r2, r7, r8 and r9:
+  pc +0x4acc  get_next_argument(signature, details) of libwayland-client.so.0.20.0 (sysroot32/) with signature NULL
+  lr +0x4f21  wl_argument_from_va_list (+0x4f0c), r7 = 0x14 = WL_CLOSURE_MAX_ARGS
+  caller      wl_proxy_marshal_flags (+0x3924): r8 = 3 = the proxy's version, r9 = 0 = flags (not a destructor); sp+0x84 is its ap, sp+0x10 its args, as in the registers
+The signature is proxy->object.interface->methods[opcode].signature: a request marshalled on a proxy that is not the one its caller thinks (libwayland-client does not check the opcode against
+method_count; no interface of the core protocol has a NULL signature below its method count). The 9th report is addr 0x3c at wl_proxy_create_wrapper +0x10, `wrapped->display` with wrapped = 0x30.
+Both come from a surface pointer read out of freed memory.
+The caller is libmali: ip (r12) holds the GOT slot of wl_proxy_marshal_flags, and with libmali's slot (0x24ff0d0) its base is 64 KB aligned in all 8 and 0x2a60000 below libwayland-client's in all 8;
+r10 is a block in the mmap area 1.1 to 2.6 MB under the crashing thread's stack. libmali's wayland winsys calls wl_proxy_marshal_flags with a surface's version in display_window_buffer only (wl_surface.frame
+on a wl_proxy_create_wrapper of window->surface, attach, damage, commit). The thread is one of the Mali blob's [INFERENCE: mali-cmar-backend, which runs eglp_frame_complete_callback ->
+eglp_display_frame -> display_window_buffer when a frame's GPU job is done].
+
+Why the pointer is stale: LG's Wayland_DestroyWindow (libSDL2 +0x87578) detaches the surface from its group, calls wl_egl_window_destroy (a free), destroys the shell surfaces and the wl_surface, frees the window
+data and flushes; the EGL surface lives on to eglTerminate (WebOS_EGL_UnloadLibrary, after the "Destroy wayland window" line). display_window_buffer wraps window->surface of that wl_egl_window and
+checks nothing but wl_display_get_error. A frame submitted before SDL_Quit whose GPU job ends after the destroy is presented through freed memory. eglDestroySurface of a surface that is not current waits for the
+frames in flight (eglp_delete_surface sem_waits their references); SDL does not call it before the destroy.
+
+What the compositor sent in that time: nothing that reaches the thread. At the destroy of the second shell surface the window leaves the scene and the surface's callbacks are destroyed (delete_id, never done); the
+dying surface's buffers are released at the next tick, about 100 ms after the destroy in every close read, after the crash. The loop logged no stall near any close. The lead "an event for a destroyed object, or beyond
+the bound version" is not the cause: the faulting call is a request.
+
+Timing (round 19W compositor.log, from the compositor's "window 7: fullscreen" line of the destroy to "client disconnected"): the 5 crashed closes took 49, 53 (kinds on), 54, 58 (kinds off) and 68 ms, the 25 clean
+ones 3 to 19 ms. The app's crash handler (Rust, reads /proc/self/maps, writes a report) keeps the process alive after the fault [INFERENCE], so the fault is in the first of those milliseconds. The commit trace
+covers only the seconds after a new buffer, so the log does not say whether the app committed at the close; in three clean closes it did, 9 to 19 ms before the destroy (the "frame gap" lines of passes 6, 8, 15).
+
+What moves the rate: the same crash was seen once in round 16 and once in round 17 among closes that crashed in libSDL2 +0x875c6; 0 of 15 in round 18b (callbacks at the commit, f2e4b5d); 5 of 30 in round 19W.
+The compositor's frame cost changed between 18c and round 19, not the page format: "gpu done" median 4.6 ms and render 326 us on the x1 client of 18c; 11.0 ms and 1175 us on round 19's x1 on XR24 pages with the
+Rust kinds on; 9 to 11 ms on 19W's with AR24; 11.6 ms and 1.18 ms for PlxNative's frames with the kinds on and with them off (the Rust shell is connected in both). The longer the GPU takes for the app's last
+frame the wider the window. e07c561e (the Rust Home not drawn under a covering card) was made after 19W and takes that draw out of the frames with the kinds on.
+
+What removes it: the app's own order at exit. PlxNative's shutdown (Marquee rust-modules/src/app/run.rs `shutdown`) goes from the loop's last swap through the player, scrobble, capture, poster and telemetry
+teardown to SDL_Quit with no wait for the GPU: 8 to 33 ms between the close event and SDL_Quit, 10 ms more to the destroy. A glFinish() before SDL_Quit makes the last jobs end, and so start their presents, while SDL still
+holds the window; unbinding the context and eglDestroySurface of the window's surface waits for the presents themselves. SDL's own order (eglDestroySurface before wl_egl_window_destroy) would do the same for every app.
+No compositor behaviour orders the client's own threads.
+
+To read the next crash: compositor.log gets a "close trace pid N" line when a client that destroyed a surface disconnects (its commits, callbacks answered or destroyed and buffers released, in ms from its first
+destroy); tools/tv-plxcore.sh (with plxprlimit.c, built `zig cc -target arm-linux-musleabi -static -Os`) closes PlxNative until one crashes and keeps its core with the thread names, the maps, the compositor's
+ring and journal.
