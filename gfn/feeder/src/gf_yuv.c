@@ -46,8 +46,8 @@ static size_t levels_bytes(int sw, int sh, int n) {
 size_t gf_yuv_work_size(int sw, int sh, int dw, int dh) {
     if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0 || sw > MAX_EDGE || sh > MAX_EDGE || dw > MAX_EDGE || dh > MAX_EDGE) return 0;
     int n = halvings(sw, sh, dw, dh);
-    /* the halved planes, the three blended rows, the two column tables */
-    return levels_bytes(sw, sh, n) + 3 * align16((size_t)sw + 16) + 2 * align16((size_t)dw * sizeof(tap)) + 64;
+    /* the halved planes, the three blended rows, the two column tables, the three sampled rows */
+    return levels_bytes(sw, sh, n) + 3 * align16((size_t)sw + 16) + 2 * align16((size_t)dw * sizeof(tap)) + 3 * align16((size_t)dw + 16) + 64;
 }
 
 static void halve(const plane *s, uint8_t *d, int dstride, plane *out) {
@@ -83,16 +83,22 @@ static void make_taps(tap *t, int dw, int sw) {
     }
 }
 
-/* One destination row of one plane: the two source rows blended by `fy` (0..256) into `row`, then sampled at the taps. */
-static void blend_row(const plane *p, int y0, int y1, int fy, uint8_t *row) {
+/* The two source rows blended by `fy` (0..256): into `row`, or the source row itself when the blend is the first of them. */
+static const uint8_t *blend_row(const plane *p, int y0, int y1, int fy, uint8_t *row) {
     const uint8_t *a = p->p + (size_t)y0 * (size_t)p->stride;
     const uint8_t *b = p->p + (size_t)y1 * (size_t)p->stride;
-    if (fy == 0 || y0 == y1) {
-        memcpy(row, a, (size_t)p->w);
-        return;
-    }
+    if (fy == 0 || y0 == y1) return a;
     int g = 256 - fy;
     for (int x = 0; x < p->w; x++) row[x] = (uint8_t)((a[x] * g + b[x] * fy + 128) >> 8);
+    return row;
+}
+
+/* The row sampled at the destination's columns (`taps`), so that the conversion that follows runs over three plain arrays. */
+static void sample_row(const uint8_t *row, const tap *t, int dw, uint8_t *out) {
+    for (int x = 0; x < dw; x++) {
+        const tap a = t[x];
+        out[x] = (uint8_t)((row[a.i0] * (256 - a.f) + row[a.i1] * a.f + 128) >> 8);
+    }
 }
 
 static void row_taps(const plane *p, int dy, int dh, int *y0, int *y1, int *fy) {
@@ -137,6 +143,8 @@ int gf_yuv_to_xrgb(const gf_yuv *src, uint32_t *dst, int dw, int dh, int dstride
     tap *tl = (tap *)w;                       /* luma columns */
     w += align16((size_t)dw * sizeof(tap));
     tap *tc = (tap *)w;                       /* chroma columns */
+    w += align16((size_t)dw * sizeof(tap));
+    uint8_t *sy = w, *su = sy + align16((size_t)dw + 16), *sv = su + align16((size_t)dw + 16);
     make_taps(tl, dw, pl[0].w);
     make_taps(tc, dw, pl[1].w);
 
@@ -153,18 +161,22 @@ int gf_yuv_to_xrgb(const gf_yuv *src, uint32_t *dst, int dw, int dh, int dstride
         else rv = 104597, gu = 25675, gv = 53279, bu = 132201;
     }
     for (int y = 0; y < dh; y++) {
+        const uint8_t *r[3];
         for (int c = 0; c < 3; c++) {
             int y0, y1, fy;
             row_taps(&pl[c], y, dh, &y0, &y1, &fy);
-            blend_row(&pl[c], y0, y1, fy, row[c]);
+            r[c] = blend_row(&pl[c], y0, y1, fy, row[c]);
         }
         uint32_t *o = dst + (size_t)y * (size_t)dstride;
-        const uint8_t *ry = row[0], *ru = row[1], *rv_ = row[2];
+        const uint8_t *ry = r[0];
+        if (pl[0].w != dw) {                  /* a luma row at the destination's width is the destination's: no sampling */
+            sample_row(r[0], tl, dw, sy);
+            ry = sy;
+        }
+        sample_row(r[1], tc, dw, su);
+        sample_row(r[2], tc, dw, sv);
         for (int x = 0; x < dw; x++) {
-            const tap a = tl[x], b = tc[x];
-            int Y = (ry[a.i0] * (256 - a.f) + ry[a.i1] * a.f + 128) >> 8;
-            int U = (ru[b.i0] * (256 - b.f) + ru[b.i1] * b.f + 128) >> 8;
-            int V = (rv_[b.i0] * (256 - b.f) + rv_[b.i1] * b.f + 128) >> 8;
+            int Y = ry[x], U = su[x], V = sv[x];
             int yy = (Y - yoff) * ys + 32768;
             int u = U - 128, v = V - 128;
             int r = clamp8((yy + rv * v) >> 16);

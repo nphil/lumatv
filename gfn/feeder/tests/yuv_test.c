@@ -152,6 +152,32 @@ static void scaling(void) {
     freep(&q);
 }
 
+/* The converter's output for pseudo-random pictures is fixed, to the bit: these are the checksums of the straightforward version (a row of each plane blended, then
+ * sampled and converted pixel by pixel), so that a faster one is proved to give the same picture. */
+static void golden(void) {
+    static const struct { int sw, sh, dw, dh, full, bt709; uint32_t hash; } cfg[] = {
+        {1280, 720, 480, 270, 0, 1, 0xb22e38fau}, {641, 363, 480, 270, 0, 0, 0x89491b74u}, {640, 360, 480, 270, 1, 1, 0x3bdd012eu},
+        {1920, 1080, 960, 540, 0, 1, 0xe4980c20u}, {333, 211, 700, 400, 0, 1, 0xcdd0bcd8u}, {64, 48, 1, 1, 0, 0, 0x0be8ca3bu},
+    };
+    uint32_t rng = 12345;
+#define RND() (rng = rng * 1664525u + 1013904223u, rng >> 8)
+    for (unsigned c = 0; c < sizeof cfg / sizeof *cfg; c++) {
+        int sw = cfg[c].sw, sh = cfg[c].sh, cw = (sw + 1) / 2, ch = (sh + 1) / 2;
+        uint8_t *y = malloc((size_t)sw * sh), *u = malloc((size_t)cw * ch), *v = malloc((size_t)cw * ch);
+        for (int i = 0; i < sw * sh; i++) y[i] = (uint8_t)(RND() % 220 + 16);
+        for (int i = 0; i < cw * ch; i++) u[i] = (uint8_t)(RND() % 200 + 28), v[i] = (uint8_t)(RND() % 200 + 28);
+        gf_yuv s = {{y, u, v}, {sw, cw, cw}, sw, sh, cfg[c].full, cfg[c].bt709};
+        size_t wn = gf_yuv_work_size(sw, sh, cfg[c].dw, cfg[c].dh);
+        void *work = aligned_alloc(16, (wn + 15) & ~(size_t)15);
+        uint32_t *o = malloc((size_t)cfg[c].dw * cfg[c].dh * 4);
+        CHECK(gf_yuv_to_xrgb(&s, o, cfg[c].dw, cfg[c].dh, cfg[c].dw, work) == 0, "golden %u converts", c);
+        uint32_t h = 2166136261u;
+        for (int i = 0; i < cfg[c].dw * cfg[c].dh; i++) h = (h ^ o[i]) * 16777619u;
+        CHECK(h == cfg[c].hash, "golden %u (%dx%d to %dx%d): %08x, not %08x", c, sw, sh, cfg[c].dw, cfg[c].dh, h, cfg[c].hash);
+        free(o), free(work), free(y), free(u), free(v);
+    }
+}
+
 static void refusals(void) {
     pic p = make(8, 8, 100, 128, 128);
     gf_yuv s = view(&p, 0, 1);
@@ -194,6 +220,7 @@ static void speed(void) {
 int main(void) {
     colours();
     scaling();
+    golden();
     refusals();
     speed();
     if (fails) {
