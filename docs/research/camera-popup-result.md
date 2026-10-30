@@ -34,6 +34,27 @@ Helper `cameras`: `popupLive` (true), `popupWindow` (`video`, the full view keep
 
 Helper log, one line per decision: `cameras: pop-up N for KIND on NAME (... source scrypted, S s[, a test][, live video where a window is free|, stills only])`, `cameras: KIND on NAME (...) makes no pop-up: <reason>`, `cameras: live for pop-up N on camera C: CODEC WxH at F a second declared, window ..., decoder opened for ...`, and at its end `... ended: first picture after X ms, N pictures in S s = F a second`. The feeder's own log is `<run dir>/feeder.log`. Compositor: `vwin: claim X's video is held at ... not ...: placed again (n)`.
 
+## Previews by path
+
+A preview takes the best stream that stays smooth where it plays, and takes nothing from the app in front.
+
+| Path | Where | Stream | Picture |
+|---|---|---|---|
+| Video window, main or sub | Home, idle apps (the compositor granted the claim) | the camera's own, inside 1920x1088 at 30 (`accept_popup`) | live video at the camera's rate |
+| Texture / CPU (MultiView's, `slot: "texture"`) | no hardware window | the low stream, H.264 up to 1280x720 at 30 (`accept_low`, quality `light`) | live, drawn by the compositor into the claim's rectangle; the hole needs no sink |
+| Stills | over a playing app (`app-video`, `no-window`) | stills at the box's size | 8 a second (`&fps=8`) |
+| Stills, heavy | an app holds both scalers (`both-scalers`: a game at 120 Hz, 4K video) | stills | 4 a second (`&fps=4`) |
+
+The grid's tiles (and so the picker's) keep the owner's pace over Home (Smooth 125, Balanced 200, Light 333 ms) and are asked for no more than twice a second over an app (`OVER_APP_TILE_MS` 500). The helper takes `quality` (`native`, `balanced`/`medium`, `light`/`low`) on `POST /v1/cameras/live`, and `window: "texture"` on `for: "popup"`.
+
+## The full view is an app of its own
+
+OK on a card or a tile of a camera that plays live, with the compositor's video windows on and an app in front, takes the front the way an app switch does: LG Home is launched (`launchDefaultApp`), the app goes to the background, and the view is already up on the card's own picture (the card's last still seeds the view's, so the first frame has a picture). Home is the one app LG's video path connects a decoder's video for here, so the stream is asked for only once Home is in front: `POST /v1/cameras/live {camera, for:"full", window:"main"}`, the camera's own stream up to 4K at its own rate (the owner's `quality`, native by default). The picture is a hole over the main window once the stream plays, the claim is placed and videooutputd lists the video on a sink. Back closes the view and launches the app again (`launch {id}`); the Home key, the screen going off and a view that was opened over Home take nothing back. Without the compositor's windows, with `cameras.liveOverApps` on, or for a camera that does not play live, the view stays over the app on stills as before.
+
+The time is read in the shell (`ctl shell`, `cameras.firstLiveMs`: from the OK that opened the view to the first live picture) and in the helper's log (`live for full view ...: the bridge answered in X ms`, then `ended: first picture after Y ms`). The start inside the helper was already parallel (the feeder is leased and the decoder loaded, 0.2 to 0.4 s, while the stream is dialled and Scrypted's prebuffer replays); what is new is the order at the app switch, and the stream from the pop-up that is kept for the view when it is the same stream.
+
+Known risks: the old app's video may still hold the scalers when the decoder loads right after Home comes forward (then `cameras.live` fails: OK asks again, and a settle delay after the foreground change is the first thing to add); videooutputd may not connect a video whose decoder loaded before Home was in front (this order avoids it).
+
 ## TV check (round 21)
 
 `T` runs a command on the set, `H` is the helper's loopback base URL as the earlier probes use it.
@@ -63,8 +84,16 @@ B. Over YouTube (1080p30 playing). Send the same event.
 
 C. Only if A passes and Nitin agrees to a glitch risk: `T ctl vwin apps`, repeat B with YouTube, and `cameras.ndlApp` `own` for one Home run. Stop at the first glitch of YouTube's picture, `T ctl vwin idle`, note the mode, app and frame rate.
 
+D. The full view as an app (the time is OK to the first live picture, target under 1 s).
+
+1. From Home, OK on a tile of a 4K camera (Cameras tile in the quick panel, then OK): `T ctl shell` `rust.ui.cameras.firstLiveMs`, the helper log `live for full view on camera C: CODEC WxH at F ...` (native size and rate) and `ended: first picture after Y ms ... F a second`, the capture `T shot full-home` (`-video.png` has the camera at native size, `-display.png` the chrome). Report the resolution, the rate against the declared one and the three times.
+2. Over YouTube (1080p playing), an event, then OK on the card after 600 ms: the journal has `cameras: the full view takes the front from <YouTube's id>`, Home is in front within a second (`T ctl shell` `foreground`), then the stream is asked for. Report the time from the OK to Home in front, to `video true`, and the `firstLiveMs`; and the picture the first frame had (the card's).
+3. Back: the journal has `cameras: Back brings <the id> back`, the app is in front again (its own state is the app's to say: note whether YouTube resumed or restarted), `T ctl vwin` has no claim, the feeder stops, and `T ctl shell` `cameras.switched` is false. The Home key from the view: Home, no app launched.
+4. The camera's strip in the full view (Up, then a clip) plays and Back from it goes to live; the same for a 1080p camera, where the card's stream (up to 1080p30) is already the camera's own.
+5. A first-open failure after the switch (`cameras.live` `failed`, or `SUB_SCALER ... released` in `/var/log/messages`): note the time since Home came forward.
+
 Report: per step pass or fail, the POST to `video true` time, first picture ms, pictures a second against the declared rate, the two gate results, and the captures.
 
 ## Changelog line
 
-Camera pop-up: the card plays the camera's live video in the corner on Home where a video window is free (stills at 8 a second over a playing app), with the feeder installed by `lumatv feeder install`; the idle video-window allocator no longer counts Home's idle element as an app's video.
+Camera pop-up: the card plays the camera's live video in the corner on Home where a video window is free (stills at 8 a second over a playing app, 4 where an app holds both scalers), with the feeder installed by `lumatv feeder install`; the idle video-window allocator no longer counts Home's idle element as an app's video. The Cameras full view is an app of its own: OK from a card or a tile over an app brings Home forward, plays the camera's native stream on the main window, and Back returns to the app.

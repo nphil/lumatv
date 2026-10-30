@@ -257,7 +257,8 @@ impl Live {
 
     /// The picture box is a hole over the video plane: every condition of the module's header holds.
     pub fn video(&self, now: u64) -> bool {
-        matches!(self.phase, Phase::Playing { since, .. } if now >= since + HANDOFF_MS) && self.window == Window::Carried && self.sink
+        // a texture window is drawn by the compositor itself: there is no sink of videooutputd's to wait for
+        matches!(self.phase, Phase::Playing { since, .. } if now >= since + HANDOFF_MS) && self.window == Window::Carried && (self.sink || self.slot == "texture")
     }
 
     /// When the model next needs a tick.

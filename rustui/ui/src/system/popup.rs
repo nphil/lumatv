@@ -40,6 +40,8 @@ const AGO_MS: u64 = 30_000;
 const STILL_MS: u64 = 250;
 /// ... and where they are the only picture there is (the video was refused, taken back or failed, or the record says there is none).
 const QUICK_MS: u64 = 125;
+/// ... and while an app holds both scalers (a game at 120 Hz, 4K video) quieter still, so as not to take frames from it.
+const QUIET_MS: u64 = 250;
 /// A card that can play live video has this long to be answered about its window before its stills quicken (a compositor with the switch off answers
 /// "off", which asks for no more than the stills).
 const QUICK_AFTER_MS: u64 = 1_500;
@@ -179,6 +181,10 @@ pub struct Popup {
     size: (u32, u32),
     wants: Vec<Want>,
     pictures: HashMap<&'static str, Picture>,
+    /// The card's picture when OK opened the full view of its camera: the view's first one ([`Popup::take_expanded`]).
+    expanded: Option<Picture>,
+    /// The window was refused because an app holds both scalers: the stills keep quiet whatever the helper's rate.
+    heavy: bool,
     /// Bumped each time a picture changed, for the surface.
     pub revision: u64,
     intents: Vec<Intent>,
@@ -246,6 +252,8 @@ impl Popup {
             size: PICTURE,
             wants: Vec::new(),
             pictures: HashMap::new(),
+            expanded: None,
+            heavy: false,
             revision: 0,
             live: Live::new(),
             was_video: false,
@@ -295,6 +303,11 @@ impl Popup {
         self.pictures.get("still").or_else(|| self.pictures.get("event"))
     }
 
+    /// The picture the card had when OK opened the full view of its camera, once: the view opens on it, and the video replaces it when it plays.
+    pub fn take_expanded(&mut self) -> Option<Picture> {
+        self.expanded.take()
+    }
+
     /// The claim on a video window for the card's picture box, while a card the record says can play live video is up: the shell posts it.
     pub fn claim(&self) -> Option<Value> {
         let capable = self.up && !self.viewer_up && self.current.as_ref().is_some_and(|c| c.live == Some(true));
@@ -306,9 +319,10 @@ impl Popup {
         self.live.set_rect(rect);
     }
 
-    /// What the compositor made of the claim (`slot`: the window it named), and whether videooutputd lists the video on a sink.
+    /// What the compositor made of the claim (`slot`: the window it named, or why it refused), and whether videooutputd lists the video on a sink.
     pub fn set_window(&mut self, window: Window, slot: &str, sink: bool, now: u64) -> Vec<Effect> {
         self.clock = now;
+        self.heavy = window == Window::Refused && slot == "both-scalers";
         let mut out = Vec::new();
         if self.up {
             out.extend(self.live.set_window(window, slot, sink, now));
@@ -440,7 +454,11 @@ impl Popup {
             let mut wants = Vec::new();
             // the stills stop while the video is the picture
             if !self.live.video(now) {
-                let (every, pace) = if self.stills_quick(now) { (QUICK_MS, "&fps=8") } else { (STILL_MS, "") };
+                let (every, pace) = match (self.stills_quick(now), self.heavy) {
+                    (true, true) => (QUIET_MS, "&fps=4"),
+                    (true, false) => (QUICK_MS, "&fps=8"),
+                    _ => (STILL_MS, ""),
+                };
                 wants.push(Want::repeating("still", &format!("/v1/cameras/{cam}/frame?w={}&h={}{pace}", self.size.0, self.size.1), every));
             }
             if c.thumbnail && !c.event.is_empty() {
@@ -539,9 +557,12 @@ impl Popup {
             Input::Key { name, down: true, repeat: false } if self.armed(now) => match name.as_str() {
                 "ok" => {
                     let camera = self.current.as_ref().map(|c| c.camera.clone()).unwrap_or_default();
+                    let picture = if self.can_expand { self.best().cloned() } else { None };
                     // the full view of the same camera takes the stream over: it asks for it, and the helper finds it there
                     self.hide(true, self.can_expand, &mut out);
                     if self.can_expand {
+                        // ... and opens on the card's picture, which the video replaces when it plays
+                        self.expanded = picture;
                         self.intents.push(Intent::Expand(camera));
                     }
                 }
@@ -949,5 +970,39 @@ mod tests {
         assert!(!p.view().video, "the hole closes with the claim: the picture box shows the shell's own picture again");
         let fx = p.update(&Input::Tick, T0 + 5_100);
         assert!(!still_asks(&fx).is_empty() || p.wants.iter().any(|w| w.key == "still"), "the stills are asked for again");
+    }
+
+    #[test]
+    fn ok_hands_the_cards_picture_to_the_full_view_once_and_back_hands_nothing() {
+        let go = |name: &str| {
+            let mut p = Popup::new();
+            p.set_can_expand(true);
+            let fx = p.update(&record(60, "person", T0 + 30_000), T0);
+            let still = fetches(&fx).into_iter().find(|f| f.1.contains("frame")).unwrap().0;
+            p.update(&Input::Bytes { tag: still, status: 200, bytes: bmp() }, T0 + 200);
+            p.take_intents();
+            p.update(&key(name), T0 + 900);
+            p
+        };
+        let mut p = go("ok");
+        assert_eq!(p.take_intents(), vec![Intent::Expand("275".into())]);
+        let pic = p.take_expanded().expect("the picture the card had");
+        assert!(pic.width > 0 && pic.height > 0);
+        assert!(p.take_expanded().is_none(), "once");
+        let mut q = go("back");
+        assert!(q.take_expanded().is_none() && q.take_intents().is_empty());
+    }
+
+    #[test]
+    fn stills_over_an_app_that_holds_both_scalers_keep_quiet_and_over_any_other_refusal_are_quick() {
+        let heavy = |why: &str| {
+            let mut p = Popup::new();
+            p.set_picture_rect(Some(BOX));
+            p.update(&live_record(61, true), T0);
+            p.set_window(Window::Refused, why, false, T0 + 50);
+            p.wants.iter().find(|w| w.key == "still").map(|w| (w.every_ms, w.path.clone())).unwrap()
+        };
+        assert_eq!(heavy("both-scalers"), (QUIET_MS, "/v1/cameras/275/frame?w=520&h=292&fps=4".to_string()), "a game at 120 Hz or 4K video: a quarter of the frames of a second, not more");
+        assert_eq!(heavy("app-video"), (QUICK_MS, "/v1/cameras/275/frame?w=520&h=292&fps=8".to_string()));
     }
 }

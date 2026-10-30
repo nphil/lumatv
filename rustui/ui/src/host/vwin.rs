@@ -123,6 +123,9 @@ struct Posted {
     world: Option<World>,
     /// The sink videooutputd lists the claim's video on (`MAIN`, `SUB0`): the proof that the decoder is connected and the picture can be the plane's.
     sink: Option<String>,
+    /// Whether the compositor's line for the claim has a `sink` at all (it has since it reads the sinks; an older one's has not): without it a placed claim is
+    /// all there is to go by.
+    reports_sink: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -159,6 +162,16 @@ impl Vwin {
     /// The sink the claim's video is on, once the compositor has read it from videooutputd (`None` before, and for a claim that has no video).
     pub fn sink(&self, id: &str) -> Option<&str> {
         self.posted.get(id).and_then(|p| p.sink.as_deref())
+    }
+
+    /// Whether the compositor has video windows to give: its topic has come and the mode is not `off`.
+    pub fn on(&self) -> bool {
+        self.world.as_ref().is_some_and(|w| w.mode != "off")
+    }
+
+    /// Whether videooutputd lists the claim's video on a sink (`Some`), or does not yet (`Some(false)`); `None` when the compositor does not say.
+    pub fn connected(&self, id: &str) -> Option<bool> {
+        self.posted.get(id).filter(|p| p.reports_sink).map(|p| p.sink.is_some())
     }
 
     /// The compositor's switch as the topic last said it; `off` until it has said.
@@ -206,7 +219,7 @@ impl Vwin {
 
     fn post(&mut self, request: &Value, now: u64) -> Effect {
         let id = id_of(request).unwrap_or_default().to_string();
-        self.posted.insert(id, Posted { request: request.clone(), at_ms: now, grant: Grant::Asked, world: self.world.clone(), sink: None });
+        self.posted.insert(id, Posted { request: request.clone(), at_ms: now, grant: Grant::Asked, world: self.world.clone(), sink: None, reports_sink: false });
         claim(request)
     }
 
@@ -287,6 +300,7 @@ impl Vwin {
                 _ => Grant::Asked,
             };
             posted.sink = line.get("sink").and_then(Value::as_str).map(str::to_string);
+            posted.reports_sink = line.get("sink").is_some();
             // A refused claim is asked again when the world changed since it was asked (the switch turned on, an app's video ended, a window freed),
             // and not before: the same answer to the same question is not worth a post.
             let refused = matches!(posted.grant, Grant::Denied { .. } | Grant::Preempted { .. });

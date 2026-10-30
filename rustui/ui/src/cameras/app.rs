@@ -31,6 +31,8 @@ pub const FULL_EVERY_MS: u64 = 125;
 pub const FLIGHT: usize = 8;
 /// A still shown under chrome is "live" while it is this fresh.
 pub const FRESH_STILL_MS: u64 = 3000;
+/// The grid's tiles over an app (its video plays behind the grid): no more often than this whatever the owner chose, so that the previews take no frames from it.
+pub const OVER_APP_TILE_MS: u64 = 500;
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -128,6 +130,11 @@ fn fit(width: u32, height: u32) -> (i32, i32, i32, i32) {
 pub enum Intent {
     /// The grid's `Settings` button: Settings, Home & look, Cameras.
     OpenSettings,
+    /// The full view was opened over an app and its picture is a video window's: Home takes the front, as an app of its own does (the app goes to the
+    /// background). The shell remembers the app and launches Home.
+    TakeForeground,
+    /// Back closed a view that had taken the front: the shell brings back the app it took it from.
+    ReturnToApp,
 }
 
 /// Something that can be clicked or focused: the surfaces name what a pointer hit.
@@ -200,6 +207,13 @@ pub struct App {
     popup_seen: Option<String>,
     settings: Settings,
     app_front: bool,
+    /// The compositor has video windows to give (its `vwin` topic is up and the mode is not `off`): the full view's stream is for one of them.
+    vwin_on: bool,
+    /// The full view took the front from an app: Back brings the app back.
+    switched: bool,
+    /// When the full view was opened (this camera's), and how long it took to show live video.
+    opened_at: u64,
+    first_live_ms: Option<u64>,
     /// What the compositor made of the full view's claim on a video window (the shell sets it from the `vwin` topic).
     window: Window,
     screen: Screen,
@@ -236,6 +250,10 @@ impl App {
             popup_seen: None,
             settings: Settings::default(),
             app_front: false,
+            vwin_on: false,
+            switched: false,
+            opened_at: 0,
+            first_live_ms: None,
             window: Window::Unclaimed,
             screen: Screen::Closed,
             strip: None,
@@ -323,6 +341,24 @@ impl App {
         self.window = window;
         self.dirty |= changed && self.viewer_up();
         changed
+    }
+
+    /// Whether the compositor has video windows to give.
+    pub fn set_vwin_on(&mut self, on: bool) {
+        self.vwin_on = on;
+    }
+
+    /// Opening the full view over an app: its picture is a video window's, and the decoder is never started beside an app's video, so the view takes the
+    /// front as an app of its own does (Home comes forward, the app goes to the background, Back brings it back). Only for a camera that plays live, where the
+    /// compositor has a window to give and the owner has not asked for live over apps.
+    fn takes_foreground(&self, camera: &str) -> bool {
+        self.app_front && self.vwin_on && !self.cfg.live_over_apps && self.cams.state == data::LinkState::Ready && self.cams.get(camera).is_some_and(|c| c.live)
+    }
+
+    /// The call for the full view's live stream. Where a video window carries the picture it is for the display's main window, with Home in front (the app
+    /// LG's video path knows the video for), and the stream is the camera's own at the owner's quality (native by default), up to 4K at its own rate.
+    fn live_body(&self, camera: &str) -> Value {
+        if self.vwin_on { json!({"camera": camera, "for": "full", "window": "main"}) } else { json!({"camera": camera}) }
     }
 
     /// What the full view's live video asks of the display while it is wanted: the stream the helper was asked for and the rectangle it is
@@ -451,7 +487,14 @@ impl App {
             },
         };
         self.reset_transient();
+        let takes = self.takes_foreground(&id);
         self.screen = Screen::Full(FullState { camera: id, chrome: true, chrome_until: self.now + CHROME_MS });
+        if takes {
+            self.switched = true;
+            self.intents.push(Intent::TakeForeground);
+        }
+        self.opened_at = self.now;
+        self.first_live_ms = None;
         if ask_live {
             self.ensure_live(true, fx);
         } else {
@@ -474,6 +517,7 @@ impl App {
         }
         self.stop_live(fx);
         self.screen = Screen::Closed;
+        self.switched = false;
         self.reset_transient();
         self.planner.quiesce();
         self.dropped.push("bubble:".into());
@@ -497,7 +541,7 @@ impl App {
                 self.commit_hint = None;
                 self.thumb_pending = false;
                 let restore = Expect::Live;
-                self.ask(Ask::Live { restore }, "POST", "/v1/cameras/live".into(), Some(json!({"camera": id})), fx);
+                self.ask(Ask::Live { restore }, "POST", "/v1/cameras/live".into(), Some(self.live_body(&id)), fx);
             }
             (None, Some(_)) => self.stop_live(fx),
             _ => {}
@@ -1108,7 +1152,11 @@ impl App {
             self.dirty = true;
             return;
         }
+        let returns = self.switched;
         self.close_inner(fx);
+        if returns {
+            self.intents.push(Intent::ReturnToApp);
+        }
     }
 
     fn note_up(&self) -> bool {
@@ -1273,6 +1321,7 @@ impl App {
             Screen::Grid(g) => {
                 let layout = self.layout();
                 let every = data::grid_interval_ms(&self.settings.video_grid);
+                let every = if self.app_front { every.max(OVER_APP_TILE_MS) } else { every };
                 if self.sheet.is_none() && self.options.is_none() {
                     for i in layout.shown(g.top) {
                         let c = &self.cams.list[i];
@@ -1400,6 +1449,9 @@ impl App {
     }
 
     fn finish(&mut self, now: u64, fx: &mut Vec<Effect>) {
+        if self.first_live_ms.is_none() && self.is_full() && self.hole() {
+            self.first_live_ms = Some(now.saturating_sub(self.opened_at));
+        }
         self.housekeeping(now, fx);
         if self.dirty {
             self.dirty = false;
@@ -1652,6 +1704,10 @@ impl App {
             "toast": self.toast.as_ref().map(|(w, _)| w.clone()),
             "inFlight": self.planner.in_flight(),
             "appFront": self.app_front,
+            "switched": self.switched,
+            "vwinOn": self.vwin_on,
+            "openedAt": self.opened_at,
+            "firstLiveMs": self.first_live_ms,
         })
     }
 }

@@ -196,6 +196,16 @@ impl Layer {
         !self.foreground.home && !self.foreground.app.is_empty() && self.foreground.app != "com.webos.app.home" && self.screen_on
     }
 
+    /// The app in front, when there is one (Home is none): what the Cameras full view takes the front from.
+    pub fn foreground_app(&self) -> Option<String> {
+        self.app_front().then(|| self.foreground.app.clone())
+    }
+
+    /// The camera card's picture, once, when OK on it opened the full view: the view's first picture.
+    pub fn take_popup_picture(&mut self) -> Option<crate::kit::picture::Picture> {
+        self.popup.take_expanded()
+    }
+
     /// Something has the screen that the cards and the pop-up must wait for: an alert, the input popup, a PIN prompt, the keyboard, the
     /// screen off.
     pub fn busy(&self) -> bool {

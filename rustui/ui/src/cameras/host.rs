@@ -104,6 +104,11 @@ impl Cameras {
         self.app.open_full(camera, now)
     }
 
+    /// The pop-up's picture of `camera`, put where the full view draws its still: the view opens on a picture in its first frame, and the video replaces it.
+    pub fn seed_full(&mut self, camera: &str, pic: picture::Picture) {
+        self.surface.put_picture(&super::app::full_key(camera), pic);
+    }
+
     /// The grid of every camera (the quick panel's tile).
     pub fn open_grid(&mut self, now: u64) -> Vec<Effect> {
         self.app.open_grid(now)
@@ -259,6 +264,14 @@ mod tests {
         let g = c.geometry();
         assert_eq!(g["base"], "grid");
         assert!(g["layers"].as_u64().unwrap() > 20);
+    }
+
+    #[test]
+    fn a_picture_seeded_for_the_full_view_is_the_stores_before_the_view_asks_for_any() {
+        let (_h, _kit, _engine, mut c) = rig();
+        assert!(!c.surface.has_picture("full:273"));
+        c.seed_full("273", picture::Picture { width: 4, height: 4, rgba: vec![200; 64] });
+        assert!(c.surface.has_picture("full:273"), "the view draws it in its first frame, as the grid draws the kept tiles");
     }
 
     #[test]

@@ -1114,3 +1114,105 @@ fn a_bridge_clock_ahead_never_shows_a_negative_age_or_a_cursor_in_the_future() {
     assert_eq!(s.cursor, T0 as i64 + 100 + 180_000, "the bridge's clock is the TV's plus the skew");
     assert_eq!(r.app.cameras().state, LinkState::Ready);
 }
+
+#[test]
+fn the_full_view_opened_over_an_app_takes_the_front_asks_for_the_main_window_once_home_is_in_front_and_back_brings_the_app_back() {
+    let mut r = Rig::new(three());
+    r.app.set_vwin_on(true);
+    r.topic("foreground", json!({"app": "netflix", "home": false}));
+    let fx = r.app.open_full("273", T0);
+    assert_eq!(r.app.take_intents(), [Intent::TakeForeground], "Home is to come forward: the view is an app of its own");
+    assert!(live_posts(&fx).is_empty(), "the decoder is not started beside an app's video");
+    assert_eq!(r.app.debug()["switched"], true);
+    // the app is in the background and Home is in front: the camera's own stream, for the main window
+    r.at(300);
+    let fx = r.topic("foreground", json!({"app": "com.webos.app.home", "home": true}));
+    assert_eq!(live_posts(&fx), [json!({"camera": "273", "for": "full", "window": "main"})]);
+    assert!(r.app.take_intents().is_empty(), "it does not ask again");
+    // Back closes the view and brings the app back
+    r.at(2_000);
+    r.press("back");
+    assert!(!r.app.viewer_up());
+    assert_eq!(r.app.take_intents(), [Intent::ReturnToApp]);
+    assert_eq!(r.app.debug()["switched"], false);
+}
+
+#[test]
+fn over_home_the_full_view_switches_nothing_and_asks_at_once_and_back_returns_to_nothing() {
+    let mut r = Rig::new(three());
+    r.app.set_vwin_on(true);
+    let fx = r.app.open_full("273", T0);
+    assert!(r.app.take_intents().is_empty());
+    assert_eq!(live_posts(&fx), [json!({"camera": "273", "for": "full", "window": "main"})]);
+    r.at(500);
+    r.press("back");
+    assert!(r.app.take_intents().is_empty(), "nothing was taken, nothing is brought back");
+}
+
+#[test]
+fn without_video_windows_or_with_live_over_apps_the_view_stays_over_the_app_as_it_was() {
+    let mut r = Rig::new(three());
+    r.topic("foreground", json!({"app": "netflix", "home": false}));
+    let fx = r.app.open_full("273", T0);
+    assert!(r.app.take_intents().is_empty(), "no compositor windows: the view is an overlay with stills");
+    assert!(live_posts(&fx).is_empty());
+    let mut q = Rig::new(three());
+    q.app.cfg.live_over_apps = true;
+    q.app.set_vwin_on(true);
+    q.topic("foreground", json!({"app": "netflix", "home": false}));
+    let fx = q.app.open_full("273", T0);
+    assert!(q.app.take_intents().is_empty(), "the owner wants live over the app: it stays");
+    assert_eq!(live_posts(&fx), [json!({"camera": "273", "for": "full", "window": "main"})]);
+}
+
+#[test]
+fn the_home_key_leaves_nothing_to_return_to_and_a_camera_that_does_not_play_live_takes_no_front() {
+    let mut r = Rig::new(three());
+    r.app.set_vwin_on(true);
+    r.topic("foreground", json!({"app": "netflix", "home": false}));
+    r.app.open_full("273", T0);
+    r.app.take_intents();
+    r.at(400);
+    r.topic("homekey", json!({}));
+    assert!(!r.app.viewer_up());
+    assert!(r.app.take_intents().is_empty(), "Home was asked for: no app is brought back");
+    assert_eq!(r.app.debug()["switched"], false);
+    // a camera with no live stream stays over the app with its pictures
+    let mut list = three();
+    list["cameras"][1]["live"] = json!(false);
+    let mut q = Rig::new(list);
+    q.app.set_vwin_on(true);
+    q.topic("foreground", json!({"app": "netflix", "home": false}));
+    q.app.open_full("273", T0);
+    assert!(q.app.take_intents().is_empty());
+}
+
+#[test]
+fn the_first_live_picture_of_a_view_is_timed_from_its_opening() {
+    let mut r = Rig::new(three());
+    r.app.set_vwin_on(true);
+    r.app.open_full("273", T0);
+    assert_eq!(r.app.debug()["firstLiveMs"], Value::Null);
+    r.at(640);
+    r.helper("cameras.live", live_topic("273", "live", "playing"));
+    assert_eq!(r.app.debug()["firstLiveMs"], 640, "from the OK to the first picture of the camera's own stream");
+    r.at(900);
+    r.helper("cameras.live", live_topic("273", "live", "playing"));
+    assert_eq!(r.app.debug()["firstLiveMs"], 640, "the first is the one that counts");
+}
+
+#[test]
+fn the_grids_tiles_over_an_app_are_asked_for_no_more_than_twice_a_second_and_over_home_at_the_owners_pace() {
+    let asked_at = |foreground: Value, tick: u64| {
+        let mut r = Rig::new(three());
+        r.topic("foreground", foreground);
+        let fx = r.app.open_grid(T0);
+        r.at(50);
+        r.pictures(&fx);
+        let fx = r.tick(tick);
+        fetches(&fx).iter().filter(|f| f.1.contains("/frame?")).count()
+    };
+    assert!(asked_at(json!({"app": "com.webos.app.home", "home": true}), 350) > 0, "over Home: the owner's 200 ms (Balanced)");
+    assert_eq!(asked_at(json!({"app": "netflix", "home": false}), 350), 0, "over an app: not yet");
+    assert!(asked_at(json!({"app": "netflix", "home": false}), 650) > 0, "over an app: after 500 ms");
+}
