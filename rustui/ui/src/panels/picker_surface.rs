@@ -135,6 +135,17 @@ fn layout(kit: &mut Kit, v: &View) -> Layout {
             state_at: (s5 + dot + s2, words_y + name_h, tile_w - 2.0 * s5 - dot - s2),
         });
     }
+    // One row: every tile is as tall as the tallest (a port whose name wraps, as "HDMI 2 · eARC" does at large text), its words kept to the
+    // foot, so the focus plates and the washes of neighbours line up
+    for t in &mut tiles {
+        let d = tallest - t.frame.h;
+        if d > 0.0 {
+            t.name_at.1 += d;
+            t.dot_at.1 += d;
+            t.state_at.1 += d;
+            t.frame.h = tallest;
+        }
+    }
     let sheet_h = SHEET_MIN_H.max(row_y + tallest + s6);
     let sheet = Frame::new(SHEET_X, 1080.0 - 64.0 - sheet_h, SHEET_W, sheet_h);
     for (i, t) in tiles.iter_mut().enumerate() {
@@ -432,6 +443,19 @@ mod tests {
         assert_eq!(w0, ((1792.0f64 - 2.0 * 32.0 - 4.0 * 16.0) / 5.0).floor(), "five columns even when there are fewer tiles: {w0}");
         assert_eq!(g["focus"], 2, "on the input in front");
         assert_eq!(u.engine.focus.modal(), Some(SCOPE));
+    }
+
+    #[test]
+    fn the_tiles_are_one_row_as_tall_as_the_tallest_at_large_text_too() {
+        for scale in [1.0, 2.0] {
+            let u = Up::new(Mode::Dark, scale, 3);
+            let g = u.s.geometry(&u.engine);
+            let tiles = g["tiles"].as_array().expect("tiles");
+            let (y0, h0) = (tiles[0]["frame"]["y"].as_f64().unwrap(), tiles[0]["frame"]["h"].as_f64().unwrap());
+            for t in tiles {
+                assert_eq!((t["frame"]["y"].as_f64().unwrap(), t["frame"]["h"].as_f64().unwrap()), (y0, h0), "at {scale}: {tiles:?}");
+            }
+        }
     }
 
     #[test]
