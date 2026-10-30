@@ -1972,6 +1972,43 @@ mod tests {
     }
 
     #[test]
+    fn the_weather_picture_asks_the_engine_for_a_tick_only_while_its_card_is_seen() {
+        let reading = |code: i64| json!({"doc": {"fetchedAt": 5, "current": {"code": code, "isDay": true, "windMph": 4.0}, "display": {"place": "Atlanta", "temp": "61\u{b0}", "cond": "Rain", "stats": "", "nowKind": "rain", "days": []}}});
+        let (mut h, mut shell) = home_shell("home");
+        shell.helper(&Event::Topic { topic: "weather".into(), data: reading(63) }, 1_050);
+        shell.tick(1_100);
+        // the picture is made once the card's words are on the atlas (their glyphs do not wait behind its pixels)
+        h.settle_atlas();
+        shell.tick(1_150);
+        let due = shell.due_at().expect("rain moves: a tick is due");
+        assert!(due <= 1_100 + crate::home::weather_art::TICK_MS, "the paths are restated every {} ms, not {}", crate::home::weather_art::TICK_MS, due - 1_100);
+        // a tick moves the next due on, and nothing else is asked
+        shell.tick(due);
+        assert!(shell.due_at().is_some_and(|d| d > due && d <= due + crate::home::weather_art::TICK_MS));
+        // the screen off, a screensaver, reduced motion and an app over Home: no tick, nothing is due for the picture
+        shell.channel(&Event::Topic { topic: "screen".into(), data: json!({"on": false}) }, 3_000);
+        shell.tick(3_050);
+        assert!(shell.due_at().is_none_or(|d| d > 3_050 + crate::home::weather_art::TICK_MS), "screen off: {:?}", shell.due_at());
+        shell.channel(&Event::Topic { topic: "screen".into(), data: json!({"on": true}) }, 4_000);
+        shell.tick(4_050);
+        assert!(shell.due_at().is_some_and(|d| d <= 4_050 + crate::home::weather_art::TICK_MS), "back on: it moves again");
+        shell.kit.ui.look.reduced_motion = true;
+        shell.tick(4_500);
+        shell.channel(&Event::Topic { topic: "foreground".into(), data: json!({"app": "youtube.leanback.v4", "home": false, "covered": true}) }, 5_000);
+        for s in 6..14u64 {
+            shell.tick(s * 1000 + 50);
+        }
+        assert_eq!(shell.due_at(), None, "reduced motion and covered: nothing is due");
+        shell.kit.ui.look.reduced_motion = false;
+        shell.channel(&Event::Topic { topic: "foreground".into(), data: json!({"app": "youtube.leanback.v4", "home": false, "covered": true}) }, 15_000);
+        shell.tick(15_050);
+        assert_eq!(shell.due_at(), None, "an app over Home: the picture asks for nothing");
+        shell.channel(&Event::Topic { topic: "foreground".into(), data: json!({"app": "com.webos.app.home", "home": true, "covered": false}) }, 16_000);
+        shell.tick(16_050);
+        assert!(shell.due_at().is_some_and(|d| d <= 16_050 + crate::home::weather_art::TICK_MS), "Home in front again: it moves");
+    }
+
+    #[test]
     fn with_every_kind_built_and_an_app_in_front_nothing_of_the_shell_is_due() {
         // A timer that is due behind a playing video wakes the client and, if it changes a picture, costs a composed frame under it: the shell with
         // every kind and Home covered sleeps until an event.

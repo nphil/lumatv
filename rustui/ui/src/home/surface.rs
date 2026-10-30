@@ -269,6 +269,8 @@ pub struct HomeSurface {
     over_video: bool,
     live: bool,
     news_at: u64,
+    /// When the weather picture's next paths are due (while it moves).
+    art_at: Option<u64>,
     news_index: usize,
     last_clock_s: u64,
     wall_mode: Option<Mode>,
@@ -305,6 +307,7 @@ impl HomeSurface {
             over_video: false,
             live: false,
             news_at: 0,
+            art_at: None,
             news_index: 0,
             last_clock_s: 0,
             wall_mode: None,
@@ -325,11 +328,29 @@ impl HomeSurface {
 
     /// The surface's own timers: the news slide, the clock's second (or minute).
     pub fn tick(&mut self, now: u64) -> bool {
-        now / 1000 != self.last_clock_s || (self.news_at > 0 && now >= self.news_at)
+        now / 1000 != self.last_clock_s || (self.news_at > 0 && now >= self.news_at) || self.art_at.is_some_and(|t| now >= t)
     }
 
     pub fn due_at(&self) -> Option<u64> {
-        if self.cards.iter().any(|c| c.kind == "news") && self.news_at > 0 { Some(self.news_at) } else { None }
+        let news = if self.cards.iter().any(|c| c.kind == "news") && self.news_at > 0 { Some(self.news_at) } else { None };
+        [news, self.art_at].into_iter().flatten().min()
+    }
+
+    /// The weather card's picture moves only while the card is seen: Home in front with nothing over the card, the screen on, no screensaver,
+    /// and no reduced motion; otherwise its sprites rest on whole pixels and nothing is asked of the engine (`art_at` is `None`, so no wake).
+    fn drive_weather(&mut self, kit: &Kit, home: &Home, now: u64) {
+        let run = home.weather_art_runs() && !kit.ui.look.reduced_motion;
+        let mut next: Option<u64> = None;
+        for c in &mut self.cards {
+            if let Content::Weather(w) = &mut c.content {
+                // a picture that waits for the atlas to settle looks again in 100 ms
+                let t = w.animate(now, run).or_else(|| (w.art_waits() && home.active).then_some(now + 100));
+                if let Some(t) = t {
+                    next = Some(next.map_or(t, |n| n.min(t)));
+                }
+            }
+        }
+        self.art_at = next;
     }
 
     fn now_ns() -> u64 {
@@ -402,8 +423,9 @@ impl HomeSurface {
         // that finds it in front again: a covered Home that went on doing it sent the engine a damaged picture every second, a composed frame under
         // a playing video for nothing.
         if home.active {
-            self.update_contents(kit, home, now);
+            self.update_contents(kit, engine, home, now);
         }
+        self.drive_weather(kit, home, now);
         self.update_dock(kit, engine, home, now_ns);
         self.update_focus(kit, engine, home, now_ns);
         self.update_layers(kit, engine, home, now)?;
@@ -767,7 +789,7 @@ impl HomeSurface {
     }
 
     // ---- the contents
-    fn update_contents(&mut self, kit: &mut Kit, home: &Home, now: u64) {
+    fn update_contents(&mut self, kit: &mut Kit, engine: &mut Engine, home: &Home, now: u64) {
         let t = super::clock::civil(now);
         let inner = home.inner.as_deref();
         let inner_index = home.inner_index;
@@ -783,7 +805,12 @@ impl HomeSurface {
             let row = if mine { inner_index } else { None };
             match &mut c.content {
                 Content::Clock(cl) => cl.tick(kit, &t),
-                Content::Weather(w) => w.set(kit, &mut self.pictures, &home.weather),
+                Content::Weather(w) => {
+                    w.set(kit, &mut self.pictures, &home.weather);
+                    // the picture's sprites are made inside the card's group, which a lift of its own owns
+                    let scene = kit.ui.scene.clone();
+                    let _ = c.lift.adopting(engine, &scene, || w.set_art(kit, &home.weather));
+                }
                 Content::News(n) => n.set(kit, &home.news, if mine { inner_index.unwrap_or(0) } else { self.news_index }, now),
                 Content::AtHome(a) => a.set(kit, &home.ha_items(), &home.ha_lane(), row, &mut self.pictures),
                 Content::Cameras(cm) => cm.set(kit, &home.cameras, &home.stills, row, now),

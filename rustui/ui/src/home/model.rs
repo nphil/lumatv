@@ -1993,6 +1993,11 @@ impl Home {
         }
     }
 
+    /// Whether the weather card's picture may move: Home in front with the screen on, no screensaver over it and no layer over the cards.
+    pub fn weather_art_runs(&self) -> bool {
+        self.active && self.screen_on && !self.saver_up && self.layer == Layer::None
+    }
+
     /// Home is in front with nothing open on it: no layer, no layout editor, no card's inner focus, no tile being moved.
     pub fn at_rest(&self) -> bool {
         self.active && self.screen_on && self.layer == Layer::None && self.editor.is_none() && self.inner.is_none() && !self.dock.moving

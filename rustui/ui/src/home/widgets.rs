@@ -617,7 +617,6 @@ impl Clock {
 // ---- the weather
 pub struct Weather {
     pub block: Words,
-    now_icon: ImageLayer,
     rows_art: ImageLayer,
     w: f32,
     h: f32,
@@ -625,14 +624,20 @@ pub struct Weather {
     lines: WeatherLines,
     at: Props,
     shown: Option<String>,
-    now_side: u32,
-    now_at: (f32, f32),
     rows_at: (f32, f32),
+    /// The picture of the condition (the sprites in the card's group) and the box it has, in the content box (x, y, side).
+    art: Option<super::weather_art::Live>,
+    art_box: (f32, f32, f32),
+    /// The picture is waiting for the atlas to settle: the surface asks to be drawn again soon.
+    art_waits: bool,
+    z: i32,
 }
 
 #[derive(Default)]
 struct WeatherLines {
     place: usize,
+    place_style: Option<Style>,
+    place_w: f32,
     temp: usize,
     cond: usize,
     stats: usize,
@@ -693,27 +698,43 @@ impl Weather {
         };
         let show_place = !(compact || h < 110.0);
         let cond_h = if now_icon >= 96.0 { 36.0 } else { 30.0 };
+        // the picture of the condition takes the right of the reading, the temperature and the condition the left (a "-12°" is 2 em)
+        let art_want = if compact { now_icon } else { (now_icon * 1.7).round() };
+        let temp_room = ((now_w - art_want - 12.0 - 4.0) / 2.0).floor();
         let now_temp = if compact {
             (now_icon * 0.875).round()
         } else if mode == "stack" {
-            // the token's size, but no larger than the room right of the icon (a "-12°" is 2 em)
-            token.min(((now_w - now_icon - (now_icon * 18.0 / 96.0).round() - 4.0) / 2.0).floor()).max(40.0)
+            token.min(temp_room).max(40.0)
         } else {
-            (now_icon * token / 96.0).round().min(((now_w - now_icon - (now_icon * 18.0 / 96.0).round() - 4.0) / 2.0).floor()).min(h - if show_place { 40.0 } else { 0.0 } - cond_h - 4.0).max(40.0)
+            (now_icon * token / 96.0).round().min(temp_room).min(h - if show_place { 40.0 } else { 0.0 } - cond_h - 4.0).max(40.0)
         };
         let core_h = if compact { now_icon } else { now_icon.max(now_temp + 4.0 + cond_h) };
         let place_h: f32 = if show_place { 40.0 } else { 0.0 };
         let now_top = if mode == "stack" && !compact { 47.0 } else { place_h + ((h - place_h - core_h) / 2.0).round().max(0.0) };
         let temp_top = now_top + if compact { ((now_icon - now_temp) / 2.0).round() } else { 0.0 };
         let stats_y = now_top + core_h + 8.0;
+        // the picture stays above the stats line (which runs the card's width) and inside the room the reading's column leaves it; at a large
+        // text size the words need the room (the place, the temperature, a long condition under it), so it is smaller and ends above the condition
+        let big_text = scale > 1.25;
+        let mut art_side = if compact { art_want } else { art_want.min((stats_y - 6.0).max(48.0)) }.min((now_w * if big_text { 0.42 } else { 0.55 }).floor());
+        if big_text && !compact {
+            art_side = art_side.min(now_top + now_temp - 8.0).max(48.0);
+        }
+        let art_side = art_side.floor();
+        let art_x = now_w - art_side;
+        let art_y = if compact { ((h - art_side) / 2.0).round().max(0.0) } else if big_text { 4.0 } else { ((stats_y - 6.0 - art_side) / 2.0).round().max(0.0) };
+        let reading_w = now_w - art_side - 8.0;
         let mut lines: Vec<Line> = Vec::new();
         let mut map = WeatherLines { place: 0, ..WeatherLines::default() };
-        lines.push((Frame::new(0.0, 0.0, now_w, 34.0), sized(kit, 24.0, Weight::SemiBold, ink, Align::Left), String::new()));
-        let temp_x = now_icon + (now_icon * 18.0 / 96.0).round();
+        let place_style = sized(kit, 24.0, Weight::SemiBold, ink, Align::Left);
+        map.place_style = Some(place_style);
+        map.place_w = reading_w;
+        lines.push((Frame::new(0.0, 0.0, reading_w, 34.0), place_style, String::new()));
+        let temp_x = 0.0;
         map.temp = lines.len();
-        lines.push((Frame::new(temp_x, temp_top, now_w - temp_x, now_temp), sized(kit, now_temp, Weight::SemiBold, ink, Align::Left), String::new()));
+        lines.push((Frame::new(temp_x, temp_top, reading_w, now_temp), sized(kit, now_temp, Weight::SemiBold, ink, Align::Left), String::new()));
         map.cond = lines.len();
-        lines.push((Frame::new(temp_x, now_top + now_temp + 4.0, now_w - temp_x, cond_h), sized(kit, if now_icon >= 96.0 { 26.0 } else { 22.0 }, Weight::Medium, ink, Align::Left), String::new()));
+        lines.push((Frame::new(temp_x, now_top + now_temp + 4.0, reading_w, cond_h), sized(kit, if now_icon >= 96.0 { 26.0 } else { 22.0 }, Weight::Medium, ink, Align::Left), String::new()));
         map.stats = lines.len();
         // the stats line only where it fits under the reading
         let stats_room = if stats_y + 30.0 <= h { w } else { 0.0 };
@@ -776,18 +797,57 @@ impl Weather {
         map.col_w *= k;
         map.col_x *= k;
         map.stats_w *= k;
+        map.place_w *= k;
         let block = Words::new(kit, Frame::new(0.0, 0.0, w, h), z + 2, lines)?;
-        let now_side = (now_icon * k) as u32;
-        let now_icon_layer = kit.ui.scene.image(now_side, now_side, z + 1, HIDDEN)?;
         let rows_art = art(kit, Frame::new(0.0, 0.0, w, h), z + 1)?;
-        Ok(Self { block, now_icon: now_icon_layer, rows_art, w, h, mode, lines: map, at: HIDDEN, shown: None, now_side, now_at: (0.0, now_top * k), rows_at: (0.0, 0.0) })
+        let art_box = (art_x * k, art_y * k, (art_side * k).round());
+        Ok(Self { block, rows_art, w, h, mode, lines: map, at: HIDDEN, shown: None, rows_at: (0.0, 0.0), art: None, art_box, art_waits: false, z })
     }
 
     fn show(&mut self, at: Props) {
         self.at = at;
         self.block.set_props(at);
-        self.now_icon.set(Props { x: at.x + self.now_at.0, y: at.y + self.now_at.1, ..at });
         self.rows_art.set(Props { x: at.x + self.rows_at.0, y: at.y + self.rows_at.1, ..at });
+        if let Some(a) = &mut self.art {
+            a.place((at.x + self.art_box.0, at.y + self.art_box.1));
+        }
+    }
+
+    pub fn art_waits(&self) -> bool {
+        self.art_waits
+    }
+
+    /// Keeps the picture's motion going (`run`) or at rest, for the tick `now`; the tick the next paths are due at, while it moves.
+    pub fn animate(&mut self, now: u64, run: bool) -> Option<u64> {
+        let a = self.art.as_mut()?;
+        if !run {
+            if a.running() {
+                a.rest();
+            }
+            return None;
+        }
+        Some(a.step(now))
+    }
+
+    /// The picture of the condition: its sprites are made when the condition (or the look) changes. The caller is inside the card's `adopting`, so
+    /// that the layers hang under the card's group.
+    pub fn set_art(&mut self, kit: &mut Kit, topic: &Value) {
+        // the words first: the sprites' pixels are a few hundred KiB the engine takes in a frame of their own, and the card's glyphs are
+        // not to wait behind them (the picture comes on the first apply after the atlas has settled)
+        if kit.ui.text_atlas().is_some_and(|a| !a.is_settled()) {
+            self.art_waits = true;
+            return;
+        }
+        self.art_waits = false;
+        let light = kit.mode == ui::lucent::palette::Mode::Light;
+        match super::weather_art::Cond::from_doc(topic.pointer("/doc").unwrap_or(&Value::Null)) {
+            Some(cond) if !self.art.as_ref().is_some_and(|a| a.is(cond, light)) => {
+                let origin = (self.at.x + self.art_box.0, self.at.y + self.art_box.1);
+                self.art = super::weather_art::Live::new(kit, cond, self.art_box.2, light, origin, self.z + 1).ok();
+            }
+            None => self.art = None,
+            Some(_) => {}
+        }
     }
 
     /// The helper's reading (`topic.doc.display`), drawn when it changed.
@@ -801,9 +861,11 @@ impl Weather {
         let s = |k: &str| d.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
         let ink = kit.ui.look.ink();
         let ink2 = kit.ui.look.ink2();
+        // no reading yet: the helper is starting again or not up, which the card says instead of staying empty
+        let place = if d.is_null() { "Reconnecting\u{2026}".to_owned() } else { s("place") };
+        let place = self.lines.place_style.map_or_else(|| place.clone(), |st| ellipsise(&mut kit.ui.fonts, &place, st.ty, self.lines.place_w));
         let mut changes: Vec<(usize, String, Rgba)> = vec![
-            // no reading yet: the helper is starting again or not up, which the card says instead of staying empty
-            (self.lines.place, if d.is_null() { "Reconnecting\u{2026}".to_owned() } else { s("place") }, ink),
+            (self.lines.place, place, ink),
             (self.lines.temp, s("temp"), ink),
             (self.lines.cond, s("cond"), ink),
             (self.lines.stats, String::new(), ink2),
@@ -845,17 +907,6 @@ impl Weather {
         }
         let refs: Vec<(usize, &str, Rgba)> = changes.iter().map(|(i, s, c)| (*i, s.as_str(), *c)).collect();
         self.block.set_many(kit, &refs);
-        // the pictures: the now icon, and the rows' icons and range bars in one art layer
-        let kind = s("nowKind");
-        self.now_icon.clear();
-        if !kind.is_empty()
-            && let Some(p) = pictures.get(&format!("wxbig-{kind}"))
-        {
-            let side = self.now_side;
-            let fitted = p.fitted(side, side, Fit::Contain);
-            fitted.paint(&mut self.now_icon);
-        }
-        self.now_icon.damage(None);
         let (w, h) = (self.w as u32, self.h as u32);
         self.rows_art.clear();
         {

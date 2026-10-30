@@ -17,6 +17,7 @@ pub mod stills;
 pub mod surface;
 pub mod wallpaper;
 pub mod wallvideo;
+pub mod weather_art;
 pub mod widgets;
 
 pub use model::Home;
