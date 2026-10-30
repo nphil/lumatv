@@ -383,7 +383,7 @@ def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
         seqd = collections.Counter(fr[i + 1][1] - fr[i][1] for i in range(len(fr) - 1))
         w = {'name': nm, 'start': round(a, 3), 'dur_s': round(b - a, 3), 'frames': len(fr),
              'fps': round(len(fr) / (b - a), 1) if b > a else 0,
-             'over17': sum(1 for x in ivals if x > 17.5), 'over20': sum(1 for x in ivals if x > drop_ms), 'panel_hz': panel_hz,
+             'over17': sum(1 for x in ivals if x > 17.5), 'over20': sum(1 for x in ivals if x > drop_ms), 'panel_hz': panel_hz, 'drop_ms': drop_ms,
              'over33': sum(1 for x in ivals if x > 33.5), 'over50': sum(1 for x in ivals if x > 50),
              'worst_ms': round(max(ivals), 1) if ivals else 0,
              'vblanks_between_presents': dict(sorted(seqd.items())),

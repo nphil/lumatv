@@ -869,6 +869,62 @@ class AnalysePanel(unittest.TestCase):
         self.assertEqual(analyse.burst(frames, 0.0, drop_ms=12.0)['over20'], 1, 'the 30 ms interval, not the 10 ms flips')
 
 
+class RingMotion(unittest.TestCase):
+    """The compositor's own count of the refreshes a motion missed (its ring's `anim` flag), where the trace can only guess: round 22 at 60 Hz, home-dpad
+    read 17 drops off the trace (every key's response frame after the last key's settle) and the compositor counted none."""
+    L = '%.3f L flip %.3f +%.1f ms: frame 3.0 ms (gpu done), late 0 lost 0%s'
+
+    def lines(self, flips):
+        return [self.L % (t, t, iv, ' anim' if anim else '') for t, iv, anim in flips]
+
+    def test_only_a_flip_after_a_frame_of_a_motion_is_judged_and_only_a_late_one_is_dropped(self):
+        import ringsum
+        flips = ringsum.flips(self.lines([(10.000, 16.7, True), (10.017, 16.7, True), (10.050, 33.4, True), (10.067, 16.7, False),
+                                          (10.467, 400.0, False), (10.484, 16.7, True), (10.600, 116.0, True)]))
+        self.assertEqual(flips[2], (10.05, 33.4, True))
+        self.assertEqual(ringsum.motion_drops(flips, 10.0, 11.0, 20.0), (4, 2), 'the 33.4 after a motion and the 116 after the last frame of one; the 400 after a still screen is not judged')
+        self.assertEqual(ringsum.motion_drops(flips, 10.04, 10.1, 20.0), (2, 1), 'the window is the flips inside it')
+        self.assertEqual(ringsum.motion_drops(flips, 10.0, 11.0, 120.0), (4, 0), 'a threshold of its own')
+
+    def test_a_window_the_ring_does_not_reach_back_to_is_not_judged(self):
+        import ringsum
+        flips = ringsum.flips(self.lines([(10.0, 16.7, True), (10.017, 16.7, True)]))
+        self.assertIsNone(ringsum.motion_drops(flips, 5.0, 11.0, 20.0))
+        self.assertIsNone(ringsum.motion_drops([], 0.0, 1.0, 20.0))
+
+    def test_the_gate_judges_a_surface_by_the_rings_count_when_every_window_has_one(self):
+        s = gate.find(['quick-settings'])[0]
+        r = report('quick-settings', 3)
+        for w in r['windows']:
+            w.update(dropped=9, dropped_in_motion=9, ring_judged=100, ring_dropped=0)
+        c = {x['name']: x for x in gate.evaluate_windows(s, r, 3)}
+        self.assertTrue(c['dropped']['ok'], c['dropped'])
+        self.assertIn('the trace read 54', c['dropped']['detail'])
+        r['windows'][2]['ring_dropped'] = 1
+        self.assertEqual(failed(gate.evaluate_windows(s, r, 3)), ['dropped'])
+        del r['windows'][3]['ring_dropped']
+        c = {x['name']: x for x in gate.evaluate_windows(s, r, 3)}
+        self.assertFalse(c['dropped']['ok'], 'a window without the ring: the trace reading for the surface')
+        self.assertEqual(c['dropped']['value'], 54)
+
+    def test_attach_gives_each_window_its_count_and_a_missing_ring_changes_nothing(self):
+        import json
+        import tempfile
+        lines = self.lines([(10.0 + i * 0.0167, 16.7, True) for i in range(30)] + [(10.6, 33.4, True)])
+        with tempfile.NamedTemporaryFile('w', suffix='.ring.json', delete=False) as f:
+            json.dump({'lines': lines}, f)
+        try:
+            r = {'windows': [{'name': 'a-open', 'start': 10.0, 'dur_s': 1.0, 'drop_ms': 20.0}, {'name': 'a-close', 'start': 3.0, 'dur_s': 1.0, 'drop_ms': 20.0}]}
+            gate.attach_ring_motion(r, f.name)
+            self.assertEqual((r['windows'][0]['ring_judged'], r['windows'][0]['ring_dropped']), (30, 1))
+            self.assertNotIn('ring_dropped', r['windows'][1], 'before the ring starts')
+            r2 = {'windows': [{'name': 'a-open', 'start': 10.0, 'dur_s': 1.0}]}
+            gate.attach_ring_motion(r2, f.name + '.nope')
+            self.assertNotIn('ring_dropped', r2['windows'][0])
+        finally:
+            os.unlink(f.name)
+
+
 class RingSummary(unittest.TestCase):
     D = '%.3f D frame %d render %d us owed %d px in %d rects, ui %d draws %d layers (tick)'
     L = '%.3f L flip %.3f +%.1f ms: frame %.1f ms (gpu done), late %d lost 0 anim'

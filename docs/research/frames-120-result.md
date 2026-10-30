@@ -20,20 +20,33 @@ On forge main:
      engine took each for a change. Each cluster after a cheap stretch was also where the pacer had planned a short lead, so the first heavy frame missed its
      refresh (`late 1 lost 1`, 33.4 ms at 60 Hz). The engine now leaves a `Restyle` or `Set` that says what is already so (and a wallpaper's fps alone) as it is
      (`patches/lumatv-scene.patch`); on the host an idle Home draws 31 kpx a second where it drew 1.13 Mpx (`tests/test_home_idle.py`).
-  3. **Home is calm** (`Home::set_calm`, `Shell::after`): its wallpaper stands still and its weather rests while anything is over it, 450 ms after, and for 2 s after
-     a key. The weather's sprites draw a frame every refresh, so that the compositor is in step with the panel when a key arrives and the screens never go
-     quiet (`burst_end_ms` of quick, picker and toast read the whole window, 1.7-2.0 s, at 60 Hz).
+  3. **Home is calm** (`Home::set_calm`, `Shell::after`): its wallpaper stands still and its weather rests while anything is over it, and 450 ms after.
+- Round 22 on 888dc431 (60 Hz, pop-ups off, panel 59.9 Hz everywhere): home-dpad 17, apps-grid 2, home-widgets 7 dropped, quick/picker/settings-scroll/home-widgets
+  `burst_over20` 2-9, toast `burst_end` 1995 ms. Read off the rings, these were mostly the gate:
+  1. **The trace cannot tell which frames were animated**: a key's response frame, a frame the idle tick drew, the last frame of a motion and the first of the next
+     key look alike, so home-dpad read one "drop in motion" per key (keys 350 ms apart) while the compositor's own count was 0. The gate now takes `dropped` from
+     the ring's flag (`anim`: a frame with an animation still running after it; `ringsum.motion_drops`, the rule of `refresh::Measure::motion`), per window, and
+     falls back to the trace where the ring does not reach the window.
+  2. **The weather card draws every refresh** (a sprite layer moving on engine animations, since after round 21): every flip of an idle Home is "after an animating
+     frame", every key's first heavy frame (12.8 ms of GPU, 87 layers, the whole screen) is judged as a drop, and no burst of frames ever ends (toast `burst_end` =
+     its 2 s hold). The gate's `still` now switches the card's sprites off with the wallpaper's tick (theme `weather.animated`, default on, shipped in the theme; the
+     user's file is put back). The input calm of b421f486 (2 s after a key) is gone: it was there for these bursts, and its only proven effect was on the gate.
+  3. **What is real**, by the compositor's own count per window, 60 Hz: quick 3 and picker 1 (the first frame of an open, after weather frames: gone with them off),
+     settings-scroll 7 (mid-walk: a page change is three frames of 11-12 ms GPU, 149 layers, 1.49 Mpx, and the first is late), home-widgets 3 (+1.07 s: the focus
+     enters the cards, they all dim, 166 layers, 9-13 ms), apps-grid 1. Each is the first heavy frame after cheap ones: the pacer plans for the cost of the frames
+     before it, so a step in cost lands one refresh late (`late 1 lost 1`, 33.4 ms), and the frames after it are on time.
 
 Next, in order:
 
-1. TV re-check (Round 22 owns the set), install this build: `python3 compositor/tools/tv_gate.py --only frames --quick`, then the same with `--refresh 120`.
-   Read the gate's `panel_refresh` first: a window on another refresh says nothing of the asked one (restart the compositor, run the surface again).
-   Pass: every surface `dropped` 0 and `burst_over20` 0. Rings: `/tmp/perf/gate-c4shell[-120]-<surface>-m<i>.ring.json` (`perf/ringsum.py FILE`).
-2. What is left, from the 60 Hz rings of 2138070f: the first key after a stretch of per-refresh frames (the weather's) answers 33.4 ms after the last flip (the update
-   comes after a vblank, the frame costs a refresh: two refreshes whatever the pacer does), which `burst_over20` counts as a drop in the burst; once the screen
-   is calm before the key (the second cycle on) it does not. If it still fails the gate, the burst should start at the response frame, as `dropped_in_motion` does.
-3. Panels and Settings still redraw Home's 87 layers under a changing alpha: 12.8 ms of GPU for the first frame of quick's open (render 3-4 ms), so a refresh and
-   more at 60 Hz and impossible at 120. Caching Home as one picture while a modal fades over it is the structural fix.
+1. TV re-check (Round 22 owns the set), install this build: `python3 compositor/tools/tv_gate.py --only frames --quick`, then the same with `--refresh 120`. Read the
+   gate's `panel_refresh` first: a window on another refresh says nothing of the asked one (play a 60 fps video for a few seconds, or restart the compositor, and run
+   the surface again; the helper's return to 120 Hz after a pop-up does not take, see below). The `dropped` line says "the compositor's own count". Rings:
+   `/tmp/perf/gate-c4shell[-120]-<surface>-m<i>.ring.json` (`perf/ringsum.py FILE`).
+2. At 120 Hz a whole-screen frame over Home costs 8-13 ms of GPU (87 layers alone 7.4 ms), so panels, page changes and the cards' dim cannot hold 8.3 ms. Fixes, by
+   weight: Home as one picture while something fades over it (the structural one: the engine redraws every layer under a changing alpha), the Settings page change
+   without its three heavy frames from 100 Hz (as the open and close are), fewer layers in Home.
+3. The panel stays at 100 Hz after a camera pop-up (25 fps hardware video window): the helper's `0 60` write to `fr_rate` is ignored (helper log: "wrote 0 60 ... but
+   the output measures 99.9 Hz"), YouTube for a few seconds put it right. Not mine; the gate flags it.
 
 ## What the gate said, and what it measured
 

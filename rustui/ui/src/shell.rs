@@ -29,9 +29,6 @@ use std::path::{Path, PathBuf};
 const CAMERAS_SETTINGS_PAGE: &str = "cameras";
 /// How long Home stays calm after an overlay is gone (the longest fade-out or slide-out is 220 ms).
 const OVERLAY_RELEASE_MS: u64 = 450;
-/// How long Home stays calm after the last key or pointer event: a walk of the screens has keys 100-350 ms apart, and the gate's panels are
-/// held 1.5 s between a key and the next.
-const CALM_AFTER_INPUT_MS: u64 = 2_000;
 
 /// What the shell asks the host to do.
 #[derive(Clone, Debug, PartialEq)]
@@ -179,8 +176,6 @@ pub struct Shell {
     /// release in the middle of would make a frame of the whole stack at.
     overlay_up: bool,
     overlay_until: u64,
-    /// Until when the last key or pointer event keeps Home calm, in ms.
-    input_until: u64,
     /// When Home is next let go, a tick of its own.
     release_at: Option<u64>,
     helper_up: bool,
@@ -225,7 +220,6 @@ impl Shell {
             redraw: false,
             overlay_up: false,
             overlay_until: 0,
-            input_until: 0,
             release_at: None,
             helper_up: false,
             started: false,
@@ -670,8 +664,6 @@ impl Shell {
     /// A key or a pointer sample from the key socket: the layer's alerts take the keys while one is up, the pointer's hover and click
     /// are the kit's rule.
     pub fn key(&mut self, event: &KeyEvent, now: u64) -> Vec<Act> {
-        // a key or a pointer sample: Home is calm for a while (`CALM_AFTER_INPUT_MS`)
-        self.input_until = now + CALM_AFTER_INPUT_MS;
         let mut acts = Vec::new();
         // the voice key is held while the person speaks: its press starts the microphone, its release ends it, and nothing else hears it
         if let KeyEvent::Key { name, down, repeat, .. } = event
@@ -833,17 +825,16 @@ impl Shell {
         let modal = (self.kinds.settings && self.settings.is_open()) || (self.kinds.displaylab && self.lab.is_open());
         let host_busy = self.panels.wants(&self.kinds) || modal;
         // Home is calm (its wallpaper stands still and its weather rests) while something is over it, until the overlay has been gone a while (not
-        // at the start of its fade-out), and for a while after the last key
+        // at the start of its fade-out)
         if host_busy != self.overlay_up {
             self.overlay_up = host_busy;
             self.overlay_until = if host_busy { u64::MAX } else { now + OVERLAY_RELEASE_MS };
         }
-        let calm_until = self.overlay_until.max(self.input_until);
-        if self.kinds.home && self.home.set_calm(now < calm_until) {
+        if self.kinds.home && self.home.set_calm(now < self.overlay_until) {
             self.redraw = true;
         }
         // a tick of its own when it ends
-        self.release_at = (calm_until > now && calm_until != u64::MAX).then_some(calm_until);
+        self.release_at = (self.overlay_until > now && self.overlay_until != u64::MAX).then_some(self.overlay_until);
         let viewer = self.kinds.cameras && self.cameras.wants();
         for e in self.sys.set_host(&self.kinds, host_busy, viewer, now) {
             self.carry(e, now, acts);
@@ -2241,10 +2232,9 @@ mod tests {
     }
 
     /// Round 22's ring at 120 Hz: under Settings Home's GPU wallpaper kept stepping ten times a second and each step owed the whole screen, three
-    /// frames of 157 layers; the weather's sprites drew a frame every refresh under the panes, and at 60 Hz the compositor, drawing in step with the
-    /// panel for those, missed a refresh for every heavy frame a key asked for.
+    /// frames of 157 layers; the weather's sprites drew a frame every refresh under the panes.
     #[test]
-    fn home_is_calm_under_an_overlay_and_after_a_key_and_moves_again_when_they_have_been_gone_a_while() {
+    fn home_is_calm_under_an_overlay_and_moves_again_when_it_has_been_gone_a_while() {
         let (_h, mut shell) = home_shell("home,quick,settings");
         shell.tick(1_500);
         assert!(!shell.home.wallpaper_held() && shell.home.weather_art_runs(), "Home alone moves");
@@ -2265,16 +2255,6 @@ mod tests {
         shell.tick(due);
         assert!(!shell.home.wallpaper_held() && shell.home.weather_art_runs(), "the overlay has been gone for a while: Home moves again");
         assert_eq!(shell.release_at, None);
-        // a key keeps Home calm for a while, whatever it was for, and each key moves the end on
-        key(&mut shell, "right", 8_000);
-        assert!(shell.home.wallpaper_held() && !shell.home.weather_art_runs());
-        assert_eq!(shell.release_at, Some(8_030 + CALM_AFTER_INPUT_MS), "a tick of its own when the calm ends");
-        key(&mut shell, "left", 9_000);
-        assert_eq!(shell.release_at, Some(9_030 + CALM_AFTER_INPUT_MS));
-        shell.tick(9_030 + CALM_AFTER_INPUT_MS - 1);
-        assert!(shell.home.wallpaper_held());
-        shell.tick(9_030 + CALM_AFTER_INPUT_MS);
-        assert!(!shell.home.wallpaper_held() && shell.home.weather_art_runs());
     }
 
     /// A full-screen modal's fade redraws 157 layers a frame, 15-32 ms of GPU at the set: a refresh and a half at 60 Hz, and at 120 a fade of 30

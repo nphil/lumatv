@@ -2265,10 +2265,17 @@ impl Home {
         }
     }
 
-    /// Whether the weather card's picture may move: Home in front with the screen on, no screensaver over it, no layer over the cards, and Home
-    /// not calm ([`Home::set_calm`]).
+    /// Whether the weather card's picture may move: Home in front with the screen on, no screensaver over it, no layer over the cards, Home not
+    /// calm ([`Home::set_calm`]) and the theme's `weather.animated` not off.
     pub fn weather_art_runs(&self) -> bool {
-        self.active && self.screen_on && !self.saver_up && self.layer == Layer::None && !self.calm
+        self.active && self.screen_on && !self.saver_up && self.layer == Layer::None && !self.calm && self.weather_animated()
+    }
+
+    /// The theme's `weather.animated` (default on): the weather card's sprites move. The frame gate switches it off with the wallpaper's motion for the
+    /// surfaces it measures at rest (`lumatv theme set '{"weather":{"animated":false}}'`): a card that draws every refresh keeps every flip of the screen
+    /// "after an animating frame" and every burst of frames from ending, whatever the surface under test does.
+    fn weather_animated(&self) -> bool {
+        self.theme.pointer("/weather/animated").and_then(Value::as_bool).unwrap_or(true)
     }
 
     /// Whether the full weather view's picture may move: that view is up, Home in front, the screen on and no screensaver.
@@ -2402,12 +2409,27 @@ mod tests {
     fn a_calm_home_rests_the_weather_and_stills_the_wallpaper() {
         let mut h = home();
         assert!(h.weather_art_runs() && !h.wallpaper_held(), "Home alone: everything moves");
-        assert!(h.set_calm(true), "something is over it, or a key was pressed: it changed");
+        assert!(h.set_calm(true), "something is over it: it changed");
         assert!(!h.weather_art_runs(), "the weather's sprites rest");
         assert!(h.wallpaper_held(), "the wallpaper is held");
         assert!(!h.set_calm(true), "the same again changes nothing, so no frame is asked for");
         assert!(h.set_calm(false));
         assert!(h.weather_art_runs() && !h.wallpaper_held(), "back to Home alone");
+    }
+
+    #[test]
+    fn the_themes_weather_animated_switch_rests_the_sprites_and_nothing_else() {
+        let mut h = home();
+        assert!(h.weather_art_runs(), "on unless the theme says otherwise");
+        let mut theme = h.theme.clone();
+        theme["weather"]["animated"] = json!(false);
+        h.set_theme(theme);
+        assert!(!h.weather_art_runs(), "off: the sprites rest");
+        assert!(!h.wallpaper_held(), "the wallpaper's own switch is its own");
+        let mut theme = h.theme.clone();
+        theme["weather"]["animated"] = json!(true);
+        h.set_theme(theme);
+        assert!(h.weather_art_runs());
     }
 
     /// A Home whose layout has a smart-home card on it, fed the helper's `onhome` topic.

@@ -20,8 +20,9 @@ window per marker with analyse.py and checks every window against the thresholds
 A surface whose key is not consumed (no frame in its window) fails. The marker sits at the edge
 the surface acts on: the press by default, the release for `act: 'release'` (LG's Quick Settings
 opens on the release of the settings key, so a marker at the press would count the 50 ms the
-injected tap is held). `still` switches the wallpaper's 10 Hz tick off for the surface (a tick
-frame could otherwise be taken for the response; the user's setting is put back). `delivery` is for
+injected tap is held). `still` switches Home's own motion off for the surface (the wallpaper's 10 Hz tick and the weather
+card's sprites: a frame of either could otherwise be taken for the response, and a card that draws every refresh keeps every burst of frames
+from ending; the user's settings are put back). `delivery` is for
 a surface a luna call opens (toast, alert): its first frame is judged from the moment the shell was
 handed the notification, because the spawn, the hub and the service before that are not the
 compositor's: LumaTV's compositor marks the trace itself (`Q:NAME-delivered`, when the service's push
@@ -251,7 +252,7 @@ KEYBOARD_WALK = 'RIGHTx6@0.12 DOWNx2@0.12 LEFTx6@0.12 UPx2@0.12 RIGHT:900 s0.2 L
 #               0 for a surface that is the app's drawing (a launch, the keyboard LG's process draws)
 # soak          False when cycling it says nothing about memory (Home idle)
 # act           'press' (default) or 'release': the edge of the key the surface acts on
-# still         True (default): the wallpaper's tick is off while the surface is measured
+# still         True (default): Home's own motion (the wallpaper's tick, the weather card's sprites) is off while the surface is measured
 # delivery      True: a luna call opens it; the first frame is timed from the compositor's delivery marker, else luna-send's return
 # default       False: part of the gate only when named with --surfaces
 # full_budget_s seconds one full capture may hold (default FULL_TRACE_BUDGET_S): less over playback, where the ring fills faster
@@ -900,6 +901,11 @@ def evaluate_windows(s, report, cycles, lg_compositor=False, lumatv=False):
             share = v / frames if frames else 0.0
             out.append(check('dropped_share', share <= LG_COMPOSITOR_DROP_SHARE, round(share, 3), f'<= {LG_COMPOSITOR_DROP_SHARE}',
                              f"{v} of {frames} animated frames, LG's compositor floor"))
+        elif keyed and all(w.get('ring_dropped') is not None for w in keyed):
+            # LumaTV's compositor says itself which of its frames had a motion running after them: the count is its own
+            ring = sum(w['ring_dropped'] for w in keyed)
+            out.append(check('dropped', ring <= th['dropped'], ring, f"<= {th['dropped']}",
+                             f"the compositor's own count over {sum(w['ring_judged'] for w in keyed)} flips after a frame of a motion (the trace read {v})"))
         else:
             out.append(check('dropped', v <= th['dropped'], v, f"<= {th['dropped']}"))
     if th['burst_over20'] is not None:
@@ -1071,7 +1077,7 @@ def jsonable(v):
 
 WINDOW_KEYS = ('name', 'dur_s', 'frames', 'fps', 'over20', 'worst_ms', 'anim_frames', 'dropped', 'dropped_in_motion', 'anim_render_ms',
                'first_frame_ms', 'burst_end_ms', 'burst_over20', 'burst_anim_p90_ms', 'sent_ms', 'delivered_ms', 'show_ms', 'osd_wake_ms',
-               'burst_first_render_ms', 'burst_anim_samples', 'burst_app_jobs', 'irq_counts', 'gaps', 'panel_hz')
+               'burst_first_render_ms', 'burst_anim_samples', 'burst_app_jobs', 'irq_counts', 'gaps', 'panel_hz', 'drop_ms', 'ring_judged', 'ring_dropped')
 
 
 def app_drawn(report, name):
@@ -1158,8 +1164,9 @@ class Rig:
         return path
 
     def set_motion(self, enabled):
-        """Switch the wallpaper's 10 Hz tick; Home reads the file every 2 s, so wait 3."""
-        self.sh(TOOL + ' theme set ' + shlex.quote(json.dumps({'wallpaperMotion': {'enabled': bool(enabled)}})))
+        """Switch Home's own motion, the wallpaper's 10 Hz tick (`wallpaperMotion.enabled`) and the weather card's sprites (`weather.animated`); Home
+        reads the file every 2 s, so wait 3."""
+        self.sh(TOOL + ' theme set ' + shlex.quote(json.dumps({'wallpaperMotion': {'enabled': bool(enabled)}, 'weather': {'animated': bool(enabled)}})))
         time.sleep(3)
 
     def remember_compositor(self, pid):
@@ -1238,6 +1245,25 @@ class LogWatch:
 def read(path):
     with open(path, errors='replace') as f:
         return f.read()
+
+
+def attach_ring_motion(report, ring_path):
+    """Gives each window of an analysis the compositor's own count of the refreshes its motions missed (`ring_dropped` of `ring_judged` flips, from the
+    ring of the capture's cycle: ringsum.motion_drops). The trace can only guess which frames were animated (a key's response frame, a frame the idle tick
+    drew, the last frame of a motion and the first of the next key all look the same), the compositor knows. A window the ring does not reach gets none."""
+    try:
+        flips = ringsum.flips(ringsum.load(ring_path))
+    except (OSError, ValueError, KeyError, TypeError):
+        return
+    for w in report['windows']:
+        got = ringsum.motion_drops(flips, w['start'], w['start'] + w['dur_s'], w.get('drop_ms') or analyse_drop_ms())
+        if got is not None:
+            w['ring_judged'], w['ring_dropped'] = got
+
+
+def analyse_drop_ms():
+    """The drop threshold of the refresh that was asked for (a refresh and a fifth)."""
+    return round(1.2 * 1000.0 / REFRESH_HZ, 2)
 
 
 def merge_reports(reports):
@@ -1353,6 +1379,8 @@ def run_surface(rig, s, tag, soak_cycles, log):
                 if rc != 0:
                     checks.append(check('keys', False, rc, '== 0', f'kb.py exited {rc}: {err.strip()}'))
                 one = rig.analyse(name)
+                if ring:
+                    attach_ring_motion(one, ring)
                 text = read(trace)
                 annotate_shows(one, text, s['name'])
                 if s['delivery']:

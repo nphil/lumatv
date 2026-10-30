@@ -72,6 +72,26 @@ def line(name, s):
                s["missed"], s["over"]))
 
 
+def flips(lines):
+    """The flips of a ring in order: (presented time in s, ms since the flip before, a frame with an animation still running after it)."""
+    return [(float(m.group(2)), float(m.group(3)), bool(m.group(9))) for m in map(L_LINE.match, lines) if m]
+
+
+def motion_drops(flips_, start, end, drop_ms):
+    """(flips judged, flips dropped) for the window [start, end] (the ring's clock, CLOCK_MONOTONIC seconds): the compositor's own rule
+    (`refresh::Measure::motion`), a flip later than `drop_ms` after the flip of a frame with an animation still running after it is a refresh the
+    motion missed, and a flip after a frame with none (a still screen, the end of a motion) is no frame missed. None when the ring does not reach
+    back to the window's start, so that a window is not judged by what the ring lost."""
+    if not flips_ or flips_[0][0] > start + 0.2:
+        return None
+    judged = dropped = 0
+    for before, now in zip(flips_, flips_[1:]):
+        if start <= now[0] <= end and before[2]:
+            judged += 1
+            dropped += now[1] > drop_ms
+    return judged, dropped
+
+
 def load(path):
     with open(path) as f:
         return json.load(f)["lines"]
