@@ -271,7 +271,7 @@ mod tests {
     fn above_the_volume_bar_while_it_is_up_and_at_the_foot_again_when_it_goes() {
         let (_h, mut kit) = testkit::kit(1.0);
         let mut s = resting();
-        let bar = Rect { x: 740.0, y: 956.0, w: 440.0, h: 60.0 };
+        let bar = Rect { x: 740.0, y: 988.0, w: 440.0, h: 60.0 };
         s.apply(&mut kit, &toasts(2), None, false).unwrap();
         let at_foot = s.rects();
         s.apply(&mut kit, &toasts(2), Some(bar), false).unwrap();
@@ -284,7 +284,7 @@ mod tests {
     }
 
     #[test]
-    fn over_an_app_the_column_rests_16_above_the_subtitles_and_above_the_lifted_bar_and_a_high_column_is_left_alone() {
+    fn over_an_app_the_column_rests_16_above_the_subtitles_with_the_lifted_bar_under_it_and_a_high_column_is_left_alone() {
         for scale in [1.0, 2.0] {
             let (_h, mut kit) = testkit::kit(scale);
             let mut s = resting();
@@ -294,11 +294,11 @@ mod tests {
             s.apply(&mut kit, &toasts(3), None, true).unwrap();
             let col = s.rects();
             assert_eq!(col[2].y + col[2].h, 889.0, "the lowest card at {scale}: {col:?}");
-            // the bar rides 120 higher over an app: the column goes on above it where the two meet
-            let lifted = Rect { x: 740.0, y: 836.0, w: 440.0, h: 60.0 };
+            // the bar rides 60 higher over an app (928 to 988): below the subtitles' clearance, so the column does not move for it
+            let lifted = Rect { x: 740.0, y: 928.0, w: 440.0, h: 60.0 };
             s.apply(&mut kit, &toasts(1), Some(lifted), true).unwrap();
             let r = s.rects()[0];
-            assert_eq!(r.y + r.h, lifted.y - 16.0, "{r:?}");
+            assert_eq!(r.y + r.h, 889.0, "{r:?}");
             // off the app, back at the foot with its 54 px
             s.apply(&mut kit, &toasts(1), None, false).unwrap();
             assert_eq!(s.rects()[0].y + s.rects()[0].h, 1026.0);

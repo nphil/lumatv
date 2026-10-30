@@ -88,7 +88,7 @@ class RustShell(unittest.TestCase):
         self.assertEqual(evals[0]['toasts'], 0)
         osd = evals[1]['osd']
         self.assertIsNotNone(osd, "the pane is placed")
-        self.assertEqual(osd['y'] + osd['h'], 1080 - 64 - 120, "over an app the bar rides 120 px higher than its rest above the bottom edge: %s" % osd)
+        self.assertEqual(osd['y'] + osd['h'], 1080 - 32 - 60, "over an app the bar rides 60 px higher than its rest above the bottom edge: %s" % osd)
         self.assertAlmostEqual(osd['x'] + osd['w'] / 2, 960, delta=1, msg="centred")
         self.assertEqual(evals[2]['toasts'], 1, "the toast came through the feed: %s" % evals[2])
         self.assertFalse(evals[2]['osd'], "the display went after its hold")

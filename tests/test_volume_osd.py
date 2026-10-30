@@ -374,18 +374,18 @@ class VolumeOsd(HostCase):
         self.assertLess(alpha, 0.96, "less opaque than Lucent's overlay floor, as asked, with the contrast measured (test_osd_contrast)")
         self.assertEqual(got["home_state"], "false|1")
 
-    def test_the_bar_rides_120_px_higher_over_an_apps_picture_and_stays_put_over_home(self):
+    def test_the_bar_rides_60_px_higher_over_an_apps_picture_and_stays_put_over_home(self):
         pos = on_osd("o.bottomGap + '|' + Math.round(o.raise)")
         got, _ = self.run_osd([(B, sound_out(), "out"), (B + 200, rx(RX), "rx"), (B + 2000, press("volumeUp", 32), "key"),
                                (B + 2900, pos, "video"),
                                (B + 3000, do("overlay.appFront = false"), "home"), (B + 5600, press("volumeDown", 31), "key2"), (B + 6300, pos, "home_state")], B + 7000)
-        self.assertEqual(got["video"], "184|120", "64 px + 120 px from the bottom edge over a picture")
+        self.assertEqual(got["video"], "92|60", "32 px + 60 px from the bottom edge over a picture")
         # an app that goes while the bar shows: it glides down (180 ms) instead of jumping
         moving, _ = self.run_osd([(300, do("o.holdMs = 7000"), "cfg"), (B, sound_out(), "out"), (B + 200, rx(RX), "rx"), (B + 1500, press("volumeUp", 32), "key"),
                                   (B + 3200, do("overlay.appFront = false"), "home"), (B + 3220, on_osd("[o.raise, o.pill, o.overVideo, o.paneUp].join('|')"), "mid"), (B + 3900, on_osd("o.raise"), "end")], B + 4300)
-        self.assertTrue(0 < float(moving["mid"].split("|")[0]) < 120, "mid-glide, not jumped: %s" % moving["mid"])
+        self.assertTrue(0 < float(moving["mid"].split("|")[0]) < 60, "mid-glide, not jumped: %s" % moving["mid"])
         self.assertEqual(float(moving["end"]), 0.0)
-        self.assertEqual(got["home_state"], "64|0", "64 px from the bottom edge over Home")
+        self.assertEqual(got["home_state"], "32|0", "32 px from the bottom edge over Home")
 
     def test_it_is_up_over_home_too_takes_no_key_and_no_focus_and_the_layer_is_drawn_only_while_it_has_something(self):
         got, _ = self.run_osd([

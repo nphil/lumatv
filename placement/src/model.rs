@@ -27,8 +27,8 @@ pub const BAR: i32 = 60;
 pub const BAR_GAP: i32 = 20;
 /// No overlay card ends below this: three quarters of 1080 (theme `overlays.limit`).
 pub const LIMIT: i32 = 810;
-/// The volume bar's rest above the bottom edge over Home.
-pub const REST: i32 = 64;
+/// The volume bar's rest above the bottom edge over Home (half of the 64 it first had: Nitin, 2026-10-29, "too high").
+pub const REST: i32 = 32;
 /// The toasts' own inset from the screen's edges; the QML shell's toasts have always been drawn this far in.
 pub const TOAST: i32 = 24;
 /// The air a toast keeps under it at the foot of the screen: 5 % of the height, the TV-safe margin (Lucent `safe.y`).
@@ -37,8 +37,9 @@ pub const TOAST_FOOT: i32 = 54;
 pub const MARK: i32 = 64;
 /// The mark moves this far, four places of a square, so a panel never holds one still mark.
 pub const DRIFT: i32 = 48;
-/// Over an app the bar on the bottom edge rides this much higher, clear of the subtitles.
-pub const LIFT: i32 = 120;
+/// Over an app the bar on the bottom edge rides this much higher: 92 px from the bottom edge in all (it was 184, clear of the subtitles;
+/// Nitin asked for half, so the bar is now over the lower part of the subtitle band, and the toasts keep clear of that band instead).
+pub const LIFT: i32 = 60;
 /// The least air between two items.
 pub const GAP: i32 = 8;
 /// Between the camera window and the cards under it (theme `overlays.gap`).
@@ -668,6 +669,11 @@ impl Registry {
         }
         for it in &self.items {
             let Some(under) = it.stacks else { continue };
+            // over an app a toast rests above the film's subtitles (`above_subtitles`, done by the surface), which is above the lifted bar: it
+            // does not go beside it
+            if over_app && it.zone == ZoneKind::Toast {
+                continue;
+            }
             let Some(base) = items.iter().find(|l| l.id == under).map(|l| l.rect) else {
                 continue;
             };

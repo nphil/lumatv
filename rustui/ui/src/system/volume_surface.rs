@@ -1,7 +1,7 @@
 //! The volume display drawn: a slim pill with the level as a number and a thin bar, the format's mark at its end, the slashed
 //! speaker in place of the number while muted; the mute mark that stays and hops. Where it sits is the placement crate's
 //! (`placement/`: `layout.overlays.volume` in the theme, the bottom edge by default, the left or right edge as a vertical bar,
-//! lifted 120 px over an app's picture on the bottom edge, clear of the subtitles). The layers are made once per layout (a new
+//! lifted 60 px over an app's picture on the bottom edge: 92 px from the bottom edge in all). The layers are made once per layout (a new
 //! width, edge or look makes them again, hidden) and moved, shown, hidden and restyled from then on; a key's bar appears on its
 //! own frame, without a fade.
 
@@ -198,7 +198,7 @@ impl VolumeSurface {
             sizes.set_edge("volume", edge, if edge == Anchor::Bottom { Size::new(w as i32, h as i32) } else { Size::new(h as i32, w as i32) });
         }
         let laid = self.registry.layout_all(&self.user, &self.frame, &sizes, None, over_video);
-        let r = laid.rect("volume").unwrap_or(lumatv_placement::Rect::new((1920 - w as i32) / 2, 1080 - 64 - h as i32, w as i32, h as i32));
+        let r = laid.rect("volume").unwrap_or(lumatv_placement::Rect::new((1920 - w as i32) / 2, 1080 - 32 - h as i32, w as i32, h as i32));
         Rect { x: r.x as f32, y: r.y as f32, w: r.w as f32, h: r.h as f32 }
     }
 

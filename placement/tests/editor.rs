@@ -89,9 +89,9 @@ fn it_opens_on_the_item_asked_for_with_nothing_in_the_hand() {
     e.start(Some("nothing"));
     assert_eq!(e.view(0).selected, "volume");
     assert_eq!(v.items.len(), 5);
-    // every item in its own size, the volume bar as it sits over an app (120 higher), the cards under the window
+    // every item in its own size, the volume bar as it sits over an app (60 higher), the cards under the window
     let r = |id: &str| rect(&e, id, 0);
-    assert_eq!(r("volume"), Rect::new(740, 836, 440, 60));
+    assert_eq!(r("volume"), Rect::new(740, 928, 440, 60));
     assert_eq!(r("popup"), Rect::new(1296, 134, 560, 469));
     assert_eq!(r("cards"), Rect::new(1296, 134 + 469 + 16, 560, 165));
     assert_eq!(v.guides.safe, Rect::new(64, 54, 1792, 972));
@@ -221,7 +221,7 @@ fn the_volume_bar_turns_the_corner_on_a_fresh_press_and_a_side_edge_flips_with_t
     assert_eq!((r.x, r.w, r.h), (64, 440, 60));
     pad.taps(&mut e, &[Key::Left]); // the next press turns the corner onto the left edge, at its lower end
     let r = rect(&e, "volume", pad.t);
-    assert_eq!((r.x, r.w, r.h, r.bottom()), (64, 96, 440, 1016)); // vertical, flush with Home's edge, its foot where the bottom edge's was
+    assert_eq!((r.x, r.w, r.h, r.bottom()), (64, 96, 440, 1048)); // vertical, flush with Home's edge, its foot where the bottom edge's was
     pad.taps(&mut e, &[Key::Ok]);
     assert_eq!(e.user().get("volume").unwrap().anchor, Anchor::Left);
     // the opposite key flips it to the right edge at the same height, where the camera window and the cards are: refused

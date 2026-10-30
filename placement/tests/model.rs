@@ -1,7 +1,7 @@
 //! The model, one rule a test: anchors and offsets in fractions of the room an item has, the zones, the defaults (where every item was before the
 //! owner could place it), stepping with the arrows, the volume bar's edges, stacking, overlaps, the mute mark's drift.
 
-use lumatv_placement::model::{GAP, STACK, SUBS, TOAST_FOOT};
+use lumatv_placement::model::{GAP, STACK, TOAST_FOOT};
 use lumatv_placement::motion::{STOPS, axis, pixels};
 use lumatv_placement::above_subtitles;
 use lumatv_placement::{
@@ -120,7 +120,7 @@ fn the_zones_follow_homes_content_area() {
     assert_eq!(r.zone_of("popup", &f), Rect::new(64, 134, 1792, 676));
     assert_eq!(r.zone_of("cards", &f), r.zone_of("popup", &f));
     assert_eq!(r.zone_of("mute", &f), Rect::new(64, 134, 1792, 676));
-    assert_eq!(r.zone_of("volume", &f), Rect::new(64, 134, 1792, 882));
+    assert_eq!(r.zone_of("volume", &f), Rect::new(64, 134, 1792, 914));
     assert_eq!(r.zone_of("toast", &f), Rect::new(24, 24, 1872, 1002));
     // every zone but the toasts' ends where Home's grid does on the right and on the left (LayoutGrid.area)
     for id in ["popup", "cards", "mute", "volume"] {
@@ -155,10 +155,10 @@ fn defaults_are_where_the_items_were_drawn_before() {
     // the toasts: centred at the foot of the screen, 54 px (5 %) above the bottom edge, 560 wide
     assert_eq!(rect_of("toast", &e, 560, 98), Rect::new(680, 928, 560, 98));
     // the volume bar: centred, 64 above the bottom edge, 440 by 60; over an app 120 higher
-    assert_eq!(rect_of("volume", &e, 440, 60), Rect::new(740, 956, 440, 60));
-    assert_eq!(reg().lift_over("volume", &e, true), 120);
+    assert_eq!(rect_of("volume", &e, 440, 60), Rect::new(740, 988, 440, 60));
+    assert_eq!(reg().lift_over("volume", &e, true), 60);
     assert_eq!(reg().lift_over("volume", &e, false), 0);
-    assert_eq!(1016 - 120 + SUBS.clear, SUBS.top); // the lifted bar's foot is 9 px above the subtitles' top
+    assert_eq!(1048 - 60, 1080 - 92); // over an app the bar's foot is 92 px above the bottom edge, half of what it was
     // the mute mark: the first of its four places over an app is the left corner, 96 in and 134 down
     assert_eq!(rect_of("mute", &e, 64, 64), Rect::new(96, 134, 64, 64));
     assert!(reg().is_auto("mute", &e));
@@ -528,7 +528,7 @@ fn the_volume_bar_lives_on_three_edges_slides_along_them_turns_a_corner_and_flip
     );
     assert_eq!(
         rect_of("volume", &placed("volume", turned.placement), 96, 440),
-        Rect::new(1856 - 96, 1016 - 440, 96, 440)
+        Rect::new(1856 - 96, 1048 - 440, 96, 440)
     );
     // up the right edge to the top and no further
     let mut t = turned;
@@ -577,7 +577,7 @@ fn a_vertical_bar_is_as_tall_as_its_own_size_says_and_the_room_is_the_edges() {
         left,
         Rect::new(
             64,
-            134 + lumatv_placement::model::round(0.5 * f64::from(882 - 440)),
+            134 + lumatv_placement::model::round(0.5 * f64::from(914 - 440)),
             96,
             440
         )
@@ -593,7 +593,7 @@ fn a_vertical_bar_is_as_tall_as_its_own_size_says_and_the_room_is_the_edges() {
         lumatv_placement::Placement::on_edge(Anchor::Bottom, 1.0 / 3.0),
         at(Anchor::Bottom, -0.1667, 0.0)
     );
-    // only the bottom edge rises out of the subtitles' way over an app
+    // only the bottom edge rises over an app
     assert_eq!(
         reg().lift_over(
             "volume",
@@ -608,7 +608,7 @@ fn a_vertical_bar_is_as_tall_as_its_own_size_says_and_the_room_is_the_edges() {
             &placed("volume", at(Anchor::Bottom, 0.1, 0.0)),
             true
         ),
-        120
+        60
     );
 }
 
@@ -707,7 +707,7 @@ fn a_move_may_never_make_a_new_overlap_but_it_can_always_leave_an_old_one() {
     // an overlap it did not have is still refused: the bar pushed onto the cards
     let on_cards = Rect::new(1300, 640, 96, 120);
     assert_eq!(
-        reg().blocker(&l, "volume", &on_cards, Some(&Rect::new(740, 836, 440, 60))),
+        reg().blocker(&l, "volume", &on_cards, Some(&Rect::new(740, 928, 440, 60))),
         Some("cards")
     );
 }

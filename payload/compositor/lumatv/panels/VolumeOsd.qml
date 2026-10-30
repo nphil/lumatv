@@ -232,11 +232,11 @@ Item {
     Timer { id: graceT; interval: osd.graceMs; onTriggered: if (!osd.fresh) osd.mutedRx = false }
 
     // ---- the bar: a pill at the bottom centre, as long as its number and its mark need, so it holds at 200 % text as well
-    readonly property int edgeY: 64               // from the bottom edge, over Home: the TV's safe area
+    readonly property int edgeY: 32               // from the bottom edge, over Home (half of the 64 it had; Nitin, 2026-10-29: too high)
     // Over an app's picture the bar rides this much higher (Nitin, 2026-10-28, "about 110"; 120 leaves 14 px over the Netflix lines): subtitles end about 70 px above the bottom edge and fill the next
     // 105 px, so at 64 the bar sat on them (Netflix, round 9). `overVideo` is the overlay's own "an app is in front" (appFront), so no new polling.
     // It glides when the app comes or goes under a bar that is showing; hidden, the next showing starts in place.
-    readonly property int raiseOverVideo: 120
+    readonly property int raiseOverVideo: 60
     property real raise: overVideo ? raiseOverVideo : 0
     Behavior on raise { enabled: card.visible && !Lu.reduced; NumberAnimation { duration: Lu.cardMs; easing.type: Lu.cardEasing } }
     readonly property int padX: Lu.space(6)       // 24
