@@ -16,7 +16,9 @@ common="--disable-everything --disable-programs --disable-doc --disable-avdevice
 build() { # name, extra configure words
   name=$1
   shift
-  if [ -f "$out/$name/lib/libavcodec-lumatv.so" ] && [ "$out/$name/lib/libavcodec-lumatv.so" -nt "$0" ]; then return 0; fi
+  for have in "$out/$name/lib/libavcodec-lumatv.so" "$out/$name/lib/libavcodec.a"; do
+    if [ -f "$have" ] && [ "$have" -nt "$0" ]; then return 0; fi
+  done
   work=$out/work-$name
   rm -rf "$work" "$out/$name"
   mkdir -p "$work"
@@ -31,6 +33,10 @@ build() { # name, extra configure words
   rm -rf "$out/$name-root" "$work"
 }
 mkdir -p "$out/tool"
+cat > "$out/tool/zcc-arm-musl" <<'W'
+#!/bin/sh
+exec zig cc -target arm-linux-musleabi -mcpu=cortex_a9 -mfpu=neon -mfloat-abi=softfp "$@"
+W
 cat > "$out/tool/zcc-arm" <<'W'
 #!/bin/sh
 exec zig cc -target arm-linux-gnueabi.2.28 -mcpu=cortex_a9 -mfpu=neon -mfloat-abi=softfp "$@"
@@ -51,4 +57,10 @@ chmod +x "$out/tool"/*
 build host --cc="$out/tool/zcc-host" --ar="$out/tool/zar" --ranlib="$out/tool/zranlib" --disable-x86asm
 build arm --enable-cross-compile --arch=arm --target-os=linux --cc="$out/tool/zcc-arm" --ar="$out/tool/zar" --ranlib="$out/tool/zranlib" \
   --nm=true --strip=true --enable-neon --enable-pic --extra-ldflags=-Wl,--strip-all
+# FFMPEG_ARM_STATIC=1: the same ARM build, static and for musl, which `qemu-arm-static` can run without a sysroot: tests/arm_decode_check.sh decodes a clip with it
+# and with the host build and compares every picture, which is what says that the NEON assembly the compiler made is right (the set is the only other judge)
+if [ -n "${FFMPEG_ARM_STATIC-}" ]; then
+  build armstatic --enable-cross-compile --arch=arm --target-os=linux --cc="$out/tool/zcc-arm-musl" --ar="$out/tool/zar" --ranlib="$out/tool/zranlib" \
+    --nm=true --strip=true --enable-neon --enable-static --disable-shared --build-suffix=
+fi
 echo "built $out/{host,arm}/lib/lib{avcodec,avutil}-lumatv.so" >&2

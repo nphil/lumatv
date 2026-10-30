@@ -665,6 +665,8 @@ struct Feeder {
     socket: PathBuf,
     client: gf::Client,
     window: String,
+    /// The feeder loaded LG's NDL library. Without it a texture still plays (it needs no library of LG's); a window's video has no decoder.
+    library: bool,
     /// The window type it was started with (`-w`): a session that wants another starts another feeder.
     kind: String,
 }
@@ -709,23 +711,18 @@ impl Feeder {
                 return Err(format!("the feeder did not answer on its socket: {e}"));
             }
         };
-        let window = match hello {
+        let (window, library) = match hello {
             gf::Message::Hello {
                 library, window_id, ..
-            } if library => window_id,
-            gf::Message::Hello { .. } => {
-                let mut child = child;
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err("the feeder has no decoder library".to_owned());
-            }
-            _ => String::new(),
+            } => (window_id, library),
+            _ => (String::new(), true),
         };
         Ok(Self {
             child,
             socket,
             client,
             window,
+            library,
             kind: kind.to_owned(),
         })
     }
@@ -1512,6 +1509,9 @@ fn load(lease: &mut Lease, info: StreamInfo, ndl_app: &str, texture: bool) -> Re
         Codec::H264 => gf::CODEC_H264,
         Codec::H265 => gf::CODEC_H265,
     };
+    if !texture && !lease.feeder().library {
+        return Err("the feeder has no decoder library".to_owned());
+    }
     let client = &mut lease.feeder().client;
     let (tw, th) = if texture { texture_size(info.width, info.height) } else { (0, 0) };
     client.send_texture(tw, th).map_err(|e| e.to_string())?;
