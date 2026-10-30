@@ -119,7 +119,8 @@ impl Dispatch<WlShellSurface, ShellSurfaceData> for State {
         }
     }
 
-    fn destroyed(state: &mut Self, _client: ClientId, _resource: &WlShellSurface, data: &ShellSurfaceData) {
+    fn destroyed(state: &mut Self, client: ClientId, _resource: &WlShellSurface, data: &ShellSurfaceData) {
+        state.trace_client(Some(client), "wl-shell-surface-destroyed", 0, true);
         let keep = state.scene.window(data.window).map(|w| w.has_webos_shell).unwrap_or(false);
         if keep {
             if let Some(w) = state.scene.window_mut(data.window) {

@@ -1,5 +1,6 @@
 //! The protocol layer: one module per global, each an `impl Dispatch<…> for State`.
 
+pub mod closetrace;
 pub mod compositor;
 pub mod dmabuf;
 pub mod foreign;

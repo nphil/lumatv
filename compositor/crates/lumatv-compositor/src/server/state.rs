@@ -92,6 +92,8 @@ pub struct ClientInfo {
     /// The cursor standby time this client set through `wl_starfish_pointer` (ms), answered to its `get_mrcu_standby_timer`. Per
     /// client: a probe got LG's 5000 from LG's compositor, and from one value for all the 300000 another client had set (2026-10-28).
     pub mrcu_standby_ms: u32,
+    /// The last moments of this client's surfaces (`closetrace`), written out when it disconnects after a destroy.
+    pub trace: super::closetrace::Trace,
 }
 
 impl ClientInfo {
@@ -103,6 +105,7 @@ impl ClientInfo {
             cmd: if pid > 0 { cmdline(pid) } else { String::new() },
             bound: Vec::new(),
             mrcu_standby_ms: super::starfish::MRCU_STANDBY_DEFAULT_MS,
+            trace: Default::default(),
         }
     }
 }
@@ -436,6 +439,9 @@ impl State {
             Some(size) => Some((size, true)),
             None => output.query_buffer(b),
         });
+        let client = self.seat.surfaces.get(&id).and_then(|s| s.client()).map(|c| c.id());
+        let buffer = self.surfaces.get(id).and_then(|s| s.current.buffer.as_ref()).map_or(0, |b| b.id().protocol_id());
+        self.trace_client(client, "commit", buffer, false);
         for (sid, eff) in effects {
             if eff.new_buffer
                 && let Some(s) = self.surfaces.get(sid)
@@ -490,7 +496,7 @@ impl State {
                 let callbacks = self.surfaces.take_frame_callbacks_of(sid);
                 if !callbacks.is_empty() {
                     self.stats.callbacks_at_commit += callbacks.len() as u64;
-                    self.fire_callbacks(callbacks, crate::output::monotonic_ms());
+                    self.fire_callbacks(callbacks, crate::output::monotonic_ms(), "callbacks-at-commit");
                 }
             }
         }
@@ -823,11 +829,19 @@ impl State {
         self.scene.window_of(id).and_then(|w| self.scene.window(w)).is_some_and(|w| w.kind.is_card())
     }
 
-    fn fire_callbacks(&mut self, callbacks: Vec<WlCallback>, at_ms: u32) {
+    /// Notes `what` in the close trace of `client` (a closing client's last moments are logged when it disconnects, `closetrace`).
+    pub fn trace_client(&mut self, client: Option<ClientId>, what: &'static str, n: u32, destroy: bool) {
+        if let Some(c) = client.and_then(|id| self.clients.get_mut(&id)) {
+            c.trace.note(what, n, destroy);
+        }
+    }
+
+    fn fire_callbacks(&mut self, callbacks: Vec<WlCallback>, at_ms: u32, why: &'static str) {
         for cb in callbacks {
             if cb.is_alive() {
                 cb.done(at_ms);
                 self.stats.callbacks_sent += 1;
+                self.trace_client(cb.client().map(|c| c.id()), why, 1, false);
             }
         }
     }
@@ -837,16 +851,18 @@ impl State {
     fn destroy_callbacks(&mut self, callbacks: Vec<WlCallback>) {
         for cb in callbacks {
             if cb.is_alive() {
+                let client = cb.client().map(|c| c.id());
                 let _ = self.dh.backend_handle().destroy_object::<State>(&cb.id());
+                self.trace_client(client, "callback-destroyed", 1, false);
             }
         }
     }
 
     /// A frame is on the screen, or none is on its way: its callbacks are due and what it stopped reading is free.
     fn pay(&mut self, owed: Owed, at_ms: u32) {
-        self.fire_callbacks(owed.ahead, at_ms);
+        self.fire_callbacks(owed.ahead, at_ms, "callbacks-ahead");
         self.release(owed.ahead_buffers);
-        self.fire_callbacks(owed.callbacks, at_ms);
+        self.fire_callbacks(owed.callbacks, at_ms, "callbacks-landed");
         self.release(owed.buffers);
     }
 
@@ -857,7 +873,7 @@ impl State {
         let ahead = std::mem::take(&mut oldest.ahead);
         let buffers = std::mem::take(&mut oldest.ahead_buffers);
         self.stats.callbacks_ahead += ahead.len() as u64;
-        self.fire_callbacks(ahead, at_ms);
+        self.fire_callbacks(ahead, at_ms, "callbacks-ahead");
         self.release(buffers);
     }
 
@@ -878,6 +894,8 @@ impl State {
                 self.display_held.push(b);
             }
         } else {
+            let client = b.client().map(|c| c.id());
+            self.trace_client(client, "release", b.id().protocol_id(), false);
             b.release();
             self.stats.releases += 1;
         }
@@ -893,6 +911,8 @@ impl State {
                 i += 1;
             } else {
                 let b = self.display_held.swap_remove(i);
+                let client = b.client().map(|c| c.id());
+                self.trace_client(client, "release", b.id().protocol_id(), false);
                 b.release();
                 self.stats.releases += 1;
             }
@@ -1147,18 +1167,24 @@ impl State {
             match ev {
                 ClientEvent::Connected(id) => self.client_connected(id),
                 ClientEvent::Disconnected(id, reason) => {
-                    let line = match self.clients.remove(&id) {
-                        Some(c) => format!(
-                            "client disconnected: pid {} uid {} after {} ms ({reason}); bound {:?}; cmd {:?}",
-                            c.pid,
-                            c.uid,
-                            c.since.elapsed().as_millis(),
-                            c.bound,
-                            c.cmd
+                    let (line, trace) = match self.clients.remove(&id) {
+                        Some(c) => (
+                            format!(
+                                "client disconnected: pid {} uid {} after {} ms ({reason}); bound {:?}; cmd {:?}",
+                                c.pid,
+                                c.uid,
+                                c.since.elapsed().as_millis(),
+                                c.bound,
+                                c.cmd
+                            ),
+                            c.trace.report(c.pid),
                         ),
-                        None => format!("client disconnected: unknown ({reason})"),
+                        None => (format!("client disconnected: unknown ({reason})"), None),
                     };
                     self.journal(line);
+                    if let Some(trace) = trace {
+                        log::info!("{trace}");
+                    }
                     // Its keyboards and pointers are dead objects now; nothing is sent on them again.
                     self.seat.keyboards.retain(|k| k.is_alive());
                     self.seat.pointers.retain(|p| p.is_alive());

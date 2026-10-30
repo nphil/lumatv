@@ -189,7 +189,8 @@ impl Dispatch<WlSurface, SurfaceData> for State {
         }
     }
 
-    fn destroyed(state: &mut Self, _client: ClientId, _resource: &WlSurface, data: &SurfaceData) {
+    fn destroyed(state: &mut Self, client: ClientId, _resource: &WlSurface, data: &SurfaceData) {
+        state.trace_client(Some(client), "surface-destroyed", data.id.0, true);
         state.seat.surfaces.remove(&data.id);
         if state.seat.focus == Some(data.id) {
             state.seat.focus = None;
