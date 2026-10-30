@@ -26,15 +26,18 @@
 //! ends the frame. Every call that touches GL saves the compositor's GL state, makes the context the toolkit's, and puts the
 //! state back ([`Gles::enter`], [`Gles::leave`]).
 //!
-//! Stack 0 from a picture. Stack 0 is kept whole in a render target of its own, the floor: a frame draws into it what stack 0
-//! changed, and a page gets stack 0 as one copy of the floor in each area it owes. A panel or a sheet that moves over a Home that
-//! stands costs the page its own layers and the copy, not Home's 70 to 90 layers in every pass: on the set a frame's GPU time is
-//! about 1.5 ms and 0.085 ms for each layer a pass draws, so a refresh of 120 Hz holds about 80 (round 23,
-//! `docs/research/frames-120-result.md`). The floor is current whenever Home is shown, so the first frame of an opening only
-//! copies it. With a `system_z` below `i32::MAX` and no `external`, the host draws its own pages that way too, and as the
-//! compositor does (`kms::frames`): its ring keeps the account a compositor keeps, a page copies from the page drawn last what it
-//! owes from the frames before, and the frame draws only what it changes, so what the host measures is what the set draws.
-//! `LUMATV_FLOOR=0` and `LUMATV_PAGE_COPY=0` switch either off, to compare.
+//! Stack 0 from a picture. While something of stack 1 is over Home (a panel, Settings, a toast, and the frames after it while the
+//! pages owe its place: [`OVER_FRAMES`]), stack 0 comes from a render
+//! target of its own, the floor: a page gets stack 0 as one copy of the floor in each area it owes, and what the floor owes there
+//! (what stack 0 changed since) is drawn into it first. A panel or a sheet that moves over a Home that stands costs the page its
+//! own layers and the copy, not Home's 70 to 90 layers in every pass: on the set a frame's GPU time is about 1.5 ms and 0.085 ms
+//! for each layer a pass draws, so a refresh of 120 Hz holds about 80 (round 23, `docs/research/frames-120-result.md`). With
+//! nothing over Home, Home is drawn straight into the page as before the floor (its own walks cost more through it, round 27),
+//! and the first frame in which Home stands and nothing waits to move brings the floor up to date, so an opening only copies it.
+//! With a `system_z` below `i32::MAX` and no `external`, the host draws its own pages that way too, and as the compositor does
+//! (`kms::frames`): its ring keeps the account a compositor keeps, a page copies from the page drawn last what it owes from the
+//! frames before (while something is over Home), and the frame draws only what it changes, so what the host measures is what the
+//! set draws. `LUMATV_FLOOR=0` and `LUMATV_PAGE_COPY=0` switch either off, to compare.
 
 use crate::backdrop::Area;
 use crate::clock::now_ns;
@@ -178,15 +181,24 @@ pub struct Engine {
     copier: Option<PictureCopy>,
     /// A large commit was taken in ahead of its frame ([`Engine::take_in_ahead`]): the next frame is due for it.
     ahead: bool,
-    /// Commits are taken in ahead of their frame (`LUMATV_AHEAD=0` takes them in with the frame, as before).
+    /// Commits are taken in ahead of their frame, with `LUMATV_AHEAD=1` (round 27 at the set: the frame after OK on "All settings"
+    /// still spent 7.7-10.9 ms of the loop with it, so it is not what that frame waits on).
     take_ahead: bool,
     /// The time the frame being drawn spent taking in commits.
     apply_ns: u64,
+    /// Frames left in which stack 0 comes from the floor and the pages copy what they owe ([`Engine::over_home`]).
+    over_frames: u8,
+    /// Home shows in the frame planned (the compositor's: not under an app's picture, [`Engine::set_home_shown`]).
+    home_shown: bool,
 }
 
 /// A waiting commit of at least this many operations is taken in ahead of its frame ([`Engine::take_in_ahead`]). Settings made at its
 /// opening is several hundred (about 100 layers, each made, styled and placed); a frame of a motion is a handful.
 const AHEAD_OPS: usize = 64;
+
+/// Frames, counting the last with something over Home, in which the floor and the pages' copies stay in use: the frame that takes
+/// a panel away changes its place, and the two other pages of a ring of three still owe it after (with Home standing under it).
+const OVER_FRAMES: u8 = 4;
 
 /// A frame drawn in two stacks, between [`Engine::plan`] and [`Engine::finish`].
 struct External {
@@ -246,10 +258,17 @@ fn within_growth(merged: Region, region: Region) -> Region {
 struct Floor {
     /// Made by the first frame that draws stack 0, and given back when stack 0 has not been drawn for a while.
     target: Option<RenderTarget>,
-    /// What of the floor is out of date: what stack 0 changed in the frames since it was last drawn into.
+    /// What of the floor is out of date: what stack 0 changed since those tiles were last drawn into it.
     owed: TileSet,
+    /// Scratch for a page's areas: the tiles of them Home changed, then those the floor owes.
+    here: TileSet,
     /// Frames planned since stack 0 was last drawn.
     unused: u32,
+    /// This frame drew Home straight into a page, the floor owing those tiles.
+    direct: bool,
+    /// Frames drew Home straight into the pages since the floor was last brought up to date: the first frame Home stands in
+    /// draws what the floor owes, so that an opening only copies it.
+    behind: bool,
     /// The pixels drawn into the floor in the frame being drawn.
     drawn_px: u64,
 }
@@ -487,7 +506,15 @@ impl Engine {
         };
         // `LUMATV_FLOOR=0` draws stack 0 straight into each page, as before the floor: for comparing the two on the set.
         let floor = (copy.is_some() && std::env::var("LUMATV_FLOOR").as_deref() != Ok("0"))
-            .then(|| Floor { target: None, owed: TileSet::full(config.width, config.height), unused: 0, drawn_px: 0 });
+            .then(|| Floor {
+                target: None,
+                owed: TileSet::full(config.width, config.height),
+                here: TileSet::new(config.width, config.height),
+                unused: 0,
+                direct: false,
+                behind: false,
+                drawn_px: 0,
+            });
         if let Some(saved) = &entered {
             renderer.gles().leave(saved);
         }
@@ -570,7 +597,9 @@ impl Engine {
                 floor,
                 copier: copy,
                 ahead: false,
-                take_ahead: std::env::var("LUMATV_AHEAD").as_deref() != Ok("0"),
+                over_frames: 0,
+                home_shown: true,
+                take_ahead: std::env::var("LUMATV_AHEAD").as_deref() == Ok("1"),
                 apply_ns: 0,
             },
             app,
@@ -723,9 +752,12 @@ impl Engine {
         self.scene.demand()
     }
 
-    /// Work between frames changed what the next frame draws (a glyph list swapped in, a backdrop published).
+    /// Work between frames changed what the next frame draws (a glyph list swapped in, a backdrop published), or the floor is
+    /// behind and the scene has nothing more to show, so a frame can bring the floor up to date ([`Engine::finish`]).
     pub fn redraw_wanted(&self) -> bool {
-        self.renderer.wants_frame() || self.ahead
+        self.renderer.wants_frame()
+            || self.ahead
+            || (self.floor.as_ref().is_some_and(|floor| floor.behind) && self.home_shown && matches!(self.scene.demand(), Demand::Idle))
     }
 
     /// Takes in now the waiting commits when they are large ([`AHEAD_OPS`]), so that the frame that shows them does not: the
@@ -911,11 +943,13 @@ impl Engine {
         }
         let mut owed = TileSet::new(width, height);
         let mut last = None;
+        // As the compositor does: the pages copy what they owe only while something is over Home (`kms::frames`).
+        let over = self.over_home();
         if let Some(external) = self.external.as_mut() {
             if let Some(ring) = external.ring.as_mut() {
                 ring.frame(page, &changed, &mut owed);
             }
-            last = external.last_page.filter(|&p| p != page && external.page_copy);
+            last = external.last_page.filter(|&p| p != page && external.page_copy && over);
         }
         let mut areas = Vec::new();
         if let (Some(last), Some(copier)) = (last, self.copier.as_ref()) {
@@ -1009,6 +1043,7 @@ impl Engine {
             engine.renderer.set_time(now_ns);
             let Some(external) = engine.external.as_mut() else { return };
             external.split = engine.drawn.partition_point(|layer| external.z.get(&layer.id).is_some_and(|&z| z < external.system_z));
+            engine.over_frames = if external.split < engine.drawn.len() { OVER_FRAMES } else { engine.over_frames.saturating_sub(1) };
             let mut planned = engine.renderer.plan_frame(&engine.drawn, &engine.scene);
             for stack in 0..2 {
                 let surface = external.surface(stack, engine.drawn.len());
@@ -1020,6 +1055,7 @@ impl Engine {
                     floor.owed.union(changed);
                 }
                 floor.unused = floor.unused.saturating_add(1);
+                floor.direct = false;
                 floor.drawn_px = 0;
             }
             external.planned = Some(planned);
@@ -1040,6 +1076,18 @@ impl Engine {
         if stack == 0 { external.split > 0 } else { external.split < self.drawn.len() }
     }
 
+    /// Whether something of stack 1 is over Home in the planned frame, or was in one of the [`OVER_FRAMES`] before it: while it
+    /// is, stack 0 comes from the floor and the pages copy what they owe (the module's notes).
+    pub fn over_home(&self) -> bool {
+        self.over_frames > 0
+    }
+
+    /// Whether Home shows in the frames planned from now (the compositor's: not while an app's picture covers it): the floor is
+    /// brought up to date only while it does.
+    pub fn set_home_shown(&mut self, shown: bool) {
+        self.home_shown = shown;
+    }
+
     /// `areas`, what a page owes, as the rectangles the planned frame is cheapest drawn in ([`Planned::merged`]): a pass draws every
     /// layer that meets its rectangle, so the rows of a list that scrolls (a dozen bands, each with the sheet and the copy of the
     /// floor under it) are cheaper as one cover. Covers that would draw much more of the panel than the rectangles are not taken
@@ -1047,11 +1095,11 @@ impl Engine {
     /// stacks and its windows over all of them in turn, and an overlap would be drawn over twice. Left as they are with no frame
     /// planned.
     pub fn merge_areas(&mut self, areas: &mut Vec<Area>) {
-        let (floor, layers) = (self.floor.is_some(), self.drawn.len());
+        let (floor, layers) = (self.floor.is_some() && self.over_home(), self.drawn.len());
         let Some(external) = self.external.as_mut() else { return };
         let Some(planned) = external.planned.as_ref() else { return };
         let Some(region) = Region::exact(areas) else { return };
-        // With the floor, stack 0 is one copy in each pass, whatever it holds.
+        // With the floor (something over Home), stack 0 is one copy in each pass, whatever it holds.
         let merged = within_growth(planned.merged(region, if floor { external.split..layers } else { 0..layers }), region);
         if merged == region {
             return;
@@ -1070,8 +1118,8 @@ impl Engine {
 
     /// Draws stack 0 or 1 of the planned frame into the framebuffer `target` (a page of the compositor's), inside `areas` and
     /// nowhere else: stack 0 clears them first, and stack 1 is drawn over what the compositor has drawn there. The areas are
-    /// what the page owes, so that no pixel of the windows around them is touched. Stack 0 comes from the floor: what the floor
-    /// owes is drawn into it first, and each area is then one copy of it.
+    /// what the page owes, so that no pixel of the windows around them is touched. While something is over Home, stack 0 comes
+    /// from the floor: what the floor owes under the areas is drawn into it first, and each area is then one copy of it.
     pub fn draw_stack(&mut self, stack: usize, target: u32, areas: &[Area]) -> io::Result<()> {
         self.draw_stack_from(stack, target, areas, true)
     }
@@ -1089,6 +1137,7 @@ impl Engine {
         if self.external.as_ref().is_none_or(|external| external.planned.is_none()) {
             return Err(io::Error::other("draw_stack: no frame is planned"));
         }
+        let over = self.over_home();
         self.scoped(|engine| {
             let Some(external) = engine.external.as_mut() else { return };
             let surface = external.surface(stack, engine.drawn.len());
@@ -1099,32 +1148,46 @@ impl Engine {
                 && let (Some(floor), Some(copier)) = (engine.floor.as_mut(), engine.copier.as_ref())
             {
                 floor.unused = 0;
-                if floor.target.is_none() {
-                    match engine.renderer.gles().new_render_target(engine.window.0, engine.window.1) {
-                        Ok(made) => {
-                            floor.target = Some(made);
-                            floor.owed.fill();
+                if !over {
+                    // Nothing over Home: the floor is for what moves over it. Home's own walks drew through it 122 layers and a copy
+                    // where round 23 drew 39 straight (0.9 Mpx: 7.5 against 4.2 ms of GPU), and dropped 29 (apps-grid) and 28
+                    // (home-widgets) frames at 120 Hz against 3 and 3 (round 27). Home is drawn straight into the page, and the
+                    // floor keeps owing what changed until a frame in which Home stands brings it up to date (`finish`).
+                    floor.direct = true;
+                    floor.behind |= !floor.owed.is_empty();
+                } else {
+                    if floor.target.is_none() {
+                        match engine.renderer.gles().new_render_target(engine.window.0, engine.window.1) {
+                            Ok(made) => {
+                                floor.target = Some(made);
+                                floor.owed.fill();
+                            }
+                            Err(e) => crate::log::log(format!("no floor for stack 0 this frame: {e}")),
                         }
-                        Err(e) => crate::log::log(format!("no floor for stack 0 this frame: {e}")),
                     }
-                }
-                if let Some(picture) = floor.target {
-                    if !floor.owed.is_empty() {
-                        // The floor's passes are merged as the renderer merges its own pages' (a pass draws every layer of Home that
-                        // meets it), within the same growth; they may overlap, which a picture of one stack, cleared and drawn whole in
-                        // each, does not mind.
-                        let owed = floor.owed.region();
-                        let owed = within_growth(planned.merged(owed, 0..surface.to), owed);
-                        let draw = Draw { surface, slot: None, target: picture.framebuffer, areas: Some(owed), clear: true };
-                        let report = engine.renderer.draw_planned(planned, &draw);
-                        external.report.add(&report);
-                        floor.drawn_px += owed.pixels();
-                        floor.owed.clear();
+                    if let Some(picture) = floor.target {
+                        // What the floor owes under the areas is drawn into it first, and nothing else of it: a frame draws the
+                        // floor where it copies from it. Its passes are merged as the renderer merges its own pages' (a pass draws
+                        // every layer of Home that meets it), within the same growth; they may overlap, which a picture of one
+                        // stack, cleared and drawn whole in each, does not mind.
+                        floor.here.clear();
+                        for &area in region.rects() {
+                            floor.here.union_within(&floor.owed, area);
+                        }
+                        if !floor.here.is_empty() {
+                            let owed = floor.here.region();
+                            let owed = within_growth(planned.merged(owed, 0..surface.to), owed);
+                            let draw = Draw { surface, slot: None, target: picture.framebuffer, areas: Some(owed), clear: true };
+                            let report = engine.renderer.draw_planned(planned, &draw);
+                            external.report.add(&report);
+                            floor.drawn_px += owed.pixels();
+                            floor.owed.subtract(&floor.here);
+                        }
+                        copier.run(engine.renderer.gles(), &picture, target, region.rects());
+                        // A copy is a layer drawn in each area, as the frame's cost counts layers.
+                        external.report.drawn += region.rects().len() as u32;
+                        return;
                     }
-                    copier.run(engine.renderer.gles(), &picture, target, region.rects());
-                    // A copy is a layer drawn in each area, as the frame's cost counts layers.
-                    external.report.drawn += region.rects().len() as u32;
-                    return;
                 }
             }
             let draw = Draw { surface, slot: None, target, areas: Some(region), clear: stack == 0 };
@@ -1137,11 +1200,42 @@ impl Engine {
     /// The second half of a frame inside a compositor: what it showed is kept to say what the next one changes, and the scene is
     /// told what nothing showed of. Call it after the last `draw_stack`, whether anything was drawn or not.
     pub fn finish(&mut self) -> io::Result<FrameCost> {
-        let Some(planned) = self.external.as_mut().and_then(|external| external.planned.take()) else {
+        let Some(mut planned) = self.external.as_mut().and_then(|external| external.planned.take()) else {
             return Err(io::Error::other("finish: no frame is planned"));
         };
         let mut report = DrawReport::default();
         self.scoped(|engine| {
+            // After frames that drew Home straight into the pages, the first frame in which Home shows and stands and nothing waits
+            // to move draws what the floor owes (the floor whole, the first time), so that a panel opening over Home only copies it.
+            if let Some(floor) = engine.floor.as_mut()
+                && floor.behind
+                && !floor.direct
+                && engine.home_shown
+                && matches!(engine.scene.demand(), Demand::Idle)
+            {
+                floor.behind = false;
+                if floor.target.is_none() {
+                    match engine.renderer.gles().new_render_target(engine.window.0, engine.window.1) {
+                        Ok(made) => {
+                            floor.target = Some(made);
+                            floor.owed.fill();
+                        }
+                        Err(e) => crate::log::log(format!("no floor for stack 0: {e}")),
+                    }
+                }
+                if let (Some(picture), Some(external)) = (floor.target, engine.external.as_mut())
+                    && !floor.owed.is_empty()
+                {
+                    let surface = external.surface(0, engine.drawn.len());
+                    let owed = floor.owed.region();
+                    let owed = within_growth(planned.merged(owed, 0..surface.to), owed);
+                    let draw = Draw { surface, slot: None, target: picture.framebuffer, areas: Some(owed), clear: true };
+                    let report = engine.renderer.draw_planned(&mut planned, &draw);
+                    external.report.add(&report);
+                    floor.drawn_px += owed.pixels();
+                    floor.owed.clear();
+                }
+            }
             let left = engine.renderer.finish_frame(planned);
             if let Some(external) = engine.external.as_mut() {
                 external.report.add(&left);
@@ -1159,6 +1253,7 @@ impl Engine {
             {
                 engine.renderer.gles().delete_render_target(picture);
                 floor.owed.fill();
+                floor.behind = false;
             }
         });
         let busy = self.external.as_mut().map_or(Duration::ZERO, |external| std::mem::take(&mut external.busy));

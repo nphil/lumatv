@@ -489,6 +489,19 @@ impl Gl {
         }
     }
 
+    /// Whether something of the system layer is over Home in the planned frame or was a few frames before (`Engine::over_home`):
+    /// the pages copy what they owe from the page drawn last only then (`kms::frames`). Meaningful after `plan_ui`.
+    pub fn ui_over_home(&self) -> bool {
+        #[cfg(feature = "ui")]
+        {
+            self.ui.as_ref().is_some_and(|ui| ui.over_home())
+        }
+        #[cfg(not(feature = "ui"))]
+        {
+            false
+        }
+    }
+
     /// Whether an animation of the engine's runs after the frame just drawn: the next frame is due at the next refresh.
     pub fn ui_animating(&self) -> bool {
         #[cfg(feature = "ui")]
@@ -1864,7 +1877,7 @@ impl Output for Gl {
                 self.redraw_all = true;
                 return Ok(true);
             }
-            // A large commit (a screen made) is taken in now, in the time to the frame's latch, and not in the frame.
+            // With `LUMATV_AHEAD=1`, a large commit (a screen made) is taken in now, in the time to the frame's latch, not in the frame.
             ui.engine().take_in_ahead(now);
             if ui.wants_frame(now) {
                 return Ok(true);

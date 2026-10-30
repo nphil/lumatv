@@ -19,11 +19,20 @@ On forge main (round 24's engine work):
   picker and settings-scroll to 80 layers a frame at 120 Hz and every frame to the same frame drawn whole.
 - **Round 26 on a988b80a** (120 Hz, pop-ups off), the compositor's own count against round 23: settings-scroll 41 -> 5, quick 7 -> 0 (burst_over20 1),
   picker 5 -> 0, home-dpad 0 -> 1, but apps-grid 3 -> 13 and home-widgets 3 -> 24 (with `LUMATV_FLOOR=0` 8 and 22, with `LUMATV_PAGE_COPY=0` 18 and 23);
-  60 Hz settings-scroll 3, apps-grid 2, home-widgets 6. The rings say why: the merge of a page's rectangles made the dock's tiles and the library's cells one
-  cover of about 1 Mpx (1 rectangle, 50-200 layers, 7.2-7.6 ms of GPU at the median, p90 8.3-8.5) where round 23 drew them as 8-10 rectangles of 0.4-0.6 Mpx
-  (4.7 ms): on the set a pass's pixels cost as well as its layers, which the merge's cost (LumaShow's Show's, 6144 px a layer) does not see. A merge is now
-  taken only where its covers draw at most a quarter more of the panel than the rectangles (`MERGE_GROWTH_QUARTERS`, for the page and for the floor's own
-  passes): a list's rows (bands a few pixels apart) stay one cover, sparse tiles stay apart.
+  60 Hz settings-scroll 3, apps-grid 2, home-widgets 6. A page's rectangles merged by the cost of a pass (`MERGE_GROWTH_QUARTERS`: a cover may draw at most
+  a quarter more of the panel than the rectangles, for the page and for the floor's own passes) was this round's reading of the rings; round 27 shows
+  the cause was elsewhere (below).
+- **Round 27 on 93496e61** (120 Hz): apps-grid 29, home-widgets 28, settings-scroll 9, the rest 0; at 60 Hz settings-scroll 5, apps-grid 1,
+  home-widgets 6. The old path (`LUMATV_FLOOR=0 LUMATV_PAGE_COPY=0 LUMATV_AHEAD=0`) at 120 Hz: apps-grid 3, home-widgets 3. Nearly every drop is a frame
+  whose GPU work outran the refresh. Home's own walks draw the same rectangles on both paths, to the pixel; through the floor and the copies they cost
+  more: 0.9 Mpx of Home in one rectangle drew 122 layers and took 7.5 ms of GPU (39 layers and 4.2 ms on the old path), the floor's passes split by the
+  quarter's bound and copied into the page after; frames of few layers between them took more as well (0.23 Mpx and 20 layers: 7.7 ms at the median
+  against 2.8), which the ring cannot divide between the pages' copies and the heavy frames queued before them. The floor and the copies are now
+  used only while something of stack 1 is over Home (a panel, Settings, the picker, a toast: what they were made for, and the three frames after one,
+  while the pages still owe its place); Home alone is drawn as on the old path, straight into the page, each page drawing all it owes. The floor keeps
+  owing what Home changed meanwhile, and the first frame in which Home stands and nothing waits to move draws it (`Engine::finish`), so a panel
+  opening over Home still only copies it. Taking a large commit in ahead of its frame (`take_in_ahead`) did not shorten
+  the frame after OK on "All settings" (7.7-10.9 ms of the loop with it): it is off unless `LUMATV_AHEAD=1`.
 
 The most layers one frame drew on the host (`tests/host_budget.py`: Home with its feeds, wallpaper motion and the weather's sprites off as the gate has
 them), with the floor and the copies off (`LUMATV_FLOOR=0 LUMATV_PAGE_COPY=0`) and on, and the GPU estimate at 1.5 ms + 0.085 ms a layer:
@@ -33,7 +42,7 @@ them), with the floor and the copies off (`LUMATV_FLOOR=0 LUMATV_PAGE_COPY=0`) a
 | quick | 112 (11.0 ms) | 36 (4.6 ms) | 122 | 36 |
 | picker | 98 (9.8 ms) | 11 (2.4 ms) | 100 | 11 |
 | settings-scroll | 175 (16.4 ms) | 68 (7.3 ms) | 160 | 75 |
-| home-widgets | 115 (11.3 ms) | 119 (11.6 ms) | 115 | 119 |
+| home-widgets (Home alone: the old path either way) | 115 (11.3 ms) | 115 (11.3 ms) | 115 | 115 |
 | toast | 25 | 12 | 25 | 12 |
 
 The set's Home and Settings have more layers than the host's (round 22: Home 70-87 in a frame, a Settings frame 87 of its own), so its frames are
@@ -50,37 +59,43 @@ Of the plan, two items were not done:
 
 TV check list (both gates, pop-ups off):
 
-1. Install forge main at the commit after `a988b80a` that bounds the merge, or later; the compositor's and ui's md5 equal the build.
+1. Install forge main at the commit after `1830f537` that keeps the floor and the copies to frames with something over Home, or later; the
+   compositor's and ui's md5 equal the build.
 2. Pop-ups off (`popups.on false`), the receiver muted.
 3. 120 Hz first: `python3 compositor/tools/tv_gate.py --only frames --frames-quick --refresh 120`; `panel_refresh` 119.9 on every surface.
-4. Against round 26: apps-grid and home-widgets back to round 23's 3 and 3 or fewer; settings-scroll 5, quick 0, picker 0 held.
-5. If apps-grid or home-widgets still drop more than round 23: run those two with `LUMATV_FLOOR=0` (as round 26 did): fewer drops then say the floor's
-   extra pass costs Home's own walks, and Home could draw straight into the page while nothing of stack 1 shows.
-6. 60 Hz: the same without `--refresh`; `panel_refresh` 59.9.
-7. Rings (`perf/ringsum.py`): the heavy frames of apps-grid and home-widgets in several rectangles again (round 26: 1), a panel's and Settings' frames
-   at about 80 `layers` or fewer.
-8. By eye: Home under the quick panel, the picker and Settings, and after each closes; a toast and the volume over a playing app.
+4. Nothing worse than round 23 (120 Hz): apps-grid and home-widgets 3 or fewer (round 27's old path: 3 and 3), home-dpad 0, quick 0, picker 0, toast 0,
+   settings-scroll 9 or fewer (round 23: 41).
+5. If apps-grid or home-widgets drop more: those two with `LUMATV_FLOOR=0 LUMATV_PAGE_COPY=0` once, to compare; nothing else should change them now.
+6. 60 Hz: the same without `--refresh`; `panel_refresh` 59.9; settings-scroll 5 or fewer, apps-grid 1, home-widgets 6 or fewer (round 27).
+7. Rings (`perf/ringsum.py`): Home's frames of 0.89-1.01 Mpx in one rectangle (891648, 912384, 1011200 px) at round 23's 39-46 `layers` again (round
+   27: 122-130); after a walk on Home, one frame of `owed 0 px` drawing Home's layers (the floor brought up to date); a panel's and Settings' frames at
+   about 80 `layers` or fewer.
+8. By eye: Home under the quick panel, the picker and Settings, as they open and after each closes (the floor up to date after a walk on Home); a
+   toast and the volume over a playing app.
 9. Compositor log: no `page copy: GL error`.
-10. settings-scroll at 60 Hz: 0 dropped (round 26: 3, one a cycle). In the ring, the frame after OK's release: its `P ... ms in one pass` near its
-    `render` time (round 26: 7.0-7.2 against 2.8-3.0 ms) and its flip 16.7 ms after the last. If not: `LUMATV_AHEAD=0` puts the old way back to compare.
+10. settings-scroll at 60 Hz, the frame after OK's release (round 27: `P` 7.7-10.9 ms against `render` 2.3-2.7, flip 33.4 ms after the last): not
+    fixed, not expected to change.
 
 **settings-scroll at 60 Hz in round 26** (3 dropped, 1 a cycle). The frames of 150-217 ms at +7.2 s of the open window, and of 183-300 ms in the close
 windows, are idle gaps after the walk's last frame: the compositor's thread ran 0.6-0.8 ms in them and the GPU 0-7 ms, nothing was due, and the ring
 counts none of them. The drops are the walk's first frame, the same in each cycle: OK on "All settings" starts the quick panel's slide-out and
 Settings' fade in one commit (Settings made: about 100 layers). The engine draws the fade's first frame at the latch the pacer set from the cheap
-frames before it (8.8 ms before the refresh), and applying the commit makes that pass 7.0-7.2 ms of CPU (render 2.8-3.0 ms), so the frame misses its
-refresh; the next frame takes its place, and the flip comes 33.4 ms after the last (`late 1 lost 1 missed`). Rounds 22-23 had the same frame (0-4 drops
-on this surface at 60 Hz): not from this round's changes. **Fixed:** the engine takes a large commit (64 operations or more, `AHEAD_OPS`) in as it
-arrives, in the time to the frame's latch, and not in the frame that shows it (`Engine::take_in_ahead`, called by the compositor when the UI's socket
-wakes it, and by the host loop); the frame is due for it all the same. The look is the same: the fade starts from when the commit is taken in, a few ms
-sooner. On the host the walk's first frame now spends 0 us taking in commits (323 us before); how much of the set's 7 ms that is, the TV round says
-(item 10).
+frames before it (8.8 ms before the refresh), and that pass takes 7.0-7.2 ms of CPU (render 2.8-3.0 ms), so the frame misses its refresh; the next
+frame takes its place, and the flip comes 33.4 ms after the last (`late 1 lost 1 missed`). Rounds 22-23 had the same frame (0-4 drops
+on this surface at 60 Hz): not from this round's changes. Taking the commit in as it arrives (`Engine::take_in_ahead`, `LUMATV_AHEAD=1`) moved 323 us
+of it out of the frame on the host; on the set the frame still took 7.7-10.9 ms of the loop (round 27), so the pass waits on something else, which a
+trace of that frame (`perf/frametl.py`) would show.
 
 Next, in order:
 
 1. The TV round above.
-2. home-widgets' focus-enter dim (the owner's call above).
-3. Re-check after any change: `python3 tests/host_budget.py --refresh 120` on the host (it counts layers, not pixels: the set's per-pixel cost is not in it),
+2. The frame after OK on "All settings" (item 10): a trace of its pass.
+3. Home's frames of 1.16-1.93 Mpx in one rectangle (1158144 px, the host's bounds of the status bar and the cards: 6.8 ms of GPU at the median in
+   round 23, 7.1 in round 27): the compositor's `damage::Tiles::rects` grows only its last rectangle, so things side by side are a rectangle a tile row
+   each and, past 12, their bounds. Growing every rectangle the row above ended with (as the engine's `TileSet::rects` does) drew Home's walk on the
+   host in 0.4 Mpx where the bounds were 1.1; untried on the set.
+4. home-widgets' focus-enter dim (the owner's call above).
+5. Re-check after any change: `python3 tests/host_budget.py --refresh 120` on the host (it counts layers, not pixels: the set's per-pixel cost is not in it),
    then the gates on the set; rings as in 7.
 
 ## Rounds 22 and 23

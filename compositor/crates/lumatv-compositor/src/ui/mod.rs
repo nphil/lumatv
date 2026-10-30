@@ -175,6 +175,7 @@ impl Ui {
     /// from the frame before to `damage`, the tiles the frame changes (which the compositor then takes the page's account of). With
     /// `home_hidden` the frame does not draw stack 0 (Home under an app's card), so what it changed owes nothing.
     pub fn plan(&mut self, now_ns: u64, damage: &mut Tiles, home_hidden: bool) -> io::Result<()> {
+        self.engine.set_home_shown(!home_hidden);
         self.engine.plan(now_ns)?;
         for stack in usize::from(home_hidden)..2 {
             if let Some(changed) = self.engine.changed(stack) {
@@ -188,6 +189,12 @@ impl Ui {
     /// under a full-screen opaque window, so this alone says whether that window can go to the panel directly.
     pub fn over_windows(&self) -> bool {
         self.engine.has_layers(1)
+    }
+
+    /// Whether stack 0 comes from the engine's floor this frame (something of stack 1 over Home now or a few frames ago): the
+    /// pages copy what they owe only then.
+    pub fn over_home(&self) -> bool {
+        self.engine.over_home()
     }
 
     /// `owed`, the rectangles a page owes, as the planned frame is cheapest drawn in ([`Engine::merge_areas`]): a pass draws every

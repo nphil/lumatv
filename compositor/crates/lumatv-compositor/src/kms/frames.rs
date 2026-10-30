@@ -11,10 +11,12 @@
 //! composed as any other. The pages of a ring miss every frame it is not drawn into, so the first frame back into it is drawn
 //! whole: the ring forgets its pages.
 //!
-//! A composed frame draws only what it changes. What its page owes from the frames before (a ring of three pages owes each
-//! change three times) is what the page the last frame went into holds there, and it is copied from that page first
-//! (`Gl::copy_from_page`): a whole-screen change costs one frame of drawing and two copies, not three frames.
-//! `LUMATV_PAGE_COPY=0` draws all a page owes, as before.
+//! A composed frame with the system UI over Home (a panel, Settings, a toast; and the few frames after, while the pages still owe
+//! its place: `Gl::ui_over_home`) draws only what it changes. What its page owes from the frames before (a ring of three pages owes
+//! each change three times) is what the page the last frame went into holds there, and it is copied from that page first
+//! (`Gl::copy_from_page`): a whole-screen change costs one frame of drawing and two copies, not three frames. Otherwise (Home's own
+//! walks) the page draws all it owes: with the copies and the engine's floor, Home's walks dropped 29 (apps-grid) and 28
+//! (home-widgets) frames at 120 Hz against 3 and 3 without (round 27). `LUMATV_PAGE_COPY=0` draws all a page owes always.
 
 use std::io;
 
@@ -177,7 +179,7 @@ impl Frames {
                 gl.set_target(self.targets[page]);
                 // What the page owes from the frames before this one is in the page the last frame went into.
                 let mut copied = false;
-                if let Some(last) = self.composed.filter(|&p| p != page && self.page_copy) {
+                if let Some(last) = self.composed.filter(|&p| p != page && self.page_copy && gl.ui_over_home()) {
                     self.copied.clear();
                     self.copied.union(owed);
                     self.copied.subtract(&tiles);
