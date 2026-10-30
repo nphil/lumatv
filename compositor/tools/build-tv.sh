@@ -11,6 +11,7 @@
 #   scanout-proof.sh                                the off-screen proof of direct scan-out (tools/tv-scanout-proof.sh: the 256x256 LG-driver client on a private socket)
 #   hwplanes.sh                                     the hardware-planes steps (tools/tv-hwplanes.sh, driven by tools/tv_hwplanes.py)
 #   mvread.sh                                       the read-only Multi View probes: the media server's files, the media stack's words, the pipelines and sinks (tools/tv-multiview-read.sh)
+#   subwindow.sh                                    the sub-window check beside an app's video (tools/tv-subwindow.sh: the feeder in the starfish pipeline asking for the sub sink)
 #   rustjson.py                                     the gate's reader of `ctl shell` (tools/tv-rustjson.py: the rust check, and the QML client's part of the shell check)
 # The bundle is not committed; tools/tv-first-light.sh deploy copies it to /tmp/lumatv on the set. LUMATV_FEATURES names cargo
 # features for the compositor and defaults to `ui` (the engine host, the Rust shell's bin/lumatv-ui and --ui-demo): the deploy that a
@@ -58,7 +59,8 @@ cp "$here/tools/tv-scanout-proof.sh" "$out/scanout-proof.sh"
 cp "$here/tools/tv-hwplanes.sh" "$out/hwplanes.sh"
 cp "$here/tools/tv-rustjson.py" "$out/rustjson.py"
 cp "$here/tools/tv-multiview-read.sh" "$out/mvread.sh"
+cp "$here/tools/tv-subwindow.sh" "$out/subwindow.sh"
 cp "$here/../docs/research/arch/wlproto_from_elf.py" "$out/wlproto_from_elf.py"
-chmod +x "$out/bin/"* "$out/run.sh" "$out/scanout-proof.sh" "$out/hwplanes.sh"
+chmod +x "$out/bin/"* "$out/run.sh" "$out/scanout-proof.sh" "$out/hwplanes.sh" "$out/subwindow.sh"
 du -sh "$out"
 ls -la "$out/bin"
