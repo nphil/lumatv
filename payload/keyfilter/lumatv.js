@@ -31,7 +31,7 @@
 // down it is ours too, and LG's Settings never opens over what the hold opened.
 //
 // The remote's app keys (Netflix, Prime Video, Disney+, LG Channels) are watched in any foreground: the owner may set each to open
-// any app or nothing (theme `remote.appKeys`, read by LumaHome). While LumaHome answers, the TV is on and nothing of LG's is on top of the
+// any app or nothing (theme `remote.buttons`, read by LumaHome). While LumaHome answers, the TV is on and nothing of LG's is on top of the
 // app, LumaHome says whether it took the key; if it did, the press, its repeats and its release end here, and if not (the key is
 // LG's default and that app is installed) LG's chain handles it as it always did.
 //

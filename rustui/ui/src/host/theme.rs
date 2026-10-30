@@ -42,6 +42,16 @@ pub fn merge_one_level(file: &mut Value, patch: &Value) {
 /// Writes `patch` into the theme file and returns the merged file. `Err` for a file that exists and is not a JSON object, and for a
 /// write that failed.
 pub fn persist(data_dir: &Path, patch: &Value) -> io::Result<Value> {
+    update(data_dir, |file| {
+        merge_one_level(file, patch);
+        true
+    })
+    .map(Option::unwrap_or_default)
+}
+
+/// Changes the theme file with `change`, which says whether it did: only then is the file written (atomically). Returns the file as it
+/// is now when it was written. The same refusals as [`persist`]; a file that is not there is an empty one.
+pub fn update(data_dir: &Path, change: impl FnOnce(&mut Value) -> bool) -> io::Result<Option<Value>> {
     let path = theme_path(data_dir);
     let mut file = match std::fs::read(&path) {
         Ok(bytes) => match serde_json::from_slice::<Value>(&bytes) {
@@ -52,7 +62,9 @@ pub fn persist(data_dir: &Path, patch: &Value) -> io::Result<Value> {
         Err(e) if e.kind() == io::ErrorKind::NotFound => Value::Object(Map::new()),
         Err(e) => return Err(e),
     };
-    merge_one_level(&mut file, patch);
+    if !change(&mut file) {
+        return Ok(None);
+    }
     let text = serde_json::to_string_pretty(&file).map_err(io::Error::other)? + "\n";
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
@@ -60,7 +72,7 @@ pub fn persist(data_dir: &Path, patch: &Value) -> io::Result<Value> {
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, text)?;
     std::fs::rename(&tmp, &path)?;
-    Ok(file)
+    Ok(Some(file))
 }
 
 #[cfg(test)]

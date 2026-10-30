@@ -851,7 +851,7 @@ Item {
         openLayer("drawer")
         return true
     }
-    // ---- the remote's app keys (Settings, Remote & pointer: theme `remote.appKeys`, the shape is settings/AppKeys.js). Netflix, Prime Video,
+    // ---- the remote's app keys (Settings, Remote & pointer › Buttons: theme `remote.buttons`, the shape is settings/AppKeys.js). Netflix, Prime Video,
     // Disney+ and LG Channels open what the owner chose, or nothing; a key never chosen is LG's own target where that app is installed and
     // nothing where it is not, so no key starts LG's auto-install. The key filter asks in any foreground and the TV on; true is a key taken.
     // Pressed over the app it is set to open, the key does nothing: LG hands such a key to the app, which has no use for another's.

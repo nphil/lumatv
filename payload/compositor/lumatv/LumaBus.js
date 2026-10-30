@@ -113,7 +113,7 @@ function gearHold(mode) {
     return false
 }
 
-// One of the remote's app keys (Netflix, Prime Video, Disney+, LG Channels: theme `remote.appKeys`) was pressed over whatever is in
+// One of the remote's app keys (Netflix, Prime Video, Disney+, LG Channels: theme `remote.buttons`) was pressed over whatever is in
 // front. True when LumaHome took it; false hands it to LG, whose own target (and its auto-install) is the default only where that
 // app is installed.
 function appKey(id, frontAppId) {

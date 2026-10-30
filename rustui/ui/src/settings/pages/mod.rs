@@ -8,6 +8,7 @@ pub mod access;
 pub mod ai;
 pub mod ambient;
 pub mod bluetooth;
+pub mod buttons;
 pub mod cameras;
 pub mod capture;
 pub mod home;
@@ -53,6 +54,7 @@ pub fn all() -> Vec<Page> {
         cameras::notify(),
         saver::page(),
         remote::app_key(),
+        buttons::button(),
         system::clock(),
         system::timer_on(),
         system::timer_off(),

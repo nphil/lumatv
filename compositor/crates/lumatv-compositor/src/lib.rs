@@ -14,6 +14,7 @@ mod alloc_tests;
 pub mod afbc;
 pub mod boxdim;
 pub mod buffer;
+pub mod buttons;
 pub mod capture;
 pub mod config;
 pub mod control;

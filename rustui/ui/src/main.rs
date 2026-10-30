@@ -307,6 +307,9 @@ fn run_set(o: Options) -> io::Result<()> {
         let keys = unsafe { keys::listen(kfd) }?;
         forward(keys, tx.clone(), Msg::Key);
     }
+    for line in lumatv_ui::host::buttons::migrate(&o.data_dir) {
+        log.line(&format!("[buttons] {line}"));
+    }
     let mut shell = make_shell(&o, scene)?;
     carry(shell.start(), Some(&channel), Some(&helper), &mut log);
     loop {

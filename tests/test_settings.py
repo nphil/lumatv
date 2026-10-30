@@ -245,7 +245,7 @@ class Settings(HostCase):
         self.assertEqual(rc, 0, out[-1500:])
         self.assertEqual(self.docs(out)[-1], {"numberKeys": False})
 
-    # ---- the remote's app keys (settings/AppKeys.js, PageAppKey): the answer is `remote.appKeys` in the user's theme.json
+    # ---- the remote's app keys (settings/AppKeys.js, PageAppKey): the answer is `remote.buttons` in the user's theme.json
     def probe(self, data, js):
         """JS for `--eval` that runs `js` with `o.power`, `o.lu`, `o.apps` and `o.helper` the app's own singletons (kit/Power, Lu, Apps, Helper): the host's
         expressions see `root` and the module's types, not the names a QML file imports, so the probe imports the staged kit directory itself
@@ -286,35 +286,47 @@ class Settings(HostCase):
         # LG Channels is a hidden system app: the library does not list it, but it is installed, so LG's default holds
         rows = self.run_probe(self.KEY_ROWS)[0][-1]
         self.assertEqual([(r["label"], r["value"]) for r in rows],
-                         [("Netflix key", "Netflix"), ("Prime Video key", "Nothing"), ("Disney+ key", "Nothing"), ("LG Channels key", "LG Channels")])
+                         [("Netflix key", "Opens Netflix"), ("Prime Video key", "Nothing"), ("Disney+ key", "Nothing"), ("LG Channels key", "Opens LG Channels")])
         self.assertTrue(all("detail" not in r for r in rows))                               # a row is its name and its value
 
+    def test_the_buttons_tab_says_what_every_button_does_and_resetting_puts_them_back(self):
+        theme = {"remote": {"buttons": {"red": "quick", "blue": "as:green", "list": "home", "chup": "app:com.webos.app.hdmi2", "netflix": "app:youtube.leanback.v4"}}}
+        js = ("var p=root.pageItem('remote');return JSON.stringify(p.rows.filter(function(r){return r.tab===2}).map(function(r){"
+              "return {label:p.ev(r.label),value:p.ev(r.value)||'',enabled:p.ev(r.enabled)}}))")
+        rows = self.run_probe("o.lu.theme = %s;" % json.dumps(theme) + js)[0][-1]
+        shown = {r["label"]: r["value"] for r in rows}
+        self.assertEqual(shown["Netflix key"], "Opens YouTube")
+        self.assertEqual([shown[k] for k in ("Red button", "Blue button", "List button", "Channel up button", "Green button")],
+                         ["Opens the quick panel", "Acts as Green", "Goes Home", "Switches to HDMI 2", "Not changed"])
+        self.assertEqual(rows[-1]["label"], "Reset all buttons")
+        self.assertTrue(rows[-1]["enabled"])
+        self.assertFalse(self.run_probe(js)[0][-1][-1]["enabled"], "nothing set: nothing to reset")
+
     def test_a_configured_key_shows_its_app_or_nothing_and_an_app_that_is_gone_does_nothing(self):
-        theme = {"remote": {"appKeys": {"netflix": "", "amazon": "youtube.leanback.v4", "disneyplus": "com.gone.app"}}}
+        theme = {"remote": {"buttons": {"netflix": "nothing", "amazon": "app:youtube.leanback.v4", "disneyplus": "app:com.gone.app"}}}
         rows = self.run_probe("o.lu.theme = %s;" % json.dumps(theme) + self.KEY_ROWS)[0][-1]
         self.assertEqual([(r["label"], r["value"]) for r in rows],
-                         [("Netflix key", "Nothing"), ("Prime Video key", "YouTube"), ("Disney+ key", "Nothing"), ("LG Channels key", "LG Channels")])
+                         [("Netflix key", "Does nothing"), ("Prime Video key", "Opens YouTube"), ("Disney+ key", "App not installed"), ("LG Channels key", "Opens LG Channels")])
         self.assertTrue(all("detail" not in r for r in rows))
 
     def test_choosing_writes_one_entry_each_and_leaving_the_default_removes_it(self):
         with tempfile.TemporaryDirectory() as d:
             data = os.path.join(d, "data")
-            # Remote page, Keys tab: Hold Home (shows its help), number keys, gear hold, quick panel, input picker, quick panel tiles, app switcher, recent apps, Quick
-            # Access, then Netflix. Right enters, Up and Right pick the tab, Down x10 lands on Netflix, OK opens the chooser
+            # Remote page, Buttons tab: Netflix is the first row. Right enters, Up and two Rights pick the tab, Down lands on Netflix, OK opens the chooser
             # on LG's default; Down + OK is "Does nothing" and returns to the page; Down is Prime Video, the same; Up and OK reopens Netflix on
             # "Does nothing" (the one in force), Up + OK is LG's default again, which removes the entry. One key every 350 ms: each choice is
             # written to the file before the next, as a person's presses are.
-            steps = ["right", "up", "right"] + ["down"] * 10 + ["ok", "down", "ok", "down", "ok", "down", "ok", "up", "ok", "up", "ok"]
+            steps = ["right", "up", "right", "right", "down"] + ["ok", "down", "ok", "down", "ok", "down", "ok", "up", "ok", "up", "ok"]
             presses = [a for i, s in enumerate(steps) for a in self.keys(READY + 1500 + 350 * i, s)]
             end = READY + 1500 + 350 * len(steps)
             rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.keys(READY + 600, *(["down"] * RAIL["remote"])), *presses,
                                 "--eval", "%d:JSON.stringify({remote: root.theme.remote, open: root.settingsOpen})" % (end + 600), "--wait", str(end + 1200), data=data)
             self.assertEqual(rc, 0, out[-1500:])
             doc = self.docs(out)[-1]
-            self.assertEqual(doc["remote"], {"numberKeys": True, "appKeys": {"amazon": ""}})     # Netflix is back on LG's default
+            self.assertEqual(doc["remote"], {"numberKeys": True, "buttons": {"amazon": "nothing"}})     # Netflix is back on LG's default
             self.assertTrue(doc["open"])
             with open(os.path.join(data, "theme", "theme.json")) as f:
-                self.assertEqual(json.load(f)["remote"]["appKeys"], {"amazon": ""})
+                self.assertEqual(json.load(f)["remote"]["buttons"], {"amazon": "nothing"})
 
     def test_a_read_of_theme_json_that_overlaps_one_of_homes_own_writes_changes_nothing(self):
         # A PUT of theme.json is not atomic, so the 2 s poll can read the file empty while a write is out. Applied, that put the shipped theme up and cleared the
@@ -372,10 +384,10 @@ class Settings(HostCase):
         # the first app row: Down x2 from LG's default (past Does nothing and the heading), then OK
         with tempfile.TemporaryDirectory() as d:
             data = os.path.join(d, "data")
-            rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("remote", "right", "up", "right", *["down"] * 10, "ok", "down", "down", "ok"),
-                                "--eval", "%d:JSON.stringify(root.theme.remote.appKeys)" % (READY + 3200), "--wait", str(READY + 3800), data=data)
+            rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("remote", "right", "up", "right", "right", "down", "ok", "down", "down", "ok"),
+                                "--eval", "%d:JSON.stringify(root.theme.remote.buttons)" % (READY + 3200), "--wait", str(READY + 3800), data=data)
             self.assertEqual(rc, 0, out[-1500:])
-            self.assertEqual(self.docs(out)[-1], {"netflix": "com.webos.app.discovery"})        # the dock's first tile: the all-apps store
+            self.assertEqual(self.docs(out)[-1], {"netflix": "app:com.webos.app.discovery"})        # the dock's first tile: the all-apps store
 
     # ---- Glass depth (Lucent token theme.depth, read by Glass)
     def glass(self, level=None):

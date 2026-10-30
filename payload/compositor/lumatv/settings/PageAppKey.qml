@@ -5,8 +5,8 @@ import "AppKeys.js" as AK
 import "QuickAccess.js" as QA
 import "."
 
-// The app chooser behind one of the remote's app keys (Remote & pointer › App keys; PLAN: open any installed app, or do
-// nothing). Opened with `host.openPage("appkey", { key: "netflix" })`. The answer is one entry of `remote.appKeys` in the
+// The app chooser behind one of the remote's app keys (Remote & pointer › Buttons; PLAN: open any installed app, or do
+// nothing). Opened with `host.openPage("appkey", { key: "netflix" })`. The answer is one entry of `remote.buttons` in the
 // user's theme.json (settings/AppKeys.js has the shape), written through the host's patch like every theme choice, and the
 // page then goes back to Remote & pointer. The list is the apps the TV launches (kit/Apps): LG's default first, then nothing,
 // then every app by the dock's order and by name.
@@ -35,7 +35,7 @@ PageList {
     function pick(choice) {
         if (!host || !def) return
         if (digit !== "") host.patch({ remote: { quickAccess: QA.chosen(Lu.theme, digit, choice) } })
-        else host.patch({ remote: { appKeys: AK.chosen(cfg, keyId, choice) } })
+        else host.patch({ remote: { buttons: AK.chosen(cfg, keyId, choice) } })
         host.openPage("remote")
     }
     // The focus starts on the row that is in force.

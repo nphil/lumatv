@@ -105,6 +105,18 @@ impl KeyTable {
         self.shell.iter().find(|(c, _)| *c == code).map(|(_, n)| *n)
     }
 
+    /// The code of an app button: the built-in one, or the one `keys.conf` taught.
+    pub fn code_of(&self, key: AppKey) -> Option<u32> {
+        if let Some((c, _)) = self.extra.iter().find(|(_, l)| *l == Logical::App(key)) {
+            return Some(*c);
+        }
+        match key {
+            AppKey::Netflix => Some(KEY_NETFLIX),
+            AppKey::Amazon => Some(KEY_AMAZON),
+            AppKey::DisneyPlus | AppKey::LgChannels => None,
+        }
+    }
+
     /// Whether the table names this code, built in or taught: what the routing treats as a key of its own. A code it does not
     /// name goes to the app as before.
     pub fn knows(&self, code: u32) -> bool {
@@ -191,49 +203,6 @@ impl HoldAction {
     }
 }
 
-/// Settings > Remote's choice for the app buttons: the theme's `remote.appKeys`, `{netflix: "<app id>", amazon: "", ...}`. A button
-/// the owner never set is absent and means LG's own target; `""` means nothing.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct AppKeyConfig {
-    chosen: Vec<(AppKey, String)>,
-}
-
-/// What an app button does now.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum AppKeyDecision {
-    Launch(String),
-    /// Taken and nothing done: the owner chose nothing, or the app it opens is already in front.
-    Nothing,
-    /// LG's own button on its own app, which is in front: the app gets the key.
-    Pass,
-}
-
-impl AppKeyConfig {
-    /// What the owner chose, as (button id, app id), for the control socket.
-    pub fn chosen(&self) -> Vec<(&'static str, &str)> {
-        self.chosen.iter().map(|(k, app)| (k.id(), app.as_str())).collect()
-    }
-
-    pub fn from_theme(theme: &Value) -> AppKeyConfig {
-        let chosen = AppKey::ALL
-            .into_iter()
-            .filter_map(|k| theme.pointer("/remote/appKeys").and_then(|a| a.get(k.id())).and_then(Value::as_str).map(|s| (k, s.to_string())))
-            .collect();
-        AppKeyConfig { chosen }
-    }
-
-    /// The app LumaHome's `appKey()` would open for the button over `foreground` (QML: `LumaHome.qml`, "the remote's app keys"): an app
-    /// that is not installed is the app manager's to refuse, and the plain launch never starts LG's auto-install.
-    pub fn decide(&self, key: AppKey, foreground: &str) -> AppKeyDecision {
-        match self.chosen.iter().find(|(k, _)| *k == key) {
-            None if foreground == key.lg_app() => AppKeyDecision::Pass,
-            None => AppKeyDecision::Launch(key.lg_app().to_string()),
-            Some((_, app)) if app.is_empty() || app == foreground => AppKeyDecision::Nothing,
-            Some((_, app)) => AppKeyDecision::Launch(app.clone()),
-        }
-    }
-}
-
 /// What a key asks of the system layer. LG's key chain opens these as windows of its own compositor (`systemUIManager/launch`);
 /// they are asked of `State::system_request`, which is where LumaTV's own UI takes them once it exists.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -252,8 +221,14 @@ pub enum SystemRequest {
     Accessibility,
     /// A digit held: Quick Access slot 1 to 9; 0 is the editor.
     QuickAccess(u8),
-    /// An app button: launch this app.
+    /// An app button: launch this app (LG's own target for it, or the one the owner's `remote.buttons` names).
     LaunchApp(String),
+    /// A button the owner set to open LumaTV's Settings.
+    OpenSettings,
+    /// A button the owner set to open the notification drawer.
+    OpenNotifications,
+    /// A button the owner set to turn the picture off and keep the sound.
+    PictureOff,
     /// Exit, or Back held: the foreground app closes (the Home app stays).
     Exit,
     /// Exit while the keyboard is up: the keyboard closes first (LG's order).
@@ -281,7 +256,6 @@ pub struct Ctx<'a> {
     pub foreground: &'a str,
     /// A keyboard window is mapped.
     pub keyboard_up: bool,
-    pub app_keys: &'a AppKeyConfig,
     /// The shell client can show the input picker now: the Input key's tap is acted on at its press.
     pub picker_ready: bool,
 }
@@ -327,14 +301,11 @@ impl Router {
                         out.actions.push(Action::Request(SystemRequest::InputPicker));
                     }
                 }
-                Logical::App(k) => match ctx.app_keys.decide(k, ctx.foreground) {
-                    AppKeyDecision::Launch(app) => {
-                        out.swallow = true;
-                        out.actions.push(Action::Request(SystemRequest::LaunchApp(app)));
-                    }
-                    AppKeyDecision::Nothing => out.swallow = true,
-                    AppKeyDecision::Pass => {}
-                },
+                Logical::App(k) if ctx.foreground == k.lg_app() => {}
+                Logical::App(k) => {
+                    out.swallow = true;
+                    out.actions.push(Action::Request(SystemRequest::LaunchApp(k.lg_app().to_string())));
+                }
                 Logical::Exit if ctx.keyboard_up => {
                     out.swallow = true;
                     out.actions.push(Action::Request(SystemRequest::CloseKeyboard));
@@ -415,7 +386,6 @@ mod tests {
         now: Instant,
         foreground: String,
         keyboard_up: bool,
-        app_keys: AppKeyConfig,
         picker_ready: bool,
     }
 
@@ -426,7 +396,6 @@ mod tests {
                 now: Instant::now(),
                 foreground: "com.webos.app.home".into(),
                 keyboard_up: false,
-                app_keys: AppKeyConfig::default(),
                 picker_ready: false,
             }
         }
@@ -436,12 +405,12 @@ mod tests {
         }
 
         fn key(&mut self, code: u32, pressed: bool) -> Outcome {
-            let ctx = Ctx { foreground: &self.foreground, keyboard_up: self.keyboard_up, app_keys: &self.app_keys, picker_ready: self.picker_ready };
+            let ctx = Ctx { foreground: &self.foreground, keyboard_up: self.keyboard_up, picker_ready: self.picker_ready };
             self.router.event(code, pressed, self.now, &ctx)
         }
 
         fn poll(&mut self) -> Vec<Action> {
-            let ctx = Ctx { foreground: &self.foreground, keyboard_up: self.keyboard_up, app_keys: &self.app_keys, picker_ready: self.picker_ready };
+            let ctx = Ctx { foreground: &self.foreground, keyboard_up: self.keyboard_up, picker_ready: self.picker_ready };
             self.router.poll(self.now, &ctx)
         }
 
@@ -611,28 +580,6 @@ mod tests {
         assert!(r.key(KEY_NETFLIX, true).actions.is_empty(), "a repeat launches nothing");
         let release = r.key(KEY_NETFLIX, false);
         assert!(release.swallow && release.actions.is_empty());
-    }
-
-    #[test]
-    fn the_buttons_follow_settings_remote() {
-        let mut r = Rig::new();
-        r.app_keys = AppKeyConfig::from_theme(&serde_json::json!({"remote": {"appKeys": {"netflix": "com.webos.app.hdmi2", "amazon": "", "disneyplus": 5}}}));
-        assert_eq!(r.key(KEY_NETFLIX, true).actions, vec![req(LaunchApp("com.webos.app.hdmi2".into()))], "the owner's app");
-        r.key(KEY_NETFLIX, false);
-        let amazon = r.key(KEY_AMAZON, true);
-        assert!(amazon.swallow && amazon.actions.is_empty(), "nothing, and the app does not get the key either");
-        r.key(KEY_AMAZON, false);
-        r.foreground = "com.webos.app.hdmi2".into();
-        let again = r.key(KEY_NETFLIX, true);
-        assert!(again.swallow && again.actions.is_empty(), "the app it opens is in front: nothing");
-        r.key(KEY_NETFLIX, false);
-        // A button the owner never set is LG's own, and LG hands it to its own app when that is in front.
-        let c = AppKeyConfig::default();
-        assert_eq!(c.decide(AppKey::DisneyPlus, "x"), AppKeyDecision::Launch("com.disney.disneyplus-prod".into()));
-        assert_eq!(c.decide(AppKey::LgChannels, "com.webos.app.lgchannels"), AppKeyDecision::Pass);
-        let c = AppKeyConfig::from_theme(&serde_json::json!({"remote": {"appKeys": {"disneyplus": 5}, "other": 1}}));
-        assert_eq!(c, AppKeyConfig::default(), "a value that is no string is no choice");
-        assert_eq!(AppKeyConfig::from_theme(&serde_json::json!({})), AppKeyConfig::default());
     }
 
     #[test]

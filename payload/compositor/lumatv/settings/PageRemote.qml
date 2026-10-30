@@ -11,15 +11,16 @@ import "."
 // moves. Speed and size are the service's own settings (`option.pointerSpeed`, `option.pointerSize`). Holding Home
 // for LG's Home stays on: it is the escape if LumaTV's Home ever misbehaves, so it is shown, not switchable.
 // Whether the number keys open the dock's tiles is LumaTV's own (`remote.numberKeys` in theme.json, default on).
-// Each app key (Netflix, Prime Video, Disney+, LG Channels) opens the chooser (PageAppKey) and keeps its answer in `remote.appKeys`
-// (settings/AppKeys.js): LG's app where it is installed until the owner picks another app or nothing.
+// The Buttons tab says what each button of the remote does now (`remote.buttons`, settings/AppKeys.js has the words). The four app keys
+// (Netflix, Prime Video, Disney+, LG Channels) open the chooser (PageAppKey): LG's app where it is installed until the owner picks another
+// app or nothing. The other buttons' actions are chosen in the Rust Settings; here they are read, and Reset puts every button back.
 // Voice search is the mic key's: the helper's `base.voice` owner has its switch (off until the owner turns it on here), and the
 // helper's `voice` topic says whether it can listen yet and, when it cannot, why. Which Home Assistant it speaks to is not a
 // setting: it is linked from a command line on the TV (docs/research/voice-result.md).
 PageList {
     id: page
     title: "Remote & pointer"
-    tabs: ["Pointer", "Keys", "Voice"]
+    tabs: ["Pointer", "Keys", "Buttons", "Voice"]
     HelperSettings { id: voiceSettings; owner: "base.voice" }
     readonly property var voiceTopic: Helper.topics.voice || null
     readonly property bool voiceOn: voiceSettings.known && voiceSettings.get("enabled") === true
@@ -53,13 +54,18 @@ PageList {
     function slow(row) {
         return R.over(row, { enabled: function() { return page.slowOn && Sio.usable(row.id) }, detail: function() { return !Sio.has(row.id) ? "TV not answering" : page.slowOn ? "" : "Turn Extend Pressing Time on" } })
     }
-    // One row per app key: what it opens now, and OK opens the chooser (PageAppKey) for it.
+    // One row per button: what it does now. An app key opens the chooser (PageAppKey) on OK; the others are chosen in the Rust Settings.
     readonly property var keyCfg: AK.config(theme)
     readonly property var installed: AK.installed(Apps.launchPoints)
     function appKeyRow(k) {
-        return { kind: "value", tab: 1, icon: k.icon, label: k.label + " key",
-                 value: function() { var t = AK.target(page.keyCfg, k.id, page.installed); return t.installed ? t.title : "Nothing" },
+        return { kind: "value", tab: 2, icon: k.icon, label: k.label + " key",
+                 value: function() { return AK.describe(page.keyCfg, k.id, page.installed) },
                  act: function() { if (page.host) page.host.openPage("appkey", { key: k.id }) } }
+    }
+    function buttonRow(b) {
+        return { kind: "value", tab: 2, icon: b.icon, label: b.label + " button", info: true, chevron: false,
+                 value: function() { return AK.describe(page.keyCfg, b.id, page.installed) },
+                 help: "This page shows what the button does. A different action is chosen in LumaTV's newer Settings." }
     }
     // One row per number key (Quick Access, shown while it is on): what it opens now; OK opens the same chooser for it.
     readonly property var dockIds: Apps.dockKey === "" ? [] : Apps.dockKey.split("|")
@@ -112,9 +118,8 @@ PageList {
         { kind: "toggle", tab: 1, icon: "hash", label: "Quick Access for the number keys",
           help: "A number key says what it opened, and one with nothing behind it asks what to give it. Off leaves the number keys as the dock's first ten tiles.",
           on: function() { return QA.on(page.theme) },
-          act: function(v) { if (page.host) page.host.patch({ remote: { quickAccess: QA.switched(page.theme, v) } }) } },
-        R.head("App keys", 1)
-    ].concat(AK.keys.map(function(k) { return page.appKeyRow(k) }), [
+          act: function(v) { if (page.host) page.host.patch({ remote: { quickAccess: QA.switched(page.theme, v) } }) } }
+    ].concat([
         R.over(R.head("Number keys", 1), { visible: function() { return QA.on(page.theme) } })
     ], QA.digits.map(function(d) { return page.numberRow(d) }), [
         R.toggle(Sio, { ds: "option.remoteSlowInput", tab: 1, icon: "timer", label: "Extend Pressing Time on Remote",
@@ -122,11 +127,17 @@ PageList {
         page.slow(C.choice(Sio, { ds: "option.longPressInterval", tab: 1, icon: "hourglass", label: "Activate time for long press", names: page.seconds, page: page,
                                   help: "How long a key is held before it counts as a long press." })),
         page.slow(C.choice(Sio, { ds: "option.repeatInterval", tab: 1, icon: "fast-forward", label: "Interval time for repeated actions", names: page.seconds, page: page,
-                                  help: "How long between the repeats while a key is held." })),
+                                  help: "How long between the repeats while a key is held." }))
+    ], AK.keys.map(function(k) { return page.appKeyRow(k) }), AK.others.map(function(b) { return page.buttonRow(b) }), [
+        C.action({ id: "resetbuttons", tab: 2, icon: "rotate-ccw", label: "Reset all buttons", button: "Reset", danger: true,
+                   enabled: function() { for (var k in page.keyCfg) return true; return false },
+                   help: "Every button goes back to what it did before.",
+                   act: C.ask(page, { icon: "rotate-ccw", title: "Reset all buttons?", body: "Every button goes back to what it did before.", yes: "Reset", no: "Keep", danger: true },
+                              function() { if (page.host) page.host.patch({ remote: { buttons: {} } }) }) }),
 
-        R.toggle(voiceSettings, { ds: "enabled", tab: 2, on: "true", off: "false", icon: "mic", label: "Search by voice",
+        R.toggle(voiceSettings, { ds: "enabled", tab: 3, on: "true", off: "false", icon: "mic", label: "Search by voice",
                                   help: "Hold the mic key and speak; the words go into search. The mic is open only while held." }),
-        { kind: "value", tab: 2, icon: "mic", label: "Voice search", info: true, chevron: false, value: function() { return page.voiceStatus },
+        { kind: "value", tab: 3, icon: "mic", label: "Voice search", info: true, chevron: false, value: function() { return page.voiceStatus },
           help: function() { return page.voiceNeeds }, visible: function() { return page.voiceOn && page.voiceNeeds !== "" } }
     ])
 }

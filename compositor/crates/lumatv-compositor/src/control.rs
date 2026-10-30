@@ -92,7 +92,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
         "keys" => json!({
             "ok": true,
             "table": state.keys.router.table.named().into_iter().map(|(name, code)| json!({"name": name, "code": code})).collect::<Vec<_>>(),
-            "appKeys": state.keys.app_keys.chosen().into_iter().map(|(k, v)| (k.to_string(), json!(v))).collect::<serde_json::Map<_, _>>(),
+            "buttons": state.keys.buttons.chosen().into_iter().map(|(k, v)| (k.to_string(), json!(v))).collect::<serde_json::Map<_, _>>(),
             "unnamed": state.keys.unnamed,
             "foreground": state.foreground_app(),
             "keyboardUp": state.keyboard_up(),

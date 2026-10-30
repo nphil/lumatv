@@ -225,7 +225,7 @@ fn the_app_buttons_launch_what_settings_remote_says_and_otherwise_lgs_own() {
     let dir = std::env::temp_dir().join(format!("lumatv-keys-{}", std::process::id()));
     std::fs::create_dir_all(dir.join("theme")).unwrap();
     let theme = dir.join("theme/theme.json");
-    std::fs::write(&theme, r#"{"remote": {"appKeys": {"netflix": "com.webos.app.hdmi2", "amazon": ""}}}"#).unwrap();
+    std::fs::write(&theme, r#"{"remote": {"buttons": {"netflix": "app:com.webos.app.hdmi2", "amazon": "nothing"}}}"#).unwrap();
     let t = Instant::now();
     let (dir2, launched) = (dir.clone(), {
         let dir = dir.clone();
@@ -240,7 +240,7 @@ fn the_app_buttons_launch_what_settings_remote_says_and_otherwise_lgs_own() {
     });
     assert_eq!(launched, vec!["com.webos.app.hdmi2"], "Netflix is the owner's app, Prime Video is nothing");
     // The owner changes his mind: the file is read again at the next press.
-    std::fs::write(&theme, r#"{"remote": {"appKeys": {"amazon": "com.webos.app.hdmi3"}}}"#).unwrap();
+    std::fs::write(&theme, r#"{"remote": {"buttons": {"amazon": "app:com.webos.app.hdmi3"}}}"#).unwrap();
     let launched = server.eval(move |s| {
         let mut at = t + Duration::from_secs(5);
         for code in [KEY_NETFLIX, KEY_AMAZON] {
@@ -252,6 +252,44 @@ fn the_app_buttons_launch_what_settings_remote_says_and_otherwise_lgs_own() {
     a.client.roundtrip();
     assert!(a.client.state.keys.is_empty(), "no app sees an app button that launched something");
     let _ = std::fs::remove_dir_all(dir2);
+}
+
+#[test]
+fn a_button_the_owner_set_is_taken_or_changed_before_the_app_sees_it_and_its_release_follows_its_press() {
+    let mut server = Server::start();
+    let mut a = app(&mut server, "Player", "org.test.player");
+    let dir = std::env::temp_dir().join(format!("lumatv-buttons-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("theme")).unwrap();
+    let theme = dir.join("theme/theme.json");
+    std::fs::write(
+        &theme,
+        r#"{"remote": {"buttons": {"red": "app:org.test.other", "green": "nothing", "blue": "as:yellow", "chup": "pictureoff", "chdown": "settings"}}}"#,
+    )
+    .unwrap();
+    let t = Instant::now();
+    let dir2 = dir.clone();
+    let (launched, calls, said) = server.eval(move |s| {
+        s.keys = Keys::new(&Config { data_dir: dir2.clone(), ..Config::default() });
+        let w = s.scene.windows().next().unwrap().id;
+        s.scene.window_mut(w).unwrap().key_mask |= lumatv_compositor::window::key_mask::COLOUR;
+        let mut at = t;
+        for code in [KEY_RED, KEY_GREEN, 402, 403] {
+            at = tap(s, code, at, 60) + Duration::from_millis(500);
+        }
+        // Blue acts as Yellow: its repeat too, and a release after the file changed still ends the Yellow it began.
+        s.key_event_at(SeatId(0), KEY_BLUE, true, false, at);
+        s.key_event_at(SeatId(0), KEY_BLUE, true, false, at + Duration::from_millis(100));
+        std::fs::write(dir2.join("theme/theme.json"), "{}").unwrap();
+        s.key_event_at(SeatId(0), KEY_BLUE, false, false, at + Duration::from_millis(200));
+        let calls: Vec<String> = s.luna.sent().into_iter().map(|(uri, _)| uri).collect();
+        (launches(s), calls, journal_has(s, "the picture off") && journal_has(s, "LumaTV's Settings"))
+    });
+    assert_eq!(launched, vec!["org.test.other"], "Red opens the owner's app, Green does nothing");
+    assert!(calls.iter().any(|u| u.ends_with("/setSystemSettings")), "Channel up turned the picture off: {calls:?}");
+    assert!(said, "both choices are in the journal");
+    a.client.roundtrip();
+    assert_eq!(a.client.state.keys, vec![(KEY_YELLOW, 1), (KEY_YELLOW, 1), (KEY_YELLOW, 0)], "the app got Yellow for Blue and no Red or Green");
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]

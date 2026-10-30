@@ -2,6 +2,7 @@
 //! clock. The loop that joins them to the engine's socket is `main.rs`.
 
 pub mod apps;
+pub mod buttons;
 pub mod clock;
 pub mod http;
 pub mod inputs;

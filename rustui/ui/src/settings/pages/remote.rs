@@ -1,10 +1,10 @@
-//! Remote & pointer (`settings/PageRemote.qml`, `docs/mocks/03-settings-remote`) and the app chooser behind its keys (`PageAppKey.qml`).
+//! Remote & pointer (`settings/PageRemote.qml`, `docs/mocks/03-settings-remote`) and the chooser behind a number key (`PageAppKey.qml`).
 //! The Magic Remote's pointer is the TV's own switch (`general.remotePointer`): off gives a button-only remote and removes accidental hover
 //! moves. Speed and size are the service's own settings. What shows the pointer is LumaTV's own (`remote.pointerShow` in the theme, which the
 //! compositor reads): a turn of the wheel by default, so that picking the remote up never shows it, or any movement, as LG's does. Holding Home for LG's Home stays on: it is the escape if LumaTV's Home ever
 //! misbehaves, so it is shown, not switchable. Whether the number keys open the dock's tiles is LumaTV's own (`remote.numberKeys` in the
-//! theme, default on). Each app key (Netflix, Prime Video, Disney+, LG Channels) opens the chooser and keeps its answer in
-//! `remote.appKeys` (`settings/AppKeys.js`): LG's app where it is installed until the owner picks another app or nothing. Voice search is
+//! theme, default on). Each button of the remote that can be set (the app buttons, the colours, ...) is on the Buttons tab (`buttons.rs`,
+//! `remote.buttons`). Voice search is
 //! the mic key's: the helper's `base.voice` owner has its switch (off until the owner turns it on here), and the helper's `voice` topic
 //! says whether it can listen yet and, when it cannot, why. Which Home Assistant it speaks to is not a setting: it is linked from a
 //! command line on the TV (`docs/research/voice-result.md`).
@@ -37,15 +37,17 @@ const DIGITS: [&str; 10] = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"];
 const SECONDS: Table = &[("basic", "Basic"), ("0.5", "0.5 s"), ("1", "1 s"), ("1.5", "1.5 s"), ("2", "2 s"), ("2.5", "2.5 s"), ("3", "3 s"), ("3.5", "3.5 s"), ("4", "4 s"), ("4.5", "4.5 s"), ("5", "5 s")];
 
 pub fn page() -> Page {
-    Page::new("remote", "Remote & pointer", "mouse-pointer-2").rail().tabs(&["Pointer", "Keys", "Voice"]).reads(reads).rows(rows).summary(summary)
+    Page::new("remote", "Remote & pointer", "mouse-pointer-2").rail().tabs(&["Pointer", "Keys", "Buttons", "Voice"]).reads(reads).rows(rows).summary(summary)
 }
 
 pub fn app_key() -> Page {
-    Page::new("appkey", "App key", "layout-grid").parent("remote").back("Remote & pointer").hidden_from_search().reads(app_reads).rows(app_rows).title_of(app_title).opened(app_opened)
+    Page::new("appkey", "Number key", "hash").parent("remote").back("Remote & pointer").hidden_from_search().reads(app_reads).rows(app_rows).title_of(app_title).opened(app_opened)
 }
 
 fn reads(_: &Ctx) -> Vec<Read> {
-    vec![Read::lg("general", &["remotePointer"]), Read::lg("option", &["pointerSpeed", "pointerSize", "remoteSlowInput", "longPressInterval", "repeatInterval"]), Read::owner(VOICE), Read::Apps]
+    let mut reads = vec![Read::lg("general", &["remotePointer"]), Read::lg("option", &["pointerSpeed", "pointerSize", "remoteSlowInput", "longPressInterval", "repeatInterval"]), Read::owner(VOICE)];
+    reads.extend(super::buttons::reads());
+    reads
 }
 
 fn summary(c: &Ctx) -> String {
@@ -73,39 +75,6 @@ fn quick_chosen(c: &Ctx, digit: &str, choice: &str) -> Value {
         slots.insert(digit.to_string(), json!(choice));
     }
     json!({"on": on, "slots": slots})
-}
-
-/// `AK.config`: the app keys the owner set.
-fn key_cfg(c: &Ctx) -> Map<String, Value> {
-    c.theme_at("remote.appKeys").and_then(Value::as_object).cloned().unwrap_or_default()
-}
-
-/// `AK.chosen`: the whole `appKeys` after the owner picked `choice` for key `id` ("default" removes the entry, "" is nothing).
-fn keys_chosen(c: &Ctx, id: &str, choice: &str) -> Value {
-    let mut cfg = key_cfg(c);
-    cfg.remove(id);
-    if choice != "default" {
-        cfg.insert(id.to_string(), json!(choice));
-    }
-    Value::Object(cfg)
-}
-
-/// What an app key does now (`AK.target`): the app's id, whether it is installed and its title; `set` is whether the owner chose.
-struct KeyTarget {
-    set: bool,
-    app_id: String,
-    installed: Option<String>,
-}
-
-fn key_target(c: &Ctx, id: &str) -> KeyTarget {
-    let cfg = key_cfg(c);
-    let set = cfg.get(id);
-    let app_id = match set {
-        None => KEYS.iter().find(|k| k.0 == id).map_or("", |k| k.3).to_string(),
-        Some(v) => crate::host::sio::js::string(v),
-    };
-    let installed = (!app_id.is_empty()).then(|| c.apps.launchable().into_iter().find(|(i, _)| *i == app_id).map(|(_, t)| t)).flatten();
-    KeyTarget { set: set.is_some(), app_id, installed }
 }
 
 /// The dock's tile ids in order, as Home arranges them.
@@ -220,12 +189,6 @@ fn rows(c: &Ctx) -> Vec<Row> {
         _ => Vec::new(),
     });
     rows.push(qa);
-    rows.push(Row::head("App keys", 1));
-    for (id, label, icon, _) in KEYS {
-        let t = key_target(c, id);
-        let value = t.installed.clone().unwrap_or_else(|| "Nothing".into());
-        rows.push(Row::link(&format!("key:{id}")).tab(1).icon(icon).label(&format!("{label} key")).value(&value).does(vec![Op::Open { page: "appkey".into(), arg: PageArg::Json(json!({"key": id})) }]));
-    }
     if on {
         rows.push(Row::head("Number keys", 1));
         for d in DIGITS {
@@ -245,11 +208,12 @@ fn rows(c: &Ctx) -> Vec<Row> {
         r.detail = if !c.lg.has(ds) { "TV not answering" } else if slow_on { "" } else { "Turn Extend Pressing Time on" }.into();
         rows.push(r);
     }
-    rows.push(owner_toggle(c, Field::new(VOICE, "enabled", 2, "mic", "Search by voice").help("Hold the mic key and speak; the words go into search. The mic is open only while held.")));
+    rows.extend(super::buttons::rows(c, 2));
+    rows.push(owner_toggle(c, Field::new(VOICE, "enabled", 3, "mic", "Search by voice").help("Hold the mic key and speak; the words go into search. The mic is open only while held.")));
     let voice_on = c.owner(VOICE).is_some_and(|o| o.has("enabled") && o.get("enabled") == Some(&json!(true)));
     let needs = voice_needs(c);
     if voice_on && !needs.is_empty() {
-        rows.push(Row::info("voicestatus").tab(2).icon("mic").label("Voice search").value(voice_status(c)).help(needs));
+        rows.push(Row::info("voicestatus").tab(3).icon("mic").label("Voice search").value(voice_status(c)).help(needs));
     }
     rows
 }
@@ -264,20 +228,12 @@ fn digit<'a>(c: &'a Ctx<'_>) -> Option<&'a str> {
     c.arg.str("digit").filter(|d| !d.is_empty())
 }
 
-fn key_def(c: &Ctx) -> Option<(&'static str, &'static str, &'static str, &'static str)> {
-    KEYS.iter().copied().find(|k| Some(k.0) == c.arg.str("key"))
-}
-
 fn app_title(c: &Ctx) -> String {
-    match (digit(c), key_def(c)) {
-        (Some(d), _) => format!("Number key {d}"),
-        (None, Some(k)) => format!("{} key", k.1),
-        _ => "App key".into(),
-    }
+    digit(c).map_or_else(|| "Number key".into(), |d| format!("Number key {d}"))
 }
 
 /// The apps the TV launches, the dock's in its order, then the rest by name (`Apps.list`).
-fn ordered(c: &Ctx) -> Vec<(String, String)> {
+pub(super) fn ordered(c: &Ctx) -> Vec<(String, String)> {
     let dock = dock_ids(c);
     let mut apps: Vec<(String, String)> = c.apps.list().iter().map(|a| (a.id.clone(), a.title.clone())).collect();
     apps.sort_by_key(|(id, title)| match dock.iter().position(|d| d == id) {
@@ -287,44 +243,37 @@ fn ordered(c: &Ctx) -> Vec<(String, String)> {
     apps
 }
 
-/// The row in force: LG's default, nothing, or an app.
+/// The row in force: the dock's tile, or the owner's app.
 fn now(c: &Ctx) -> (&'static str, String) {
-    if let Some(d) = digit(c) {
-        return match number_target(c, d) {
-            ("slot", _) => ("app", quick(c).1.get(d).and_then(Value::as_str).unwrap_or("").to_string()),
-            _ => ("default", String::new()),
-        };
+    match digit(c).map(|d| (d, number_target(c, d))) {
+        Some((d, ("slot", _))) => ("app", quick(c).1.get(d).and_then(Value::as_str).unwrap_or("").to_string()),
+        _ => ("default", String::new()),
     }
-    let id = c.arg.str("key").unwrap_or("");
-    let t = key_target(c, id);
-    (if !t.set { "default" } else if t.app_id.is_empty() { "nothing" } else { "app" }, t.app_id)
 }
 
 /// What a pick writes: the new setting, then back to Remote & pointer.
 fn pick(c: &Ctx, choice: &str) -> Vec<Op> {
-    let patch = match (digit(c), key_def(c)) {
-        (Some(d), _) => json!({"remote": {"quickAccess": quick_chosen(c, d, choice)}}),
-        (None, Some(k)) => json!({"remote": {"appKeys": keys_chosen(c, k.0, choice)}}),
-        _ => return Vec::new(),
-    };
-    vec![Op::Patch(patch), Op::Open { page: "remote".into(), arg: PageArg::None }]
+    let Some(d) = digit(c) else { return Vec::new() };
+    vec![Op::Patch(json!({"remote": {"quickAccess": quick_chosen(c, d, choice)}})), Op::Open { page: "remote".into(), arg: PageArg::None }]
 }
 
 fn app_rows(c: &Ctx) -> Vec<Row> {
+    let Some(d) = digit(c) else { return Vec::new() };
     let (kind, app) = now(c);
-    let mut rows = Vec::new();
     let choice = |c: &Ctx, v: &str| {
         let ops = pick(c, v);
         move |_: Arg| ops.clone()
     };
-    if let Some(d) = digit(c) {
-        let tile = dock_ids(c).get(tile_of(d)).map(|id| title_of_app(c, id));
-        rows.push(Row::link("default").icon("rotate-ccw").label("The dock's tile").chevron(false).value(&tile.unwrap_or_else(|| "None on the dock".into())).selected(kind == "default").act(choice(c, "default")));
-    } else {
-        let installed = key_def(c).and_then(|k| c.apps.launchable().into_iter().find(|(id, _)| id == k.3).map(|(_, t)| t));
-        rows.push(Row::link("default").icon("rotate-ccw").label("LG's default").chevron(false).value(&installed.unwrap_or_else(|| "Not installed".into())).selected(kind == "default").act(choice(c, "default")));
-        rows.push(Row::link("nothing").icon("ban").label("Does nothing").chevron(false).selected(kind == "nothing").act(choice(c, "")));
-    }
+    let tile = dock_ids(c).get(tile_of(d)).map(|id| title_of_app(c, id));
+    let mut rows = vec![
+        Row::link("default")
+            .icon("rotate-ccw")
+            .label("The dock's tile")
+            .chevron(false)
+            .value(&tile.unwrap_or_else(|| "None on the dock".into()))
+            .selected(kind == "default")
+            .act(choice(c, "default")),
+    ];
     rows.push(Row::head("Open an app", 0));
     for (id, title) in ordered(c) {
         rows.push(Row::link(&format!("app:{id}")).icon("layout-grid").label(&title).chevron(false).selected(kind == "app" && app == id).act(choice(c, &id)));
@@ -396,19 +345,17 @@ mod tests {
     }
 
     #[test]
-    fn the_keys_tab_switches_theme_keys_and_lists_what_each_app_key_opens_now() {
-        let mut w = world();
-        w.theme = json!({"remote": {"appKeys": {"netflix": "plex", "amazon": ""}}});
+    fn the_keys_tab_switches_theme_keys_and_the_buttons_have_a_tab_of_their_own() {
+        let w = world();
         let r = rows(&w.ctx());
         assert!(row(&r, "numberkeys").on && !row(&r, "appswitcher").on, "each has the default the QML page reads");
         assert_eq!((row(&r, "gearhold").label.as_str(), row(&r, "gearhold").index), ("Hold gear", Some(0)), "LumaTV's Settings until the owner chooses");
-        assert_eq!(row(&r, "key:netflix").value, "Plex", "the owner's choice, by the app's title");
-        assert_eq!(row(&r, "key:amazon").value, "Nothing", "chosen: nothing");
-        assert_eq!(row(&r, "key:disneyplus").value, "Nothing", "LG's own app is not installed here");
-        assert_eq!(row(&r, "key:lgchannels").value, "LG Channels", "a hidden system app still counts as installed");
-        let ops = (row(&r, "key:netflix").act.as_ref().unwrap())(Arg::Press);
-        assert!(matches!(&ops[..], [Op::Open { page, arg }] if page == "appkey" && arg.str("key") == Some("netflix")));
         assert!(!r.iter().any(|x| x.id.starts_with("number:")), "the number keys are listed while Quick Access is on");
+        assert!(!r.iter().any(|x| x.id.starts_with("key:")), "the app keys moved to the Buttons tab");
+        assert_eq!(row(&r, "button:netflix").tab, 2);
+        assert_eq!(row(&r, "resetbuttons").tab, 2);
+        assert_eq!(row(&r, "numberkeys").tab, 1);
+        assert_eq!(page().tabs, ["Pointer", "Keys", "Buttons", "Voice"]);
     }
 
     #[test]
@@ -460,33 +407,13 @@ mod tests {
         assert_eq!(row(&rows(&w.ctx()), "option.longPressInterval").value, "2 s");
         let r = rows(&w.ctx());
         let status = row(&r, "voicestatus");
-        assert_eq!((status.value.as_str(), status.tab), ("Not answering", 2), "the helper has no voice topic");
+        assert_eq!((status.value.as_str(), status.tab), ("Not answering", 3), "the helper has no voice topic");
         w.topics.set_helper("voice", json!({"reason": "voice_unlinked"}));
         let r = rows(&w.ctx());
         assert_eq!(row(&r, "voicestatus").value, "Not linked");
         assert!(row(&r, "voicestatus").help.starts_with("Home Assistant is not linked"));
         w.topics.set_helper("voice", json!({"reason": ""}));
         assert!(!rows(&w.ctx()).iter().any(|x| x.id == "voicestatus"), "it can listen: nothing to say");
-    }
-
-    #[test]
-    fn the_chooser_offers_lgs_default_nothing_and_the_apps_and_a_pick_writes_one_entry_and_goes_back() {
-        let mut w = world();
-        w.theme = json!({"remote": {"appKeys": {"netflix": "plex"}}});
-        w.arg = PageArg::Json(json!({"key": "netflix"}));
-        let c = w.ctx();
-        assert_eq!(app_title(&c), "Netflix key");
-        let r = app_rows(&c);
-        assert_eq!(r.iter().take(3).map(|x| x.id.as_str()).collect::<Vec<_>>(), vec!["default", "nothing", "head:Open an app"]);
-        assert_eq!(row(&r, "default").value, "Netflix");
-        assert!(row(&r, "app:plex").selected && !row(&r, "default").selected);
-        assert!(matches!(&app_opened(&c)[..], [Op::Focus(id)] if id == "app:plex"), "the focus starts on the row in force");
-        let ops = (row(&r, "app:youtube.leanback.v4").act.as_ref().unwrap())(Arg::Press);
-        assert!(matches!(&ops[..], [Op::Patch(p), Op::Open { page, .. }] if p == &json!({"remote": {"appKeys": {"netflix": "youtube.leanback.v4"}}}) && page == "remote"));
-        let ops = (row(&r, "default").act.as_ref().unwrap())(Arg::Press);
-        assert!(matches!(&ops[0], Op::Patch(p) if p == &json!({"remote": {"appKeys": {}}})), "LG's default removes the entry");
-        let ops = (row(&r, "nothing").act.as_ref().unwrap())(Arg::Press);
-        assert!(matches!(&ops[0], Op::Patch(p) if p == &json!({"remote": {"appKeys": {"netflix": ""}}})));
     }
 
     #[test]

@@ -148,11 +148,11 @@ class KeyPath(HostCase):
         self.assertEqual((got["held_again"], got["to_drawer"]), ("true", "true"))
         self.assertEqual(got["state"], "false/drawer")
 
-    # ---- the remote's app keys: what LumaHome says to the key filter (settings/AppKeys.js has the shape of remote.appKeys)
+    # ---- the remote's app keys: what LumaHome says to the key filter (settings/AppKeys.js has the shape of remote.buttons)
 
     def test_the_owners_app_keys_open_the_app_he_chose_or_nothing_and_an_unset_key_is_LGs_where_its_app_is_installed(self):
-        chosen = {"perf": {"syncResidents": True}, "remote": {"appKeys": {"netflix": "com.beb.plxnative", "amazon": "", "disneyplus": "com.not.installed"}}}
-        unset = "root.patchTheme({ remote: { appKeys: {} } })"
+        chosen = {"perf": {"syncResidents": True}, "remote": {"buttons": {"netflix": "app:com.beb.plxnative", "amazon": "nothing", "disneyplus": "app:com.not.installed"}}}
+        unset = "root.patchTheme({ remote: { buttons: {} } })"
         got, _ = self.run_host([
             (0, "root.appKey('netflix', '')", "netflix"), (100, "root.appKey('netflix', 'com.beb.plxnative')", "already"),
             (200, "root.appKey('amazon', '')", "nothing"), (300, "root.appKey('disneyplus', '')", "missing"),
@@ -161,7 +161,7 @@ class KeyPath(HostCase):
             (600, do(unset), "reset"), (700, "root.appKey('netflix', '')", "default_netflix"), (800, "root.appKey('disneyplus', '')", "default_disney"),
             (900, CALLS, "calls_default"),
             # not from Home: no splash, the same launch
-            (1000, do("root.hostActive = false"), "away"), (1100, "root.patchTheme({ remote: { appKeys: { amazon: 'com.apple.appletv' } } })", "set"),
+            (1000, do("root.hostActive = false"), "away"), (1100, "root.patchTheme({ remote: { buttons: { amazon: 'app:com.apple.appletv' } } })", "set"),
             (1200, "root.appKey('amazon', 'netflix')", "over_app"), (1500, CALLS, "calls_over"),
         ], 2000, "--theme", json.dumps(chosen))
         self.assertEqual(got["netflix"], "true", "the key is taken: it opens Plex, not Netflix")

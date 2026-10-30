@@ -74,6 +74,20 @@ def with_apps():
     return lgsettings.LgService(answers=dict(ONLINE, **APPS))
 
 
+def with_hook():
+    """The same apps with LG Input Hook installed, which the Buttons tab then says."""
+    points = APPS['listLaunchPoints']['launchPoints'] + [{'id': 'org.webosbrew.inputhook', 'title': 'LG Input Hook'}]
+    return lgsettings.LgService(answers=dict(ONLINE, listLaunchPoints={'returnValue': True, 'launchPoints': points}))
+
+
+# The host eats the first key after the page opens: this one goes up to the tab bar and over to Buttons.
+TO_BUTTONS = ['up', 'up', 'right', 'right']
+
+# what the owner set: an app, nothing, the quick panel, another button, an input, Home and an imported code the list lacks
+BUTTONS_SET = {'remote': {'buttons': {'netflix': 'app:plex', 'amazon': 'nothing', 'red': 'quick', 'green': 'as:blue', 'blue': 'app:com.webos.app.hdmi2',
+                                      'list': 'home', 'code:1234': 'nothing'}}}
+
+
 class Scene:
     def __init__(self, name, page, keys=(), routes=None, topics=None, theme=None, lg=None, tab=None, layout=None):
         self.name, self.page, self.keys = name, page, list(keys)
@@ -97,8 +111,12 @@ SCENES += [
 ]
 SCENES += [
     Scene('remote', 'remote', lg=with_apps, keys=['right', 'down']),
-    Scene('remote-keys', 'remote', lg=with_apps, keys=['right', 'up', 'right', 'down', 'down', 'down', 'down', 'down', 'down', 'down', 'down', 'down', 'down', 'down']),
-    Scene('appkey', 'remote', lg=with_apps, keys=['right', 'up', 'right'] + ['down'] * 10 + ['ok', 'down', 'down']),
+    Scene('remote-keys', 'remote', lg=with_apps, keys=['up', 'up', 'right'] + ['down'] * 9),
+    Scene('remote-buttons', 'remote', lg=with_apps, theme=BUTTONS_SET, keys=TO_BUTTONS + ['down', 'down']),
+    Scene('remote-buttons-hook', 'remote', lg=with_hook, theme=BUTTONS_SET, keys=TO_BUTTONS + ['down']),
+    Scene('appkey', 'remote', lg=with_apps, keys=TO_BUTTONS + ['down', 'ok', 'down', 'down']),
+    Scene('button-picker', 'remote', lg=with_apps, theme=BUTTONS_SET, keys=TO_BUTTONS + ['down'] * 5 + ['ok', 'down', 'down', 'down']),
+    Scene('number-key', 'remote', lg=with_apps, theme={'remote': {'quickAccess': {'on': True, 'slots': {}}}}, keys=['up', 'up', 'right'] + ['down'] * 10 + ['ok', 'down']),
 ]
 
 WIFI_STATUS = {'returnValue': True, 'wired': {'state': 'disconnected'}, 'wifi': {

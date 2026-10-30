@@ -45,9 +45,28 @@ impl State {
             SystemRequest::QuickAccess(0) => self.launch("0 held", "the Quick Access editor", QUICK_ACCESS, None),
             SystemRequest::QuickAccess(n) => self.interim(&format!("{n} held"), &format!("Quick Access slot {n}"), QUICK_ACCESS, None),
             SystemRequest::LaunchApp(app) => self.launch("app button", &app.clone(), &app, None),
+            SystemRequest::OpenSettings => self.button_shows("settings", "LumaTV's Settings"),
+            SystemRequest::OpenNotifications => self.button_shows("drawer", "the notification drawer"),
+            SystemRequest::PictureOff => self.picture_off(),
             SystemRequest::Exit => self.back_pressed(),
             SystemRequest::CloseKeyboard => self.close_keyboard("a key asked for the keyboard to close"),
         }
+    }
+
+    /// A button the owner set to open one of LumaTV's own surfaces (Settings > Remote & pointer > Buttons). Never LG's: a surface the shell
+    /// cannot show now is a press that does nothing, said in the journal.
+    fn button_shows(&mut self, kind: &str, shown: &str) {
+        if self.shell_show(kind, false) {
+            self.journal(format!("input: button: {shown}"));
+        } else {
+            self.journal(format!("input: button: {shown} cannot be shown now, nothing opened"));
+        }
+    }
+
+    /// The picture off and the sound on, as the quick panel's Screen off tile does it (LG's `option.screenOff`).
+    fn picture_off(&mut self) {
+        self.journal("input: button: the picture off".into());
+        self.luna_call("luna://com.webos.service.settings/setSystemSettings".into(), json!({"category": "option", "settings": {"screenOff": "on"}}));
     }
 
     /// The gear held: what the owner chose (theme `remote.gearHold`, Settings > Remote & pointer > Hold gear). LG's own answers to this key are

@@ -14,6 +14,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::time::{Duration, Instant};
 
 use crate::State;
+use crate::buttons;
 use crate::keys::{self, Action, Ctx};
 use crate::luna::ToBridge;
 use crate::server::seat;
@@ -350,8 +351,10 @@ pub struct Keys {
     pub delivered: u64,
     pub dropped: u64,
     pub router: keys::Router,
-    /// Settings > Remote's app buttons, re-read when the theme file changes.
-    pub app_keys: keys::AppKeyConfig,
+    /// What the owner made of the remote's buttons (`remote.buttons`), re-read when the theme file changes.
+    pub buttons: buttons::ButtonMap,
+    /// The buttons of `buttons` whose press was taken or changed, with the code that went on (`None`: taken), until their release.
+    mapped: Vec<(u32, Option<u32>)>,
     /// What the gear does when held (`remote.gearHold`), read with the app buttons.
     pub gear_hold: keys::HoldAction,
     /// What shows the Magic Remote's pointer (`remote.pointerShow`), read with the app buttons.
@@ -400,12 +403,12 @@ impl Keys {
             return;
         }
         if stamp.is_none() {
-            self.app_keys = keys::AppKeyConfig::default();
+            self.buttons = buttons::ButtonMap::default();
             self.gear_hold = keys::HoldAction::default();
             self.pointer_show = seat::PointerShow::default();
             self.theme.stamp = None;
         } else if let Some(theme) = std::fs::read_to_string(&self.theme.path).ok().and_then(|t| serde_json::from_str(&t).ok()) {
-            self.app_keys = keys::AppKeyConfig::from_theme(&theme);
+            self.buttons = buttons::ButtonMap::from_theme(&theme);
             self.gear_hold = keys::HoldAction::from_theme(&theme);
             self.pointer_show = seat::PointerShow::from_theme(&theme);
             self.theme.stamp = stamp;
@@ -453,6 +456,11 @@ impl State {
         // place of KEY_ENTER (entries 0 and 185 of its key table). It is the same OK: a click while the pointer shows, the key when it hid first.
         let code = if code == seat::BTN_LEFT { code::KEY_ENTER } else { code };
         self.care_input();
+        // The owner's choices for the remote's buttons come before anything else sees the key.
+        let Some(code) = self.remap_button(code, pressed) else {
+            self.seat.last_input = "key";
+            return;
+        };
         // While the Magic Remote's cursor shows, OK is a click on what it points at (LG's behaviour); an arrow or
         // Back hides the cursor and goes on as a key. A release goes the way its press went: a press taken as a key (by the Rust shell, or by an app's
         // keyboard) has its release as a key even if the cursor showed in between, and one taken as a click has its release as one.
@@ -466,18 +474,14 @@ impl State {
             seat::hide_cursor(self);
         }
         self.note_unnamed_key(code, pressed);
-        // The remote's own keys (gear, Input, the app buttons, the holds) are decided before any app sees one.
-        if pressed && matches!(self.keys.router.table.classify(code), keys::Logical::App(_)) {
-            self.keys.refresh_theme();
-        }
         let foreground = self.foreground_app();
         let keyboard_up = self.keyboard_up();
         let picker_ready = self.shell_can("picker");
         let logical = self.keys.router.table.classify(code);
         let first_press = pressed && !self.keys.router.is_down(code);
         let out = {
-            let Keys { router, app_keys, .. } = &mut self.keys;
-            router.event(code, pressed, now, &Ctx { foreground: &foreground, keyboard_up, app_keys, picker_ready })
+            let router = &mut self.keys.router;
+            router.event(code, pressed, now, &Ctx { foreground: &foreground, keyboard_up, picker_ready })
         };
         self.run_actions(out.actions);
         // The gear is down: its tap opens the quick panel at the release, and the shell puts the panel in the scene now, off the
@@ -583,8 +587,8 @@ impl State {
             let keyboard_up = self.keyboard_up();
             let picker_ready = self.shell_can("picker");
             let actions = {
-                let Keys { router, app_keys, .. } = &mut self.keys;
-                router.poll(now, &Ctx { foreground: &foreground, keyboard_up, app_keys, picker_ready })
+                let Keys { router, .. } = &mut self.keys;
+                router.poll(now, &Ctx { foreground: &foreground, keyboard_up, picker_ready })
             };
             self.run_actions(actions);
         }
@@ -614,6 +618,46 @@ impl State {
         }
         if self.ime.grab_down.contains(&code) {
             self.grab_key(code, false);
+        }
+    }
+
+    /// The owner's choice for this button (`buttons.rs`, Settings > Remote & pointer > Buttons): the key to go on with, the same or the one
+    /// the button was set to act as, or `None` for a key taken here, its repeats and release too. A release goes the way its press went,
+    /// whatever the theme says by then.
+    fn remap_button(&mut self, code: u32, pressed: bool) -> Option<u32> {
+        if let Some(i) = self.keys.mapped.iter().position(|(c, _)| *c == code) {
+            let to = self.keys.mapped[i].1;
+            if !pressed {
+                self.keys.mapped.swap_remove(i);
+            }
+            return to;
+        }
+        if !pressed {
+            return Some(code);
+        }
+        // A choice made in Settings applies to the next press, not to the next second's look at the file.
+        if buttons::ButtonMap::settable(code, &self.keys.router.table) || self.keys.buttons.knows(code, &self.keys.router.table) {
+            self.keys.refresh_theme();
+        }
+        if !self.keys.buttons.knows(code, &self.keys.router.table) {
+            return Some(code);
+        }
+        let foreground = self.foreground_app();
+        match self.keys.buttons.decide(code, &self.keys.router.table, &foreground) {
+            buttons::Decision::Pass => Some(code),
+            buttons::Decision::Replace(to) => {
+                self.journal(format!("input: button {code} acts as {to} (the owner's choice)"));
+                self.keys.mapped.push((code, Some(to)));
+                Some(to)
+            }
+            buttons::Decision::Take(request) => {
+                self.keys.mapped.push((code, None));
+                match request {
+                    Some(r) => self.system_request(r),
+                    None => self.journal(format!("input: button {code}: nothing to do (the owner's choice, or its app is in front)")),
+                }
+                None
+            }
         }
     }
 

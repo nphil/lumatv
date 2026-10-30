@@ -1130,7 +1130,7 @@ elif cmd == "windows":
                    "state": "Default", "surface": 221, "title": "MaliitServer", "type": "Keyboard"})
     out({"groups": [], "ok": True, "video": [], "windows": ws})
 elif cmd == "keys":
-    out({"ok": True, "table": [{"name": n, "code": c} for n, c in (("gear", 139), ("input", 241), ("netflix", 1037))], "appKeys": cfg.get("app_keys", {}),
+    out({"ok": True, "table": [{"name": n, "code": c} for n, c in (("gear", 139), ("input", 241), ("netflix", 1037))], "buttons": {k: ("app:" + v if v else "nothing") for k, v in cfg.get("app_keys", {}).items()},
          "unnamed": cfg.get("unnamed", []), "foreground": s["windows"][-1][0], "keyboardUp": s["panel"] is not None, "delivered": 0, "dropped": 0})
 elif cmd == "shell" and rest[:1] == ["rust"]:
     r = rust_state()
