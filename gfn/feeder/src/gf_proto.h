@@ -23,6 +23,7 @@ enum gf_msg {
     GF_STATE = 6,       /* uint8: 1 foreground, 0 background */
     GF_HDR = 7,         /* gf_hdr: static metadata, before or after LOAD (after LOAD it is applied at once) */
     GF_PING = 8,        /* int64 echo */
+    GF_APP = 9,         /* text: the app id NDL is opened for from the next LOAD on ("" for the window's own); the window keeps its own id */
     /* feeder -> engine */
     GF_LOADED = 16,     /* int32 ok (1), then text (the pipeline's answer or the error) */
     GF_EVENT = 17,      /* gf_event then text */

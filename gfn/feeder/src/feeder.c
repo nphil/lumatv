@@ -87,6 +87,11 @@ struct second {
 struct feeder {
     /* options */
     const char *lib, *app_id, *window_type, *window_id_opt, *window_id_file, *play_path, *audio_path, *sock_path;
+    /* The app id NDL_DirectMediaInit gets, when it is not the window's own (`--ndl-app`, or GF_APP from the engine before a load): LG's video path connects
+     * a video to its sink only for an app on SAM's foreground list, so a video window that is no app of its own plays for the app that is in front
+     * (the wallpaper's player does the same with Home's id, vplane.c). Empty: `app_id`. */
+    const char *ndl_app;
+    char ndl_app_buf[128];
     const char *ui_home;        /* the installed app's directory: the 64-bit UI is started from it and owns the window */
     pid_t ui_pid;
     /* SAM's side (gf_sam.c): started when SAM launched the app (no arguments, or its launch object) or with --sam. `chan` is this end of
@@ -394,7 +399,8 @@ static int start_pipeline(struct feeder *f, const gf_load *l, char *err, size_t 
             if (open_decoder(f, l, err, cap) != 0) return -1;
             use.audio = GF_AUDIO_PCM_S16LE;
         }
-        int rc = gf_ndl_start(f->ndl, f->app_id, f->window_id, &use, err, cap);
+        const char *ndl_app = f->ndl_app && f->ndl_app[0] ? f->ndl_app : f->app_id;
+        int rc = gf_ndl_start(f->ndl, ndl_app, f->window_id, &use, err, cap);
         if (rc == 0) break;
         gf_ndl_stop(f->ndl);
         if (rc != GF_NDL_LOAD_FAILED || pcm || l->audio != GF_AUDIO_OPUS || f->audio_mode != AUDIO_AUTO) {
@@ -939,8 +945,9 @@ static void handle_message(struct feeder *f, struct client *c, uint8_t type, con
             send_text(c, GF_LOADED, 0, err);
             return;
         }
-        gf_say("loaded: codec %u %ux%u at %u fps, audio %u (%u ch, %u Hz) as %s, hdr %u, drop threshold %d, pts unit %d", l.codec, l.width, l.height, l.fps,
-               l.audio, l.channels, l.sample_rate, f->audio_route, l.hdr, l.drop_threshold, l.pts_unit);
+        gf_say("loaded: codec %u %ux%u at %u fps, audio %u (%u ch, %u Hz) as %s, hdr %u, drop threshold %d, pts unit %d, window app %s, ndl app %s", l.codec, l.width,
+               l.height, l.fps, l.audio, l.channels, l.sample_rate, f->audio_route, l.hdr, l.drop_threshold, l.pts_unit, f->app_id,
+               f->ndl_app && f->ndl_app[0] ? f->ndl_app : f->app_id);
         f->total_fed = f->total_dropped = f->total_afed = f->total_adropped = f->total_retries = 0;
         memset(&f->sec, 0, sizeof f->sec);
         f->sec.start_ns = gf_ns();
@@ -982,6 +989,13 @@ static void handle_message(struct feeder *f, struct client *c, uint8_t type, con
     case GF_STATE:
         if (f->ndl_ready && n >= 1) gf_ndl_set_state(f->ndl, p[0]);
         return;
+    case GF_APP: {
+        size_t len = n < sizeof f->ndl_app_buf - 1 ? n : sizeof f->ndl_app_buf - 1;
+        memcpy(f->ndl_app_buf, p, len);
+        f->ndl_app_buf[len] = 0;
+        f->ndl_app = f->ndl_app_buf;
+        return;
+    }
     case GF_HDR: {
         if (n < sizeof(gf_hdr)) return;
         gf_hdr h;
@@ -1198,7 +1212,7 @@ static void usage(void) {
             "usage: lumatv-gfn-feeder --probe | --play FILE [--codec h264|h265|av1] [--size WxH] [--fps N] [--seconds S] [--loop] [--hdr]\n"
             "         [--audio PKTS] [--audio-mode auto|opus|pcm] [--drop-threshold N] [--pts-unit ns|us|ms] [--full-wait-ms N] [--burst] [--no-ndl] [--stats FILE]\n"
             "       | --serve SOCKET [--once]\n"
-            "  common: [-w card|overlay|default|screensaver|video] [--window-id ID] [--window-id-file F] [--no-window] [-a APP_ID] [-L NDL_LIB] [-e first|after]\n"
+            "  common: [-w card|overlay|default|screensaver|video] [--window-id ID] [--window-id-file F] [--no-window] [-a APP_ID] [--ndl-app APP_ID] [-L NDL_LIB] [-e first|after]\n"
             "  serve: [--ui-home DIR] starts DIR/bin64/lumatv-gfn-app through DIR/gfx64/launch.sh (SAM mode does this from the app's own directory);\n"
             "         [--sam] registers with SAM (no arguments, or SAM's launch object as the one argument, means serve with --sam)\n");
 }
@@ -1270,6 +1284,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--window-id-file") && v) f.window_id_file = argv[++i];
         else if (!strcmp(a, "--ui-home") && v) f.ui_home = argv[++i];
         else if (!strcmp(a, "-a") && v) f.app_id = argv[++i];
+        else if (!strcmp(a, "--ndl-app") && v) f.ndl_app = argv[++i];
         else if (!strcmp(a, "-L") && v) f.lib = argv[++i];
         else if (!strcmp(a, "-e") && v) f.export_first = strcmp(argv[++i], "after") != 0;
         else if (!strcmp(a, "--sam")) f.sam_mode = 1;

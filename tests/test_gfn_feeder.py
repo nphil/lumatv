@@ -43,7 +43,7 @@ DROP = struct.Struct("<qii")
 EVENT = struct.Struct("<iiq")
 STATUS = struct.Struct("<5Q4I2I2II2I2III")
 HELLO = struct.Struct("<4I32s64s")
-GF = dict(LOAD=1, VIDEO=2, AUDIO=3, FLUSH=4, UNLOAD=5, STATE=6, HDR=7, PING=8, LOADED=16, EVENT=17, ACCEPT=18, DROP=19, STATUS=20, ERROR=21, PONG=22, HELLO=23)
+GF = dict(LOAD=1, VIDEO=2, AUDIO=3, FLUSH=4, UNLOAD=5, STATE=6, HDR=7, PING=8, APP=9, LOADED=16, EVENT=17, ACCEPT=18, DROP=19, STATUS=20, ERROR=21, PONG=22, HELLO=23)
 
 
 def build():
@@ -249,6 +249,27 @@ class Play(unittest.TestCase):
             self.assertNotIn("playVideo", r.fc.props)
             self.assertIn("wl_webos_foreign.export_element", r.fc.names())
             self.assertIn("wl_webos_exported.set_exported_window", r.fc.names())
+        finally:
+            r.close()
+
+    def test_the_decoder_can_be_opened_for_an_app_other_than_the_window_s_own(self):
+        """`--ndl-app`: LG's video path connects a video to its sink only for an app on SAM's foreground list, so a video window that is no app of
+        its own plays for the app in front; the window keeps its own id (the compositor binds a claim to it by that id)."""
+        r = Run(["--play", self.clip, "--size", "320x240", "--fps", "60", "-w", "video", "-a", "org.test.cameras", "--ndl-app", "com.webos.app.home"]).go()
+        try:
+            self.assertEqual(r.proc.returncode, 0, r.err())
+            log = " ".join(r.ndl())
+            self.assertIn("Init com.webos.app.home", log)
+            self.assertNotIn("Init org.test.cameras", log)
+            self.assertEqual(r.fc.props["appId"], "org.test.cameras")
+        finally:
+            r.close()
+
+    def test_without_it_the_decoder_is_opened_for_the_window_s_own_app(self):
+        r = Run(["--play", self.clip, "--size", "320x240", "--fps", "60", "-w", "video", "-a", "org.test.cameras"]).go()
+        try:
+            self.assertEqual(r.proc.returncode, 0, r.err())
+            self.assertIn("Init org.test.cameras", " ".join(r.ndl()))
         finally:
             r.close()
 
@@ -478,6 +499,40 @@ class Serve(unittest.TestCase):
             self.assertIn("Unload", log)
             self.assertNotIn("VIOLATION", log)
             self.assertFalse(os.path.exists(sock))
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            err.close()
+            fc.close()
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_the_engine_names_the_app_the_decoder_is_opened_for_before_a_load_and_may_take_it_back(self):
+        tmp = tempfile.mkdtemp(prefix="gfn-feeder-app-")
+        sock = os.path.join(tmp, "feed.sock")
+        ndl_log = os.path.join(tmp, "ndl.log")
+        fc = FakeCompositor()
+        env = dict(os.environ, **fc.env(), LD_LIBRARY_PATH=os.path.dirname(NDL), FAKE_NDL_LOG=ndl_log, FAKE_NDL_VERBOSE="1")
+        err = open(os.path.join(tmp, "feeder.log"), "w")
+        proc = subprocess.Popen([BIN, "--serve", sock, "--once", "-L", NDL, "-w", "video", "-a", "org.test.cameras", "--stats", os.path.join(tmp, "stats.jsonl")],
+                                env=env, stderr=err, stdout=subprocess.DEVNULL)
+        try:
+            c = Client(sock)
+            self.assertEqual(c.recv()[0], GF["HELLO"])
+            c.send(GF["APP"], b"com.webos.app.home")
+            c.load(audio=0, hdr=0, drop=-1)
+            (t, p), _ = c.until(GF["LOADED"])
+            self.assertEqual(struct.unpack_from("<i", p)[0], 1, p)
+            c.send(GF["UNLOAD"])
+            c.send(GF["APP"], b"")
+            c.load(audio=0, hdr=0, drop=-1)
+            c.until(GF["LOADED"])
+            c.send(GF["UNLOAD"])
+            time.sleep(0.3)
+            c.close()
+            proc.wait(timeout=10)
+            inits = [l.split("Init ", 1)[1].strip() for l in open(ndl_log) if " Init " in l]
+            self.assertEqual(inits, ["com.webos.app.home", "org.test.cameras"], "the first load for the app named, the second for the window's own after an empty name")
+            self.assertIn("ndl app com.webos.app.home", open(os.path.join(tmp, "feeder.log")).read())
         finally:
             if proc.poll() is None:
                 proc.kill()
