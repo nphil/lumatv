@@ -1,0 +1,8 @@
+23:38:39 helper stop: {"ok":true,"helper":{"ok":true,"running":false}}
+23:38:39 mv qml: /var/lib/lumatv/qml.x
+23:38:45 ui respawned in 6.1 s (pid 24830 -> 28731)
+23:38:51 env module dir of ui: [stderr] | sh: can't open /proc//environ: no such file
+23:38:51 last-profile.json: ls: /var/lib/lumatv/*/last-profile.json: No such file or directory | -rw-r--r--    1 root     root           245 Oct 29 23:34 /var/lib/lumatv/last-profile.json
+23:38:51 mv back: /var/lib/lumatv/qml
+23:38:52 helper start: {"ok":true,"helper":{"healthy":true,"ok":true,"pid":28940,"port":18731,"running":true,"worker":28941}}
+23:39:09 ui respawned in 11.3 s (pid 28731 -> 29154)

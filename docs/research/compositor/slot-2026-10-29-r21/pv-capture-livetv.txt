@@ -1,0 +1,14 @@
+1
+in front: com.webos.app.livetv (key livetv; KEY=... overrides)
+capture VIDEO PNG: ms=237 reply={"capturedHeight":270,"writtenBytes":200185,"returnValue":true,"capturedWidth":480} file=200185 bytes
+  pngstat w=480 h=270 mean=108.5 std=58.6 bright=0.90 black=no
+capture VIDEO JPG: ms=187 reply={"capturedHeight":270,"writtenBytes":34997,"returnValue":true,"capturedWidth":480} file=34997 bytes
+capture VIDEO BMP: ms=169 reply={"capturedHeight":270,"writtenBytes":388854,"returnValue":true,"capturedWidth":480} file=388854 bytes
+capture VIDEO RGB: ms=167 reply={"capturedHeight":270,"writtenBytes":388800,"returnValue":true,"capturedWidth":480} file=388800 bytes
+capture DISPLAY PNG: ms=246 reply={"capturedHeight":270,"writtenBytes":238595,"returnValue":true,"capturedWidth":480} file=238595 bytes
+  pngstat w=480 h=270 mean=110.0 std=63.2 bright=0.95 black=no
+capture DISPLAY JPG: ms=203 reply={"capturedHeight":270,"writtenBytes":52933,"returnValue":true,"capturedWidth":480} file=52933 bytes
+capture DISPLAY BMP: ms=205 reply={"capturedHeight":270,"writtenBytes":388854,"returnValue":true,"capturedWidth":480} file=388854 bytes
+capture DISPLAY RGB: ms=202 reply={"capturedHeight":270,"writtenBytes":388800,"returnValue":true,"capturedWidth":480} file=388800 bytes
+pictures are in /tmp/pv (scp them off to look)
+ 

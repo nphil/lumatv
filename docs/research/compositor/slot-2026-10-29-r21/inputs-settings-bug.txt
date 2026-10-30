@@ -1,0 +1,81 @@
+bin
+bridge.sock
+bundle.manifest
+compositor.log
+enabled
+failures
+fingerprint
+fw-verified
+lg-binary
+lib
+manifest
+safety-timer.log
+shell
+shell-rust.conf
+shell-rust.log
+shell.log
+sm.log
+sm.log.old
+supervisor-api
+verified.list
+home,osd,toast,alert,quick,picker,drawer,settings,entry,keyboard,menu,confirm,switcher,saver,displaylab
+
+log lines before 9496
+== rust.ui while Settings>Inputs up (6 s):
+{"can": ["settings", "displaylab", "keyboard", "quick", "picker", "drawer", "switcher"], "connected": true, "enabled": true, "engine": true, "error": null, "gaveUp": false, "kinds": ["alert", "confirm", "displaylab", "drawer", "entry", "home", "keyboard", "menu", "osd", "picker", "quick", "saver", "settings", "switcher", "toast"], "lunaOpen": [{"subscribe": true, "tag": 28737, "uri": "luna://com.webos.notification/getToastNotification"}, {"subscribe": true, "tag": 1398341633, "uri": "luna://com.webos.notification/getAlertNotification"}, {"subscribe": true, "tag": 1398341634, "uri": "luna://com.webos.notification/getInputAlertNotification"}, {"subscribe": true, "tag": 1398341635, "uri": "luna://com.webos.notification/getPincodePromptNotification"}, {"subscribe": true, "tag": 1398342659, "uri": "luna://com.webos.applicationManager/running"}, {"subscribe": true, "tag": 300, "uri": "luna://com.webos.service.homelaunchpoints/listLaunchPoints"}, {"subscribe": true, "tag": 1308622849, "uri": "luna://com.webos.service.connectionmanager/getStatus"}, {"subscribe": true, "tag": 1358954752, "uri": "luna://com.webos.notification/getToastNotification"}, {"subscribe": true, "tag": 1358955008, "uri": "luna://com.webos.service.applicationmanager/listLaunchPoints"}, {"subscribe": true, "tag": 1398341648, "uri": "luna://com.webos.service.tvpower/power2/registerScreenSaverRequest"}, {"subscribe": true, "tag": 1398341649, "uri": "luna://com.webos.service.tvpower/power/registerScreenSaverRequest"}, {"subscribe": true, "tag": 1577123840, "uri": "luna://com.webos.service.connectionmanager/getStatus"}, {"subscribe": true, "tag": 1577123841, "uri": "luna://com.webos.service.eim/getAllInputStatus"}, {"subscribe": true, "tag": 1593835263, "uri": "luna://com.webos.service.applicationmanager/listLaunchPoints"}, {"subscribe": true, "tag": 1577123852, "uri": "luna://com.webos.service.panelcontroller/getPanelUsageTime"}], "pid": 17393, "stats": {"events": 127, "exits": 0, "lunaCalls": 78, "lunaCancelledEarly": 0, "lunaRefused": 0, "shows": 1, "starts": 1}, "systemLive": true, "takes": ["screenremote", "search"], "topics": {"apps": [], "audio": {"callerId": "com.webos.surfacemanager", "returnValue": true, "volumeStatus": {"activeStatus": true, "adjustVolume": true, "cause": "volumeDown", "externalDeviceControl": false, "maxVolume": 100, "mode": "normal", "muteStatus": false, "ossActivate": false, "soundOutput": "tv_external_speaker", "volume": 11, "volumeLimitable": true, "volumeLimiter": "none", "volumeSyncable": false}}, "cursor": {"visible": false}, "foreground": {"app": "com.webos.app.home", "covered": false, "home": true}, "ime": {"active": false, "show": false}, "keyboard": {"up": false}, "luna": {"payload": {"method": "getSystemSettingDesc", "results": [{"account": false, "category": "network", "dbtype": "G", "dimension": [], "key": "deviceName", "ui": {"active": true, "displayName": "deviceName", "visible": true, "widget": "None"}, "valueCheck": false, "valueTypeCheck": false, "values": {"arrayExt": []}, "volatile": false, "vtype": "ArrayExt"}], "returnValue": true, "subscribed": false}, "tag": 1577058356}, "paneldim": {"carry": true}, "refresh": {"hz": 60}, "rust": {"kinds": ["alert", "confirm", "displaylab", "drawer", "entry", "home", "keyboard", "menu", "osd", "picker", "quick", "saver", "settings", "switcher", "toast"]}, "screen": {"on": true}, "show": {"kind": "settings", "n": 1, "page": "inputs", "warm": false}, "switcher": {"from": "", "n": 0, "open": false}, "transitions": {"on": true, "reduced": false}, "vwin": {"apps": 0, "claims": [], "free": 2, "mode": "idle", "slots": 2, "wall": false}, "wall": {"hole": false}}, "ui": {"alerts": 0, "displaylab": {"answers": {}, "busy": false, "focus": 0, "held": true, "link": "beginning", "note": null, "open": false, "phase": "gone", "shown": 0, "stage": "intro", "step": null}, "extras": {"ask": null, "frame": null, "mic": false, "remote": null, "splash": null, "splashWaiting": false, "toast": null, "voice": "", "voiceWords": ""}, "home": {"apps": {"cell": 0, "count": 20, "inGrid": false, "railFirst": 0, "railIndex": 0, "scrollRow": 0, "search": false, "section": ""}, "cameraFrames": 0, "cards": [["clock", 64, 134, 886, 222], ["home", 64, 376, 886, 238], ["weather", 970, 134, 886, 480]], "dock": ["com.webos.app.discovery", "netflix", "com.beb.plxnative", "com.apple.appletv", "io.unom.punktfunk.client-webos", "com.webos.app.homeconnect", "com.webos.app.browser", "com.lighting.huesync", "org.webosbrew.hbchannel", "com.amazoff.patcher", "youtube.leanback.v4", "com.limelight.webos", "org.webosbrew.safeupdate", "org.webosbrew.appupdateblocker", "org.webosbrew.inputhook", "org.webosbrew.bridge-64to32", "com.crunchyroll.webapp", "org.nphil.lumatv", "org.nphil.lumatv.card", "org.nphil.lumatv.gfn"], "dockIndex": 0, "dockMoving": false, "editing": false, "editor": null, "focus": 100, "focusLayer": "statusbar", "home": true, "launching": null, "layer": "", "layout": [["clock", 0, 0, 6, 1, 0], ["home", 0, 1, 6, 1, 0], ["weather", 6, 0, 6, 2, 0], ["dock", 0, 2, 12, 1, 0]], "picker": {"index": 0, "pin": null, "profiles": 2, "up": false, "veil": null}, "popover": null, "profile": "Nitin", "search": null, "unread": 0, "wall": {"clip": "", "hole": false, "manifest": null, "player": null, "reason": "", "settled": false, "state": "off", "up": false, "want": false, "why": ""}, "wallHole": false, "widgetFocusId": null}, "input": false, "kinds": ["osd", "toast", "alert", "saver", "home", "settings", "quick", "picker", "drawer", "menu", "confirm", "switcher", "entry", "keyboard", "displaylab"], "level": "11", "live": true, "logo": "", "mark": false, "markPlace": 0, "muted": false, "osd": false, "panels": {"confirm": "gone", "drawer": "gone", "entry": "gone", "keyboard": {"focus": 0, "key": "mode", "layout": "letters", "listening": false, "live": false, "shift": 0, "up": false, "voice": true}, "menu": "gone", "picker": "gone", "previews": {"front": null, "held": {}, "inflight": null, "liveF
+== scene:
+{'error': 'unknown command scene; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, screencap [status|shot|record start|record stop], key CODE, remote CODE, pointer [aim] X Y, wheel, click, sched mali fifo|other, callbacks shell early|landing, callbacks clients commit|early|landing, mem, wake [reset|probe start|probe stop], ring [N], idle [MS], refresh [60|120], scanout [off|direct|offset on|off], pageprobe [WxH SECONDS|off], pointer [plane|gpu|X Y], afbc [on|off], pagealpha [on|off], vwin [off|idle|apps|claim|move|release], paneldim [want X|release], fallback [reason], quit', 'ok': False}
+== stats:
+{'error': 'unknown command stats; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, screencap [status|shot|record start|record stop], key CODE, remote CODE, pointer [aim] X Y, wheel, click, sched mali fifo|other, callbacks shell early|landing, callbacks clients commit|early|landing, mem, wake [reset|probe start|probe stop], ring [N], idle [MS], refresh [60|120], scanout [off|direct|offset on|off], pageprobe [WxH SECONDS|off], pointer [plane|gpu|X Y], afbc [on|off], pagealpha [on|off], vwin [off|idle|apps|claim|move|release], paneldim [want X|release], fallback [reason], quit', 'ok': False}
+== log since:
+
+== shell-rust log:
+/var/lib/lumatv/compositor/shell-rust.conf
+/var/lib/lumatv/compositor/shell-rust.log
+/var/lib/lumatv/log
+/var/lib/lumatv/log-helper
+/var/lib/lumatv/logo-events
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+[helper] GET /v1/state/receiver 
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+[helper] GET /v1/state/receiver 
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+[helper] GET /v1/state/receiver 
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+[log] settings: at most 96 groups
+
+== scene on Sound:
+{'error': 'unknown command scene; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, screencap [status|shot|record start|record stop], key CODE, remote CODE, pointer [aim] X Y, wheel, click, sched mali fifo|other, callbacks shell early|landing, callbacks clients commit|early|landing, mem, wake [reset|probe start|probe stop], ring [N], idle [MS], refresh [60|120], scanout [off|direct|offset on|off], pageprobe [WxH SECONDS|off], pointer [plane|gpu|X Y], afbc [on|off], pagealpha [on|off], vwin [off|idle|apps|claim|move|release], paneldim [want X|release], fallback [reason], quit', 'ok': False}
+{'error': 'unknown command stats; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, screencap [status|shot|record start|record stop], key CODE, remote CODE, pointer [aim] X Y, wheel, click, sched mali fifo|other, callbacks shell early|landing, callbacks clients commit|early|landing, mem, wake [reset|probe start|probe stop], ring [N], idle [MS], refresh [60|120], scanout [off|direct|offset on|off], pageprobe [WxH SECONDS|off], pointer [plane|gpu|X Y], afbc [on|off], pagealpha [on|off], vwin [off|idle|apps|claim|move|release], paneldim [want X|release], fallback [reason], quit', 'ok': False}

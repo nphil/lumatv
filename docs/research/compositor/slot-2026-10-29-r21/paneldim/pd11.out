@@ -1,0 +1,7 @@
+23:48:45 start backlight 80
+23:49:26 dimmed: {'written': 68, 'writes': 25, 'reads': 8, 'restores': 1, 'dimmed': True, 'want': 0.8500000238418579, 'homeWant': 0.8500000238418579} backlight 68 after 40 s
+23:49:26 release: {'ok': True, 'panelDim': {'block': None, 'carries': True, 'dimmed': True, 'enabled': True, 'failures': 0, 'hdr': False, 'inFlight': None, 'lastError': '', 'latchedSec': 0, 'orig': 80, 'reads': 8, 'restores': 1, 'want': 0.8500000238418579, 'writes': 25, 'written': 68}}
+23:49:28 after release: {'written': 68, 'writes': 25, 'reads': 8, 'restores': 1, 'dimmed': True, 'want': 0.8500000238418579, 'homeWant': 0.8500000238418579} backlight 68
+23:50:28 wake 60 s after release: tick p50 0.02 p99 0.03 max 0.09 ms (n 3031); flip p50 0.02 p99 0.04 max 0.04 ms (n 115); input no samples; tick waited on a busy loop p50 0.19 p99 0.23 max 0.23 ms (n 2)
+23:50:28 state: {'written': 68, 'writes': 25, 'reads': 11, 'restores': 1, 'dimmed': True, 'want': 0.8500000238418579, 'homeWant': 0.8500000238418579} backlight 68
+23:50:35 end backlight 68 (start 80) {'written': 79, 'writes': 27, 'reads': 13, 'restores': 2, 'dimmed': True, 'want': 0.9700000286102295, 'homeWant': 0.9700000286102295}

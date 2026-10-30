@@ -1,0 +1,19 @@
+in front: com.webos.app.hdmi2 (key hdmi2; KEY=... overrides)
+capture VIDEO PNG: ms=17 reply={"errorCode":12,"returnValue":false,"errorText":"REFUSED_PERMISSION_DENIED"} file=0 bytes
+capture VIDEO JPG: ms=21 reply={"errorCode":12,"returnValue":false,"errorText":"REFUSED_PERMISSION_DENIED"} file=0 bytes
+capture VIDEO BMP: ms=13 reply={"errorCode":12,"returnValue":false,"errorText":"REFUSED_PERMISSION_DENIED"} file=0 bytes
+capture VIDEO RGB: ms=17 reply={"errorCode":12,"returnValue":false,"errorText":"REFUSED_PERMISSION_DENIED"} file=0 bytes
+capture DISPLAY PNG: ms=59 reply={"capturedHeight":270,"writtenBytes":92391,"returnValue":true,"capturedWidth":480} file=92391 bytes
+  pngstat w=480 h=270 mean=148.3 std=70.1 bright=1.00 black=no
+capture DISPLAY JPG: ms=34 reply={"capturedHeight":270,"writtenBytes":16388,"returnValue":true,"capturedWidth":480} file=16388 bytes
+capture DISPLAY BMP: ms=33 reply={"capturedHeight":270,"writtenBytes":388854,"returnValue":true,"capturedWidth":480} file=388854 bytes
+capture DISPLAY RGB: ms=28 reply={"capturedHeight":270,"writtenBytes":388800,"returnValue":true,"capturedWidth":480} file=388800 bytes
+pictures are in /tmp/pv (scp them off to look)
+in front: com.webos.app.hdmi2 (key hdmi2; KEY=... overrides)
+helper capture open: {"api":1,"error":{"code":"no_picture","message":"LG's capture service gave no picture: REFUSED_PERMISSION_DENIED"},"ok":false}
+helper capture live: {"api":1,"error":{"code":"too_soon","message":"the last picture was taken a moment ago"},"ok":false}
+helper capture periodic: {"api":1,"error":{"code":"no_picture","message":"LG's capture service gave no picture: REFUSED_PERMISSION_DENIED"},"ok":false}
+helper index: {"api":1,"now":1793332509920,"ok":true,"previews":{"enabled":true,"items":{"livetv":{"at":1793332487271,"bytes":23108,"h":270,"w":480}},"method":"VIDEO","size":[480,270],"stats":{"blank":7,"failed":0,"kept":7,"last":{"code":"no_picture","key":"hdmi2","ms":21,"text":"REFUSED_PERMISSION_
+helper picture: 101 bytes, HTTP/1.1 404 Not Found Content-Type: application/json; charset=utf-8 Content-Length: 101 Cache-Control: no-store X-Content-Type-Options: nosniff Connection: close  
+on the flash: total 28;-rw-------    1 root     root            63 Oct 29 23:54 index.json;-rw-------    1 root     root         23108 Oct 29 23:54 livetv.jpg;
+ 

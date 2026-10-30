@@ -1,0 +1,10 @@
+23:37:19 before {'healthy': True, 'ok': True, 'pid': 11291, 'port': 18731, 'running': True, 'worker': 11292}
+23:37:19 kill -9 11292
+23:37:21 RESTART after 1.3 s: {'healthy': True, 'ok': True, 'pid': 11291, 'port': 18731, 'running': True, 'worker': 27459}
+23:37:21 log: 2026-10-30T03:37:19Z WARN  supervisor: the helper ended with signal 9 after 444 s; starting it again in 1 s
+23:37:24 healthy after: {'healthy': True, 'ok': True, 'pid': 11291, 'port': 18731, 'running': True, 'worker': 27459}
+23:37:24 stop: {"ok":true,"helper":{"ok":true,"running":false}} | rc=0
+23:37:32 after stop +8 s: {"ok":true,"helper":{"ok":true,"running":false}} | rc=0
+23:37:52 after stop +28 s: {"ok":true,"helper":{"ok":true,"running":false}} | rc=0
+23:37:52 start: {"ok":true,"helper":{"healthy":true,"ok":true,"pid":27990,"port":18731,"running":true,"worker":27991}} | rc=0
+23:37:57 after start: {'healthy': True, 'ok': True, 'pid': 27990, 'port': 18731, 'running': True, 'worker': 27991}

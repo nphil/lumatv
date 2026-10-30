@@ -1,0 +1,25 @@
+in front: com.webos.app.livetv (key livetv; KEY=... overrides)
+size 320x180 run 1: ms=180 reply={"capturedHeight":180,"writtenBytes":100919,"returnValue":true,"capturedWidth":320} file=100919 bytes
+size 320x180 run 2: ms=178 reply={"capturedHeight":180,"writtenBytes":101301,"returnValue":true,"capturedWidth":320} file=101301 bytes
+size 320x180 run 3: ms=177 reply={"capturedHeight":180,"writtenBytes":101612,"returnValue":true,"capturedWidth":320} file=101612 bytes
+size 480x270 run 1: ms=208 reply={"capturedHeight":270,"writtenBytes":165260,"returnValue":true,"capturedWidth":480} file=165260 bytes
+size 480x270 run 2: ms=212 reply={"capturedHeight":270,"writtenBytes":176538,"returnValue":true,"capturedWidth":480} file=176538 bytes
+size 480x270 run 3: ms=214 reply={"capturedHeight":270,"writtenBytes":179924,"returnValue":true,"capturedWidth":480} file=179924 bytes
+size 640x360 run 1: ms=234 reply={"capturedHeight":360,"writtenBytes":279878,"returnValue":true,"capturedWidth":640} file=279878 bytes
+size 640x360 run 2: ms=234 reply={"capturedHeight":360,"writtenBytes":301047,"returnValue":true,"capturedWidth":640} file=301047 bytes
+size 640x360 run 3: ms=235 reply={"capturedHeight":360,"writtenBytes":298010,"returnValue":true,"capturedWidth":640} file=298010 bytes
+size 960x540 run 1: ms=337 reply={"capturedHeight":540,"writtenBytes":595917,"returnValue":true,"capturedWidth":960} file=595917 bytes
+size 960x540 run 2: ms=320 reply={"capturedHeight":540,"writtenBytes":532282,"returnValue":true,"capturedWidth":960} file=532282 bytes
+size 960x540 run 3: ms=319 reply={"capturedHeight":540,"writtenBytes":527543,"returnValue":true,"capturedWidth":960} file=527543 bytes
+in front: com.webos.app.livetv (key livetv; KEY=... overrides)
+cost: 40 captures, 40 without returnValue true, 20.0 s wall
+cost: call ms median 13 p90 19 max 24
+cost: captureservice (pid 5735) 0.14 s of CPU over the run = 0.7 % of one core, 4 ms a capture
+in front: com.webos.app.livetv (key livetv; KEY=... overrides)
+helper capture open: {"api":1,"at":1793332442206,"bytes":23650,"h":270,"key":"livetv","ms":211,"now":1793332442208,"ok":true,"saved":true,"w":480}
+helper capture live: {"api":1,"at":1793332443433,"bytes":23779,"h":270,"key":"livetv","ms":209,"now":1793332443433,"ok":true,"saved":false,"w":480}
+helper capture periodic: {"api":1,"at":1793332444660,"bytes":24306,"h":270,"key":"livetv","ms":211,"now":1793332444661,"ok":true,"saved":true,"w":480}
+helper index: {"api":1,"now":1793332445672,"ok":true,"previews":{"enabled":true,"items":{"livetv":{"at":1793332444660,"bytes":24306,"h":270,"w":480}},"method":"VIDEO","size":[480,270],"stats":{"blank":1,"failed":0,"kept":5,"last":{"bytes":24306,"key":"livetv","ms":211,"ok":true,"why":"periodic"},"msAvg":211,"msMax":302,"taken":6}}}
+helper picture: 24306 bytes, HTTP/1.1 200 OK Content-Length: 24306 X-Content-Type-Options: nosniff Connection: close Content-Type: image/jpeg Cache-Control: no-store X-Luma-At: 1793332444660  
+on the flash: total 28;-rw-------    1 root     root            63 Oct 29 23:54 index.json;-rw-------    1 root     root         24306 Oct 29 23:54 livetv.jpg;
+ 

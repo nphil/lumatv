@@ -1,0 +1,6 @@
+in front: com.webos.app.livetv (key livetv; KEY=... overrides)
+cost: 40 captures, 0 without returnValue true, 20.0 s wall
+cost: call ms median 199 p90 222 max 233
+cost: captureservice (pid 5735) 1.55 s of CPU over the run = 7.7 % of one core, 39 ms a capture
+8
+ 

@@ -1,0 +1,44 @@
+{
+ "wake": {
+  "busy": {
+   "max_us": 228,
+   "mean_us": 205,
+   "n": 2,
+   "p50_us": 191,
+   "p99_us": 228
+  },
+  "flip": {
+   "max_us": 43,
+   "mean_us": 20,
+   "n": 115,
+   "p50_us": 18,
+   "p99_us": 39
+  },
+  "input": {
+   "max_us": 0,
+   "mean_us": 0,
+   "n": 0,
+   "p50_us": 0,
+   "p99_us": 0
+  },
+  "line": "tick p50 0.02 p99 0.03 max 0.09 ms (n 3031); flip p50 0.02 p99 0.04 max 0.04 ms (n 115); input no samples; tick waited on a busy loop p50 0.19 p99 0.23 max 0.23 ms (n 2)",
+  "ok": true,
+  "probes": {},
+  "tick": {
+   "max_us": 92,
+   "mean_us": 17,
+   "n": 3031,
+   "p50_us": 17,
+   "p99_us": 33
+  }
+ },
+ "state": {
+  "written": 68,
+  "writes": 25,
+  "reads": 11,
+  "restores": 1,
+  "dimmed": true,
+  "want": 0.8500000238418579,
+  "homeWant": 0.8500000238418579
+ }
+}
