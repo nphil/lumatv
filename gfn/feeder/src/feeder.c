@@ -37,6 +37,8 @@
 #include "gf_proto.h"
 #include "gf_sam.h"
 #include "gf_opus.h"
+#include "gf_swdec.h"
+#include "gf_yuv.h"
 #include "vpl_wl.h"
 
 #define SCREEN_W 1920
@@ -116,12 +118,29 @@ struct feeder {
     char last_video_info[200];
     /* audio: Opus packets pass to NDL as they are (audio_mode auto or opus). When NDL refuses that load, or --audio-mode pcm asks, they
      * are decoded here (gf_opus.c) and fed as PCM; pcm_sticky keeps a refusal in mind for the loads after it. */
+    /* The texture path (GF_TEXTURE, --texture): the video is decoded here and painted into the window's buffers at tex_w x tex_h; `swdec_dir` is where
+     * the decoder's libraries are (the `lib/` beside this program, or --swdec-lib). */
+    int tex_w, tex_h, tex_on;
+    const char *swdec_dir;
+    char swdec_dir_buf[512];
+    gf_swdec *swdec;
+    void *tex_work;
+    size_t tex_work_cap;
+    struct {
+        uint64_t pictures, skipped, errors, decode_us, decode_max, convert_us, convert_max, cpu_us_at, last_pictures;
+        int64_t cpu_us_prev, wall_prev_ns;
+        int src_w, src_h;
+        char last_error[160];
+    } tex;
     int audio_mode, pcm, pcm_sticky, audio_streak, audio_channels;
     const char *audio_route;    /* none, opus, pcm (decoded here), pcm-in (the engine sent PCM) */
     gf_opus *opus;
     uint64_t decode_errors;
     int16_t pcm_buf[GF_OPUS_MAX_FRAMES * 2];
 };
+
+static int dispatch_window(struct feeder *f);
+static int feed_texture(struct feeder *f, const uint8_t *u, size_t n, int64_t pts_ns);
 
 /* ---- stats ------------------------------------------------------------------------------------------------------------------ */
 
@@ -248,6 +267,7 @@ static void drain_events(struct feeder *f, void (*emit)(struct feeder *, int, lo
 static int feed_video(struct feeder *f, const uint8_t *u, size_t n, int64_t pts_ns, int *queue, int *wait_us) {
     *queue = -1;
     *wait_us = 0;
+    if (f->tex_on) return feed_texture(f, u, n, pts_ns);
     if (f->no_ndl) {
         f->sec.fed++;
         f->total_fed++;
@@ -379,7 +399,160 @@ static void close_decoder(struct feeder *f) {
     f->pcm = 0;
 }
 
+/* ---- the texture path: the picture decoded here, painted into the window's own buffers --------------------------------------------- */
+
+static int64_t cpu_us(void) {
+    struct timespec t;
+    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &t);
+    return (int64_t)t.tv_sec * 1000000 + t.tv_nsec / 1000;
+}
+
+/* The decoder's libraries are the `lib/` beside this program unless --swdec-lib names another. */
+static void tex_default_dir(struct feeder *f) {
+    if (f->swdec_dir) return;
+    char exe[400];
+    ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
+    if (n <= 0) return;
+    exe[n] = 0;
+    char *slash = strrchr(exe, '/');
+    if (!slash) return;
+    *slash = 0;
+    snprintf(f->swdec_dir_buf, sizeof f->swdec_dir_buf, "%s/lib", exe);
+    f->swdec_dir = f->swdec_dir_buf;
+}
+
+static int tex_set_size(struct feeder *f, int w, int h, char *err, size_t cap) {
+    if (w < 16 || h < 16 || w > 3840 || h > 2160) {
+        snprintf(err, cap, "a texture of %d x %d is not one", w, h);
+        return -1;
+    }
+    return vpl_wl_resize(f->wl, w, h, err, cap);
+}
+
+static void stop_texture(struct feeder *f) {
+    if (!f->tex_on) return;
+    gf_swdec_close(f->swdec);
+    f->swdec = NULL;
+    free(f->tex_work);
+    f->tex_work = NULL;
+    f->tex_work_cap = 0;
+    f->tex_on = 0;
+    /* the window is the video window it was made as again: nothing to draw, and the compositor is told */
+    char err[200];
+    if (f->wl && vpl_wl_resize(f->wl, VIDEO_WINDOW, VIDEO_WINDOW, err, sizeof err) == 0) {
+        uint32_t *b = vpl_wl_back(f->wl);
+        if (b) {
+            memset(b, 0, (size_t)VIDEO_WINDOW * VIDEO_WINDOW * 4);
+            vpl_wl_commit(f->wl, 0, 0, VIDEO_WINDOW, VIDEO_WINDOW);
+        }
+    }
+}
+
+static int start_texture(struct feeder *f, const gf_load *l, char *err, size_t cap) {
+    if (!f->wl) {
+        snprintf(err, cap, "the texture path paints the feeder's own window (not --window-id, --window-id-file or --no-window)");
+        return -1;
+    }
+    tex_default_dir(f);
+    if (gf_swdec_open(&f->swdec, f->swdec_dir, l->codec, l->width, l->height, err, cap) != 0) return -1;
+    if (tex_set_size(f, f->tex_w, f->tex_h, err, cap) != 0) {
+        gf_swdec_close(f->swdec);
+        f->swdec = NULL;
+        return -1;
+    }
+    memset(&f->tex, 0, sizeof f->tex);
+    f->tex.cpu_us_prev = cpu_us();
+    f->tex.wall_prev_ns = gf_ns();
+    f->audio_route = "none";
+    f->tex_on = 1;
+    f->loaded = f->playing = 1;
+    f->error = 0;
+    return 0;
+}
+
+/* One access unit of a texture session: decoded, and the picture, when there is one, converted into the back buffer and committed. 0 taken, 1 not
+ * decoded (the engine asks for a key picture). */
+static int feed_texture(struct feeder *f, const uint8_t *u, size_t n, int64_t pts_ns) {
+    char err[200];
+    int64_t t0 = gf_ns();
+    int rc = gf_swdec_decode(f->swdec, u, n, pts_ns, err, sizeof err);
+    unsigned dus = (unsigned)((gf_ns() - t0) / 1000);
+    f->tex.decode_us += dus;
+    if (dus > f->tex.decode_max) f->tex.decode_max = dus;
+    if (rc < 0) {
+        if (!f->tex.errors++ || f->tex.errors % 100 == 0) gf_say("texture: a %zu byte unit did not decode (%s); %llu so far", n, err, (unsigned long long)f->tex.errors);
+        snprintf(f->tex.last_error, sizeof f->tex.last_error, "%s", err);
+        f->sec.dropped++;
+        f->total_dropped++;
+        return 1;
+    }
+    f->sec.fed++;
+    f->total_fed++;
+    if (rc == 0) return 0;
+    gf_yuv pic;
+    if (gf_swdec_picture(f->swdec, &pic, err, sizeof err) != 0) {
+        if (strcmp(f->tex.last_error, err) != 0) gf_say("texture: %s", err);
+        snprintf(f->tex.last_error, sizeof f->tex.last_error, "%s", err);
+        f->sec.dropped++;
+        f->total_dropped++;
+        return 1;
+    }
+    uint32_t *dst = vpl_wl_back(f->wl);
+    if (!dst) {
+        dispatch_window(f);                 /* a release the compositor has sent and the loop has not read yet */
+        dst = vpl_wl_back(f->wl);
+    }
+    if (!dst) {
+        f->tex.skipped++;                   /* the compositor still holds both buffers: this picture is not shown */
+        return 0;
+    }
+    int bw, bh;
+    vpl_wl_size(f->wl, &bw, &bh);
+    size_t need = gf_yuv_work_size(pic.width, pic.height, bw, bh);
+    if (need > f->tex_work_cap) {
+        free(f->tex_work);
+        f->tex_work = aligned_alloc(16, (need + 15) & ~(size_t)15);
+        f->tex_work_cap = f->tex_work ? need : 0;
+    }
+    if (!f->tex_work) {
+        f->sec.dropped++;
+        return 1;
+    }
+    int64_t t1 = gf_ns();
+    if (gf_yuv_to_xrgb(&pic, dst, bw, bh, bw, f->tex_work) != 0) return 1;
+    unsigned cus = (unsigned)((gf_ns() - t1) / 1000);
+    f->tex.convert_us += cus;
+    if (cus > f->tex.convert_max) f->tex.convert_max = cus;
+    f->tex.src_w = pic.width;
+    f->tex.src_h = pic.height;
+    vpl_wl_commit(f->wl, 0, 0, bw, bh);
+    f->tex.pictures++;
+    return 0;
+}
+
+/* One line a second for the TV check: what the pictures cost in this process (the decode and the conversion, each mean and worst, and the process's CPU). */
+static void write_tex_stats(struct feeder *f) {
+    int64_t now = gf_ns(), cpu = cpu_us();
+    double wall_us = (double)(now - f->tex.wall_prev_ns) / 1000.0;
+    double cpu_pct = wall_us > 0 ? 100.0 * (double)(cpu - f->tex.cpu_us_prev) / wall_us : 0;
+    unsigned long long pics = f->tex.pictures - f->tex.last_pictures;
+    int bw = 0, bh = 0;
+    if (f->wl) vpl_wl_size(f->wl, &bw, &bh);
+    fprintf(f->stats,
+            "{\"tex\":{\"pictures\":%llu,\"fps\":%llu,\"skipped\":%llu,\"errors\":%llu,\"decode_us_avg\":%llu,\"decode_us_max\":%llu,"
+            "\"convert_us_avg\":%llu,\"convert_us_max\":%llu,\"src\":\"%dx%d\",\"out\":\"%dx%d\",\"cpu_pct\":%.1f}}\n",
+            (unsigned long long)f->tex.pictures, pics, (unsigned long long)f->tex.skipped, (unsigned long long)f->tex.errors,
+            pics ? (unsigned long long)(f->tex.decode_us / pics) : 0ULL, (unsigned long long)f->tex.decode_max,
+            pics ? (unsigned long long)(f->tex.convert_us / pics) : 0ULL, (unsigned long long)f->tex.convert_max, f->tex.src_w, f->tex.src_h, bw, bh, cpu_pct);
+    fflush(f->stats);
+    f->tex.last_pictures = f->tex.pictures;
+    f->tex.decode_us = f->tex.convert_us = f->tex.decode_max = f->tex.convert_max = 0;
+    f->tex.cpu_us_prev = cpu;
+    f->tex.wall_prev_ns = now;
+}
+
 static int start_pipeline(struct feeder *f, const gf_load *l, char *err, size_t cap) {
+    if (f->tex_w > 0 && f->tex_h > 0) return start_texture(f, l, err, cap);
     if (f->window_id_file && read_window_id_file(f) != 0) {
         snprintf(err, cap, "no window id in %s yet (the UI has not exported its video element)", f->window_id_file);
         return -1;
@@ -429,6 +602,7 @@ static int start_pipeline(struct feeder *f, const gf_load *l, char *err, size_t 
 }
 
 static void stop_pipeline(struct feeder *f) {
+    stop_texture(f);
     if (f->ndl_ready) {
         alarm(8);
         gf_ndl_stop(f->ndl);
@@ -634,6 +808,7 @@ static int run_play(struct feeder *f) {
         }
         if (now >= next_sec) {
             write_second(f, sec_no++);
+            if (f->tex_on) write_tex_stats(f);
             next_sec += 1000000000LL;
         }
         if ((vi >= count && !f->loop && (!audio.count || ai >= audio.count)) || (end && now >= end)) done = 1;
@@ -645,6 +820,7 @@ static int run_play(struct feeder *f) {
         drain_events(f, NULL);
     }
     write_second(f, sec_no);
+    if (f->tex_on) write_tex_stats(f);
     int64_t total_ns = gf_ns() - t0;
     fprintf(f->stats, "{\"summary\":true,\"units\":%zu,\"fed\":%llu,\"dropped\":%llu,\"afed\":%llu,\"adropped\":%llu,\"retries\":%llu,\"seconds\":%.2f,"
                       "\"loaded_ms\":%lld,\"playing_ms\":%lld,\"loaded\":%d,\"playing\":%d,\"error\":%d,\"audio_route\":\"%s\",\"adecode_errors\":%llu,\"events\":{",
@@ -937,7 +1113,7 @@ static void handle_message(struct feeder *f, struct client *c, uint8_t type, con
         }
         gf_load l;
         memcpy(&l, p, sizeof l);
-        if (f->ndl_ready) stop_pipeline(f);
+        if (f->ndl_ready || f->tex_on) stop_pipeline(f);
         f->pts_unit = l.pts_unit > 0 ? l.pts_unit : GF_PTS_NS;
         char err[300];
         if (start_pipeline(f, &l, err, sizeof err) != 0) {
@@ -977,6 +1153,7 @@ static void handle_message(struct feeder *f, struct client *c, uint8_t type, con
         return;
     }
     case GF_FLUSH:
+        if (f->tex_on) gf_swdec_flush(f->swdec);
         if (f->ndl_ready) {
             int rc = gf_ndl_flush(f->ndl);
             gf_say("flush: %d", rc);
@@ -989,6 +1166,17 @@ static void handle_message(struct feeder *f, struct client *c, uint8_t type, con
     case GF_STATE:
         if (f->ndl_ready && n >= 1) gf_ndl_set_state(f->ndl, p[0]);
         return;
+    case GF_TEXTURE: {
+        if (n < sizeof(gf_texture)) return;
+        gf_texture t;
+        memcpy(&t, p, sizeof t);
+        f->tex_w = t.width > 4096 ? 4096 : (int)t.width;
+        f->tex_h = t.height > 4096 ? 4096 : (int)t.height;
+        char err[200];
+        if (f->tex_on && f->tex_w > 0 && f->tex_h > 0 && tex_set_size(f, f->tex_w, f->tex_h, err, sizeof err) != 0) gf_say("texture: %s", err);
+        gf_say("texture: %d x %d", f->tex_w, f->tex_h);
+        return;
+    }
     case GF_APP: {
         size_t len = n < sizeof f->ndl_app_buf - 1 ? n : sizeof f->ndl_app_buf - 1;
         memcpy(f->ndl_app_buf, p, len);
@@ -1165,7 +1353,8 @@ static int run_serve(struct feeder *f) {
                 }
             }
             if (gf_ns() >= next_status) {
-                if (f->ndl_ready || f->no_ndl) {
+                if (f->tex_on) write_tex_stats(f);
+                if (f->ndl_ready || f->no_ndl || f->tex_on) {
                     gf_status st;
                     fill_status(f, &st);
                     push_out(&c, GF_STATUS, &st, sizeof st, NULL, 0);
@@ -1211,6 +1400,7 @@ static void usage(void) {
     fprintf(stderr,
             "usage: lumatv-gfn-feeder --probe | --play FILE [--codec h264|h265|av1] [--size WxH] [--fps N] [--seconds S] [--loop] [--hdr]\n"
             "         [--audio PKTS] [--audio-mode auto|opus|pcm] [--drop-threshold N] [--pts-unit ns|us|ms] [--full-wait-ms N] [--burst] [--no-ndl] [--stats FILE]\n"
+            "         [--texture WxH] [--swdec-lib DIR] (the picture is decoded here and painted into the window's buffers at that size; DIR holds libavcodec-lumatv)\n"
             "       | --serve SOCKET [--once]\n"
             "  common: [-w card|overlay|default|screensaver|video] [--window-id ID] [--window-id-file F] [--no-window] [-a APP_ID] [--ndl-app APP_ID] [-L NDL_LIB] [-e first|after]\n"
             "  serve: [--ui-home DIR] starts DIR/bin64/lumatv-gfn-app through DIR/gfx64/launch.sh (SAM mode does this from the app's own directory);\n"
@@ -1276,6 +1466,12 @@ int main(int argc, char **argv) {
         } else if (!strcmp(a, "--full-wait-ms") && v) f.full_wait_ms = atoi(argv[++i]);
         else if (!strcmp(a, "--burst")) f.burst = 1;
         else if (!strcmp(a, "--no-ndl")) f.no_ndl = 1;
+        else if (!strcmp(a, "--texture") && v) {
+            if (sscanf(argv[++i], "%dx%d", &f.tex_w, &f.tex_h) != 2) {
+                usage();
+                return 2;
+            }
+        } else if (!strcmp(a, "--swdec-lib") && v) f.swdec_dir = argv[++i];
         else if (!strcmp(a, "--no-window")) f.no_window = 1;
         else if (!strcmp(a, "--once")) f.once = 1;
         else if (!strcmp(a, "--stats") && v) f.stats_path = argv[++i];

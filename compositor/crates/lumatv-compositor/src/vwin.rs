@@ -89,13 +89,24 @@ pub struct Policy {
     pub mode: Mode,
     /// How many windows the display is taken to have.
     pub slots: usize,
+    /// Whether a pop-up or a picture-in-picture that no hardware window can carry (an app's video holds them, a 4K120 game holds both scalers, the
+    /// stream is too large for the free one) is granted a texture: the feeder decodes the camera's small stream on the CPU and the compositor draws it in
+    /// the claim's rectangle (`ctl vwin texture on|off`).
+    pub texture: bool,
 }
 
 impl Default for Policy {
     fn default() -> Self {
-        Policy { mode: Mode::Off, slots: DEFAULT_SLOTS }
+        Policy { mode: Mode::Off, slots: DEFAULT_SLOTS, texture: true }
     }
 }
+
+/// What a texture takes: the stream the feeder decodes on the CPU and scales into the claim's rectangle. 1280x720 at 30 a second is a camera's second
+/// stream; the cost is the feeder's (`docs/research/multiview-result.md`), not a decoder's, so there is no hardware window to run out of.
+pub const TEXTURE_LIMITS: Limits = Limits { w: 1280, h: 720, fps: 30 };
+
+/// How many claims are textures at once: each is a decoder on the CPU.
+pub const MAX_TEXTURES: usize = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Codec {
@@ -214,6 +225,12 @@ impl Kind {
             Kind::CameraPopup => 40,
             Kind::Pip => 30,
         }
+    }
+
+    /// Whether a claim of this kind may be a texture when no window can be had: a small picture over what is on the screen. The full view is the
+    /// camera's own stream at the screen's size, and goes to a hardware window or to stills.
+    pub fn allows_texture(self) -> bool {
+        !matches!(self, Kind::CameraFull)
     }
 }
 
@@ -342,6 +359,8 @@ pub struct Claim {
     pub state: ClaimState,
     pub slot: Option<usize>,
     pub limits: Option<Limits>,
+    /// The picture is a texture (no window is held: `slot` is none and `limits` are [`TEXTURE_LIMITS`]).
+    pub texture: bool,
     /// The window (`WindowId`) that plays it, once one has been bound. Kept when the claim ends, for the caller to unplace and close it, then cleared.
     pub window: Option<u32>,
     /// Its video uses the main and the sub scaler (`videooutputd` says `subScalerOccupied` for its sink): it holds two windows.
@@ -401,6 +420,8 @@ pub enum Victim {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Decision {
     Granted { slot: usize, limits: Limits, victims: Vec<Victim> },
+    /// No window, a texture instead (the reason the windows said no is in the journal line the caller writes).
+    Texture { limits: Limits, because: Reason },
     /// `Some` limits are those of the best window there was: what a smaller stream has to fit.
     Denied(Reason, Option<Limits>),
 }
@@ -447,7 +468,7 @@ impl Allocator {
         for slot in occ.iter_mut().take(world.app_slots(self.policy.mode)) {
             *slot = Some(Holder::App);
         }
-        for c in self.granted() {
+        for c in self.granted().filter(|c| !c.texture) {
             let at = c.slot.filter(|s| occ.get(*s).is_some_and(Option::is_none)).or_else(|| first_free(&occ));
             if let Some(i) = at {
                 occ[i] = Some(Holder::Claim(c.id.clone()));
@@ -512,11 +533,17 @@ impl Allocator {
             state: ClaimState::Denied(Reason::NoWindow),
             slot: None,
             limits: None,
+            texture: false,
             window: None,
             wide: false,
             seq,
         };
-        let decision = self.decide(world, &req);
+        let mut decision = self.decide(world, &req);
+        if let Decision::Denied(reason, _) = decision
+            && self.texture_for(&req, reason)
+        {
+            decision = Decision::Texture { limits: TEXTURE_LIMITS, because: reason };
+        }
         match &decision {
             Decision::Granted { slot, limits, victims } => {
                 claim.state = ClaimState::Granted;
@@ -530,6 +557,11 @@ impl Allocator {
                     }
                 }
             }
+            Decision::Texture { limits, .. } => {
+                claim.state = ClaimState::Granted;
+                claim.limits = Some(*limits);
+                claim.texture = true;
+            }
             Decision::Denied(reason, limits) => {
                 claim.state = ClaimState::Denied(*reason);
                 claim.limits = *limits;
@@ -537,6 +569,15 @@ impl Allocator {
         }
         self.claims.push(claim);
         decision
+    }
+
+    /// Whether a request the windows refused for `reason` is a texture: the switch is on (and the mode is not `off`, which grants nothing), the kind may,
+    /// the screen is on, and there is a decoder to spare.
+    fn texture_for(&self, req: &Request, reason: Reason) -> bool {
+        self.policy.texture
+            && req.kind.allows_texture()
+            && !matches!(reason, Reason::Standby | Reason::Off)
+            && self.claims.iter().filter(|c| c.texture && c.state == ClaimState::Granted && c.id != req.id).count() < MAX_TEXTURES
     }
 
     fn decide(&self, world: &World, req: &Request) -> Decision {
@@ -619,8 +660,22 @@ impl Allocator {
     /// The world or the policy changed: the claims that no longer hold end. Returns the ids that were granted and are not now.
     pub fn settle(&mut self, world: &World) -> Vec<String> {
         let mut ended = Vec::new();
+        // a texture holds no window: the screen's video does not end it; standby, `off` and its own switch do
+        let texture_stop = if world.standby {
+            Some(Reason::Standby)
+        } else if self.policy.mode == Mode::Off || !self.policy.texture {
+            Some(Reason::Off)
+        } else {
+            None
+        };
+        if let Some(reason) = texture_stop {
+            for c in self.claims.iter_mut().filter(|c| c.texture && c.state == ClaimState::Granted) {
+                c.state = ClaimState::Preempted(reason);
+                ended.push(c.id.clone());
+            }
+        }
         let gate = self.gate(world);
-        let mut order: Vec<usize> = (0..self.claims.len()).filter(|i| self.claims[*i].state == ClaimState::Granted).collect();
+        let mut order: Vec<usize> = (0..self.claims.len()).filter(|i| self.claims[*i].state == ClaimState::Granted && !self.claims[*i].texture).collect();
         if let Some(reason) = gate {
             for i in order {
                 self.claims[i].state = ClaimState::Preempted(reason);
@@ -655,7 +710,8 @@ impl Allocator {
             "state": c.state.word(),
             "reason": c.state.reason().map_or("", Reason::word),
             "text": c.state.reason().map_or("", Reason::text),
-            "slot": c.slot.map(slot_name),
+            "slot": if c.texture { Some("texture") } else { c.slot.map(slot_name) },
+            "texture": c.texture,
             "limits": c.limits.map(|l| json!({"w": l.w, "h": l.h, "fps": l.fps})),
             "rect": {"x": c.rect.x, "y": c.rect.y, "w": c.rect.w, "h": c.rect.h},
             "need": c.need.map(|n| json!({"codec": n.codec.name(), "w": n.w, "h": n.h, "fps": n.fps})),
@@ -739,6 +795,8 @@ impl Sinks {
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Stats {
+    /// Of the grants, the ones that were a texture.
+    pub textures: u64,
     pub granted: u64,
     pub denied: u64,
     pub ended: u64,
@@ -782,6 +840,8 @@ impl Vwin {
 const NEVER_BOUND_NS: u64 = 3_000_000_000;
 /// How long the context of a video element of ours that went stays ours in the sinks' list.
 const GONE_NS: u64 = 5_000_000_000;
+/// The size of the window a feeder opens a video window with: it draws nothing until a texture claim makes it larger.
+pub const TEXTURE_WINDOW_PX: i32 = 16;
 /// How many times a claim's video is placed again where videooutputd held it elsewhere, and how long apart.
 const REPLACE_MAX: u32 = 12;
 const REPLACE_GAP_NS: u64 = 200_000_000;
@@ -881,7 +941,21 @@ impl crate::State {
     /// The sink a claim's video is on, read back from `videooutputd`'s status: the proof of which window LG's resource manager gave it.
     fn vwin_sink_of(&self, c: &Claim) -> Option<String> {
         let w = c.window.map(WindowId)?;
+        if c.texture {
+            return self.vwin_placed(c).then(|| "texture".to_string());
+        }
         self.vwin.sinks.of(&self.vwin_contexts(w)).map(|s| s.name.clone())
+    }
+
+    /// Whether a claim's picture is where the claim says: a window's video is placed once its window is live and mapped; a texture is placed once the feeder
+    /// has painted its window at a size of its own (the window it opens with is `TEXTURE_WINDOW_PX` square and draws nothing).
+    fn vwin_placed(&self, c: &Claim) -> bool {
+        let Some(w) = c.window.and_then(|w| self.scene.window(WindowId(w))) else { return false };
+        let live = w.vwin_live && w.map_serial > 0;
+        if !c.texture {
+            return live;
+        }
+        live && self.surfaces.get(w.surface).is_some_and(|s| s.size().0 > TEXTURE_WINDOW_PX)
     }
 
     /// Brings the windows and the claims into step: the claims the screen no longer allows end, each claim is bound to the video window that plays it
@@ -940,6 +1014,7 @@ impl crate::State {
     fn vwin_unplace(&mut self, wid: WindowId) {
         let Some(w) = self.scene.window_mut(wid) else { return };
         let was = std::mem::replace(&mut w.vwin_live, false);
+        w.vwin_texture = false;
         let surface = w.surface;
         if was {
             self.vwin_elements_changed(surface);
@@ -991,20 +1066,21 @@ impl crate::State {
                 .alloc
                 .granted()
                 .find(|c| c.window == Some(wid.0) || (c.window.is_none() && (c.app.is_empty() || c.app == app)))
-                .map(|c| (c.id.clone(), c.rect));
-            let (live, rect) = claim.as_ref().map_or((false, crate::Rect::default()), |(_, r)| (true, *r));
-            if let Some((id, _)) = &claim
+                .map(|c| (c.id.clone(), c.rect, c.texture));
+            let (live, rect, texture) = claim.as_ref().map_or((false, crate::Rect::default(), false), |(_, r, t)| (true, *r, *t));
+            if let Some((id, ..)) = &claim
                 && let Some(c) = self.vwin.alloc.claim_mut(id)
             {
                 c.window = Some(wid.0);
             }
             let Some(w) = self.scene.window_mut(wid) else { continue };
-            let changed = w.vwin_live != live || (live && w.vwin_rect != rect);
+            let changed = w.vwin_live != live || (live && w.vwin_rect != rect) || w.vwin_texture != texture;
             w.vwin_live = live;
             w.vwin_rect = rect;
+            w.vwin_texture = texture;
             w.vwin_bound |= live;
             if changed {
-                if let Some((id, _)) = &claim {
+                if let Some((id, ..)) = &claim {
                     self.journal(format!("vwin: window {} plays claim {id} at {},{} {}x{}", wid.0, rect.x, rect.y, rect.w, rect.h));
                 }
                 self.vwin_elements_changed(surface);
@@ -1041,13 +1117,11 @@ impl crate::State {
             .alloc
             .claims()
             .iter()
-            .map(|c| {
-                let placed = c.window.and_then(|w| self.scene.window(WindowId(w))).is_some_and(|w| w.vwin_live && w.map_serial > 0);
-                Allocator::claim_json(c, placed, self.vwin_sink_of(c).as_deref())
-            })
+            .map(|c| Allocator::claim_json(c, self.vwin_placed(c), self.vwin_sink_of(c).as_deref()))
             .collect();
         json!({
             "mode": self.vwin.alloc.policy.mode.name(),
+            "texture": self.vwin.alloc.policy.texture,
             "slots": self.vwin.alloc.policy.slots,
             "free": occupied.iter().filter(|o| o.is_none()).count(),
             "apps": world.app_slots(self.vwin.alloc.policy.mode),
@@ -1090,10 +1164,7 @@ impl crate::State {
     }
 
     fn vwin_claim_json(&self, id: &str) -> Value {
-        self.vwin.alloc.claim(id).map_or(Value::Null, |c| {
-            let placed = c.window.and_then(|w| self.scene.window(WindowId(w))).is_some_and(|w| w.vwin_live && w.map_serial > 0);
-            Allocator::claim_json(c, placed, self.vwin_sink_of(c).as_deref())
-        })
+        self.vwin.alloc.claim(id).map_or(Value::Null, |c| Allocator::claim_json(c, self.vwin_placed(c), self.vwin_sink_of(c).as_deref()))
     }
 
     /// One request of the shell (`POST /v1/vwin`) or of `ctl vwin`: `{"op": "claim", ...}`, `move`, `release`, `releaseAll`. The answer is the claim as it is
@@ -1129,6 +1200,22 @@ impl crate::State {
                                     Victim::Claim(other) => self.vwin_end(&other, &format!("claim {id} is more important")),
                                 }
                             }
+                        }
+                        Decision::Texture { limits, because } => {
+                            self.vwin.stats.granted += 1;
+                            self.vwin.stats.textures += 1;
+                            self.journal(format!(
+                                "vwin: claim {id} ({}) granted a texture (no window: {}) up to {}x{} at {} a second at {},{} {}x{}",
+                                kind.name(),
+                                because.word(),
+                                limits.w,
+                                limits.h,
+                                limits.fps,
+                                rect.x,
+                                rect.y,
+                                rect.w,
+                                rect.h
+                            ));
                         }
                         Decision::Denied(reason, _) => {
                             self.vwin.stats.denied += 1;
@@ -1264,7 +1351,7 @@ impl crate::State {
         }
     }
 
-    /// `ctl vwin ...` as words: no word reads; `off|idle|apps` switches; `slots N`; `claim ID KIND X Y W H [APP] [CODEC] [WxH@FPS]`; `move ID X Y W H`;
+    /// `ctl vwin ...` as words: no word reads; `off|idle|apps` switches; `texture on|off`; `slots N`; `claim ID KIND X Y W H [APP] [CODEC] [WxH@FPS]`; `move ID X Y W H`;
     /// `release ID|all`.
     pub fn vwin_ctl(&mut self, words: &[&str]) -> Value {
         let ask = |s: &mut Self, v: Value| {
@@ -1285,6 +1372,14 @@ impl crate::State {
                 if let Err(e) = write_mode(&self.config.data_dir, mode) {
                     self.journal(format!("vwin: the mode was not kept for the next start: {e}"));
                 }
+                json!({"ok": true, "vwin": self.vwin_report()})
+            }
+            ["texture", v @ ("on" | "off")] => {
+                let on = *v == "on";
+                self.vwin.alloc.policy.texture = on;
+                self.config.vwin.texture = on;
+                self.journal(format!("vwin: textures {}", if on { "on" } else { "off" }));
+                self.vwin_sync();
                 json!({"ok": true, "vwin": self.vwin_report()})
             }
             ["slots", n] => match n.parse::<usize>().ok().filter(|n| (1..=MAX_SLOTS).contains(n)) {
@@ -1326,7 +1421,7 @@ impl crate::State {
             }
             ["release", "all"] => ask(self, json!({"op": "releaseAll"})),
             ["release", id] => ask(self, json!({"op": "release", "id": id})),
-            _ => json!({"ok": false, "error": "vwin [off|idle|apps | slots N | claim ID camera-full|camera-popup|pip X Y W H [APP] [CODEC] [WxH@FPS] | move ID X Y W H | release ID|all]"}),
+            _ => json!({"ok": false, "error": "vwin [off|idle|apps | texture on|off | slots N | claim ID camera-full|camera-popup|pip X Y W H [APP] [CODEC] [WxH@FPS] | move ID X Y W H | release ID|all]"}),
         }
     }
 }
@@ -1336,7 +1431,7 @@ mod tests {
     use super::*;
 
     fn policy(mode: Mode) -> Policy {
-        Policy { mode, slots: 2 }
+        Policy { mode, slots: 2, texture: false }
     }
 
     fn req(id: &str, kind: Kind, need: Option<Need>) -> Request {
@@ -1350,7 +1445,7 @@ mod tests {
     fn granted(d: &Decision) -> Option<(usize, Vec<Victim>)> {
         match d {
             Decision::Granted { slot, victims, .. } => Some((*slot, victims.clone())),
-            Decision::Denied(..) => None,
+            Decision::Texture { .. } | Decision::Denied(..) => None,
         }
     }
 
@@ -1519,7 +1614,7 @@ mod tests {
 
     #[test]
     fn a_wallpaper_still_there_after_its_window_was_taken_does_not_end_the_claim_that_took_it() {
-        let mut a = Allocator::new(Policy { mode: Mode::Apps, slots: 1 });
+        let mut a = Allocator::new(Policy { mode: Mode::Apps, slots: 1, texture: false });
         let wall = World { wall: true, ..World::default() };
         let d = a.request(&wall, req("pop", Kind::CameraPopup, None));
         assert_eq!(granted(&d), Some((0, vec![Victim::Wall])));
@@ -1604,6 +1699,7 @@ mod tests {
             state: ClaimState::Granted,
             slot: Some(1),
             limits: None,
+            texture: false,
             window: None,
             wide: false,
             seq: 1,
@@ -1626,6 +1722,78 @@ mod tests {
         assert!(bad(json!({"id": "a", "kind": "pip", "rect": {"x": -5, "y": 0, "w": 100, "h": 100}})).contains("leaves"));
         // `width` and `height` are as good as `w` and `h`
         assert_eq!(rect_of(&json!({"x": 0, "y": 0, "width": 1920, "height": 1080})), Ok(Rect::new(0, 0, 1920, 1080)));
+    }
+
+    fn texture_policy(mode: Mode) -> Policy {
+        Policy { mode, slots: 2, texture: true }
+    }
+
+    #[test]
+    fn a_popup_no_window_can_carry_is_a_texture_and_holds_no_window() {
+        let playing = World { app_elements: 1, app_playing: 1, ..World::default() };
+        let mut a = Allocator::new(texture_policy(Mode::Idle));
+        // an app's video: idle leaves the claim no window, so it is a texture (the camera's small stream, decoded by the feeder)
+        let d = a.request(&playing, req("pop", Kind::CameraPopup, need(Codec::H264, 1920, 1080, 30)));
+        assert_eq!(d, Decision::Texture { limits: TEXTURE_LIMITS, because: Reason::AppVideo });
+        let c = a.claim("pop").unwrap();
+        assert!(c.texture && c.state == ClaimState::Granted && c.slot.is_none() && c.limits == Some(TEXTURE_LIMITS));
+        let j = Allocator::claim_json(c, true, Some("texture"));
+        assert_eq!((j["slot"].as_str(), j["texture"].as_bool(), j["limits"]["w"].as_u64()), (Some("texture"), Some(true), Some(1280)));
+        // it takes no window: the occupancy is the app's alone
+        assert_eq!(a.occupancy(&playing), vec![Some(Holder::App), None]);
+        // and what ends a window claim does not end it: the app's video, both scalers, the switch
+        for world in [playing.clone(), World { both_scalers: true, ..playing.clone() }] {
+            assert!(a.settle(&world).is_empty(), "{world:?}");
+        }
+        // `off` grants and keeps nothing; the textures' own switch is `texture`
+        assert_eq!(a.request(&World::default(), req("x", Kind::CameraPopup, None)), Decision::Granted { slot: 0, limits: limits(0, Codec::H264), victims: vec![] });
+        a.policy.mode = Mode::Off;
+        let mut ended = a.settle(&playing);
+        ended.sort();
+        assert_eq!(ended, ["pop", "x"]);
+        assert_eq!(a.request(&playing, req("y", Kind::CameraPopup, None)), Decision::Denied(Reason::Off, None));
+    }
+
+    #[test]
+    fn every_reason_the_windows_give_is_a_texture_but_the_screen_being_off_and_the_full_view_is_never_one() {
+        let mut a = Allocator::new(texture_policy(Mode::Apps));
+        // 4K120 holds both scalers
+        let hfr = World { app_elements: 1, app_playing: 1, both_scalers: true, ..World::default() };
+        assert!(matches!(a.request(&hfr, req("a", Kind::Pip, None)), Decision::Texture { because: Reason::BothScalers, .. }));
+        // the stream is too big for the sub window: a texture is the answer only for kinds that may (the texture's own limits are the feeder's business)
+        let playing = World { app_elements: 1, app_playing: 1, ..World::default() };
+        assert!(matches!(a.request(&playing, req("b", Kind::CameraPopup, need(Codec::H264, 2560, 1440, 15))), Decision::Texture { because: Reason::TooBig, .. }));
+        // the full view is the camera's own stream at the screen's size: a window or stills
+        assert_eq!(a.request(&hfr, req("full", Kind::CameraFull, need(Codec::H264, 3840, 2160, 15))), Decision::Denied(Reason::BothScalers, None));
+        // the switch for textures is its own, and standby is no time for a decoder
+        a.policy.texture = false;
+        assert_eq!(a.request(&hfr, req("c", Kind::Pip, None)), Decision::Denied(Reason::BothScalers, None));
+        a.policy.texture = true;
+        let off = World { standby: true, ..World::default() };
+        assert_eq!(a.request(&off, req("d", Kind::Pip, None)), Decision::Denied(Reason::Standby, None));
+        // a window still wins when there is one
+        assert!(matches!(a.request(&World::default(), req("e", Kind::Pip, None)), Decision::Granted { slot: 0, .. }));
+    }
+
+    #[test]
+    fn textures_are_few_end_in_standby_and_when_their_switch_goes_off() {
+        let hfr = World { app_elements: 1, app_playing: 1, both_scalers: true, ..World::default() };
+        let mut a = Allocator::new(texture_policy(Mode::Apps));
+        assert!(matches!(a.request(&hfr, req("a", Kind::Pip, None)), Decision::Texture { .. }));
+        assert!(matches!(a.request(&hfr, req("b", Kind::CameraPopup, None)), Decision::Texture { .. }));
+        assert_eq!(a.request(&hfr, req("c", Kind::Pip, None)), Decision::Denied(Reason::BothScalers, None), "{MAX_TEXTURES} decoders are the most");
+        // asking again for a claim it holds is not a third
+        assert!(matches!(a.request(&hfr, req("a", Kind::Pip, None)), Decision::Texture { .. }));
+        let standby = World { standby: true, ..hfr.clone() };
+        let mut ended = a.settle(&standby);
+        ended.sort();
+        assert_eq!(ended, ["a", "b"]);
+        assert_eq!(a.claim("a").unwrap().state, ClaimState::Preempted(Reason::Standby));
+        let mut a = Allocator::new(texture_policy(Mode::Apps));
+        a.request(&hfr, req("a", Kind::Pip, None));
+        a.policy.texture = false;
+        assert_eq!(a.settle(&hfr), ["a"]);
+        assert_eq!(a.claim("a").unwrap().state, ClaimState::Preempted(Reason::Off));
     }
 
     #[test]

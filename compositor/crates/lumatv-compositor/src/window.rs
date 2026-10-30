@@ -221,6 +221,9 @@ pub struct Window {
     /// A video window (`WindowType::VideoWindow`) with a granted claim: it is in the stack and its element has a hole and a placement, at
     /// [`Window::vwin_rect`] (`vwin`). Never true for another kind.
     pub vwin_live: bool,
+    /// The granted claim is a texture (`vwin::Decision::Texture`): the window's own buffer is the picture, drawn stretched over [`Window::vwin_rect`]
+    /// instead of a hole to the video plane.
+    pub vwin_texture: bool,
     /// Where the granted claim puts the picture, in output pixels.
     pub vwin_rect: Rect,
     /// A claim has been bound to the window at least once (the feeder that was told to stay is not a window nobody asked for), and when the window was
@@ -255,6 +258,7 @@ impl Window {
             commits_drawn: 0,
             last_commit_ns: 0,
             vwin_live: false,
+            vwin_texture: false,
             vwin_rect: Rect::default(),
             vwin_bound: false,
             vwin_seen_ns: 0,

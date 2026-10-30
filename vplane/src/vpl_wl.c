@@ -23,12 +23,13 @@ enum { COMPOSITOR_CREATE_SURFACE = 0, COMPOSITOR_CREATE_REGION = 1 };
 enum { SURFACE_DESTROY = 0, SURFACE_ATTACH = 1, SURFACE_DAMAGE = 2, SURFACE_COMMIT = 6 };
 enum { REGION_DESTROY = 0, REGION_ADD = 1 };
 enum { SHM_CREATE_POOL = 0 };
-enum { POOL_CREATE_BUFFER = 0 };
+enum { POOL_CREATE_BUFFER = 0, POOL_DESTROY = 1 };
+enum { BUFFER_DESTROY = 0 };
 enum { SHELL_GET_SHELL_SURFACE = 1 };
 enum { SHELL_SURFACE_SET_STATE = 1, SHELL_SURFACE_SET_PROPERTY = 2 };
 enum { FOREIGN_EXPORT_ELEMENT = 1 };
 enum { EXPORTED_DESTROY = 0, EXPORTED_SET_EXPORTED_WINDOW = 1 };
-enum { WL_SHM_FORMAT_ARGB8888 = 0 };
+enum { WL_SHM_FORMAT_ARGB8888 = 0, WL_SHM_FORMAT_XRGB8888 = 1 };
 enum { SEAT_GET_POINTER = 0, SEAT_GET_KEYBOARD = 1 };
 #define MAX_SEATS 8
 
@@ -59,6 +60,7 @@ struct vpl_wl {
      * buffer's release, so a buffer is painted only while it is not `busy` (committed and not yet released). `back` is the one the next
      * commit attaches. */
     int w, h;
+    uint32_t format;               /* the shm format of the two buffers */
     int shm_fd;
     uint32_t buffer[2];
     uint32_t *px[2];
@@ -413,7 +415,7 @@ static int make_buffer(vpl_wl *w) {
         put_u32(w, (uint32_t)w->w);
         put_u32(w, (uint32_t)w->h);
         put_u32(w, (uint32_t)stride);
-        put_u32(w, WL_SHM_FORMAT_ARGB8888);
+        put_u32(w, w->format);
         msg_end(w, at);
     }
     return 0;
@@ -498,10 +500,12 @@ static int export_element(vpl_wl *w, int timeout_ms) {
 
 static void teardown(vpl_wl *w) {
     if (w->fd >= 0) {
-        if (!w->closed && w->exported) {
-            size_t at = msg_begin(w, w->exported, EXPORTED_DESTROY);
-            msg_end(w, at);
-            at = msg_begin(w, w->surface, SURFACE_DESTROY);
+        if (!w->closed && w->surface) {
+            if (w->exported) {
+                size_t at = msg_begin(w, w->exported, EXPORTED_DESTROY);
+                msg_end(w, at);
+            }
+            size_t at = msg_begin(w, w->surface, SURFACE_DESTROY);
             msg_end(w, at);
             flush_out(w);
         }
@@ -522,6 +526,7 @@ int vpl_wl_open(vpl_wl **out, const vpl_wl_opts *o, char *err, size_t cap) {
     w->next = 2;
     w->w = o->width;
     w->h = o->height;
+    w->format = o->xrgb ? WL_SHM_FORMAT_XRGB8888 : WL_SHM_FORMAT_ARGB8888;
     int t = o->timeout_ms > 0 ? o->timeout_ms : 3000;
     if (connect_display(w) != 0) goto fail;
 
@@ -560,7 +565,9 @@ int vpl_wl_open(vpl_wl **out, const vpl_wl_opts *o, char *err, size_t cap) {
     put_u32(w, (uint32_t)o->state);
     msg_end(w, at);
     if (make_buffer(w) != 0) goto fail;
-    if (o->export_first) {
+    if (o->no_export) {
+        if (vpl_wl_commit(w, 0, 0, 0, 0) != 0) goto fail;
+    } else if (o->export_first) {
         if (export_element(w, t) != 0) goto fail;
         if (vpl_wl_commit(w, 0, 0, 0, 0) != 0) goto fail;
     } else {
@@ -584,6 +591,44 @@ void vpl_wl_close(vpl_wl *w) {
 }
 
 int vpl_wl_fd(const vpl_wl *w) { return w->fd; }
+
+void vpl_wl_size(const vpl_wl *w, int *width, int *height) {
+    if (width) *width = w->w;
+    if (height) *height = w->h;
+}
+
+int vpl_wl_resize(vpl_wl *w, int width, int height, char *err, size_t cap) {
+    if (width <= 0 || height <= 0 || width > 4096 || height > 4096) {
+        snprintf(err, cap, "a window buffer of %d x %d is not one", width, height);
+        return -1;
+    }
+    if (w->closed) {
+        snprintf(err, cap, "the window is closed");
+        return -1;
+    }
+    if (width == w->w && height == w->h) return 0;
+    /* the compositor keeps what it has of a destroyed buffer until it has read it (a shm pool lives until its last buffer is gone), and the releases
+     * that arrive for the old ids match no buffer of the new pair */
+    for (int i = 0; i < 2; i++) {
+        size_t at = msg_begin(w, w->buffer[i], BUFFER_DESTROY);
+        msg_end(w, at);
+    }
+    size_t at = msg_begin(w, w->pool, POOL_DESTROY);
+    msg_end(w, at);
+    if (w->map) munmap(w->map, w->px_len * 2);
+    w->map = NULL;
+    if (w->shm_fd > 0) close(w->shm_fd);
+    w->shm_fd = -1;
+    w->busy[0] = w->busy[1] = 0;
+    w->back = 0;
+    w->w = width;
+    w->h = height;
+    if (make_buffer(w) != 0) {
+        snprintf(err, cap, "%s", w->err);
+        return -1;
+    }
+    return flush_out(w);
+}
 
 unsigned vpl_wl_activity(vpl_wl *w) {
     unsigned a = w->activity;

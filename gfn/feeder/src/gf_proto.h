@@ -24,6 +24,8 @@ enum gf_msg {
     GF_HDR = 7,         /* gf_hdr: static metadata, before or after LOAD (after LOAD it is applied at once) */
     GF_PING = 8,        /* int64 echo */
     GF_APP = 9,         /* text: the app id NDL is opened for from the next LOAD on ("" for the window's own); the window keeps its own id */
+    GF_TEXTURE = 10,    /* gf_texture: from the next LOAD on the video is decoded here (gf_swdec.c) and painted into the window's own buffers at that size, which the
+                         * compositor draws in the claim's rectangle: no NDL pipeline, no video plane. 0 x 0 is NDL again. Sent while a texture is loaded it resizes the buffers. */
     /* feeder -> engine */
     GF_LOADED = 16,     /* int32 ok (1), then text (the pipeline's answer or the error) */
     GF_EVENT = 17,      /* gf_event then text */
@@ -36,6 +38,10 @@ enum gf_msg {
 };
 
 typedef struct { uint8_t type, flags; uint16_t reserved; uint32_t length; } gf_frame;
+
+typedef struct {
+    uint32_t width, height;     /* the picture's size in output pixels: the claim's rectangle */
+} gf_texture;                   /* 8 bytes */
 
 typedef struct {
     uint32_t version;       /* GF_PROTO_VERSION */

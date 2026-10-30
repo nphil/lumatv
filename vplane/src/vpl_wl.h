@@ -26,6 +26,9 @@ typedef struct {
     int state;                   /* wl_webos_shell_surface state: 3 fullscreen */
     int export_first;            /* export the element before the first commit (1) or after it (0) */
     int timeout_ms;              /* each wait of the handshake */
+    int no_export;               /* no video element on the window: it is a picture of shared memory (LumaTV's own video window drawn as a texture),
+                                  * vpl_wl_window_id is empty and vpl_wl_video does nothing */
+    int xrgb;                    /* the buffers are XRGB8888 (opaque, the compositor needs no blending for them) instead of ARGB8888 */
 } vpl_wl_opts;
 
 /* Connects ($WAYLAND_SOCKET, or $XDG_RUNTIME_DIR/$WAYLAND_DISPLAY), makes the window, commits a transparent buffer and waits for the
@@ -49,6 +52,13 @@ const char *vpl_wl_window_id(const vpl_wl *w);
  * it, until it releases it; painting a buffer it still holds shows it half a frame. NULL while neither is released: try again after
  * vpl_wl_dispatch has handled a release. */
 uint32_t *vpl_wl_back(vpl_wl *w);
+
+/* Makes the window's two buffers `width` x `height` (the old ones are destroyed; the next commit attaches a new one, so a picture painted into the
+ * old size is gone). 0, or -1 with the reason in `err`. */
+int vpl_wl_resize(vpl_wl *w, int width, int height, char *err, size_t cap);
+
+/* The window's buffer size now. */
+void vpl_wl_size(const vpl_wl *w, int *width, int *height);
 
 /* Tells the compositor the box of the buffer vpl_wl_back returned changed: damage, attach, commit. The buffer is then the compositor's
  * until its release arrives, and the other one is the next back buffer. */

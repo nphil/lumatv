@@ -34,6 +34,8 @@ BIN = os.path.join(FEEDER, "build", "host", "lumatv-gfn-feeder")
 ARM = os.path.join(FEEDER, "build", "arm", "lumatv-gfn-feeder")
 NDL = os.path.join(FEEDER, "build", "host", "libNDL_directmedia.so.1")
 STREAMS = os.path.join(ROOT, "gfn", "build", "streams")
+DECODERS = os.path.join(FEEDER, "build", "host", "lib")
+YUV_TEST = os.path.join(FEEDER, "build", "host", "yuv_test")
 
 FRAME = struct.Struct("<BBHI")
 LOAD = struct.Struct("<8I15Iii")
@@ -43,7 +45,7 @@ DROP = struct.Struct("<qii")
 EVENT = struct.Struct("<iiq")
 STATUS = struct.Struct("<5Q4I2I2II2I2III")
 HELLO = struct.Struct("<4I32s64s")
-GF = dict(LOAD=1, VIDEO=2, AUDIO=3, FLUSH=4, UNLOAD=5, STATE=6, HDR=7, PING=8, APP=9, LOADED=16, EVENT=17, ACCEPT=18, DROP=19, STATUS=20, ERROR=21, PONG=22, HELLO=23)
+GF = dict(LOAD=1, VIDEO=2, AUDIO=3, FLUSH=4, UNLOAD=5, STATE=6, HDR=7, PING=8, APP=9, TEXTURE=10, LOADED=16, EVENT=17, ACCEPT=18, DROP=19, STATUS=20, ERROR=21, PONG=22, HELLO=23)
 
 
 def build():
@@ -975,6 +977,220 @@ class Sam(unittest.TestCase):
         err = self.finish(proc)
         self.assertEqual(proc.returncode, 2, err)
         self.assertIn("not a launch object", err)
+
+
+def encoder(codec):
+    """ffmpeg's encoder for the codec when this machine has ffmpeg with it (the texture tests make their clips with it)."""
+    if not shutil.which("ffmpeg"):
+        return None
+    name = {"h264": "libx264", "h265": "libx265"}[codec]
+    out = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"], capture_output=True, text=True).stdout
+    return name if name in out else None
+
+
+def make_clip(path, codec="h264", size="1280x720", rate=30, seconds=3, gop=30):
+    """A test-pattern clip as Annex B with an access unit delimiter before every picture (the tests split on them), no B pictures."""
+    enc = encoder(codec)
+    params = {"h264": ["-x264-params", "aud=1:bframes=0"], "h265": ["-x265-params", "aud=1:bframes=0:log-level=none"]}[codec]
+    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=%s:rate=%d" % (size, rate), "-t", str(seconds), "-c:v", enc,
+           "-preset", "veryfast", "-g", str(gop), "-pix_fmt", "yuv420p", *params, "-f", "h264" if codec == "h264" else "hevc", path]
+    subprocess.run(cmd, check=True)
+
+
+def split_units(data, codec="h264"):
+    """The access units of an Annex B stream, cut at its delimiters."""
+    marker = b"\x00\x00\x00\x01\x09" if codec == "h264" else b"\x00\x00\x00\x01\x46\x01"
+    cuts = []
+    pos = data.find(marker)
+    while pos >= 0:
+        cuts.append(pos)
+        pos = data.find(marker, pos + 1)
+    return [data[a:b] for a, b in zip(cuts, cuts[1:] + [len(data)])]
+
+
+def reference_frame(clip, index, size):
+    """Frame `index` of the clip as FFmpeg decodes it and scales it with its area filter: BGRA bytes at `size` (WxH)."""
+    w, h = size
+    out = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", clip, "-vf", "select=eq(n\\,%d),scale=%d:%d:flags=area" % (index, w, h), "-frames:v", "1",
+                          "-f", "rawvideo", "-pix_fmt", "bgra", "-"], capture_output=True, check=True).stdout
+    return out
+
+
+def psnr(a, b, step=7):
+    """PSNR in dB of two BGRA pictures over their colour bytes, every `step`th pixel."""
+    total = n = 0
+    for i in range(0, len(a), 4 * step):
+        total += (a[i] - b[i]) ** 2 + (a[i + 1] - b[i + 1]) ** 2 + (a[i + 2] - b[i + 2]) ** 2
+        n += 3
+    return 10 * math.log10(255 * 255 / (total / n + 1e-9))
+
+
+TEXTURE_READY = HAVE and os.path.isdir(DECODERS) and any(f.startswith("libavcodec-lumatv.so.") for f in os.listdir(DECODERS)) and bool(encoder("h264"))
+
+
+@unittest.skipUnless(HAVE and os.path.exists(YUV_TEST), "zig is needed to build the feeder for the host")
+class Yuv(unittest.TestCase):
+    def test_the_converter_is_right_and_says_what_it_costs(self):
+        r = subprocess.run([YUV_TEST], capture_output=True, text=True, timeout=120)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("yuv_test: ok", r.stdout)
+
+
+@unittest.skipUnless(TEXTURE_READY, "the texture path needs the host build of FFmpeg's decoders (gfn/feeder/build.sh) and ffmpeg with libx264")
+class Texture(unittest.TestCase):
+    """A camera's picture as a texture: the feeder decodes it and paints its window's buffers at the claim's size (docs/research/multiview-result.md)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="gfn-feeder-texture-")
+        cls.clip = os.path.join(cls.tmp, "t720.h264")
+        make_clip(cls.clip, "h264", "1280x720", 30, 3, 30)
+        cls.small = os.path.join(cls.tmp, "t360.h264")
+        make_clip(cls.small, "h264", "640x360", 15, 3, 15)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def frames(self, fc, size):
+        return [c for c in fc.commits if c[2] is not None and (c[2][0], c[2][1]) == size]
+
+    def test_a_played_file_is_painted_into_the_window_at_the_asked_size_and_matches_ffmpeg(self):
+        r = Run(["--play", self.clip, "--codec", "h264", "--size", "1280x720", "--fps", "4", "-w", "video", "-a", "org.test.cam", "--no-ndl", "--texture", "480x270",
+                 "--swdec-lib", DECODERS, "--seconds", "3"]).go()
+        # (the clip is 30 a second; it is played at 4 so that a loaded machine keeps up: what the rate costs is tests/swdec_bench.c's and the TV check's)
+        try:
+            self.assertEqual(r.proc.returncode, 0, r.err())
+            self.assertEqual(r.fc.props["_WEBOS_WINDOW_TYPE"], "_WEBOS_WINDOW_TYPE_LUMATV_VIDEO")
+            self.assertEqual(r.fc.violations, [], "the buffers are the compositor's until it releases them")
+            pictures = self.frames(r.fc, (480, 270))
+            tex = [l["tex"] for l in r.stats_lines() if "tex" in l]
+            self.assertTrue(tex, "one stats line a second")
+            self.assertGreaterEqual(r.summary()["fed"], 10)
+            self.assertEqual(len(pictures) + tex[-1]["skipped"], r.summary()["fed"], "every decoded unit is a picture on the window or a counted skip")
+            self.assertEqual((tex[-1]["src"], tex[-1]["out"], tex[-1]["errors"], tex[-1]["skipped"]), ("1280x720", "480x270", 0, 0))
+            self.assertGreater(max(l["decode_us_avg"] for l in tex), 0)
+            self.assertIn("cpu_pct", tex[-1])
+            # the 8th picture against FFmpeg's decode of the 8th unit, scaled by FFmpeg's area filter
+            got = pictures[8][2][2]
+            ref = reference_frame(self.clip, 8, (480, 270))
+            self.assertEqual(len(got), len(ref))
+            psnr_db = psnr(got, ref)
+            self.assertGreater(psnr_db, 22.0, "the picture is FFmpeg's, scaled by this feeder (PSNR %.1f dB)" % psnr_db)
+        finally:
+            r.close()
+
+    def test_a_texture_session_over_the_engine_socket(self):
+        tmp = tempfile.mkdtemp(prefix="gfn-feeder-texture-serve-")
+        sock = os.path.join(tmp, "feed.sock")
+        fc = FakeCompositor()
+        env = dict(os.environ, **fc.env(), LD_LIBRARY_PATH=os.path.dirname(NDL), FAKE_NDL_LOG=os.path.join(tmp, "ndl.log"))
+        err = open(os.path.join(tmp, "feeder.log"), "w")
+        proc = subprocess.Popen([BIN, "--serve", sock, "--once", "-w", "video", "-a", "org.test.cam", "-L", NDL, "--swdec-lib", DECODERS, "--stats", os.path.join(tmp, "stats.jsonl")],
+                                env=env, stderr=err, stdout=subprocess.DEVNULL)
+        c = None
+        try:
+            c = Client(sock)
+            t, p = c.recv()
+            self.assertEqual(t, GF["HELLO"])
+            units = split_units(open(self.small, "rb").read())
+            self.assertGreaterEqual(len(units), 40)
+            c.send(GF["TEXTURE"], struct.pack("<II", 480, 270))
+            c.load(codec=1, w=640, h=360, fps=15, audio=0, hdr=0, drop=-1)
+            (t, p), _ = c.until(GF["LOADED"])
+            self.assertEqual(struct.unpack_from("<i", p)[0], 1, p)
+            t0 = 1_000_000_000
+            seen = {}
+
+            def send_paced(first, count):
+                """Units at a camera's pace (a burst would find both buffers with the compositor, and the feeder skips what it cannot show)."""
+                got = 0
+                for i, u in enumerate(units[first:first + count]):
+                    c.send(GF["VIDEO"], MEDIA_HEAD.pack(t0 + (first + i) * 66_666_667, 1 if first + i == 0 else 0) + u)
+                    time.sleep(0.12)
+                    c.s.settimeout(0.01)
+                    try:
+                        while True:
+                            t, p = c.recv()
+                            seen[t] = seen.get(t, 0) + 1
+                            got += t == GF["ACCEPT"]
+                    except socket.timeout:
+                        pass
+                    c.buf = c.buf if len(c.buf) < FRAME.size else c.buf
+                c.s.settimeout(10)
+                return got
+
+            self.assertEqual(send_paced(0, 20) + 0, seen.get(GF["ACCEPT"], 0))
+            self.assertEqual(seen.get(GF["ACCEPT"], 0), 20, seen)
+            self.assertEqual(seen.get(GF["DROP"], 0), 0, seen)
+            fc.settle()
+            self.assertGreaterEqual(len(self.frames(fc, (480, 270))), 15)
+            # the claim moved and changed size: the buffers follow, with no new load
+            c.send(GF["TEXTURE"], struct.pack("<II", 320, 180))
+            send_paced(20, 10)
+            fc.settle()
+            self.assertGreaterEqual(len(self.frames(fc, (320, 180))), 7)
+            # a unit that is not a picture is dropped, not fatal, and the next key picture decodes again
+            c.send(GF["VIDEO"], MEDIA_HEAD.pack(t0 + 40 * 66_666_667, 0) + bytes(range(256)) * 4)
+            (t, p), _ = c.until(GF["DROP"])
+            c.send(GF["VIDEO"], MEDIA_HEAD.pack(t0 + 45 * 66_666_667, 1) + units[30])
+            self.assertEqual(c.until(GF["ACCEPT"])[0][0], GF["ACCEPT"])
+            # the end of the session leaves the window as it was made: 16 x 16 and nothing in it
+            before = len(fc.commits)
+            c.send(GF["UNLOAD"])
+            deadline = time.time() + 5
+            while time.time() < deadline and not [x for x in fc.commits[before:] if x[2] is not None and (x[2][0], x[2][1]) == (16, 16)]:
+                time.sleep(0.05)
+            quiet = [x for x in fc.commits[before:] if x[2] is not None and (x[2][0], x[2][1]) == (16, 16)]
+            self.assertTrue(quiet, "the window is a video window again")
+            self.assertEqual(set(quiet[-1][2][2]), {0})
+            self.assertEqual(fc.violations, [])
+        finally:
+            if c:
+                c.close()
+            proc.terminate()
+            proc.wait(5)
+            fc.close()
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_without_the_decoder_libraries_the_load_is_refused_with_the_reason(self):
+        tmp = tempfile.mkdtemp(prefix="gfn-feeder-texture-nolib-")
+        sock = os.path.join(tmp, "feed.sock")
+        fc = FakeCompositor()
+        env = dict(os.environ, **fc.env(), LD_LIBRARY_PATH=os.path.dirname(NDL), FAKE_NDL_LOG=os.path.join(tmp, "ndl.log"))
+        proc = subprocess.Popen([BIN, "--serve", sock, "--once", "-w", "video", "-a", "org.test.cam", "-L", NDL, "--swdec-lib", os.path.join(tmp, "none")], env=env,
+                                stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+        try:
+            c = Client(sock)
+            c.recv()
+            c.send(GF["TEXTURE"], struct.pack("<II", 480, 270))
+            c.load(codec=1, w=640, h=360, fps=15, audio=0, hdr=0, drop=-1)
+            (t, p), _ = c.until(GF["LOADED"])
+            self.assertEqual(struct.unpack_from("<i", p)[0], 0)
+            self.assertIn("not installed", p[4:].decode())
+            # and the same feeder still plays through NDL: texture mode off, a load goes to the library
+            c.send(GF["TEXTURE"], struct.pack("<II", 0, 0))
+            c.load(codec=2, w=320, h=240, fps=60, audio=0, hdr=0, drop=-1)
+            (t, p), _ = c.until(GF["LOADED"])
+            self.assertEqual(struct.unpack_from("<i", p)[0], 1, p)
+        finally:
+            proc.terminate()
+            proc.wait(5)
+            fc.close()
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    @unittest.skipUnless(TEXTURE_READY and encoder("h265"), "ffmpeg with libx265")
+    def test_h265_is_decoded_too(self):
+        clip = os.path.join(self.tmp, "t360.hevc")
+        make_clip(clip, "h265", "640x360", 15, 2, 15)
+        r = Run(["--play", clip, "--codec", "h265", "--size", "640x360", "--fps", "5", "-w", "video", "-a", "org.test.cam", "--no-ndl", "--texture", "320x180",
+                 "--swdec-lib", DECODERS, "--seconds", "3"]).go()
+        try:
+            self.assertEqual(r.proc.returncode, 0, r.err())
+            self.assertGreaterEqual(len(self.frames(r.fc, (320, 180))), 10)
+        finally:
+            r.close()
+
 
 
 if __name__ == "__main__":

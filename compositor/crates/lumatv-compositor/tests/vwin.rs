@@ -90,8 +90,12 @@ fn state_of(reply: &Value) -> (String, String) {
     (reply["claim"]["state"].as_str().unwrap_or("?").to_string(), reply["claim"]["reason"].as_str().unwrap_or("?").to_string())
 }
 
+/// The mode; the tests of the windows leave textures off (a claim the windows refuse is then denied, as they read), and the test of the textures turns them on.
 fn set_mode(server: &Server, mode: Mode) {
-    server.eval(move |s| s.vwin_set_mode(mode));
+    server.eval(move |s| {
+        s.vwin_set_mode(mode);
+        s.vwin_ctl(&["texture", "off"]);
+    });
 }
 
 fn last_placement(server: &Server, ctx: &'static str) -> Value {
@@ -281,6 +285,81 @@ fn a_claim_takes_the_wallpapers_window_and_the_wallpaper_is_closed() {
     wall_el.exported.destroy();
     wall.roundtrip();
     std::mem::forget((win, buf));
+}
+
+/// What the feeder does for a texture: a video window that starts 16 pixels square and empty, then paints a buffer of its own size (here a solid colour).
+fn texture_feeder(server: &mut Server, app: &str) -> (Client, harness::Window) {
+    let mut client = Client::connect_extra(server);
+    let win = client.card_as(VIDEO, "Cameras", app);
+    let empty = client.shm_pattern(16, 16, |_, _| 0);
+    client.present(&win.surface, &empty);
+    assert!(client.wait_until(WAIT, |s| s.frames_done >= 1), "the video window presented");
+    std::mem::forget(empty);
+    (client, win)
+}
+
+#[test]
+fn a_texture_claim_beside_an_app_that_plays_is_the_feeders_buffer_stretched_over_the_claims_rectangle() {
+    let mut server = Server::start();
+    let _bg = app(&mut server, "Bg", 0xffff_0000);
+    set_mode(&server, Mode::Idle);
+    // an app plays video: the windows are not for LumaTV's
+    let mut player = Client::connect_extra(&mut server);
+    let pwin = player.card(CARD, "Player");
+    let pbuf = player.shm_buffer(1920, 1080, 0xff20_2020);
+    player.present(&pwin.surface, &pbuf);
+    assert!(player.wait_until(WAIT, |s| s.frames_done >= 1));
+    let _el = export(&mut player, &pwin.surface, "_ctx_app");
+    server.eval(|s| s.vwin_ctl(&["texture", "on"]));
+    let placed_before = server.eval(placements).len();
+
+    // the pop-up asks: no window, a texture; the full view is not given one
+    let reply = ask(&server, claim("pop", "camera-popup", "org.test.cameras", POPUP));
+    assert_eq!(state_of(&reply), ("granted".to_string(), String::new()), "{reply}");
+    assert_eq!((reply["claim"]["slot"].as_str(), reply["claim"]["texture"].as_bool()), (Some("texture"), Some(true)), "{reply}");
+    assert_eq!(reply["claim"]["limits"], json!({"w": 1280, "h": 720, "fps": 30}));
+    assert_eq!(state_of(&ask(&server, claim("full", "camera-full", "org.test.cameras", [0, 0, 1920, 1080]))), ("denied".to_string(), "app-video".to_string()));
+
+    // the feeder's window comes (16 x 16, empty): bound to the claim, drawn as nothing, not yet placed
+    let (mut feeder, fwin) = texture_feeder(&mut server, "org.test.cameras");
+    server.eval(|s| s.vwin_sync());
+    let r = server.eval(|s| s.vwin_report());
+    assert_eq!(r["claims"][0]["placed"], false, "nothing is painted yet: {r}");
+    assert_ne!(server.eval(drawn).pixel(1310, 70), GREEN);
+
+    // it paints 280 x 158 in green: that is the claim's rectangle, stretched; the rest of the screen is the app's
+    let green = feeder.shm_buffer(280, 158, 0xff00_ff00);
+    feeder.present(&fwin.surface, &green);
+    assert!(feeder.wait_until(WAIT, |s| s.frames_done >= 2));
+    server.eval(|s| s.vwin_sync());
+    let image = server.eval(drawn);
+    let [x, y, w, h] = POPUP.map(|v| v as u32);
+    for (px, py) in [(x, y), (x + w - 1, y), (x, y + h - 1), (x + w - 1, y + h - 1), (x + w / 2, y + h / 2)] {
+        assert_eq!(image.pixel(px, py), GREEN, "the picture is over the claim's rectangle at {px},{py}");
+    }
+    for (px, py) in [(x - 1, y + 5), (x + 5, y - 1), (x + w, y + 5), (x + 5, y + h)] {
+        assert_ne!(image.pixel(px, py), GREEN, "and not beyond it at {px},{py}");
+    }
+    let r = server.eval(|s| s.vwin_report());
+    assert_eq!((r["claims"][0]["placed"].as_bool(), r["claims"][0]["sink"].as_str()), (Some(true), Some("texture")), "{r}");
+    assert_eq!(server.eval(placements).len(), placed_before, "no video was placed: a texture is not on the video plane");
+
+    // the claim moves: the same buffer goes with it
+    let r = ask(&server, json!({"op": "move", "id": "pop", "rect": {"x": 100, "y": 200, "w": 400, "h": 225}}));
+    assert_eq!(r["ok"], true, "{r}");
+    let image = server.eval(drawn);
+    assert_eq!(image.pixel(100, 200), GREEN);
+    assert_eq!(image.pixel(499, 424), GREEN);
+    assert_ne!(image.pixel(x + 5, y + 5), GREEN);
+
+    // `ctl vwin texture off` ends it: the window closes and nothing of it is drawn
+    let r = server.eval(|s| s.vwin_ctl(&["texture", "off"]));
+    assert_eq!(r["ok"], true, "{r}");
+    assert!(feeder.wait_until(WAIT, |s| s.closes >= 1), "the window was told to close");
+    assert_ne!(server.eval(drawn).pixel(150, 250), GREEN);
+    let r = server.eval(|s| s.vwin_report());
+    assert_eq!((r["claims"][0]["state"].as_str(), r["claims"][0]["reason"].as_str()), (Some("preempted"), Some("off")), "{r}");
+    std::mem::forget((pwin, pbuf, green, fwin));
 }
 
 #[test]

@@ -83,6 +83,19 @@ struct Look {
     drift: (i32, i32),
 }
 
+/// How a video window whose claim is a texture is drawn: the feeder's buffer (the picture, at whatever size it painted) stretched over the claim's rectangle, as
+/// a window at rest on that rectangle. A window that has not painted yet (it is `vwin::TEXTURE_WINDOW_PX` square, and empty) is not drawn stretched.
+fn texture_pose(w: &Window, surfaces: &Surfaces) -> Option<(Pose, FRect)> {
+    if w.kind != WindowType::VideoWindow || !w.vwin_live || !w.vwin_texture || w.vwin_rect.is_empty() {
+        return None;
+    }
+    let (sw, sh) = surfaces.get(w.surface)?.size();
+    if sw <= crate::vwin::TEXTURE_WINDOW_PX || sh <= crate::vwin::TEXTURE_WINDOW_PX {
+        return None;
+    }
+    Some((Pose::rest(FRect::from_rect(w.vwin_rect)), FRect::new(0.0, 0.0, sw as f32, sh as f32)))
+}
+
 /// A card as a transition sees it: its app, its rectangle and whether its picture is (or is about to be) on the video plane.
 fn party(id: WindowId, info: &(String, bool), rect: FRect) -> Party<'_> {
     Party { id, app_id: &info.0, rect, video: info.1 }
@@ -1202,7 +1215,7 @@ impl Scene {
                 w.position
             };
             let owner = w.surface;
-            let pose = self.pose_of(wid, now_ns);
+            let pose = self.pose_of(wid, now_ns).or_else(|| texture_pose(w, surfaces));
             let ghost = self.transitions.active() && !self.stack.iter().any(|(_, _, id)| *id == wid);
             let gain = !w.kind.is_shell() && !matches!(w.kind, WindowType::Wallpaper | WindowType::VideoWindow);
             let look = Look { window: wid, origin, dim, pose, ghost, under_hole: false, gain, drift };
