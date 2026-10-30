@@ -1,0 +1,29 @@
+{
+    "returnValue": true,
+    "appViewStatus": {
+        "guestAppId": "",
+        "eventStatus": "none",
+        "hostAppId": "",
+        "visible": false,
+        "appPipelineStatus": [
+            {
+                "appId": "com.webos.app.hdmi2",
+                "pipelineId": "8m3lx2j9ki0loiz9",
+                "status": "disconneted"
+            },
+            {
+                "appId": "youtube.leanback.v4",
+                "pipelineId": "_f2Ikub80Kd6mmt",
+                "status": "connected"
+            }
+        ],
+        "guestAppLayout": {
+            "width": 0,
+            "y": 0,
+            "x": 0,
+            "height": 0
+        },
+        "processingStatus": "notAppView",
+        "focus": "none"
+    }
+}

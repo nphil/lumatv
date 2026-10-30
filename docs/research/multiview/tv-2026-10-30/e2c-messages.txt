@@ -1,0 +1,339 @@
+2026-10-30T06:12:58.788345Z [33779.646018960] user.info lumatv-gfn-feeder [] NDL Info {} [NDL_directmedia_impl.cpp::NDL_IMPL_DirectMediaSetWindowId] external windowid = _Window_Id_15
+2026-10-30T06:12:58.788433Z [33779.646098320] user.info lumatv-gfn-feeder [] NDL Info {} [NDL_directmedia_impl.cpp::NDL_IMPL_DirectMediaInit] call
+2026-10-30T06:12:58.788465Z [33779.646129180] user.info lumatv-gfn-feeder [] NDL Info {} [NDL_directmedia_impl.cpp::NDL_IMPL_DirectMediaInit] appid = com.webos.app.home
+2026-10-30T06:12:58.788489Z [33779.646152700] user.info lumatv-gfn-feeder [] NDL Info {} [dmplayer.cpp::Initialize] call
+2026-10-30T06:12:58.789873Z [33779.647540840] user.warning ls-hubd [] ls-hubd LSHUB_ROLE_FILE {} Can not find service "" permissions for executable "/var/lib/lumatv/bin/lumatv-gfn-feeder"
+2026-10-30T06:12:58.792212Z [33779.649884520] user.info lumatv-gfn-feeder [] NDL Info {} [dmplayer.cpp::Initialize] dvplayer make done
+2026-10-30T06:12:58.792314Z [33779.649979840] user.info lumatv-gfn-feeder [] NDL Info {} [dvplayer.cpp::Initialize] call
+2026-10-30T06:12:58.792368Z [33779.650032980] user.info lumatv-gfn-feeder [] NDL Info {} [display.cpp::Initialize] [Display::Initialize] windowid: _Window_Id_15
+2026-10-30T06:12:58.794968Z [33779.652636380] user.info lumatv-gfn-feeder [] NDL Info {} [dvplayer.cpp::Initialize] done
+2026-10-30T06:12:58.795273Z [33779.652939560] user.info lumatv-gfn-feeder [] NDL Info {} [dmplayer.cpp::Initialize] daplayer make done
+2026-10-30T06:12:58.795321Z [33779.652984820] user.info lumatv-gfn-feeder [] NDL Info {} [dmplayer.cpp::Initialize] done
+2026-10-30T06:12:58.795349Z [33779.653012560] user.info lumatv-gfn-feeder [] NDL Info {} [NDL_directmedia_impl.cpp::NDL_IMPL_DirectMediaLoad] call
+2026-10-30T06:12:58.795373Z [33779.653036440] user.info lumatv-gfn-feeder [] NDL Info {} [dmplayer.cpp::Load] call
+2026-10-30T06:12:58.796856Z [33779.654525900] user.warning ls-hubd [] ls-hubd LSHUB_ROLE_FILE {} Can not find service "" permissions for executable "/var/lib/lumatv/bin/lumatv-gfn-feeder"
+2026-10-30T06:12:58.803566Z [33779.661235520] user.info umediaserver [] ums.resource_mgr FOREGROUND_REQUEST {"TIMESTAMP":33779.661151560,"CODE_POINT":"<ResourceManager.cpp:setSubType(1662)>"} + sub_type: connection_id=_fsP0zN9WyVEFZe, sub_type=card
+2026-10-30T06:12:58.804064Z [33779.661732060] user.info lumatv-gfn-feeder [] smp.api subscribeMultiViewController {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":""} 
+2026-10-30T06:12:58.804142Z [33779.661806860] user.info lumatv-gfn-feeder [] smp.api subscribeColorInversion {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"subscribe [true]"} 
+2026-10-30T06:12:58.804183Z [33779.661849220] user.info lumatv-gfn-feeder [] NDL Info {} [dmplayer.cpp::Load] esplayer make done
+2026-10-30T06:12:58.804212Z [33779.661875760] user.info lumatv-gfn-feeder [] NDL Info {} [dvplayer.cpp::Open] call
+2026-10-30T06:12:58.804235Z [33779.661898900] user.info lumatv-gfn-feeder [] NDL Info {} [dvplayer.cpp::SetVisible] call
+2026-10-30T06:12:58.804312Z [33779.661977600] user.info lumatv-gfn-feeder [] NDL Info {} [dvplayer.cpp::SetVisible] visible = true
+2026-10-30T06:12:58.804341Z [33779.662004800] user.info lumatv-gfn-feeder [] NDL Info {} [dvplayer.cpp::SetVisible] call
+2026-10-30T06:12:58.804363Z [33779.662027320] user.info lumatv-gfn-feeder [] NDL Info {} [dvplayer.cpp::SetVisible] visible = true
+2026-10-30T06:12:58.804385Z [33779.662049060] user.info lumatv-gfn-feeder [] NDL Info {} [daplayer.cpp::Initialize] call
+2026-10-30T06:12:58.804406Z [33779.662069640] user.info lumatv-gfn-feeder [] NDL Info {} [daplayer.cpp::Initialize] done
+2026-10-30T06:12:58.805807Z [33779.663476340] user.info lumatv-gfn-feeder [] smp.api LOAD {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"{\"args\":[{\"mediaTransportType\":\"DIRECTMEDIA-ES-PLAYER\",\"option\":{\"appId\":\"com.webos.app.home\",\"lowDelayMode\":true,\"externalStreamingInfo\":{\"contents\":{\"codec\":{\"video\":\"H264\"},\
+2026-10-30T06:12:58.805902Z [33779.663566920] user.info lumatv-gfn-feeder [] smp.api SVU_SMP_LOAD {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"{\"args\":[{\"mediaTransportType\":\"DIRECTMEDIA-ES-PLAYER\",\"option\":{\"appId\":\"com.webos.app.home\",\"lowDelayMode\":true,\"externalStreamingInfo\":{\"contents\":{\"codec\":{\"video\":\"H
+2026-10-30T06:12:58.805954Z [33779.663618200] user.info lumatv-gfn-feeder [] smp.api load {"CLOCK":33779.663,"status":"received_load","PerfType":"mediaAPIs","PerfGroup":"starfish-media-pipeline"} 
+2026-10-30T06:12:58.805979Z [33779.663642480] user.info lumatv-gfn-feeder [] smp.api LOAD {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"appId[com.webos.app.home]"} 
+2026-10-30T06:12:58.806000Z [33779.663663860] user.info lumatv-gfn-feeder [] subtitle.task SUBTITLE {"tid":"[1ccfae0]", "msg":"[setAppId]"} 
+2026-10-30T06:12:58.806043Z [33779.663734860] user.info lumatv-gfn-feeder [] subtitle.task SUBTITLE {"tid":"[1ccfae0]", "msg":"[setLayerInfo]"} 
+2026-10-30T06:12:58.810763Z [33779.668429300] user.info lumatv-gfn-feeder [] smp.api handleMultiViewControllerStatus {"uid":"_fsP0zN9WyVEFZe", "tid": "22573", "msg":"[com.webos.app.home] response = {\"subscribed\":true,\"returnValue\":true,\"mediaControlStatus\":{\"audioOutIndexList\":[0],\"requestedMode\":\"\",\"requestedMainAppId\":\"\"
+2026-10-30T06:12:58.812150Z [33779.669814620] user.info umediaserver [] ums.resource_mgr FOREGROUND_REQUEST {"TIMESTAMP":33779.669762480,"CODE_POINT":"<ResourceManager.cpp:setSubType(1662)>"} + sub_type: connection_id=_fsP0zN9WyVEFZe, sub_type=card
+2026-10-30T06:12:58.815321Z [33779.672984580] user.info lumatv-gfn-feeder [] smp.api handleColorInversion {"uid":"_fsP0zN9WyVEFZe", "tid": "22573", "msg":"{\"subscribed\":true,\"category\":\"option\",\"method\":\"getSystemSettings\",\"returnValue\":true,\"settings\":{\"adjustments\":{\"colorInversion\":\"off\",\"blackAndWhite\":\"off\"}}}
+2026-10-30T06:12:58.815342Z [33779.673005640] user.info lumatv-gfn-feeder [] smp.api handleColorInversion {"uid":"_fsP0zN9WyVEFZe", "tid": "22573", "msg":"settings.colorInversion[off]"} 
+2026-10-30T06:12:58.841243Z [33779.698913340] user.info lumatv-gfn-feeder [] smp.api pipeline_init {"CLOCK":33779.698,"status":"start_pipeline_init","PerfType":"mediaAPIs","PerfGroup":"starfish-media-pipeline"} 
+2026-10-30T06:12:58.850829Z [33779.708495500] user.info lumatv-gfn-feeder [] smp.api handleVideoTrackInfoEvent {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"trackNo[0] event[0 video/x-h264 (null) (null) 1280 720 (null) 60.000000 0 0 0]"} 
+2026-10-30T06:12:58.850881Z [33779.708545160] user.info lumatv-gfn-feeder [] smp.api SVU_SMP_INFO {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"[Function:handleVideoTrackInfoEvent] trackNo[0] event[0 video/x-h264 (null) (null) 1280 720 (null) 60.000000 0 0 0]"} 
+2026-10-30T06:12:58.853207Z [33779.710875720] user.info lumatv-gfn-feeder [] avc.video VideoConnector {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"appId[com.webos.app.home]"} 
+2026-10-30T06:12:58.853279Z [33779.710943500] user.info lumatv-gfn-feeder [] avc.lsm LSMConnector {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"windowId [_Window_Id_15]"} 
+2026-10-30T06:12:58.853304Z [33779.710968060] user.info lumatv-gfn-feeder [] avc.main AVConnector {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"created AVConnector"} 
+2026-10-30T06:12:58.853325Z [33779.710989060] user.info lumatv-gfn-feeder [] avc.proxy AVProxy {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"avConnector Created"} 
+2026-10-30T06:12:58.853369Z [33779.711034940] user.info lumatv-gfn-feeder [] avc.proxy SVU_AVC_CREATION {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"avConnector Created [com.webos.app.home][_Window_Id_15][media][200]"} 
+2026-10-30T06:12:58.853408Z [33779.711071820] user.info lumatv-gfn-feeder [] avc.proxy initialize {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":""} 
+2026-10-30T06:12:58.857042Z [33779.714710760] user.info lumatv-gfn-feeder [] avc.main initialize {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":""} 
+2026-10-30T06:12:58.858061Z [33779.715732620] user.info lumatv-gfn-feeder [] avc.lsm registerId {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"setSurfaceAlignment by [stretch]"} 
+2026-10-30T06:12:58.858156Z [33779.715821340] user.info lumatv-gfn-feeder [] avc.lsm registerId {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"registered [_Window_Id_15]"} 
+2026-10-30T06:12:58.862201Z [33779.719865440] user.info lumatv-gfn-feeder [] avc.video registerId {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"registered."} 
+2026-10-30T06:12:58.867470Z [33779.725139040] user.warning lumatv-gfn-feeder [] avc.mvc operator() {"uid":"unknown", "tid": "22568", "msg":"appview type: ip_channel"} 
+2026-10-30T06:12:58.867548Z [33779.725212400] user.warning lumatv-gfn-feeder [] avc.mvc operator() {"uid":"unknown", "tid": "22568", "msg":"appview type: live_channel"} 
+2026-10-30T06:12:58.867573Z [33779.725236980] user.warning lumatv-gfn-feeder [] avc.mvc operator() {"uid":"unknown", "tid": "22568", "msg":"appview type: hdmi"} 
+2026-10-30T06:12:58.867771Z [33779.725435360] user.info lumatv-gfn-feeder [] avc.mvc setSupportAppList {"uid":"unknown", "tid": "22568", "msg":"Succeed to get app list."} 
+2026-10-30T06:12:58.867799Z [33779.725462480] user.info lumatv-gfn-feeder [] avc.mvc isAppView {"uid":"unknown", "tid": "22568", "msg":"isAppView [com.webos.app.home]"} 
+2026-10-30T06:12:58.868159Z [33779.725823100] user.info lumatv-gfn-feeder [] multiviewclient INFO {} [MultiviewWatcherClientImpl::EventProcessingThread::448] com.webos.avconnector.mvclient._01XfzN9ZGBnNxE, Started...
+2026-10-30T06:12:58.870250Z [33779.727916020] user.info lumatv-gfn-feeder [] multiviewclient INFO {} [MultiviewWatcherClientImpl::Init::325] LSRegister com.webos.avconnector.mvclient._01XfzN9ZGBnNxE
+2026-10-30T06:12:58.870433Z [33779.728099160] user.info lumatv-gfn-feeder [] avc.watcher MultiviewWatcher {"uid":"unknown", "tid": "22568", "msg":"MultiviewWatcher created. appId [_01XfzN9ZGBnNxE][13]"} 
+2026-10-30T06:12:58.870555Z [33779.728220840] user.info lumatv-gfn-feeder [] multiviewclient INFO {} [MultiviewWatcherClientImpl::MainThread::358] com.webos.avconnector.mvclient._01XfzN9ZGBnNxE, Main loop running...
+2026-10-30T06:12:58.870703Z [33779.728369600] user.info lumatv-gfn-feeder [] avc.impl initialize {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"registered."} 
+2026-10-30T06:12:58.872267Z [33779.729956060] user.info lumatv-gfn-feeder [] multiviewclient INFO {} [MultiviewWatcherClientImpl::RegisterServerStatusCallback::294] com.webos.service.multiviewcontroller, connected : 1
+2026-10-30T06:12:58.872482Z [33779.730149380] user.info lumatv-gfn-feeder [] multiviewclient INFO {} [MultiviewWatcherClientImpl::SubscribeToGetStatus::397] Subscribed token:3
+2026-10-30T06:12:58.872727Z [33779.730394520] user.info umediaserver [] ums.resource_mgr FOREGROUND_REQUEST {"TIMESTAMP":33779.730332240,"CODE_POINT":"<ResourceManager.cpp:setSubType(1662)>"} + sub_type: connection_id=_fGeLzN9m4dNQqM, sub_type=card
+2026-10-30T06:12:58.873281Z [33779.730947240] user.info lumatv-gfn-feeder [] avc.proxy initialize {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"succeed registerPipeline. _fGeLzN9m4dNQqM"} 
+2026-10-30T06:12:58.873423Z [33779.731088220] user.info lumatv-gfn-feeder [] avc.proxy setConnectedCallback {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":""} 
+2026-10-30T06:12:58.873453Z [33779.731116580] user.info lumatv-gfn-feeder [] avc.proxy setDisconnectedCallback {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":""} 
+2026-10-30T06:12:58.873475Z [33779.731138740] user.info lumatv-gfn-feeder [] avc.proxy setErrorCallback {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":""} 
+2026-10-30T06:12:58.873496Z [33779.731160120] user.info lumatv-gfn-feeder [] avc.proxy setInfoCallback {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":""} 
+2026-10-30T06:12:58.873517Z [33779.731180380] user.info lumatv-gfn-feeder [] avc.proxy setSink {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"sinkInfo[]"} 
+2026-10-30T06:12:58.873537Z [33779.731200400] user.info lumatv-gfn-feeder [] avc.main setSink {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"sinkInfo[]"} 
+2026-10-30T06:12:58.873558Z [33779.731221300] user.warning lumatv-gfn-feeder [] avc.impl setSink {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"sinkInfo is empty."} 
+2026-10-30T06:12:58.873737Z [33779.731401260] user.info lumatv-gfn-feeder [] ums.resource_mgr_client ACQUIRE_REQUEST {"SESSION_ID":"_LKVfzN9KMNnso4","TIMESTAMP":33779.731370460,"CODE_POINT":"<ResourceManagerClient.cpp:_acquire(513)>"} WAITING: acquire resources. _fsP0zN9WyVEFZe ([{"resource":"SUB_SCALER","qty":1}])
+2026-10-30T06:12:58.873774Z [33779.731438320] user.info lumatv-gfn-feeder [] ums.resource_mgr_client ACQUIRE_REQUEST {"CLOCK":33779.731,"status":"Ready_for_resource_ACQUIRE_REQUEST","PerfType":"ResourceManagerClinet","PerfGroup":"com.webos.media"} 
+2026-10-30T06:12:58.874629Z [33779.732294700] user.info lumatv-gfn-feeder [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::GetStatusCallback::534] com.webos.avconnector.mvclient._01XfzN9ZGBnNxE, Push message to event queue
+2026-10-30T06:12:58.875164Z [33779.732831960] user.info umediaserver [] ums.server ACQUIRE_REQUEST {"TIMESTAMP":33779.732716900,"CODE_POINT":"<uMediaserver.cpp:acquireCommand(6420)>"} connectionId: _fsP0zN9WyVEFZe. resources: [{"resource":"SUB_SCALER","qty":1}]
+2026-10-30T06:12:58.875774Z [33779.733440080] user.info lumatv-gfn-feeder [] multiviewclient INFO {} [MultiviewWatcherClientImpl::EventProcessingThread::495] com.webos.avconnector.mvclient._01XfzN9ZGBnNxE, Popped event, processing: not_multiview, event: OnClientConnected
+2026-10-30T06:12:58.875820Z [33779.733483540] user.info lumatv-gfn-feeder [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::HandleEvents::547] com.webos.avconnector.mvclient._01XfzN9ZGBnNxE, Handling OnClientConnected previous event: 
+2026-10-30T06:12:58.875844Z [33779.733508240] user.info lumatv-gfn-feeder [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::783] Fill info
+2026-10-30T06:12:58.875866Z [33779.733529160] user.info lumatv-gfn-feeder [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::706] Fill info
+2026-10-30T06:12:58.875980Z [33779.733644320] user.info lumatv-gfn-feeder [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::GetAppLayoutByRole::627] Invalid AppLayout.
+2026-10-30T06:12:58.876076Z [33779.733739980] user.info lumatv-gfn-feeder [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::GetAppLayoutByRole::627] Invalid AppLayout.
+2026-10-30T06:12:58.876121Z [33779.733785060] user.info lumatv-gfn-feeder [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::770] usage_type: 0, main_app_id: , sub_app_id: , foreground_app_id: youtube.leanback.v4, tool_type: normalTV, view_type: 0, audio_out: 0, control_mode: -1, input_mode: -1, orientation: 0, me
+2026-10-30T06:12:58.876184Z [33779.733847160] user.info lumatv-gfn-feeder [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::897] usage_type: 0, appList: , foreground_app_id: youtube.leanback.v4, tool_type: normalTV, view_type: 0, audio_out: 0, control_mode: -1, input_mode: -1, orientation: 0, media_change_state: 
+2026-10-30T06:12:58.876541Z [33779.734207920] user.info lumatv-gfn-feeder [] ums.resource_mgr_client ACQUIRE_COMPLETED {"SESSION_ID":"_LKVfzN9KMNnso4","TIMESTAMP":33779.734081740,"CODE_POINT":"<ResourceManagerClient.cpp:_acquire(534)>"} connectionId: _fsP0zN9WyVEFZe. acquireComplete response: state=true, resources = {"resources":[{"qty":1
+2026-10-30T06:12:58.876588Z [33779.734251840] user.info lumatv-gfn-feeder [] ums.resource_mgr_client ACQUIRE_COMPLETED {"CLOCK":33779.734,"status":"ACQUIRE_Resource_COMPLETED","PerfType":"ResourceManagerClinet","PerfGroup":"com.webos.media"} 
+2026-10-30T06:12:58.876615Z [33779.734278980] user.info lumatv-gfn-feeder [] ums.resource_mgr_client SVU_UMS_ACQUIRE_COMPLETED {"SESSION_ID":"_LKVfzN9KMNnso4","TIMESTAMP":33779.734141220,"CODE_POINT":"<ResourceManagerClient.cpp:_acquire(541)>"} connectionId: _fsP0zN9WyVEFZe. acquireComplete response: state=true, resources = {"resources":[
+2026-10-30T06:12:58.876836Z [33779.734500780] user.info lumatv-gfn-feeder [] ums.resource_mgr_client ACQUIRE_REQUEST {"SESSION_ID":"_LKVfzN9KMNnso4","TIMESTAMP":33779.734469200,"CODE_POINT":"<ResourceManagerClient.cpp:_acquire(513)>"} WAITING: acquire resources. _fsP0zN9WyVEFZe ([{"resource":"VDEC","qty":1},{"resource":"G1_H264","qty":1}]
+2026-10-30T06:12:58.876862Z [33779.734525980] user.info lumatv-gfn-feeder [] ums.resource_mgr_client ACQUIRE_REQUEST {"CLOCK":33779.734,"status":"Ready_for_resource_ACQUIRE_REQUEST","PerfType":"ResourceManagerClinet","PerfGroup":"com.webos.media"} 
+2026-10-30T06:12:58.876884Z [33779.734547600] user.info umediaserver [] ums.server ACQUIRE_REQUEST {"TIMESTAMP":33779.734510520,"CODE_POINT":"<uMediaserver.cpp:acquireCommand(6420)>"} connectionId: _fsP0zN9WyVEFZe. resources: [{"resource":"VDEC","qty":1},{"resource":"G1_H264","qty":1}]
+2026-10-30T06:12:58.877202Z [33779.734868460] user.info lumatv-gfn-feeder [] avc.proxy updateAppStatusCallback {"uid":"_fsP0zN9WyVEFZe", "tid": "22576", "msg":"update status from uMS: status[background], type[card]"} 
+2026-10-30T06:12:58.877239Z [33779.734902760] user.info lumatv-gfn-feeder [] avc.proxy setAppStatus {"uid":"_fsP0zN9WyVEFZe", "tid": "22576", "msg":"isForeground[0], appType[card]"} 
+2026-10-30T06:12:58.877262Z [33779.734926300] user.info lumatv-gfn-feeder [] avc.main setAppStatus {"uid":"_fsP0zN9WyVEFZe", "tid": "22576", "msg":"isForeground[0], appType[card], provider[com.webos.media]"} 
+2026-10-30T06:12:58.877325Z [33779.734988640] user.info lumatv-gfn-feeder [] avc.proxy updateResourcesStatusCallback {"uid":"_fsP0zN9WyVEFZe", "tid": "22576", "msg":"resouces is available from uMS."} 
+2026-10-30T06:12:58.877348Z [33779.735011380] user.info lumatv-gfn-feeder [] avc.proxy setConnectableStatus {"uid":"_fsP0zN9WyVEFZe", "tid": "22576", "msg":"available[1], resource[{}]"} 
+2026-10-30T06:12:58.877370Z [33779.735033480] user.info lumatv-gfn-feeder [] avc.main setConnectableStatus {"uid":"_fsP0zN9WyVEFZe", "tid": "22576", "msg":"available[1], resources[{}]"} 
+2026-10-30T06:12:58.877392Z [33779.735056040] user.warning lumatv-gfn-feeder [] avc.impl tryConnect {"uid":"_fsP0zN9WyVEFZe", "tid": "22576", "msg":"No render_status. [85]"} 
+2026-10-30T06:12:58.877413Z [33779.735077160] user.warning lumatv-gfn-feeder [] avc.impl SVU_AVC_CONNECT {"uid":"_fsP0zN9WyVEFZe", "tid": "22576", "msg":"No render_status. [85]"} 
+2026-10-30T06:12:58.877548Z [33779.735212740] user.info lumatv-gfn-feeder [] ums.resource_mgr_client ACQUIRE_COMPLETED {"SESSION_ID":"_LKVfzN9KMNnso4","TIMESTAMP":33779.735172680,"CODE_POINT":"<ResourceManagerClient.cpp:_acquire(534)>"} connectionId: _fsP0zN9WyVEFZe. acquireComplete response: state=true, resources = {"resources":[{"qty":1
+2026-10-30T06:12:58.877576Z [33779.735239680] user.info lumatv-gfn-feeder [] ums.resource_mgr_client ACQUIRE_COMPLETED {"CLOCK":33779.735,"status":"ACQUIRE_Resource_COMPLETED","PerfType":"ResourceManagerClinet","PerfGroup":"com.webos.media"} 
+2026-10-30T06:12:58.877598Z [33779.735261620] user.info lumatv-gfn-feeder [] ums.resource_mgr_client SVU_UMS_ACQUIRE_COMPLETED {"SESSION_ID":"_LKVfzN9KMNnso4","TIMESTAMP":33779.735217060,"CODE_POINT":"<ResourceManagerClient.cpp:_acquire(541)>"} connectionId: _fsP0zN9WyVEFZe. acquireComplete response: state=true, resources = {"resources":[
+2026-10-30T06:12:58.878198Z [33779.735862220] user.info lumatv-gfn-feeder [] avc.impl disconnect {"uid":"_fsP0zN9WyVEFZe", "tid": "22578", "msg":""} 
+2026-10-30T06:12:58.878304Z [33779.735967920] user.info lumatv-gfn-feeder [] avc.impl MAIN {"uid":"_fsP0zN9WyVEFZe", "tid": "22578", "msg":"Disconnected"} 
+2026-10-30T06:12:58.878393Z [33779.736056700] user.info lumatv-gfn-feeder [] avc.mvc initializeMultiviewState {"uid":"unknown", "tid": "22578", "msg":""} 
+2026-10-30T06:12:58.878419Z [33779.736082400] user.info lumatv-gfn-feeder [] avc.impl _changeSinkNormalWindow {"uid":"_fsP0zN9WyVEFZe", "tid": "22578", "msg":"current [2:MainVideo], new [2:MainVideo]"} 
+2026-10-30T06:12:58.878440Z [33779.736103500] user.warning lumatv-gfn-feeder [] avc.impl _changeSinkNormalWindow {"uid":"_fsP0zN9WyVEFZe", "tid": "22578", "msg":"already set sink type [2:MainVideo]"} 
+2026-10-30T06:12:58.878462Z [33779.736125660] user.warning lumatv-gfn-feeder [] avc.impl tryConnect {"uid":"_fsP0zN9WyVEFZe", "tid": "22578", "msg":"No render_status. [117] [0]"} 
+2026-10-30T06:12:58.878511Z [33779.736175780] user.warning lumatv-gfn-feeder [] avc.impl SVU_AVC_CONNECT {"uid":"_fsP0zN9WyVEFZe", "tid": "22578", "msg":"No render_status. [117] [0]"} 
+2026-10-30T06:12:58.881431Z [33779.739098540] user.info lumatv-gfn-feeder [] smp.api subscribeSoundMode {"uid":"_fsP0zN9WyVEFZe", "tid": "22575", "msg":"subscribe [true]"} 
+2026-10-30T06:12:58.881565Z [33779.739230580] user.info lumatv-gfn-feeder [] smp.api LOAD {"uid":"_fsP0zN9WyVEFZe", "tid": "22575", "msg":"load completed"} 
+2026-10-30T06:12:58.881605Z [33779.739268680] user.info lumatv-gfn-feeder [] smp.api SVU_SMP_LOAD {"uid":"_fsP0zN9WyVEFZe", "tid": "22575", "msg":"load completed"} 
+2026-10-30T06:12:58.881628Z [33779.739291340] user.info lumatv-gfn-feeder [] smp.api load_completed {"CLOCK":33779.739,"status":"ready_to_play","PerfType":"mediaAPIs","PerfGroup":"starfish-media-pipeline"} 
+2026-10-30T06:12:58.881661Z [33779.739324720] user.info lumatv-gfn-feeder [] subtitle.task SUBTITLE {"tid":"[1ce2b88]", "msg":"[setPositionCallback]"} 
+2026-10-30T06:12:58.881683Z [33779.739346980] user.info lumatv-gfn-feeder [] NDL Info {} [dmplayer.cpp::Play] call
+2026-10-30T06:12:58.881704Z [33779.739367480] user.info lumatv-gfn-feeder [] smp.api PLAY {"uid":"_fsP0zN9WyVEFZe", "tid": "22575", "msg":""} 
+2026-10-30T06:12:58.881725Z [33779.739388860] user.info lumatv-gfn-feeder [] smp.api SVU_SMP_PLAY {"uid":"_fsP0zN9WyVEFZe", "tid": "22575", "msg":""} 
+2026-10-30T06:12:58.881746Z [33779.739409340] user.info lumatv-gfn-feeder [] smp.api play {"CLOCK":33779.739,"status":"start_play","PerfType":"mediaAPIs","PerfGroup":"starfish-media-pipeline"} 
+2026-10-30T06:12:58.885039Z [33779.742702460] user.info lumatv-gfn-feeder [] avc.proxy setWindowSizeChangedCallback {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":""} 
+2026-10-30T06:12:58.885067Z [33779.742731220] user.info lumatv-gfn-feeder [] avc.proxy setRenderReady {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"isReady[1], connectionInfo[{\"videoInfo\":{\"context\":\"_fsP0zN9WyVEFZe\",\"source\":\"VDEC\",\"sourcePort\":1,\"sink\":\"MAIN\"}}\n]"} 
+2026-10-30T06:12:58.885089Z [33779.742752460] user.info lumatv-gfn-feeder [] avc.main setRenderReady {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"isReady[1], connectionInfo[{\"videoInfo\":{\"context\":\"_fsP0zN9WyVEFZe\",\"source\":\"VDEC\",\"sourcePort\":1,\"sink\":\"MAIN\"}}\n]"} 
+2026-10-30T06:12:58.885109Z [33779.742773140] user.info lumatv-gfn-feeder [] avc.impl setRenderReady {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"videoInfo.stringify() : {\"source\":\"VDEC\",\"context\":\"_fsP0zN9WyVEFZe\",\"sourcePort\":1,\"sink\":\"MAIN\"}"} 
+2026-10-30T06:12:58.885131Z [33779.742794240] user.info lumatv-gfn-feeder [] avc.impl setRenderReady {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"videoInfo : {\"source\":\"VDEC\",\"context\":\"_fsP0zN9WyVEFZe\",\"sourcePort\":1,\"sink\":\"MAIN\"}"} 
+2026-10-30T06:12:58.885480Z [33779.743147860] user.info lumatv-gfn-feeder [] avc.impl setRenderReady {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"audioInfo : {\"videoInfo\":{\"context\":\"_fsP0zN9WyVEFZe\",\"source\":\"VDEC\",\"sourcePort\":1,\"sink\":\"MAIN\"}}\n"} 
+2026-10-30T06:12:58.885547Z [33779.743210720] user.info lumatv-gfn-feeder [] avc.video setConnectionInformation {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"connectionInfo [{\"source\":\"VDEC\",\"context\":\"_fsP0zN9WyVEFZe\",\"sourcePort\":1,\"sink\":\"MAIN\"}]"} 
+2026-10-30T06:12:58.885571Z [33779.743234840] user.warning lumatv-gfn-feeder [] avc.impl tryConnect {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"No render_status. [125] [0]"} 
+2026-10-30T06:12:58.885593Z [33779.743256340] user.warning lumatv-gfn-feeder [] avc.impl SVU_AVC_CONNECT {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"No render_status. [125] [0]"} 
+2026-10-30T06:12:58.885615Z [33779.743278260] user.info lumatv-gfn-feeder [] smp.api pipeline_initialized {"CLOCK":33779.741,"status":"end_pipeline_init","PerfType":"mediaAPIs","PerfGroup":"starfish-media-pipeline"} 
+2026-10-30T06:12:58.885635Z [33779.743299160] user.info lumatv-gfn-feeder [] NDL Info {} [dmplayer.cpp::Load] done
+2026-10-30T06:12:58.885656Z [33779.743319480] user.info lumatv-gfn-feeder [] NDL Info {} [NDL_directmedia_impl.cpp::NDL_IMPL_DirectMediaLoad] complete
+2026-10-30T06:12:58.885717Z [33779.743382000] user.info lumatv-gfn-feeder [] NDL Info {} [dvplayer.cpp::SetVisible] call
+2026-10-30T06:12:58.885827Z [33779.743490940] user.info lumatv-gfn-feeder [] subtitle.task SUBTITLE {"tid":"[1ce2b88]", "msg":"[play]"} 
+2026-10-30T06:12:58.888124Z [33779.745788920] user.info lumatv-gfn-feeder [] NDL Info {} [dvplayer.cpp::SetVisible] visible = true
+2026-10-30T06:12:58.890640Z [33779.748309920] user.info lumatv-gfn-feeder [] smp.api handleSoundMode {"uid":"_fsP0zN9WyVEFZe", "tid": "22573", "msg":"{\"subscribed\":true,\"category\":\"sound\",\"method\":\"getSystemSettings\",\"dimension\":{\"audioInput\":\"media\",\"soundOutput\":\"tv_external_speaker\"},\"settings\":{\"soundMode\":\"st
+2026-10-30T06:12:58.890762Z [33779.748425900] user.info lumatv-gfn-feeder [] smp.api handleSoundMode {"uid":"_fsP0zN9WyVEFZe", "tid": "22573", "msg":"settings.soundMode[standard]"} 
+2026-10-30T06:12:58.929778Z [33779.787446920] user.info lumatv-gfn-feeder [] avc.proxy setPunchThrough {"uid":"_fsP0zN9WyVEFZe", "tid": "22575", "msg":"punchThrough : 1"} 
+2026-10-30T06:12:58.929863Z [33779.787527440] user.info lumatv-gfn-feeder [] avc.main setPunchThrough {"uid":"_fsP0zN9WyVEFZe", "tid": "22575", "msg":"punchThrough : 1"} 
+2026-10-30T06:12:58.929891Z [33779.787554700] user.info lumatv-gfn-feeder [] avc.lsm setPunchThrough {"uid":"_fsP0zN9WyVEFZe", "tid": "22575", "msg":"punchThrough [1]"} 
+2026-10-30T06:12:58.930189Z [33779.787855600] user.info lumatv-gfn-feeder [] avc.proxy setDecodeInfo {"uid":"_fsP0zN9WyVEFZe", "tid": "22575", "msg":"conentType[video], decodeInfo[{\"context\":\"_fsP0zN9WyVEFZe\",\"contentType\":\"movie\",\"frameRate\":30,\"scanType\":\"progressive\",\"width\":1280,\"height\":720,\"videoInfo\":{\"adaptive
+2026-10-30T06:12:58.930236Z [33779.787900640] user.info lumatv-gfn-feeder [] avc.main setDecodeInfo {"uid":"_fsP0zN9WyVEFZe", "tid": "22575", "msg":"contentType[video], connectionInfo[{\"context\":\"_fsP0zN9WyVEFZe\",\"contentType\":\"movie\",\"frameRate\":30,\"scanType\":\"progressive\",\"width\":1280,\"height\":720,\"videoInfo\":{\"adap
+2026-10-30T06:12:58.930513Z [33779.788177560] user.info lumatv-gfn-feeder [] avc.video setDecodeInformation {"uid":"_fsP0zN9WyVEFZe", "tid": "22578", "msg":"decodeInfo [{\"context\":\"_fsP0zN9WyVEFZe\",\"contentType\":\"movie\",\"frameRate\":30,\"scanType\":\"progressive\",\"width\":1280,\"height\":720,\"videoInfo\":{\"adaptive\":true,\"p
+2026-10-30T06:12:58.930542Z [33779.788205540] user.warning lumatv-gfn-feeder [] avc.impl tryConnect {"uid":"_fsP0zN9WyVEFZe", "tid": "22578", "msg":"No render_status. [125] [0]"} 
+2026-10-30T06:12:58.930563Z [33779.788226840] user.warning lumatv-gfn-feeder [] avc.impl SVU_AVC_CONNECT {"uid":"_fsP0zN9WyVEFZe", "tid": "22578", "msg":"No render_status. [125] [0]"} 
+2026-10-30T06:12:59.887739Z [33780.745408720] user.err lumatv-gfn-feeder [] NDL Err {} [daplayer.cpp::GetAudioBufferSize] getAudioBufferSize failed.
+2026-10-30T06:12:59.887822Z [33780.745486200] user.err lumatv-gfn-feeder [] NDL Err {} [dmplayer.cpp::GetAudioBufferSize] daplayer_->GetAudioBufferSize() error
+2026-10-30T06:12:59.887867Z [33780.745531560] user.err lumatv-gfn-feeder [] NDL Err {} [NDL_directmedia_impl.cpp::NDL_IMPL_DirectAudioGetAvailableBufferSize] GetAudioBufferSize error
+2026-10-30T06:13:00.887273Z [33781.744943020] user.err lumatv-gfn-feeder [] NDL Err {} [daplayer.cpp::GetAudioBufferSize] getAudioBufferSize failed.
+2026-10-30T06:13:00.887346Z [33781.745010540] user.err lumatv-gfn-feeder [] NDL Err {} [dmplayer.cpp::GetAudioBufferSize] daplayer_->GetAudioBufferSize() error
+2026-10-30T06:13:00.887372Z [33781.745035560] user.err lumatv-gfn-feeder [] NDL Err {} [NDL_directmedia_impl.cpp::NDL_IMPL_DirectAudioGetAvailableBufferSize] GetAudioBufferSize error
+2026-10-30T06:13:01.660519Z [33782.518195240] user.info lumatv-gfn-feeder [] avc.lsm dstRectChangedCallback {"uid":"_fsP0zN9WyVEFZe", "tid": "22579", "msg":"window size changed. [560][315]"} 
+2026-10-30T06:13:01.671775Z [33782.529438340] user.info videooutputd [] videooutputd DEBUG {} requestPQset() [SentLsToken] (1065){"video":{"displayOutput":{"width":3840,"y":0,"x":0,"height":2160},"444bypassPath":false,"sourceInput":{"width":3840,"y":0,"x":0,"height":2160},"winMode":"none","fullScreen":true,"frameRate":25,"scanType":"progr
+2026-10-30T06:13:01.672348Z [33782.530011620] user.info umediaserver [] ums.resource_mgr FOREGROUND_REQUEST {"TIMESTAMP":33782.527080880,"CODE_POINT":"<ResourceManager.cpp:setSubType(1662)>"} + sub_type: connection_id=_fGeLzN9m4dNQqM, sub_type=card
+2026-10-30T06:13:01.672836Z [33782.530499560] user.info umediaserver [] ums.resource_mgr FOREGROUND_REQUEST {"TIMESTAMP":33782.527249180,"CODE_POINT":"<ResourceManager.cpp:setSubType(1662)>"} + sub_type: connection_id=_fsP0zN9WyVEFZe, sub_type=card
+2026-10-30T06:13:01.672900Z [33782.530564160] user.info umediaserver [] ums.resource_mgr FOREGROUND_REQUEST {"TIMESTAMP":33782.527276580,"CODE_POINT":"<ResourceManager.cpp:setSubType(1662)>"} + sub_type: connection_id=_fGeLzN9m4dNQqM, sub_type=card
+2026-10-30T06:13:01.673258Z [33782.530922080] user.info umediaserver [] ums.resource_mgr FOREGROUND_REQUEST {"TIMESTAMP":33782.527820060,"CODE_POINT":"<ResourceManager.cpp:setSubType(1662)>"} + sub_type: connection_id=_LIZVpN90YoGZpV, sub_type=multiview
+2026-10-30T06:13:01.673279Z [33782.530942920] user.info umediaserver [] ums.resource_mgr FOREGROUND_REQUEST {"TIMESTAMP":33782.527862560,"CODE_POINT":"<ResourceManager.cpp:setSubType(1662)>"} + sub_type: connection_id=_Lro2pN9E5DV96d, sub_type=multiview
+2026-10-30T06:13:01.673300Z [33782.530963720] user.info umediaserver [] ums.resource_mgr FOREGROUND_REQUEST {"TIMESTAMP":33782.527891900,"CODE_POINT":"<ResourceManager.cpp:setSubType(1662)>"} + sub_type: connection_id=_LIZVpN90YoGZpV, sub_type=multiview
+2026-10-30T06:13:01.673320Z [33782.530984160] user.info umediaserver [] ums.resource_mgr FOREGROUND_REQUEST {"TIMESTAMP":33782.527948060,"CODE_POINT":"<ResourceManager.cpp:setSubType(1662)>"} + sub_type: connection_id=_fGeLzN9m4dNQqM, sub_type=card
+2026-10-30T06:13:01.673342Z [33782.531005720] user.info umediaserver [] ums.resource_mgr FOREGROUND_REQUEST {"TIMESTAMP":33782.527977940,"CODE_POINT":"<ResourceManager.cpp:setSubType(1662)>"} + sub_type: connection_id=_fsP0zN9WyVEFZe, sub_type=card
+2026-10-30T06:13:01.673413Z [33782.531076660] user.info umediaserver [] ums.resource_mgr FOREGROUND_REQUEST {"TIMESTAMP":33782.528026660,"CODE_POINT":"<ResourceManager.cpp:setSubType(1662)>"} + sub_type: connection_id=_fGeLzN9m4dNQqM, sub_type=card
+2026-10-30T06:13:01.673521Z [33782.531184980] user.info lumatv-gfn-feeder [] avc.proxy updateAppStatusCallback {"uid":"_fsP0zN9WyVEFZe", "tid": "22576", "msg":"update status from uMS: status[foreground], type[card]"} 
+2026-10-30T06:13:01.673543Z [33782.531206200] user.info lumatv-gfn-feeder [] avc.proxy setAppStatus {"uid":"_fsP0zN9WyVEFZe", "tid": "22576", "msg":"isForeground[1], appType[card]"} 
+2026-10-30T06:13:01.673586Z [33782.531249520] user.info lumatv-gfn-feeder [] avc.main setAppStatus {"uid":"_fsP0zN9WyVEFZe", "tid": "22576", "msg":"isForeground[1], appType[card], provider[com.webos.media]"} 
+2026-10-30T06:13:01.673610Z [33782.531274020] user.info pqcontroller [] pqcontroller LS2_RECEIVED {} setPQ:{"video":{"444bypassPath":false,"displayOutput":{"width":3840,"y":0,"x":0,"height":2160},"sourceInput":{"width":3840,"y":0,"x":0,"height":2160},"winMode":"none","fullScreen":true,"frameRate":25,"scanType":"progressive","connected":tr
+2026-10-30T06:13:01.693861Z [33782.551524660] user.info lumatv-gfn-feeder [] avc.impl connect {"uid":"_fsP0zN9WyVEFZe", "tid": "22578", "msg":""} 
+2026-10-30T06:13:01.693888Z [33782.551552020] user.warning lumatv-gfn-feeder [] avc.impl connect {"uid":"_fsP0zN9WyVEFZe", "tid": "22578", "msg":"empty resource. appId[com.webos.app.home]"} 
+2026-10-30T06:13:01.693954Z [33782.551618640] user.info lumatv-gfn-feeder [] ums.resource_mgr_client ACQUIRE_REQUEST {"SESSION_ID":"_LOTrzN9qURJpGS","TIMESTAMP":33782.531044960,"CODE_POINT":"<ResourceManagerClient.cpp:_acquire(513)>"} WAITING: acquire resources. _fGeLzN9m4dNQqM ([{"qty":1,"resource":"MAIN_SCALER"}])
+2026-10-30T06:13:01.693979Z [33782.551643040] user.info lumatv-gfn-feeder [] ums.resource_mgr_client ACQUIRE_REQUEST {"CLOCK":33782.531,"status":"Ready_for_resource_ACQUIRE_REQUEST","PerfType":"ResourceManagerClinet","PerfGroup":"com.webos.media"} 
+2026-10-30T06:13:01.696226Z [33782.553890460] user.info umediaserver [] ums.server ACQUIRE_REQUEST {"TIMESTAMP":33782.536144620,"CODE_POINT":"<uMediaserver.cpp:acquireCommand(6420)>"} connectionId: _fGeLzN9m4dNQqM. resources: [{"qty":1,"resource":"MAIN_SCALER"}]
+2026-10-30T06:13:01.699882Z [33782.557546100] user.info lumatv-gfn-feeder [] ums.resource_mgr_client ACQUIRE_COMPLETED {"SESSION_ID":"_LOTrzN9qURJpGS","TIMESTAMP":33782.544703960,"CODE_POINT":"<ResourceManagerClient.cpp:_acquire(534)>"} connectionId: _fGeLzN9m4dNQqM. acquireComplete response: state=false, resources = {"resources":[{"qty":
+2026-10-30T06:13:01.699904Z [33782.557567360] user.info lumatv-gfn-feeder [] ums.resource_mgr_client ACQUIRE_COMPLETED {"CLOCK":33782.544,"status":"ACQUIRE_Resource_COMPLETED","PerfType":"ResourceManagerClinet","PerfGroup":"com.webos.media"} 
+2026-10-30T06:13:01.699926Z [33782.557589540] user.info lumatv-gfn-feeder [] ums.resource_mgr_client SVU_UMS_ACQUIRE_COMPLETED {"SESSION_ID":"_LOTrzN9qURJpGS","TIMESTAMP":33782.544754800,"CODE_POINT":"<ResourceManagerClient.cpp:_acquire(541)>"} connectionId: _fGeLzN9m4dNQqM. acquireComplete response: state=false, resources = {"resources":
+2026-10-30T06:13:01.699946Z [33782.557610000] user.err lumatv-gfn-feeder [] avc.impl connect {"uid":"_fsP0zN9WyVEFZe", "tid": "22578", "msg":"failed to acquire [[{\"qty\":1,\"resource\":\"MAIN_SCALER\"}]]"} 
+2026-10-30T06:13:01.700102Z [33782.557766220] user.info eim [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::GetStatusCallback::534] com.webos.multiview.watcherclient.eim, Push message to event queue
+2026-10-30T06:13:01.700127Z [33782.557790860] user.info eim [] multiviewclient INFO {} [MultiviewWatcherClientImpl::EventProcessingThread::495] com.webos.multiview.watcherclient.eim, Popped event, processing: launch_done, event: OnSideBySideModeChanged
+2026-10-30T06:13:01.700149Z [33782.557812960] user.info eim [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::HandleEvents::547] com.webos.multiview.watcherclient.eim, Handling OnSideBySideModeChanged previous event: none
+2026-10-30T06:13:01.700171Z [33782.557834500] user.info eim [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::783] Fill info
+2026-10-30T06:13:01.700191Z [33782.557854620] user.info eim [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::706] Fill info
+2026-10-30T06:13:01.700212Z [33782.557876080] user.info eim [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::GetAppLayoutByRole::627] Invalid AppLayout.
+2026-10-30T06:13:01.700260Z [33782.557923520] user.info eim [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::GetAppLayoutByRole::627] Invalid AppLayout.
+2026-10-30T06:13:01.700301Z [33782.557964260] user.info eim [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::770] usage_type: 0, main_app_id: youtube.leanback.v4, sub_app_id: com.webos.app.home, foreground_app_id: youtube.leanback.v4, tool_type: normalTV, view_type: 0, audio_out: 0, control_mode: -1, input_mode:
+2026-10-30T06:13:01.700362Z [33782.558026120] user.info eim [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::897] usage_type: 0, appList: , foreground_app_id: youtube.leanback.v4, tool_type: normalTV, view_type: 0, audio_out: 0, control_mode: -1, input_mode: -1, orientation: 0, media_change_state: 0
+2026-10-30T06:13:01.700574Z [33782.558237560] user.info cobalt [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::GetStatusCallback::534] com.webos.avconnector.mvclient._f9JzpN9knvGKLj, Push message to event queue
+2026-10-30T06:13:01.700643Z [33782.558307000] user.info lumatv-gfn-feeder [] smp.api handleMultiViewControllerStatus {"uid":"_fsP0zN9WyVEFZe", "tid": "22573", "msg":"[com.webos.app.home] response = {\"returnValue\":true,\"mediaControlStatus\":{\"audioOutIndexList\":[0],\"requestedMode\":\"\",\"requestedMainAppId\":\"\",\"requestedSubAppId
+2026-10-30T06:13:01.700707Z [33782.558370480] user.info cobalt [] multiviewclient INFO {} [MultiviewWatcherClientImpl::EventProcessingThread::495] com.webos.avconnector.mvclient._f9JzpN9knvGKLj, Popped event, processing: launch_done, event: OnSideBySideModeChanged
+2026-10-30T06:13:01.700728Z [33782.558391460] user.info cobalt [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::HandleEvents::547] com.webos.avconnector.mvclient._f9JzpN9knvGKLj, Handling OnSideBySideModeChanged previous event: OnClientConnected
+2026-10-30T06:13:01.700750Z [33782.558413620] user.info cobalt [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::783] Fill info
+2026-10-30T06:13:01.700773Z [33782.558437300] user.info cobalt [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::706] Fill info
+2026-10-30T06:13:01.700794Z [33782.558457600] user.info cobalt [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::GetAppLayoutByRole::627] Invalid AppLayout.
+2026-10-30T06:13:01.700835Z [33782.558498340] user.info cobalt [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::GetAppLayoutByRole::627] Invalid AppLayout.
+2026-10-30T06:13:01.700877Z [33782.558540560] user.info cobalt [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::770] usage_type: 0, main_app_id: youtube.leanback.v4, sub_app_id: com.webos.app.home, foreground_app_id: youtube.leanback.v4, tool_type: normalTV, view_type: 0, audio_out: 0, control_mode: -1, input_mo
+2026-10-30T06:13:01.700938Z [33782.558602180] user.info cobalt [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::897] usage_type: 0, appList: , foreground_app_id: youtube.leanback.v4, tool_type: normalTV, view_type: 0, audio_out: 0, control_mode: -1, input_mode: -1, orientation: 0, media_change_state: 0
+2026-10-30T06:13:01.700960Z [33782.558624080] user.info lumatv-gfn-feeder [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::GetStatusCallback::534] com.webos.avconnector.mvclient._01XfzN9ZGBnNxE, Push message to event queue
+2026-10-30T06:13:01.700982Z [33782.558645420] user.info lumatv-gfn-feeder [] multiviewclient INFO {} [MultiviewWatcherClientImpl::EventProcessingThread::495] com.webos.avconnector.mvclient._01XfzN9ZGBnNxE, Popped event, processing: launch_done, event: OnSideBySideModeChanged
+2026-10-30T06:13:01.701002Z [33782.558666040] user.info lumatv-gfn-feeder [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::HandleEvents::547] com.webos.avconnector.mvclient._01XfzN9ZGBnNxE, Handling OnSideBySideModeChanged previous event: OnClientConnected
+2026-10-30T06:13:01.701024Z [33782.558687360] user.info lumatv-gfn-feeder [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::783] Fill info
+2026-10-30T06:13:01.701043Z [33782.558707020] user.info lumatv-gfn-feeder [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::706] Fill info
+2026-10-30T06:13:01.701065Z [33782.558728440] user.info lumatv-gfn-feeder [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::GetAppLayoutByRole::627] Invalid AppLayout.
+2026-10-30T06:13:01.701107Z [33782.558770600] user.info lumatv-gfn-feeder [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::GetAppLayoutByRole::627] Invalid AppLayout.
+2026-10-30T06:13:01.701152Z [33782.558815460] user.info lumatv-gfn-feeder [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::770] usage_type: 0, main_app_id: youtube.leanback.v4, sub_app_id: com.webos.app.home, foreground_app_id: youtube.leanback.v4, tool_type: normalTV, view_type: 0, audio_out: 0, control_mode: -
+2026-10-30T06:13:01.701214Z [33782.558877960] user.info lumatv-gfn-feeder [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::897] usage_type: 0, appList: , foreground_app_id: youtube.leanback.v4, tool_type: normalTV, view_type: 0, audio_out: 0, control_mode: -1, input_mode: -1, orientation: 0, media_change_state: 
+2026-10-30T06:13:01.701263Z [33782.558926380] user.err lumatv-gfn-feeder [] avc.sxs processChangedEvent {"uid":"unknown", "tid": "22578", "msg":"Invalid status"} 
+2026-10-30T06:13:01.988016Z [33782.845686220] user.err lumatv-gfn-feeder [] NDL Err {} [daplayer.cpp::GetAudioBufferSize] getAudioBufferSize failed.
+2026-10-30T06:13:01.988095Z [33782.845759360] user.err lumatv-gfn-feeder [] NDL Err {} [dmplayer.cpp::GetAudioBufferSize] daplayer_->GetAudioBufferSize() error
+2026-10-30T06:13:01.988121Z [33782.845784820] user.err lumatv-gfn-feeder [] NDL Err {} [NDL_directmedia_impl.cpp::NDL_IMPL_DirectAudioGetAvailableBufferSize] GetAudioBufferSize error
+2026-10-30T06:13:01.988143Z [33782.845806440] user.info lumatv-gfn-feeder [] NDL Info {} [NDL_directmedia_impl.cpp::NDL_IMPL_DirectMediaUnload] call
+2026-10-30T06:13:01.988164Z [33782.845827940] user.info lumatv-gfn-feeder [] NDL Info {} [dmplayer.cpp::Unload] call
+2026-10-30T06:13:01.988186Z [33782.845849620] user.info lumatv-gfn-feeder [] smp.api PAUSE {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":""} 
+2026-10-30T06:13:01.988207Z [33782.845870720] user.info lumatv-gfn-feeder [] smp.api SVU_SMP_PAUSE {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":""} 
+2026-10-30T06:13:01.988227Z [33782.845891040] user.info lumatv-gfn-feeder [] subtitle.task SUBTITLE {"tid":"[1ccfae0]", "msg":"[pause]"} 
+2026-10-30T06:13:01.988248Z [33782.845911660] user.info lumatv-gfn-feeder [] smp.api UNLOAD {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":""} 
+2026-10-30T06:13:01.988268Z [33782.845931540] user.info lumatv-gfn-feeder [] smp.api SVU_SMP_UNLOAD {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":""} 
+2026-10-30T06:13:01.988288Z [33782.845952120] user.info lumatv-gfn-feeder [] subtitle.task SUBTITLE {"tid":"[1ccfae0]", "msg":"[setVisibility]"} 
+2026-10-30T06:13:01.988308Z [33782.845972100] user.info lumatv-gfn-feeder [] subtitle.renderer SUBTITLE {"tid":"[1ccfae0]", "msg":"get position x-pos: -1 y-pos: -1"} 
+2026-10-30T06:13:01.988329Z [33782.845992260] user.info lumatv-gfn-feeder [] subtitle.renderer SUBTITLE {"tid":"[1ccfae0]", "msg":"width 0.000000  & height  0.000000  "} 
+2026-10-30T06:13:01.988349Z [33782.846012340] user.info lumatv-gfn-feeder [] smp.api UNLOAD {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"Subtitle hide"} 
+2026-10-30T06:13:01.989341Z [33782.847011480] user.info lumatv-gfn-feeder [] smp.api NL_MEDIA_INFO {"transportType":283,"container":"ES","vdec":"video\/x-h264","adec":"","resolution":"1280x720 60.000000","drmType":-1,"errorCode":601}  
+2026-10-30T06:13:01.989437Z [33782.847101740] user.info lumatv-gfn-feeder [] smp.api SVU_SMP_MEDIA_INFO {"transportType":283,"container":"ES","vdec":"video\/x-h264","adec":"","resolution":"1280x720 60.000000","drmType":-1,"errorCode":601}  
+2026-10-30T06:13:01.989494Z [33782.847157820] user.info lumatv-gfn-feeder [] smp.api NL_DOLBYVISION_INFO {"is_platform_support_dolby_vision":true,"is_stream_play_as_dolby_vision":false,"dolby_vision_profile":-1,"dolby_vision_level":-1,"dolby_vision_ccid":-1,"container":"ES","vdec":"video\/x-h264","error_code":601}  
+2026-10-30T06:13:01.989553Z [33782.847216600] user.info lumatv-gfn-feeder [] avc.proxy setRenderReady {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"isReady[0], connectionInfo[]"} 
+2026-10-30T06:13:01.989574Z [33782.847237660] user.info lumatv-gfn-feeder [] avc.main setRenderReady {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"isReady[0], connectionInfo[]"} 
+2026-10-30T06:13:01.989616Z [33782.847279420] user.info lumatv-gfn-feeder [] avc.impl disconnect {"uid":"_fsP0zN9WyVEFZe", "tid": "22578", "msg":""} 
+2026-10-30T06:13:01.989636Z [33782.847300000] user.info lumatv-gfn-feeder [] avc.impl MAIN {"uid":"_fsP0zN9WyVEFZe", "tid": "22578", "msg":"Disconnected"} 
+2026-10-30T06:13:01.995454Z [33782.853119680] user.info lumatv-gfn-feeder [] smp.api UNLOAD {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"Player unload complete"} 
+2026-10-30T06:13:01.995500Z [33782.853163880] user.info lumatv-gfn-feeder [] smp.api UNLOAD {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"Player object deleted"} 
+2026-10-30T06:13:01.995531Z [33782.853194920] user.info lumatv-gfn-feeder [] smp.api UNLOAD {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"unregister AvMute."} 
+2026-10-30T06:13:01.995552Z [33782.853216140] user.info lumatv-gfn-feeder [] smp.api UNLOAD {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"Delete AVProxy"} 
+2026-10-30T06:13:01.995573Z [33782.853236580] user.info lumatv-gfn-feeder [] avc.proxy finalize {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":""} 
+2026-10-30T06:13:01.995594Z [33782.853257300] user.info lumatv-gfn-feeder [] avc.proxy finalize {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"finalize rmClient."} 
+2026-10-30T06:13:01.995614Z [33782.853277620] user.info lumatv-gfn-feeder [] avc.main finalize {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":""} 
+2026-10-30T06:13:01.995635Z [33782.853298180] user.info lumatv-gfn-feeder [] avc.impl finalize {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":""} 
+2026-10-30T06:13:01.995657Z [33782.853320360] user.info lumatv-gfn-feeder [] avc.impl finalize {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"reset callback functions."} 
+2026-10-30T06:13:01.998796Z [33782.856459360] user.info lumatv-gfn-feeder [] avc.impl finalize {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"reset INITIALIZED_STATUS"} 
+2026-10-30T06:13:01.998817Z [33782.856480180] user.info lumatv-gfn-feeder [] avc.impl finalize {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"finalize multiview conenctor"} 
+2026-10-30T06:13:01.998838Z [33782.856518960] user.info lumatv-gfn-feeder [] multiviewclient INFO {} [MultiviewWatcherClientImpl::~MultiviewWatcherClientImpl::219] com.webos.avconnector.mvclient._01XfzN9ZGBnNxE, Finalize
+2026-10-30T06:13:01.998880Z [33782.856544000] user.info lumatv-gfn-feeder [] multiviewclient INFO {} [MultiviewWatcherClientImpl::RemoveClient::433] com.webos.avconnector.mvclient._01XfzN9ZGBnNxE, Remove client
+2026-10-30T06:13:01.999043Z [33782.856709240] user.info lumatv-gfn-feeder [] multiviewclient INFO {} [MultiviewWatcherClientImpl::MainThread::362] com.webos.avconnector.mvclient._01XfzN9ZGBnNxE, Main loop quit
+2026-10-30T06:13:01.999076Z [33782.856740320] user.info lumatv-gfn-feeder [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::MainThread::366] LSUnregister com.webos.avconnector.mvclient._01XfzN9ZGBnNxE
+2026-10-30T06:13:02.001608Z [33782.859275500] user.info lumatv-gfn-feeder [] multiviewclient INFO {} [MultiviewWatcherClientImpl::EventProcessingThread::456] com.webos.avconnector.mvclient._01XfzN9ZGBnNxE, Exiting message queue
+2026-10-30T06:13:02.001687Z [33782.859351340] user.info lumatv-gfn-feeder [] multiviewclient INFO {} [MultiviewWatcherClientImpl::EventProcessingThread::508] com.webos.avconnector.mvclient._01XfzN9ZGBnNxE, Ended...
+2026-10-30T06:13:02.001771Z [33782.859435820] user.info lumatv-gfn-feeder [] multiviewclient INFO {} [MultiviewWatcherClientImpl::~MultiviewWatcherClientImpl::247] com.webos.avconnector.mvclient._01XfzN9ZGBnNxE, Done.
+2026-10-30T06:13:02.001819Z [33782.859483700] user.info lumatv-gfn-feeder [] avc.impl disconnect {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":""} 
+2026-10-30T06:13:02.001906Z [33782.859570600] user.info lumatv-gfn-feeder [] avc.impl MAIN {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"Disconnected"} 
+2026-10-30T06:13:02.001930Z [33782.859594360] user.info lumatv-gfn-feeder [] avc.lsm unregisterId {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":""} 
+2026-10-30T06:13:02.002275Z [33782.859943120] user.info lumatv-gfn-feeder [] avc.lsm unregisterId {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"unregistered."} 
+2026-10-30T06:13:02.002331Z [33782.859994800] user.info lumatv-gfn-feeder [] avc.video unregisterId {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":""} 
+2026-10-30T06:13:02.003247Z [33782.860910580] user.info lumatv-gfn-feeder [] avc.video unregisterId {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"unregistered."} 
+2026-10-30T06:13:02.003338Z [33782.861001620] user.info lumatv-gfn-feeder [] avc.impl finalize {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"unregistered."} 
+2026-10-30T06:13:02.003760Z [33782.861423980] user.info lumatv-gfn-feeder [] avc.impl finalize {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"stopped LSCaller."} 
+2026-10-30T06:13:02.003847Z [33782.861511340] user.info lumatv-gfn-feeder [] avc.impl finalize {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"stopped connectThread."} 
+2026-10-30T06:13:02.003893Z [33782.861556820] user.info lumatv-gfn-feeder [] avc.impl finalize {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"stopped messageThread."} 
+2026-10-30T06:13:02.003915Z [33782.861578760] user.info lumatv-gfn-feeder [] avc.proxy finalize {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"finalized."} 
+2026-10-30T06:13:02.003936Z [33782.861599440] user.info lumatv-gfn-feeder [] smp.api UNLOAD {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"Unload complete"} 
+2026-10-30T06:13:02.003956Z [33782.861620140] user.info lumatv-gfn-feeder [] smp.api SVU_SMP_UNLOAD {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"Unload complete"} 
+2026-10-30T06:13:02.003997Z [33782.861660340] user.info lumatv-gfn-feeder [] NDL Info {} [dmplayer.cpp::Unload] esplayer deleted
+2026-10-30T06:13:02.004016Z [33782.861680220] user.info lumatv-gfn-feeder [] NDL Info {} [daplayer.cpp::Finalize] call
+2026-10-30T06:13:02.004037Z [33782.861700820] user.info lumatv-gfn-feeder [] NDL Info {} [daplayer.cpp::Finalize] done
+2026-10-30T06:13:02.004086Z [33782.861751100] user.info lumatv-gfn-feeder [] NDL Info {} [dvplayer.cpp::Close] call
+2026-10-30T06:13:02.004112Z [33782.861775980] user.info lumatv-gfn-feeder [] smp.api UNLOAD {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":""} 
+2026-10-30T06:13:02.004135Z [33782.861798960] user.info lumatv-gfn-feeder [] smp.api SVU_SMP_UNLOAD {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":""} 
+2026-10-30T06:13:02.004156Z [33782.861819820] user.info lumatv-gfn-feeder [] subtitle.task SUBTITLE {"tid":"[1ccfae0]", "msg":"[setVisibility]"} 
+2026-10-30T06:13:02.004177Z [33782.861841100] user.info lumatv-gfn-feeder [] subtitle.renderer SUBTITLE {"tid":"[1ccfae0]", "msg":"get position x-pos: -1 y-pos: -1"} 
+2026-10-30T06:13:02.004208Z [33782.861871840] user.info lumatv-gfn-feeder [] subtitle.renderer SUBTITLE {"tid":"[1ccfae0]", "msg":"width 0.000000  & height  0.000000  "} 
+2026-10-30T06:13:02.004229Z [33782.861892660] user.info lumatv-gfn-feeder [] smp.api UNLOAD {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"Subtitle hide"} 
+2026-10-30T06:13:02.004249Z [33782.861912780] user.info lumatv-gfn-feeder [] smp.api UNLOAD {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"Unload break: video not loaded"} 
+2026-10-30T06:13:02.008503Z [33782.866166580] user.info lumatv-gfn-feeder [] avc.proxy ~AVProxy {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"delete AVProxy"} 
+2026-10-30T06:13:02.008524Z [33782.866187840] user.info lumatv-gfn-feeder [] avc.proxy SVU_AVC_CREATION {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"delete AVProxy"} 
+2026-10-30T06:13:02.008545Z [33782.866208300] user.info lumatv-gfn-feeder [] avc.proxy finalize {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":""} 
+2026-10-30T06:13:02.008565Z [33782.866228720] user.info lumatv-gfn-feeder [] avc.proxy ~AVProxy {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"delete avconnector"} 
+2026-10-30T06:13:02.008585Z [33782.866249260] user.info lumatv-gfn-feeder [] avc.main ~AVConnector {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"delete AVConnector"} 
+2026-10-30T06:13:02.008605Z [33782.866269100] user.info lumatv-gfn-feeder [] avc.impl ~AVConnectorImplementor {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":""} 
+2026-10-30T06:13:02.008626Z [33782.866289780] user.info lumatv-gfn-feeder [] avc.video ~VideoConnector {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"appId[com.webos.app.home]"} 
+2026-10-30T06:13:02.008646Z [33782.866309980] user.info lumatv-gfn-feeder [] avc.lsm ~LSMConnector {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"windowId [_Window_Id_15]"} 
+2026-10-30T06:13:02.008668Z [33782.866331720] user.info lumatv-gfn-feeder [] avc.proxy ~AVProxy {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"delete rmclient"} 
+2026-10-30T06:13:02.010768Z [33782.868432500] user.info lumatv-gfn-feeder [] avc.proxy ~AVProxy {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"end AVProxy"} 
+2026-10-30T06:13:02.010806Z [33782.868469900] user.info lumatv-gfn-feeder [] avc.proxy SVU_AVC_CREATION {"uid":"_fsP0zN9WyVEFZe", "tid": "22568", "msg":"end AVProxy"} 
+2026-10-30T06:13:02.010855Z [33782.868519460] user.info lumatv-gfn-feeder [] subtitle.task SUBTITLE {"tid":"[1ccfae0]", "msg":"[~RenderTask]"} 
+2026-10-30T06:13:02.010879Z [33782.868543060] user.info lumatv-gfn-feeder [] NDL Info {} [dvplayer.cpp::Close] done
+2026-10-30T06:13:02.010900Z [33782.868563720] user.info lumatv-gfn-feeder [] NDL Info {} [dmplayer.cpp::Unload] done
+2026-10-30T06:13:02.010920Z [33782.868584160] user.info lumatv-gfn-feeder [] NDL Info {} [NDL_directmedia_impl.cpp::NDL_IMPL_DirectMediaUnload] complete
+2026-10-30T06:13:02.010942Z [33782.868605720] user.info lumatv-gfn-feeder [] NDL Info {} [NDL_directmedia_impl.cpp::NDL_IMPL_DirectMediaQuit] call
+2026-10-30T06:13:02.010962Z [33782.868625960] user.info lumatv-gfn-feeder [] NDL Info {} [dmplayer.cpp::Finalize] call
+2026-10-30T06:13:02.010982Z [33782.868645500] user.info lumatv-gfn-feeder [] NDL Info {} [dmplayer.cpp::Unload] call
+2026-10-30T06:13:02.011001Z [33782.868664620] user.info lumatv-gfn-feeder [] NDL Info {} [daplayer.cpp::Finalize] call
+2026-10-30T06:13:02.011020Z [33782.868683900] user.info lumatv-gfn-feeder [] NDL Info {} [daplayer.cpp::Finalize] done
+2026-10-30T06:13:02.011039Z [33782.868703040] user.info lumatv-gfn-feeder [] NDL Info {} [dvplayer.cpp::Close] call
+2026-10-30T06:13:02.011059Z [33782.868722280] user.warning lumatv-gfn-feeder [] NDL Warning {} [dvplayer.cpp::Close] not opend
+2026-10-30T06:13:02.011078Z [33782.868741760] user.info lumatv-gfn-feeder [] NDL Info {} [dmplayer.cpp::Unload] done
+2026-10-30T06:13:02.011098Z [33782.868761260] user.info lumatv-gfn-feeder [] NDL Info {} [daplayer.cpp::~DAPlayer] call
+2026-10-30T06:13:02.011248Z [33782.868912100] user.info lumatv-gfn-feeder [] NDL Info {} [dvplayer.cpp::Finalize] call
+2026-10-30T06:13:02.011290Z [33782.868953920] user.info lumatv-gfn-feeder [] NDL Info {} [dvplayer.cpp::Close] call
+2026-10-30T06:13:02.011313Z [33782.868976440] user.warning lumatv-gfn-feeder [] NDL Warning {} [dvplayer.cpp::Close] not opend
+2026-10-30T06:13:02.011333Z [33782.868996860] user.info lumatv-gfn-feeder [] NDL Info {} [dvplayer.cpp::Finalize] done
+2026-10-30T06:13:02.011353Z [33782.869016680] user.info lumatv-gfn-feeder [] NDL Info {} [dvplayer.cpp::~DVPlayer] call
+2026-10-30T06:13:02.011373Z [33782.869037120] user.info lumatv-gfn-feeder [] NDL Info {} [dmplayer.cpp::Finalize] dvplayer finalized
+2026-10-30T06:13:02.011393Z [33782.869056900] user.info lumatv-gfn-feeder [] NDL Info {} [lsclient.cpp::~LSClient] ~LSClient
+2026-10-30T06:13:02.012254Z [33782.869919200] user.info lumatv-gfn-feeder [] NDL Info {} [dmplayer.cpp::Finalize] done
+2026-10-30T06:13:02.012314Z [33782.869978080] user.info lumatv-gfn-feeder [] NDL Info {} [dmplayer.cpp::~DMPlayer] call
+2026-10-30T06:13:02.012338Z [33782.870001680] user.info lumatv-gfn-feeder [] NDL Info {} [NDL_directmedia_impl.cpp::NDL_IMPL_DirectMediaQuit] dmplayer is removed
+2026-10-30T06:13:02.027871Z [33782.885535220] user.info umediaserver [] ums.resource_mgr FOREGROUND_REQUEST {"TIMESTAMP":33782.882164880,"CODE_POINT":"<ResourceManager.cpp:setSubType(1662)>"} + sub_type: connection_id=_LIZVpN90YoGZpV, sub_type=card
+2026-10-30T06:13:02.027894Z [33782.885558020] user.info umediaserver [] ums.resource_mgr FOREGROUND_REQUEST {"TIMESTAMP":33782.882214640,"CODE_POINT":"<ResourceManager.cpp:setSubType(1662)>"} + sub_type: connection_id=_Lro2pN9E5DV96d, sub_type=card
+2026-10-30T06:13:02.027916Z [33782.885579420] user.info umediaserver [] ums.resource_mgr FOREGROUND_REQUEST {"TIMESTAMP":33782.882244360,"CODE_POINT":"<ResourceManager.cpp:setSubType(1662)>"} + sub_type: connection_id=_LIZVpN90YoGZpV, sub_type=card
+2026-10-30T06:13:02.029220Z [33782.886884220] user.info eim [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::GetStatusCallback::534] com.webos.multiview.watcherclient.eim, Push message to event queue
+2026-10-30T06:13:02.035368Z [33782.893031300] user.info videooutputd [] videooutputd DEBUG {} requestPQset() [SentLsToken] (1065){"video":{"displayOutput":{"width":3840,"y":0,"x":0,"height":2160},"444bypassPath":false,"sourceInput":{"width":3840,"y":0,"x":0,"height":2160},"winMode":"none","fullScreen":true,"frameRate":25,"scanType":"progr
+2026-10-30T06:13:02.037459Z [33782.895122620] user.info eim [] multiviewclient INFO {} [MultiviewWatcherClientImpl::EventProcessingThread::495] com.webos.multiview.watcherclient.eim, Popped event, processing: launch_done, event: OnMultiviewCloseRequested
+2026-10-30T06:13:02.037483Z [33782.895146580] user.info eim [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::HandleEvents::547] com.webos.multiview.watcherclient.eim, Handling OnMultiviewCloseRequested previous event: OnSideBySideModeChanged
+2026-10-30T06:13:02.037506Z [33782.895169520] user.info eim [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::783] Fill info
+2026-10-30T06:13:02.037527Z [33782.895190920] user.info eim [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::706] Fill info
+2026-10-30T06:13:02.037605Z [33782.895269240] user.info eim [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::GetAppLayoutByRole::627] Invalid AppLayout.
+2026-10-30T06:13:02.037659Z [33782.895322220] user.info eim [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::GetAppLayoutByRole::627] Invalid AppLayout.
+2026-10-30T06:13:02.037704Z [33782.895368140] user.info eim [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::770] usage_type: 0, main_app_id: , sub_app_id: , foreground_app_id: youtube.leanback.v4, tool_type: normalTV, view_type: 0, audio_out: 0, control_mode: -1, input_mode: -1, orientation: 0, media_change_sta
+2026-10-30T06:13:02.037767Z [33782.895430600] user.info eim [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::897] usage_type: 0, appList: , foreground_app_id: youtube.leanback.v4, tool_type: normalTV, view_type: 0, audio_out: 0, control_mode: -1, input_mode: -1, orientation: 0, media_change_state: 0
+2026-10-30T06:13:02.041053Z [33782.898717300] user.info pqcontroller [] pqcontroller LS2_RECEIVED {} setPQ:{"video":{"444bypassPath":false,"displayOutput":{"width":3840,"y":0,"x":0,"height":2160},"sourceInput":{"width":3840,"y":0,"x":0,"height":2160},"winMode":"none","fullScreen":true,"frameRate":25,"scanType":"progressive","connected":tr
+2026-10-30T06:13:02.042234Z [33782.899897680] user.info eim [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::GetStatusCallback::534] com.webos.multiview.watcherclient.eim, Push message to event queue
+2026-10-30T06:13:02.042379Z [33782.900042500] user.info cobalt [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::GetStatusCallback::534] com.webos.avconnector.mvclient._f9JzpN9knvGKLj, Push message to event queue
+2026-10-30T06:13:02.042401Z [33782.900065320] user.info cobalt [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::GetStatusCallback::534] com.webos.avconnector.mvclient._f9JzpN9knvGKLj, Push message to event queue
+2026-10-30T06:13:02.042424Z [33782.900087900] user.info cobalt [] multiviewclient INFO {} [MultiviewWatcherClientImpl::EventProcessingThread::495] com.webos.avconnector.mvclient._f9JzpN9knvGKLj, Popped event, processing: launch_done, event: OnMultiviewCloseRequested
+2026-10-30T06:13:02.042445Z [33782.900109200] user.info cobalt [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::HandleEvents::547] com.webos.avconnector.mvclient._f9JzpN9knvGKLj, Handling OnMultiviewCloseRequested previous event: OnSideBySideModeChanged
+2026-10-30T06:13:02.042478Z [33782.900141840] user.info cobalt [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::783] Fill info
+2026-10-30T06:13:02.042563Z [33782.900227340] user.info cobalt [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::706] Fill info
+2026-10-30T06:13:02.043080Z [33782.900746980] user.info cobalt [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::GetAppLayoutByRole::627] Invalid AppLayout.
+2026-10-30T06:13:02.043146Z [33782.900810220] user.info cobalt [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::GetAppLayoutByRole::627] Invalid AppLayout.
+2026-10-30T06:13:02.043295Z [33782.900958700] user.info cobalt [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::770] usage_type: 0, main_app_id: , sub_app_id: , foreground_app_id: youtube.leanback.v4, tool_type: normalTV, view_type: 0, audio_out: 0, control_mode: -1, input_mode: -1, orientation: 0, media_change_
+2026-10-30T06:13:02.043455Z [33782.901119340] user.info cobalt [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::897] usage_type: 0, appList: , foreground_app_id: youtube.leanback.v4, tool_type: normalTV, view_type: 0, audio_out: 0, control_mode: -1, input_mode: -1, orientation: 0, media_change_state: 0
+2026-10-30T06:13:02.043544Z [33782.901207900] user.info cobalt [] multiviewclient INFO {} [MultiviewWatcherClientImpl::AckEvent::525] com.webos.avconnector.mvclient._f9JzpN9knvGKLj, ACK: {"processing": "launch_done", "appId": "com.webos.avconnector.mvclient._f9JzpN9knvGKLj", "event": "OnMultiviewCloseRequested", "clientType": "watcher"}
+2026-10-30T06:13:02.043779Z [33782.901442440] user.info cobalt [] multiviewclient INFO {} [MultiviewWatcherClientImpl::EventProcessingThread::495] com.webos.avconnector.mvclient._f9JzpN9knvGKLj, Popped event, processing: not_multiview, event: OnMultiviewClosed
+2026-10-30T06:13:02.043800Z [33782.901464000] user.info cobalt [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::HandleEvents::547] com.webos.avconnector.mvclient._f9JzpN9knvGKLj, Handling OnMultiviewClosed previous event: OnMultiviewCloseRequested
+2026-10-30T06:13:02.043821Z [33782.901485160] user.info cobalt [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::783] Fill info
+2026-10-30T06:13:02.043874Z [33782.901537940] user.info cobalt [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::706] Fill info
+2026-10-30T06:13:02.043927Z [33782.901590560] user.info cobalt [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::GetAppLayoutByRole::627] Invalid AppLayout.
+2026-10-30T06:13:02.043970Z [33782.901633980] user.info cobalt [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::GetAppLayoutByRole::627] Invalid AppLayout.
+2026-10-30T06:13:02.044016Z [33782.901679600] user.info cobalt [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::770] usage_type: 0, main_app_id: , sub_app_id: , foreground_app_id: youtube.leanback.v4, tool_type: normalTV, view_type: 0, audio_out: 0, control_mode: -1, input_mode: -1, orientation: 0, media_change_
+2026-10-30T06:13:02.044080Z [33782.901744280] user.info cobalt [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::897] usage_type: 0, appList: , foreground_app_id: youtube.leanback.v4, tool_type: normalTV, view_type: 0, audio_out: 0, control_mode: -1, input_mode: -1, orientation: 0, media_change_state: 0
+2026-10-30T06:13:02.055422Z [33782.913086220] user.info eim [] multiviewclient INFO {} [MultiviewWatcherClientImpl::AckEvent::525] com.webos.multiview.watcherclient.eim, ACK: {"processing": "launch_done", "appId": "com.webos.multiview.watcherclient.eim", "event": "OnMultiviewCloseRequested", "clientType": "watcher"}
+2026-10-30T06:13:02.055603Z [33782.913266620] user.info eim [] multiviewclient INFO {} [MultiviewWatcherClientImpl::EventProcessingThread::495] com.webos.multiview.watcherclient.eim, Popped event, processing: not_multiview, event: OnMultiviewClosed
+2026-10-30T06:13:02.055667Z [33782.913331020] user.info eim [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::HandleEvents::547] com.webos.multiview.watcherclient.eim, Handling OnMultiviewClosed previous event: OnMultiviewCloseRequested
+2026-10-30T06:13:02.055706Z [33782.913370400] user.info eim [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::783] Fill info
+2026-10-30T06:13:02.055733Z [33782.913397460] user.info eim [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::706] Fill info
+2026-10-30T06:13:02.055755Z [33782.913418640] user.info eim [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::GetAppLayoutByRole::627] Invalid AppLayout.
+2026-10-30T06:13:02.055822Z [33782.913485320] user.info eim [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::GetAppLayoutByRole::627] Invalid AppLayout.
+2026-10-30T06:13:02.055883Z [33782.913547040] user.info eim [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::770] usage_type: 0, main_app_id: , sub_app_id: , foreground_app_id: youtube.leanback.v4, tool_type: normalTV, view_type: 0, audio_out: 0, control_mode: -1, input_mode: -1, orientation: 0, media_change_sta
+2026-10-30T06:13:02.055943Z [33782.913606920] user.info eim [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::897] usage_type: 0, appList: , foreground_app_id: youtube.leanback.v4, tool_type: normalTV, view_type: 0, audio_out: 0, control_mode: -1, input_mode: -1, orientation: 0, media_change_state: 0
+ 

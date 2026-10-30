@@ -1,0 +1,11 @@
+{
+    "returnValue": true,
+    "appList": [
+        "com.webos.app.browser",
+        "com.webos.app.camera",
+        "com.webos.app.hdmi2",
+        "com.webos.app.livetv",
+        "com.webos.app.miracast",
+        "youtube.leanback.v4"
+    ]
+}

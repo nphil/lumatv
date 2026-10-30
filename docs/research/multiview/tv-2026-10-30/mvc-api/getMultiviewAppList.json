@@ -1,0 +1,707 @@
+{
+    "returnValue": true,
+    "multiviewAppList": [
+        {
+            "subAppId": "com.webos.app.browser",
+            "mode": "default",
+            "mainAppId": "com.webos.app.livetv",
+            "description": "default",
+            "rank": 1
+        },
+        {
+            "subAppId": "com.webos.app.camera",
+            "mode": "default",
+            "mainAppId": "com.webos.app.livetv",
+            "description": "default",
+            "rank": 2
+        },
+        {
+            "subAppId": "com.webos.app.miracast",
+            "mode": "default",
+            "mainAppId": "com.webos.app.livetv",
+            "description": "default",
+            "rank": 3
+        },
+        {
+            "subAppId": "youtube.leanback.v4",
+            "mode": "default",
+            "mainAppId": "com.webos.app.livetv",
+            "description": "default",
+            "rank": 4
+        },
+        {
+            "subAppId": "spotify-beehive",
+            "mode": "default",
+            "mainAppId": "com.webos.app.livetv",
+            "description": "default",
+            "rank": 5
+        },
+        {
+            "subAppId": "com.lgshop.app",
+            "mode": "default",
+            "mainAppId": "com.webos.app.livetv",
+            "description": "default",
+            "rank": 6
+        },
+        {
+            "subAppId": "com.webos.app.browser",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi1",
+            "description": "default",
+            "rank": 1
+        },
+        {
+            "subAppId": "com.webos.app.camera",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi1",
+            "description": "default",
+            "rank": 2
+        },
+        {
+            "subAppId": "com.webos.app.miracast",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi1",
+            "description": "default",
+            "rank": 3
+        },
+        {
+            "subAppId": "airplay",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi1",
+            "description": "default",
+            "rank": 4
+        },
+        {
+            "subAppId": "youtube.leanback.v4",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi1",
+            "description": "default",
+            "rank": 5
+        },
+        {
+            "subAppId": "spotify-beehive",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi1",
+            "description": "default",
+            "rank": 6
+        },
+        {
+            "subAppId": "tv.twitch.tv.starshot.lg",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi1",
+            "description": "default",
+            "rank": 7
+        },
+        {
+            "subAppId": "com.tiktok.app.tv",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi1",
+            "description": "default",
+            "rank": 8
+        },
+        {
+            "subAppId": "com.lgshop.app",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi1",
+            "description": "default",
+            "rank": 9
+        },
+        {
+            "subAppId": "com.webos.app.browser",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi2",
+            "description": "default",
+            "rank": 1
+        },
+        {
+            "subAppId": "com.webos.app.camera",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi2",
+            "description": "default",
+            "rank": 2
+        },
+        {
+            "subAppId": "com.webos.app.miracast",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi2",
+            "description": "default",
+            "rank": 3
+        },
+        {
+            "subAppId": "airplay",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi2",
+            "description": "default",
+            "rank": 4
+        },
+        {
+            "subAppId": "youtube.leanback.v4",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi2",
+            "description": "default",
+            "rank": 5
+        },
+        {
+            "subAppId": "spotify-beehive",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi2",
+            "description": "default",
+            "rank": 6
+        },
+        {
+            "subAppId": "tv.twitch.tv.starshot.lg",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi2",
+            "description": "default",
+            "rank": 7
+        },
+        {
+            "subAppId": "com.tiktok.app.tv",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi2",
+            "description": "default",
+            "rank": 8
+        },
+        {
+            "subAppId": "com.lgshop.app",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi2",
+            "description": "default",
+            "rank": 9
+        },
+        {
+            "subAppId": "com.webos.app.browser",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi3",
+            "description": "default",
+            "rank": 1
+        },
+        {
+            "subAppId": "com.webos.app.camera",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi3",
+            "description": "default",
+            "rank": 2
+        },
+        {
+            "subAppId": "com.webos.app.miracast",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi3",
+            "description": "default",
+            "rank": 3
+        },
+        {
+            "subAppId": "airplay",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi3",
+            "description": "default",
+            "rank": 4
+        },
+        {
+            "subAppId": "youtube.leanback.v4",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi3",
+            "description": "default",
+            "rank": 5
+        },
+        {
+            "subAppId": "spotify-beehive",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi3",
+            "description": "default",
+            "rank": 6
+        },
+        {
+            "subAppId": "tv.twitch.tv.starshot.lg",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi3",
+            "description": "default",
+            "rank": 7
+        },
+        {
+            "subAppId": "com.tiktok.app.tv",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi3",
+            "description": "default",
+            "rank": 8
+        },
+        {
+            "subAppId": "com.lgshop.app",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi3",
+            "description": "default",
+            "rank": 9
+        },
+        {
+            "subAppId": "com.webos.app.browser",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi4",
+            "description": "default",
+            "rank": 1
+        },
+        {
+            "subAppId": "com.webos.app.camera",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi4",
+            "description": "default",
+            "rank": 2
+        },
+        {
+            "subAppId": "com.webos.app.miracast",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi4",
+            "description": "default",
+            "rank": 3
+        },
+        {
+            "subAppId": "airplay",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi4",
+            "description": "default",
+            "rank": 4
+        },
+        {
+            "subAppId": "youtube.leanback.v4",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi4",
+            "description": "default",
+            "rank": 5
+        },
+        {
+            "subAppId": "spotify-beehive",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi4",
+            "description": "default",
+            "rank": 6
+        },
+        {
+            "subAppId": "tv.twitch.tv.starshot.lg",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi4",
+            "description": "default",
+            "rank": 7
+        },
+        {
+            "subAppId": "com.tiktok.app.tv",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi4",
+            "description": "default",
+            "rank": 8
+        },
+        {
+            "subAppId": "com.lgshop.app",
+            "mode": "default",
+            "mainAppId": "com.webos.app.hdmi4",
+            "description": "default",
+            "rank": 9
+        },
+        {
+            "subAppId": "com.webos.app.livetv",
+            "mode": "default",
+            "mainAppId": "com.webos.app.browser",
+            "description": "default",
+            "rank": 1
+        },
+        {
+            "subAppId": "com.webos.app.hdmi1",
+            "mode": "default",
+            "mainAppId": "com.webos.app.browser",
+            "description": "default",
+            "rank": 2
+        },
+        {
+            "subAppId": "com.webos.app.hdmi2",
+            "mode": "default",
+            "mainAppId": "com.webos.app.browser",
+            "description": "default",
+            "rank": 3
+        },
+        {
+            "subAppId": "com.webos.app.hdmi3",
+            "mode": "default",
+            "mainAppId": "com.webos.app.browser",
+            "description": "default",
+            "rank": 4
+        },
+        {
+            "subAppId": "com.webos.app.hdmi4",
+            "mode": "default",
+            "mainAppId": "com.webos.app.browser",
+            "description": "default",
+            "rank": 5
+        },
+        {
+            "subAppId": "com.webos.app.miracast",
+            "mode": "default",
+            "mainAppId": "com.webos.app.browser",
+            "description": "default",
+            "rank": 6
+        },
+        {
+            "subAppId": "youtube.leanback.v4",
+            "mode": "default",
+            "mainAppId": "com.webos.app.browser",
+            "description": "default",
+            "rank": 7
+        },
+        {
+            "subAppId": "spotify-beehive",
+            "mode": "default",
+            "mainAppId": "com.webos.app.browser",
+            "description": "default",
+            "rank": 8
+        },
+        {
+            "subAppId": "com.webos.app.livetv",
+            "mode": "default",
+            "mainAppId": "com.webos.app.camera",
+            "description": "default",
+            "rank": 1
+        },
+        {
+            "subAppId": "com.webos.app.hdmi1",
+            "mode": "default",
+            "mainAppId": "com.webos.app.camera",
+            "description": "default",
+            "rank": 2
+        },
+        {
+            "subAppId": "com.webos.app.hdmi2",
+            "mode": "default",
+            "mainAppId": "com.webos.app.camera",
+            "description": "default",
+            "rank": 3
+        },
+        {
+            "subAppId": "com.webos.app.hdmi3",
+            "mode": "default",
+            "mainAppId": "com.webos.app.camera",
+            "description": "default",
+            "rank": 4
+        },
+        {
+            "subAppId": "com.webos.app.hdmi4",
+            "mode": "default",
+            "mainAppId": "com.webos.app.camera",
+            "description": "default",
+            "rank": 5
+        },
+        {
+            "subAppId": "youtube.leanback.v4",
+            "mode": "default",
+            "mainAppId": "com.webos.app.camera",
+            "description": "default",
+            "rank": 6
+        },
+        {
+            "subAppId": "com.webos.app.livetv",
+            "mode": "default",
+            "mainAppId": "com.webos.app.miracast",
+            "description": "default",
+            "rank": 1
+        },
+        {
+            "subAppId": "com.webos.app.hdmi1",
+            "mode": "default",
+            "mainAppId": "com.webos.app.miracast",
+            "description": "default",
+            "rank": 2
+        },
+        {
+            "subAppId": "com.webos.app.hdmi2",
+            "mode": "default",
+            "mainAppId": "com.webos.app.miracast",
+            "description": "default",
+            "rank": 3
+        },
+        {
+            "subAppId": "com.webos.app.hdmi3",
+            "mode": "default",
+            "mainAppId": "com.webos.app.miracast",
+            "description": "default",
+            "rank": 4
+        },
+        {
+            "subAppId": "com.webos.app.hdmi4",
+            "mode": "default",
+            "mainAppId": "com.webos.app.miracast",
+            "description": "default",
+            "rank": 5
+        },
+        {
+            "subAppId": "com.webos.app.browser",
+            "mode": "default",
+            "mainAppId": "com.webos.app.miracast",
+            "description": "default",
+            "rank": 6
+        },
+        {
+            "subAppId": "youtube.leanback.v4",
+            "mode": "default",
+            "mainAppId": "com.webos.app.miracast",
+            "description": "default",
+            "rank": 7
+        },
+        {
+            "subAppId": "com.webos.app.hdmi1",
+            "mode": "default",
+            "mainAppId": "airplay",
+            "description": "default",
+            "rank": 1
+        },
+        {
+            "subAppId": "com.webos.app.hdmi2",
+            "mode": "default",
+            "mainAppId": "airplay",
+            "description": "default",
+            "rank": 2
+        },
+        {
+            "subAppId": "com.webos.app.hdmi3",
+            "mode": "default",
+            "mainAppId": "airplay",
+            "description": "default",
+            "rank": 3
+        },
+        {
+            "subAppId": "com.webos.app.hdmi4",
+            "mode": "default",
+            "mainAppId": "airplay",
+            "description": "default",
+            "rank": 4
+        },
+        {
+            "subAppId": "com.webos.app.livetv",
+            "mode": "default",
+            "mainAppId": "youtube.leanback.v4",
+            "description": "default",
+            "rank": 1
+        },
+        {
+            "subAppId": "com.webos.app.hdmi1",
+            "mode": "default",
+            "mainAppId": "youtube.leanback.v4",
+            "description": "default",
+            "rank": 2
+        },
+        {
+            "subAppId": "com.webos.app.hdmi2",
+            "mode": "default",
+            "mainAppId": "youtube.leanback.v4",
+            "description": "default",
+            "rank": 3
+        },
+        {
+            "subAppId": "com.webos.app.hdmi3",
+            "mode": "default",
+            "mainAppId": "youtube.leanback.v4",
+            "description": "default",
+            "rank": 4
+        },
+        {
+            "subAppId": "com.webos.app.hdmi4",
+            "mode": "default",
+            "mainAppId": "youtube.leanback.v4",
+            "description": "default",
+            "rank": 5
+        },
+        {
+            "subAppId": "com.webos.app.browser",
+            "mode": "default",
+            "mainAppId": "youtube.leanback.v4",
+            "description": "default",
+            "rank": 6
+        },
+        {
+            "subAppId": "com.webos.app.camera",
+            "mode": "default",
+            "mainAppId": "youtube.leanback.v4",
+            "description": "default",
+            "rank": 7
+        },
+        {
+            "subAppId": "com.webos.app.miracast",
+            "mode": "default",
+            "mainAppId": "youtube.leanback.v4",
+            "description": "default",
+            "rank": 8
+        },
+        {
+            "subAppId": "com.lgshop.app",
+            "mode": "default",
+            "mainAppId": "youtube.leanback.v4",
+            "description": "default",
+            "rank": 9
+        },
+        {
+            "subAppId": "com.webos.app.livetv",
+            "mode": "default",
+            "mainAppId": "spotify-beehive",
+            "description": "default",
+            "rank": 1
+        },
+        {
+            "subAppId": "com.webos.app.hdmi1",
+            "mode": "default",
+            "mainAppId": "spotify-beehive",
+            "description": "default",
+            "rank": 2
+        },
+        {
+            "subAppId": "com.webos.app.hdmi2",
+            "mode": "default",
+            "mainAppId": "spotify-beehive",
+            "description": "default",
+            "rank": 3
+        },
+        {
+            "subAppId": "com.webos.app.hdmi3",
+            "mode": "default",
+            "mainAppId": "spotify-beehive",
+            "description": "default",
+            "rank": 4
+        },
+        {
+            "subAppId": "com.webos.app.hdmi4",
+            "mode": "default",
+            "mainAppId": "spotify-beehive",
+            "description": "default",
+            "rank": 5
+        },
+        {
+            "subAppId": "com.webos.app.browser",
+            "mode": "default",
+            "mainAppId": "spotify-beehive",
+            "description": "default",
+            "rank": 6
+        },
+        {
+            "subAppId": "tv.twitch.tv.starshot.lg",
+            "mode": "default",
+            "mainAppId": "spotify-beehive",
+            "description": "default",
+            "rank": 7
+        },
+        {
+            "subAppId": "com.tiktok.app.tv",
+            "mode": "default",
+            "mainAppId": "spotify-beehive",
+            "description": "default",
+            "rank": 8
+        },
+        {
+            "subAppId": "com.webos.app.hdmi1",
+            "mode": "default",
+            "mainAppId": "tv.twitch.tv.starshot.lg",
+            "description": "default",
+            "rank": 1
+        },
+        {
+            "subAppId": "com.webos.app.hdmi2",
+            "mode": "default",
+            "mainAppId": "tv.twitch.tv.starshot.lg",
+            "description": "default",
+            "rank": 2
+        },
+        {
+            "subAppId": "com.webos.app.hdmi3",
+            "mode": "default",
+            "mainAppId": "tv.twitch.tv.starshot.lg",
+            "description": "default",
+            "rank": 3
+        },
+        {
+            "subAppId": "com.webos.app.hdmi4",
+            "mode": "default",
+            "mainAppId": "tv.twitch.tv.starshot.lg",
+            "description": "default",
+            "rank": 4
+        },
+        {
+            "subAppId": "spotify-beehive",
+            "mode": "default",
+            "mainAppId": "tv.twitch.tv.starshot.lg",
+            "description": "default",
+            "rank": 5
+        },
+        {
+            "subAppId": "com.webos.app.hdmi1",
+            "mode": "default",
+            "mainAppId": "com.tiktok.app.tv",
+            "description": "default",
+            "rank": 1
+        },
+        {
+            "subAppId": "com.webos.app.hdmi2",
+            "mode": "default",
+            "mainAppId": "com.tiktok.app.tv",
+            "description": "default",
+            "rank": 2
+        },
+        {
+            "subAppId": "com.webos.app.hdmi3",
+            "mode": "default",
+            "mainAppId": "com.tiktok.app.tv",
+            "description": "default",
+            "rank": 3
+        },
+        {
+            "subAppId": "com.webos.app.hdmi4",
+            "mode": "default",
+            "mainAppId": "com.tiktok.app.tv",
+            "description": "default",
+            "rank": 4
+        },
+        {
+            "subAppId": "spotify-beehive",
+            "mode": "default",
+            "mainAppId": "com.tiktok.app.tv",
+            "description": "default",
+            "rank": 5
+        },
+        {
+            "subAppId": "com.webos.app.livetv",
+            "mode": "default",
+            "mainAppId": "com.lgshop.app",
+            "description": "default",
+            "rank": 1
+        },
+        {
+            "subAppId": "com.webos.app.hdmi1",
+            "mode": "default",
+            "mainAppId": "com.lgshop.app",
+            "description": "default",
+            "rank": 2
+        },
+        {
+            "subAppId": "com.webos.app.hdmi2",
+            "mode": "default",
+            "mainAppId": "com.lgshop.app",
+            "description": "default",
+            "rank": 3
+        },
+        {
+            "subAppId": "com.webos.app.hdmi3",
+            "mode": "default",
+            "mainAppId": "com.lgshop.app",
+            "description": "default",
+            "rank": 4
+        },
+        {
+            "subAppId": "com.webos.app.hdmi4",
+            "mode": "default",
+            "mainAppId": "com.lgshop.app",
+            "description": "default",
+            "rank": 5
+        },
+        {
+            "subAppId": "youtube.leanback.v4",
+            "mode": "default",
+            "mainAppId": "com.lgshop.app",
+            "description": "default",
+            "rank": 6
+        }
+    ],
+    "defalutPresetList": [
+    ]
+}

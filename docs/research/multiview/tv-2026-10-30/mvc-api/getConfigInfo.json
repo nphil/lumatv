@@ -1,0 +1,23 @@
+{
+    "returnValue": true,
+    "constraints": {
+        "layout": {
+            "notSupportPip": [
+                {
+                    "appId": "com.webos.chromecast-settings",
+                    "description": "curtain app for chromecast"
+                },
+                {
+                    "appId": "com.webos.chromecast",
+                    "description": "chromecast app"
+                }
+            ],
+            "notSupportInputMode": [
+                {
+                    "appId": "com.webos.chromecast-settings",
+                    "description": "curtain app for chromecast, restricted type"
+                }
+            ]
+        }
+    }
+}
