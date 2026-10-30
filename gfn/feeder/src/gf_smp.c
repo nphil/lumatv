@@ -6,8 +6,8 @@
  * pointer left the local buffer.
  *
  * The load is a BUFFERSTREAM of raw elementary streams (RAW, provider Chrome, the pair of levels a low-latency client uses), the stream's own
- * size and rate as the ceiling the decoder reserves for, and no game mode: this is the pipeline an app's own video has, and its AV
- * connector takes the sink the Multi View state gives it (MAIN, or SUB0 beside an app's video); the NDL load (gf_ndl.c) is a low-delay
+ * size and rate as the ceiling the decoder reserves for, and no game mode: this is the pipeline an app's own video has, and outside a Multi
+ * View its AV connector takes the sink the load asks for (`avSink`, MAIN by default; Home's pipeline excepted); the NDL load (gf_ndl.c) is a low-delay
  * game session and such a pipeline occupies the sub scaler for itself. Feeding starts as soon as Load returns: the pipeline prerolls on
  * the first buffers and only then says LOADCOMPLETED, and a Play sent before that is queued, so Play is sent after Load, after the first
  * buffer taken and once more when LOADCOMPLETED has been seen.
@@ -180,6 +180,14 @@ static int smp_start(gf_pipe *p, const char *app_id, const char *window_id, cons
     const char *sink = o->sink && o->sink[0] ? o->sink : "";
     if (!json_safe(app_id) || !json_safe(window_id) || !json_safe(sink)) {
         snprintf(err, cap, "the app id, the window id or the sink is not a plain string");
+        return -1;
+    }
+    /* LG's AV connector (libav-connector.so.1, MultiviewConnector::processForcePictureInPictureMode, run when its Multi View watcher first
+     * reports) puts a media pipeline of Home's on the main window in pip mode whatever sink the load asked for: Home's own picture-in-picture.
+     * The connect then takes MAIN_SCALER from the app whose video holds it (M2, docs/research/multiview-result.md). Any other app keeps the
+     * sink it asks for, so the sub window is asked for under another app's id. */
+    if (!strcmp(sink, "sub_video") && !strcmp(app_id, "com.webos.app.home")) {
+        snprintf(err, cap, "the sub_video sink is never Home's: LG's AV connector puts Home's media pipeline on the main window in pip mode");
         return -1;
     }
     /* the sink the video goes to (`avSink.videoSink.type`: main_video, sub_video, graphic): the AV connector inside the library takes the name as is

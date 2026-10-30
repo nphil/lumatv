@@ -512,8 +512,9 @@ class Serve(unittest.TestCase):
 
     def test_the_starfish_pipeline_takes_the_sub_window_load_and_ndl_the_next(self):
         """`GF_PIPE smp` and `GF_SINK sub_video` before a load: the load goes to LG's starfish library (its stand-in) asking for the sub sink, without game
-        mode, with the stream's own size as the ceiling, for the app named; the units are taken and the pipeline's events come back. NDL refuses a sink;
-        `GF_PIPE ndl` puts the next load back on it."""
+        mode, with the stream's own size as the ceiling, for the app named; the units are taken and the pipeline's events come back. NDL refuses a sink,
+        and so does the starfish pipeline for Home (LG's AV connector puts Home's media pipeline on the main window); `GF_PIPE ndl` puts the next load back
+        on it."""
         tmp = tempfile.mkdtemp(prefix="gfn-feeder-smp-")
         sock = os.path.join(tmp, "feed.sock")
         ndl_log, smp_log = os.path.join(tmp, "ndl.log"), os.path.join(tmp, "smp.log")
@@ -531,9 +532,14 @@ class Serve(unittest.TestCase):
             (t, p), _ = c.until(GF["LOADED"])
             self.assertEqual(struct.unpack_from("<i", p)[0], 0, p)
             self.assertIn(b"NDL cannot ask for the sub_video sink", p)
-            # the starfish pipeline, for Home, the sub sink
+            # the starfish pipeline: Home is refused the sub sink with the reason, another app gets it
             c.send(GF["PIPE"], b"smp")
             c.send(GF["APP"], b"com.webos.app.home")
+            c.load(codec=1, w=1280, h=720, fps=30, audio=0, hdr=0, drop=-1)
+            (t, p), _ = c.until(GF["LOADED"])
+            self.assertEqual(struct.unpack_from("<i", p)[0], 0, p)
+            self.assertIn(b"the sub_video sink is never Home's", p)
+            c.send(GF["APP"], b"org.test.front")
             c.load(codec=1, w=1280, h=720, fps=30, audio=0, hdr=0, drop=-1)
             (t, p), _ = c.until(GF["LOADED"])
             self.assertEqual(struct.unpack_from("<i", p)[0], 1, p)
@@ -561,7 +567,7 @@ class Serve(unittest.TestCase):
             opt = payload["args"][0]["option"]
             self.assertEqual(payload["args"][0]["mediaTransportType"], "BUFFERSTREAM")
             self.assertEqual(opt["avSink"], {"videoSink": {"type": "sub_video"}})
-            self.assertEqual(opt["appId"], "com.webos.app.home")
+            self.assertEqual(opt["appId"], "org.test.front")
             self.assertTrue(opt["windowId"].startswith("_Window_Id_"), opt)
             self.assertEqual(opt["adaptiveStreaming"], {"audioOnly": False, "maxWidth": 1280, "maxHeight": 720, "maxFrameRate": 30})
             self.assertEqual(opt["externalStreamingInfo"]["contents"]["codec"], {"video": "H264"})
