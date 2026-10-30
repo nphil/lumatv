@@ -152,16 +152,14 @@ fn with_the_screen_on_it_fetches_saves_and_announces() {
     assert_eq!(news["doc"]["feeds"], json!([BBC_WORLD_URL, BBC_US_URL]));
     assert_eq!(news["doc"]["items"].as_array().unwrap().len(), 8);
 
-    // Geocoding, then the forecast, then the two feeds.
-    assert_eq!(
-        script.requests(),
-        [
-            "https://api.zippopotam.us/us/30311",
-            FORECAST_ATLANTA,
-            BBC_WORLD_URL,
-            BBC_US_URL
-        ]
-    );
+    // Geocoding, then the forecast, then the two feeds, then the full weather view's details and alerts for the same place (no second lookup).
+    let requests = script.requests();
+    assert_eq!(requests[..4], ["https://api.zippopotam.us/us/30311", FORECAST_ATLANTA, BBC_WORLD_URL, BBC_US_URL]);
+    let mut more: Vec<&str> = requests[4..].iter().map(String::as_str).collect();
+    more.sort_unstable();
+    assert_eq!(more.len(), 2, "{more:?}");
+    assert!(more[0].starts_with("https://api.open-meteo.com/v1/forecast?latitude=33.723&longitude=-84.4702&current=uv_index,"), "{more:?}");
+    assert_eq!(more[1], "https://api.weather.gov/alerts/active?point=33.7230,-84.4702");
 
     // The files are the documents, byte for byte the same JSON.
     let on_disk: Value =
@@ -175,7 +173,7 @@ fn with_the_screen_on_it_fetches_saves_and_announces() {
 
     // Nothing is fetched again until the next refresh is due.
     thread::sleep(Duration::from_millis(300));
-    assert_eq!(script.requests().len(), 4);
+    assert_eq!(script.requests().len(), 6, "the four, and the details and the alerts (which this script has no answer for)");
 
     // A restart on the same data dir serves the saved reading before it fetches.
     let mut rig = rig;

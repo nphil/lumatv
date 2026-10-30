@@ -18,6 +18,7 @@ use fetch::Fetch;
 use lumatv_feeds::cache::{self, DocCache, FUTURE_SKEW_MS};
 use lumatv_feeds::news::{self, NewsConfig, NewsDoc};
 use lumatv_feeds::weather::{self, Units, WeatherConfig, WeatherDoc};
+use lumatv_feeds::weather_more::{self, MoreDoc};
 use lumatv_feeds::{FeedError, REFRESH_MS};
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -31,6 +32,8 @@ const MIN_GAP_MS: u64 = 60_000;
 
 pub const WEATHER_TOPIC: &str = "weather";
 pub const NEWS_TOPIC: &str = "news";
+/// The full weather view's hours, details and alerts: refreshed with the weather, so that opening the view finds them.
+pub const WEATHER_MORE_TOPIC: &str = "weather.more";
 
 /// What wakes the feeds thread.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -109,6 +112,39 @@ impl Feed for WeatherFeed {
     }
 
     fn set_interval(doc: &mut WeatherDoc, interval_ms: u64) {
+        doc.stale_at = doc.fetched_at.saturating_add(interval_ms);
+    }
+}
+
+struct WeatherMoreFeed;
+
+impl Feed for WeatherMoreFeed {
+    type Key = WeatherConfig;
+    type Doc = MoreDoc;
+    const TOPIC: &'static str = WEATHER_MORE_TOPIC;
+    const NAME: &'static str = "weather details";
+
+    fn cfg(ctx: &Ctx) -> Cfg<WeatherConfig> {
+        WeatherFeed::cfg(ctx)
+    }
+
+    fn load(cache: &DocCache, key: &WeatherConfig, now: u64) -> Option<MoreDoc> {
+        cache.load_weather_more(key, now)
+    }
+
+    fn refresh(fetch: &dyn Fetch, key: &WeatherConfig, previous: Option<&MoreDoc>, now: u64) -> Result<MoreDoc, FeedError> {
+        weather_more::refresh(fetch, key, previous, now)
+    }
+
+    fn store(cache: &DocCache, doc: &MoreDoc) -> std::io::Result<()> {
+        cache.store_weather_more(doc)
+    }
+
+    fn fetched_at(doc: &MoreDoc) -> u64 {
+        doc.fetched_at
+    }
+
+    fn set_interval(doc: &mut MoreDoc, interval_ms: u64) {
         doc.stale_at = doc.fetched_at.saturating_add(interval_ms);
     }
 }
@@ -297,11 +333,14 @@ fn run(ctx: &Ctx, rx: &Receiver<Cmd>, fetch: &dyn Fetch) {
     let cache = DocCache::new(ctx.paths.cache_dir());
     let mut weather = Lane::<WeatherFeed>::new();
     let mut news = Lane::<NewsFeed>::new();
+    let mut more = Lane::<WeatherMoreFeed>::new();
     // Saved first: what is on disk goes out now, before the screen is known and before any network.
     weather.sync(ctx, &cache);
     news.sync(ctx, &cache);
+    more.sync(ctx, &cache);
     weather.publish(ctx);
     news.publish(ctx);
+    more.publish(ctx);
     loop {
         if ctx.stop.is_set() {
             return;
@@ -311,6 +350,9 @@ fn run(ctx: &Ctx, rx: &Receiver<Cmd>, fetch: &dyn Fetch) {
         }
         if news.sync(ctx, &cache) {
             news.publish(ctx);
+        }
+        if more.sync(ctx, &cache) {
+            more.publish(ctx);
         }
         let on = screen::is_on(&ctx.hub);
         let mut waiting_for: Option<u64> = None;
@@ -324,9 +366,19 @@ fn run(ctx: &Ctx, rx: &Receiver<Cmd>, fetch: &dyn Fetch) {
                 news.attempt(fetch, &cache);
                 news.publish(ctx);
             }
+            // after the weather, so the two are for the same quarter hour (and a weather that failed has not left the details to waste a request)
+            if more.doc.is_none()
+                && let Some(w) = &weather.doc
+            {
+                more.doc = Some(MoreDoc::seed(w));
+            }
+            if (on || more.force) && now_ms() >= more.due_at() && weather.failures == 0 && weather.doc.is_some() {
+                more.attempt(fetch, &cache);
+                more.publish(ctx);
+            }
         }
         if on {
-            waiting_for = Some(weather.due_at().min(news.due_at()));
+            waiting_for = Some(weather.due_at().min(news.due_at()).min(more.due_at()));
         }
         let command = match waiting_for {
             Some(due) => {
@@ -341,6 +393,7 @@ fn run(ctx: &Ctx, rx: &Receiver<Cmd>, fetch: &dyn Fetch) {
             Ok(Cmd::Refresh) => {
                 weather.force = true;
                 news.force = true;
+                more.force = true;
             }
             Ok(Cmd::Wake) | Err(RecvTimeoutError::Timeout) => {}
         }

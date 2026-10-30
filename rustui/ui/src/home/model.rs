@@ -38,6 +38,7 @@ pub const SCOPE_EDIT: Scope = Scope(3);
 pub const SCOPE_PICKER: Scope = Scope(4);
 pub const SCOPE_MENU: Scope = Scope(6);
 pub const SCOPE_CONFIRM: Scope = Scope(7);
+pub const SCOPE_WEATHER: Scope = Scope(8);
 
 /// The luna tags Home calls with.
 pub const LP_TAG: u64 = 300;
@@ -73,6 +74,8 @@ pub enum Layer {
     Confirm,
     /// The status bar's settings popover: the wallpaper's motion in live rows ([`super::popover`]).
     Popover,
+    /// The full weather view ([`super::weather_view`]): OK on the weather card.
+    Weather,
 }
 
 /// A row of the tile menu.
@@ -147,6 +150,9 @@ pub struct Home {
     pub theme_text: String,
     pub tint: Value,
     pub weather: Value,
+    /// The helper's `weather.more`: the hours, the details of now and the alerts of the full weather view.
+    pub weather_more: Value,
+    pub wview: super::weather_view::WeatherView,
     pub news: Value,
     /// The helper's `plugins` roster, its `ha.link` and the plugins' `plugin.<id>.cards`: what the At-home card is drawn from.
     pub plugins: hub::Topics,
@@ -244,6 +250,8 @@ impl Home {
             theme_text: String::new(),
             tint: Value::Null,
             weather: Value::Null,
+            weather_more: Value::Null,
+            wview: super::weather_view::WeatherView::default(),
             news: Value::Null,
             plugins: Default::default(),
             voice_ready: false,
@@ -814,6 +822,12 @@ impl Home {
         match topic {
             "up" => self.helper_up = data.as_bool().unwrap_or(false),
             "weather" => self.weather = data.clone(),
+            "weather.more" => {
+                self.weather_more = data.clone();
+                if self.layer == Layer::Weather {
+                    self.redraw(out);
+                }
+            }
             "news" => self.news = data.clone(),
             "plugins" | "ha.link" => {
                 self.plugins.insert(topic.to_owned(), data.clone());
@@ -1042,6 +1056,7 @@ impl Home {
             Layer::Menu => self.menu_key(name, dir, out),
             Layer::Confirm => self.confirm_key(name, dir, out),
             Layer::Popover => self.popover_key(name, dir, out),
+            Layer::Weather => self.weather_key(name, dir),
             Layer::None => self.home_key(name, dir, out),
         }
         self.redraw(out);
@@ -1403,6 +1418,11 @@ impl Home {
         if kind == "homeassistant" {
             self.requests.push(Request::SettingsPage("homeassistant".into()));
         }
+        if kind == "weather" {
+            self.wview.open();
+            self.open_layer(Layer::Weather, SCOPE_WEATHER);
+            self.redraw(out);
+        }
         out.push(Effect::Log(format!("card {wid} ({kind}) activated")));
     }
 
@@ -1678,6 +1698,12 @@ impl Home {
                 self.close_layer();
                 self.start_app("com.palm.app.settings", &json!({}), "Settings", out);
             }
+        }
+    }
+
+    fn weather_key(&mut self, name: &str, dir: Option<Dir>) {
+        if self.wview.key(name, dir == Some(Dir::Up), dir == Some(Dir::Down)) == super::weather_view::Done::Close {
+            self.close_layer();
         }
     }
 
@@ -1998,6 +2024,11 @@ impl Home {
         self.active && self.screen_on && !self.saver_up && self.layer == Layer::None
     }
 
+    /// Whether the full weather view's picture may move: that view is up, Home in front, the screen on and no screensaver.
+    pub fn weather_view_runs(&self) -> bool {
+        self.active && self.screen_on && !self.saver_up && self.layer == Layer::Weather
+    }
+
     /// Home is in front with nothing open on it: no layer, no layout editor, no card's inner focus, no tile being moved.
     pub fn at_rest(&self) -> bool {
         self.active && self.screen_on && self.layer == Layer::None && self.editor.is_none() && self.inner.is_none() && !self.dock.moving
@@ -2027,7 +2058,7 @@ impl Home {
     pub fn state(&self) -> Value {
         json!({
             "home": self.active,
-            "layer": match self.layer { Layer::None => "", Layer::Apps => "apps", Layer::Search => "search", Layer::Edit => "edit", Layer::Picker => "picker", Layer::Menu => "menu", Layer::Confirm => "confirm", Layer::Popover => "popover" },
+            "layer": match self.layer { Layer::None => "", Layer::Apps => "apps", Layer::Search => "search", Layer::Edit => "edit", Layer::Picker => "picker", Layer::Menu => "menu", Layer::Confirm => "confirm", Layer::Popover => "popover", Layer::Weather => "weather" },
             "focus": self.focus.current().map(|i| i.0),
             "focusLayer": self.focus.current().map(|id| if Self::dock_index_of(id).is_some() { "dock" } else if self.widget_of(id).is_some() { if self.inner.is_some() { "widget" } else { "widgets" } } else { "statusbar" }),
             "widgetFocusId": self.focus.current().and_then(|id| self.widget_of(id)),
@@ -2080,6 +2111,40 @@ mod tests {
     fn roster(owner: Value) -> Value {
         let own = |id: &str| json!({"class": "S", "firstParty": true, "id": id, "name": id, "registered": true, "state": "connected", "version": "1"});
         json!({"firstParty": [own("weather"), own("news"), own("clock")], "plugins": owner, "problem": null})
+    }
+
+    #[test]
+    fn ok_on_the_weather_card_opens_the_weather_view_up_and_down_walk_it_and_back_closes() {
+        let mut h = home();
+        // down from the status bar to the cards, then right along them to the weather card
+        press(&mut h, "down", 1100);
+        for i in 0..6 {
+            if h.focus.current().and_then(|id| h.widget_of(id)) == Some("weather") {
+                break;
+            }
+            press(&mut h, "right", 1200 + i * 100);
+        }
+        assert_eq!(h.focus.current().and_then(|id| h.widget_of(id)), Some("weather"), "the focus reached the weather card");
+        press(&mut h, "ok", 2000);
+        assert_eq!(h.layer, Layer::Weather);
+        assert_eq!(h.state()["layer"], "weather");
+        assert!(h.weather_view_runs() && !h.weather_art_runs(), "the view's picture moves, the card's under it does not");
+        assert_eq!(h.wview.page, super::super::weather_view::Page::Now);
+        press(&mut h, "up", 2100);
+        assert_eq!(h.wview.page, super::super::weather_view::Page::Now, "nothing above the first page");
+        press(&mut h, "down", 2200);
+        press(&mut h, "down", 2300);
+        assert_eq!(h.wview.page, super::super::weather_view::Page::Details);
+        press(&mut h, "down", 2400);
+        assert_eq!(h.wview.page, super::super::weather_view::Page::Details);
+        press(&mut h, "back", 2500);
+        assert_eq!(h.layer, Layer::None, "Back closes it");
+        assert!(h.weather_art_runs() && !h.weather_view_runs());
+        // opened again it starts on the first page; a reading that arrives while it is up draws it again
+        press(&mut h, "ok", 3000);
+        assert_eq!(h.wview.page, super::super::weather_view::Page::Now);
+        let out = h.update(&Input::Helper { topic: "weather.more".into(), data: json!({"doc": {"hourly": []}}) }, 3100);
+        assert!(out.contains(&Effect::Redraw));
     }
 
     fn lane(h: &Home) -> (&'static str, &'static str, &'static str) {

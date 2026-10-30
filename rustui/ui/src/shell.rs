@@ -2004,8 +2004,18 @@ mod tests {
             assert_eq!(launched, 0, "{name}: Home launched nothing");
             close_owner(&mut shell, name, at);
             assert!(!shell.system_wants(), "{name}: closed");
+            // an owner that closed itself (the picker on OK) gave Home the clicks that followed, and a click on the weather card opens its view: Back leaves it
+            for i in 0..3 {
+                if shell.state()["home"]["layer"] != "" {
+                    key(&mut shell, "back", at + 200 + i * 100);
+                }
+            }
             let before = home_position(&shell);
+            // (the focus may be on the rightmost card, which a click left it on: then the way back is left)
             key(&mut shell, "right", at + 1_000);
+            if home_position(&shell) == before {
+                key(&mut shell, "left", at + 1_200);
+            }
             assert_ne!(home_position(&shell), before, "{name}: Home has the keys again");
         }
     }

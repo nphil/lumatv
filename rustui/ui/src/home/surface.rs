@@ -257,6 +257,7 @@ pub struct HomeSurface {
     menu: Option<MenuSurface>,
     confirm: Option<ConfirmSurface>,
     popover: Option<PopoverSurface>,
+    weather_view: Option<super::weather_view::WeatherSurface>,
     veil: Option<ShapeLayer>,
     generation: u64,
     text_scale: f32,
@@ -271,6 +272,8 @@ pub struct HomeSurface {
     news_at: u64,
     /// When the weather picture's next paths are due (while it moves).
     art_at: Option<u64>,
+    /// The same for the full weather view's picture.
+    view_art_at: Option<u64>,
     news_index: usize,
     last_clock_s: u64,
     wall_mode: Option<Mode>,
@@ -296,6 +299,7 @@ impl HomeSurface {
             menu: None,
             confirm: None,
             popover: None,
+            weather_view: None,
             veil: None,
             generation: 0,
             text_scale: 0.0,
@@ -308,6 +312,7 @@ impl HomeSurface {
             live: false,
             news_at: 0,
             art_at: None,
+            view_art_at: None,
             news_index: 0,
             last_clock_s: 0,
             wall_mode: None,
@@ -328,12 +333,12 @@ impl HomeSurface {
 
     /// The surface's own timers: the news slide, the clock's second (or minute).
     pub fn tick(&mut self, now: u64) -> bool {
-        now / 1000 != self.last_clock_s || (self.news_at > 0 && now >= self.news_at) || self.art_at.is_some_and(|t| now >= t)
+        now / 1000 != self.last_clock_s || (self.news_at > 0 && now >= self.news_at) || self.art_at.is_some_and(|t| now >= t) || self.view_art_at.is_some_and(|t| now >= t)
     }
 
     pub fn due_at(&self) -> Option<u64> {
         let news = if self.cards.iter().any(|c| c.kind == "news") && self.news_at > 0 { Some(self.news_at) } else { None };
-        [news, self.art_at].into_iter().flatten().min()
+        [news, self.art_at, self.view_art_at].into_iter().flatten().min()
     }
 
     /// The weather card's picture moves only while the card is seen: Home in front with nothing over the card, the screen on, no screensaver,
@@ -471,6 +476,7 @@ impl HomeSurface {
             c.destroy(engine);
         }
         self.popover = None;
+        self.weather_view = None;
         self.hover = None;
         self.veil = None;
         self.last_focus = None;
@@ -1047,6 +1053,19 @@ impl HomeSurface {
             c.update(kit, home);
         }
         // the status bar's settings popover: made when it opens and when its rows scroll; the wallpaper behind is the preview, so the page steps back
+        // the full weather view
+        match (home.layer == Layer::Weather, &mut self.weather_view) {
+            (true, None) => self.weather_view = Some(super::weather_view::WeatherSurface::new(kit, home, Z_LAYERS + 30)?),
+            (false, Some(_)) => self.weather_view = None,
+            _ => {}
+        }
+        if let Some(w) = &mut self.weather_view {
+            let run = home.weather_view_runs() && !kit.ui.look.reduced_motion;
+            w.update(kit, home, &mut self.pictures, now, run)?;
+            self.view_art_at = if run { w.due_at(now) } else { None };
+        } else {
+            self.view_art_at = None;
+        }
         let popover_up = home.layer == Layer::Popover && home.popover_lay.is_some();
         if self.popover.as_ref().is_some_and(|p| !popover_up || !p.is_for(home)) {
             self.popover = None;

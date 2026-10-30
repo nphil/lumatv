@@ -13,6 +13,7 @@ use serde::de::DeserializeOwned;
 
 use crate::news::{NewsConfig, NewsDoc};
 use crate::weather::{WeatherConfig, WeatherDoc};
+use crate::weather_more::MoreDoc;
 use crate::{EXPIRE_MS, REFRESH_MS, RETRY_MS, SCHEMA};
 
 /// The largest document file that is read; real ones are a few KiB, so a bigger file is damaged or foreign.
@@ -129,6 +130,22 @@ impl DocCache {
     /// `<dir>/weather.json`.
     pub fn weather_path(&self) -> PathBuf {
         self.dir.join("weather.json")
+    }
+
+    /// `<dir>/weather-more.json`: the hours, the details and the alerts of the full weather view.
+    pub fn weather_more_path(&self) -> PathBuf {
+        self.dir.join("weather-more.json")
+    }
+
+    /// The saved details under the weather document's rules: of this schema, for this zip and unit, not expired.
+    pub fn load_weather_more(&self, cfg: &WeatherConfig, now_ms: u64) -> Option<MoreDoc> {
+        let doc: MoreDoc = read_json(&self.weather_more_path())?;
+        let usable = doc.schema == SCHEMA && doc.zip == cfg.zip && doc.units == cfg.units && freshness(doc.fetched_at, now_ms) != Freshness::Expired;
+        usable.then_some(doc)
+    }
+
+    pub fn store_weather_more(&self, doc: &MoreDoc) -> io::Result<()> {
+        atomic_write(&self.weather_more_path(), &serde_json::to_vec(doc).map_err(io::Error::other)?)
     }
 
     /// `<dir>/news.json`.
