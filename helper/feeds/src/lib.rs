@@ -13,6 +13,7 @@ mod jsnum;
 pub mod cache;
 pub mod news;
 pub mod weather;
+pub mod weather_ha;
 pub mod weather_more;
 
 pub use error::FeedError;
