@@ -11,6 +11,10 @@ Done (forge main, own worktree `/tmp/Frames120-wt`, delete it only when finished
   and its weather sprites rest while Settings or a panel is over Home (`Home::set_overlay`, `WallpaperSurface::set_held`, `Shell::after`; released 450 ms after
   the overlay goes, past its fade-out); Settings opens and closes without its fade when the compositor's `refresh` topic says 100 Hz or more
   (`Kit::modal_beat_ms`, `Kit::refresh_hz`).
+- `85ac5a6d` the gate's classification: the compositor thread's 0.1 ms wakeups are no longer read as renders (`analyse.renders`); `perf/frametl.py TRACE MARKER
+  FROM TO` prints a trace's flips one by one with the compositor's and the shell's bursts between them.
+- Checks run: `cargo clippy --release -p lumatv-ui --all-targets` and `-p lumatv-compositor --all-targets` clean; compositor `ring`/`control` tests 18;
+  `cargo test --release -p lumatv-ui` 1194; `tests/test_gate.py` 87 and `test_gate_surfaces.py` 42.
 - Host tests: `cargo test --release -p lumatv-ui` (1194 tests; new: `shell::tests::settings_over_home_stills_...`, `the_refresh_topic_takes_the_modals_fade_away_from_100_hz`,
   `home::model::tests::a_modal_over_home_...`, `home::wallpaper::tests::a_held_wallpaper_...`);
   `python3 -m unittest test_gate` in `tests/` (86).
@@ -60,6 +64,9 @@ Hz only (a test mode, off by default); 60 Hz is as it was. Other ways, if the fa
 or hide Home's cards and dock for the fade and keep the wallpaper.
 
 ## Notes on the engine, for whoever goes on
+
+- `ctl refresh`'s `motion.dropped` (compositor `refresh.rs`, `STALL_NS` 20 ms) is the PLAN's frame rule at any refresh: at 120 Hz it reads a 16.7 ms interval as
+  fine. The gate scales its own limit (`--refresh 120`: 10 ms); read the gate, not that counter, for 120 Hz.
 
 - A frame costs about 70 us of CPU for each layer drawn in each pass (render 1.0-1.7 ms for 39-58 layers), and the cost model (`damage::DRAW_WORTH`, from
   LumaShow's Show: 63 us a layer, 10 ns a pixel) merges a frame's rectangles into one cover when the scene has many layers: that is why a wallpaper step
