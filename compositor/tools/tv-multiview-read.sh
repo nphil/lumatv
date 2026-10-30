@@ -46,6 +46,15 @@ cfg() {
             fi
         done
     done
+    # who may call what: the Luna permission files of the Multi View controller and the media stack (the method groups each exports, the callers allowed each)
+    for dir in /usr/share/luna-service2/api-permissions.d /usr/share/luna-service2/client-permissions.d /usr/share/luna-service2/roles.d /var/luna-service2/roles.d \
+        /var/palm/ls2/roles/prv /var/palm/ls2/roles/pub /var/luna-service2/api-permissions.d /var/luna-service2/client-permissions.d; do
+        [ -d "$dir" ] || continue
+        for f in "$dir"/*multiview* "$dir"/*videooutput* "$dir"/*mediaserver* "$dir"/*applicationmanager*; do
+            [ -f "$f" ] || continue
+            cp "$f" "$d/$(echo "$f" | tr '/' '_')" 2>/dev/null && n=$((n + 1))
+        done
+    done
     say "config: $n text files in $d, listing in $d/listing.txt"
     # the media stack's own idea of Multi View, from the settings service (read-only getters)
     timeout "$LUNA_TIMEOUT" luna-send -n 1 luna://com.webos.service.config/getConfigs '{"configNames":["multiview.supportMultiview","multiview.supportMultiScreen","tv.model.supportHDR","tv.hw.SoCOutputFrameRate"]}' > "$d/configs.json" 2>&1
