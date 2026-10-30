@@ -1,0 +1,45 @@
+== osd
+first flip +0.118 s after the note: 0
+frames 1: p50 2.5 ms, worst 2.5 ms, late 0, lost 58, missed 0
+15019.094 D frame 400 render 1241 us owed 65536 px in 1 rects, ui 7 draws 4 layers (draw-now ui)
+motion {'dropped': 0, 'dropped_worst_ms': 0.0, 'intervals': 0}
+== quick
+first flip +0.168 s after the note: 0 17 0 17 0 16 0 17 0 17 0 16 0 17 0 17 0 [+0.402:100] 0 16 0 17 0 17 0 16 0 17 0 17 0 16 0 17 0 17 0 17 0 16 0 17 0 17 0 16 0 17 0 17 0 16 0 17 0 17 0 16 0 17 0 17 0 16 0 17 0 17 0 16 0 17 0 17 0 16 0 17 0
+frames 40: p50 2.2 ms, worst 8.0 ms, late 0, lost 106, missed 0
+15028.251 D frame 415 render 567 us owed 65536 px in 1 rects, ui 0 draws 0 layers (draw-now ui)
+15028.267 D frame 416 render 2453 us owed 2073600 px in 1 rects, ui 5 draws 2 layers (tick)
+15028.282 D frame 417 render 911 us owed 2073600 px in 1 rects, ui 28 draws 23 layers (tick)
+15028.293 D frame 418 render 890 us owed 2073600 px in 1 rects, ui 37 draws 32 layers (tick)
+motion {'dropped': 0, 'dropped_worst_ms': 0.0, 'intervals': 34}
+== picker
+first flip +0.092 s after the note: 0 17 0 17 0 16 0 17 0 17 0 16 0 17 0 17 0 [+0.326:100] 0 [+0.409:83] 0 17 0
+frames 12: p50 5.7 ms, worst 6.4 ms, late 0, lost 74, missed 0
+15038.262 D frame 468 render 91 us owed 0 px in 0 rects, ui 0 draws 0 layers (draw-now ui)
+15038.271 D frame 469 render 945 us owed 2073600 px in 1 rects, ui 5 draws 2 layers (tick)
+15038.287 D frame 470 render 702 us owed 2073600 px in 1 rects, ui 13 draws 10 layers (tick)
+15038.303 D frame 471 render 644 us owed 2073600 px in 1 rects, ui 15 draws 12 layers (tick)
+motion {'dropped': 0, 'dropped_worst_ms': 0.0, 'intervals': 7}
+== drawer
+first flip +0.107 s after the note: 0 17 0 16 0 17 0 17 0 17 0 16 0 17 0 17 0 16 0 17 0 17 0 16 0 17 0 17 0 16 0 17 0 17 0 16 0 17 0 17 0 16 0 17 0 17 0 16 0 17 0 17 0 17 0 16 0 [+0.674:100] 0
+frames 30: p50 2.3 ms, worst 5.8 ms, late 0, lost 72, missed 0
+15048.167 D frame 494 render 408 us owed 0 px in 0 rects, ui 0 draws 0 layers (draw-now ui)
+15048.178 D frame 495 render 612 us owed 2073600 px in 1 rects, ui 5 draws 2 layers (tick)
+15048.194 D frame 496 render 616 us owed 2073600 px in 1 rects, ui 5 draws 2 layers (tick)
+15048.211 D frame 497 render 630 us owed 2073600 px in 1 rects, ui 5 draws 2 layers (tick)
+motion {'dropped': 0, 'dropped_worst_ms': 0.0, 'intervals': 28}
+== toast
+first flip +0.184 s after the note: 0 17 0 16 0 17 0 17 0 16 0 17 0 17 0 16 0 17 0 17 0 16 0 17 0 17 0 17 0 [+0.518:100] 0 [+0.568:50] 0 16 0
+frames 18: p50 1.8 ms, worst 2.6 ms, late 0, lost 68, missed 0
+15058.029 D frame 555 render 80 us owed 0 px in 0 rects, ui 0 draws 0 layers (draw-now ui)
+15058.044 D frame 556 render 741 us owed 99840 px in 1 rects, ui 7 draws 4 layers (tick)
+15058.060 D frame 557 render 676 us owed 99840 px in 1 rects, ui 7 draws 4 layers (tick)
+15058.075 D frame 558 render 669 us owed 99840 px in 1 rects, ui 7 draws 4 layers (tick)
+motion {'dropped': 0, 'dropped_worst_ms': 0.0, 'intervals': 14}
+== alert
+first flip +0.120 s after the note: 0 17 0 16 0 17 0 17 0 16 0 17 0 17 0 16 0 17 0 17 0 16 0 17 0 17 0 16 0 17 0
+frames 16: p50 5.6 ms, worst 5.8 ms, late 0, lost 188, missed 0
+15067.565 D frame 591 render 106 us owed 0 px in 0 rects, ui 0 draws 0 layers (draw-now ui)
+15067.579 D frame 592 render 887 us owed 8960 px in 1 rects, ui 1 draws 1 layers (tick)
+15067.595 D frame 593 render 704 us owed 2073600 px in 1 rects, ui 12 draws 9 layers (tick)
+15067.612 D frame 594 render 778 us owed 2073600 px in 1 rects, ui 12 draws 9 layers (tick)
+motion {'dropped': 0, 'dropped_worst_ms': 0.0, 'intervals': 14}

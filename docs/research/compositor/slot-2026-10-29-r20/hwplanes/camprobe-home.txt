@@ -1,0 +1,162 @@
+== VIDEO capture
+{"errorCode":11,"returnValue":false,"errorText":"REFUSED_NO_SIGNAL"}
+ls: /tmp/v.png: No such file or directory
+
+== DISPLAY capture
+{"capturedHeight":540,"writtenBytes":397101,"returnValue":true,"capturedWidth":960}
+-rw-r--r--    1 root     root        397101 Oct 29 22:28 /tmp/d.png
+
+get v: [Errno 2] No such file
+== videooutput getStatus
+{
+    "video": [
+        {
+            "displayOutput": {
+                "width": 0,
+                "y": 2160,
+                "x": 3840,
+                "height": 0
+            },
+            "extraInfo": null,
+            "sourceInput": {
+                "width": 0,
+                "y": 0,
+                "x": 0,
+                "height": 0
+            },
+            "zOrder": 0,
+            "fullScreen": false,
+            "scanType": "progressive",
+            "frameRate": 30,
+            "connected": true,
+            "height": 720,
+            "connectedSourcePort": 3,
+            "context": "_L6uIgd51OJeAdM",
+            "muted": false,
+            "sink": "MAIN",
+            "connectedSource": "VDEC",
+            "width": 1280,
+            "appId": "com.webos.app.home",
+            "videoInfo": {
+                "rotation": "Deg0",
+                "path": "network",
+                "lowDelayMode": true,
+                "autoAspectRatio": false,
+                "pixelAspectRatio": {
+                    "width": 1,
+                    "height": 1
+                },
+                "afd": 0,
+                "adaptive": true,
+                "rgbRange": "LIMITED",
+                "hdrType": "none",
+                "isGameMode": true,
+                "subScalerOccupied": true,
+                "hfrEnabled": false,
+                "sei": {
+                    "whitePointX": 0,
+                    "displayPrimariesY2": 0,
+                    "displayPrimariesX2": 0,
+                    "displayPrimariesY1": 0,
+                    "displayPrimariesX1": 0,
+                    "maxContentLightLevel": 0,
+                    "displayPrimariesX0": 0,
+                    "displayPrimariesY0": 0,
+                    "maxDisplayMasteringLuminance": 0,
+                    "maxPicAverageLightLevel": 0,
+                    "whitePointY": 0,
+                    "minDisplayMasteringLuminance": 0
+                },
+                "vui": {
+                    "transferCharacteristics": 2,
+                    "colorPrimaries": 2,
+                    "matrixCoeffs": 2
+                }
+            },
+            "opacity": 255,
+            "contentType": "movie"
+        },
+        {
+            "displayOutput": {
+                "width": 0,
+                "y": 0,
+                "x": 0,
+                "height": 0
+            },
+            "extraInfo": null,
+            "sourceInput": {
+                "width": 0,
+                "y": 0,
+                "x": 0,
+                "height": 0
+            },
+            "zOrder": 1,
+            "fullScreen": false,
+            "scanType": "unknown",
+            "frameRate": 0,
+            "connected": false,
+            "height": 0,
+            "connectedSourcePort": 0,
+            "context": "",
+            "muted": true,
+            "sink": "SUB0",
+            "connectedSource": "unknown",
+            "width": 0,
+            "appId": "unknown",
+            "videoInfo": null,
+            "opacity": 255,
+            "contentType": "unknown"
+        }
+    ],
+    "clients": [
+        {
+            "activation": true,
+            "appId": "com.webos.app.home",
+            "sinkName": "MAIN",
+            "sourceName": "VDEC",
+            "clientId": "_L6uIgd51OJeAdM"
+        }
+    ],
+    "returnValue": true,
+    "subscribed": false
+}
+
+== fb0
+
+== status pageFormat
+AR24 False
+
+== journal since claim
+[srv  20321.355] info vwin: apps (was off)
+[srv  20321.475] info foreign: surface 186 exported as _Window_Id_9 (type 0)
+[srv  20321.623] info foreign: _Window_Id_9 imported (type 0)
+[srv  20321.648] info foreign: punch-through _L6uIgd51OJeAdM attached to _Window_Id_9
+[srv  20321.649] info videooutput: setDisplayWindowProperty for "_L6uIgd51OJeAdM" answered {"returnValue":true}
+[srv  20321.649] info videooutput: setDisplayWindowProperty for "_L6uIgd51OJeAdM" answered {"returnValue":true}
+[srv  20321.651] info videooutput: setDisplayWindowProperty for "_L6uIgd51OJeAdM" answered {"returnValue":true}
+[srv  20321.652] info videooutput: setDisplayWindowProperty for "_L6uIgd51OJeAdM" answered {"returnValue":true}
+[srv  20321.679] info foreign: punch-through _L6uIgd51OJeAdM attached to _Window_Id_9
+[srv  20321.688] info videooutput: setDisplayWindowProperty for "_L6uIgd51OJeAdM" answered {"returnValue":true}
+[srv  20321.688] info videooutput: setDisplayWindowProperty for "_L6uIgd51OJeAdM" answered {"returnValue":true}
+[srv  20321.689] info videooutput: setDisplayWindowProperty for "_L6uIgd51OJeAdM" answered {"returnValue":true}
+[srv  20321.690] info videooutput: setDisplayWindowProperty for "_L6uIgd51OJeAdM" answered {"returnValue":true}
+[srv  20322.770] info vwin: claim t1 (pip) granted the main window (up to 4096x2304 at 60 a second) at 1280,720 480x270
+[srv  20322.770] info vwin: window 12 plays claim t1 at 1280,720 480x270
+[srv  20322.770] info luna: setDisplayWindow {"context":"_L6uIgd51OJeAdM","displayOutput":{"height":540,"width":960,"x":2560,"y":1440},"fullScreen":false,"originalInput":{"height":720,"width":1280,"x":0,"y":0},"sourceInput":{"height":720,"width":1280,"x":0,"y":0}}
+[srv  20322.779] info videooutput: setDisplayWindow for "_L6uIgd51OJeAdM" answered {"returnValue":true}
+
+== avmute
+{
+    "errorCode": -1,
+    "returnValue": false,
+    "errorText": "Unknown method \"getStatus\" for category \"/\""
+}
+
+== feeder log
+AquireLogContext result = 0
+AquireLogContext result = 0gfn-feeder 20321648: playing /tmp/gfn/clips/cam720p30.h264: 600 units, 1280x720 at 30 fps, codec 1, window _Window_Id_9, audio 0 packets, hdr 0, pts unit 1
+gfn-feeder 20321652: event 22 0 true
+gfn-feeder 20321652: event 26 0 true
+{"t":5,"fed":30,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":1,"mean":0.43,"p99":1,"samples":30},"wait_max_us":402,"wait_p99_us":402,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":40380,"mem_avail_kb":573232,"rss_kb":26504,"audio_avail":0}
+{"t":6,"fed":30,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":1,"max":1,"mean":1.00,"p99":1,"samples":30},"wait_max_us":1260,"wait_p99_us":1260,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":37060,"mem_avail_kb":568076,"rss_kb":26504,"audio_avail":0}
+

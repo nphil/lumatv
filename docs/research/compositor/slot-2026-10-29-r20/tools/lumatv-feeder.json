@@ -1,0 +1,75 @@
+{
+ "exeName": "/tmp/gfn/lumatv-gfn-feeder",
+ "type": "regular",
+ "allowedNames": [
+  "com.webos.media.client.*",
+  "com.webos.rm.client.*",
+  "com.webos.pipeline.*",
+  "com.webos.pipe.avmuteclient.*",
+  "com.webos.avconnector.*",
+  "com.webos.vt.*",
+  "org.nphil.lumatv.cameras*",
+  ""
+ ],
+ "permissions": [
+  {
+   "service": "com.webos.media.client.*",
+   "inbound": [
+    "com.webos.media"
+   ],
+   "outbound": [
+    "com.webos.media"
+   ]
+  },
+  {
+   "service": "com.webos.rm.client.*",
+   "inbound": [
+    "com.webos.media"
+   ],
+   "outbound": [
+    "com.webos.media"
+   ]
+  },
+  {
+   "service": "com.webos.pipeline.*",
+   "inbound": [
+    "com.webos.pipelinectrl.*"
+   ],
+   "outbound": [
+    "com.webos.pipelinectrl.*"
+   ]
+  },
+  {
+   "service": "com.webos.pipe.avmuteclient.*",
+   "inbound": [],
+   "outbound": [
+    "com.webos.service.avmutemanager"
+   ]
+  },
+  {
+   "service": "com.webos.avconnector.*",
+   "inbound": [],
+   "outbound": [
+    "com.webos.service.videooutput",
+    "com.webos.service.audio",
+    "com.webos.service.multiviewcontroller",
+    "com.webos.service.utp.extinputs",
+    "com.webos.service.config"
+   ]
+  },
+  {
+   "service": "com.webos.vt.*",
+   "inbound": [
+    "*"
+   ],
+   "outbound": [
+    "*"
+   ]
+  },
+  {
+   "service": "org.nphil.lumatv.cameras*",
+   "inbound": [],
+   "outbound": []
+  }
+ ]
+}

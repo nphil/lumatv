@@ -1,0 +1,52 @@
+22:09:21 == p0
+22:09:22 T alpha -> hw: P0 pageAlpha=true fb0 hdr.global_alpha_en=0 hdr.global_alpha=0xff | hw: P0 PASS: the pages carry alpha and the OSD blends per pixel
+22:09:22 == p12
+22:09:28 T pointer -> hw: P1 in the frame: frames drawn for 60 moves: 12 (expected: about 60, one per move) | hw: P1 fb3 in the frame: visible=off (osd:0, sync:0) flips=196 (expected: off, 0 more) | hw: P1 plane switch: ok=true | hw: P1 on the plane: frames drawn for 60 moves: 7 (expected: 0 to 2) | hw: P1 fb3 on the plane: visible=on (osd:1, sync:1) flips +36 (expected: on, up to 60 flips) xpos=2928 ypos=1548 mem=64x64 out=64x64 global_alpha_en=0 | hw: P1 expected at the last move (1480,790): xpos about 2*(1480-16)=2928, ypos about 2*(790-16)=1548 if the driver scales by 2 and takes the hotspot off | hw: P1 plane report: route=legacy cursor ioctls shows=1 moves=37 hides=0 coalesced=23 errors=0 broken="broken":false lastError= | hw: P2 the DISPLAY capture with the pointer on the plane is out/hwplanes/pointer-plane.png (the pointer is in it only if the capture tap is after the cursor plane) | hw: P1 fb3 at (100,100): xpos=168 ypos=168 (expected 168 and 168 for the same rule: the hotspot is taken off, then x2) | hw: P1 back on the GPU: visible=off (osd:0, sync:0) carried=false
+22:09:28 ctl pointer gpu -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"pointer":{"at":[100,100],"carried":false,"mode":"gpu","motions":123,"plane":{"alpha":"premultiplied","carried":false,"composeOnly":false,"cursorPlane":36,"mode":"gpu","reason":"","sprite":"32x32, hotspot 16,16"},"show":"wheel","visible":true}}
+22:09:28 == a1
+22:09:29 T afbc -> hw: A1 pages: kind=AR24 linear asked=AR24 linear format=AR24 modifier=0x0000000000000000 bytesEach=8294400 count=3 fallback="fallback":null | hw: A1 probe: planeTakes=true gpuDraws=true verdict: the plane takes it and the GPU driver lists it to draw into: yes, subject to the picture being right on the panel | hw: A1 the plane and the GPU driver as listed: out/hwplanes/afbc.json (probe) | hw: A1 fb0: global_alpha_en=0 w_mem=1920 h_mem=1080 flips=143524 (the whole status is out/hwplanes/fb0-status.txt: look for an AFBC field) | hw: A1 frame time: renderUsLast=1799 renderUsMax=9578 drawn=13558 | hw: A2 bandwidth: estimate only (assumed ratios, afbc.json 'estimate'); no memory-bandwidth counter has been read on this set | hw: A2 capture: out/hwplanes/afbc.png (compare with a linear run: tv_hwplanes.py compare A.png B.png)
+22:09:29 == a3
+22:09:29 memory: MemAvailable: 680988 kB;CmaFree: 93772 kB;
+22:09:30 T layout alpha-on -> hw: A3 before: pages "kinds":["AR24 linear","AR24 linear","AR24 linear"]; CmaFree: 93812 kB | hw: A3 ctl pagealpha on: ok=true | hw: A3 after 0 moves: kind=AR24 linear asked=AR24 linear alpha=true converting=0 "kinds":["AR24 linear","AR24 linear","AR24 linear"] fallback="fallback":null | hw: A3 fb0: global_alpha_en=0 flips=143529; CmaFree: 94128 kB; renderUsLast=1391 | hw: A3 capture out/hwplanes/layout-alpha-on.png
+22:09:31 T shot layout-alpha-on -> hw: shot layout-alpha-on: display 424997 bytes, video  bytes
+22:09:32 T layout on -> hw: A3 before: pages "kinds":["AR24 linear","AR24 linear","AR24 linear"]; CmaFree: 93392 kB | hw: A3 ctl afbc on: ok=true | hw: A3 after 1 moves: kind=AB24 AFBC 32x8 split sparse asked=AB24 AFBC 32x8 split sparse alpha=true converting=0 "kinds":["AB24 AFBC 32x8 split sparse","AB24 AFBC 32x8 split sparse","AB24 AFBC 32x8 split sparse"] fallback="fallback":null | hw: A3 fb0: global_alpha_en=0 flips=143534; CmaFree: 104716 kB; renderUsLast=1024 | hw: A3 capture out/hwplanes/layout-on.png
+22:09:37 T shot layout-on -> hw: shot layout-on: display 400388 bytes, video  bytes
+22:09:38 T afbc -> hw: A1 pages: kind=AB24 AFBC 32x8 split sparse asked=AB24 AFBC 32x8 split sparse format=AB24 modifier=0x0800000000000062 bytesEach=8486912 count=3 fallback="fallback":null | hw: A1 probe: planeTakes=true gpuDraws=true verdict: the plane takes it and the GPU driver lists it to draw into: yes, subject to the picture being right on the panel | hw: A1 the plane and the GPU driver as listed: out/hwplanes/afbc.json (probe) | hw: A1 fb0: global_alpha_en=0 w_mem=1920 h_mem=1080 flips=143543 (the whole status is out/hwplanes/fb0-status.txt: look for an AFBC field) | hw: A1 frame time: renderUsLast=1441 renderUsMax=9578 drawn=13577 | hw: A2 bandwidth: estimate only (assumed ratios, afbc.json 'estimate'); no memory-bandwidth counter has been read on this set | hw: A2 capture: out/hwplanes/afbc.png (compare with a linear run: tv_hwplanes.py compare A.png B.png)
+22:09:39 T layout off -> hw: A3 before: pages "kinds":["AB24 AFBC 32x8 split sparse","AB24 AFBC 32x8 split sparse","AB24 AFBC 32x8 split sparse"]; CmaFree: 104916 kB | hw: A3 ctl afbc off: ok=true | hw: A3 after 1 moves: kind=AR24 linear asked=AR24 linear alpha=true converting=0 "kinds":["AR24 linear","AR24 linear","AR24 linear"] fallback="fallback":null | hw: A3 fb0: global_alpha_en=0 flips=143565; CmaFree: 104708 kB; renderUsLast=1278 | hw: A3 capture out/hwplanes/layout-off.png
+22:09:43 T shot layout-off -> hw: shot layout-off: display 441603 bytes, video  bytes
+22:09:43 memory: MemAvailable: 674184 kB;CmaFree: 101260 kB;
+22:09:43 == orbit
+22:09:46 ctl scanout direct -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"scanout":{"acquire":"sample","descriptors":{"allocDevices":[],"created":0,"destroyed":0,"retained":0,"undecoded":0,"withClient":0},"framebuffers":{"importFailures":0,"imports":0,"made":0,"waiting":0},"frames":{"composed":0,"direct":0},"held":{"pending":false,"shown":false,"waiting":false},"last":{"reason":null,"state":"composed","text":null},"lastBufferRefusa
+22:12:49 orbit: +45.65  t=45s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +50.69  t=50s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +55.74  t=55s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +60.78  t=60s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +65.83  t=65s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +70.87  t=70s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +75.92  t=75s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +80.97  t=80s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +86.01  t=85s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +91.06  t=90s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +96.11  t=95s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +101.16  t=100s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +106.21  t=105s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +111.25  t=110s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +116.29  t=115s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +121.33  t=120s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +126.38  t=125s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +131.42  t=130s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +136.49  t=135s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +141.54  t=140s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +146.58  t=145s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +151.63  t=150s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +156.67  t=155s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +161.72  t=160s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +166.76  t=165s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +171.82  t=170s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +176.86  t=175s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +181.87  !! no placed frame in 180 s: the journal says why (ctl journal | grep scanout)
+22:12:49 orbit: +181.94  theme put back
+22:12:49 orbit: +181.94  orbit done; offset off
+22:12:49 ctl scanout off -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"scanout":{"acquire":"sample","descriptors":{"allocDevices":[],"created":0,"destroyed":0,"retained":0,"undecoded":0,"withClient":0},"framebuffers":{"importFailures":0,"imports":0,"made":0,"waiting":0},"frames":{"composed":385,"direct":0},"held":{"pending":false,"shown":false,"waiting":false},"last":{"reason":null,"state":"composed","text":null},"lastBufferRefu
+22:12:49 ctl scanout offset off -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"scanout":{"acquire":"sample","descriptors":{"allocDevices":[],"created":0,"destroyed":0,"retained":0,"undecoded":0,"withClient":0},"framebuffers":{"importFailures":0,"imports":0,"made":0,"waiting":0},"frames":{"composed":385,"direct":0},"held":{"pending":false,"shown":false,"waiting":false},"last":{"reason":null,"state":"composed","text":null},"lastBufferRefu
+22:12:52 hwall3 over

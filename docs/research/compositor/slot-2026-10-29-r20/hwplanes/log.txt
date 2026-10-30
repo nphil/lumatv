@@ -1,0 +1,882 @@
+21:55:15 == setup
+21:55:16 setup: feeder and clip put; total 9860 | drwxr-xr-x    2 root     root            60 Oct 29 21:55 . | drwxr-xr-x    3 root     root            80 Oct 29 21:55 .. | -rw-r--r--    1 root     root      10094168 Oct 29 21:55 cam720p30.h264
+21:55:16 memory: MemAvailable: 650288 kB;CmaFree: 40312 kB;
+21:55:16 == read
+    hw: flags file: none
+    hw: compositor: kms; drawn 9578
+    hw: pages: kind=AR24 linear asked=AR24 linear alpha=true bytesEach=8294400 fallback="fallback":null
+    hw: afbc switch: off; pageAlpha: true
+    hw: pointer: mode=gpu carried=false route= errors= lastError=
+    hw: vwin: mode=off free=2 claims: 
+    hw: fb0: visible=on (osd:1, sync:1) xpos=0 ypos=0 mem=1920x1080 out=3860x2170 global_alpha_en=0 flips=139546
+    hw: fb3: visible=off (osd:0, sync:0) xpos=1428 ypos=1186 mem=120x170 out=120x170 global_alpha_en=0 flips=196
+    hw: memory: MemAvailable: 650032 kB CmaFree: 40312 kB
+21:55:16 T read -> hw: flags file: none | hw: compositor: kms; drawn 9578 | hw: pages: kind=AR24 linear asked=AR24 linear alpha=true bytesEach=8294400 fallback="fallback":null | hw: afbc switch: off; pageAlpha: true | hw: pointer: mode=gpu carried=false route= errors= lastError= | hw: vwin: mode=off free=2 claims: | hw: fb0: visible=on (osd:1, sync:1) xpos=0 ypos=0 mem=1920x1080 out=3860x2170 global_alpha_en=0 flips=139546 | hw: fb3: visible=off (osd:0, sync:0) xpos=1428 ypos=1186 mem=120x170 out=120x170 global_alpha_en=0 flips=196 | hw: memory: MemAvailable: 650032 kB CmaFree: 40312 kB
+21:55:16 == v1
+    hw: vwin: mode=off free=2 apps=0 wall=false subscribed=false
+    hw: vwin claims: "claims":[]
+    hw: vwin windows: "windows":[]
+    hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0"
+21:55:17 T vwin -> hw: vwin: mode=off free=2 apps=0 wall=false subscribed=false | hw: vwin claims: "claims":[] | hw: vwin windows: "windows":[] | hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0"
+21:55:17 == v23
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":1,"claims":[],"free":1,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"idle","sinks":[],"slots":2,"stats":{"denied
+21:55:17 ctl vwin idle -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":1,"claims":[],"free":1,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"idle","sinks":[],"slots":2,"stats":{"denied":0,"ended":0,"granted":0,"released":0,"windowsClosed":0},"subscribed":tr
+    hw: feeder started: pid 7299 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 60 s, window type video, app org.nphil.lumatv.cameras); log out/hwplanes/feeder-org.nphil.lumatv.cameras.log
+21:55:18 T feeder /tmp/gfn/clips/cam720p30.h264 1280x720 h264 30 60 org.nphil.lumatv.cameras -> hw: feeder started: pid 7299 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 60 s, window type video, app org.nphil.lumatv.cameras); log out/hwplanes/feeder-org.nphil.lumatv.cameras.log
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":fa
+21:55:18 ctl vwin claim t1 pip 1280 720 480 270 org.nphil.lumatv.cameras h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null},"ok":true}
+    hw: vwin: mode=idle free=1 apps=1 wall=false subscribed=true
+    hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the
+    hw: vwin windows: "windows":[]
+    hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0"
+21:55:21 T vwin -> hw: vwin: mode=idle free=1 apps=1 wall=false subscribed=true | hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null}] | hw: vwin windows: "windows":[] | hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0"
+    hw: shot v2: display 424986 bytes, video  bytes
+21:55:22 T shot v2 -> hw: shot v2: display 424986 bytes, video  bytes
+    hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+21:55:22 T stop -> hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+21:55:22 == v45
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":1,"claims":[],"free":1,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[],"slots":2,"stats":{"denied
+21:55:47 ctl vwin apps -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":1,"claims":[],"free":1,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[],"slots":2,"stats":{"denied":1,"ended":0,"granted":0,"released":1,"windowsClosed":0},"subscribed":tr
+    hw: feeder started: pid 7914 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 60 s, window type video, app org.nphil.lumatv.cameras); log out/hwplanes/feeder-org.nphil.lumatv.cameras.log
+21:55:48 T feeder /tmp/gfn/clips/cam720p30.h264 1280x720 h264 30 60 org.nphil.lumatv.cameras -> hw: feeder started: pid 7914 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 60 s, window type video, app org.nphil.lumatv.cameras); log out/hwplanes/feeder-org.nphil.lumatv.cameras.log
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":30,"h":1088,"w":1920},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"sub","state":"granted","text":"","wide":false,"window":nu
+21:55:48 ctl vwin claim t1 pip 1280 720 480 270 org.nphil.lumatv.cameras h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":30,"h":1088,"w":1920},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"sub","state":"granted","text":"","wide":false,"window":null},"ok":true}
+    hw: vwin: mode=apps free=0 apps=1 wall=false subscribed=true
+    hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":30,"h":1088,"w":1920},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"sub","state":"granted","text":"","wide"
+    hw: vwin windows: "windows":[]
+    hw: videooutputd sinks: "zOrder":0 "connected":true "sink":"MAIN" "subScalerOccupied":false "zOrder":1 "connected":false "sink":"SUB0"
+21:55:52 T vwin -> hw: vwin: mode=apps free=0 apps=1 wall=false subscribed=true | hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":30,"h":1088,"w":1920},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"sub","state":"granted","text":"","wide":false,"window":null}] | hw: vwin windows: "windows":[] | hw: videooutputd sinks: "zOrder":0 "connected":true "sink":"MAIN" "subScalerOccupied":false "zOrder":1 "connected":false "sink":"SUB0"
+    hw: shot v4: display 384759 bytes, video 237456 bytes
+21:55:52 T shot v4 -> hw: shot v4: display 384759 bytes, video 237456 bytes
+    hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+21:55:53 T stop -> hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+21:55:53 == v5
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":2,"claims":[],"free":0,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"idle","sinks":[],"slots":2,"stats":{"denied
+21:55:53 ctl vwin idle -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":2,"claims":[],"free":0,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"idle","sinks":[],"slots":2,"stats":{"denied":1,"ended":0,"granted":1,"released":2,"windowsClosed":0},"subscribed":tr
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":1,"claims":[],"free":2,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"idle","sinks":[{"app":"unknown","connected"
+21:55:54 ctl vwin slots 3 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":1,"claims":[],"free":2,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"idle","sinks":[{"app":"unknown","connected":false,"fps":0.0,"occupiesBoth":false,"sink":"MAIN","size":[0,0],"z":0},{
+    hw: feeder started: pid 8131 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 60 s, window type video, app org.nphil.lumatv.cameras); log out/hwplanes/feeder-org.nphil.lumatv.cameras.log
+21:55:54 T feeder /tmp/gfn/clips/cam720p30.h264 1280x720 h264 30 60 org.nphil.lumatv.cameras -> hw: feeder started: pid 8131 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 60 s, window type video, app org.nphil.lumatv.cameras); log out/hwplanes/feeder-org.nphil.lumatv.cameras.log
+    hw: feeder started: pid 8153 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 60 s, window type video, app org.nphil.lumatv.cameras2); log out/hwplanes/feeder-org.nphil.lumatv.cameras2.log
+21:55:55 T feeder /tmp/gfn/clips/cam720p30.h264 1280x720 h264 30 60 org.nphil.lumatv.cameras2 -> hw: feeder started: pid 8153 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 60 s, window type video, app org.nphil.lumatv.cameras2); log out/hwplanes/feeder-org.nphil.lumatv.cameras2.log
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":fa
+21:55:55 ctl vwin claim t1 pip 1280 720 480 270 org.nphil.lumatv.cameras h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null},"ok":true}
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"claim":{"app":"org.nphil.lumatv.cameras2","id":"t2","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":360},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":f
+21:55:56 ctl vwin claim t2 pip 1280 360 480 270 org.nphil.lumatv.cameras2 h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"claim":{"app":"org.nphil.lumatv.cameras2","id":"t2","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":360},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null},"ok":true}
+    hw: vwin: mode=idle free=2 apps=1 wall=false subscribed=true
+    hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the
+    hw: vwin windows: "windows":[]
+    hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0"
+21:55:59 T vwin -> hw: vwin: mode=idle free=2 apps=1 wall=false subscribed=true | hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null},{"app":"org.nphil.lumatv.cameras2","id":"t2","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":360},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null}] | hw: vwin windows: "windows":[] | hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0"
+    hw: shot v5: display 424851 bytes, video  bytes
+21:56:00 T shot v5 -> hw: shot v5: display 424851 bytes, video  bytes
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":1,"claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a v
+21:56:00 ctl vwin slots 2 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":1,"claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null},{"app":"org.nphil.lumatv.
+    hw: vwin: mode=idle free=1 apps=1 wall=false subscribed=true
+    hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the
+    hw: vwin windows: "windows":[]
+    hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0"
+21:56:02 T vwin -> hw: vwin: mode=idle free=1 apps=1 wall=false subscribed=true | hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null},{"app":"org.nphil.lumatv.cameras2","id":"t2","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":360},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null}] | hw: vwin windows: "windows":[] | hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0"
+    hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+21:56:02 T stop -> hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+21:56:02 == v6
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":1,"claims":[],"free":1,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"idle","sinks":[],"slots":2,"stats":{"denied
+21:56:02 ctl vwin idle -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":1,"claims":[],"free":1,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"idle","sinks":[],"slots":2,"stats":{"denied":3,"ended":0,"granted":1,"released":4,"windowsClosed":0},"subscribed":tr
+    hw: feeder started: pid 8413 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 60 s, window type video, app org.nphil.lumatv.cameras); log out/hwplanes/feeder-org.nphil.lumatv.cameras.log
+21:56:03 T feeder /tmp/gfn/clips/cam720p30.h264 1280x720 h264 30 60 org.nphil.lumatv.cameras -> hw: feeder started: pid 8413 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 60 s, window type video, app org.nphil.lumatv.cameras); log out/hwplanes/feeder-org.nphil.lumatv.cameras.log
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":fa
+21:56:03 ctl vwin claim t1 pip 1280 720 480 270 org.nphil.lumatv.cameras h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null},"ok":true}
+    hw: V6 114x64 at 903,508: capture 424762 bytes; "placed":false; feeder: 
+    hw: V6 160x90 at 880,495: capture 424787 bytes; "placed":false; feeder: 
+    hw: V6 320x180 at 800,450: capture 425076 bytes; "placed":false; feeder: 
+    hw: V6 640x360 at 640,360: capture 424943 bytes; "placed":false; feeder: 
+    hw: V6 1280x720 at 320,180: capture 424910 bytes; "placed":false; feeder: 
+    hw: V6 1920x1080 at 0,0: capture 424860 bytes; "placed":false; feeder:
+21:56:21 T sizes -> hw: V6 114x64 at 903,508: capture 424762 bytes; "placed":false; feeder: | hw: V6 160x90 at 880,495: capture 424787 bytes; "placed":false; feeder: | hw: V6 320x180 at 800,450: capture 425076 bytes; "placed":false; feeder: | hw: V6 640x360 at 640,360: capture 424943 bytes; "placed":false; feeder: | hw: V6 1280x720 at 320,180: capture 424910 bytes; "placed":false; feeder: | hw: V6 1920x1080 at 0,0: capture 424860 bytes; "placed":false; feeder:
+    hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+21:56:21 T stop -> hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+    hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+21:56:21 T stop -> hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+    total 24
+    drwxr-xr-x 2 root root     16 Oct 29 21:56 .
+    drwxr-xr-x 7 root root     16 Oct 29 21:56 ..
+    -rw-r--r-- 1 root root      0 Oct 29 21:56 feeder-org.nphil.lumatv.cameras.log
+    -rw-r--r-- 1 root root      0 Oct 29 21:55 feeder-org.nphil.lumatv.cameras2.log
+    -rw-r--r-- 1 root root 424762 Oct 29 21:56 size-114x64.png
+    -rw-r--r-- 1 root root 424910 Oct 29 21:56 size-1280x720.png
+    -rw-r--r-- 1 root root 424787 Oct 29 21:56 size-160x90.png
+    -rw-r--r-- 1 root root 424860 Oct 29 21:56 size-1920x1080.png
+    -rw-r--r-- 1 root root 425076 Oct 29 21:56 size-320x180.png
+    -rw-r--r-- 1 root root 424943 Oct 29 21:56 size-640x360.png
+    -rw-r--r-- 1 root root 424986 Oct 29 21:55 v2-display.png
+    -rw-r--r-- 1 root root 384759 Oct 29 21:55 v4-display.png
+    -rw-r--r-- 1 root root 237456 Oct 29 21:55 v4-video.png
+    -rw-r--r-- 1 root root 424851 Oct 29 21:55 v5-display.png
+    -rw-r--r-- 1 root root    847 Oct 29 21:56 videooutput-status.json
+    -rw-r--r-- 1 root root   1349 Oct 29 21:56 vwin.json
+21:56:23 hwchain over
+21:58:28 memory: MemAvailable: 677680 kB;CmaFree: 94068 kB;
+21:58:28 == v23-apps: feeder in mode apps, no YouTube
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":0,"claims":[],"free":2,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[],"slots":2,"stats":{"denied
+21:58:28 ctl vwin apps -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":0,"claims":[],"free":2,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[],"slots":2,"stats":{"denied":4,"ended":0,"granted":1,"released":5,"windowsClosed":0},"subscribed":tr
+    hw: feeder started: pid 10139 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 60 s, window type video, app org.nphil.lumatv.cameras); log out/hwplanes/feeder-org.nphil.lumatv.cameras.log
+21:58:29 T feeder /tmp/gfn/clips/cam720p30.h264 1280x720 h264 30 60 org.nphil.lumatv.cameras -> hw: feeder started: pid 10139 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 60 s, window type video, app org.nphil.lumatv.cameras); log out/hwplanes/feeder-org.nphil.lumatv.cameras.log
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide":false,"window":n
+21:58:29 ctl vwin claim t1 pip 1280 720 480 270 org.nphil.lumatv.cameras h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide":false,"window":null},"ok":true}
+    hw: vwin: mode=apps free=1 apps=0 wall=false subscribed=true
+    hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide
+    hw: vwin windows: "windows":[]
+    hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0"
+21:58:32 T vwin -> hw: vwin: mode=apps free=1 apps=0 wall=false subscribed=true | hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide":false,"window":null}] | hw: vwin windows: "windows":[] | hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0"
+    hw: shot v2apps: display 424993 bytes, video  bytes
+21:58:33 T shot v2apps -> hw: shot v2apps: display 424993 bytes, video  bytes
+    hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+21:58:33 T stop -> hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+21:58:33 == v5-apps: two claims, 3 slots
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":0,"claims":[],"free":2,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[],"slots":2,"stats":{"denied
+21:58:33 ctl vwin apps -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":0,"claims":[],"free":2,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[],"slots":2,"stats":{"denied":4,"ended":0,"granted":2,"released":6,"windowsClosed":0},"subscribed":tr
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":0,"claims":[],"free":3,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[{"app":"unknown","connected"
+21:58:34 ctl vwin slots 3 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":0,"claims":[],"free":3,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[{"app":"unknown","connected":false,"fps":0.0,"occupiesBoth":false,"sink":"MAIN","size":[0,0],"z":0},{
+    hw: feeder started: pid 10297 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 60 s, window type video, app org.nphil.lumatv.cameras); log out/hwplanes/feeder-org.nphil.lumatv.cameras.log
+21:58:34 T feeder /tmp/gfn/clips/cam720p30.h264 1280x720 h264 30 60 org.nphil.lumatv.cameras -> hw: feeder started: pid 10297 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 60 s, window type video, app org.nphil.lumatv.cameras); log out/hwplanes/feeder-org.nphil.lumatv.cameras.log
+    hw: feeder started: pid 10311 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 60 s, window type video, app org.nphil.lumatv.cameras2); log out/hwplanes/feeder-org.nphil.lumatv.cameras2.log
+21:58:35 T feeder /tmp/gfn/clips/cam720p30.h264 1280x720 h264 30 60 org.nphil.lumatv.cameras2 -> hw: feeder started: pid 10311 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 60 s, window type video, app org.nphil.lumatv.cameras2); log out/hwplanes/feeder-org.nphil.lumatv.cameras2.log
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide":false,"window":n
+21:58:35 ctl vwin claim t1 pip 1280 720 480 270 org.nphil.lumatv.cameras h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide":false,"window":null},"ok":true}
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"claim":{"app":"org.nphil.lumatv.cameras2","id":"t2","kind":"pip","limits":{"fps":30,"h":1088,"w":1920},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":360},"sink":null,"slot":"sub","state":"granted","text":"","wide":false,"window":n
+21:58:35 ctl vwin claim t2 pip 1280 360 480 270 org.nphil.lumatv.cameras2 h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"claim":{"app":"org.nphil.lumatv.cameras2","id":"t2","kind":"pip","limits":{"fps":30,"h":1088,"w":1920},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":360},"sink":null,"slot":"sub","state":"granted","text":"","wide":false,"window":null},"ok":true}
+    hw: vwin: mode=apps free=1 apps=0 wall=false subscribed=true
+    hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide
+    hw: vwin windows: "windows":[]
+    hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0"
+21:58:39 T vwin -> hw: vwin: mode=apps free=1 apps=0 wall=false subscribed=true | hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide":false,"window":null},{"app":"org.nphil.lumatv.cameras2","id":"t2","kind":"pip","limits":{"fps":30,"h":1088,"w":1920},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":360},"sink":null,"slot":"sub","state":"granted","text":"","wide":false,"window":null}] | hw: vwin windows: "windows":[] | hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0"
+    hw: shot v5apps: display 424894 bytes, video  bytes
+21:58:39 T shot v5apps -> hw: shot v5apps: display 424894 bytes, video  bytes
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":0,"claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","tex
+21:58:40 ctl vwin slots 2 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":0,"claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide":false,"window":null},{"app":"org.nphil.lumatv.cameras2","id"
+    hw: vwin: mode=apps free=0 apps=0 wall=false subscribed=true
+    hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide
+    hw: vwin windows: "windows":[]
+    hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0"
+21:58:42 T vwin -> hw: vwin: mode=apps free=0 apps=0 wall=false subscribed=true | hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide":false,"window":null},{"app":"org.nphil.lumatv.cameras2","id":"t2","kind":"pip","limits":{"fps":30,"h":1088,"w":1920},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":360},"sink":null,"slot":"sub","state":"granted","text":"","wide":false,"window":null}] | hw: vwin windows: "windows":[] | hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0"
+    hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+21:58:42 T stop -> hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+21:58:42 == v6-apps: sizes
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":0,"claims":[],"free":2,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[],"slots":2,"stats":{"denied
+21:58:42 ctl vwin apps -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":0,"claims":[],"free":2,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[],"slots":2,"stats":{"denied":4,"ended":0,"granted":4,"released":8,"windowsClosed":0},"subscribed":tr
+    hw: feeder started: pid 10523 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 60 s, window type video, app org.nphil.lumatv.cameras); log out/hwplanes/feeder-org.nphil.lumatv.cameras.log
+21:58:43 T feeder /tmp/gfn/clips/cam720p30.h264 1280x720 h264 30 60 org.nphil.lumatv.cameras -> hw: feeder started: pid 10523 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 60 s, window type video, app org.nphil.lumatv.cameras); log out/hwplanes/feeder-org.nphil.lumatv.cameras.log
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide":false,"window":n
+21:58:43 ctl vwin claim t1 pip 1280 720 480 270 org.nphil.lumatv.cameras h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide":false,"window":null},"ok":true}
+    hw: V6 114x64 at 903,508: capture 424778 bytes; "placed":false; feeder: 
+    hw: V6 160x90 at 880,495: capture 424986 bytes; "placed":false; feeder: 
+    hw: V6 320x180 at 800,450: capture 424933 bytes; "placed":false; feeder: 
+    hw: V6 640x360 at 640,360: capture 424826 bytes; "placed":false; feeder: 
+    hw: V6 1280x720 at 320,180: capture 424689 bytes; "placed":false; feeder: 
+    hw: V6 1920x1080 at 0,0: capture 424637 bytes; "placed":false; feeder:
+21:59:01 T sizes -> hw: V6 114x64 at 903,508: capture 424778 bytes; "placed":false; feeder: | hw: V6 160x90 at 880,495: capture 424986 bytes; "placed":false; feeder: | hw: V6 320x180 at 800,450: capture 424933 bytes; "placed":false; feeder: | hw: V6 640x360 at 640,360: capture 424826 bytes; "placed":false; feeder: | hw: V6 1280x720 at 320,180: capture 424689 bytes; "placed":false; feeder: | hw: V6 1920x1080 at 0,0: capture 424637 bytes; "placed":false; feeder:
+    hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+21:59:01 T stop -> hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+21:59:01 hwapps over
+22:01:22 memory: MemAvailable: 606836 kB;CmaFree: 79796 kB;
+22:01:22 == v23 idle
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":1,"claims":[],"free":1,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"idle","sinks":[{"app":"unknown","connected"
+22:01:23 ctl vwin idle -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":1,"claims":[],"free":1,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"idle","sinks":[{"app":"unknown","connected":false,"fps":0.0,"occupiesBoth":false,"sink":"MAIN","size":[0,0],"z":0},{
+    hw: feeder started: pid 12857 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 60 s, window type video, app org.nphil.lumatv.cameras); log out/hwplanes/feeder-org.nphil.lumatv.cameras.log
+22:01:23 T feeder /tmp/gfn/clips/cam720p30.h264 1280x720 h264 30 60 org.nphil.lumatv.cameras -> hw: feeder started: pid 12857 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 60 s, window type video, app org.nphil.lumatv.cameras); log out/hwplanes/feeder-org.nphil.lumatv.cameras.log
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":fa
+22:01:23 ctl vwin claim t1 pip 1280 720 480 270 org.nphil.lumatv.cameras h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null},"ok":true}
+    hw: vwin: mode=idle free=1 apps=1 wall=false subscribed=true
+    hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the
+    hw: vwin windows: "windows":[]
+    hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0"
+22:01:27 T vwin -> hw: vwin: mode=idle free=1 apps=1 wall=false subscribed=true | hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null}] | hw: vwin windows: "windows":[] | hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0"
+    hw: shot v2: display 424890 bytes, video  bytes
+22:01:28 T shot v2 -> hw: shot v2: display 424890 bytes, video  bytes
+    hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+22:01:28 T stop -> hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+22:01:28 == v45 youtube
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":1,"claims":[],"free":1,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[],"slots":2,"stats":{"denied
+22:01:53 ctl vwin apps -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":1,"claims":[],"free":1,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[],"slots":2,"stats":{"denied":5,"ended":0,"granted":5,"released":10,"windowsClosed":1},"subscribed":t
+    hw: feeder started: pid 13512 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 60 s, window type video, app org.nphil.lumatv.cameras); log out/hwplanes/feeder-org.nphil.lumatv.cameras.log
+22:01:54 T feeder /tmp/gfn/clips/cam720p30.h264 1280x720 h264 30 60 org.nphil.lumatv.cameras -> hw: feeder started: pid 13512 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 60 s, window type video, app org.nphil.lumatv.cameras); log out/hwplanes/feeder-org.nphil.lumatv.cameras.log
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":30,"h":1088,"w":1920},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"sub","state":"granted","text":"","wide":false,"window":nu
+22:01:54 ctl vwin claim t1 pip 1280 720 480 270 org.nphil.lumatv.cameras h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":30,"h":1088,"w":1920},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"sub","state":"granted","text":"","wide":false,"window":null},"ok":true}
+    hw: vwin: mode=apps free=0 apps=1 wall=false subscribed=true
+    hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":30,"h":1088,"w":1920},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"sub","state":"granted","text":"","wide"
+    hw: vwin windows: "windows":[]
+    hw: videooutputd sinks: "zOrder":0 "connected":true "sink":"MAIN" "subScalerOccupied":false "zOrder":1 "connected":false "sink":"SUB0"
+22:01:57 T vwin -> hw: vwin: mode=apps free=0 apps=1 wall=false subscribed=true | hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":30,"h":1088,"w":1920},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"sub","state":"granted","text":"","wide":false,"window":null}] | hw: vwin windows: "windows":[] | hw: videooutputd sinks: "zOrder":0 "connected":true "sink":"MAIN" "subScalerOccupied":false "zOrder":1 "connected":false "sink":"SUB0"
+    hw: shot v4: display 468887 bytes, video 120878 bytes
+22:01:58 T shot v4 -> hw: shot v4: display 468887 bytes, video 120878 bytes
+    hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+22:01:58 T stop -> hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+22:01:59 == v5
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":2,"claims":[],"free":0,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"idle","sinks":[],"slots":2,"stats":{"denied
+22:01:59 ctl vwin idle -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":2,"claims":[],"free":0,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"idle","sinks":[],"slots":2,"stats":{"denied":5,"ended":0,"granted":6,"released":11,"windowsClosed":1},"subscribed":t
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":1,"claims":[],"free":2,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"idle","sinks":[{"app":"unknown","connected"
+22:01:59 ctl vwin slots 3 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":1,"claims":[],"free":2,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"idle","sinks":[{"app":"unknown","connected":false,"fps":0.0,"occupiesBoth":false,"sink":"MAIN","size":[0,0],"z":0},{
+    hw: feeder started: pid 13747 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 60 s, window type video, app org.nphil.lumatv.cameras); log out/hwplanes/feeder-org.nphil.lumatv.cameras.log
+22:02:00 T feeder /tmp/gfn/clips/cam720p30.h264 1280x720 h264 30 60 org.nphil.lumatv.cameras -> hw: feeder started: pid 13747 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 60 s, window type video, app org.nphil.lumatv.cameras); log out/hwplanes/feeder-org.nphil.lumatv.cameras.log
+    hw: feeder started: pid 13755 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 60 s, window type video, app org.nphil.lumatv.cameras2); log out/hwplanes/feeder-org.nphil.lumatv.cameras2.log
+22:02:01 T feeder /tmp/gfn/clips/cam720p30.h264 1280x720 h264 30 60 org.nphil.lumatv.cameras2 -> hw: feeder started: pid 13755 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 60 s, window type video, app org.nphil.lumatv.cameras2); log out/hwplanes/feeder-org.nphil.lumatv.cameras2.log
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":fa
+22:02:01 ctl vwin claim t1 pip 1280 720 480 270 org.nphil.lumatv.cameras h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null},"ok":true}
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"claim":{"app":"org.nphil.lumatv.cameras2","id":"t2","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":360},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":f
+22:02:02 ctl vwin claim t2 pip 1280 360 480 270 org.nphil.lumatv.cameras2 h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"claim":{"app":"org.nphil.lumatv.cameras2","id":"t2","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":360},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null},"ok":true}
+    hw: vwin: mode=idle free=2 apps=1 wall=false subscribed=true
+    hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the
+    hw: vwin windows: "windows":[]
+    hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0"
+22:02:06 T vwin -> hw: vwin: mode=idle free=2 apps=1 wall=false subscribed=true | hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null},{"app":"org.nphil.lumatv.cameras2","id":"t2","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":360},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null}] | hw: vwin windows: "windows":[] | hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0"
+    hw: shot v5: display 424767 bytes, video  bytes
+22:02:06 T shot v5 -> hw: shot v5: display 424767 bytes, video  bytes
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":1,"claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a v
+22:02:07 ctl vwin slots 2 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":1,"claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null},{"app":"org.nphil.lumatv.
+    hw: vwin: mode=idle free=1 apps=1 wall=false subscribed=true
+    hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the
+    hw: vwin windows: "windows":[]
+    hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0"
+22:02:10 T vwin -> hw: vwin: mode=idle free=1 apps=1 wall=false subscribed=true | hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null},{"app":"org.nphil.lumatv.cameras2","id":"t2","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":360},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null}] | hw: vwin windows: "windows":[] | hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0"
+    hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+22:02:11 T stop -> hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+22:02:11 == v6
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":1,"claims":[],"free":1,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"idle","sinks":[],"slots":2,"stats":{"denied
+22:02:11 ctl vwin idle -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":1,"claims":[],"free":1,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"idle","sinks":[],"slots":2,"stats":{"denied":7,"ended":0,"granted":6,"released":13,"windowsClosed":1},"subscribed":t
+    hw: feeder started: pid 14034 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 60 s, window type video, app org.nphil.lumatv.cameras); log out/hwplanes/feeder-org.nphil.lumatv.cameras.log
+22:02:13 T feeder /tmp/gfn/clips/cam720p30.h264 1280x720 h264 30 60 org.nphil.lumatv.cameras -> hw: feeder started: pid 14034 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 60 s, window type video, app org.nphil.lumatv.cameras); log out/hwplanes/feeder-org.nphil.lumatv.cameras.log
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":fa
+22:02:14 ctl vwin claim t1 pip 1280 720 480 270 org.nphil.lumatv.cameras h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null},"ok":true}
+    hw: V6 114x64 at 903,508: capture 425030 bytes; "placed":false; feeder: 
+    hw: V6 160x90 at 880,495: capture 425035 bytes; "placed":false; feeder: 
+    hw: V6 320x180 at 800,450: capture 428195 bytes; "placed":false; feeder: 
+    hw: V6 640x360 at 640,360: capture 419575 bytes; "placed":false; feeder: 
+    hw: V6 1280x720 at 320,180: capture 425046 bytes; "placed":false; feeder: 
+    hw: V6 1920x1080 at 0,0: capture 424853 bytes; "placed":false; feeder:
+22:02:31 T sizes -> hw: V6 114x64 at 903,508: capture 425030 bytes; "placed":false; feeder: | hw: V6 160x90 at 880,495: capture 425035 bytes; "placed":false; feeder: | hw: V6 320x180 at 800,450: capture 428195 bytes; "placed":false; feeder: | hw: V6 640x360 at 640,360: capture 419575 bytes; "placed":false; feeder: | hw: V6 1280x720 at 320,180: capture 425046 bytes; "placed":false; feeder: | hw: V6 1920x1080 at 0,0: capture 424853 bytes; "placed":false; feeder:
+    hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+22:02:31 T stop -> hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+22:02:31 == v7
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":1,"claims":[],"free":1,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"idle","sinks":[],"slots":2,"stats":{"denied
+22:02:31 ctl vwin idle -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":1,"claims":[],"free":1,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"idle","sinks":[],"slots":2,"stats":{"denied":8,"ended":0,"granted":6,"released":14,"windowsClosed":1},"subscribed":t
+    hw: feeder started: pid 14404 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 60 s, window type video, app org.nphil.lumatv.cameras); log out/hwplanes/feeder-org.nphil.lumatv.cameras.log
+22:02:32 T feeder /tmp/gfn/clips/cam720p30.h264 1280x720 h264 30 60 org.nphil.lumatv.cameras -> hw: feeder started: pid 14404 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 60 s, window type video, app org.nphil.lumatv.cameras); log out/hwplanes/feeder-org.nphil.lumatv.cameras.log
+    hw: feeder started: pid 14420 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 60 s, window type video, app org.nphil.lumatv.cameras2); log out/hwplanes/feeder-org.nphil.lumatv.cameras2.log
+22:02:33 T feeder /tmp/gfn/clips/cam720p30.h264 1280x720 h264 30 60 org.nphil.lumatv.cameras2 -> hw: feeder started: pid 14420 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 60 s, window type video, app org.nphil.lumatv.cameras2); log out/hwplanes/feeder-org.nphil.lumatv.cameras2.log
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"error":"rect is smaller than 64 pixels","ok":false}
+22:02:33 ctl vwin claim t1 pip 1280 720 0 100 org.nphil.lumatv.cameras h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"error":"rect is smaller than 64 pixels","ok":false}
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"claim":{"app":"org.nphil.lumatv.cameras2","id":"t2","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":100,"w":640,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":f
+22:02:33 ctl vwin claim t2 pip 1280 720 640 100 org.nphil.lumatv.cameras2 h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"claim":{"app":"org.nphil.lumatv.cameras2","id":"t2","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":100,"w":640,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null},"ok":true}
+    hw: vwin: mode=idle free=1 apps=1 wall=false subscribed=true
+    hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras2","id":"t2","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":100,"w":640,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on th
+    hw: vwin windows: "windows":[]
+    hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0"
+22:02:37 T vwin -> hw: vwin: mode=idle free=1 apps=1 wall=false subscribed=true | hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras2","id":"t2","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":100,"w":640,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null}] | hw: vwin windows: "windows":[] | hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0"
+    hw: shot v7: display 425016 bytes, video  bytes
+22:02:37 T shot v7 -> hw: shot v7: display 425016 bytes, video  bytes
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"released":true}
+22:02:37 ctl vwin release t2 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"released":true}
+    hw: vwin: mode=idle free=1 apps=1 wall=false subscribed=true
+    hw: vwin claims: "claims":[]
+    hw: vwin windows: "windows":[]
+    hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0"
+22:02:40 T vwin -> hw: vwin: mode=idle free=1 apps=1 wall=false subscribed=true | hw: vwin claims: "claims":[] | hw: vwin windows: "windows":[] | hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0"
+    hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+22:02:40 T stop -> hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+    total 35
+    drwxr-xr-x 2 root root     19 Oct 29 22:02 .
+    drwxr-xr-x 7 root root     16 Oct 29 21:56 ..
+    -rw-r--r-- 1 root root      0 Oct 29 22:02 feeder-org.nphil.lumatv.cameras.log
+    -rw-r--r-- 1 root root      0 Oct 29 21:55 feeder-org.nphil.lumatv.cameras2.log
+    -rw-r--r-- 1 root root 425030 Oct 29 22:02 size-114x64.png
+    -rw-r--r-- 1 root root 425046 Oct 29 22:02 size-1280x720.png
+    -rw-r--r-- 1 root root 425035 Oct 29 22:02 size-160x90.png
+    -rw-r--r-- 1 root root 424853 Oct 29 22:02 size-1920x1080.png
+    -rw-r--r-- 1 root root 428195 Oct 29 22:02 size-320x180.png
+    -rw-r--r-- 1 root root 419575 Oct 29 22:02 size-640x360.png
+    -rw-r--r-- 1 root root 424890 Oct 29 22:01 v2-display.png
+    -rw-r--r-- 1 root root 424993 Oct 29 21:58 v2apps-display.png
+    -rw-r--r-- 1 root root 468887 Oct 29 22:01 v4-display.png
+    -rw-r--r-- 1 root root 120878 Oct 29 22:01 v4-video.png
+    -rw-r--r-- 1 root root 424767 Oct 29 22:02 v5-display.png
+    -rw-r--r-- 1 root root 424894 Oct 29 21:58 v5apps-display.png
+    -rw-r--r-- 1 root root 425016 Oct 29 22:02 v7-display.png
+    -rw-r--r-- 1 root root    847 Oct 29 22:02 videooutput-status.json
+    -rw-r--r-- 1 root root    730 Oct 29 22:02 vwin.json
+22:02:42 hwall over
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":0,"claims":[],"free":2,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[],"slots":2,"stats":{"denied
+22:03:20 ctl vwin apps -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":0,"claims":[],"free":2,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[],"slots":2,"stats":{"denied":9,"ended":0,"granted":6,"released":15,"windowsClosed":1},"subscribed":t
+    hw: feeder started: pid 15209 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 40 s, window type video, app org.nphil.lumatv.cameras); log out/hwplanes/feeder-org.nphil.lumatv.cameras.log
+22:03:21 T feeder /tmp/gfn/clips/cam720p30.h264 1280x720 h264 30 40 org.nphil.lumatv.cameras -> hw: feeder started: pid 15209 (/tmp/gfn/clips/cam720p30.h264 1280x720 h264 at 30 for 40 s, window type video, app org.nphil.lumatv.cameras); log out/hwplanes/feeder-org.nphil.lumatv.cameras.log
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide":false,"window":n
+22:03:23 ctl vwin claim t1 pip 1280 720 480 270 org.nphil.lumatv.cameras h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide":false,"window":null},"ok":true}
+    hw: vwin: mode=apps free=1 apps=0 wall=false subscribed=true
+    hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide
+    hw: vwin windows: "windows":[]
+    hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0"
+22:03:28 T vwin -> hw: vwin: mode=apps free=1 apps=0 wall=false subscribed=true | hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide":false,"window":null}] | hw: vwin windows: "windows":[] | hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0"
+    hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+22:03:28 T stop -> hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":0,"claims":[],"free":2,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[],"slots":2,"stats":{"denied
+22:03:39 ctl vwin apps -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":0,"claims":[],"free":2,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[],"slots":2,"stats":{"denied":9,"ended":0,"granted":7,"released":16,"windowsClosed":1},"subscribed":t
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide":false,"window":n
+22:03:42 ctl vwin claim t1 pip 1280 720 480 270 org.nphil.lumatv.cameras h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide":false,"window":null},"ok":true}
+    hw: vwin: mode=apps free=1 apps=0 wall=false subscribed=true
+    hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide
+    hw: vwin windows: "windows":[]
+    hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0"
+22:03:47 T vwin -> hw: vwin: mode=apps free=1 apps=0 wall=false subscribed=true | hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide":false,"window":null}] | hw: vwin windows: "windows":[] | hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0"
+    hw: shot v2b: display 419527 bytes, video  bytes
+22:03:47 T shot v2b -> hw: shot v2b: display 419527 bytes, video  bytes
+22:04:10 memory: MemAvailable: 635008 kB;CmaFree: 78328 kB;
+22:04:10 == v23 idle
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":1,"claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"pree
+22:04:10 ctl vwin idle -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":1,"claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"preempted","text":"an app has a video on the screen","wide":false,"window":nu
+22:04:10 feeder org.nphil.lumatv.cameras started in the background for 60 s
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":fa
+22:04:12 ctl vwin claim t1 pip 1280 720 480 270 org.nphil.lumatv.cameras h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null},"ok":true}
+    hw: vwin: mode=idle free=1 apps=1 wall=false subscribed=true
+    hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the
+    hw: vwin windows: "windows":[]
+    hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0" 
+    hw: feeder feeder-org.nphil.lumatv.cameras.jsonl: :0,"adropped":0,"retries":0,"seconds":3.12,"loaded_ms":183,"playing_ms":184,"loaded":1,"playing":1,"error":0,"audio_route":"none","adecode_errors":0,"events":{"22":1,"26":1},"video_info":"","exit":5}
+22:04:15 T vwin -> hw: vwin: mode=idle free=1 apps=1 wall=false subscribed=true | hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null}] | hw: vwin windows: "windows":[] | hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0" | hw: feeder feeder-org.nphil.lumatv.cameras.jsonl: :0,"adropped":0,"retries":0,"seconds":3.12,"loaded_ms":183,"playing_ms":184,"loaded":1,"playing":1,"error":0,"audio_route":"none","adecode_errors":0,"events":{"22":1,"26":1},"video_info":"","exit":5}
+    hw: shot v2: display 424690 bytes, video  bytes
+22:04:16 T shot v2 -> hw: shot v2: display 424690 bytes, video  bytes
+    hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+22:04:16 T stop -> hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+22:04:16 == v45 youtube
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":1,"claims":[],"free":1,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[],"slots":2,"stats":{"denied
+22:04:41 ctl vwin apps -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":1,"claims":[],"free":1,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[],"slots":2,"stats":{"denied":10,"ended":1,"granted":8,"released":17,"windowsClosed":3},"subscribed":
+22:04:41 feeder org.nphil.lumatv.cameras started in the background for 60 s
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":30,"h":1088,"w":1920},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":true,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"sub","state":"granted","text":"","wide":false,"window":23}
+22:04:43 ctl vwin claim t1 pip 1280 720 480 270 org.nphil.lumatv.cameras h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":30,"h":1088,"w":1920},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":true,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"sub","state":"granted","text":"","wide":false,"window":23},"ok":true}
+    hw: vwin: mode=apps free=0 apps=1 wall=false subscribed=true
+    hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":30,"h":1088,"w":1920},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":true,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"sub","state":"granted","text":"","wide":
+    hw: vwin windows: "windows":[{"app":"org.nphil.lumatv.cameras","bound":true,"closed":false,"id":23,"live":true,"mapped":true,"rect":[1280,720,480,270]
+    hw: videooutputd sinks: "zOrder":0 "connected":true "sink":"MAIN" "subScalerOccupied":false "zOrder":1 "connected":false "sink":"SUB0" 
+    hw: feeder feeder-org.nphil.lumatv.cameras.jsonl: .00,"p99":1,"samples":30},"wait_max_us":700,"wait_p99_us":700,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":3496,"mem_avail_kb":482980,"rss_kb":26288,"audio_avail":0}
+22:04:46 T vwin -> hw: vwin: mode=apps free=0 apps=1 wall=false subscribed=true | hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":30,"h":1088,"w":1920},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":true,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"sub","state":"granted","text":"","wide":false,"window":23}] | hw: vwin windows: "windows":[{"app":"org.nphil.lumatv.cameras","bound":true,"closed":false,"id":23,"live":true,"mapped":true,"rect":[1280,720,480,270] | hw: videooutputd sinks: "zOrder":0 "connected":true "sink":"MAIN" "subScalerOccupied":false "zOrder":1 "connected":false "sink":"SUB0" | hw: feeder feeder-org.nphil.lumatv.cameras.jsonl: .00,"p99":1,"samples":30},"wait_max_us":700,"wait_p99_us":700,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":3496,"mem_avail_kb":482980,"rss_kb":26288,"audio_avail":0}
+    hw: shot v4: display 401448 bytes, video 98014 bytes
+22:04:47 T shot v4 -> hw: shot v4: display 401448 bytes, video 98014 bytes
+    hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+22:04:47 T stop -> hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+22:04:47 == v5
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":2,"claims":[],"free":0,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"idle","sinks":[],"slots":2,"stats":{"denied
+22:04:47 ctl vwin idle -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":2,"claims":[],"free":0,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"idle","sinks":[],"slots":2,"stats":{"denied":10,"ended":1,"granted":9,"released":18,"windowsClosed":3},"subscribed":
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":2,"claims":[],"free":1,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"idle","sinks":[{"app":"unknown","connected"
+22:04:48 ctl vwin slots 3 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":2,"claims":[],"free":1,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"idle","sinks":[{"app":"unknown","connected":false,"fps":0.0,"occupiesBoth":false,"sink":"MAIN","size":[0,0],"z":0},{
+22:04:48 feeder org.nphil.lumatv.cameras started in the background for 60 s
+22:04:49 feeder org.nphil.lumatv.cameras2 started in the background for 60 s
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":fa
+22:04:50 ctl vwin claim t1 pip 1280 720 480 270 org.nphil.lumatv.cameras h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null},"ok":true}
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"claim":{"app":"org.nphil.lumatv.cameras2","id":"t2","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":360},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":f
+22:04:50 ctl vwin claim t2 pip 1280 360 480 270 org.nphil.lumatv.cameras2 h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"claim":{"app":"org.nphil.lumatv.cameras2","id":"t2","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":360},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null},"ok":true}
+    hw: vwin: mode=idle free=2 apps=1 wall=false subscribed=true
+    hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the
+    hw: vwin windows: "windows":[]
+    hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0" 
+    hw: feeder feeder-org.nphil.lumatv.cameras.jsonl: 0,"retries":0,"seconds":1.22,"loaded_ms":196,"playing_ms":196,"loaded":1,"playing":1,"error":1,"audio_route":"none","adecode_errors":0,"events":{"18":1,"22":1,"23":1,"26":1},"video_info":"","exit":6} 
+    hw: feeder feeder-org.nphil.lumatv.cameras2.jsonl: :0,"adropped":0,"retries":0,"seconds":3.10,"loaded_ms":208,"playing_ms":208,"loaded":1,"playing":1,"error":0,"audio_route":"none","adecode_errors":0,"events":{"22":1,"26":1},"video_info":"","exit":5}
+22:04:54 T vwin -> hw: vwin: mode=idle free=2 apps=1 wall=false subscribed=true | hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null},{"app":"org.nphil.lumatv.cameras2","id":"t2","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":360},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null}] | hw: vwin windows: "windows":[] | hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0" | hw: feeder feeder-org.nphil.lumatv.cameras.jsonl: 0,"retries":0,"seconds":1.22,"loaded_ms":196,"playing_ms":196,"loaded":1,"playing":1,"error":1,"audio_route":"none","adecode_errors":0,"events":{"18":1,"22":1,"23":1,"26":1},"video_info":"","exit":6} | hw: feeder feeder-org.nphil.lumatv.cameras2.jsonl: :0,"adropped":0,"retries":0,"seconds":
+    hw: shot v5: display 425045 bytes, video  bytes
+22:04:54 T shot v5 -> hw: shot v5: display 425045 bytes, video  bytes
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":1,"claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a v
+22:04:54 ctl vwin slots 2 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":1,"claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null},{"app":"org.nphil.lumatv.
+    hw: vwin: mode=idle free=1 apps=1 wall=false subscribed=true
+    hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the
+    hw: vwin windows: "windows":[]
+    hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0" 
+    hw: feeder feeder-org.nphil.lumatv.cameras.jsonl: 0,"retries":0,"seconds":1.22,"loaded_ms":196,"playing_ms":196,"loaded":1,"playing":1,"error":1,"audio_route":"none","adecode_errors":0,"events":{"18":1,"22":1,"23":1,"26":1},"video_info":"","exit":6} 
+    hw: feeder feeder-org.nphil.lumatv.cameras2.jsonl: :0,"adropped":0,"retries":0,"seconds":3.10,"loaded_ms":208,"playing_ms":208,"loaded":1,"playing":1,"error":0,"audio_route":"none","adecode_errors":0,"events":{"22":1,"26":1},"video_info":"","exit":5}
+22:04:57 T vwin -> hw: vwin: mode=idle free=1 apps=1 wall=false subscribed=true | hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null},{"app":"org.nphil.lumatv.cameras2","id":"t2","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":360},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null}] | hw: vwin windows: "windows":[] | hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0" | hw: feeder feeder-org.nphil.lumatv.cameras.jsonl: 0,"retries":0,"seconds":1.22,"loaded_ms":196,"playing_ms":196,"loaded":1,"playing":1,"error":1,"audio_route":"none","adecode_errors":0,"events":{"18":1,"22":1,"23":1,"26":1},"video_info":"","exit":6} | hw: feeder feeder-org.nphil.lumatv.cameras2.jsonl: :0,"adropped":0,"retries":0,"seconds":
+    hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+22:04:57 T stop -> hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+22:04:57 == v6
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":1,"claims":[],"free":1,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"idle","sinks":[],"slots":2,"stats":{"denied
+22:04:57 ctl vwin idle -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":1,"claims":[],"free":1,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"idle","sinks":[],"slots":2,"stats":{"denied":12,"ended":1,"granted":9,"released":20,"windowsClosed":4},"subscribed":
+22:04:57 feeder org.nphil.lumatv.cameras started in the background for 60 s
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":fa
+22:04:58 ctl vwin claim t1 pip 1280 720 480 270 org.nphil.lumatv.cameras h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null},"ok":true}
+    hw: V6 114x64 at 903,508: capture 424880 bytes; "placed":false; feeder: 14,"loaded_ms":167,"playing_ms":167,"loaded":1,"playing":1,"error":0,"audio_route":"none","adecode_errors":0,"events":{"22":1,"26":1},"video_info":"","exit":5} 
+    hw: V6 160x90 at 880,495: capture 424926 bytes; "placed":false; feeder: 14,"loaded_ms":167,"playing_ms":167,"loaded":1,"playing":1,"error":0,"audio_route":"none","adecode_errors":0,"events":{"22":1,"26":1},"video_info":"","exit":5} 
+    hw: V6 320x180 at 800,450: capture 424838 bytes; "placed":false; feeder: 14,"loaded_ms":167,"playing_ms":167,"loaded":1,"playing":1,"error":0,"audio_route":"none","adecode_errors":0,"events":{"22":1,"26":1},"video_info":"","exit":5} 
+    hw: V6 640x360 at 640,360: capture 425069 bytes; "placed":false; feeder: 14,"loaded_ms":167,"playing_ms":167,"loaded":1,"playing":1,"error":0,"audio_route":"none","adecode_errors":0,"events":{"22":1,"26":1},"video_info":"","exit":5} 
+    hw: V6 1280x720 at 320,180: capture 424884 bytes; "placed":false; feeder: 14,"loaded_ms":167,"playing_ms":167,"loaded":1,"playing":1,"error":0,"audio_route":"none","adecode_errors":0,"events":{"22":1,"26":1},"video_info":"","exit":5} 
+    hw: V6 1920x1080 at 0,0: capture 424906 bytes; "placed":false; feeder: 14,"loaded_ms":167,"playing_ms":167,"loaded":1,"playing":1,"error":0,"audio_route":"none","adecode_errors":0,"events":{"22":1,"26":1},"video_info":"","exit":5}
+22:05:15 T sizes -> hw: V6 114x64 at 903,508: capture 424880 bytes; "placed":false; feeder: 14,"loaded_ms":167,"playing_ms":167,"loaded":1,"playing":1,"error":0,"audio_route":"none","adecode_errors":0,"events":{"22":1,"26":1},"video_info":"","exit":5} | hw: V6 160x90 at 880,495: capture 424926 bytes; "placed":false; feeder: 14,"loaded_ms":167,"playing_ms":167,"loaded":1,"playing":1,"error":0,"audio_route":"none","adecode_errors":0,"events":{"22":1,"26":1},"video_info":"","exit":5} | hw: V6 320x180 at 800,450: capture 424838 bytes; "placed":false; feeder: 14,"loaded_ms":167,"playing_ms":167,"loaded":1,"playing":1,"error":0,"audio_route":"none","adecode_errors":0,"events":{"22":1,"26":1},"video_info":"","exit":5} | hw: V6 640x360 at 640,360: capture 425069 bytes; "placed":false; feeder: 14,"loaded_ms":167,"playing_ms":167,"loaded":1,"playing":1,"error":0,"audio_route":"none","adecode_errors":0,"events":{"22":1,"26":1},"video_info":"","exit":5} | hw: V6 1280x720 at 320,180: capture 424884 bytes; "placed":false; feeder: 14,"loaded_ms":167,"playing_ms":167,"loaded":1,"playing":1,"error":0,"audio_route":"none","adecode_errors":0,"events":{"22":1,"26":1},"video_info":"","exit":5} | hw: V6 1920x1080 at 0,0: c
+    hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+22:05:15 T stop -> hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+22:05:15 == v7
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":1,"claims":[],"free":1,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"idle","sinks":[],"slots":2,"stats":{"denied
+22:05:16 ctl vwin idle -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":1,"claims":[],"free":1,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"idle","sinks":[],"slots":2,"stats":{"denied":13,"ended":1,"granted":9,"released":21,"windowsClosed":5},"subscribed":
+22:05:16 feeder org.nphil.lumatv.cameras started in the background for 60 s
+22:05:17 feeder org.nphil.lumatv.cameras2 started in the background for 60 s
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"error":"rect is smaller than 64 pixels","ok":false}
+22:05:18 ctl vwin claim t1 pip 1280 720 0 100 org.nphil.lumatv.cameras h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"error":"rect is smaller than 64 pixels","ok":false}
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"claim":{"app":"org.nphil.lumatv.cameras2","id":"t2","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":100,"w":640,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":f
+22:05:18 ctl vwin claim t2 pip 1280 720 640 100 org.nphil.lumatv.cameras2 h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"claim":{"app":"org.nphil.lumatv.cameras2","id":"t2","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":100,"w":640,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null},"ok":true}
+    hw: vwin: mode=idle free=1 apps=1 wall=false subscribed=true
+    hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras2","id":"t2","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":100,"w":640,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on th
+    hw: vwin windows: "windows":[]
+    hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0" 
+    hw: feeder feeder-org.nphil.lumatv.cameras.jsonl: 0,"retries":0,"seconds":1.24,"loaded_ms":183,"playing_ms":183,"loaded":1,"playing":1,"error":1,"audio_route":"none","adecode_errors":0,"events":{"18":1,"22":1,"23":1,"26":1},"video_info":"","exit":6} 
+    hw: feeder feeder-org.nphil.lumatv.cameras2.jsonl: :0,"adropped":0,"retries":0,"seconds":3.12,"loaded_ms":194,"playing_ms":194,"loaded":1,"playing":1,"error":0,"audio_route":"none","adecode_errors":0,"events":{"22":1,"26":1},"video_info":"","exit":5}
+22:05:22 T vwin -> hw: vwin: mode=idle free=1 apps=1 wall=false subscribed=true | hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras2","id":"t2","kind":"pip","limits":null,"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"app-video","rect":{"h":100,"w":640,"x":1280,"y":720},"sink":null,"slot":null,"state":"denied","text":"an app has a video on the screen","wide":false,"window":null}] | hw: vwin windows: "windows":[] | hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0" | hw: feeder feeder-org.nphil.lumatv.cameras.jsonl: 0,"retries":0,"seconds":1.24,"loaded_ms":183,"playing_ms":183,"loaded":1,"playing":1,"error":1,"audio_route":"none","adecode_errors":0,"events":{"18":1,"22":1,"23":1,"26":1},"video_info":"","exit":6} | hw: feeder feeder-org.nphil.lumatv.cameras2.jsonl: :0,"adropped":0,"retries":0,"seconds":3.12,"loaded_ms":194,"playing_ms":194,"loaded":1,"playing":1,"error":0,"audio_route":"none","adecode_errors":0,"events":{"22":1,"26":1},"video_info":"","exit":5}
+    hw: shot v7: display 425043 bytes, video  bytes
+22:05:22 T shot v7 -> hw: shot v7: display 425043 bytes, video  bytes
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"released":true}
+22:05:23 ctl vwin release t2 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"released":true}
+    hw: vwin: mode=idle free=1 apps=1 wall=false subscribed=true
+    hw: vwin claims: "claims":[]
+    hw: vwin windows: "windows":[]
+    hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0" 
+    hw: feeder feeder-org.nphil.lumatv.cameras.jsonl: 0,"retries":0,"seconds":1.24,"loaded_ms":183,"playing_ms":183,"loaded":1,"playing":1,"error":1,"audio_route":"none","adecode_errors":0,"events":{"18":1,"22":1,"23":1,"26":1},"video_info":"","exit":6} 
+    hw: feeder feeder-org.nphil.lumatv.cameras2.jsonl: :0,"adropped":0,"retries":0,"seconds":3.12,"loaded_ms":194,"playing_ms":194,"loaded":1,"playing":1,"error":0,"audio_route":"none","adecode_errors":0,"events":{"22":1,"26":1},"video_info":"","exit":5}
+22:05:25 T vwin -> hw: vwin: mode=idle free=1 apps=1 wall=false subscribed=true | hw: vwin claims: "claims":[] | hw: vwin windows: "windows":[] | hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0" | hw: feeder feeder-org.nphil.lumatv.cameras.jsonl: 0,"retries":0,"seconds":1.24,"loaded_ms":183,"playing_ms":183,"loaded":1,"playing":1,"error":1,"audio_route":"none","adecode_errors":0,"events":{"18":1,"22":1,"23":1,"26":1},"video_info":"","exit":6} | hw: feeder feeder-org.nphil.lumatv.cameras2.jsonl: :0,"adropped":0,"retries":0,"seconds":3.12,"loaded_ms":194,"playing_ms":194,"loaded":1,"playing":1,"error":0,"audio_route":"none","adecode_errors":0,"events":{"22":1,"26":1},"video_info":"","exit":5}
+    hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+22:05:25 T stop -> hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+    total 38
+    drwxr-xr-x 2 root root     22 Oct 29 22:04 .
+    drwxr-xr-x 7 root root     16 Oct 29 21:56 ..
+    -rw-r--r-- 1 root root   1097 Oct 29 22:05 feeder-org.nphil.lumatv.cameras.jsonl
+    -rw-r--r-- 1 root root   1117 Oct 29 22:05 feeder-org.nphil.lumatv.cameras.log
+    -rw-r--r-- 1 root root   1381 Oct 29 22:05 feeder-org.nphil.lumatv.cameras2.jsonl
+    -rw-r--r-- 1 root root   1200 Oct 29 22:05 feeder-org.nphil.lumatv.cameras2.log
+    -rw-r--r-- 1 root root 424880 Oct 29 22:05 size-114x64.png
+    -rw-r--r-- 1 root root 424884 Oct 29 22:05 size-1280x720.png
+    -rw-r--r-- 1 root root 424926 Oct 29 22:05 size-160x90.png
+    -rw-r--r-- 1 root root 424906 Oct 29 22:05 size-1920x1080.png
+    -rw-r--r-- 1 root root 424838 Oct 29 22:05 size-320x180.png
+    -rw-r--r-- 1 root root 425069 Oct 29 22:05 size-640x360.png
+    -rw-r--r-- 1 root root 424690 Oct 29 22:04 v2-display.png
+    -rw-r--r-- 1 root root 424993 Oct 29 21:58 v2apps-display.png
+    -rw-r--r-- 1 root root 419527 Oct 29 22:03 v2b-display.png
+    -rw-r--r-- 1 root root 401448 Oct 29 22:04 v4-display.png
+    -rw-r--r-- 1 root root  98014 Oct 29 22:04 v4-video.png
+    -rw-r--r-- 1 root root 425045 Oct 29 22:04 v5-display.png
+    -rw-r--r-- 1 root root 424894 Oct 29 21:58 v5apps-display.png
+    -rw-r--r-- 1 root root 425043 Oct 29 22:05 v7-display.png
+    -rw-r--r-- 1 root root    847 Oct 29 22:05 videooutput-status.json
+    -rw-r--r-- 1 root root    731 Oct 29 22:05 vwin.json
+22:05:27 hwall over
+22:05:58 == v23 (apps mode)
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":0,"claims":[],"free":2,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[],"slots":2,"stats":{"denied
+22:05:58 ctl vwin apps -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":0,"claims":[],"free":2,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[],"slots":2,"stats":{"denied":14,"ended":1,"granted":9,"released":22,"windowsClosed":6},"subscribed":
+22:05:58 feeder org.nphil.lumatv.cameras started in the background for 60 s
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":true,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide":false,"window":29
+22:05:59 ctl vwin claim t1 pip 1280 720 480 270 org.nphil.lumatv.cameras h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":true,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide":false,"window":29},"ok":true}
+    hw: vwin: mode=apps free=1 apps=0 wall=false subscribed=true
+    hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":true,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide"
+    hw: vwin windows: "windows":[{"app":"org.nphil.lumatv.cameras","bound":true,"closed":false,"id":29,"live":true,"mapped":true,"rect":[1280,720,480,270]
+    hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0" 
+    hw: feeder feeder-org.nphil.lumatv.cameras.jsonl: 00,"p99":1,"samples":30},"wait_max_us":289,"wait_p99_us":289,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":77616,"mem_avail_kb":666568,"rss_kb":26496,"audio_avail":0} 
+    hw: feeder feeder-org.nphil.lumatv.cameras2.jsonl: :0,"adropped":0,"retries":0,"seconds":3.12,"loaded_ms":194,"playing_ms":194,"loaded":1,"playing":1,"error":0,"audio_route":"none","adecode_errors":0,"events":{"22":1,"26":1},"video_info":"","exit":5}
+22:06:03 T vwin -> hw: vwin: mode=apps free=1 apps=0 wall=false subscribed=true | hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":true,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide":false,"window":29}] | hw: vwin windows: "windows":[{"app":"org.nphil.lumatv.cameras","bound":true,"closed":false,"id":29,"live":true,"mapped":true,"rect":[1280,720,480,270] | hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0" | hw: feeder feeder-org.nphil.lumatv.cameras.jsonl: 00,"p99":1,"samples":30},"wait_max_us":289,"wait_p99_us":289,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":77616,"mem_avail_kb":666568,"rss_kb":26496,"audio_avail":0} | hw: feeder feeder-org.nphil.lumatv.cameras2.jsonl: :0,"adropped":0,"retries":0,"seconds":3.12,"loaded_ms":194,"playing_ms":194,"loaded":1,"playing":1,"error":0,"audio_route":"none","adecode_errors":0,"events":{"22":1,"26":1},"video_info":"","exit":5}
+    hw: shot v2: display 424870 bytes, video  bytes
+22:06:03 T shot v2 -> hw: shot v2: display 424870 bytes, video  bytes
+    hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+22:06:03 T stop -> hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+22:06:03 == v5 (apps mode)
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":0,"claims":[],"free":2,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[],"slots":2,"stats":{"denied
+22:06:03 ctl vwin apps -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":0,"claims":[],"free":2,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[],"slots":2,"stats":{"denied":14,"ended":1,"granted":10,"released":23,"windowsClosed":6},"subscribed"
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":0,"claims":[],"free":3,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[{"app":"unknown","connected"
+22:06:04 ctl vwin slots 3 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":0,"claims":[],"free":3,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[{"app":"unknown","connected":false,"fps":0.0,"occupiesBoth":false,"sink":"MAIN","size":[0,0],"z":0},{
+22:06:04 feeder org.nphil.lumatv.cameras started in the background for 60 s
+22:06:05 feeder org.nphil.lumatv.cameras2 started in the background for 60 s
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide":false,"window":n
+22:06:06 ctl vwin claim t1 pip 1280 720 480 270 org.nphil.lumatv.cameras h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide":false,"window":null},"ok":true}
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"claim":{"app":"org.nphil.lumatv.cameras2","id":"t2","kind":"pip","limits":{"fps":30,"h":1088,"w":1920},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":true,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":360},"sink":null,"slot":"sub","state":"granted","text":"","wide":false,"window":31
+22:06:07 ctl vwin claim t2 pip 1280 360 480 270 org.nphil.lumatv.cameras2 h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"claim":{"app":"org.nphil.lumatv.cameras2","id":"t2","kind":"pip","limits":{"fps":30,"h":1088,"w":1920},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":true,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":360},"sink":null,"slot":"sub","state":"granted","text":"","wide":false,"window":31},"ok":true}
+    hw: vwin: mode=apps free=1 apps=0 wall=false subscribed=true
+    hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide
+    hw: vwin windows: "windows":[{"app":"org.nphil.lumatv.cameras2","bound":true,"closed":false,"id":31,"live":true,"mapped":true,"rect":[1280,360,480,270]
+    hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0" 
+    hw: feeder feeder-org.nphil.lumatv.cameras.jsonl: 0,"retries":0,"seconds":1.22,"loaded_ms":181,"playing_ms":182,"loaded":1,"playing":1,"error":1,"audio_route":"none","adecode_errors":0,"events":{"18":1,"22":1,"23":1,"26":1},"video_info":"","exit":6} 
+    hw: feeder feeder-org.nphil.lumatv.cameras2.jsonl: 00,"p99":1,"samples":30},"wait_max_us":341,"wait_p99_us":341,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":76632,"mem_avail_kb":665448,"rss_kb":26276,"audio_avail":0}
+22:06:10 T vwin -> hw: vwin: mode=apps free=1 apps=0 wall=false subscribed=true | hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide":false,"window":null},{"app":"org.nphil.lumatv.cameras2","id":"t2","kind":"pip","limits":{"fps":30,"h":1088,"w":1920},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":true,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":360},"sink":null,"slot":"sub","state":"granted","text":"","wide":false,"window":31}] | hw: vwin windows: "windows":[{"app":"org.nphil.lumatv.cameras2","bound":true,"closed":false,"id":31,"live":true,"mapped":true,"rect":[1280,360,480,270] | hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0" | hw: feeder feeder-org.nphil.lumatv.cameras.jsonl: 0,"retries":0,"seconds":1.22,"loaded_ms":181,"playing_ms":182,"loaded":1,"playing":1,"error":1,"audio_route":"none","adecode_errors":0,"events":{"18":1,"22":1,"23":1,"26":1},"video_info":"","exit":6} | 
+    hw: shot v5: display 424888 bytes, video  bytes
+22:06:10 T shot v5 -> hw: shot v5: display 424888 bytes, video  bytes
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":0,"claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","tex
+22:06:10 ctl vwin slots 2 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":0,"claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide":false,"window":null},{"app":"org.nphil.lumatv.cameras2","id"
+    hw: vwin: mode=apps free=0 apps=0 wall=false subscribed=true
+    hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide
+    hw: vwin windows: "windows":[{"app":"org.nphil.lumatv.cameras2","bound":true,"closed":false,"id":31,"live":true,"mapped":true,"rect":[1280,360,480,270]
+    hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0" 
+    hw: feeder feeder-org.nphil.lumatv.cameras.jsonl: 0,"retries":0,"seconds":1.22,"loaded_ms":181,"playing_ms":182,"loaded":1,"playing":1,"error":1,"audio_route":"none","adecode_errors":0,"events":{"18":1,"22":1,"23":1,"26":1},"video_info":"","exit":6} 
+    hw: feeder feeder-org.nphil.lumatv.cameras2.jsonl: 00,"p99":0,"samples":30},"wait_max_us":280,"wait_p99_us":280,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":76176,"mem_avail_kb":664508,"rss_kb":26276,"audio_avail":0}
+22:06:13 T vwin -> hw: vwin: mode=apps free=0 apps=0 wall=false subscribed=true | hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":false,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide":false,"window":null},{"app":"org.nphil.lumatv.cameras2","id":"t2","kind":"pip","limits":{"fps":30,"h":1088,"w":1920},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":true,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":360},"sink":null,"slot":"sub","state":"granted","text":"","wide":false,"window":31}] | hw: vwin windows: "windows":[{"app":"org.nphil.lumatv.cameras2","bound":true,"closed":false,"id":31,"live":true,"mapped":true,"rect":[1280,360,480,270] | hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0" | hw: feeder feeder-org.nphil.lumatv.cameras.jsonl: 0,"retries":0,"seconds":1.22,"loaded_ms":181,"playing_ms":182,"loaded":1,"playing":1,"error":1,"audio_route":"none","adecode_errors":0,"events":{"18":1,"22":1,"23":1,"26":1},"video_info":"","exit":6} | 
+    hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+22:06:13 T stop -> hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+22:06:13 == v6 (apps mode)
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":0,"claims":[],"free":2,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[],"slots":2,"stats":{"denied
+22:06:13 ctl vwin apps -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":0,"claims":[],"free":2,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[],"slots":2,"stats":{"denied":14,"ended":1,"granted":12,"released":25,"windowsClosed":6},"subscribed"
+22:06:13 feeder org.nphil.lumatv.cameras started in the background for 60 s
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":true,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide":false,"window":32
+22:06:15 ctl vwin claim t1 pip 1280 720 480 270 org.nphil.lumatv.cameras h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":true,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide":false,"window":32},"ok":true}
+    hw: V6 114x64 at 903,508: capture 424823 bytes; "placed":true; feeder: 59,"wait_p99_us":259,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":75568,"mem_avail_kb":663944,"rss_kb":26544,"audio_avail":0} 
+    hw: V6 160x90 at 880,495: capture 424879 bytes; "placed":true; feeder: 87,"wait_p99_us":387,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":75640,"mem_avail_kb":664684,"rss_kb":26544,"audio_avail":0} 
+    hw: V6 320x180 at 800,450: capture 425089 bytes; "placed":true; feeder: 49,"wait_p99_us":349,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":76536,"mem_avail_kb":665076,"rss_kb":26544,"audio_avail":0} 
+    hw: V6 640x360 at 640,360: capture 425049 bytes; "placed":true; feeder: 88,"wait_p99_us":388,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":74988,"mem_avail_kb":662896,"rss_kb":26544,"audio_avail":0} 
+    hw: V6 1280x720 at 320,180: capture 424755 bytes; "placed":true; feeder: 44,"wait_p99_us":944,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":75028,"mem_avail_kb":663012,"rss_kb":26544,"audio_avail":0} 
+    hw: V6 1920x1080 at 0,0: capture 424988 bytes; "placed":true; feeder: 00,"wait_p99_us":300,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":74872,"mem_avail_kb":662624,"rss_kb":26544,"audio_avail":0}
+22:06:31 T sizes -> hw: V6 114x64 at 903,508: capture 424823 bytes; "placed":true; feeder: 59,"wait_p99_us":259,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":75568,"mem_avail_kb":663944,"rss_kb":26544,"audio_avail":0} | hw: V6 160x90 at 880,495: capture 424879 bytes; "placed":true; feeder: 87,"wait_p99_us":387,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":75640,"mem_avail_kb":664684,"rss_kb":26544,"audio_avail":0} | hw: V6 320x180 at 800,450: capture 425089 bytes; "placed":true; feeder: 49,"wait_p99_us":349,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":76536,"mem_avail_kb":665076,"rss_kb":26544,"audio_avail":0} | hw: V6 640x360 at 640,360: capture 425049 bytes; "placed":true; feeder: 88,"wait_p99_us":388,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":74988,"mem_avail_kb":662896,"rss_kb":26544,"audio_avail":0} | hw: V6 1280x720 at 320,180: capture 424755 bytes; "placed":true; feeder: 44,"wait_p99_us":944,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":75028,"mem_avail_kb":663012,"rss_kb":26544,"audio_avail":0} | hw: V6 1920x1080 at 0,0: captur
+    hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+22:06:32 T stop -> hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+22:06:32 == v7 (apps mode)
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":0,"claims":[],"free":2,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[],"slots":2,"stats":{"denied
+22:06:32 ctl vwin apps -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":0,"claims":[],"free":2,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[],"slots":2,"stats":{"denied":14,"ended":1,"granted":13,"released":26,"windowsClosed":6},"subscribed"
+22:06:32 feeder org.nphil.lumatv.cameras started in the background for 60 s
+22:06:33 feeder org.nphil.lumatv.cameras2 started in the background for 60 s
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"error":"rect is smaller than 64 pixels","ok":false}
+22:06:35 ctl vwin claim t1 pip 1280 720 0 100 org.nphil.lumatv.cameras h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"error":"rect is smaller than 64 pixels","ok":false}
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"claim":{"app":"org.nphil.lumatv.cameras2","id":"t2","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":true,"reason":"","rect":{"h":100,"w":640,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide":false,"window":3
+22:06:36 ctl vwin claim t2 pip 1280 720 640 100 org.nphil.lumatv.cameras2 h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"claim":{"app":"org.nphil.lumatv.cameras2","id":"t2","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":true,"reason":"","rect":{"h":100,"w":640,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide":false,"window":34},"ok":true}
+    hw: vwin: mode=apps free=1 apps=0 wall=false subscribed=true
+    hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras2","id":"t2","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":true,"reason":"","rect":{"h":100,"w":640,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide
+    hw: vwin windows: "windows":[{"app":"org.nphil.lumatv.cameras2","bound":true,"closed":false,"id":34,"live":true,"mapped":true,"rect":[1280,720,640,100]
+    hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0" 
+    hw: feeder feeder-org.nphil.lumatv.cameras.jsonl: 0,"retries":0,"seconds":1.24,"loaded_ms":174,"playing_ms":174,"loaded":1,"playing":1,"error":1,"audio_route":"none","adecode_errors":0,"events":{"18":1,"22":1,"23":1,"26":1},"video_info":"","exit":6} 
+    hw: feeder feeder-org.nphil.lumatv.cameras2.jsonl: 00,"p99":1,"samples":30},"wait_max_us":343,"wait_p99_us":343,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":75184,"mem_avail_kb":665376,"rss_kb":26288,"audio_avail":0}
+22:06:39 T vwin -> hw: vwin: mode=apps free=1 apps=0 wall=false subscribed=true | hw: vwin claims: "claims":[{"app":"org.nphil.lumatv.cameras2","id":"t2","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":true,"reason":"","rect":{"h":100,"w":640,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide":false,"window":34}] | hw: vwin windows: "windows":[{"app":"org.nphil.lumatv.cameras2","bound":true,"closed":false,"id":34,"live":true,"mapped":true,"rect":[1280,720,640,100] | hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0" | hw: feeder feeder-org.nphil.lumatv.cameras.jsonl: 0,"retries":0,"seconds":1.24,"loaded_ms":174,"playing_ms":174,"loaded":1,"playing":1,"error":1,"audio_route":"none","adecode_errors":0,"events":{"18":1,"22":1,"23":1,"26":1},"video_info":"","exit":6} | hw: feeder feeder-org.nphil.lumatv.cameras2.jsonl: 00,"p99":1,"samples":30},"wait_max_us":343,"wait_p99_us":343,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":75184,"mem_avail_kb":665376,"rss_kb":26288,"audio_avail":0}
+    hw: shot v7: display 424989 bytes, video  bytes
+22:06:40 T shot v7 -> hw: shot v7: display 424989 bytes, video  bytes
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"released":true}
+22:06:40 ctl vwin release t2 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"released":true}
+    hw: vwin: mode=apps free=2 apps=0 wall=false subscribed=true
+    hw: vwin claims: "claims":[]
+    hw: vwin windows: "windows":[{"app":"org.nphil.lumatv.cameras2","bound":true,"closed":false,"id":34,"live":false,"mapped":true,"rect":[0,0,0,0]
+    hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0" 
+    hw: feeder feeder-org.nphil.lumatv.cameras.jsonl: 0,"retries":0,"seconds":1.24,"loaded_ms":174,"playing_ms":174,"loaded":1,"playing":1,"error":1,"audio_route":"none","adecode_errors":0,"events":{"18":1,"22":1,"23":1,"26":1},"video_info":"","exit":6} 
+    hw: feeder feeder-org.nphil.lumatv.cameras2.jsonl: 00,"p99":0,"samples":30},"wait_max_us":299,"wait_p99_us":299,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":74524,"mem_avail_kb":664212,"rss_kb":26288,"audio_avail":0}
+22:06:42 T vwin -> hw: vwin: mode=apps free=2 apps=0 wall=false subscribed=true | hw: vwin claims: "claims":[] | hw: vwin windows: "windows":[{"app":"org.nphil.lumatv.cameras2","bound":true,"closed":false,"id":34,"live":false,"mapped":true,"rect":[0,0,0,0] | hw: videooutputd sinks: "zOrder":0 "connected":false "sink":"MAIN" "zOrder":1 "connected":false "sink":"SUB0" | hw: feeder feeder-org.nphil.lumatv.cameras.jsonl: 0,"retries":0,"seconds":1.24,"loaded_ms":174,"playing_ms":174,"loaded":1,"playing":1,"error":1,"audio_route":"none","adecode_errors":0,"events":{"18":1,"22":1,"23":1,"26":1},"video_info":"","exit":6} | hw: feeder feeder-org.nphil.lumatv.cameras2.jsonl: 00,"p99":0,"samples":30},"wait_max_us":299,"wait_p99_us":299,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":74524,"mem_avail_kb":664212,"rss_kb":26288,"audio_avail":0}
+    hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+22:06:43 T stop -> hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+    total 38
+    drwxr-xr-x 2 root root     22 Oct 29 22:04 .
+    drwxr-xr-x 7 root root     16 Oct 29 21:56 ..
+    -rw-r--r-- 1 root root   1097 Oct 29 22:06 feeder-org.nphil.lumatv.cameras.jsonl
+    -rw-r--r-- 1 root root   1117 Oct 29 22:06 feeder-org.nphil.lumatv.cameras.log
+    -rw-r--r-- 1 root root   3455 Oct 29 22:06 feeder-org.nphil.lumatv.cameras2.jsonl
+    -rw-r--r-- 1 root root   2000 Oct 29 22:06 feeder-org.nphil.lumatv.cameras2.log
+    -rw-r--r-- 1 root root 424823 Oct 29 22:06 size-114x64.png
+    -rw-r--r-- 1 root root 424755 Oct 29 22:06 size-1280x720.png
+    -rw-r--r-- 1 root root 424879 Oct 29 22:06 size-160x90.png
+    -rw-r--r-- 1 root root 424988 Oct 29 22:06 size-1920x1080.png
+    -rw-r--r-- 1 root root 425089 Oct 29 22:06 size-320x180.png
+    -rw-r--r-- 1 root root 425049 Oct 29 22:06 size-640x360.png
+    -rw-r--r-- 1 root root 424870 Oct 29 22:06 v2-display.png
+    -rw-r--r-- 1 root root 424993 Oct 29 21:58 v2apps-display.png
+    -rw-r--r-- 1 root root 419527 Oct 29 22:03 v2b-display.png
+    -rw-r--r-- 1 root root 401448 Oct 29 22:04 v4-display.png
+    -rw-r--r-- 1 root root  98014 Oct 29 22:04 v4-video.png
+    -rw-r--r-- 1 root root 424888 Oct 29 22:06 v5-display.png
+    -rw-r--r-- 1 root root 424894 Oct 29 21:58 v5apps-display.png
+    -rw-r--r-- 1 root root 424989 Oct 29 22:06 v7-display.png
+    -rw-r--r-- 1 root root    976 Oct 29 22:06 videooutput-status.json
+    -rw-r--r-- 1 root root    847 Oct 29 22:06 vwin.json
+22:06:45 hwall2 over
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":0,"claims":[],"free":2,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[],"slots":2,"stats":{"denied
+22:08:26 ctl vwin apps -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":0,"claims":[],"free":2,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[],"slots":2,"stats":{"denied":14,"ended":1,"granted":14,"released":27,"windowsClosed":6},"subscribed"
+22:08:26 feeder org.nphil.lumatv.cameras started in the background for 50 s
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":true,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide":false,"window":35
+22:08:27 ctl vwin claim t1 pip 1280 720 480 270 org.nphil.lumatv.cameras h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"claim":{"app":"org.nphil.lumatv.cameras","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":true,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":null,"slot":"main","state":"granted","text":"","wide":false,"window":35},"ok":true}
+    hw: shot v2c: display 425103 bytes, video  bytes
+22:08:37 T shot v2c -> hw: shot v2c: display 425103 bytes, video  bytes
+    hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+22:08:37 T stop -> hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+22:09:21 == p0
+    hw: P0 pageAlpha=true fb0 hdr.global_alpha_en=0 hdr.global_alpha=0xff
+    hw: P0 PASS: the pages carry alpha and the OSD blends per pixel
+22:09:22 T alpha -> hw: P0 pageAlpha=true fb0 hdr.global_alpha_en=0 hdr.global_alpha=0xff | hw: P0 PASS: the pages carry alpha and the OSD blends per pixel
+22:09:22 == p12
+    hw: P1 in the frame: frames drawn for 60 moves: 12 (expected: about 60, one per move)
+    hw: P1 fb3 in the frame: visible=off (osd:0, sync:0) flips=196 (expected: off, 0 more)
+    hw: P1 plane switch: ok=true 
+    hw: P1 on the plane: frames drawn for 60 moves: 7 (expected: 0 to 2)
+    hw: P1 fb3 on the plane: visible=on (osd:1, sync:1) flips +36 (expected: on, up to 60 flips) xpos=2928 ypos=1548 mem=64x64 out=64x64 global_alpha_en=0
+    hw: P1 expected at the last move (1480,790): xpos about 2*(1480-16)=2928, ypos about 2*(790-16)=1548 if the driver scales by 2 and takes the hotspot off
+    hw: P1 plane report: route=legacy cursor ioctls shows=1 moves=37 hides=0 coalesced=23 errors=0 broken="broken":false lastError=
+    hw: P2 the DISPLAY capture with the pointer on the plane is out/hwplanes/pointer-plane.png (the pointer is in it only if the capture tap is after the cursor plane)
+    hw: P1 fb3 at (100,100): xpos=168 ypos=168 (expected 168 and 168 for the same rule: the hotspot is taken off, then x2)
+    hw: P1 back on the GPU: visible=off (osd:0, sync:0) carried=false
+22:09:28 T pointer -> hw: P1 in the frame: frames drawn for 60 moves: 12 (expected: about 60, one per move) | hw: P1 fb3 in the frame: visible=off (osd:0, sync:0) flips=196 (expected: off, 0 more) | hw: P1 plane switch: ok=true | hw: P1 on the plane: frames drawn for 60 moves: 7 (expected: 0 to 2) | hw: P1 fb3 on the plane: visible=on (osd:1, sync:1) flips +36 (expected: on, up to 60 flips) xpos=2928 ypos=1548 mem=64x64 out=64x64 global_alpha_en=0 | hw: P1 expected at the last move (1480,790): xpos about 2*(1480-16)=2928, ypos about 2*(790-16)=1548 if the driver scales by 2 and takes the hotspot off | hw: P1 plane report: route=legacy cursor ioctls shows=1 moves=37 hides=0 coalesced=23 errors=0 broken="broken":false lastError= | hw: P2 the DISPLAY capture with the pointer on the plane is out/hwplanes/pointer-plane.png (the pointer is in it only if the capture tap is after the cursor plane) | hw: P1 fb3 at (100,100): xpos=168 ypos=168 (expected 168 and 168 for the same rule: the hotspot is taken off, then x2) | hw: P1 back on the GPU: visible=off (osd:0, sync:0) carried=false
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"pointer":{"at":[100,100],"carried":false,"mode":"gpu","motions":123,"plane":{"alpha":"premultiplied","carried":false,"composeOnly":false,"cursorPlane":36,"mode":"gpu","reason":"","sprite":"32x32, hotspot 16,16"},"show":"wheel","visible":true}}
+22:09:28 ctl pointer gpu -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"pointer":{"at":[100,100],"carried":false,"mode":"gpu","motions":123,"plane":{"alpha":"premultiplied","carried":false,"composeOnly":false,"cursorPlane":36,"mode":"gpu","reason":"","sprite":"32x32, hotspot 16,16"},"show":"wheel","visible":true}}
+22:09:28 == a1
+    hw: A1 pages: kind=AR24 linear asked=AR24 linear format=AR24 modifier=0x0000000000000000 bytesEach=8294400 count=3 fallback="fallback":null
+    hw: A1 probe: planeTakes=true gpuDraws=true verdict: the plane takes it and the GPU driver lists it to draw into: yes, subject to the picture being right on the panel
+    hw: A1 the plane and the GPU driver as listed: out/hwplanes/afbc.json (probe)
+    hw: A1 fb0: global_alpha_en=0 w_mem=1920 h_mem=1080 flips=143524 (the whole status is out/hwplanes/fb0-status.txt: look for an AFBC field)
+    hw: A1 frame time: renderUsLast=1799 renderUsMax=9578 drawn=13558
+    hw: A2 bandwidth: estimate only (assumed ratios, afbc.json 'estimate'); no memory-bandwidth counter has been read on this set
+    hw: A2 capture: out/hwplanes/afbc.png (compare with a linear run: tv_hwplanes.py compare A.png B.png)
+22:09:29 T afbc -> hw: A1 pages: kind=AR24 linear asked=AR24 linear format=AR24 modifier=0x0000000000000000 bytesEach=8294400 count=3 fallback="fallback":null | hw: A1 probe: planeTakes=true gpuDraws=true verdict: the plane takes it and the GPU driver lists it to draw into: yes, subject to the picture being right on the panel | hw: A1 the plane and the GPU driver as listed: out/hwplanes/afbc.json (probe) | hw: A1 fb0: global_alpha_en=0 w_mem=1920 h_mem=1080 flips=143524 (the whole status is out/hwplanes/fb0-status.txt: look for an AFBC field) | hw: A1 frame time: renderUsLast=1799 renderUsMax=9578 drawn=13558 | hw: A2 bandwidth: estimate only (assumed ratios, afbc.json 'estimate'); no memory-bandwidth counter has been read on this set | hw: A2 capture: out/hwplanes/afbc.png (compare with a linear run: tv_hwplanes.py compare A.png B.png)
+22:09:29 == a3
+22:09:29 memory: MemAvailable: 680988 kB;CmaFree: 93772 kB;
+    hw: A3 before: pages "kinds":["AR24 linear","AR24 linear","AR24 linear"]; CmaFree: 93812 kB
+    hw: A3 ctl pagealpha on: ok=true 
+    hw: A3 after 0 moves: kind=AR24 linear asked=AR24 linear alpha=true converting=0 "kinds":["AR24 linear","AR24 linear","AR24 linear"] fallback="fallback":null
+    hw: A3 fb0: global_alpha_en=0 flips=143529; CmaFree: 94128 kB; renderUsLast=1391
+    hw: A3 capture out/hwplanes/layout-alpha-on.png
+22:09:30 T layout alpha-on -> hw: A3 before: pages "kinds":["AR24 linear","AR24 linear","AR24 linear"]; CmaFree: 93812 kB | hw: A3 ctl pagealpha on: ok=true | hw: A3 after 0 moves: kind=AR24 linear asked=AR24 linear alpha=true converting=0 "kinds":["AR24 linear","AR24 linear","AR24 linear"] fallback="fallback":null | hw: A3 fb0: global_alpha_en=0 flips=143529; CmaFree: 94128 kB; renderUsLast=1391 | hw: A3 capture out/hwplanes/layout-alpha-on.png
+    hw: shot layout-alpha-on: display 424997 bytes, video  bytes
+22:09:31 T shot layout-alpha-on -> hw: shot layout-alpha-on: display 424997 bytes, video  bytes
+    hw: A3 before: pages "kinds":["AR24 linear","AR24 linear","AR24 linear"]; CmaFree: 93392 kB
+    hw: A3 ctl afbc on: ok=true 
+    hw: A3 after 1 moves: kind=AB24 AFBC 32x8 split sparse asked=AB24 AFBC 32x8 split sparse alpha=true converting=0 "kinds":["AB24 AFBC 32x8 split sparse","AB24 AFBC 32x8 split sparse","AB24 AFBC 32x8 split sparse"] fallback="fallback":null
+    hw: A3 fb0: global_alpha_en=0 flips=143534; CmaFree: 104716 kB; renderUsLast=1024
+    hw: A3 capture out/hwplanes/layout-on.png
+22:09:32 T layout on -> hw: A3 before: pages "kinds":["AR24 linear","AR24 linear","AR24 linear"]; CmaFree: 93392 kB | hw: A3 ctl afbc on: ok=true | hw: A3 after 1 moves: kind=AB24 AFBC 32x8 split sparse asked=AB24 AFBC 32x8 split sparse alpha=true converting=0 "kinds":["AB24 AFBC 32x8 split sparse","AB24 AFBC 32x8 split sparse","AB24 AFBC 32x8 split sparse"] fallback="fallback":null | hw: A3 fb0: global_alpha_en=0 flips=143534; CmaFree: 104716 kB; renderUsLast=1024 | hw: A3 capture out/hwplanes/layout-on.png
+    hw: shot layout-on: display 400388 bytes, video  bytes
+22:09:37 T shot layout-on -> hw: shot layout-on: display 400388 bytes, video  bytes
+    hw: A1 pages: kind=AB24 AFBC 32x8 split sparse asked=AB24 AFBC 32x8 split sparse format=AB24 modifier=0x0800000000000062 bytesEach=8486912 count=3 fallback="fallback":null
+    hw: A1 probe: planeTakes=true gpuDraws=true verdict: the plane takes it and the GPU driver lists it to draw into: yes, subject to the picture being right on the panel
+    hw: A1 the plane and the GPU driver as listed: out/hwplanes/afbc.json (probe)
+    hw: A1 fb0: global_alpha_en=0 w_mem=1920 h_mem=1080 flips=143543 (the whole status is out/hwplanes/fb0-status.txt: look for an AFBC field)
+    hw: A1 frame time: renderUsLast=1441 renderUsMax=9578 drawn=13577
+    hw: A2 bandwidth: estimate only (assumed ratios, afbc.json 'estimate'); no memory-bandwidth counter has been read on this set
+    hw: A2 capture: out/hwplanes/afbc.png (compare with a linear run: tv_hwplanes.py compare A.png B.png)
+22:09:38 T afbc -> hw: A1 pages: kind=AB24 AFBC 32x8 split sparse asked=AB24 AFBC 32x8 split sparse format=AB24 modifier=0x0800000000000062 bytesEach=8486912 count=3 fallback="fallback":null | hw: A1 probe: planeTakes=true gpuDraws=true verdict: the plane takes it and the GPU driver lists it to draw into: yes, subject to the picture being right on the panel | hw: A1 the plane and the GPU driver as listed: out/hwplanes/afbc.json (probe) | hw: A1 fb0: global_alpha_en=0 w_mem=1920 h_mem=1080 flips=143543 (the whole status is out/hwplanes/fb0-status.txt: look for an AFBC field) | hw: A1 frame time: renderUsLast=1441 renderUsMax=9578 drawn=13577 | hw: A2 bandwidth: estimate only (assumed ratios, afbc.json 'estimate'); no memory-bandwidth counter has been read on this set | hw: A2 capture: out/hwplanes/afbc.png (compare with a linear run: tv_hwplanes.py compare A.png B.png)
+    hw: A3 before: pages "kinds":["AB24 AFBC 32x8 split sparse","AB24 AFBC 32x8 split sparse","AB24 AFBC 32x8 split sparse"]; CmaFree: 104916 kB
+    hw: A3 ctl afbc off: ok=true 
+    hw: A3 after 1 moves: kind=AR24 linear asked=AR24 linear alpha=true converting=0 "kinds":["AR24 linear","AR24 linear","AR24 linear"] fallback="fallback":null
+    hw: A3 fb0: global_alpha_en=0 flips=143565; CmaFree: 104708 kB; renderUsLast=1278
+    hw: A3 capture out/hwplanes/layout-off.png
+22:09:39 T layout off -> hw: A3 before: pages "kinds":["AB24 AFBC 32x8 split sparse","AB24 AFBC 32x8 split sparse","AB24 AFBC 32x8 split sparse"]; CmaFree: 104916 kB | hw: A3 ctl afbc off: ok=true | hw: A3 after 1 moves: kind=AR24 linear asked=AR24 linear alpha=true converting=0 "kinds":["AR24 linear","AR24 linear","AR24 linear"] fallback="fallback":null | hw: A3 fb0: global_alpha_en=0 flips=143565; CmaFree: 104708 kB; renderUsLast=1278 | hw: A3 capture out/hwplanes/layout-off.png
+    hw: shot layout-off: display 441603 bytes, video  bytes
+22:09:43 T shot layout-off -> hw: shot layout-off: display 441603 bytes, video  bytes
+    Traceback (most recent call last):
+      File "/tmp/lumatv-r20/compositor/tools/tv_hwplanes.py", line 85, in <module>
+        main()
+      File "/tmp/lumatv-r20/compositor/tools/tv_hwplanes.py", line 56, in main
+        return compare(args[1], args[2])
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+      File "/tmp/lumatv-r20/compositor/tools/tv_hwplanes.py", line 42, in compare
+        ia, ib = Image.open(a).convert("RGB"), Image.open(b).convert("RGB")
+                 ^^^^^^^^^^^^^
+      File "/data/home/.local/lib/python3.11/site-packages/PIL/Image.py", line 3639, in open
+        fp = builtins.open(filename, "rb")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    FileNotFoundError: [Errno 2] No such file or directory: '/tmp/lumatv-tv-out/hwplanes/layout-alpha-on-display.png'
+22:09:43 memory: MemAvailable: 674184 kB;CmaFree: 101260 kB;
+22:09:43 == orbit
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"scanout":{"acquire":"sample","descriptors":{"allocDevices":[],"created":0,"destroyed":0,"retained":0,"undecoded":0,"withClient":0},"framebuffers":{"importFailures":0,"imports":0,"made":0,"waiting":0},"frames":{"composed":0,"direct":0},"held":{"pending":false,"shown":false,"waiting":false
+22:09:46 ctl scanout direct -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"scanout":{"acquire":"sample","descriptors":{"allocDevices":[],"created":0,"destroyed":0,"retained":0,"undecoded":0,"withClient":0},"framebuffers":{"importFailures":0,"imports":0,"made":0,"waiting":0},"frames":{"composed":0,"direct":0},"held":{"pending":false,"shown":false,"waiting":false},"last":{"reason":null,"state":"composed","text":null},"lastBufferRefusa
+22:12:49 orbit: +45.65  t=45s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +50.69  t=50s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +55.74  t=55s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +60.78  t=60s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +65.83  t=65s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +70.87  t=70s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +75.92  t=75s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +80.97  t=80s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +86.01  t=85s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +91.06  t=90s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +96.11  t=95s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +101.16  t=100s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +106.21  t=105s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +111.25  t=110s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +116.29  t=115s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +121.33  t=120s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +126.38  t=125s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +131.42  t=130s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +136.49  t=135s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +141.54  t=140s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +146.58  t=145s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +151.63  t=150s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +156.67  t=155s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +161.72  t=160s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +166.76  t=165s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +171.82  t=170s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +176.86  t=175s placedFrames=0 lastAt=[0,0] shifted=0 direct=0 last=composed/empty fb0 xpos=0 ypos=0
+22:12:49 orbit: +181.87  !! no placed frame in 180 s: the journal says why (ctl journal | grep scanout)
+22:12:49 orbit: +181.94  theme put back
+22:12:49 orbit: +181.94  orbit done; offset off
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"scanout":{"acquire":"sample","descriptors":{"allocDevices":[],"created":0,"destroyed":0,"retained":0,"undecoded":0,"withClient":0},"framebuffers":{"importFailures":0,"imports":0,"made":0,"waiting":0},"frames":{"composed":385,"direct":0},"held":{"pending":false,"shown":false,"waiting":fal
+22:12:49 ctl scanout off -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"scanout":{"acquire":"sample","descriptors":{"allocDevices":[],"created":0,"destroyed":0,"retained":0,"undecoded":0,"withClient":0},"framebuffers":{"importFailures":0,"imports":0,"made":0,"waiting":0},"frames":{"composed":385,"direct":0},"held":{"pending":false,"shown":false,"waiting":false},"last":{"reason":null,"state":"composed","text":null},"lastBufferRefu
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"scanout":{"acquire":"sample","descriptors":{"allocDevices":[],"created":0,"destroyed":0,"retained":0,"undecoded":0,"withClient":0},"framebuffers":{"importFailures":0,"imports":0,"made":0,"waiting":0},"frames":{"composed":385,"direct":0},"held":{"pending":false,"shown":false,"waiting":fal
+22:12:49 ctl scanout offset off -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"scanout":{"acquire":"sample","descriptors":{"allocDevices":[],"created":0,"destroyed":0,"retained":0,"undecoded":0,"withClient":0},"framebuffers":{"importFailures":0,"imports":0,"made":0,"waiting":0},"frames":{"composed":385,"direct":0},"held":{"pending":false,"shown":false,"waiting":false},"last":{"reason":null,"state":"composed","text":null},"lastBufferRefu
+    total 49
+    drwxr-xr-x 2 root root     33 Oct 29 22:09 .
+    drwxr-xr-x 7 root root     16 Oct 29 21:56 ..
+    -rw-r--r-- 1 root root   3405 Oct 29 22:09 afbc.json
+    -rw-r--r-- 1 root root 400441 Oct 29 22:09 afbc.png
+    -rw-r--r-- 1 root root   3169 Oct 29 22:09 fb0-status.txt
+    -rw-r--r-- 1 root root   4050 Oct 29 22:08 feeder-org.nphil.lumatv.cameras.jsonl
+    -rw-r--r-- 1 root root   2246 Oct 29 22:08 feeder-org.nphil.lumatv.cameras.log
+    -rw-r--r-- 1 root root   3455 Oct 29 22:06 feeder-org.nphil.lumatv.cameras2.jsonl
+    -rw-r--r-- 1 root root   2000 Oct 29 22:06 feeder-org.nphil.lumatv.cameras2.log
+    -rw-r--r-- 1 root root 424997 Oct 29 22:09 layout-alpha-on-display.png
+    -rw-r--r-- 1 root root 424997 Oct 29 22:09 layout-alpha-on.png
+    -rw-r--r-- 1 root root 441603 Oct 29 22:09 layout-off-display.png
+    -rw-r--r-- 1 root root 385091 Oct 29 22:09 layout-off.png
+    -rw-r--r-- 1 root root 400388 Oct 29 22:09 layout-on-display.png
+    -rw-r--r-- 1 root root 400419 Oct 29 22:09 layout-on.png
+    -rw-r--r-- 1 root root 425350 Oct 29 22:09 pointer-plane.png
+    -rw-r--r-- 1 root root 424823 Oct 29 22:06 size-114x64.png
+    -rw-r--r-- 1 root root 424755 Oct 29 22:06 size-1280x720.png
+    -rw-r--r-- 1 root root 424879 Oct 29 22:06 size-160x90.png
+    -rw-r--r-- 1 root root 424988 Oct 29 22:06 size-1920x1080.png
+    -rw-r--r-- 1 root root 425089 Oct 29 22:06 size-320x180.png
+    -rw-r--r-- 1 root root 425049 Oct 29 22:06 size-640x360.png
+    -rw-r--r-- 1 root root 424870 Oct 29 22:06 v2-display.png
+    -rw-r--r-- 1 root root 424993 Oct 29 21:58 v2apps-display.png
+    -rw-r--r-- 1 root root 419527 Oct 29 22:03 v2b-display.png
+    -rw-r--r-- 1 root root 425103 Oct 29 22:08 v2c-display.png
+    -rw-r--r-- 1 root root 401448 Oct 29 22:04 v4-display.png
+    -rw-r--r-- 1 root root  98014 Oct 29 22:04 v4-video.png
+    -rw-r--r-- 1 root root 424888 Oct 29 22:06 v5-display.png
+    -rw-r--r-- 1 root root 424894 Oct 29 21:58 v5apps-display.png
+    -rw-r--r-- 1 root root 424989 Oct 29 22:06 v7-display.png
+    -rw-r--r-- 1 root root    976 Oct 29 22:06 videooutput-status.json
+    -rw-r--r-- 1 root root    847 Oct 29 22:06 vwin.json
+22:12:52 hwall3 over
+22:24:41 === probe home app=com.webos.app.home
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":0,"claims":[],"free":2,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[],"slots":2,"stats":{"denied
+22:24:41 ctl vwin apps -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":0,"claims":[],"free":2,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[],"slots":2,"stats":{"denied":0,"ended":0,"granted":0,"released":0,"windowsClosed":0},"subscribed":tr
+22:24:41 feeder com.webos.app.home started in the background for 60 s
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"claim":{"app":"com.webos.app.home","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":true,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":"MAIN","slot":"main","state":"granted","text":"","wide":false,"window":8},"ok
+22:24:42 ctl vwin claim t1 pip 1280 720 480 270 com.webos.app.home h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"claim":{"app":"com.webos.app.home","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":true,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":"MAIN","slot":"main","state":"granted","text":"","wide":false,"window":8},"ok":true}
+    hw: shot probe-home: display 391685 bytes, video  bytes
+22:24:47 T shot probe-home -> hw: shot probe-home: display 391685 bytes, video  bytes
+    hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+22:24:47 T stop -> hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+22:24:47 youtube front
+22:25:07 === probe yt app=youtube.leanback.v4
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":1,"claims":[],"free":1,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[],"slots":2,"stats":{"denied
+22:25:07 ctl vwin apps -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":1,"claims":[],"free":1,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[],"slots":2,"stats":{"denied":0,"ended":0,"granted":1,"released":1,"windowsClosed":0},"subscribed":tr
+22:25:07 feeder youtube.leanback.v4 started in the background for 60 s
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"claim":{"app":"youtube.leanback.v4","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":true,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":"MAIN","slot":"main","state":"granted","text":"","wide":false,"window":10},"
+22:25:09 ctl vwin claim t1 pip 1280 720 480 270 youtube.leanback.v4 h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"claim":{"app":"youtube.leanback.v4","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":true,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":"MAIN","slot":"main","state":"granted","text":"","wide":false,"window":10},"ok":true}
+    hw: shot probe-yt: display 345365 bytes, video  bytes
+22:25:13 T shot probe-yt -> hw: shot probe-yt: display 345365 bytes, video  bytes
+    hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+22:25:14 T stop -> hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+    total 55
+    drwxr-xr-x 2 root root     39 Oct 29 22:25 .
+    drwxr-xr-x 7 root root     16 Oct 29 22:24 ..
+    -rw-r--r-- 1 root root   3405 Oct 29 22:09 afbc.json
+    -rw-r--r-- 1 root root 400441 Oct 29 22:09 afbc.png
+    -rw-r--r-- 1 root root   3169 Oct 29 22:09 fb0-status.txt
+    -rw-r--r-- 1 root root   2265 Oct 29 22:24 feeder-com.webos.app.home.jsonl
+    -rw-r--r-- 1 root root   1505 Oct 29 22:24 feeder-com.webos.app.home.log
+    -rw-r--r-- 1 root root   4050 Oct 29 22:08 feeder-org.nphil.lumatv.cameras.jsonl
+    -rw-r--r-- 1 root root   2246 Oct 29 22:08 feeder-org.nphil.lumatv.cameras.log
+    -rw-r--r-- 1 root root   3455 Oct 29 22:06 feeder-org.nphil.lumatv.cameras2.jsonl
+    -rw-r--r-- 1 root root   2000 Oct 29 22:06 feeder-org.nphil.lumatv.cameras2.log
+    -rw-r--r-- 1 root root   2266 Oct 29 22:25 feeder-youtube.leanback.v4.jsonl
+    -rw-r--r-- 1 root root   1511 Oct 29 22:25 feeder-youtube.leanback.v4.log
+    -rw-r--r-- 1 root root 424997 Oct 29 22:09 layout-alpha-on-display.png
+    -rw-r--r-- 1 root root 424997 Oct 29 22:09 layout-alpha-on.png
+    -rw-r--r-- 1 root root 441603 Oct 29 22:09 layout-off-display.png
+    -rw-r--r-- 1 root root 385091 Oct 29 22:09 layout-off.png
+    -rw-r--r-- 1 root root 400388 Oct 29 22:09 layout-on-display.png
+    -rw-r--r-- 1 root root 400419 Oct 29 22:09 layout-on.png
+    -rw-r--r-- 1 root root 425350 Oct 29 22:09 pointer-plane.png
+    -rw-r--r-- 1 root root 391685 Oct 29 22:24 probe-home-display.png
+    -rw-r--r-- 1 root root 345365 Oct 29 22:25 probe-yt-display.png
+    -rw-r--r-- 1 root root 424823 Oct 29 22:06 size-114x64.png
+    -rw-r--r-- 1 root root 424755 Oct 29 22:06 size-1280x720.png
+    -rw-r--r-- 1 root root 424879 Oct 29 22:06 size-160x90.png
+    -rw-r--r-- 1 root root 424988 Oct 29 22:06 size-1920x1080.png
+    -rw-r--r-- 1 root root 425089 Oct 29 22:06 size-320x180.png
+    -rw-r--r-- 1 root root 425049 Oct 29 22:06 size-640x360.png
+    -rw-r--r-- 1 root root 424870 Oct 29 22:06 v2-display.png
+    -rw-r--r-- 1 root root 424993 Oct 29 21:58 v2apps-display.png
+    -rw-r--r-- 1 root root 419527 Oct 29 22:03 v2b-display.png
+    -rw-r--r-- 1 root root 425103 Oct 29 22:08 v2c-display.png
+    -rw-r--r-- 1 root root 401448 Oct 29 22:04 v4-display.png
+    -rw-r--r-- 1 root root  98014 Oct 29 22:04 v4-video.png
+    -rw-r--r-- 1 root root 424888 Oct 29 22:06 v5-display.png
+    -rw-r--r-- 1 root root 424894 Oct 29 21:58 v5apps-display.png
+    -rw-r--r-- 1 root root 424989 Oct 29 22:06 v7-display.png
+    -rw-r--r-- 1 root root    976 Oct 29 22:06 videooutput-status.json
+    -rw-r--r-- 1 root root    847 Oct 29 22:06 vwin.json
+22:25:17 probe over
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"ok":true,"vwin":{"apps":0,"claims":[],"free":2,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[],"slots":2,"stats":{"denied
+22:28:40 ctl vwin apps -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"ok":true,"vwin":{"apps":0,"claims":[],"free":2,"limits":{"main":{"h264":[4096,2304,60],"h265":[4096,2304,120]},"source":"device_codec_capability_config.json, multiview_sub","sub":{"h264":[1920,1088,30],"h265":[1920,1088,30],"vp9":[1920,1088,60]}},"mode":"apps","sinks":[],"slots":2,"stats":{"denied":0,"ended":0,"granted":2,"released":2,"windowsClosed":0},"subscribed":tr
+22:28:40 feeder com.webos.app.home started in the background for 60 s
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    {"claim":{"app":"com.webos.app.home","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":true,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":"MAIN","slot":"main","state":"granted","text":"","wide":false,"window":12},"o
+22:28:42 ctl vwin claim t1 pip 1280 720 480 270 com.webos.app.home h264 1280x720@30 -> ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored. {"claim":{"app":"com.webos.app.home","id":"t1","kind":"pip","limits":{"fps":60,"h":2304,"w":4096},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":true,"reason":"","rect":{"h":270,"w":480,"x":1280,"y":720},"sink":"MAIN","slot":"main","state":"granted","text":"","wide":false,"window":12},"ok":true}
+    hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
+22:28:47 T stop -> hw: stopped: feeders killed, claims released, vwin off with 2 slots, pointer on the GPU, pages linear again, AR24 unless the flags say otherwise (ctl afbc shows the ring while it converts)
