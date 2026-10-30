@@ -23,3 +23,7 @@ Screenshots of Home, the quick panel and the picker were taken but their key pre
 YouTube (Big Buck Bunny by deep link) played full screen with `vwin apps` and `cameras.testEvents` on. The script that sent the camera event (Cat Feeder, animal) and OK lost its connection: the TV had rebooted (uptime 0 min at 14:19, boot about 14:18). Nothing from before the reboot survived (/tmp, compositor log), so the cause is unknown; the event may or may not be the trigger. After the reboot YouTube stayed on its splash screen for over a minute, so the check was not repeated.
 
 End state: LumaTV compositor persistent, Home in front, 120 Hz set with `ctl refresh 120` (not through the gate), popups.on on, testEvents off, receiver 0.52 unmuted. /tmp/lumatv is gone with the reboot, so the next round needs a reinstall.
+
+## Reboot cause: not recoverable
+
+Read after the reboot: there is no /sys/fs/pstore, no ramoops, and /var/log (messages, bootd.log, resv_log) holds only the current boot (its oldest message is at 12 s uptime of this boot; the rotated files were all written during it). `/var/lib/lumatv/crash` has nothing after 2026-10-29 21:25, and the kernel fault archives in /var/log/faultmanager/kernel are from 24-25 Oct. The boot ran the normal path (bootd `normal-boot-done` at 70 s, LumaTV's apply ok at 72 s), with no recorded reset reason. Whether the camera event or a power cycle caused it cannot be told from the set. Popups were switched off afterwards (popups.on off).
