@@ -10,7 +10,7 @@
   "largeIcon": "largeIcon.png",
   "extraLargeIcon": "extraLargeIcon.png",
   "splashBackground": "splash.png",
-  "iconColor": "#26233a",
+  "iconColor": "#ab90fe",
   "requiredPermissions": ["all"],
   "transparent": false
 }

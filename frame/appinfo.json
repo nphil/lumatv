@@ -7,6 +7,8 @@
   "title": "{{displayName}} Frame",
   "icon": "icon.png",
   "largeIcon": "largeIcon.png",
+  "extraLargeIcon": "extraLargeIcon.png",
+  "iconColor": "#ffd26f",
   "defaultWindowType": "overlay",
   "transparent": true,
   "noSplashOnLaunch": true,

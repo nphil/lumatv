@@ -269,7 +269,7 @@ build_ipk() {
 FRAME_VERSION=$(grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' frame/appinfo.json | grep -o '[0-9.]*')
 FRAME_DATA="$BUILD_DIR/frame-data/usr/palm/applications/$APP_ID.frame"
 mkdir -p "$FRAME_DATA"
-cp frame/appinfo.json frame/index.html frame/frame.js frame/frame.css frame/icon.png frame/largeIcon.png frame/Manrope-*.ttf "$FRAME_DATA/"
+cp frame/appinfo.json frame/index.html frame/frame.js frame/frame.css frame/icon.png frame/largeIcon.png frame/extraLargeIcon.png frame/Manrope-*.ttf "$FRAME_DATA/"
 # The shared web theme (tools/tokens.py web): Lucent's tokens for both materials from the shipped theme.json, and the one face
 # the frame's own folder lacks, since the generated stylesheet names all four.
 python3 tools/tokens.py payload/theme/theme.json /dev/null web > "$FRAME_DATA/theme.css"

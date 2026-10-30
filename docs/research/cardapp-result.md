@@ -30,7 +30,7 @@ For Main:
 | The window (generalized from the spike's: app id, type, `KEYS_BACK`, state, events; also the spike's Home); every `wl_seat`, present or later, with its keyboard | `rustui/app/src/window.rs`, adapter in `output.rs` |
 | The channel between launcher and app, JSON lines on descriptor 3, 3 unit tests | `rustui/app/src/lifecycle.rs` |
 | The 32-bit launcher SAM starts (`main`), 15.7 KB; the fake hub and fake app of its test | `rustui/app/stub/{lumatv-card.c,fakels2.c,fakeapp.sh,build.sh}` |
-| The package: appinfo, its own icons and splash (`generators/gen-app-icons.py` makes them from `assets/app-icons/card.svg`) | `card/` |
+| The package: appinfo, its own icons and splash (`generators/gen-app-icons.py` draws them) | `card/` |
 | Build of the set's programs into `rustui/build/card/` | `rustui/tools/build-card.sh` |
 | The ipk: its own package inside the main one (`payload/card/<appId>.card.ipk`) with its own copy of the 64-bit runtime | `tools/build-ipk.sh` |
 | Install, update and remove on the set (`appInstallService/dev/install`, like the frame app) | `tools/cardapp.sh` |
