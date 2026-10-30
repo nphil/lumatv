@@ -35,6 +35,10 @@ teardown to SDL_Quit with no wait for the GPU: 8 to 33 ms between the close even
 holds the window; unbinding the context and eglDestroySurface of the window's surface waits for the presents themselves. SDL's own order (eglDestroySurface before wl_egl_window_destroy) would do the same for every app.
 No compositor behaviour orders the client's own threads.
 
+Result, apps x15 on forge 8c69fd98 (compositor 7d16edb0, with e07c561e and the close trace): 0 of 15 PlxNative closes crashed with the Rust kinds on and 0 of 15 with shell-rust.conf emptied (round 19W: 3 of 15 and 2 of 15).
+The 24 close traces that ended in a disconnect show it 0.1 to 20.2 ms after the first destroy; no close reached the 49 ms of the crashed ones. The build holds other commits made since 19W, so which one shortened the window is not isolated, and the
+app's exit order is unchanged: 0 of 30 against 5 of 30 is a lower rate, not a removed race [INFERENCE].
+
 To read the next crash: compositor.log gets a "close trace pid N" line when a client that destroyed a surface disconnects (its commits, callbacks answered or destroyed and buffers released, in ms from its first
 destroy); tools/tv-plxcore.sh (with plxprlimit.c, built `zig cc -target arm-linux-musleabi -static -Os`) closes PlxNative until one crashes and keeps its core with the thread names, the maps, the compositor's
-ring and journal.
+ring and journal. tools/plxcore-read.py reads that core (the crashing thread, the proxy it marshals on, the window and the surface the window points at).
