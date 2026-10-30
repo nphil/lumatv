@@ -47,7 +47,7 @@ const SHEET_MIN_H: f32 = 240.0;
 const TILE: f32 = 48.0;
 /// Where Home's bell is with the default layout (`Home::bell_frame`, which the shell hands to the panels each frame): the drawer's way in
 /// and out until it is told.
-pub const BELL: [f32; 4] = [1798.0, 60.0, 48.0, 48.0];
+pub const BELL: [f32; 4] = [1694.0, 60.0, 48.0, 48.0];
 
 /// What the pointer can land on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

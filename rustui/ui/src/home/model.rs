@@ -420,7 +420,7 @@ impl Home {
         self.widget_ids.get(i).map(String::as_str)
     }
 
-    /// The status bar's buttons sit in a pill at the safe corner: item `i` is `48 + 6` apart, left from 6, right ending 10 in.
+    /// The status bar's buttons sit in a pill at the safe corner: item `i` is `48 + 6` apart, left from 6, right ending 6 in (the same gap as at the left, so every button is concentric with the pill's cap).
     pub fn status_frames(&self) -> Vec<(f32, f32, f32, f32)> {
         let (sx, sy) = self.safe();
         let items = self.status_items();
@@ -439,7 +439,7 @@ impl Home {
         }
         let right: Vec<f32> = items.iter().skip(left).map(|it| self.status_item_width(it)).collect();
         let total: f32 = right.iter().sum::<f32>() + 6.0 * right.len().saturating_sub(1) as f32;
-        let mut rx = sx + w - 10.0 - total;
+        let mut rx = sx + w - 6.0 - total;
         for iw in right {
             out.push((rx, sy + 6.0, iw, item_h));
             rx += iw + 6.0;
@@ -492,7 +492,7 @@ impl Home {
         }
         let (sx, sy) = self.safe();
         let side = self.status_height() - 12.0;
-        [1920.0 - sx - 10.0 - side, sy + 6.0, side, side]
+        [1920.0 - sx - 6.0 - side, sy + 6.0, side, side]
     }
 
     // ---- profiles
