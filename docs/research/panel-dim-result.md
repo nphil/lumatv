@@ -18,6 +18,7 @@ The dim is LG's picture setting "OLED pixel brightness" (`picture.backlight`, 0 
 | Journal | `paneldim.json` in the data directory: `{orig, written, dimension, pid, at}`, written before the first write below the user's value and with each write, removed when the user's value is back. |
 | Crash | A compositor that starts with a journal reads the setting (with the journal's dimension) and writes `orig` when the value is still `written`; otherwise drops it. The helper's `paneldim` thread looks every 15 s: a journal whose pid is no running `lumatv-compositor` and that is over 30 s old gets the same treatment (`helper/app/src/paneldim.rs`), so a compositor that stays dead does not leave the panel dim. |
 | Failure | No bridge, an unreadable baseline, an answer without a dimension or a refused first write: off for 10 minutes (`carries()` false, the shell is told, the GPU dim and the saver's own dim do the work). A refused write in the middle of a dim puts the value back and does the same. A refused put back is tried again after 1, 2, 4 ... 30 s with the journal kept. |
+| Dimension | A call names `{pictureMode, input}` only (`paneldim::call_dimension`): the service refuses a read whose dimension also names `dynamicRange` ("no result from DB", round 20). The range is read from the baseline's answer for the HDR rule and compared with what a later read names, never sent. |
 | Refresh guard | Only `com.webos.service.settings` is called. Nothing touches the power state or wakes the TV, so LG's standby panel refresh is not interfered with. The standby put back is a settings write sent as `PreparePowerOff` takes effect. |
 
 `SIGTERM` and `SIGINT` were not handled before (the process ended on the spot). They now end the loop at its next pass so the put back runs and its answer is waited for (800 ms at most); `SIGALRM` after 3 s ends a wedged loop as `SIGTERM` did before.
@@ -51,6 +52,10 @@ Use a picture mode in SDR (`filmMaker`). Note the value: Settings â€º Picture â€
 11. Cost. `ctl wake reset`, 60 s on a still Home with the dim engaged, `ctl wake`: the tick stays near 10 a second; `panelDim.writes` grows by one every `panelDimStepSec` during a ramp and `reads` by one every 20 s after it, nothing else.
 
 Pass: 1 to 11 hold; step 3's numbers are written here and the levels tuned if they differ.
+
+## TV round 2026-10-29 (round 20)
+
+Steps 2, 4, 6, 7, 8 and 10 passed (exact value back by every way out, crash journal). Failed, fixed since: step 5, an idle **Rust** Home never dimmed: the Rust shell draws Home on the engine's stack, so the scene had no Home window for the care to look at and its beats never ran; the scene now shows the care a Home layer of no commits while `home_rust` and no card is in front (`plan_at`), and the care's ease is what the panel is asked for. The Rust Home is not orbited (no window to move), only its dim is the panel's. Reads and writes named `dynamicRange` in the dimension (journal recovery, helper); both now send `{pictureMode, input}`. Step 11 (60 ticks a second while dimmed): nothing in the dim sends or draws per tick (a host test counts two minutes of ticks on a dim Home: no write, a read every 20 s, no frame); the cause was not found in code. Re-check: with the panel dim engaged and then `ctl paneldim release`, `ctl wake reset`, 60 s, `ctl wake` each time; the woken-by names say which source (a luna answer, the UI socket, the tick) keeps it at the panel's rate.
 
 ## Resume here
 

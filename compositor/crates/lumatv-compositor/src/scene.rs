@@ -1135,6 +1135,13 @@ impl Scene {
                 _ => {}
             }
         }
+        // The Rust shell's Home is no window of the stack: the engine draws it under the windows. It is on the screen while no app's card is
+        // in front, and the care sees it as a layer of no commits (it cannot be moved or dimmed here: the panel's dim, `paneldim`, is what
+        // the idle ease asks for, and a Home that draws a clock every second is as still as one that draws nothing). A moving wallpaper is a
+        // hole, which holds the panel dim by itself.
+        if self.home_rust && self.home_shown {
+            views[0] = Some(0);
+        }
         self.care.step(now_ns, views, pending);
         let app = self.app_view();
         self.care.step_app(now_ns, app, pending);

@@ -44,6 +44,10 @@ impl Tv {
                 self.reads += 1;
                 assert_eq!(c.payload["category"], "picture");
                 assert_eq!(c.payload["keys"], json!(["backlight"]));
+                // the service refuses a read whose dimension names the range (TV round 20)
+                if c.payload["dimension"].get("dynamicRange").is_some() {
+                    return Some(json!({"returnValue": false, "errorText": "no result from DB"}));
+                }
                 json!({"returnValue": true, "category": "picture", "settings": {"backlight": self.value.to_string()}, "dimension": self.dimension})
             }
             WRITE_URI => {
@@ -54,7 +58,7 @@ impl Tv {
                     return Some(json!({"returnValue": false, "errorCode": -1, "errorText": "not now"}));
                 }
                 // a write to a dimension that is not the current one lands on that dimension's own value, not on this
-                if c.payload["dimension"] == self.dimension {
+                if c.payload["dimension"] == call_dimension(&self.dimension) {
                     self.value = v.parse().unwrap();
                 }
                 json!({"returnValue": true})
@@ -134,7 +138,10 @@ fn a_wanted_dim_is_read_once_and_walked_down_a_unit_at_a_time_two_seconds_apart(
         assert!(pair[1].0 - pair[0].0 >= 2 * SEC, "at most one write in two seconds: {pair:?}");
     }
     assert_eq!(r.tv.value, 68);
-    assert!(r.tv.writes.iter().all(|w| w.2 == r.tv.dimension), "each write names the dimension the baseline came with");
+    assert!(
+        r.tv.writes.iter().all(|w| w.2 == call_dimension(&r.tv.dimension)),
+        "each write names the picture mode and input the baseline came with, and no range"
+    );
     assert!(r.p.dimmed() && r.p.carries());
     assert!(r.journal(), "the journal stands while it is dimmed");
 }
@@ -251,7 +258,7 @@ fn nothing_is_written_under_a_video_in_an_hdr_mode_or_with_the_switch_off() {
 #[test]
 fn an_hdr_mode_that_arrives_under_a_dim_puts_the_value_back_to_the_mode_it_was_taken_from() {
     let mut r = Rig::new("hdrunder", 80);
-    let sdr = r.tv.dimension.clone();
+    let sdr = call_dimension(&r.tv.dimension);
     r.want(0.5);
     r.run(100_000);
     assert_eq!(r.tv.value, 40);
@@ -309,7 +316,7 @@ fn a_run_that_died_leaves_its_journal_and_the_next_start_puts_the_value_back() {
     assert!(!r.journal());
     assert!(r.p.take_events().iter().any(|l| l.contains("a journal of a run that ended")));
     // recovery names the dimension it dimmed
-    assert!(r.tv.writes.last().unwrap().2 == r.tv.dimension);
+    assert!(r.tv.writes.last().unwrap().2 == call_dimension(&r.tv.dimension));
 }
 
 #[test]

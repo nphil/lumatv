@@ -365,3 +365,36 @@ fn the_put_back_goes_out_before_the_answer_that_lets_the_tv_power_down() {
     assert!(write < ack, "the value is on its way back before tvpower is told it may go: {order:?}");
     assert_eq!(tv.value(), 80, "and it is back");
 }
+
+#[test]
+fn the_rust_shells_home_is_idle_to_the_care_too_and_the_panel_carries_its_ease_with_a_call_a_step_and_a_poll_a_while() {
+    let tv = Stand::new(80);
+    let server = quiet_server(&tv);
+    let handle = tv.clone();
+    server.eval(move |s| {
+        // Home is the Rust shell's: no window of the stack, nothing a commit counts; a key or a clock a second changes nothing here
+        s.scene.set_home_rust(true);
+        care_on(s);
+        let t = run(s, monotonic_ns(), 500);
+        assert!(s.scene.care.beats == 0 && s.scene.care.home_want() == 1.0);
+        let t = run(s, t, 120_000);
+        assert!(s.scene.care.beats >= 3, "the beats run on a Home with no window: {}", s.scene.care.beats);
+        assert_eq!(s.scene.care.home_want(), 0.8, "the ease has run its length");
+        assert_eq!(s.panel.status()["written"], 64, "and the panel is where it asks");
+        let (reads, writes) = {
+            let t = handle.0.lock();
+            (t.reads, t.writes.len())
+        };
+        // two minutes more of a dim Home: only the poll every twenty seconds is asked, nothing per tick
+        run(s, t, 120_000);
+        let t = handle.0.lock();
+        assert_eq!(t.writes.len(), writes, "no more writes");
+        assert!((5..=7).contains(&(t.reads - reads)), "a read every 20 s: {}", t.reads - reads);
+        // a key puts it back
+        drop(t);
+        s.care_input();
+        deliver(s);
+        deliver(s);
+    });
+    assert_eq!(tv.value(), 80);
+}

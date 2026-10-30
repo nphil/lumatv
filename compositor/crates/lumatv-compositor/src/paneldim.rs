@@ -14,7 +14,7 @@
 //!   belongs to: the "dimension"). A dimension that is HDR or Dolby Vision, or an answer without one, is never written (no dim at all for
 //!   the first; the GPU dim for the second, see [`PanelDim::carries`]).
 //! - **Ramp.** One unit a write, at most one write every `panelDimStepSec` (2 s), toward `round(value x want)`, never below [`FLOOR`] and
-//!   never above the user's value. The dimension the baseline came with goes with every write, so a mode switch under the dim never makes
+//!   never above the user's value. The picture mode and input the baseline came with ([`call_dimension`]) go with every write, so a mode switch under the dim never makes
 //!   a write land on another mode's value.
 //! - **Journal.** Before the first write below the user's value, `paneldim.json` in the data directory holds the user's value, the value last
 //!   written, the dimension and the compositor's pid; it is rewritten with each write and removed when the user's value is back. A run that
@@ -206,6 +206,26 @@ pub fn hdr_dimension(d: &Value) -> bool {
     let range = d.get("dynamicRange").and_then(Value::as_str).unwrap_or("sdr");
     let mode = d.get("pictureMode").and_then(Value::as_str).unwrap_or("").to_ascii_lowercase();
     !range.eq_ignore_ascii_case("sdr") || mode.contains("hdr") || mode.contains("dolby")
+}
+
+/// The part of a dimension the settings service takes in a call: `{pictureMode, input}`. A dimension that carries `dynamicRange` too, as the
+/// service names it in its own answers, is refused by a read with "no result from DB" (TV round 20), so calls name these two only.
+pub fn call_dimension(d: &Value) -> Value {
+    let mut out = Map::new();
+    for k in ["pictureMode", "input"] {
+        if let Some(v) = d.get(k) {
+            out.insert(k.into(), v.clone());
+        }
+    }
+    if out.is_empty() { Value::Null } else { Value::Object(out) }
+}
+
+/// Whether two dimensions are the same picture mode, input and range, comparing what both name (a journal's has no `dynamicRange`).
+pub fn same_dimension(a: &Value, b: &Value) -> bool {
+    ["pictureMode", "input", "dynamicRange"].iter().all(|k| match (a.get(k), b.get(k)) {
+        (Some(x), Some(y)) => x == y,
+        _ => true,
+    })
 }
 
 /// The value the panel is taken to for `want` of the user's `orig`.
@@ -436,7 +456,7 @@ impl PanelDim {
                 Some(r) => {
                     let Some(h) = self.held.as_mut() else { return self.decide() };
                     h.checked_ns = now;
-                    if r.dimension.as_ref().is_some_and(|d| *d != h.dimension) {
+                    if r.dimension.as_ref().is_some_and(|d| !same_dimension(d, &h.dimension)) {
                         self.events.push("paneldim: the picture mode, input or range changed under the dim".into());
                         self.force = true;
                         self.force_why = "picture mode changed";
@@ -452,7 +472,7 @@ impl PanelDim {
                 match reading(payload) {
                     // not told, or told of a dimension that is not the one that was dimmed: nothing to compare, the put back goes
                     None => {}
-                    Some(r) if r.dimension.as_ref().is_some_and(|d| *d != h.dimension) => {}
+                    Some(r) if r.dimension.as_ref().is_some_and(|d| !same_dimension(d, &h.dimension)) => {}
                     Some(r) if h.ours(r.value) => {}
                     Some(r) => {
                         self.left_alone(now, r.value);
@@ -561,9 +581,9 @@ impl PanelDim {
     fn read_call(&self, with_dimension: bool) -> Call {
         let mut payload = json!({"category": "picture", "keys": ["backlight"]});
         if let (true, Some(h)) = (with_dimension, &self.held)
-            && h.dimension.is_object()
+            && let d @ Value::Object(_) = call_dimension(&h.dimension)
         {
-            payload["dimension"] = h.dimension.clone();
+            payload["dimension"] = d;
         }
         Call { uri: READ_URI, payload }
     }
@@ -580,7 +600,7 @@ impl PanelDim {
     fn write(&mut self, value: u32, restore: bool) -> Option<Call> {
         let h = self.held.as_mut()?;
         h.written = value;
-        let dimension = h.dimension.clone();
+        let dimension = call_dimension(&h.dimension);
         let (orig, first) = (h.orig, !restore && h.confirmed == h.orig);
         if !restore {
             self.save_journal(value);
@@ -597,7 +617,7 @@ impl PanelDim {
 
     fn save_journal(&mut self, written: u32) {
         let Some(h) = &self.held else { return };
-        let body = json!({"orig": h.orig, "written": written, "dimension": h.dimension, "pid": self.pid, "at": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)});
+        let body = json!({"orig": h.orig, "written": written, "dimension": call_dimension(&h.dimension), "pid": self.pid, "at": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)});
         let tmp = self.path.with_extension("json.tmp");
         if std::fs::write(&tmp, body.to_string()).and_then(|_| std::fs::rename(&tmp, &self.path)).is_err() {
             self.last_error = "the journal could not be written".into();

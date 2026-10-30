@@ -97,6 +97,22 @@ pub fn compositor_running(pid: u32) -> bool {
             .is_ok_and(|c| String::from_utf8_lossy(&c).contains("lumatv-compositor"))
 }
 
+/// The part of a dimension the service takes in a call: `{pictureMode, input}`. One that names `dynamicRange` too is refused by a read ("no
+/// result from DB", TV round 20); the compositor's journal holds only these two, and an older one is cut to them here.
+fn call_dimension(d: &Value) -> Value {
+    let mut out = serde_json::Map::new();
+    for k in ["pictureMode", "input"] {
+        if let Some(v) = d.get(k) {
+            out.insert(k.into(), v.clone());
+        }
+    }
+    if out.is_empty() {
+        Value::Null
+    } else {
+        Value::Object(out)
+    }
+}
+
 fn backlight(reply: &Value) -> Option<u32> {
     let n = match reply.pointer("/settings/backlight")? {
         Value::Number(n) => n.as_f64()?,
@@ -122,9 +138,10 @@ pub fn look(
     if age < GRACE {
         return Outcome::Waiting;
     }
+    let dimension = call_dimension(&j.dimension);
     let mut read = json!({"category": "picture", "keys": ["backlight"]});
-    if j.dimension.is_object() {
-        read["dimension"] = j.dimension.clone();
+    if dimension.is_object() {
+        read["dimension"] = dimension.clone();
     }
     let now = match settings.call(READ_URI, &read) {
         Ok(r) => match backlight(&r) {
@@ -138,8 +155,8 @@ pub fn look(
         return Outcome::LeftAlone(now);
     }
     let mut write = json!({"category": "picture", "settings": {"backlight": j.orig.to_string()}});
-    if j.dimension.is_object() {
-        write["dimension"] = j.dimension;
+    if dimension.is_object() {
+        write["dimension"] = dimension;
     }
     match settings.call(WRITE_URI, &write) {
         Ok(r) if r.get("returnValue").and_then(Value::as_bool) != Some(false) => {
@@ -228,6 +245,9 @@ mod tests {
         fn call(&self, uri: &str, payload: &Value) -> Result<Value, String> {
             self.calls.lock().push((uri.to_owned(), payload.clone()));
             if uri == READ_URI {
+                if payload["dimension"].get("dynamicRange").is_some() {
+                    return Ok(json!({"returnValue": false, "errorText": "no result from DB"}));
+                }
                 return Ok(
                     json!({"returnValue": true, "settings": {"backlight": self.value.lock().to_string()}, "dimension": self.dimension}),
                 );
@@ -269,14 +289,12 @@ mod tests {
         assert!(!path.exists());
         let calls = tv.calls.lock();
         assert_eq!(calls.len(), 2, "a read, then a write");
+        let named = json!({"pictureMode": "filmMaker", "input": "hdmi2"});
         assert_eq!(
-            calls[0].1["dimension"], tv.dimension,
-            "the read names the dimension that was dimmed"
+            calls[0].1["dimension"], named,
+            "the read names the picture mode and input that were dimmed, and no range"
         );
-        assert_eq!(
-            calls[1].1["dimension"], tv.dimension,
-            "and so does the write"
-        );
+        assert_eq!(calls[1].1["dimension"], named, "and so does the write");
         assert_eq!(
             calls[1].1["settings"]["backlight"], "80",
             "as text, the way the service wants it"
