@@ -40,19 +40,44 @@ impl Default for Picker {
     }
 }
 
-/// "Sound: Denon on HDMI 2" once the receiver is found among the inputs, else only that the sound goes out over eARC.
-pub fn sound_line(env: &Env, tiles: &[Tile]) -> String {
-    if env.sio.text("sound.soundOutput") != "external_arc" {
-        return if env.sio.has("sound.soundOutput") { "Sound: TV speakers".into() } else { String::new() };
+/// Where the sound goes out now: the audio service's word on it (the way in effect, pushed with every volume state) before the setting's,
+/// which can lag behind it or name it otherwise.
+fn output(env: &Env) -> String {
+    if env.audio_output.is_empty() { env.sio.opt_text("sound.soundOutput").unwrap_or_default() } else { env.audio_output.clone() }
+}
+
+/// Whether the sound goes out over HDMI to the audio system on one of the ports (its tile is the one marked). "TV speakers and an external
+/// device" is that device when an audio system is on a port.
+fn to_receiver(env: &Env) -> bool {
+    match output(env).as_str() {
+        "external_arc" | "tv_speaker_external_arc" => true,
+        "tv_external_speaker" => env.inputs.receiver_name().is_some(),
+        _ => false,
     }
-    match tiles.iter().find(|t| t.sound) {
-        Some(t) => {
-            let word: String = t.name.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
-            let who = if word.is_empty() { "Receiver".to_string() } else { word };
-            format!("Sound: {who} on {}", t.port.split(" \u{b7} ").next().unwrap_or(""))
-        }
-        None => "Sound: receiver on eARC".into(),
-    }
+}
+
+/// "Sound: Denon AVR-S760H (HDMI ARC)": the way out, and the audio system by the name it gave itself over HDMI-CEC. A way out this does not
+/// know is not described: nothing is said rather than the wrong thing.
+pub fn sound_line(env: &Env) -> String {
+    let receiver = env.inputs.receiver_name();
+    let words = match output(env).as_str() {
+        "external_arc" => format!("{} (HDMI ARC)", receiver.as_deref().unwrap_or("Receiver")),
+        "tv_speaker_external_arc" => format!("TV and {} (HDMI ARC)", receiver.as_deref().unwrap_or("receiver")),
+        "tv_external_speaker" => receiver.map_or_else(|| "TV and external speakers".to_string(), |r| format!("TV and {r}")),
+        "tv_speaker" => "TV speakers".into(),
+        "external_optical" => "Optical out".into(),
+        "headphone" => "Headphones".into(),
+        "tv_speaker_headphone" => "TV and headphones".into(),
+        "bt_soundbar" => "Bluetooth speaker".into(),
+        "tv_speaker_bluetooth" => "TV and Bluetooth speaker".into(),
+        "lineout" => "Line out".into(),
+        "usb_speaker" => "USB speaker".into(),
+        "wow_cast" => "Wireless speaker".into(),
+        "tv_speaker_wow_cast" => "TV and wireless speaker".into(),
+        "wisa_speaker" => "WiSA speakers".into(),
+        _ => return String::new(),
+    };
+    format!("Sound: {words}")
 }
 
 impl Picker {
@@ -61,7 +86,7 @@ impl Picker {
     }
 
     pub fn tiles(env: &Env) -> Vec<Tile> {
-        env.inputs.tiles(env.theme.get("inputs").unwrap_or(&Value::Null))
+        env.inputs.tiles(env.theme.get("inputs").unwrap_or(&Value::Null), to_receiver(env))
     }
 
     fn pick_front(&mut self, tiles: &[Tile]) {
@@ -153,7 +178,7 @@ impl Picker {
 
     pub fn view(&self, env: &Env) -> View {
         let tiles = Self::tiles(env);
-        View { up: self.life.presented(), title: "Inputs", sound: sound_line(env, &tiles), index: self.index.min(tiles.len().saturating_sub(1)), tiles, over_video: !env.fg.home }
+        View { up: self.life.presented(), title: "Inputs", sound: sound_line(env), index: self.index.min(tiles.len().saturating_sub(1)), tiles, over_video: !env.fg.home }
     }
 }
 
@@ -248,21 +273,56 @@ mod tests {
         assert!(p.tick(&mut env, 400).effects.is_empty());
     }
 
+    /// The TV's status of this set: the receiver is a CEC device of HDMI 2 and says nothing of itself in the port's own label.
+    fn tv_with_cec_receiver() -> Env {
+        let mut env = Env::new(json!({}));
+        env.inputs.parse(&json!({"devices": [{"appId": "com.webos.app.hdmi2", "label": "HDMI 2", "connected": true, "subList": [
+            {"osdName": "Apple TV", "cecpDevType": 4, "vendor": 4346}, {"osdName": "AVR-S760H", "cecpDevType": 5, "vendor": 1485}]}]}));
+        env
+    }
+
+    fn audio(out: &str) -> Input {
+        Input::Topic { topic: "audio".into(), data: json!({"volumeStatus": {"volume": 30, "soundOutput": out}}) }
+    }
+
     #[test]
-    fn the_sound_line_names_the_receiver_and_its_port_or_the_tv_speakers() {
-        let mut env = tv(json!({}));
-        let tiles = Picker::tiles(&env);
-        assert_eq!(sound_line(&env, &tiles), "", "nothing is said before the service has");
+    fn the_sound_line_names_the_receiver_by_its_cec_name_and_the_way_out_by_what_is_in_effect() {
+        let mut env = tv_with_cec_receiver();
+        assert_eq!(sound_line(&env), "", "nothing is said before the service has");
         let reads = env.sio.read("sound", &["soundOutput"], None, 0);
         let Some(Effect::Luna { tag, .. }) = reads.first() else { panic!() };
         env.update(&Input::Luna { tag: *tag, payload: json!({"settings": {"soundOutput": "tv_speaker"}}) }, 1);
-        assert_eq!(sound_line(&env, &tiles), "Sound: TV speakers");
-        env.sio.write("sound.soundOutput", &json!("external_arc"), None);
-        assert_eq!(sound_line(&env, &tiles), "Sound: Denon on HDMI 2");
-        let none = tv(json!({"hdmi2": "hidden"}));
-        let mut env2 = none;
-        env2.sio.write("sound.soundOutput", &json!("external_arc"), None);
-        assert_eq!(sound_line(&env2, &Picker::tiles(&env2)), "Sound: receiver on eARC");
+        assert_eq!(sound_line(&env), "Sound: TV speakers");
+        // the setting says the TV's speakers and an external device; the audio service says the receiver is in effect
+        env.sio.write("sound.soundOutput", &json!("tv_external_speaker"), None);
+        assert_eq!(sound_line(&env), "Sound: TV and Denon AVR-S760H");
+        let (_, changed) = env.update(&audio("external_arc"), 2);
+        assert!(changed, "a change of the way out redraws the picker");
+        assert_eq!(sound_line(&env), "Sound: Denon AVR-S760H (HDMI ARC)");
+        assert!(!env.update(&audio("external_arc"), 3).1, "the same word again changes nothing");
+        env.update(&audio("tv_speaker"), 4);
+        assert_eq!(sound_line(&env), "Sound: TV speakers", "live: it follows the audio service back");
+        env.update(&audio("external_optical"), 5);
+        assert_eq!(sound_line(&env), "Sound: Optical out");
+        env.update(&audio("something_new"), 6);
+        assert_eq!(sound_line(&env), "", "a way out that is not known is not described as another");
+        // no audio system on any port: the receiver has no name
+        let mut bare = Env::new(json!({}));
+        bare.update(&audio("external_arc"), 1);
+        assert_eq!(sound_line(&bare), "Sound: Receiver (HDMI ARC)");
+        bare.update(&audio("tv_external_speaker"), 2);
+        assert_eq!(sound_line(&bare), "Sound: TV and external speakers");
+    }
+
+    #[test]
+    fn the_port_the_sound_goes_out_of_is_marked_only_while_it_does() {
+        let mut env = tv_with_cec_receiver();
+        env.inputs.update(&Input::Topic { topic: "foreground".into(), data: json!({"app": "com.webos.app.hdmi2"}) }, 0);
+        let marked = |env: &Env| Picker::tiles(env).iter().filter(|t| t.sound).map(|t| t.port.clone()).collect::<Vec<_>>();
+        env.update(&audio("tv_speaker"), 1);
+        assert!(marked(&env).is_empty());
+        env.update(&audio("external_arc"), 2);
+        assert_eq!(marked(&env), vec!["HDMI 2 \u{b7} eARC".to_string()]);
     }
 
     #[test]
@@ -270,7 +330,7 @@ mod tests {
         let mut env = tv(json!({"hdmi4": "always", "hdmi3": "hidden", "livetv": "hidden"}));
         let mut p = opened(&mut env);
         let v = p.view(&env);
-        assert_eq!(v.tiles.iter().map(|t| t.port.as_str()).collect::<Vec<_>>(), vec!["HDMI 1", "HDMI 2 \u{b7} eARC", "HDMI 4"]);
+        assert_eq!(v.tiles.iter().map(|t| t.port.as_str()).collect::<Vec<_>>(), vec!["HDMI 1", "HDMI 2", "HDMI 4"]);
         assert_eq!(v.tiles[2].icon, "unplug");
         let out = p.click(0, &env);
         assert!(matches!(&out.effects[0], Effect::Luna { payload, .. } if payload["id"] == "com.webos.app.hdmi1"));

@@ -39,12 +39,21 @@ Item {
 
     // Live TV, then each HDMI port the owner has not hidden (kit/Inputs.tiles, the same list Home's Inputs row draws).
     readonly property var tiles: Inputs.tiles(Lu.theme.inputs)
-    // "Sound: Denon on HDMI 2" once the receiver is found among the inputs, else only that the sound goes out over eARC
+    // "Sound: Denon (HDMI ARC)" once the receiver is found among the inputs; each way out of the TV is named, and one this does not know is
+    // not described as another (it said TV speakers for everything but eARC)
+    readonly property var outputNames: ({ "tv_speaker": "TV speakers", "external_optical": "Optical out", "headphone": "Headphones", "tv_speaker_headphone": "TV and headphones",
+                                          "bt_soundbar": "Bluetooth speaker", "tv_speaker_bluetooth": "TV and Bluetooth speaker", "lineout": "Line out",
+                                          "usb_speaker": "USB speaker", "wow_cast": "Wireless speaker", "tv_speaker_wow_cast": "TV and wireless speaker",
+                                          "wisa_speaker": "WiSA speakers", "tv_external_speaker": "TV and external speakers" })
     readonly property string soundLine: {
-        if (String(Sio.get("sound.soundOutput")) !== "external_arc") return Sio.has("sound.soundOutput") ? "Sound: TV speakers" : ""
+        if (!Sio.has("sound.soundOutput")) return ""
+        var out = String(Sio.get("sound.soundOutput"))
+        var who = "Receiver"
         for (var i = 0; i < tiles.length; i++)
-            if (tiles[i].sound) return "Sound: " + (/^\w+/.exec(tiles[i].name) || ["Receiver"])[0] + " on " + tiles[i].port.split(" \u00b7 ")[0]
-        return "Sound: receiver on eARC"
+            if (tiles[i].sound) { who = (/^\w+/.exec(tiles[i].name) || ["Receiver"])[0]; break }
+        if (out === "external_arc") return "Sound: " + who + " (HDMI ARC)"
+        if (out === "tv_speaker_external_arc") return "Sound: TV and " + who + " (HDMI ARC)"
+        return outputNames[out] ? "Sound: " + outputNames[out] : ""
     }
 
     property bool moved: false              // a key has moved the choice since the picker came up

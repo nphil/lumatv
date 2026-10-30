@@ -222,10 +222,10 @@ class InputPicker(HostCase):
         self.assertEqual(probes(out)["pick"], 3)                   # the front input is HDMI 2 (index 2); Right is HDMI 3
         self.assertEqual(json.loads(self.values(out)[-1]), ["com.webos.app.hdmi3"])
 
-    def test_the_sound_line_names_the_receiver_and_its_port(self):
+    def test_the_sound_line_names_the_receiver_and_the_way_out(self):
         rc, out = self.run_picker({}, *probe(READY + 1300, "line", "soundLine", "return s.soundLine;"))
         self.assertEqual(rc, 0, out[-2500:])
-        self.assertEqual(probes(out)["line"], "Sound: Denon on HDMI 2")
+        self.assertEqual(probes(out)["line"], "Sound: Denon (HDMI ARC)")
 
 
 if __name__ == "__main__":

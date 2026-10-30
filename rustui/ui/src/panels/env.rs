@@ -76,6 +76,9 @@ pub struct Env {
     pub capture: Capture,
     /// Whether the screen is on (a panel is not drawn for a screen that is off).
     pub screen_on: bool,
+    /// Where the sound is going out now, as the audio service pushes it with each volume state (`volumeStatus.soundOutput`: the way out in
+    /// effect, which the setting `sound.soundOutput` can lag behind or name otherwise); "" until the compositor has said.
+    pub audio_output: String,
 }
 
 impl Env {
@@ -92,6 +95,7 @@ impl Env {
             fg: Foreground::default(),
             capture: Capture::default(),
             screen_on: true,
+            audio_output: String::new(),
         }
     }
 
@@ -140,6 +144,12 @@ impl Env {
                     let on = data.get("on").and_then(Value::as_bool).unwrap_or(true);
                     changed |= on != self.screen_on;
                     self.screen_on = on;
+                }
+                "audio" => {
+                    if let Some(out) = data.pointer("/volumeStatus/soundOutput").and_then(Value::as_str).filter(|o| !o.is_empty() && *o != self.audio_output) {
+                        self.audio_output = out.to_string();
+                        changed = true;
+                    }
                 }
                 _ => {}
             },

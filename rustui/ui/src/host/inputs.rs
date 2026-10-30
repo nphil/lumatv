@@ -24,6 +24,9 @@ pub struct Entry {
     pub name: String,
     pub connected: bool,
     pub icon: String,
+    /// The name the audio system on this port gave itself over HDMI-CEC (`subList` of the input's status, `cecpDevType` 5: a receiver or
+    /// a soundbar), with its maker in front when the name does not have it; "" when there is none.
+    pub receiver: String,
 }
 
 /// A tile of the picker and of Home's Inputs row, one shape for both: Live TV first, then each port the owner has not hidden.
@@ -106,6 +109,25 @@ pub fn port_name(app_id: &str) -> String {
     if app_id == "com.webos.app.livetv" { "Live TV".into() } else { app_id.to_string() }
 }
 
+/// The CEC vendor ids of the makers whose receivers name themselves without the maker (the IEEE number of the maker, as the status gives it).
+const VENDORS: &[(u64, &str)] = &[(1485, "Denon")];
+
+/// The name of the audio system among the CEC devices behind an input (`subList`: `osdName`, `cecpDevType` 5 for an audio system), the maker
+/// put in front when the status gives its id and the name does not already have it.
+fn cec_audio_system(input: &Value) -> String {
+    let Some(sub) = input.get("subList").and_then(Value::as_array) else { return String::new() };
+    let number = |v: &Value, k: &str| v.get(k).and_then(|n| n.as_u64().or_else(|| n.as_str().and_then(|s| s.parse().ok())));
+    let Some(dev) = sub.iter().find(|d| number(d, "cecpDevType") == Some(5) && d.get("osdName").and_then(Value::as_str).is_some_and(|n| !n.trim().is_empty())) else {
+        return String::new();
+    };
+    let name = dev.get("osdName").and_then(Value::as_str).unwrap_or("").trim().to_string();
+    let maker = number(dev, "vendor").or_else(|| number(dev, "vendorId")).and_then(|id| VENDORS.iter().find(|(v, _)| *v == id)).map(|(_, n)| *n);
+    match maker {
+        Some(m) if !name.to_lowercase().contains(&m.to_lowercase()) => format!("{m} {name}"),
+        _ => name,
+    }
+}
+
 impl Inputs {
     pub fn new() -> Self {
         Self::default()
@@ -124,8 +146,15 @@ impl Inputs {
         self.list.iter().find(|e| e.app_id == self.foreground)
     }
 
-    /// The tiles of the picker and of Home's Inputs row; `choices` is the theme's `inputs`.
-    pub fn tiles(&self, choices: &Value) -> Vec<Tile> {
+    /// The audio system on a connected port, by the name it gave itself over HDMI-CEC; failing that, a device whose own name is a receiver's.
+    pub fn receiver_name(&self) -> Option<String> {
+        let up = self.list.iter().filter(|e| e.connected);
+        up.clone().find(|e| !e.receiver.is_empty()).map(|e| e.receiver.clone()).or_else(|| up.clone().find(|e| is_receiver(&e.label)).map(|e| e.label.clone()))
+    }
+
+    /// The tiles of the picker; `choices` is the theme's `inputs`. `arc`: the sound goes out over HDMI to the audio system, so its port is the
+    /// one the sound goes out of.
+    pub fn tiles(&self, choices: &Value, arc: bool) -> Vec<Tile> {
         let mut out = Vec::new();
         if visible_for(choices, "livetv", true) {
             out.push(Tile {
@@ -154,7 +183,7 @@ impl Inputs {
                 continue;
             }
             let front = e.app_id == self.foreground;
-            let sound = e.connected && is_receiver(&e.label);
+            let sound = arc && e.connected && (!e.receiver.is_empty() || is_receiver(&e.label));
             out.push(Tile {
                 app_id: e.app_id.clone(),
                 key,
@@ -193,6 +222,7 @@ impl Inputs {
             let port = port_name(&app_id);
             let up = d.get("connected").is_some_and(|v| v == &json!(true) || v == &json!("true")) || d.get("activate") == Some(&json!(true));
             let id = if text("id").is_empty() { app_id.clone() } else { text("id") };
+            let receiver = if up { cec_audio_system(d) } else { String::new() };
             out.push(Entry {
                 id,
                 app_id,
@@ -201,6 +231,7 @@ impl Inputs {
                 name: if up { label.clone() } else { String::new() },
                 connected: up,
                 icon: icon_for(if up { &label } else { "" }, &port).to_string(),
+                receiver,
             });
         }
         if out == self.list {
@@ -288,7 +319,7 @@ mod tests {
 
     #[test]
     fn auto_shows_live_tv_and_the_connected_ports_and_names_the_receiver_and_its_sound() {
-        let tiles = tv().tiles(&json!({}));
+        let tiles = tv().tiles(&json!({}), true);
         let row = |t: &Tile| (t.port.clone(), t.icon.clone(), t.name.clone(), t.connected, t.front, t.sound);
         assert_eq!(
             tiles.iter().map(row).collect::<Vec<_>>(),
@@ -306,7 +337,7 @@ mod tests {
 
     #[test]
     fn always_shows_an_empty_port_and_hidden_removes_one() {
-        let tiles = tv().tiles(&json!({"hdmi4": "always", "hdmi3": "hidden", "livetv": "hidden"}));
+        let tiles = tv().tiles(&json!({"hdmi4": "always", "hdmi3": "hidden", "livetv": "hidden"}), true);
         assert_eq!(tiles.iter().map(|t| t.port.as_str()).collect::<Vec<_>>(), vec!["HDMI 1", "HDMI 2 \u{b7} eARC", "HDMI 4"]);
         let empty = &tiles[2];
         assert_eq!(
@@ -350,12 +381,37 @@ mod tests {
         let mut i = tv();
         i.update(&Input::Topic { topic: "foreground".into(), data: json!({"app": "com.webos.app.hdmi3", "home": false}) }, 0);
         assert_eq!(i.current().map(|e| e.port.as_str()), Some("HDMI 3"));
-        assert!(i.tiles(&json!({}))[3].front);
+        assert!(i.tiles(&json!({}), true)[3].front);
         i.watch(true, 1000);
         assert_eq!(i.due_at(), Some(31_000));
         assert!(i.update(&Input::Tick, 30_999).0.is_empty());
         assert_eq!(i.update(&Input::Tick, 31_000).0.len(), 1);
         i.watch(false, 40_000);
         assert_eq!(i.due_at(), None);
+    }
+    #[test]
+    fn the_audio_system_behind_a_port_is_named_by_what_it_says_over_cec_with_its_maker_in_front() {
+        let mut i = Inputs::new();
+        // the status of this TV: the receiver and the player behind it are CEC devices of the one port
+        i.parse(&json!({"devices": [
+            {"appId": "com.webos.app.hdmi2", "label": "HDMI 2", "connected": true, "subList": [
+                {"id": "SIMPLINK", "portId": 2, "osdName": "Apple TV", "cecpDevType": 4, "vendor": 4346},
+                {"id": "SIMPLINK", "portId": 2, "osdName": "AVR-S760H", "cecpDevType": 5, "vendor": 1485},
+            ]},
+            {"appId": "com.webos.app.hdmi1", "label": "HDMI 1", "connected": false, "subList": [{"osdName": "Ghost", "cecpDevType": 5}]},
+        ]}));
+        assert_eq!(i.receiver_name().as_deref(), Some("Denon AVR-S760H"));
+        i.foreground = "com.webos.app.hdmi2".into();
+        let on = i.tiles(&json!({}), true);
+        let hdmi2 = on.iter().find(|t| t.app_id.ends_with("hdmi2")).unwrap();
+        assert!(hdmi2.sound && hdmi2.port == "HDMI 2 \u{b7} eARC", "its port is the one the sound goes out of: {hdmi2:?}");
+        let off = i.tiles(&json!({}), false);
+        assert!(off.iter().all(|t| !t.sound && !t.port.contains("eARC")), "the sound does not go there while the output is elsewhere");
+        // a name that already has the maker, and a number given as text
+        i.parse(&json!({"devices": [{"appId": "com.webos.app.hdmi3", "label": "x", "connected": true, "subList": [{"osdName": "Denon AVR", "cecpDevType": "5", "vendorId": "1485"}]}]}));
+        assert_eq!(i.receiver_name().as_deref(), Some("Denon AVR"));
+        // no CEC audio system: a device whose own name is a receiver's still is one
+        i.parse(&json!({"devices": [{"appId": "com.webos.app.hdmi1", "label": "Marantz NR1200", "connected": true}]}));
+        assert_eq!(i.receiver_name().as_deref(), Some("Marantz NR1200"));
     }
 }
