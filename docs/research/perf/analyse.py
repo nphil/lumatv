@@ -94,6 +94,18 @@ def set_refresh(hz):
     """The refresh the frames were presented at: the drop threshold becomes a refresh and a fifth."""
     global DROP_MS
     DROP_MS = round(1.2 * 1000.0 / float(hz), 2)
+
+
+# LumaTV's compositor thread wakes for every vblank and every commit: runs of 0.1 ms that draw nothing (apps-grid at 120 Hz: every flip the walk's keys
+# left 25-217 ms apart was read as an animated frame that took a hundred milliseconds, its "render" 0.10-0.13 ms). The ring's own frames cost 0.6 ms
+# or more (`render 623 us` for the weather's 43 k px), so what the frame chain below reads as a render is a burst of at least 0.3 ms.
+LUMATV_MIN_RENDER_S = 0.0003
+
+
+def renders(runs, lumatv):
+    """The (start, end) bursts of the compositor thread that can have rendered a frame: all of LG's, those of 0.3 ms or more of LumaTV's. The wakeups
+    stay in the chain as what the render followed (the idle time before it); they are not what it is read from."""
+    return [r for r in runs if r[1] - r[0] >= LUMATV_MIN_RENDER_S] if lumatv else runs
 # Processes whose GPU work is the composition itself, not an app's own drawing.
 COMPOSITION_COMMS = ('surface-manager', 'gal_renderd')
 # An app's buffer reaches the screen up to three frames after its GPU job ends.
@@ -160,6 +172,7 @@ def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
     # LumaTV's compositor is a child of the supervisor that `pidof surface-manager` names, run under its private loader (its threads are called
     # `ld-linux-aarch6`); the supervisor's few runs say nothing of frames. `capture.sh start` writes the compositor's own process id, its loop
     # thread's, into the trace as `loop N` (LG's surface-manager is its own loop: the same pid as --sm): that is the thread whose renders are read.
+    lumatv = loop_pid(ev) is not None
     sm_pid = loop_pid(ev) or sm_pid
 
     # The kernel waits behind each late frame (kwait.py): the D-state intervals of the compositor's thread and of the threads it waited
@@ -403,7 +416,7 @@ def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
             gpu_end = max([y for x, y in gj2], default=None)
             lo = bisect.bisect_left(bstarts, f0)
             bs = [(x, y) for x, y, st in bursts[lo:lo + 40] if x >= f0 and y <= f1]
-            after = [(x, y) for x, y in bs if gpu_end is None or x > gpu_end + 0.0005]
+            after = renders([(x, y) for x, y in bs if gpu_end is None or x > gpu_end + 0.0005], lumatv)
             # With QT_QPA_UPDATE_IDLE_TIME=0 the render follows the commit in
             # the same burst: a burst starting at the GPU completion that lasts
             # longer than a commit (0.6-0.8 ms) is commit plus render.

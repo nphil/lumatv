@@ -819,6 +819,13 @@ class AnalysePid(unittest.TestCase):
         self.assertEqual(analyse.loop_pid(ev), 8969)
         self.assertIsNone(analyse.loop_pid(ev[:2]))
 
+    def test_lumatvs_wakeups_that_draw_nothing_are_not_renders(self):
+        sys.path.insert(0, os.path.join(os.path.dirname(HERE), "docs", "research", "perf"))
+        import analyse
+        runs = [(1.0, 1.0001), (1.0083, 1.0113), (1.0166, 1.0168)]
+        self.assertEqual(analyse.renders(runs, True), [(1.0083, 1.0113)], 'a render is 0.3 ms or more')
+        self.assertEqual(analyse.renders(runs, False), runs, "LG's own loop is read as it was")
+
 
 class RingSummary(unittest.TestCase):
     D = '%.3f D frame %d render %d us owed %d px in %d rects, ui %d draws %d layers (tick)'
