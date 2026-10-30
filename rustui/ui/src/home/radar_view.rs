@@ -71,10 +71,11 @@ impl Level {
         }
     }
 
+    /// Three zooms more than the radar's, so that the square a radar frame covers (a 2,048 px square on the map) fills a screen of 1920 by 1080.
     pub fn map_zoom(self) -> u8 {
         match self {
-            Level::Home | Level::Globe => 8,
-            Level::Wide => 6,
+            Level::Home | Level::Globe => 9,
+            Level::Wide => 7,
         }
     }
 }
@@ -499,7 +500,7 @@ mod tests {
             _ => unreachable!(),
         };
         assert!(first.contains("t=10000") || first.contains("t=10300") || first.contains("t=9700") || first.contains("t=10400") || first.contains("t=10200"), "the nearest the clock first: {first}");
-        assert!(out.iter().any(|e| matches!(e, Effect::Fetch { path, .. } if path.starts_with("/v1/wx/map?w=1920&h=1080&zoom=8&dark=1"))), "and the base map, once");
+        assert!(out.iter().any(|e| matches!(e, Effect::Fetch { path, .. } if path.starts_with("/v1/wx/map?w=1920&h=1080&zoom=9&dark=1"))), "and the base map, once");
         assert!(r.window().iter().all(|f| f.t >= 10_000 - BACK_S && f.t <= 10_000 + AHEAD_S && f.kind != Kind::Outlook), "the window: two hours back, six ahead, no outlook");
     }
 
@@ -563,7 +564,7 @@ mod tests {
         assert!(out.iter().any(|e| matches!(e, Effect::Request { tag: TAG_OPEN, .. })));
         let out = r.set_level(Level::Wide, 6_000);
         assert!(matches!(&out[0], Effect::Request { body: Some(b), .. } if b["zoom"] == 4), "{out:?}");
-        assert_eq!(Level::Wide.map_zoom(), 6);
+        assert_eq!(Level::Wide.map_zoom(), 7);
         assert_eq!(r.close(), vec![Effect::Post { path: "/v1/wx/close".into(), body: json!({}) }]);
         assert!(!r.open);
         assert!(r.close().is_empty());

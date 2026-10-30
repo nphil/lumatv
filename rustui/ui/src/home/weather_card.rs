@@ -467,7 +467,7 @@ impl Weather {
                 let cx = (hr.x + (i as f32 + 0.5) * hr.col_w) * k;
                 let kind = if i == 0 { now_kind } else { None }.unwrap_or_else(|| kind_of(hv.get("code").and_then(Value::as_i64).unwrap_or(0), hv.get("isDay").and_then(Value::as_bool).unwrap_or(true)));
                 let side = (hr.icon * k).round() as u32;
-                if let Some(pic) = pictures.get(&format!("wxbig-{kind}")) {
+                if let Some(pic) = pictures.get_look(&format!("wxbig-{kind}"), light) {
                     canvas.picture(pic, (cx - side as f32 / 2.0).round() as i32, (hr.icon_y * k).round() as i32, side, side);
                 }
                 if let Some((top, bh)) = hr.bar {
@@ -495,7 +495,7 @@ impl Weather {
                 let kind = dv.get("kind").and_then(Value::as_str).unwrap_or("");
                 let y = (d.y + i as f32 * d.row_h) * k;
                 let icon = (d.icon * k).round() as u32;
-                if let Some(pic) = pictures.get(&format!("wxbig-{kind}")) {
+                if let Some(pic) = pictures.get_look(&format!("wxbig-{kind}"), light) {
                     canvas.picture(pic, ((d.x + d.day_w) * k).round() as i32, (y + (d.row_h * k - icon as f32) / 2.0).round() as i32, icon, icon);
                 }
                 // the range bar: the day's span of the week's

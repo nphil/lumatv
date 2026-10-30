@@ -168,7 +168,18 @@ class Helper:
         self.dir = tempfile.mkdtemp(prefix='wxhelper-')
         with open(os.path.join(self.dir, 'helper.json'), 'w') as f:
             json.dump({'listen': {'host': '127.0.0.1', 'port': port}}, f)
+        # a helper on a workstation must not read the owner's receiver on the LAN
+        os.makedirs(os.path.join(self.dir, 'settings'))
+        with open(os.path.join(self.dir, 'settings', 'base.receiver.json'), 'w') as f:
+            json.dump({'owner': 'base.receiver', 'schema_revision': 1, 'version': 1, 'values': {'enabled': False}}, f)
         self.p = subprocess.Popen([binary, 'run', '--data-dir', self.dir, '--stderr'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        import urllib.request
+        for _ in range(60):
+            try:
+                urllib.request.urlopen('http://127.0.0.1:%d/v1/state' % port, timeout=2).read()
+                break
+            except Exception:
+                time.sleep(1)
 
     def start(self):
         return self
@@ -214,7 +225,7 @@ def sheet(paths, cols, cell, label=None):
     return img
 
 
-def before_after(out, tmp, base='forge/main'):
+def before_after(out, tmp, base='fd0c9687'):
     """One sheet of the old renders (from `base` in git) above the new ones: four cards, the view's first page, its details (the old week page for the old
     view), the radar. Written to `out/weather-redesign-before-after.png`."""
     from PIL import Image, ImageDraw
@@ -294,7 +305,7 @@ def main():
     ap.add_argument('--radar-at', type=int, default=26000)
     ap.add_argument('--helper-bin', default='/data/home/lumaglass/rustui/target-helper-pt/debug/lumatv-helper')
     ap.add_argument('--helper-port', type=int, default=18791)
-    ap.add_argument('--base', default='forge/main')
+    ap.add_argument('--base', default='fd0c9687')
     args = ap.parse_args()
     run = Runner(args.bin)
     only = set(args.only.split(','))
@@ -330,7 +341,6 @@ def main():
                             print('wrote', page, c, mode, scale)
     if 'radar' in only:
         helper = Helper(args.helper_bin, args.helper_port)
-        time.sleep(3)
         try:
             for mode in args.modes.split(','):
                 for scale in [float(s) for s in args.scales.split(',')]:

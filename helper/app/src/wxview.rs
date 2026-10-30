@@ -105,7 +105,7 @@ impl WxView {
                 last = Instant::now();
                 let open = Request { method: "POST".into(), path: "/v1/wx/open".into(), query: Vec::new(), headers: Vec::new(), body: json!({"lat": lat, "lon": lon}).to_string().into_bytes(), peer: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST) };
                 me.open(&open);
-                let map = Request { method: "GET".into(), path: "/v1/wx/map".into(), query: vec![("w".into(), "1920".into()), ("h".into(), "1080".into()), ("zoom".into(), "8".into())], headers: Vec::new(), body: Vec::new(), peer: open.peer };
+                let map = Request { method: "GET".into(), path: "/v1/wx/map".into(), query: vec![("w".into(), "1920".into()), ("h".into(), "1080".into()), ("zoom".into(), "9".into())], headers: Vec::new(), body: Vec::new(), peer: open.peer };
                 me.map(&map);
             }
         })

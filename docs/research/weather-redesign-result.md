@@ -65,4 +65,31 @@ To be filled by `cost`.
 
 ## TV check (round 22)
 
-To be written with the last push.
+`T` runs a command on the set, `H` is the helper's loopback base URL as the earlier probes use it. The shell, the compositor kinds as shipped; the helper rebuilt (the ten days and the
+full-screen map are in it: `weather.more` gains `daily[].code, hi, lo`; an older helper still works, the view then lists the card's seven days and the radar's map is 1792 x 744 stretched
+over the screen, so rebuild it first).
+
+A. The card, Home in front, a rain reading (`T curl -s $H/v1/weather` shows `current.code` 61 to 65; otherwise push one with `ctl` or wait for rain).
+
+1. `T ctl shell` gives `rust.ui.room`: layers and groups left. Note the numbers with a clear sky and with rain; the sky costs at most 38 layers (Home held 122 of 256 before it).
+2. `T shot home`: the card has the sky behind the reading, the line that says what is next in the accent (a warning colour for an alert), five hours with a bar for the chance of rain (larger
+   pictures when dry). Look at it for 10 s: clouds cross, rain falls at two speeds with rings where it lands on the hairline, the sun's rays turn (a ring takes over from the last every 4 s).
+3. `ctl` ring D/L lines for 60 s on Home with rain: the card's frames draw its sky box only (433 x 244, about 106 k px) at the refresh; and 0 draws of it with an app over Home, the
+   screensaver up, the screen off, and with `motion.reduced` true (then the sprites rest and nothing is due).
+4. `python3 docs/research/perf/gate.py --surfaces quick --tag weather-sky-rain` over Home with rain and again with a clear sky: both PASS. If the compositor's frame work is over the gate with
+   rain, thin the near rain and splashes first (`weather_art.rs`, the `few(..)` counts), then the far sheets.
+5. OLED: over 30 s no pixel of the sky stays bright in one place (the rays turn, the bloom breathes, the sun drifts); `T shot home` twice 10 s apart and compare the sun's disc position.
+6. 200 % text (`ctl` text scale 2): the card keeps the place, the reading and the next line; nothing overlaps; the sky is behind.
+
+B. The view (OK on the card).
+
+1. The Now page draws in under a second; the sky is in a window of 1,160 x 620 px, the rest of the page is still. `ctl shell` room: at most 46 layers for the sky and about 15 more for the
+   page; rain, wind and snow are the dearest. Ring D/L lines for 60 s: the damage is that window; GPU time per frame at 60/120 Hz (the gate's report); if it is over, shrink `Stage` in
+   `WeatherSurface::sky` (the window) before touching the sprites.
+2. Down: the radar. With the helper's frames: the map is the whole screen, a frame fades out at the edge of its coverage, the chip says RADAR (what the radar saw) or FORECAST (model, not
+   radar) in the accent, the bar has the ticks and a tint over the forecast's part. Keys 1, 2, 3, Left, Right, OK. The first map takes (helper log `wx map`) up to 2 s cold at 1920 x 1080.
+   Layers: the 37 frames and about 14 of controls; note `room` while it plays.
+3. Down: Details. With an alert in force (`T curl -s $H/v1/weather.more`) the alert card shows above the tiles; the compass points where the wind goes; the sun's arc has the sun's place now.
+4. 200 % text on each page: nothing overlaps; the hero drops the facts, the hours show fewer columns, the ten days fewer rows.
+
+C. After a day of use, `ctl shell` room and the shell's memory are what they were at the start (the sky's layers are dropped and made again only when the condition or the look changes).

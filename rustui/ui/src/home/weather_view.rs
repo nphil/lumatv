@@ -19,7 +19,7 @@ use super::weather_gfx as gfx;
 use super::widgets::{Canvas, Pictures, Words};
 use crate::kit::Kit;
 use crate::kit::pane::PaneKind;
-use crate::kit::text::{Text, role_style};
+use crate::kit::text::Text;
 use compositor_protocol::{Fill, Props, Rgba, Shape};
 use lumatv_tokens::TypeRole;
 use serde_json::Value;
@@ -448,8 +448,10 @@ impl WeatherSurface {
         let ink2 = kit.ui.look.ink2();
         let title_f = Frame::new(bar_f.x + kit.space(5) + 12.0, bar_f.y, 900.0, 56.0);
         let clock_f = Frame::new(bar_f.x + WIDTH - 400.0 - kit.space(6), bar_f.y, 400.0, 56.0);
-        let title = Text::new(kit, title_f, z + 22, role_style(kit, TypeRole::Body, Some(Weight::SemiBold), ink, Align::Left), "Weather")?;
-        let clock = Text::new(kit, clock_f, z + 22, role_style(kit, TypeRole::Label, None, ink2, Align::Right), "")?;
+        // the bar is 56 px high whatever the text size: its words grow a little with it, not as the page's do
+        let bs = kit.text_scale.clamp(1.0, 1.35);
+        let title = Text::new(kit, title_f, z + 22, sty(kit, 28.0 * bs, Weight::SemiBold, ink, Align::Left), "Weather")?;
+        let clock = Text::new(kit, clock_f, z + 22, sty(kit, 26.0 * bs, Weight::Medium, ink2, Align::Right), "")?;
         let mut me = Self { _scrim: scrim, _bar: bar, radar_bar, title, clock, dots: Vec::new(), made: None, radar: None, z, bar_key: String::new() };
         let _ = home;
         for _ in PAGES {
@@ -644,7 +646,7 @@ impl WeatherSurface {
                     let code = h.get("code").and_then(Value::as_i64).unwrap_or(0);
                     let day = h.get("isDay").and_then(Value::as_bool).unwrap_or(true);
                     let kind = if i == 0 { now_kind } else { None }.unwrap_or_else(|| kind_of(code, day));
-                    if let Some(p) = pictures.get(&format!("wxbig-{kind}")) {
+                    if let Some(p) = pictures.get_look(&format!("wxbig-{kind}"), light) {
                         canvas.picture(p, (cx - ic / 2.0).round() as i32, icon_y.round() as i32, ic as u32, ic as u32);
                     }
                     if any_rain && bar_h >= 20.0 {
@@ -677,13 +679,15 @@ impl WeatherSurface {
         let days = week_days(d.doc, d.more);
         if !days.is_empty() {
             let panel = Frame::new(MARGIN + 1264.0, TOP, WIDTH - 1264.0, BOTTOM - TOP);
-            let (cap_px, dp, np) = (22.0 * s, 30.0 * s, 28.0 * s);
+            // the panel's words grow with the text size to a point: past it the ranges would be left no room
+            let sd = s.min(1.15);
+            let (cap_px, dp, np) = (22.0 * sd, 30.0 * sd, 28.0 * sd);
             let head_h = 22.0 + cap_px * 1.3 + 14.0;
             let row_h = (79.0 * s.min(1.2)).round();
             let rows = (((panel.h - head_h - 14.0) / row_h).floor() as usize).min(days.len()).max(1);
             let lo_min = days.iter().take(rows).map(|r| r.lo).fold(f32::MAX, f32::min);
             let hi_max = days.iter().take(rows).map(|r| r.hi).fold(f32::MIN, f32::max);
-            let (name_w, ic, num_w) = (130.0 * s, 44.0 * s.min(1.2), 58.0 * s);
+            let (name_w, ic, num_w) = (112.0 * sd, 44.0 * sd.min(1.2), 54.0 * sd);
             let ix = 28.0 + name_w + 4.0;
             let lo_x = ix + ic + 6.0;
             let bar_x = lo_x + num_w + 12.0;
@@ -696,7 +700,7 @@ impl WeatherSurface {
                 let name_y = if has_rain { y + row_h * 0.12 } else { y + (row_h - dp * 1.3) / 2.0 };
                 lines.push((Frame::new(28.0, name_y, name_w, dp * 1.3), sty(kit, dp, if i == 0 { Weight::SemiBold } else { Weight::Medium }, ink, Align::Left), r.name.clone()));
                 let rain = r.rain.filter(|p| *p >= 20.0).map(|p| format!("{}%", p.round() as i64)).unwrap_or_default();
-                lines.push((Frame::new(28.0, y + row_h * 0.12 + dp * 1.3 - 4.0, name_w, 22.0 * s * 1.3), sty(kit, 20.0 * s, Weight::Medium, legible(accent, ink, light), Align::Left), rain));
+                lines.push((Frame::new(28.0, y + row_h * 0.12 + dp * 1.3 - 4.0, name_w, 22.0 * sd * 1.3), sty(kit, 20.0 * sd, Weight::Medium, legible(accent, ink, light), Align::Left), rain));
                 lines.push((Frame::new(lo_x, y, num_w, row_h), sty(kit, np, Weight::Medium, ink2, Align::Right), format!("{}\u{b0}", r.lo.round() as i64)));
                 lines.push((Frame::new(hi_x, y, num_w, row_h), sty(kit, np, Weight::SemiBold, ink, Align::Right), format!("{}\u{b0}", r.hi.round() as i64)));
             }
@@ -705,7 +709,7 @@ impl WeatherSurface {
             let img = picture(kit, panel, z + 3, |canvas| {
                 for (i, r) in days.iter().take(rows).enumerate() {
                     let y = head_h + i as f32 * row_h;
-                    if let Some(p) = pictures.get(&format!("wxbig-{}", r.kind)) {
+                    if let Some(p) = pictures.get_look(&format!("wxbig-{}", r.kind), light) {
                         canvas.picture(p, ix.round() as i32, (y + (row_h - ic) / 2.0).round() as i32, ic as u32, ic as u32);
                     }
                     let by = y + (row_h - 10.0) / 2.0;
@@ -796,10 +800,9 @@ impl WeatherSurface {
         let (day_lo, day_hi) = (day_deg("lo").unwrap_or(temp as f32 - 8.0).min(temp as f32).min(feels.unwrap_or(temp) as f32), day_deg("hi").unwrap_or(temp as f32 + 8.0).max(temp as f32).max(feels.unwrap_or(temp) as f32));
         let mut tiles: Vec<(usize, usize, usize, &str, String, String, Draw)> = Vec::new();
         tiles.push((0, 0, 1, "FEELS LIKE", feels.map(|v| d.deg(v)).unwrap_or_default(), feels_note, Draw::Feels(temp as f32, feels.unwrap_or(temp) as f32, day_lo, day_hi)));
-        let wind = wind_mph.map(|v| format!("{} mph", v.round() as i64)).unwrap_or_default();
+        let wind = wind_mph.map(|v| format!("{} mph{}", v.round() as i64, d.more_num("/now/windDeg").map(|dg| format!(" {}", compass(dg))).unwrap_or_default())).unwrap_or_default();
         let gust = d.more_num("/now/gustMph").map(|g| format!("Gusts {} mph", g.round() as i64)).unwrap_or_default();
-        let from = d.more_num("/now/windDeg").map(|dg| format!(" \u{b7} from the {}", compass(dg))).unwrap_or_default();
-        tiles.push((1, 0, 1, "WIND", wind, format!("{gust}{from}").trim_start_matches(" \u{b7} ").to_owned(), Draw::Wind(d.more_num("/now/windDeg").unwrap_or(0.0) as f32)));
+        tiles.push((1, 0, 1, "WIND", wind, gust, Draw::Wind(d.more_num("/now/windDeg").unwrap_or(0.0) as f32)));
         let uv = d.more_num("/now/uvIndex");
         tiles.push((2, 0, 1, "UV INDEX", uv.map(|u| format!("{}", u.round() as i64)).unwrap_or_else(|| "\u{2013}".into()), uv.map(|u| uv_word(u).to_owned()).unwrap_or_default(), Draw::Uv(uv.unwrap_or(0.0) as f32)));
         let rain = d.more.pointer("/daily/0/rainPct").and_then(Value::as_f64);
@@ -861,8 +864,10 @@ impl WeatherSurface {
                         let mid = g.y + g.h / 2.0;
                         extra.push((Frame::new(xa - 90.0, mid - 20.0 - sh, 180.0, sh), sty(kit, 22.0 * s, Weight::Medium, ink2, Align::Centre), format!("Actual {}", d.deg(f64::from(*a)))));
                         extra.push((Frame::new(xf - 90.0, mid + 22.0, 180.0, sh), sty(kit, 22.0 * s, Weight::SemiBold, ink, Align::Centre), format!("Feels {}", d.deg(f64::from(*f)))));
-                        extra.push((Frame::new(g.x, g.bottom() - sh, 120.0, sh), sty(kit, 22.0 * s, Weight::Medium, ink2, Align::Left), d.deg(f64::from(*lo))));
-                        extra.push((Frame::new(g.right() - 120.0, g.bottom() - sh, 120.0, sh), sty(kit, 22.0 * s, Weight::Medium, ink2, Align::Right), d.deg(f64::from(*hi))));
+                        if s <= 1.2 {
+                            extra.push((Frame::new(g.x, g.bottom() - sh, 120.0, sh), sty(kit, 22.0 * s, Weight::Medium, ink2, Align::Left), d.deg(f64::from(*lo))));
+                            extra.push((Frame::new(g.right() - 120.0, g.bottom() - sh, 120.0, sh), sty(kit, 22.0 * s, Weight::Medium, ink2, Align::Right), d.deg(f64::from(*hi))));
+                        }
                     }
                     Draw::Rain(_) => {
                         extra.push((Frame::new(g.x, g.bottom() - sh, 120.0, sh), sty(kit, 22.0 * s, Weight::Medium, ink2, Align::Left), "Now".to_owned()));

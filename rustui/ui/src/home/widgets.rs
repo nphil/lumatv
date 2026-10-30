@@ -90,6 +90,30 @@ impl Pictures {
         Self { module: Some(module.to_path_buf()), kept: HashMap::new() }
     }
 
+    /// `get`, for the look: on the light look the pale grey and white of a big icon (a cloud) are darkened towards the ink, as the module's small
+    /// icons are (`wx-*_l`): white on the light glass cannot be seen. What has a colour (the sun, the drops) is left as it is.
+    pub fn get_look(&mut self, name: &str, light: bool) -> Option<&Picture> {
+        if !light {
+            return self.get(name);
+        }
+        let key = format!("{name}#light");
+        if !self.kept.contains_key(&key) {
+            let dark = self.get(name).cloned().map(|mut p| {
+                for px in p.rgba.chunks_exact_mut(4) {
+                    let (mx, mn) = (px[0].max(px[1]).max(px[2]), px[0].min(px[1]).min(px[2]));
+                    if mx > 0 && u16::from(mx - mn) * 5 < u16::from(mx) {
+                        for c in &mut px[..3] {
+                            *c = (f32::from(*c) * 0.3).round() as u8;
+                        }
+                    }
+                }
+                p
+            });
+            self.kept.insert(key.clone(), dark);
+        }
+        self.kept.get(&key).and_then(Option::as_ref)
+    }
+
     /// `<module>/icons/<name>.png`, or an absolute path.
     pub fn get(&mut self, name: &str) -> Option<&Picture> {
         if !self.kept.contains_key(name) {
