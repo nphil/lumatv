@@ -4,7 +4,8 @@
 //! stdout and exits 0 on success, 1 on failure, 2 on a usage or configuration error, and 3 from `status` when nothing runs:
 //!
 //! ```text
-//! lumatv-helper start  --brand <app dir>/brand.json     detach, wait until the API listens
+//! lumatv-helper start  --brand <app dir>/brand.json     detach a supervisor, wait until the API listens; the supervisor starts
+//!                                                        the service again whenever it ends, until `stop`
 //! lumatv-helper stop   --brand <app dir>/brand.json     SIGTERM, wait for the lock, SIGKILL after 8 s
 //! lumatv-helper status --brand <app dir>/brand.json
 //! lumatv-helper run    --brand ... [--stderr]           foreground (development)
@@ -53,13 +54,21 @@ use serde_json::{Value, json};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
+use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 /// How long `start` waits for the helper to report that it listens.
 const READY_WAIT: Duration = Duration::from_secs(15);
-/// How long `stop` waits after SIGTERM before SIGKILL.
-const TERM_WAIT: Duration = Duration::from_secs(8);
+/// How long `stop` waits after SIGTERM before SIGKILL: the supervisor gives the service its own eight seconds first.
+const TERM_WAIT: Duration = Duration::from_secs(11);
+/// How long a supervisor waits for the service to end after SIGTERM before it uses SIGKILL.
+const SERVICE_TERM_WAIT: Duration = Duration::from_secs(8);
+/// The pause before the first restart of a service that ended; each further quick failure doubles it up to the longest.
+const RESTART_FIRST: Duration = Duration::from_secs(1);
+const RESTART_LONGEST: Duration = Duration::from_secs(30);
+/// A service that ran this long was not in a crash loop: the pause before its next restart is the shortest again.
+const RESTART_HEALTHY: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Args {
@@ -228,7 +237,7 @@ pub fn main(args: Vec<String>) -> i32 {
         }
         "check-config" => with_config(&args, check_config),
         "run" => with_config(&args, |paths, config| {
-            serve(paths, config, None, args.stderr)
+            serve(paths, config, None, args.stderr, None)
         }),
         "start" => with_config(&args, start),
         "stop" => with_config(&args, |paths, _| stop(&paths)),
@@ -389,9 +398,65 @@ fn outcome_json(outcome: &Outcome) -> Value {
     }
 }
 
+/// What a service run by a supervisor inherits from it: the lock the supervisor holds, and the supervisor's pid, which is the one
+/// `stop` signals and the lock file names.
+struct Held {
+    lock: File,
+    owner: u32,
+}
+
+/// Opens the log and makes it the process's. `false` after saying why to the starter.
+fn open_log(paths: &Paths, config: &Config, stderr_log: bool, ready: &mut Option<File>) -> bool {
+    let level = Level::parse(&config.log.level).unwrap_or(Level::Info);
+    match Logger::open(&paths.log_file(), level, config.log.max_bytes, stderr_log) {
+        Ok(logger) => {
+            log::init(logger);
+            true
+        }
+        Err(e) => {
+            report(
+                ready,
+                &Outcome::Failed(format!(
+                    "cannot open the log {}: {e}",
+                    paths.log_file().display()
+                )),
+            );
+            false
+        }
+    }
+}
+
+/// Takes the lock, or tells the starter why not and gives the exit code of a start that is over (already running, or failed).
+fn take_lock(paths: &Paths, ready: &mut Option<File>) -> Result<File, i32> {
+    match sys::try_lock(&paths.lock_file()) {
+        Ok(Some(lock)) => Ok(lock),
+        Ok(None) => {
+            let pid = sys::read_info(&paths.lock_file()).map_or(0, |i| i.pid);
+            report(ready, &Outcome::Already { pid });
+            Err(if ready.is_some() { 0 } else { 3 })
+        }
+        Err(e) => {
+            report(
+                ready,
+                &Outcome::Failed(format!(
+                    "cannot take the lock {}: {e}",
+                    paths.lock_file().display()
+                )),
+            );
+            Err(1)
+        }
+    }
+}
+
 /// The helper itself: takes the lock, starts the service, reports, waits for a termination signal, stops. Runs in the foreground
-/// process for `run` and in the detached child for `start`.
-fn serve(paths: Paths, config: Config, mut ready: Option<File>, stderr_log: bool) -> i32 {
+/// process for `run` and, under the supervisor, in the process it forks for `start`.
+fn serve(
+    paths: Paths,
+    config: Config,
+    mut ready: Option<File>,
+    stderr_log: bool,
+    held: Option<Held>,
+) -> i32 {
     // The brand's data dir is directly under /var/lib (checked at load); the tool creates it, and a fresh one is made here.
     if let Err(e) = std::fs::create_dir_all(&paths.data_dir) {
         report(
@@ -402,41 +467,22 @@ fn serve(paths: Paths, config: Config, mut ready: Option<File>, stderr_log: bool
     }
     // Before any thread exists, so every thread inherits the mask and `wait_termination` alone receives the signals.
     sys::block_termination_signals();
-    let level = Level::parse(&config.log.level).unwrap_or(Level::Info);
-    match Logger::open(&paths.log_file(), level, config.log.max_bytes, stderr_log) {
-        Ok(logger) => log::init(logger),
-        Err(e) => {
-            report(
-                &mut ready,
-                &Outcome::Failed(format!(
-                    "cannot open the log {}: {e}",
-                    paths.log_file().display()
-                )),
-            );
-            return 1;
-        }
+    let supervised = held.is_some();
+    // A supervisor has opened the log, taken the lock and lowered the priority already.
+    if !supervised && !open_log(&paths, &config, stderr_log, &mut ready) {
+        return 1;
     }
-    let mut lock = match sys::try_lock(&paths.lock_file()) {
-        Ok(Some(lock)) => lock,
-        Ok(None) => {
-            let pid = sys::read_info(&paths.lock_file()).map_or(0, |i| i.pid);
-            report(&mut ready, &Outcome::Already { pid });
-            return if ready.is_some() { 0 } else { 3 };
-        }
-        Err(e) => {
-            report(
-                &mut ready,
-                &Outcome::Failed(format!(
-                    "cannot take the lock {}: {e}",
-                    paths.lock_file().display()
-                )),
-            );
-            return 1;
-        }
+    let (mut lock, owner) = match held {
+        Some(Held { lock, owner }) => (lock, owner),
+        None => match take_lock(&paths, &mut ready) {
+            Ok(lock) => (lock, sys::pid()),
+            Err(code) => return code,
+        },
     };
     let pid = sys::pid();
-    let _ = sys::write_info(&mut lock, pid, None);
-    if config.nice > 0 {
+    let worker = supervised.then_some(pid);
+    let _ = sys::write_info(&mut lock, owner, None, worker);
+    if !supervised && config.nice > 0 {
         sys::lower_priority(config.nice);
     }
     crate::log_info!(
@@ -455,7 +501,7 @@ fn serve(paths: Paths, config: Config, mut ready: Option<File>, stderr_log: bool
         Ok(service) => service,
         Err(e) => {
             crate::log_error!("could not start: {e}");
-            let _ = sys::write_info(&mut lock, 0, None);
+            let _ = sys::write_info(&mut lock, if supervised { owner } else { 0 }, None, worker);
             report(
                 &mut ready,
                 &Outcome::Failed(format!("could not start: {e}")),
@@ -464,16 +510,205 @@ fn serve(paths: Paths, config: Config, mut ready: Option<File>, stderr_log: bool
         }
     };
     let port = service.addr().port();
-    let _ = sys::write_info(&mut lock, pid, Some(port));
-    report(&mut ready, &Outcome::Listening { pid, port });
+    let _ = sys::write_info(&mut lock, owner, Some(port), worker);
+    report(&mut ready, &Outcome::Listening { pid: owner, port });
     drop(ready);
     let signal = sys::wait_termination();
     crate::log_info!("signal {signal}: stopping");
     service.stop();
-    // A pid file that outlives the process would only mislead a reader that does not check the lock.
-    let _ = lock.set_len(0);
+    // A pid file that outlives the process would only mislead a reader that does not check the lock. A supervisor's is its own.
+    if !supervised {
+        let _ = lock.set_len(0);
+    }
     crate::log_info!("stopped");
     0
+}
+
+/// The pause before the next restart of a service that ran for `ran`, and the pause after that: the first is short, quick failures
+/// double it up to a longest, and a run of a healthy length starts over.
+fn next_restart(backoff: Duration, ran: Duration) -> (Duration, Duration) {
+    let wait = if ran >= RESTART_HEALTHY {
+        RESTART_FIRST
+    } else {
+        backoff
+    };
+    (wait, (wait * 2).min(RESTART_LONGEST))
+}
+
+/// The detached process behind `start`: holds the lock and runs the service in a process of its own, and starts it again whenever
+/// it ends for any reason but a stop asked of the supervisor (a crash, a stray signal, the kernel's out-of-memory killer), with
+/// a pause that grows while it keeps failing. `stop` signals the supervisor, which stops the service and ends.
+fn supervise(paths: Paths, config: Config, mut ready: Option<File>) -> i32 {
+    if let Err(e) = std::fs::create_dir_all(&paths.data_dir) {
+        report(
+            &mut ready,
+            &Outcome::Failed(format!("cannot create {}: {e}", paths.data_dir.display())),
+        );
+        return 1;
+    }
+    if !open_log(&paths, &config, false, &mut ready) {
+        return 1;
+    }
+    let mut lock = match take_lock(&paths, &mut ready) {
+        Ok(lock) => lock,
+        Err(code) => return code,
+    };
+    let pid = sys::pid();
+    let _ = sys::write_info(&mut lock, pid, None, None);
+    if config.nice > 0 {
+        sys::lower_priority(config.nice);
+    }
+    // Blocked before any thread exists and before the first fork, so the service starts from an empty mask again.
+    let signals = match sys::SignalFd::new(&[
+        libc::SIGTERM,
+        libc::SIGINT,
+        libc::SIGHUP,
+        libc::SIGQUIT,
+        libc::SIGCHLD,
+    ]) {
+        Ok(signals) => signals,
+        Err(e) => {
+            report(
+                &mut ready,
+                &Outcome::Failed(format!("cannot wait for signals: {e}")),
+            );
+            return 1;
+        }
+    };
+    crate::log_info!(
+        "supervising lumatv-helper {} (pid {pid}, data dir {})",
+        crate::VERSION,
+        paths.data_dir.display()
+    );
+    let is_stop = |signal: i32| matches!(signal, libc::SIGTERM | libc::SIGINT | libc::SIGQUIT);
+    let mut backoff = RESTART_FIRST;
+    // Whether the starter has been told how the first start went.
+    let mut told = false;
+    loop {
+        let began = Instant::now();
+        let forked = sys::fork_worker();
+        let (child, mut pipe) = match forked {
+            Ok(Forked::Child { ready: pipe }) => {
+                drop(signals);
+                let code = match lock.try_clone() {
+                    Ok(copy) => serve(
+                        paths,
+                        config,
+                        Some(pipe),
+                        false,
+                        Some(Held {
+                            lock: copy,
+                            owner: pid,
+                        }),
+                    ),
+                    Err(_) => 1,
+                };
+                std::process::exit(code);
+            }
+            Ok(Forked::Parent { child, ready }) => (Some(child), Some(ready)),
+            Err(e) => {
+                crate::log_error!("cannot start the helper: {e}");
+                (None, None)
+            }
+        };
+        let mut stopping: Option<Instant> = None;
+        let mut killed = false;
+        let mut end = None;
+        while let Some(child) = child {
+            let timeout = stopping
+                .filter(|_| !killed)
+                .map(|at| (at + SERVICE_TERM_WAIT).saturating_duration_since(Instant::now()));
+            let woken = signals.wait(pipe.as_ref().map(AsRawFd::as_raw_fd), timeout);
+            if woken.extra
+                && let Some(mut reader) = pipe.take()
+            {
+                // One line, as `serve` reports it; the starter hears of the first start that listens or fails cleanly.
+                let line = sys::read_line_timeout(&mut reader, Duration::from_secs(1));
+                let parts = line
+                    .as_deref()
+                    .map(|l| l.splitn(3, ' ').collect::<Vec<_>>());
+                if !told {
+                    match parts.as_deref() {
+                        Some(["ok", _, port]) => {
+                            let port = port.parse().unwrap_or(0);
+                            report(&mut ready, &Outcome::Listening { pid, port });
+                            told = true;
+                        }
+                        Some(["err", ..]) => {
+                            // A start that cannot work (the port is taken, a file cannot be made) is the starter's to hear,
+                            // not a loop to hide it in.
+                            let why = line.as_deref().unwrap_or("err").trim_start_matches("err ");
+                            report(&mut ready, &Outcome::Failed(why.to_owned()));
+                            sys::wait_exit(child);
+                            let _ = lock.set_len(0);
+                            return 1;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            if woken.signals.iter().any(|s| is_stop(*s)) && stopping.is_none() {
+                let signal = woken
+                    .signals
+                    .iter()
+                    .copied()
+                    .find(|s| is_stop(*s))
+                    .unwrap_or(libc::SIGTERM);
+                crate::log_info!("supervisor: signal {signal}: stopping the helper");
+                let _ = sys::kill(child, libc::SIGTERM);
+                stopping = Some(Instant::now());
+            }
+            if let Some(ended) = sys::reap(child) {
+                end = Some(ended);
+                break;
+            }
+            if let Some(at) = stopping
+                && !killed
+                && at.elapsed() >= SERVICE_TERM_WAIT
+            {
+                crate::log_warn!("supervisor: the helper did not stop in time, killing it");
+                let _ = sys::kill(child, libc::SIGKILL);
+                killed = true;
+            }
+        }
+        if stopping.is_some() {
+            let _ = lock.set_len(0);
+            return 0;
+        }
+        let ran = began.elapsed();
+        let (wait, next) = next_restart(backoff, ran);
+        backoff = next;
+        match end {
+            Some(ended) => crate::log_warn!(
+                "supervisor: the helper ended with {ended} after {} s; starting it again in {} s",
+                ran.as_secs(),
+                wait.as_secs()
+            ),
+            None => crate::log_warn!(
+                "supervisor: starting the helper again in {} s",
+                wait.as_secs()
+            ),
+        }
+        // Nothing runs the service now: the file names only the supervisor, and `status` says the API is not up.
+        let _ = sys::write_info(&mut lock, pid, None, None);
+        let until = Instant::now() + wait;
+        loop {
+            let left = until.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            if signals
+                .wait(None, Some(left))
+                .signals
+                .iter()
+                .any(|s| is_stop(*s))
+            {
+                crate::log_info!("supervisor: stopping");
+                let _ = lock.set_len(0);
+                return 0;
+            }
+        }
+    }
 }
 
 fn start(paths: Paths, config: Config) -> i32 {
@@ -501,7 +736,7 @@ fn start(paths: Paths, config: Config) -> i32 {
     match sys::fork_detached() {
         Err(e) => fail(1, &format!("cannot fork: {e}")),
         Ok(Forked::Child { ready }) => {
-            let code = serve(paths, config, Some(ready), false);
+            let code = supervise(paths, config, Some(ready));
             std::process::exit(code);
         }
         Ok(Forked::Parent { child, mut ready }) => {
@@ -548,9 +783,9 @@ fn stop(paths: &Paths) -> i32 {
     }
     // The holder writes its pid right after taking the lock; give a helper that is just starting a moment to do so.
     let deadline = Instant::now() + Duration::from_secs(2);
-    let pid = loop {
+    let (pid, worker) = loop {
         if let Some(info) = sys::read_info(&lock_path) {
-            break info.pid;
+            break (info.pid, info.worker);
         }
         if Instant::now() >= deadline {
             return fail(1, "the lock is held but names no process");
@@ -577,6 +812,10 @@ fn stop(paths: &Paths) -> i32 {
         return 0;
     }
     let _ = sys::kill(pid, libc::SIGKILL);
+    if let Some(worker) = worker {
+        // The supervisor's lock descriptor is the worker's too: the lock is free only when both are gone.
+        let _ = sys::kill(worker, libc::SIGKILL);
+    }
     if released(Duration::from_secs(2)) {
         emit(&json!({"ok": true, "running": false, "stopped": true, "killed": true, "pid": pid}));
         0
@@ -1006,9 +1245,13 @@ fn status(paths: Paths, config: Config) -> i32 {
                 .or((config.listen.port != 0).then_some(config.listen.port));
             let ip = config.listen.host.parse::<IpAddr>().ok();
             let healthy = port.zip(ip).map(|(port, ip)| healthy(ip, port));
-            emit(
-                &json!({"ok": true, "running": true, "pid": info.map(|i| i.pid), "port": port, "healthy": healthy}),
-            );
+            let mut reply = json!({"ok": true, "running": true, "pid": info.map(|i| i.pid), "port": port, "healthy": healthy});
+            // A supervised helper says which process is serving; `pid` is then the supervisor's, and there is no worker while it
+            // waits to start the service again.
+            if let Some(worker) = info.and_then(|i| i.worker) {
+                reply["worker"] = json!(worker);
+            }
+            emit(&reply);
             0
         }
         Err(e) => fail(
@@ -1021,6 +1264,20 @@ fn status(paths: Paths, config: Config) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn restarts_back_off_while_the_service_keeps_failing_and_a_healthy_run_starts_over() {
+        let mut backoff = RESTART_FIRST;
+        let mut waits = Vec::new();
+        for _ in 0..8 {
+            let (wait, next) = next_restart(backoff, Duration::from_secs(2));
+            waits.push(wait.as_secs());
+            backoff = next;
+        }
+        assert_eq!(waits, [1, 2, 4, 8, 16, 30, 30, 30]);
+        let (wait, next) = next_restart(backoff, RESTART_HEALTHY);
+        assert_eq!((wait, next), (RESTART_FIRST, RESTART_FIRST * 2));
+    }
 
     fn args(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| (*s).to_owned()).collect()

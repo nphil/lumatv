@@ -48,15 +48,25 @@ pub struct LockInfo {
     pub pid: u32,
     /// The port the API listens on, once it does.
     pub port: Option<u16>,
+    /// The process that runs the service when `pid` is its supervisor.
+    pub worker: Option<u32>,
 }
 
-/// Replaces the content of a lock file we hold with our pid and, once known, the API's port: `pid\nport\n`.
-pub fn write_info(file: &mut File, pid: u32, port: Option<u16>) -> io::Result<()> {
+/// Replaces the content of a lock file we hold with the pid that stops the helper and, once known, the API's port and the
+/// service's own pid when a supervisor runs it: `pid\nport\nworker\n` (`-` for a port not known yet).
+pub fn write_info(
+    file: &mut File,
+    pid: u32,
+    port: Option<u16>,
+    worker: Option<u32>,
+) -> io::Result<()> {
     file.set_len(0)?;
     std::io::Seek::seek(file, io::SeekFrom::Start(0))?;
-    let text = match port {
-        Some(port) => format!("{pid}\n{port}\n"),
-        None => format!("{pid}\n"),
+    let text = match (port, worker) {
+        (Some(port), Some(worker)) => format!("{pid}\n{port}\n{worker}\n"),
+        (Some(port), None) => format!("{pid}\n{port}\n"),
+        (None, Some(worker)) => format!("{pid}\n-\n{worker}\n"),
+        (None, None) => format!("{pid}\n"),
     };
     file.write_all(text.as_bytes())?;
     file.flush()
@@ -73,7 +83,11 @@ pub fn read_info(path: &Path) -> Option<LockInfo> {
         .ok()
         .filter(|p| *p > 1)?;
     let port = lines.next().and_then(|l| l.trim().parse::<u16>().ok());
-    Some(LockInfo { pid, port })
+    let worker = lines
+        .next()
+        .and_then(|l| l.trim().parse::<u32>().ok())
+        .filter(|p| *p > 1);
+    Some(LockInfo { pid, port, worker })
 }
 
 /// Where a program is: a path that names a file, or the first match for a bare name in `PATH` and then in the usual system
@@ -350,6 +364,170 @@ fn close_other_descriptors(keep: RawFd) {
     }
 }
 
+/// The supervisor's signals as a descriptor: the termination signals and `SIGCHLD` are blocked for the calling thread and arrive
+/// as readable records, so one `poll` waits for a signal, the service's report and a timeout together without a race.
+pub struct SignalFd {
+    fd: File,
+}
+
+/// What a [`SignalFd::wait`] found.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Woken {
+    /// The signals that arrived, in order.
+    pub signals: Vec<i32>,
+    /// The extra descriptor is readable, or at its end.
+    pub extra: bool,
+}
+
+impl SignalFd {
+    /// Blocks `signals` for the calling thread and returns the descriptor that receives them.
+    pub fn new(signals: &[i32]) -> io::Result<Self> {
+        // SAFETY: the set is initialised before use and only plain signal numbers are added; `signalfd` returns a new descriptor
+        // that this `File` then owns alone.
+        unsafe {
+            let mut set: libc::sigset_t = std::mem::zeroed();
+            libc::sigemptyset(&mut set);
+            for signal in signals {
+                libc::sigaddset(&mut set, *signal);
+            }
+            let blocked = libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut());
+            if blocked != 0 {
+                return Err(io::Error::from_raw_os_error(blocked));
+            }
+            let fd = check(libc::signalfd(
+                -1,
+                &set,
+                libc::SFD_CLOEXEC | libc::SFD_NONBLOCK,
+            ))?;
+            Ok(Self {
+                fd: File::from_raw_fd(fd),
+            })
+        }
+    }
+
+    /// Waits at most `timeout` (`None` for as long as it takes) for a signal or for `extra` to become readable.
+    pub fn wait(&self, extra: Option<RawFd>, timeout: Option<Duration>) -> Woken {
+        let mut fds = [
+            libc::pollfd {
+                fd: self.fd.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            },
+            libc::pollfd {
+                fd: extra.unwrap_or(-1),
+                events: libc::POLLIN,
+                revents: 0,
+            },
+        ];
+        let millis = timeout.map_or(-1, |t| {
+            // Rounded up: a wait that returns early would spin until the deadline.
+            i32::try_from(t.as_millis() + 1).unwrap_or(i32::MAX)
+        });
+        // SAFETY: two valid `pollfd`s are passed with a count of two; a negative descriptor is ignored by `poll`.
+        let ready = unsafe { libc::poll(fds.as_mut_ptr(), 2, millis) };
+        let mut woken = Woken::default();
+        if ready <= 0 {
+            return woken;
+        }
+        woken.extra = fds[1].revents != 0;
+        if fds[0].revents & libc::POLLIN != 0 {
+            let mut file = &self.fd;
+            let mut record = [0u8; 128];
+            // `signalfd_siginfo` is 128 bytes and its first field is the signal number; a non-blocking read gives whole records.
+            while let Ok(n) = file.read(&mut record) {
+                if n < 4 {
+                    break;
+                }
+                woken.signals.push(i32::from_ne_bytes([
+                    record[0], record[1], record[2], record[3],
+                ]));
+            }
+        }
+        woken
+    }
+}
+
+/// Forks the service's process out of a supervisor: no new session and no change to the descriptors, but every signal unblocked
+/// again (the supervisor blocks them for its [`SignalFd`]). The parent gets the child's pid and the read end of a pipe the child
+/// reports on; the child the write end. Call from a process with one thread.
+pub fn fork_worker() -> io::Result<Forked> {
+    let mut fds: [RawFd; 2] = [0; 2];
+    // SAFETY: `fds` has room for the two descriptors `pipe2` writes; close-on-exec, so no program the service starts keeps it.
+    check(unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) })?;
+    // SAFETY: `fork` in a process with one thread; the child goes on to ordinary Rust code that depends on no other thread.
+    let pid = unsafe { libc::fork() };
+    if pid < 0 {
+        let error = io::Error::last_os_error();
+        // SAFETY: both descriptors were just created and are owned here.
+        unsafe {
+            libc::close(fds[0]);
+            libc::close(fds[1]);
+        }
+        return Err(error);
+    }
+    if pid > 0 {
+        // SAFETY: the write end belongs to the child now; this side owns the read end.
+        unsafe { libc::close(fds[1]) };
+        // SAFETY: `fds[0]` is a valid descriptor owned only by this `File`.
+        let ready = unsafe { File::from_raw_fd(fds[0]) };
+        return Ok(Forked::Parent {
+            child: u32::try_from(pid).unwrap_or(0),
+            ready,
+        });
+    }
+    // SAFETY: plain calls on descriptors and a signal set this process owns.
+    unsafe {
+        libc::close(fds[0]);
+        let mut none: libc::sigset_t = std::mem::zeroed();
+        libc::sigemptyset(&mut none);
+        libc::pthread_sigmask(libc::SIG_SETMASK, &none, std::ptr::null_mut());
+    }
+    // SAFETY: `fds[1]` is a valid descriptor owned only by this `File`.
+    let ready = unsafe { File::from_raw_fd(fds[1]) };
+    Ok(Forked::Child { ready })
+}
+
+/// How a child that was waited for ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChildEnd {
+    Exited(i32),
+    Signaled(i32),
+}
+
+impl std::fmt::Display for ChildEnd {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Exited(code) => write!(f, "exit code {code}"),
+            Self::Signaled(signal) => write!(f, "signal {signal}"),
+        }
+    }
+}
+
+/// Waits for the child `pid` to end and collects it.
+pub fn wait_exit(pid: u32) {
+    if let Ok(pid) = libc::pid_t::try_from(pid) {
+        let mut status: libc::c_int = 0;
+        // SAFETY: `waitpid` writes the status to a valid integer.
+        unsafe { libc::waitpid(pid, &mut status, 0) };
+    }
+}
+
+/// Collects `pid` if it has ended, without waiting. `None` while it still runs (or is not our child).
+pub fn reap(pid: u32) -> Option<ChildEnd> {
+    let pid = libc::pid_t::try_from(pid).ok()?;
+    let mut status: libc::c_int = 0;
+    // SAFETY: `waitpid` writes the status to a valid integer.
+    let got = unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) };
+    if got != pid {
+        return None;
+    }
+    if libc::WIFSIGNALED(status) {
+        Some(ChildEnd::Signaled(libc::WTERMSIG(status)))
+    } else {
+        Some(ChildEnd::Exited(libc::WEXITSTATUS(status)))
+    }
+}
+
 /// Reads one line from a pipe, waiting at most `timeout`. `None` if nothing came (the other end closed or time ran out).
 pub fn read_line_timeout(pipe: &mut File, timeout: Duration) -> Option<String> {
     let deadline = Instant::now() + timeout;
@@ -409,13 +587,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("helper.lock");
         let mut first = try_lock(&path).unwrap().expect("first lock");
-        write_info(&mut first, 4242, Some(18731)).unwrap();
+        write_info(&mut first, 4242, Some(18731), None).unwrap();
         assert!(try_lock(&path).unwrap().is_none());
         assert_eq!(
             read_info(&path),
             Some(LockInfo {
                 pid: 4242,
-                port: Some(18731)
+                port: Some(18731),
+                worker: None
             })
         );
         drop(first);
@@ -436,10 +615,42 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("helper.lock");
         let mut file = try_lock(&path).unwrap().unwrap();
-        write_info(&mut file, 123456, Some(18731)).unwrap();
-        write_info(&mut file, 7, None).unwrap();
+        write_info(&mut file, 123456, Some(18731), None).unwrap();
+        write_info(&mut file, 7, None, None).unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "7\n");
-        assert_eq!(read_info(&path), Some(LockInfo { pid: 7, port: None }));
+        assert_eq!(
+            read_info(&path),
+            Some(LockInfo {
+                pid: 7,
+                port: None,
+                worker: None
+            })
+        );
+    }
+
+    #[test]
+    fn a_supervisor_names_its_service_beside_the_port() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("helper.lock");
+        let mut file = try_lock(&path).unwrap().unwrap();
+        write_info(&mut file, 10, Some(18731), Some(11)).unwrap();
+        assert_eq!(
+            read_info(&path),
+            Some(LockInfo {
+                pid: 10,
+                port: Some(18731),
+                worker: Some(11)
+            })
+        );
+        write_info(&mut file, 10, None, Some(11)).unwrap();
+        assert_eq!(
+            read_info(&path),
+            Some(LockInfo {
+                pid: 10,
+                port: None,
+                worker: Some(11)
+            })
+        );
     }
 
     #[test]
@@ -458,7 +669,8 @@ mod tests {
             read_info(&path),
             Some(LockInfo {
                 pid: 55,
-                port: None
+                port: None,
+                worker: None
             })
         );
     }

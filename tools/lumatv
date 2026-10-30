@@ -693,8 +693,11 @@ restart_surface() {
   # bought nothing and cost 14s.
   # Nothing restarts the unit while LG's Home is being recovered after LumaTV's compositor was
   # away: a second restart would take the compositor down under the recovery's Home launch.
-  i=0; while comp_recovering && [ "$i" -lt 60 ]; do sleep 1; i=$((i+1)); done
-  if comp_recovering; then log_line "restart: a recovery of LG's Home is still running, the compositor is not restarted"; return 1; fi
+  # The recovery waits up to 150 s for its own steps (tv-cutover.sh), so this waits longer: a wait of
+  # 60 s ended an apply started right after `cutover disable` (2026-10-28 22:36). Returns 2 when the
+  # restart was not attempted, which callers do not treat as a failure of the set.
+  i=0; while comp_recovering && [ "$i" -lt 180 ]; do sleep 1; i=$((i+1)); done
+  if comp_recovering; then log_line "restart: a recovery of LG's Home is still running, the compositor is not restarted"; return 2; fi
   close_input_apps "restart"
   WAM_STAMP0=$(wam_stamp)
   reports_before=$(snapshot_reports)
@@ -2309,7 +2312,8 @@ jpeg_stage() {
 }
 
 helper_start() {
-  # Idempotent. Needs $STATE writable (the boot worker and apply run after /var is). A failure is
+  # Idempotent. The helper runs under its own supervisor (`lumatv-helper start`), which starts it again after a crash, a signal or the
+  # out-of-memory killer; this is what starts the supervisor, on every apply and boot. Needs $STATE writable (the boot worker and apply run after /var is). A failure is
   # logged and never fatal: Home draws the last saved weather and news without it.
   [ -x "$HELPER_SRC" ] || { log_line "helper: no helper in the package"; return 1; }
   if ! cmp -s "$HELPER_SRC" "$HELPER_BIN" 2>/dev/null; then
@@ -2810,6 +2814,14 @@ verb_revert() {
 # -------------------------------------------------------------------- apply
 
 verb_apply() {
+  apply_run; apply_rc=$?
+  # The helper serves Home's status icons data, weather and profile: an apply that failed and rolled back (which stops it) leaves
+  # it running anyway; only `revert` and `helper stop` mean it off. Idempotent where it runs already.
+  case "$(helper_json)" in *'"running":true'*) ;; *) helper_start || true ;; esac
+  return "$apply_rc"
+}
+
+apply_run() {
   if ! take_mutation_lock; then
     emit_error "another apply or revert is still running"
     return 1
@@ -3052,7 +3064,15 @@ verb_apply() {
 
   if [ "$restart_needed" -eq 1 ]; then
     marker=$(wc -l < "$MSGLOG" 2>/dev/null | tr -d ' '); [ -n "$marker" ] || marker=0
-    if ! restart_surface; then
+    restart_surface; rs=$?
+    if [ "$rs" -eq 2 ]; then
+      # Nothing was changed on the compositor's side: the staged set, the module and the helper stay as they are,
+      # and VERIFIED is not written, so the next apply restarts the compositor.
+      log_line "apply: the compositor was not restarted (a recovery of LG's Home is running); run apply again when it is done"
+      emit_error "a recovery of LG's Home is still running; the compositor was not restarted, run apply again"
+      return 1
+    fi
+    if [ "$rs" -ne 0 ]; then
       log_line "apply: surface-manager-daemon did not come back active"
       do_revert_internal
       ntfy_notify "$DISPLAY_NAME apply failed: compositor did not restart"

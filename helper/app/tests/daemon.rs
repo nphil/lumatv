@@ -250,3 +250,80 @@ fn the_foreground_run_reports_ready_and_ends_on_sigterm() {
     assert_eq!(status.code(), Some(0));
     assert!(!port_open(port));
 }
+
+/// The service's pid and the supervisor's, from `status`, once the API answers again.
+fn serving(path: &Path, not: Option<u64>) -> (u64, u64) {
+    let until = Instant::now() + Duration::from_secs(20);
+    loop {
+        let status = helper(path, &["status"]);
+        if let (Some(pid), Some(worker), Some(port)) = (
+            status.json["pid"].as_u64(),
+            status.json["worker"].as_u64(),
+            status.json["port"].as_u64(),
+        ) && Some(worker) != not
+            && status.json["healthy"] == true
+            && health(port)
+        {
+            return (pid, worker);
+        }
+        assert!(
+            Instant::now() < until,
+            "the helper never served again: {status:?}",
+            status = status.json
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+fn kill(pid: u64, signal: i32) {
+    let status = Command::new("kill")
+        .args([format!("-{signal}"), pid.to_string()])
+        .status()
+        .unwrap();
+    assert!(status.success());
+}
+
+#[test]
+fn a_service_that_ends_for_any_reason_is_started_again_and_only_stop_ends_it() {
+    let dir = data_dir(json!({}));
+    let path = dir.path();
+    let started = helper(path, &["start"]);
+    assert_eq!(started.json["started"], true, "{}", started.json);
+    let (supervisor, first) = serving(path, None);
+    assert_eq!(started.json["pid"].as_u64(), Some(supervisor));
+    assert_ne!(
+        supervisor, first,
+        "the lock names the supervisor, the status the service"
+    );
+
+    // The kernel's out-of-memory killer.
+    kill(first, 9);
+    let (same, second) = serving(path, Some(first));
+    assert_eq!(same, supervisor, "the supervisor stays");
+
+    // A stray SIGTERM to the service alone (not a stop asked of the supervisor).
+    kill(second, 15);
+    let (same, third) = serving(path, Some(second));
+    assert_eq!(same, supervisor);
+
+    let log = std::fs::read_to_string(path.join("log-helper")).unwrap();
+    assert!(
+        log.contains("supervisor: the helper ended with signal 9")
+            && log.contains("starting it again"),
+        "{log}"
+    );
+
+    let stopped = helper(path, &["stop"]);
+    assert_eq!(stopped.json["stopped"], true, "{}", stopped.json);
+    assert!(!Path::new(&format!("/proc/{supervisor}")).exists());
+    assert!(
+        !Path::new(&format!("/proc/{third}")).exists(),
+        "the service outlived the stop"
+    );
+    std::thread::sleep(Duration::from_millis(2500));
+    assert_eq!(
+        helper(path, &["status"]).code,
+        3,
+        "a stopped helper stays stopped"
+    );
+}
