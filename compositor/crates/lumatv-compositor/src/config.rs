@@ -226,9 +226,10 @@ pub const USAGE: &str = "lumatv-compositor [options]
                          (no picture under a video app); on is implied by --vwin and --afbc on. The pages are made at start; `ctl pagealpha on|off` switches
   --afbc off|probe|on    the scan-out pages as ARM AFBC (modifier 0x0800000000000062, AB24; default off; needs --renderer kms): probe only asks the GPU driver and
                          the plane what they list (`ctl afbc`), on makes the pages AFBC and falls back to linear ones with the reason when the driver refuses
-  --vwin off|idle|apps   the display's spare video windows for LumaTV's own video (default off): idle gives the camera pop-up, the Cameras live view and a
-                         picture-in-picture a window while no app has a video element, apps also next to an app's video (the sub window, 1080p30);
-                         `ctl vwin [off|idle|apps|claim|release|...]` and POST /v1/vwin on the UI channel (docs/research/hw-planes-result.md)
+  --vwin off|idle|apps   the display's spare video windows for LumaTV's own video (default on --renderer kms: the mode `ctl vwin` kept, else idle; else off): idle gives the
+                         camera pop-up, the Cameras live view and a picture-in-picture a window while no app has a video element, apps also next to an app's video
+                         (the sub window, 1080p30); `ctl vwin [off|idle|apps|claim|release|...]` (the mode is kept in <data-dir>/compositor/vwin.conf) and POST /v1/vwin on the
+                         UI channel (docs/research/hw-planes-result.md)
   --vwin-slots N         how many video windows the display is taken to have (default 2: main and sub; the O22 source has NUM_WIN_MAX 2, win2 and win3 are proc
                          slots only)
   ctl CMD                talk to a running compositor's control socket (status, windows, capture PATH, quit)
@@ -249,6 +250,7 @@ impl Config {
         let mut it = args.into_iter();
         let mut renderer_set = false;
         let mut page_alpha_set: Option<bool> = None;
+        let mut vwin_set = false;
         while let Some(a) = it.next() {
             let mut value = || it.next().ok_or_else(|| format!("{a} needs a value"));
             match a.as_str() {
@@ -399,6 +401,7 @@ impl Config {
                 }
                 "--vwin" => {
                     let v = value()?;
+                    vwin_set = true;
                     c.vwin.mode = crate::vwin::Mode::parse(&v).ok_or_else(|| format!("--vwin takes off, idle or apps, not {v}"))?;
                 }
                 "--vwin-slots" => {
@@ -430,6 +433,11 @@ impl Config {
         }
         if c.ui_demo && !c.shell_rust.is_empty() {
             return Err("--ui-demo and --shell-rust both want the engine; one or the other".into());
+        }
+        // Without the flag, on the set's output, the mode `ctl vwin` kept, else idle: the camera pop-up plays on the video plane where no app has a video
+        // on the screen. `--page-alpha off` (holes would be opaque black) leaves it off.
+        if !vwin_set && c.renderer == RendererKind::Kms {
+            c.vwin.mode = if page_alpha_set == Some(false) { crate::vwin::Mode::Off } else { crate::vwin::default_mode(&c.data_dir) };
         }
         if c.scanout.mode == crate::scanout::Mode::Direct && c.renderer != RendererKind::Kms {
             return Err("--scanout direct needs --renderer kms (the plane it scans out on)".into());
@@ -531,5 +539,25 @@ mod tests {
             "AFBC pages need alpha"
         );
         assert!(Config::parse(["--page-alpha", "off", "--vwin", "idle"].map(String::from)).is_err(), "a video window's hole needs alpha");
+    }
+
+    #[test]
+    fn the_video_windows_are_idle_on_the_sets_output_unless_a_word_or_a_kept_mode_says_otherwise() {
+        let dir = std::env::temp_dir().join(format!("lumatv-config-vwin-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mode = |extra: &[&str]| {
+            let mut args: Vec<String> = ["--renderer", "kms", "--driver", "/x/libmali.so", "--data-dir", dir.to_str().unwrap()].map(String::from).to_vec();
+            args.extend(extra.iter().map(|a| a.to_string()));
+            Config::parse(args).unwrap().vwin.mode
+        };
+        assert_eq!(mode(&[]), crate::vwin::Mode::Idle, "a pop-up plays on the plane where no app has a video");
+        assert_eq!(mode(&["--vwin", "off"]), crate::vwin::Mode::Off, "the word wins");
+        assert_eq!(mode(&["--page-alpha", "off"]), crate::vwin::Mode::Off, "holes would be opaque black without the pages' alpha");
+        crate::vwin::write_mode(&dir, crate::vwin::Mode::Apps).unwrap();
+        assert_eq!(mode(&[]), crate::vwin::Mode::Apps, "what ctl vwin kept");
+        assert_eq!(mode(&["--vwin", "idle"]), crate::vwin::Mode::Idle);
+        // off the set's output nothing changes: the host and the tests start with the switch off
+        assert_eq!(Config::parse(Vec::<String>::new()).unwrap().vwin.mode, crate::vwin::Mode::Off);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

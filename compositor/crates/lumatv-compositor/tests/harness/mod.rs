@@ -152,7 +152,10 @@ fn run_server(
 ) {
     let mut display: Display<State> = Display::new().unwrap();
     let dh = display.handle();
-    let config = Config { frames: None, ..Config::default() };
+    // a data directory of its own: `ctl vwin MODE` and `ctl shell rust` keep their choices in it, and a test must not write the machine's
+    static SERVERS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let data_dir = std::env::temp_dir().join(format!("lumatv-harness-{}-{}", std::process::id(), SERVERS.fetch_add(1, std::sync::atomic::Ordering::SeqCst)));
+    let config = Config { frames: None, data_dir, ..Config::default() };
     State::create_globals(&dh, true);
     let output = output();
     let mut state = State::new(dh, config, output, Box::new(luna::Null::default()));
@@ -353,13 +356,18 @@ impl Client {
 
     /// A card window: surface + wl_shell toplevel + webOS shell surface of the given type.
     pub fn card(&mut self, window_type: &str, title: &str) -> Window {
+        self.card_as(window_type, title, &format!("org.test.{}", title.to_lowercase()))
+    }
+
+    /// A card window of the app `app_id`.
+    pub fn card_as(&mut self, window_type: &str, title: &str, app_id: &str) -> Window {
         let surface = self.compositor.create_surface(&self.qh, ());
         let shell_surface = self.shell.get_shell_surface(&surface, &self.qh, ());
         shell_surface.set_title(title.into());
         shell_surface.set_toplevel();
         let webos = self.webos_shell.get_shell_surface(&surface, &self.qh, ());
         webos.set_property("_WEBOS_WINDOW_TYPE".into(), window_type.into());
-        webos.set_property("appId".into(), format!("org.test.{}", title.to_lowercase()));
+        webos.set_property("appId".into(), app_id.into());
         Window { surface, shell_surface, webos }
     }
 

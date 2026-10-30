@@ -359,3 +359,128 @@ fn the_shell_asks_through_its_channel_and_reads_the_answer_in_the_topic() {
     assert_eq!(topic["claims"].as_array().map(Vec::len), Some(0), "{topic}");
     assert_eq!(topic["free"], 2);
 }
+
+/// An element nobody plays on: exported, with no pipeline's punch-through attached (what LG's Home and an app that waits to play keep).
+fn export_idle(client: &mut Client, surface: &WlSurface) -> WlWebosExported {
+    let exported = client.foreign.export_element(surface, 0, &client.qh, ());
+    client.roundtrip();
+    exported
+}
+
+/// A card of the app `app`, in one colour, full screen: it is the one in front when it comes.
+fn card_of(server: &mut Server, title: &str, app: &str) -> (Client, harness::Window, wayland_client::protocol::wl_buffer::WlBuffer) {
+    let mut client = Client::connect_extra(server);
+    let win = client.card_as(CARD, title, app);
+    let buf = client.shm_buffer(1920, 1080, 0xff10_1010);
+    client.present(&win.surface, &buf);
+    assert!(client.wait_until(WAIT, |s| s.frames_done >= 1), "{title} presented");
+    (client, win, buf)
+}
+
+#[test]
+fn an_element_nobody_plays_on_denies_idle_mode_only_in_the_window_in_front_and_not_in_home() {
+    let mut server = Server::start();
+    set_mode(&server, Mode::Idle);
+    let _feeder = feeder(&mut server, "Cameras", "_ctx_cam");
+    // LG's Home keeps a video element that holds no decoder: TV 2026-10-29 every claim over Home was denied "app-video" for it
+    let (mut home, hw, hb) = card_of(&mut server, "Home", "com.webos.app.home");
+    let _home_el = export_idle(&mut home, &hw.surface);
+    let r = server.eval(|s| s.vwin_report());
+    assert_eq!((r["world"]["appElements"].as_i64(), r["world"]["appPlaying"].as_i64()), (Some(0), Some(0)), "{r}");
+    assert_eq!(r["elements"][0]["counted"], false, "{r}");
+    let reply = ask(&server, claim("home", "camera-popup", "", POPUP));
+    assert_eq!(state_of(&reply), ("granted".to_string(), String::new()), "{reply}");
+    // an app comes to the front with an element nothing plays on yet: the video it is about to play owns the plane
+    let (mut player, pw, pb) = card_of(&mut server, "Player", "org.test.player");
+    let _player_el = export_idle(&mut player, &pw.surface);
+    let r = server.eval(|s| s.vwin_report());
+    assert_eq!((r["world"]["appElements"].as_i64(), r["world"]["appPlaying"].as_i64()), (Some(1), Some(0)), "{r}");
+    let counted: Vec<_> = r["elements"].as_array().unwrap().iter().filter(|e| e["counted"] == true).map(|e| e["app"].clone()).collect();
+    assert_eq!(counted, [json!("org.test.player")], "{r}");
+    assert_eq!(r["claims"][0]["reason"], "app-video", "the granted claim ended: {r}");
+    assert_eq!(state_of(&ask(&server, claim("over", "camera-popup", "", POPUP))), ("denied".to_string(), "app-video".to_string()));
+    // another card comes to the front: the player's idle element is behind it and holds no decoder
+    let (_other, _ow, _ob) = card_of(&mut server, "Other", "org.test.other");
+    let r = server.eval(|s| s.vwin_report());
+    assert_eq!(r["world"]["appElements"], 0, "{r}");
+    assert_eq!(state_of(&ask(&server, claim("after", "camera-popup", "", POPUP))).0, "granted");
+    std::mem::forget((hw, hb, pw, pb, _home_el, _player_el));
+}
+
+#[test]
+fn a_claim_takes_the_wallpapers_window_though_another_is_free() {
+    // LumaTV's own sessions of the decoder hold both scalers: a second does not start beside the wallpaper's
+    let mut server = Server::start();
+    set_mode(&server, Mode::Idle);
+    let mut wall = Client::connect_extra(&mut server);
+    let win = wall.card(WALLPAPER, "Wall");
+    let buf = wall.shm_buffer(1920, 1080, 0xff00_00ff);
+    wall.present(&win.surface, &buf);
+    assert!(wall.wait_until(WAIT, |s| s.frames_done >= 1));
+    let _wall_el = export(&mut wall, &win.surface, "_ctx_wall");
+    let r = server.eval(|s| s.vwin_report());
+    assert_eq!((r["wall"].as_bool(), r["free"].as_i64()), (Some(true), Some(1)), "the wallpaper holds one of two windows: {r}");
+    let _feeder = feeder(&mut server, "Cameras", "_ctx_cam");
+    let reply = ask(&server, claim("cam", "camera-popup", "", POPUP));
+    assert_eq!((state_of(&reply).0.as_str(), reply["claim"]["slot"].as_str()), ("granted", Some("main")), "the wallpaper's window: {reply}");
+    assert!(wall.wait_until(WAIT, |s| s.closes >= 1), "the wallpaper's window was closed");
+    std::mem::forget((win, buf, _wall_el));
+}
+
+/// What videooutputd's status says of one sink: the video of `ctx`, connected, where it is shown (`dest`: x, y, width, height in the panel's pixels).
+fn sink_at(ctx: &str, dest: [i64; 4]) -> Value {
+    json!({"video": [
+        {"sink": "MAIN", "connected": true, "context": ctx, "appId": "com.webos.app.home", "zOrder": 0, "width": 1280, "height": 720, "frameRate": 30,
+         "displayOutput": {"x": dest[0], "y": dest[1], "width": dest[2], "height": dest[3]}, "videoInfo": {"subScalerOccupied": true}},
+        {"sink": "SUB0", "connected": false, "context": "", "zOrder": 1, "videoInfo": {}}]})
+}
+
+#[test]
+fn a_video_that_videooutputd_holds_parked_is_placed_again_where_its_claim_says() {
+    // TV 2026-10-29: the placement made for a claim answered {returnValue: true}, and four seconds later the sink was parked at 3840,2160 with no size
+    let mut server = Server::start();
+    set_mode(&server, Mode::Idle);
+    let _feeder = feeder(&mut server, "Cameras", "_ctx_cam");
+    let reply = ask(&server, claim("cam", "camera-popup", "", POPUP));
+    assert_eq!(state_of(&reply).0, "granted", "{reply}");
+    // the gap between two placements is made long: a loaded machine can take longer than the real one between two steps of this test
+    server.eval(|s| s.vwin.replace_gap_ns = 600_000_000_000);
+    let placed = server.eval(placements).len();
+    // connected, and parked: placed again at once (the panel is twice the output)
+    server.eval(|s| s.vwin_status(&sink_at("_ctx_cam", [3840, 2160, 0, 0])));
+    let after = server.eval(placements);
+    assert_eq!(after.len(), placed + 1, "one more placement: {after:?}");
+    assert_eq!(after.last().unwrap()["displayOutput"], json!({"x": 2600, "y": 120, "width": 1120, "height": 630}));
+    // asking again within the gap is not answered with another
+    server.eval(|s| s.vwin_status(&sink_at("_ctx_cam", [3840, 2160, 1, 0])));
+    assert_eq!(server.eval(placements).len(), placed + 1, "not twice in a breath");
+    // where the claim says (a pixel or two off is rounding): let go
+    server.eval(|s| s.vwin_status(&sink_at("_ctx_cam", [2601, 120, 1120, 629])));
+    // (the count starts over: no sleep is needed, the claim whose video was where it was told is let go of)
+    server.eval(|s| s.vwin_status(&sink_at("_ctx_cam", [3840, 2160, 0, 0])));
+    let journal = server.eval(|s| s.journal.clone());
+    let again = journal.iter().filter(|l| l.contains("placed again")).collect::<Vec<_>>();
+    assert_eq!(again.len(), 2, "{journal:?}");
+    assert!(again.iter().all(|l| l.contains("(1)")), "the count starts over once the video has been where it was told: {again:?}");
+    let r = server.eval(|s| s.vwin_report());
+    assert_eq!(r["sinks"][0]["displayOutput"], json!([3840, 2160, 0, 0]), "{r}");
+}
+
+#[test]
+fn the_mode_that_ctl_vwin_sets_is_kept_for_the_next_start_and_idle_is_the_default() {
+    let dir = std::env::temp_dir().join(format!("lumatv-vwin-mode-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(lumatv_compositor::vwin::read_mode(&dir), None);
+    assert_eq!(lumatv_compositor::vwin::default_mode(&dir), Mode::Idle);
+    lumatv_compositor::vwin::write_mode(&dir, Mode::Apps).unwrap();
+    assert_eq!(lumatv_compositor::vwin::default_mode(&dir), Mode::Apps);
+    std::fs::write(dir.join(lumatv_compositor::vwin::MODE_FILE), "banana\n").unwrap();
+    assert_eq!(lumatv_compositor::vwin::default_mode(&dir), Mode::Idle, "a file that says nothing known is no word");
+    // and `ctl vwin apps` writes it, in the data directory the server runs with
+    let server = Server::start();
+    let ctl = |server: &Server, line: &'static str| -> Value { serde_json::from_str(&server.eval(move |s| control::handle(s, line).text())).unwrap() };
+    ctl(&server, "vwin apps");
+    let kept = server.eval(|s| lumatv_compositor::vwin::read_mode(&s.config.data_dir));
+    assert_eq!(kept, Some(Mode::Apps));
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -31,6 +31,28 @@ use crate::window::{WindowId, WindowType};
 pub const MAX_SLOTS: usize = 4;
 pub const DEFAULT_SLOTS: usize = 2;
 
+/// Where `ctl vwin MODE` keeps the mode between starts, under the data directory: one word.
+pub const MODE_FILE: &str = "compositor/vwin.conf";
+
+/// The mode kept in `data_dir`, none when there is no file (or it holds something else).
+pub fn read_mode(data_dir: &std::path::Path) -> Option<Mode> {
+    Mode::parse(std::fs::read_to_string(data_dir.join(MODE_FILE)).ok()?.trim())
+}
+
+pub fn write_mode(data_dir: &std::path::Path, mode: Mode) -> std::io::Result<()> {
+    let path = data_dir.join(MODE_FILE);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, format!("{}\n", mode.name()))
+}
+
+/// What a compositor on the set does when `--vwin` is not given: the mode `ctl vwin` kept, else `idle`, which gives the camera pop-up and the Cameras live
+/// view a window only where no app has a video on the screen (the mode that never starts a decoder beside an app's).
+pub fn default_mode(data_dir: &std::path::Path) -> Mode {
+    read_mode(data_dir).unwrap_or(Mode::Idle)
+}
+
 /// `--vwin`: whether LumaTV's own video gets a hardware window, and when.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Mode {
@@ -330,7 +352,8 @@ pub struct Claim {
 /// What the screen holds besides LumaTV's own claims.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct World {
-    /// Exported video elements of windows that are not LumaTV's own: an app that will play video.
+    /// Exported video elements of windows that are not LumaTV's own that the idle switch counts: the ones a pipeline is attached to (an app that plays)
+    /// and the idle ones of the window in front, Home aside (an app about to play). Home and the apps behind it keep elements that hold no decoder.
     pub app_elements: u32,
     /// Of those, the ones whose pipeline is attached (a punch-through context): an app that plays.
     pub app_playing: u32,
@@ -524,6 +547,13 @@ impl Allocator {
         let prio = req.kind.priority();
         let fits = |slot: usize| req.need.is_none_or(|n| n.fits(limits(slot, n.codec)));
         let cap = |slot: usize| limits(slot, req.need.map_or(Codec::H264, |n| n.codec));
+        // LumaTV's own sessions of the decoder hold both scalers (`subScalerOccupied` reads true once one plays: TV 2026-10-29), so a second one does not
+        // start beside the wallpaper's: the claim takes the wallpaper's window and the wallpaper's session is closed
+        if let Some(slot) = occ.iter().position(|h| *h == Some(Holder::Wall))
+            && fits(slot)
+        {
+            return Decision::Granted { slot, limits: cap(slot), victims: vec![Victim::Wall] };
+        }
         // a free window first: the first one is main, as the display's own resource manager hands them out
         let free: Vec<usize> = (0..occ.len()).filter(|i| occ[*i].is_none()).collect();
         if let Some(&slot) = free.iter().find(|s| fits(**s)) {
@@ -652,6 +682,9 @@ pub struct Sink {
     pub width: u64,
     pub height: u64,
     pub fps: f64,
+    /// `displayOutput`: where videooutputd shows this video, in the panel's pixels (x, y, width, height). A video that has been connected and not placed
+    /// is parked at 3840,2160 with no size.
+    pub dest: (i64, i64, i64, i64),
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -677,6 +710,10 @@ impl Sinks {
                     width: v.get("width").and_then(Value::as_u64).unwrap_or(0),
                     height: v.get("height").and_then(Value::as_u64).unwrap_or(0),
                     fps: v.get("frameRate").and_then(Value::as_f64).unwrap_or(0.0),
+                    dest: {
+                        let n = |k: &str| v.pointer(&format!("/displayOutput/{k}")).and_then(Value::as_i64).unwrap_or(0);
+                        (n("x"), n("y"), n("width"), n("height"))
+                    },
                 })
                 .collect(),
         })
@@ -692,7 +729,8 @@ impl Sinks {
             self.video
                 .iter()
                 .map(|s| {
-                    json!({"sink": s.name, "connected": s.connected, "z": s.z, "app": s.app, "occupiesBoth": s.occupied, "size": [s.width, s.height], "fps": s.fps})
+                    json!({"sink": s.name, "connected": s.connected, "z": s.z, "app": s.app, "occupiesBoth": s.occupied, "size": [s.width, s.height], "fps": s.fps,
+                           "displayOutput": [s.dest.0, s.dest.1, s.dest.2, s.dest.3], "context": s.context})
                 })
                 .collect(),
         )
@@ -716,16 +754,37 @@ pub struct Vwin {
     pub status_token: Option<u64>,
     last_topic: Value,
     pub stats: Stats,
+    /// How often a claim's video was placed again because videooutputd held it elsewhere, and when last (monotonic nanoseconds).
+    replaced: std::collections::BTreeMap<String, (u32, u64)>,
+    /// The contexts of LumaTV's own video elements that went (with the monotonic nanosecond they are forgotten at): videooutputd lists a sink for a moment
+    /// after its element is destroyed, and a video of ours that is still going is no app's.
+    gone: Vec<(String, u64)>,
+    /// How long apart a claim's video is placed again (nanoseconds); a test makes it long or nothing.
+    pub replace_gap_ns: u64,
 }
 
 impl Vwin {
     pub fn new(policy: Policy) -> Vwin {
-        Vwin { alloc: Allocator::new(policy), sinks: Sinks::default(), status_token: None, last_topic: Value::Null, stats: Stats::default() }
+        Vwin {
+            alloc: Allocator::new(policy),
+            sinks: Sinks::default(),
+            status_token: None,
+            last_topic: Value::Null,
+            stats: Stats::default(),
+            replaced: std::collections::BTreeMap::new(),
+            gone: Vec::new(),
+            replace_gap_ns: REPLACE_GAP_NS,
+        }
     }
 }
 
 /// A video window nobody has claimed for this long is closed: whoever started it did not ask first (or the claim was refused and it started anyway).
 const NEVER_BOUND_NS: u64 = 3_000_000_000;
+/// How long the context of a video element of ours that went stays ours in the sinks' list.
+const GONE_NS: u64 = 5_000_000_000;
+/// How many times a claim's video is placed again where videooutputd held it elsewhere, and how long apart.
+const REPLACE_MAX: u32 = 12;
+const REPLACE_GAP_NS: u64 = 200_000_000;
 const STATUS_URI: &str = "luna://com.webos.service.videooutput/getStatus";
 
 impl crate::State {
@@ -735,10 +794,18 @@ impl crate::State {
         let mut known: Vec<&str> = Vec::new();
         let mut ours: Vec<&str> = Vec::new();
         let mut wall: Vec<&str> = Vec::new();
+        let now = crate::output::monotonic_ns();
+        for (context, until) in &self.vwin.gone {
+            if *until > now {
+                known.push(context);
+                ours.push(context);
+            }
+        }
+        let front = self.scene.foreground(&self.surfaces).map(|w| w.id);
         for e in self.foreign.exported.values() {
             known.extend(e.contexts.iter().map(String::as_str));
-            let kind = self.scene.window_of(e.surface).and_then(|id| self.scene.window(id)).map(|w| w.kind);
-            match kind {
+            let window = self.scene.window_of(e.surface).and_then(|id| self.scene.window(id));
+            match window.map(|w| w.kind) {
                 Some(WindowType::VideoWindow) => ours.extend(e.contexts.iter().map(String::as_str)),
                 Some(WindowType::ShellHome | WindowType::ShellSystem) => {}
                 Some(WindowType::Wallpaper) => {
@@ -749,8 +816,11 @@ impl crate::State {
                     }
                 }
                 _ => {
-                    w.app_elements += 1;
-                    if !e.contexts.is_empty() {
+                    let playing = !e.contexts.is_empty();
+                    if self.vwin_element_counts(window, front, playing) {
+                        w.app_elements += 1;
+                    }
+                    if playing {
                         w.app_playing += 1;
                     }
                 }
@@ -761,6 +831,45 @@ impl crate::State {
         w.both_scalers = sinks.iter().any(|s| s.connected && s.occupied && !ours.contains(&s.context.as_str()));
         w.wall_wide = sinks.iter().any(|s| s.connected && s.occupied && wall.contains(&s.context.as_str()));
         w
+    }
+
+    /// Whether an element that is no part of LumaTV's own video counts against the idle switch: it has a decoder, or its window is the one in front and
+    /// is no Home (LG's Home and the apps behind the front one keep elements that nothing plays on, TV 2026-10-29: an element nobody played on denied
+    /// every claim over Home).
+    fn vwin_element_counts(&self, window: Option<&crate::window::Window>, front: Option<WindowId>, playing: bool) -> bool {
+        playing || window.is_some_and(|w| Some(w.id) == front && w.app_id() != crate::scene::HOME_APP)
+    }
+
+    /// The exported elements as the switch sees them, for `ctl vwin`: which window owns each, whether a decoder is attached, whether it is the window
+    /// in front and whether it counts against the idle switch.
+    fn vwin_elements_json(&self) -> Value {
+        let front = self.scene.foreground(&self.surfaces).map(|w| w.id);
+        Value::Array(
+            self.foreign
+                .exported
+                .values()
+                .map(|e| {
+                    let window = self.scene.window_of(e.surface).and_then(|id| self.scene.window(id));
+                    let playing = !e.contexts.is_empty();
+                    let ours = window.is_some_and(|w| matches!(w.kind, WindowType::VideoWindow | WindowType::Wallpaper | WindowType::ShellHome | WindowType::ShellSystem));
+                    json!({
+                        "window": e.window_id,
+                        "app": window.map_or("", |w| w.app_id()),
+                        "kind": window.map_or_else(|| "none".to_string(), |w| format!("{:?}", w.kind)),
+                        "playing": playing,
+                        "front": window.is_some_and(|w| Some(w.id) == front),
+                        "counted": !ours && self.vwin_element_counts(window, front, playing),
+                    })
+                })
+                .collect(),
+        )
+    }
+
+    /// An element of LumaTV's own video went: its sink may be listed a moment longer, and it is still ours until videooutputd lets it go.
+    pub(crate) fn vwin_note_gone(&mut self, contexts: &[String]) {
+        let now = crate::output::monotonic_ns();
+        self.vwin.gone.retain(|(_, until)| *until > now);
+        self.vwin.gone.extend(contexts.iter().map(|c| (c.clone(), now + GONE_NS)));
     }
 
     /// The contexts the elements of a window carry.
@@ -805,6 +914,7 @@ impl crate::State {
         }
         self.vwin_bind();
         self.vwin_close_unclaimed();
+        self.vwin_replace_parked();
         let topic = self.vwin_topic();
         if topic != self.vwin.last_topic {
             self.vwin.last_topic = topic;
@@ -955,6 +1065,7 @@ impl crate::State {
             "wall": world.wall, "wallBoth": world.wall_wide, "standby": world.standby,
         });
         r["sinks"] = self.vwin.sinks.json();
+        r["elements"] = self.vwin_elements_json();
         r["subscribed"] = self.vwin.status_token.is_some().into();
         r["windows"] = Value::Array(
             self.scene
@@ -1114,6 +1225,43 @@ impl crate::State {
         }
     }
 
+    /// A video that is connected but that videooutputd holds somewhere else than its claim says (its pipeline parks it at 3840,2160 with no size when it
+    /// connects, and a placement made before that is lost: TV 2026-10-29, a granted and placed claim over Home showed a black rectangle): the placement
+    /// is made again, a few times for a claim, `REPLACE_GAP_NS` apart. A claim whose video is where it says is let go of.
+    fn vwin_replace_parked(&mut self) {
+        let now = crate::output::monotonic_ns();
+        let mut again: Vec<(String, crate::surface::SurfaceId, Rect, (i64, i64, i64, i64))> = Vec::new();
+        let mut settled: Vec<String> = Vec::new();
+        for c in self.vwin.alloc.granted() {
+            let Some(wid) = c.window.map(WindowId) else { continue };
+            let Some(window) = self.scene.window(wid).filter(|w| w.vwin_live) else { continue };
+            let Some(sink) = self.vwin.sinks.of(&self.vwin_contexts(wid)) else { continue };
+            let want = self.panel_rect(&c.rect);
+            let near = |held: i64, wanted: i32| (held - i64::from(wanted)).abs() <= 2;
+            if near(sink.dest.0, want.x) && near(sink.dest.1, want.y) && near(sink.dest.2, want.w) && near(sink.dest.3, want.h) {
+                settled.push(c.id.clone());
+            } else {
+                again.push((c.id.clone(), window.surface, want, sink.dest));
+            }
+        }
+        for id in settled {
+            self.vwin.replaced.remove(&id);
+        }
+        for (id, surface, want, held) in again {
+            let entry = self.vwin.replaced.entry(id.clone()).or_insert((0, 0));
+            if entry.0 >= REPLACE_MAX || now.saturating_sub(entry.1) < self.vwin.replace_gap_ns {
+                continue;
+            }
+            *entry = (entry.0 + 1, now);
+            let tries = entry.0;
+            self.journal(format!(
+                "vwin: claim {id}'s video is held at {},{} {}x{}, not {},{} {}x{}: placed again ({tries})",
+                held.0, held.1, held.2, held.3, want.x, want.y, want.w, want.h
+            ));
+            self.vwin_elements_changed(surface);
+        }
+    }
+
     /// `ctl vwin ...` as words: no word reads; `off|idle|apps` switches; `slots N`; `claim ID KIND X Y W H [APP] [CODEC] [WxH@FPS]`; `move ID X Y W H`;
     /// `release ID|all`.
     pub fn vwin_ctl(&mut self, words: &[&str]) -> Value {
@@ -1129,7 +1277,12 @@ impl crate::State {
         match words {
             [] | ["status"] => json!({"ok": true, "vwin": self.vwin_report()}),
             [m @ ("off" | "idle" | "apps")] => {
-                self.vwin_set_mode(Mode::parse(m).expect("matched"));
+                let mode = Mode::parse(m).expect("matched");
+                self.vwin_set_mode(mode);
+                // kept for the next start, as the Rust shell's kinds are
+                if let Err(e) = write_mode(&self.config.data_dir, mode) {
+                    self.journal(format!("vwin: the mode was not kept for the next start: {e}"));
+                }
                 json!({"ok": true, "vwin": self.vwin_report()})
             }
             ["slots", n] => match n.parse::<usize>().ok().filter(|n| (1..=MAX_SLOTS).contains(n)) {
@@ -1245,15 +1398,20 @@ mod tests {
     }
 
     #[test]
-    fn a_full_view_takes_main_from_the_wallpaper_and_a_popup_does_not_disturb_it() {
+    fn a_claim_takes_the_wallpapers_window_though_one_is_free_and_a_full_view_takes_main_from_the_popup() {
         let mut a = Allocator::new(policy(Mode::Idle));
         let w = World { wall: true, ..World::default() };
-        // the wallpaper holds main: a pop-up that fits the sub window takes that and leaves the wallpaper alone
+        // the wallpaper holds main and the sub window is free, but LumaTV's own sessions of the decoder hold both scalers: the pop-up takes the wallpaper's
+        // window (the caller closes it) and does not start a second session beside it
         let d = a.request(&w, req("popup", Kind::CameraPopup, need(Codec::H264, 1280, 720, 15)));
-        assert_eq!(granted(&d), Some((1, vec![])));
-        // a 4K full view needs main: the wallpaper is the lowest holder that has it
-        let d = a.request(&w, req("full", Kind::CameraFull, need(Codec::H265, 3840, 2160, 15)));
         assert_eq!(granted(&d), Some((0, vec![Victim::Wall])));
+        // (the world still lists the wallpaper here, as it does until its window is closed) a 4K full view needs main: the pop-up, lower, is its holder
+        let d = a.request(&w, req("full", Kind::CameraFull, need(Codec::H265, 3840, 2160, 15)));
+        assert_eq!(granted(&d), Some((0, vec![Victim::Claim("popup".into())])));
+        // a stream the wallpaper's window is too small for is not taken from it: it goes to the free one that takes it
+        let mut b = Allocator::new(policy(Mode::Idle));
+        let d = b.request(&w, req("big", Kind::Pip, need(Codec::H265, 3840, 2160, 15)));
+        assert_eq!(granted(&d), Some((0, vec![Victim::Wall])), "main takes it, and main is the wallpaper's");
     }
 
     #[test]

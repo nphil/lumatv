@@ -196,6 +196,10 @@ impl Dispatch<WlWebosExported, ExportedData> for State {
     fn destroyed(state: &mut Self, _client: ClientId, _resource: &WlWebosExported, data: &ExportedData) {
         state.foreign.placed.remove(&data.window_id);
         if let Some(e) = state.foreign.exported.remove(&data.window_id) {
+            // an element of LumaTV's own video: its sink stays in videooutputd's list a moment, and is still ours then (`vwin`)
+            if state.scene.window_of(e.surface).and_then(|w| state.scene.window(w)).is_some_and(|w| matches!(w.kind, crate::window::WindowType::VideoWindow | crate::window::WindowType::Wallpaper)) {
+                state.vwin_note_gone(&e.contexts);
+            }
             for ctx in &e.contexts {
                 let (uri, payload) = luna::video::set_display_window(ctx, &Rect::default(), false, None);
                 state.luna_call(uri, payload);
@@ -321,7 +325,7 @@ impl State {
 
     /// An output rectangle in the panel's pixels, the space videooutputd places video in (LG's compositor scales by the
     /// panel's ratio: 3840x2160 for a full-screen video on the C4, 134,196 3584x1964 for the Plex player's window).
-    fn panel_rect(&self, r: &Rect) -> Rect {
+    pub(crate) fn panel_rect(&self, r: &Rect) -> Rect {
         let (pw, ph) = self.config.panel;
         let (ow, oh) = (self.config.width.max(1) as i64, self.config.height.max(1) as i64);
         let scale = |v: i32, p: u32, o: i64| (i64::from(v) * i64::from(p) / o) as i32;
