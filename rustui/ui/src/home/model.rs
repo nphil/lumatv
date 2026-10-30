@@ -229,6 +229,10 @@ pub struct Home {
     /// compositor drawing in step with the panel for the cheapest frame it has seen (round 22, 60 Hz: the heavy frame a key asks for then misses its
     /// refresh, and the screen is never quiet for the gate to see a burst end).
     calm: bool,
+    /// Settings' sheets cover Home (`Shell::after`): its cards, dock and status bar step back, as they do for the Apps library, so that a frame of Settings
+    /// does not draw the 70-odd layers of Home nobody sees: a frame costs about 85 us of GPU for each layer it draws, whatever it covers (round 22's rings,
+    /// 604 frames of an idle GPU: 1.5 ms + 0.085 ms a layer, pixels and rectangles count for nothing), which is the 8.3 ms of a 120 Hz refresh at 80 layers.
+    under_modal: bool,
     pub screen_on: bool,
     pub cursor_visible: bool,
     pub launching: Option<String>,
@@ -322,6 +326,7 @@ impl Home {
             light: false,
             saver_up: false,
             calm: false,
+            under_modal: false,
             screen_on: true,
             cursor_visible: false,
             launching: None,
@@ -707,6 +712,18 @@ impl Home {
     /// Whether the GPU wallpaper stands still.
     pub fn wallpaper_held(&self) -> bool {
         self.calm
+    }
+
+    /// Settings' sheets cover Home or do not ([`Home`]'s `under_modal`). Returns whether it changed, so that Home is drawn again.
+    pub fn set_under_modal(&mut self, on: bool) -> bool {
+        let changed = on != self.under_modal;
+        self.under_modal = on;
+        changed
+    }
+
+    /// Whether Home's cards, dock and status bar are stood back for a modal that covers them.
+    pub fn hidden_under_modal(&self) -> bool {
+        self.under_modal
     }
 
     fn camera_stills_visible(&self) -> bool {
@@ -2415,6 +2432,17 @@ mod tests {
         assert!(!h.set_calm(true), "the same again changes nothing, so no frame is asked for");
         assert!(h.set_calm(false));
         assert!(h.weather_art_runs() && !h.wallpaper_held(), "back to Home alone");
+    }
+
+    #[test]
+    fn a_modal_that_covers_home_steps_its_widgets_back_and_says_so_once() {
+        let mut h = home();
+        assert!(!h.hidden_under_modal());
+        assert!(h.set_under_modal(true), "it changed: Home is drawn again");
+        assert!(h.hidden_under_modal());
+        assert!(!h.set_under_modal(true), "the same again asks for no frame");
+        assert!(h.set_under_modal(false));
+        assert!(!h.hidden_under_modal());
     }
 
     #[test]

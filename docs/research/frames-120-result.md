@@ -36,17 +36,29 @@ On forge main:
      enters the cards, they all dim, 166 layers, 9-13 ms), apps-grid 1. Each is the first heavy frame after cheap ones: the pacer plans for the cost of the frames
      before it, so a step in cost lands one refresh late (`late 1 lost 1`, 33.4 ms), and the frames after it are on time.
 
+- `807b87e8` the gate as above (ring count, `still` covers the weather card, no input calm), then the cover below.
+- Round 22 at 120 Hz on 888dc431 (panel 119.9 Hz in every window, pop-ups off), the compositor's own count per window (art on): home-dpad 2 of 803 flips judged,
+  apps-grid 2 of 1303, home-widgets 4 of 1683, toast 0 of 2528, picker 7 of 38, quick 9 of 91, **settings-scroll 192 of 2063** (the trace said 6). The panels' drops are
+  the first two frames of an open (12-13 ms of GPU, cold layers), the rest of a panel's frames take 5-7 ms. Settings' are the page changes: the rail's steps
+  (3.0-4.25 s of the walk: 28 drops) and the way back (5.75-6.75 s: 32), frames of 150-190 layers at 10-16 ms.
+- **What a frame costs** (604 frames of an idle GPU, 120 Hz run; `gpu = 1.5 ms + 0.085 ms x layers drawn`, R2 0.47; pixels and rectangles add nothing, R2 0.08):
+  the layers a frame touches, whatever they cover. The 8.3 ms of a 120 Hz refresh is about 80 layers. Home alone is 70-87, a panel's frame 100-125, a Settings frame
+  150-190, and Home was 45 % of a Settings frame under sheets that leave it only the margins.
+- **Settings covers Home** (`Home::set_under_modal`, `Shell::after`): once Settings' sheets have faded in (at once from 100 Hz) Home's cards, dock and status bar
+  step back as they do for the Apps library, and are back the moment Settings closes. The host's Settings step has 10-14 layers fewer (its Home has no dock tiles;
+  the set's has 70-odd), and the picture is the same to the eye (cards showed faintly through the 96 % sheets and in the gutters).
+
 Next, in order:
 
 1. TV re-check (Round 22 owns the set), install this build: `python3 compositor/tools/tv_gate.py --only frames --quick`, then the same with `--refresh 120`. Read the
-   gate's `panel_refresh` first: a window on another refresh says nothing of the asked one (play a 60 fps video for a few seconds, or restart the compositor, and run
-   the surface again; the helper's return to 120 Hz after a pop-up does not take, see below). The `dropped` line says "the compositor's own count". Rings:
-   `/tmp/perf/gate-c4shell[-120]-<surface>-m<i>.ring.json` (`perf/ringsum.py FILE`).
-2. At 120 Hz a whole-screen frame over Home costs 8-13 ms of GPU (87 layers alone 7.4 ms), so panels, page changes and the cards' dim cannot hold 8.3 ms. Fixes, by
-   weight: Home as one picture while something fades over it (the structural one: the engine redraws every layer under a changing alpha), the Settings page change
-   without its three heavy frames from 100 Hz (as the open and close are), fewer layers in Home.
-3. The panel stays at 100 Hz after a camera pop-up (25 fps hardware video window): the helper's `0 60` write to `fr_rate` is ignored (helper log: "wrote 0 60 ... but
-   the output measures 99.9 Hz"), YouTube for a few seconds put it right. Not mine; the gate flags it.
+   gate's `panel_refresh` first: a window on another refresh says nothing of the asked one (the helper now puts the panel back to 120 Hz while a camera stream plays; a
+   60 fps video for a few seconds does too). The `dropped` line says "the compositor's own count". Rings:
+   `/tmp/perf/gate-c4shell[-120]-<surface>-m<i>.ring.json` (`perf/ringsum.py FILE`). Expected at 120 Hz: settings-scroll well under the 192, the panels as they were.
+2. The rest is layers: a frame of more than 80 of them is a late frame at 120 Hz. In order of weight: the first frames of a panel open (cold layers: 12-13 ms for the first
+   two; made hidden ahead and shown a frame later, or fewer layers), the page change of Settings (the list is released and made again for each step of the rail:
+   100 layers made, deleted and drawn new every 60 ms; debounced until the rail rests, or its rows kept), Home as one picture while a panel fades over it.
+   `LUMASHOW_PROFILE=sync` in the compositor's environment prints the time of each part of a frame and what made cached backdrops stale (`render/src/profile.rs`).
+3. The panel stays at 100 Hz after a camera pop-up: fixed on the helper side by a2cdf659 (not mine); the gate flags it (`panel_refresh`).
 
 ## What the gate said, and what it measured
 
