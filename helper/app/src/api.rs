@@ -140,6 +140,8 @@ pub struct Api {
     pub cameras: crate::scrypted::Scrypted,
     /// Screenshots and screen recordings: the way in to the compositor's capture, behind `capture.enabled` (`/v1/capture/...`).
     pub capture: crate::capture::Capture,
+    /// The picker's pictures of the inputs, behind the owner's `inputs.previews` switch (`/v1/previews/...`).
+    pub previews: crate::previews::Previews,
     /// The display lab: the shell's guided look at the display chip, the TV's own shell only (`/v1/displaylab/...`).
     pub displaylab: Arc<crate::displaylab::DisplayLab>,
     /// Local profiles: each person's Home and who may change what (`/v1/profiles/...`, the `profiles` topic).
@@ -346,6 +348,7 @@ impl Api {
             .chain(crate::crash::ROUTES.iter())
             .chain(crate::openapps::ROUTES.iter())
             .chain(crate::capture::ROUTES.iter())
+            .chain(crate::previews::ROUTES.iter())
             .chain(crate::placement::ROUTES.iter())
             .chain(crate::displaylab::ROUTES.iter())
             .chain(crate::saver::ROUTES.iter())
@@ -563,6 +566,7 @@ impl Handler for Api {
                 crate::openapps::handle(&self.hub, request)
             }
             ["v1", "capture", rest @ ..] => self.capture.handle(request, rest),
+            ["v1", "previews", rest @ ..] => self.previews.handle(request, rest),
             ["v1", "placement", rest @ ..] => crate::placement::handle(request, rest),
             ["v1", "displaylab", rest @ ..] => self.displaylab.handle(request, rest),
             ["v1", "saver", rest @ ..] => {
@@ -673,6 +677,7 @@ mod tests {
                 images,
                 plugins,
                 capture: crate::capture::Capture::new(&ctx.config.capture),
+                previews: crate::previews::Previews::new(&ctx.config, &ctx.paths, ctx.hub.clone()),
                 displaylab: crate::displaylab::DisplayLab::start(&ctx),
                 profiles: crate::profiles::Profiles::open(&ctx),
                 privacy: crate::privacy::new(&ctx),
@@ -759,6 +764,7 @@ mod tests {
                 + crate::crash::ROUTES.len()
                 + crate::openapps::ROUTES.len()
                 + crate::capture::ROUTES.len()
+                + crate::previews::ROUTES.len()
                 + crate::placement::ROUTES.len()
                 + crate::displaylab::ROUTES.len()
                 + crate::saver::ROUTES.len()

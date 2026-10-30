@@ -44,6 +44,7 @@ fn health_discovery_and_state_answer_over_tcp() {
             + lumatv_helper::crash::ROUTES.len()
             + lumatv_helper::openapps::ROUTES.len()
             + lumatv_helper::capture::ROUTES.len()
+            + lumatv_helper::previews::ROUTES.len()
             + lumatv_helper::placement::ROUTES.len()
             + lumatv_helper::saver::ROUTES.len()
             + lumatv_helper::profiles::ROUTES.len()

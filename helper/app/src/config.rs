@@ -72,6 +72,16 @@ impl Paths {
     pub fn scrypted_link_file(&self) -> PathBuf {
         self.data_dir.join("scrypted").join("link.json")
     }
+
+    /// `previews/`: the last picture of each input the picker shows (`previews.rs`), and the index that dates them.
+    pub fn previews_dir(&self) -> PathBuf {
+        self.data_dir.join("previews")
+    }
+
+    /// `theme/theme.json`: the owner's look and switches; the helper reads only `inputs.previews` from it.
+    pub fn theme_file(&self) -> PathBuf {
+        self.data_dir.join("theme").join("theme.json")
+    }
 }
 
 /// A config problem, in words.
@@ -115,6 +125,9 @@ pub struct Config {
     /// Screenshots and screen recordings of the picture LumaTV's compositor composes (`capture.rs`, `compositor/.../screencap`). Off by
     /// default: with `enabled` false the routes refuse and the compositor does nothing; both read this one switch.
     pub capture: CaptureConfig,
+    /// Pictures of the inputs for the picker (`previews.rs`). Whether any is taken is the owner's switch in Settings (`inputs.previews`
+    /// of theme.json, on by default); these are only how.
+    pub previews: PreviewsConfig,
     /// The display lab (`displaylab/`): the shell's guided look at the display chip's sharpener, dimming and window. On by default (it can
     /// write only its own short list, and puts everything back); with `enabled` false the routes refuse. A journal an earlier run left is put
     /// back at the helper's start whatever this says.
@@ -153,6 +166,7 @@ impl Default for Config {
             images: ImagesConfig::default(),
             cameras: CamerasConfig::default(),
             capture: CaptureConfig::default(),
+            previews: PreviewsConfig::default(),
             display_lab: DisplayLabConfig::default(),
             nice: 10,
             allowed_origins: Vec::new(),
@@ -253,6 +267,39 @@ impl Default for CaptureRecordConfig {
             height: 720,
             fps: 30,
             kbps: 4000,
+        }
+    }
+}
+
+/// How the picker's input pictures are taken and kept (`previews.rs`).
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+pub struct PreviewsConfig {
+    /// LG's capture method: `VIDEO` (the video plane alone, which is an input's picture) or `DISPLAY` (video blended with the UI).
+    pub method: String,
+    /// The size asked of LG's capture service and kept. A tile of the picker shows a picture at about 330 by 210.
+    pub width: u32,
+    pub height: u32,
+    /// The JPEG quality of the kept picture.
+    pub quality: u8,
+    /// The longest one capture may take.
+    pub deadline_ms: u64,
+    /// The least time between two captures; a caller that asks sooner is told `too_soon`.
+    pub min_gap_ms: u64,
+    /// A picture older than this many days is forgotten.
+    pub keep_days: u32,
+}
+
+impl Default for PreviewsConfig {
+    fn default() -> Self {
+        Self {
+            method: "VIDEO".to_owned(),
+            width: 480,
+            height: 270,
+            quality: 72,
+            deadline_ms: 4000,
+            min_gap_ms: 250,
+            keep_days: 30,
         }
     }
 }
@@ -982,6 +1029,19 @@ impl Config {
         {
             return err(
                 "capture.maxBytes is at least 16777216, maxRecordSeconds 5 to 1800, record.height 360, 540, 720 or 1080, record.fps 5 to 30, record.kbps 250 to 20000",
+            );
+        }
+        let previews = &self.previews;
+        if !matches!(previews.method.as_str(), "VIDEO" | "DISPLAY")
+            || !(160..=1280).contains(&previews.width)
+            || !(90..=720).contains(&previews.height)
+            || !(30..=95).contains(&previews.quality)
+            || !(500..=15_000).contains(&previews.deadline_ms)
+            || previews.min_gap_ms > 10_000
+            || !(1..=365).contains(&previews.keep_days)
+        {
+            return err(
+                "previews.method is VIDEO or DISPLAY, width 160 to 1280, height 90 to 720, quality 30 to 95, deadlineMs 500 to 15000, minGapMs at most 10000, keepDays 1 to 365",
             );
         }
         if !(0..=19).contains(&self.nice) {

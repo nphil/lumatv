@@ -30,6 +30,7 @@
 //! | [`openapps`] | open apps without updating: LG's list of apps that must be updated before they open, kept empty while the owner has it on, and put back when off |
 //! | [`crash`] | the crash notice Settings shows: what the supervisor saved when LumaTV's compositor was put out of the way (reason, time, last log and trace lines), read when the page opens |
 //! | [`capture`] | screenshots and screen recordings: the door to the compositor's capture, behind `capture.enabled` (off by default) |
+//! | [`previews`] | the picker's input pictures: LG's capture service asked for the video plane, kept small, behind Settings' `inputs.previews` (on) |
 //! | [`gfn_boost`] | the GeForce NOW app's pad reader thread at real-time priority (FIFO 10, off CPU 0), the one privilege its jail cannot give itself |
 //! | [`displaylab`] | the display lab: the shell's guided look at the OSD sharpener, dimming and a cut-out window, written through one hard list, journaled, read back and put back by every way out (the dead-man, the helper's stop, the next start); the TV's own shell only |
 //! | [`service`], [`cli`] | start and stop, the lock, the command line |
@@ -73,6 +74,7 @@ pub mod log;
 pub mod placement;
 pub mod plugins;
 pub mod preload;
+pub mod previews;
 pub mod paneldim;
 pub mod privacy;
 pub mod profiles;

@@ -254,6 +254,7 @@ impl Service {
             cameras,
             privacy,
             capture: crate::capture::Capture::new(&config.capture),
+            previews: crate::previews::Previews::new(&config, &paths, ctx.hub.clone()),
             displaylab,
             profiles,
             started_at: ctx.hub.boot(),
