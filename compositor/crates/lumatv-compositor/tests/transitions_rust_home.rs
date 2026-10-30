@@ -209,3 +209,58 @@ fn an_app_on_the_video_plane_arrives_on_a_veil_and_leaves_with_home_covering_its
     assert_eq!(end.pixel(960, 540)[..3], HOME);
     assert_eq!(rig.server.eval(|s| (s.scene.transitions.stats.launches, s.scene.transitions.stats.leaves)), (1, 1));
 }
+
+#[test]
+fn a_rust_home_under_an_app_that_covers_it_is_not_drawn_and_is_drawn_whole_the_frame_the_app_goes() {
+    if skip() {
+        return;
+    }
+    let mut rig = rig();
+    // Home as more than a ground: twelve pieces over it, each a draw
+    let solid = |c: [u8; 3]| Shape { corner_radius: 0.0, fill: Fill::Solid(Rgba(c[0], c[1], c[2], 255)), border_width: 0.0, border: Rgba(0, 0, 0, 0) };
+    let pieces: Vec<_> = (0..12).map(|i| rig._ui.scene.shape(100, 60, 10 + i, solid([200, 200, 60]), Props::at(40.0 + 120.0 * i as f32, 300.0))).collect();
+    rig._ui.try_commit().unwrap();
+    // no motion: the card is there at once, with no transition to draw Home through
+    rig.server.eval(|s| {
+        s.motion.forced = Some(false);
+        s.apply_motion();
+    });
+    let home = tick(&rig.server, 1_100 * MS);
+    assert_eq!(home.pixel(60, 320)[..3], [200, 200, 60], "a piece of Home");
+    let home_draws = rig.server.eval(|s| s.stats.ui_draws_last);
+    assert!(home_draws >= 2, "Home's layers are drawn: {home_draws}");
+    assert!(rig.server.eval(|s| !s.scene.last_plan().home_hidden), "nothing covers it");
+
+    // an app's card over it: Home is not drawn under it, and what is drawn is the card
+    let (win, _buf) = app(&mut rig, "com.example.a");
+    let covered = tick(&rig.server, 1_200 * MS);
+    assert!(rig.server.eval(|s| s.scene.last_plan().home_hidden), "the card covers Home and nothing moves");
+    assert_eq!(covered.pixel(60, 320)[..3], [0xd0, 0x40, 0x40], "the card, not the piece of Home");
+    assert_eq!(covered.pixel(5, 5)[..3], [0xd0, 0x40, 0x40]);
+    assert_eq!(rig.server.eval(|s| s.stats.ui_draws_last), 0, "the engine drew nothing: Home is under the card");
+
+    // a layer of the system layer over the card is drawn alone
+    let toast = rig._ui.scene.shape(300, 100, 1000, solid([10, 200, 10]), Props::at(500.0, 500.0));
+    rig._ui.try_commit().unwrap();
+    let with_toast = tick(&rig.server, 1_300 * MS);
+    assert_eq!(with_toast.pixel(600, 540)[..3], [10, 200, 10], "the system layer over the card");
+    assert_eq!(with_toast.pixel(60, 320)[..3], [0xd0, 0x40, 0x40]);
+    let toast_draws = rig.server.eval(|s| s.stats.ui_draws_last);
+    assert!(toast_draws >= 1 && toast_draws < home_draws, "the toast's frame draws the toast and not Home: {toast_draws} against {home_draws}");
+    // and a frame of it that moves nothing else draws nothing of Home either
+    drop(toast);
+    rig._ui.try_commit().unwrap();
+    tick(&rig.server, 1_350 * MS);
+    assert_eq!(rig.server.eval(|s| s.stats.ui_draws_last), 0);
+
+    // the app goes: the frame that finds Home uncovered draws it whole, the ground and the pieces, at once
+    win.surface.destroy();
+    rig.client.roundtrip();
+    let back = tick(&rig.server, 1_400 * MS);
+    assert!(rig.server.eval(|s| !s.scene.last_plan().home_hidden), "Home is uncovered");
+    assert_eq!(back.pixel(5, 5)[..3], HOME, "the ground");
+    assert_eq!(back.pixel(60, 320)[..3], [200, 200, 60], "a piece of Home, drawn again");
+    assert_eq!(back.pixel(1400, 320)[..3], [200, 200, 60], "and the last one");
+    assert_eq!(black(&back, true), 0, "no black anywhere in it");
+    drop(pieces);
+}

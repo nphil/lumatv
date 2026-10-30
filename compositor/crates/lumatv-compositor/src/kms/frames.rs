@@ -102,6 +102,8 @@ impl Frames {
     pub fn draw(&mut self, gl: &mut Gl, plan: &Plan, surfaces: &Surfaces, direct: Option<(u32, (i32, i32))>) -> io::Result<(Assignment, RenderStats)> {
         let mut tiles = plan.tiles.as_ref().cloned().unwrap_or_else(|| Tiles::new(self.width, self.height));
         tiles.add(&plan.damage);
+        // (before the redraw check: a change of the answer is a frame that draws all of its page)
+        gl.set_home_hidden(plan.home_hidden);
         if gl.take_redraw_all() {
             self.ring.forget();
             self.ui_ring.forget();

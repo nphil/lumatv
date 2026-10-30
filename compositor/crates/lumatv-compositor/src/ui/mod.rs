@@ -13,7 +13,7 @@
 //! ```text
 //! if ui.wants_frame(now_ns) || <the windows changed> {               // every tick: Output::ui_needs_frame, else ui.idle
 //!     let mut tiles = <the windows' damage this frame>;              // Plan::tiles
-//!     ui.plan(now_ns, &mut tiles)?;                                  // adds what the two stacks changed
+//!     ui.plan(now_ns, &mut tiles, home_hidden)?;                     // adds what the two stacks changed (stack 0 not while Home is hidden)
 //!     let owed = ring.frame(page, &tiles);                           // damage::Ring, as for the windows alone
 //!     gl.bind(page) ...
 //!     ui.draw_under(fbo, owed)?;                                     // clears the owed rectangles and draws stack 0 into them
@@ -162,10 +162,11 @@ impl Ui {
     }
 
     /// The first half of a frame: takes in what the app committed, steps the scene to `now_ns`, and adds what each stack changes
-    /// from the frame before to `damage`, the tiles the frame changes (which the compositor then takes the page's account of).
-    pub fn plan(&mut self, now_ns: u64, damage: &mut Tiles) -> io::Result<()> {
+    /// from the frame before to `damage`, the tiles the frame changes (which the compositor then takes the page's account of). With
+    /// `home_hidden` the frame does not draw stack 0 (Home under an app's card), so what it changed owes nothing.
+    pub fn plan(&mut self, now_ns: u64, damage: &mut Tiles, home_hidden: bool) -> io::Result<()> {
         self.engine.plan(now_ns)?;
-        for stack in 0..2 {
+        for stack in usize::from(home_hidden)..2 {
             if let Some(changed) = self.engine.changed(stack) {
                 add_tiles(damage, changed, &mut self.scratch);
             }

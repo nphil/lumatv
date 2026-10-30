@@ -347,6 +347,9 @@ pub struct Plan {
     pub gain_serial: u64,
     /// A window of the plan has exported a video element (it has a hole or expects one): its picture shares the screen with the video plane.
     pub video: bool,
+    /// The Rust Home (the engine's stack 0) is under a window that covers the output and nothing moves: nothing of it can be seen, so the frame
+    /// does not draw it (and its changes owe nothing): what an overlay over a playing video asked the GPU for was Home's 70-odd layers again.
+    pub home_hidden: bool,
 }
 
 impl Plan {
@@ -417,6 +420,7 @@ impl Plan {
         self.cursor = None;
         self.content_ns = None;
         self.video = false;
+        self.home_hidden = false;
         if let Some(t) = &mut self.tiles {
             t.clear();
         }
@@ -597,6 +601,11 @@ impl Scene {
     /// X1 probe as an overlay): the client stops drawing it then, as nothing of it can be seen. Builds the stack.
     pub fn shell_home_covered(&mut self, surfaces: &Surfaces) -> bool {
         self.build_stack(surfaces);
+        self.home_covered_in(surfaces)
+    }
+
+    /// [`Scene::shell_home_covered`] over the stack as it stands (the plan builds it once a frame).
+    fn home_covered_in(&self, surfaces: &Surfaces) -> bool {
         // The Rust shell's Home is on the engine and has no window of its own in the stack: it sits under every layer above Home's.
         let from = match self.stack.iter().position(|(layer, _, _)| *layer == Layer::Home) {
             Some(home) => home + 1,
@@ -1216,6 +1225,9 @@ impl Scene {
             }
         }
         self.plan.video = self.plan.items.iter().any(|i| self.video.contains(&i.surface));
+        // Home is hidden for the frames in which an app's card has covered it and nothing is in transition (a launch and a return draw it as the
+        // underlay, and a frame that finds it back draws it whole: `Gl::set_home_hidden`).
+        self.plan.home_hidden = self.home_rust && !self.transitions.active() && self.home_covered_in(surfaces);
         for h in &self.holes {
             let Some(before) = self.plan.items.iter().position(|i| i.surface == h.surface) else { continue };
             let item = &self.plan.items[before];

@@ -142,6 +142,8 @@ pub struct Gl {
     /// The scratch target a screenshot or recording reads a page back through (`grab_target`): its index among the targets and its size.
     /// Made when the first picture is wanted, given back when the capture is over (`release_grab`), so nothing is held while none runs.
     grab_scratch: Option<(TargetId, u32, u32)>,
+    /// The Rust Home (the engine's stack 0) is not drawn in these frames: an app's card covers it (`Plan::home_hidden`, `set_home_hidden`).
+    home_hidden: bool,
     #[cfg(feature = "ui")]
     ui: Option<crate::ui::Ui>,
     #[cfg(feature = "ui")]
@@ -310,6 +312,7 @@ impl Gl {
             previews: previews::Previews::default(),
             boxdim: boxdim::BoxDim::default(),
             grab_scratch: None,
+            home_hidden: false,
             #[cfg(feature = "ui")]
             ui: None,
             #[cfg(feature = "ui")]
@@ -421,10 +424,25 @@ impl Gl {
         }
     }
 
+    /// Whether the frame about to be planned draws the Rust Home: not while an app's card covers it (`Plan::home_hidden`). A change of the answer
+    /// in either direction is a frame that draws all of its page again, with the engine told that what it showed is not what the pages hold: the pages
+    /// have Home's pixels or the black under the card as the frames before had them, and the frame after the change must not trust that.
+    pub fn set_home_hidden(&mut self, hidden: bool) {
+        if hidden == self.home_hidden {
+            return;
+        }
+        self.home_hidden = hidden;
+        self.redraw_all = true;
+        #[cfg(feature = "ui")]
+        if let Some(ui) = &mut self.ui {
+            ui.forget();
+        }
+    }
+
     pub fn plan_ui(&mut self, _damage: &mut crate::damage::Tiles) -> io::Result<()> {
         #[cfg(feature = "ui")]
         if let Some(ui) = &mut self.ui {
-            ui.plan(lumatv_render::now_ns(), _damage)?;
+            ui.plan(lumatv_render::now_ns(), _damage, self.home_hidden)?;
         }
         Ok(())
     }
@@ -1284,8 +1302,12 @@ impl Gl {
             owed_px: rects.iter().map(|r| r.w.max(0) as u64 * r.h.max(0) as u64).sum(),
             ..Default::default()
         };
+        // (the engine's stack 0 clears the owed rectangles and draws Home into them; with Home hidden under an app's card they are cleared here
+        // as they are without an engine, to the opaque black that LG's compositor has under an app, and the card and the system layer go over it)
         #[cfg(feature = "ui")]
-        if let Some(ui) = &mut self.ui {
+        if let Some(ui) = &mut self.ui
+            && !self.home_hidden
+        {
             ui.draw_under(self.targets[self.current.0].fbo, rects)?;
         }
         let fbo = self.targets[self.current.0].fbo;
@@ -1296,7 +1318,7 @@ impl Gl {
             (a.glViewport)(0, 0, self.width as i32, self.height as i32);
             (a.glUseProgram)(self.program);
             (a.glEnable)(egl::GL_SCISSOR_TEST);
-            if !self.has_ui() {
+            if !self.has_ui() || self.home_hidden {
                 (a.glClearColor)(0.0, 0.0, 0.0, 1.0);
                 for r in rects {
                     self.scissor(r);
@@ -1825,6 +1847,7 @@ impl Output for Gl {
     fn render(&mut self, plan: &Plan, surfaces: &Surfaces) -> io::Result<RenderStats> {
         // Offscreen there is no flip to wait for: the frame before this one is the last that could have read them.
         self.bury();
+        self.set_home_hidden(plan.home_hidden);
         let mut tiles = plan.tiles.as_ref().cloned().unwrap_or_else(|| crate::damage::Tiles::new(self.width, self.height));
         tiles.add(&plan.damage);
         if self.take_redraw_all() {

@@ -128,7 +128,7 @@ fn the_demo_surface_is_drawn_into_the_compositors_pages_as_the_ring_owes_them() 
             (egl.api.glEnable)(egl::GL_BLEND);
         }
         let before = state(&mut ui);
-        ui.plan(now, &mut tiles).expect("plan");
+        ui.plan(now, &mut tiles, false).expect("plan");
         assert_eq!(state(&mut ui), before, "frame {k}: plan left the context's state changed");
         let owed = ring.frame(k % 3, &tiles).clone();
         partial += usize::from(owed.pixels() < u64::from(W) * u64::from(H));
