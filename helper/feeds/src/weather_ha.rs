@@ -126,7 +126,7 @@ pub fn documents(snap: &Value, cfg: &WeatherConfig, now_ms: u64) -> Option<(Weat
             a.iter()
                 .filter_map(|h| {
                     Some(Hour {
-                        time: h.get("datetime")?.as_str()?.replacen('T', "T", 1).chars().take(16).collect(),
+                        time: h.get("datetime")?.as_str()?.chars().take(16).collect(),
                         temp: want(number(h, "temperature")?),
                         rain_pct: number(h, "precipitation_probability"),
                         code: wmo_of(h.get("condition").and_then(Value::as_str).unwrap_or("")),
