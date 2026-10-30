@@ -295,7 +295,9 @@ Item {
             radius: Lu.radius("tile")
             camera: cams.popup ? cams.popup.camera : ""
             active: cams.popupUp
-            intervalMs: 700
+            // stills are all this card has (the Rust shell's pop-up plays the camera's video): as quick as the helper keeps them, not one a second
+            intervalMs: 125
+            fps: 8
             cover: true
         }
         Item {

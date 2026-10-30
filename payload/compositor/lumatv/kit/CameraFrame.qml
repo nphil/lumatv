@@ -14,6 +14,8 @@ Item {
     property string camera: ""
     property bool active: false
     property int intervalMs: 700
+    // the rate the helper is asked to keep this camera's stills at (`&fps=`); 0: its own, slow, pace
+    property int fps: 0
     // the size asked of the helper: the box's own, rounded up to the step the decoder scales by
     property int wantW: Math.max(16, Math.ceil(width))
     property int wantH: Math.max(16, Math.ceil(height))
@@ -33,7 +35,7 @@ Item {
 
     function url() {
         n += 1
-        return base + "/v1/cameras/" + camera + "/frame?w=" + wantW + "&h=" + wantH + "&n=" + n
+        return base + "/v1/cameras/" + camera + "/frame?w=" + wantW + "&h=" + wantH + (fps > 0 ? "&fps=" + fps : "") + "&n=" + n
     }
     function fetchNext() {
         if (!active || camera === "" || loading) return
