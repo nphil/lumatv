@@ -1,0 +1,3 @@
+power_policy coarse_demand
+power/control auto
+after: power_policy [coarse_demand] always_on, power/control auto
