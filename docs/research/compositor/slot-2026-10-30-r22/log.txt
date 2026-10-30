@@ -1,0 +1,16 @@
+03:05:09 shot home1
+03:07:52 shot nav1
+03:07:58 shot nav2
+03:07:59 shot nav3
+03:08:36 shot wx-now
+03:08:43 shot wx-radar0
+03:08:44 shot wx-radar1
+03:08:44 shot wx-radar2
+03:08:44 shot wx-radar3
+03:10:37 shot covered-browser
+03:12:36 shot popup1
+03:12:42 shot popup1
+03:13:16 shot popup1
+03:13:23 shot popup1
+03:13:55 shot toast1
+03:13:57 shot osd1
