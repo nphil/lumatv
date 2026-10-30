@@ -1,0 +1,63 @@
+# ls /sys/class/misc/mali0/device /sys/kernel/debug/mali0 (19:59, installed build bb7a491b)
+/sys/class/misc/mali0/device:
+core_mask
+driver
+driver_override
+dvfs_period
+gpuinfo
+js_ctx_scheduling_mode
+js_scheduling_period
+js_timeouts
+lp_mem_pool_max_size
+lp_mem_pool_size
+mem_pool_max_size
+mem_pool_size
+mempool
+misc
+modalias
+of_node
+pm_poweroff
+power
+power_policy
+reset_timeout
+scheduling
+soft_job_timeout
+subsystem
+uevent
+
+/sys/kernel/debug/mali0:
+ctx
+dvfs_utilization
+gpu_memory
+instrumentation
+job_fault
+protected_debug_mode
+quirks_gpu
+quirks_mmu
+quirks_sc
+quirks_tiler
+regs_history
+regs_history_enabled
+regs_history_size
+reset
+serialize_jobs
+tlstream
+ 
+# contents of the clock and power files (read only)
+== core_mask: Current core mask (JS0) : 0x7|Current core mask (JS1) : 0x7|Current core mask (JS2) : 0x7|Available core mask : 0x7|
+== dvfs_period: 100|
+== js_ctx_scheduling_mode: 0|
+== js_scheduling_period: 100|
+== js_timeouts: 100 100 5000 5000 1500000 5500 5500 1502000|
+== pm_poweroff: 400000 2 0|
+== power_policy: [coarse_demand] always_on |
+== reset_timeout: 3000|
+== soft_job_timeout: 3000|
+== gpuinfo: Mali-G52 3 cores r1p0 0x07040002|
+== scheduling/serialize_jobs: [none]intra-slot inter-slot full full-reset |
+===
+/sys/class/devfreq/*: cur  min  max  gov  avail 
+===
+busy_time: 3709912720 idle_time: 1955763269
+[none] intra-slot inter-slot full full-reset 
+ 
