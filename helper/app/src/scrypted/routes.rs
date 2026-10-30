@@ -8,7 +8,7 @@
 //! | `GET /v1/cameras/{id}/recordings?from=&to=`, `/events?from=&to=&count=`, `/clips?from=&to=&count=` | the bridge's own JSON for the span |
 //! | `GET /v1/cameras/{id}/thumbnail?at=&w=&h=`, `/clip-thumbnail?clip=&w=&h=` | a picture of a recorded moment or a clip |
 //! | `GET /v1/cameras/events/{event}/thumbnail?w=&h=` | the picture of a pushed event |
-//! | `POST /v1/cameras/live {camera, quality?, for?, popup?, window?}` | starts live; the state is the `cameras.live` topic; a new camera ends the old session. `for: "popup"` is a camera pop-up's picture: a stream inside the sub window's limits, in the feeder's `cameras.popupWindow` window, the decoder opened for the app the compositor's `window` (`main` or `sub`) says; `popup` is the card's id, for the log |
+//! | `POST /v1/cameras/live {camera, quality?, for?, popup?, window?}` | starts live; the state is the `cameras.live` topic; a new camera ends the old session. `quality` is `native` (the camera's own stream), `balanced` (`medium`) or `light` (`low`). `for: "popup"` is a camera pop-up's picture: a stream inside the sub window's limits, in the feeder's `cameras.popupWindow` window, the decoder opened for the app the compositor's `window` (`main`, `sub`) says; `window: "texture"` is the CPU path, the low stream (up to 720p at 30, H.264); `popup` is the card's id, for the log. `for: "full"` is the Cameras full view on a video window (`window` `main` by default): the camera's own stream, up to 4K at its own rate |
 //! | `POST /v1/cameras/playback {camera, at, rate?}` or `{camera, clip}` | starts a recording or a clip |
 //! | `POST /v1/cameras/live/stop` | stops live or playback (the pipeline unloads off this path) |
 //! | `POST /v1/cameras/live/pause {paused}` | holds the picture of a recording (Play dials it again where it stopped) |
@@ -44,6 +44,8 @@ struct Usage {
     ndl_app: String,
     /// The window type of the feeder it plays in (empty: the configured one).
     window: String,
+    /// The quality asked for (`native`, `balanced`, `light`), for the log.
+    quality: String,
 }
 
 /// The app the decoder is opened for (`cameras.ndlApp`) where the compositor gave the picture `window` (`main` or `sub`): the video window is no app on
@@ -62,6 +64,17 @@ fn ndl_app_for(setting: &str, window: &str) -> String {
         }
         id if plain(id) => id.to_owned(),
         _ => HOME_APP.to_owned(),
+    }
+}
+
+/// The bridge's word for a quality: `native` (the camera's own stream), `balanced` (a middle one) or `light` (its low-resolution one); `high`, `medium` and `low`
+/// are the same three.
+fn quality_of(word: &str) -> Option<&'static str> {
+    match word {
+        "native" | "high" => Some("native"),
+        "balanced" | "medium" => Some("balanced"),
+        "light" | "low" => Some("light"),
+        _ => None,
     }
 }
 
@@ -109,7 +122,7 @@ pub const ROUTES: &[(&str, &str, &str)] = &[
     (
         "POST",
         "/v1/cameras/live",
-        "plays a camera on the video plane: {\"camera\", \"quality\"?} or, for a camera pop-up's picture, {\"camera\", \"for\": \"popup\", \"popup\"?, \"window\"?: \"main\"|\"sub\"}",
+        "plays a camera on the video plane: {\"camera\", \"quality\"?: \"native\"|\"balanced\"|\"light\"} or, for a camera pop-up's picture, {\"camera\", \"for\": \"popup\", \"popup\"?, \"window\"?: \"main\"|\"sub\"|\"texture\"}, or, for the Cameras full view on a video window, {\"camera\", \"for\": \"full\", \"window\"?: \"main\"|\"sub\"}",
     ),
     (
         "POST",
@@ -490,6 +503,7 @@ impl Inner {
         };
         let ticket = self.ticket.fetch_add(1, Ordering::SeqCst) + 1;
         self.live.asking(camera, mode);
+        let asked_at = std::time::Instant::now();
         let dial = match ask(&bridge) {
             Ok(dial) => dial,
             Err(t) => {
@@ -504,6 +518,7 @@ impl Inner {
                 return refused(&t.code(), &t.words());
             }
         };
+        let bridge_ms = asked_at.elapsed().as_millis();
         let end_session = |dial: &bridge::Dial| -> Option<Box<dyn FnOnce() + Send>> {
             (mode != Mode::Live && !dial.session.is_empty()).then(|| {
                 let (bridge, session) = (bridge.clone(), dial.session.clone());
@@ -520,15 +535,16 @@ impl Inner {
             return refused("superseded", "Another stream was asked for meanwhile");
         }
         if !usage.purpose.is_empty() {
-            // the stream's address is a capability and is not here: what the bridge says it is, and where it will play
+            // the stream's address is a capability and is not here: what the bridge says it is, where it will play, and how long the bridge took to answer
             crate::log_info!(
-                "cameras: live for {} on camera {camera}: {} {}x{} at {} a second declared{}, window {}, decoder opened for {}",
+                "cameras: live for {} on camera {camera}: {} {}x{} at {} a second declared{}, quality {}, window {}, decoder opened for {}, the bridge answered in {bridge_ms} ms",
                 usage.purpose,
                 dial.codec,
                 dial.width,
                 dial.height,
                 dial.fps,
                 if dial.prebuffered { ", prebuffered" } else { ", not prebuffered" },
+                if usage.quality.is_empty() { "as set" } else { &usage.quality },
                 if usage.window.is_empty() { "as configured" } else { &usage.window },
                 if usage.ndl_app.is_empty() { "the window's own app" } else { &usage.ndl_app },
             );
@@ -564,14 +580,13 @@ impl Inner {
             Ok(camera) => camera,
             Err(r) => return r,
         };
-        let quality = body
-            .get("quality")
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-            .unwrap_or_else(|| self.options().live);
-        if !["native", "balanced", "light"].contains(&quality.as_str()) {
-            return error_response(400, "bad_request", "quality is native, balanced or light");
-        }
+        let quality = match body.get("quality").and_then(Value::as_str) {
+            None => self.options().live,
+            Some(word) => match quality_of(word) {
+                Some(quality) => quality.to_owned(),
+                None => return error_response(400, "bad_request", "quality is native, balanced or light"),
+            },
+        };
         match body.get("for").and_then(Value::as_str) {
             None => self.start_stream(&camera, Mode::Live, |bridge| bridge.live(&camera, &quality)),
             Some("popup") => {
@@ -582,23 +597,46 @@ impl Inner {
                     );
                 }
                 let window = body.get("window").and_then(Value::as_str).unwrap_or("main");
-                if !["main", "sub"].contains(&window) {
-                    return error_response(400, "bad_request", "window is main or sub");
+                if !["main", "sub", "texture"].contains(&window) {
+                    return error_response(400, "bad_request", "window is main, sub or texture");
                 }
                 let purpose = match body.get("popup").and_then(Value::as_u64) {
                     Some(id) => format!("pop-up {id}"),
                     None => "pop-up".to_owned(),
                 };
+                // the texture path is decoded on the CPU: the camera's low stream, whatever quality the owner chose
+                let texture = window == "texture";
+                let quality = if texture { "light".to_owned() } else { quality };
                 let usage = Usage {
                     purpose,
                     ndl_app: ndl_app_for(&self.config.ndl_app, window),
                     window: self.config.popup_window.clone(),
+                    quality: quality.clone(),
                 };
                 self.start_stream_for(&camera, Mode::Live, usage, |bridge| {
-                    bridge.live_popup(&camera, &quality)
+                    if texture {
+                        bridge.live_low(&camera, &quality)
+                    } else {
+                        bridge.live_popup(&camera, &quality)
+                    }
                 })
             }
-            Some(_) => error_response(400, "bad_request", "for is popup"),
+            Some("full") => {
+                let window = body.get("window").and_then(Value::as_str).unwrap_or("main");
+                if !["main", "sub"].contains(&window) {
+                    return error_response(400, "bad_request", "window is main or sub");
+                }
+                let usage = Usage {
+                    purpose: "full view".to_owned(),
+                    ndl_app: ndl_app_for(&self.config.ndl_app, window),
+                    window: self.config.popup_window.clone(),
+                    quality: quality.clone(),
+                };
+                self.start_stream_for(&camera, Mode::Live, usage, |bridge| {
+                    bridge.live(&camera, &quality)
+                })
+            }
+            Some(_) => error_response(400, "bad_request", "for is popup or full"),
         }
     }
 
@@ -750,5 +788,29 @@ impl Inner {
                 "Scrypted shares no such camera with this TV",
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_quality_is_one_of_three_and_the_plain_words_are_the_same_three() {
+        assert_eq!(
+            ["native", "high", "balanced", "medium", "light", "low"].map(quality_of),
+            [Some("native"), Some("native"), Some("balanced"), Some("balanced"), Some("light"), Some("light")]
+        );
+        assert_eq!(quality_of("ultra"), None);
+    }
+
+    #[test]
+    fn the_decoder_is_opened_for_home_over_the_main_window_and_for_its_own_id_beside_one() {
+        assert_eq!(ndl_app_for("auto", "main"), HOME_APP);
+        assert_eq!(ndl_app_for("auto", "sub"), "");
+        assert_eq!(ndl_app_for("own", "main"), "");
+        assert_eq!(ndl_app_for("home", "sub"), HOME_APP);
+        assert_eq!(ndl_app_for("org.example.app", "main"), "org.example.app");
+        assert_eq!(ndl_app_for("bad id!", "main"), HOME_APP);
     }
 }

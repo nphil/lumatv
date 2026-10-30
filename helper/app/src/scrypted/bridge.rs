@@ -38,6 +38,11 @@ pub fn accept_popup() -> Value {
     json!({"codecs": ["h264", "h265"], "max_width": 1920, "max_height": 1088, "max_fps": 30})
 }
 
+/// What the CPU path takes (a software decode into a texture): the camera's low stream, H.264 up to 720p at 30.
+pub fn accept_low() -> Value {
+    json!({"codecs": ["h264"], "max_width": 1280, "max_height": 720, "max_fps": 30})
+}
+
 /// Percent-encodes a value for a query (ids are opaque: never parsed, always encoded).
 pub fn encode(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
@@ -550,6 +555,11 @@ impl Bridge {
         dial_of(&self.json(&live_within(camera, quality, accept_popup()))?)
     }
 
+    /// A stream for the CPU path: the camera's own low stream, inside [`accept_low`].
+    pub fn live_low(&self, camera: &str, quality: &str) -> Result<Dial, Trouble> {
+        dial_of(&self.json(&live_within(camera, quality, accept_low()))?)
+    }
+
     pub fn playback(&self, camera: &str, start: i64, rate: u8) -> Result<Dial, Trouble> {
         dial_of(&self.json(&playback(camera, start, rate))?)
     }
@@ -626,6 +636,20 @@ impl Bridge {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_path_has_its_own_limits_the_cpu_path_the_low_stream_the_sub_window_1080p30_and_the_full_view_the_decoders() {
+        let low = accept_low();
+        assert_eq!(
+            (low["codecs"].clone(), low["max_width"].clone(), low["max_height"].clone(), low["max_fps"].clone()),
+            (json!(["h264"]), json!(1280), json!(720), json!(30))
+        );
+        let popup = accept_popup();
+        assert_eq!((popup["max_width"].clone(), popup["max_height"].clone(), popup["max_fps"].clone()), (json!(1920), json!(1088), json!(30)));
+        assert_eq!(accept()["max_width"], 4096, "the full view is up to what the decoder takes");
+        let body: Value = serde_json::from_str(live_within("273", "light", accept_low()).json.as_deref().unwrap()).unwrap();
+        assert_eq!((body["camera"].as_str(), body["quality"].as_str(), body["accept"]["max_height"].clone()), (Some("273"), Some("light"), json!(720)));
+    }
 
     #[test]
     fn requests_encode_every_id_and_keep_to_the_bridges_limits() {
