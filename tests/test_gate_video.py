@@ -109,6 +109,8 @@ case "$*" in
 esac
 '''
 STATUS_OK = {"ok": True, "pageFormat": "AR24", "videoHolesOpaque": False, "stats": {"drawn": 100}}
+REFRESH_OK = {"ok": True, "hz": 60, "measure": {"intervals": {"one": 100, "two": 0, "three": 0, "more": 0, "worst_ms": 16.9}, "runs": {"n": 1, "stalls": 0, "stall_worst_ms": 0.0, "gaps": 2},
+                                                "frames": {"late": 0, "lost": 0, "missed": 0}}}
 SHELL = {"ok": True, "rust": {"connected": True, "kinds": ["osd"], "ui": {"kinds": ["osd", "quick"], "osd": True, "panels": {"quick": "open"}}}}
 
 
@@ -129,7 +131,7 @@ class Video(Fixture):
         self.ctl_reply("status", STATUS_OK)
         self.ctl_reply("windows", {"ok": True, "windows": [], "video": [{"surface": 7}]})
         self.ctl_reply("shell", SHELL)
-        self.ctl_reply("refresh", {"ok": True, "hz": 60, "intervals": {"one": 100, "two": 0, "three": 0, "more": 0, "worst_ms": 16.9}, "frames": {"late": 0}})
+        self.ctl_reply("refresh", REFRESH_OK)
         self.picture(lambda x, y: (200 * (x > 48), 120, 30 + 2 * y))
 
     def picture(self, pixel):
@@ -168,15 +170,36 @@ class Video(Fixture):
         out = self.run_video()
         self.assertIn("the compositor used 0.0 % of a core under a video with nothing over it (bar -1 %)", out)
 
-    def test_an_overlay_that_hurts_the_video_fails_it_by_name(self):
-        self.ctl_reply("refresh", {"ok": True, "hz": 60, "intervals": {"one": 100, "two": 3, "three": 1, "more": 0, "worst_ms": 50.0}, "frames": {"late": 4}})
+    def test_an_overlay_that_stalls_inside_its_motion_fails_it_by_name_with_the_worst_stall(self):
+        hurt = json.loads(json.dumps(REFRESH_OK))
+        hurt["measure"]["runs"] = {"n": 1, "stalls": 4, "stall_worst_ms": 50.0, "gaps": 2}
+        hurt["measure"]["frames"] = {"late": 4, "lost": 4, "missed": 3}
+        self.ctl_reply("refresh", hurt)
         out = self.run_video()
         self.assertTrue(out.startswith("GATE video-current: FAIL"), out)
-        self.assertIn("osd's open had 4 frame intervals over 20 ms", out)
-        # at 120 Hz two refreshes are 16.7 ms: only the longer ones count
-        self.ctl_reply("refresh", {"ok": True, "hz": 120, "intervals": {"one": 100, "two": 3, "three": 1, "more": 0, "worst_ms": 25.0}, "frames": {"late": 0}})
+        self.assertIn("osd's open had 4 frame stalls over 20 ms (worst 50.0 ms)", out)
+        self.assertIn("frames late 4 lost 4 missed 3", out)
+
+    def test_the_video_apps_own_gaps_are_intervals_over_20_ms_but_no_stall(self):
+        idle = json.loads(json.dumps(REFRESH_OK))
+        idle["measure"]["intervals"] = {"one": 0, "two": 0, "three": 0, "more": 8, "worst_ms": 560.0}
+        idle["measure"]["runs"] = {"n": 0, "stalls": 0, "stall_worst_ms": 0.0, "gaps": 8}
+        self.ctl_reply("refresh", idle)
         out = self.run_video()
-        self.assertIn("osd's open had 1 frame intervals over 20 ms", out)
+        self.assertTrue(out.startswith("GATE video-current: PASS"), out)
+        self.assertIn("frame stalls over 20 ms 0 (worst 0.0 ms; 8 intervals over 20 ms counting the video's own gaps)", out)
+
+    def test_each_overlays_flips_ring_and_wake_latencies_are_kept_with_the_evidence(self):
+        self.ctl_reply("ring 1500", {"ok": True, "lines": ["1.000 L flip 1.000 +16.7 ms: frame 5.0 ms (gpu done), late 0 lost 0"]})
+        self.ctl_reply("wake", {"ok": True, "line": "tick p50 0.1"})
+        out = self.run_video()
+        self.assertTrue(out.startswith("GATE video-current: PASS"), out)
+        out_dir = self.env["LUMATV_OUT"]
+        for kind in ("osd", "quick"):
+            for part in ("refresh", "ring", "wake"):
+                self.assertTrue(os.path.exists(os.path.join(out_dir, f"video-current-{kind}-{part}.json")), (kind, part))
+        with open(os.path.join(out_dir, "video-current-osd-ring.json")) as f:
+            self.assertIn("L flip", f.read())
 
     def test_no_video_element_is_a_failure_that_says_what_it_needs(self):
         self.ctl_reply("windows", {"ok": True, "windows": [], "video": []})

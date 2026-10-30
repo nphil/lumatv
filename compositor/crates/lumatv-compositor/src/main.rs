@@ -596,7 +596,14 @@ fn run(config: Config) -> io::Result<()> {
         pass_handled = handled;
         if state.stats.frames_drawn != drawn_seen {
             drawn_seen = state.stats.frames_drawn;
-            ring::note(format_args!("D frame {} render {} us ({})", drawn_seen, state.stats.render_us_last, handled_names(handled)));
+            ring::note(format_args!(
+                "D frame {} render {} us owed {} px in {} rects ({})",
+                drawn_seen,
+                state.stats.render_us_last,
+                state.stats.owed_px_last,
+                state.stats.rects_last,
+                handled_names(handled)
+            ));
         }
         passes += 1;
         passes_woke |= handled;

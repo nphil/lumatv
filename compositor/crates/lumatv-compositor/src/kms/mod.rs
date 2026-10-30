@@ -734,7 +734,23 @@ impl Kms {
             }
             (flight.timing, flight.fence.as_ref().and_then(crate::render::sync::signal_ns))
         });
+        let since_ns = presented_ns.saturating_sub(self.timing.last_flip_ns());
         let landed = self.timing.landed(presented_ns, frame);
+        // One line a flip in the always-on ring: how long after the last flip it landed, what its frame cost from the draw to the GPU's finish
+        // (the in-fence's signal) and what the pacer made of it, so a long interval is read as a frame that took long or as no frame at all.
+        match frame {
+            Some((t, gpu)) => crate::ring_note!(
+                "L flip {:.3} +{:.1} ms: frame {:.1} ms ({}), late {} lost {}{}",
+                presented_ns as f64 / 1e9,
+                since_ns as f64 / 1e6,
+                gpu.filter(|&g| g <= presented_ns).unwrap_or(t.ready_ns).saturating_sub(t.started_ns) as f64 / 1e6,
+                if gpu.is_some_and(|g| g <= presented_ns) { "gpu done" } else { "submitted" },
+                landed.late,
+                landed.lost,
+                if landed.missed { " missed" } else { "" }
+            ),
+            None => crate::ring_note!("L flip {:.3} +{:.1} ms: no frame of ours", presented_ns as f64 / 1e9, since_ns as f64 / 1e6),
+        }
         // The frame drawn behind this one was planned a refresh after it: it moves with the timeline (`Timing::shift`).
         if landed.shift_ns != 0
             && let Some(q) = &mut self.queued

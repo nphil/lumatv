@@ -81,6 +81,9 @@ pub struct RenderStats {
     /// Pictures in a transition left out of this frame because the driver was still busy with their buffer (the transition's clock starts
     /// again at the next frame: `Transitions::drawn`).
     pub posed_waiting: u32,
+    /// The rectangles the frame owed and their area in pixels (what was cleared and drawn again); a full-screen frame is 2,073,600.
+    pub rects: u32,
+    pub owed_px: u64,
 }
 
 pub trait Output {

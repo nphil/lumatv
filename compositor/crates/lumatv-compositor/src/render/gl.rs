@@ -1278,7 +1278,12 @@ impl Gl {
     pub fn render_rects(&mut self, plan: &Plan, surfaces: &Surfaces, rects: &[Rect]) -> io::Result<RenderStats> {
         let t0 = std::time::Instant::now();
         self.prune(surfaces, &plan.items);
-        let mut stats = RenderStats { items: plan.items.len(), ..Default::default() };
+        let mut stats = RenderStats {
+            items: plan.items.len(),
+            rects: rects.len() as u32,
+            owed_px: rects.iter().map(|r| r.w.max(0) as u64 * r.h.max(0) as u64).sum(),
+            ..Default::default()
+        };
         #[cfg(feature = "ui")]
         if let Some(ui) = &mut self.ui {
             ui.draw_under(self.targets[self.current.0].fbo, rects)?;
@@ -1473,7 +1478,7 @@ impl Gl {
     /// everywhere the UI is not. No window, no stack 0, no cursor.
     pub fn render_ui_layer(&mut self, rects: &[Rect]) -> io::Result<RenderStats> {
         let t0 = std::time::Instant::now();
-        let mut stats = RenderStats::default();
+        let mut stats = RenderStats { rects: rects.len() as u32, owed_px: rects.iter().map(|r| r.w.max(0) as u64 * r.h.max(0) as u64).sum(), ..Default::default() };
         let fbo = self.targets[self.current.0].fbo;
         // SAFETY: GL state calls on the current context and this renderer's objects.
         unsafe {

@@ -1377,11 +1377,18 @@ video)
         done
         sleep 2
         c1=$(cpu_ticks "${vs_pid:-self}"); d1=$(rust_drawn); f1=$(fb_flips)
-        l=$(video_look $OUT/$name-$k.png 0.05 0.05 0.4 0.4)
+        # The flips are read before the capture, whose own second is not the overlay's; the ring (every flip and frame with its stamp, owed pixels and
+        # cost) and the wake-up latencies go to the evidence with it.
         r=$(ctl refresh); hz=$(echo "$r" | jnum hz)
+        echo "$r" > $OUT/$name-$k-refresh.json; ctl ring 1500 > $OUT/$name-$k-ring.json; ctl wake > $OUT/$name-$k-wake.json
+        l=$(video_look $OUT/$name-$k.png 0.05 0.05 0.4 0.4)
+        # A stall is an interval over 20 ms between flips of one run of three or more (`runs` of the measure): the video app's own commits come about
+        # twice a second with nothing over it, and each gap between them is an interval over 20 ms that no overlay made. The raw count is kept in the line.
+        stalls=$(echo "$r" | jnum stalls); stall_worst=$(echo "$r" | grep -o '"stall_worst_ms":[0-9.]*' | head -n 1 | cut -d: -f2)
         two=$(echo "$r" | grep -o '"two":[0-9]*' | head -n 1 | cut -d: -f2); three=$(echo "$r" | grep -o '"three":[0-9]*' | head -n 1 | cut -d: -f2); more=$(echo "$r" | grep -o '"more":[0-9]*' | head -n 1 | cut -d: -f2)
         # an interval of two refreshes is 33 ms at 60 Hz (over 20) and 16.7 ms at 120 (under)
         if [ "${hz:-60}" -ge 100 ] 2> /dev/null; then over=$(( ${three:-0} + ${more:-0} )); else over=$(( ${two:-0} + ${three:-0} + ${more:-0} )); fi
+        late=$(echo "$r" | jnum late); lost=$(echo "$r" | jnum lost); missed=$(echo "$r" | jnum missed)
         g1=$(rust_gl_errors)
         rust_close $k
         w=0; while [ $w -lt $((RUST_OPEN * 2)) ] && rust_is_open $k "$(rust_get $v_path)"; do sleep 0.5; w=$((w+1)); done
@@ -1389,12 +1396,12 @@ video)
         d2=$(rust_drawn); sleep 3; d3=$(rust_drawn)
         cpu=$(awk -v a="${c0:-0}" -v b="${c1:-0}" -v hz="$vs_hz" 'BEGIN { printf "%.0f", (b - a) * 100 / hz / 2 }')
         after=$(per_s "$d2" "$d3" 3)
-        what="$k: first frame ${first:-none} ms, composed +$(( ${d1:-0} - ${d0:-0} )) frames and $(( $(fb_flips) - ${f0:-0} )) flips in the open, CPU about $cpu %, intervals over 20 ms $over, around it $(ps_val "$l" mean) mean $(ps_val "$l" std) spread, composed $after/s 3 s after the close;"
+        what="$k: first frame ${first:-none} ms, composed +$(( ${d1:-0} - ${d0:-0} )) frames and $(( $(fb_flips) - ${f0:-0} )) flips in the open, CPU about $cpu %, frame stalls over 20 ms ${stalls:-?} (worst ${stall_worst:-0} ms; $over intervals over 20 ms counting the video's own gaps), frames late ${late:-?} lost ${lost:-?} missed ${missed:-?}, around it $(ps_val "$l" mean) mean $(ps_val "$l" std) spread, composed $after/s 3 s after the close;"
         v_ov="$v_ov $what"
         [ -n "$first" ] || bad="$bad $k did not show;"
         case $k in quick|picker|drawer) [ -z "$first" ] || [ "$first" -le $((150 + 2 * v_pm)) ] || bad="$bad $k's first frame ${first} ms is over the 150 ms bar;" ;; esac
         [ "$(ps_val "$l" black)" = no ] || bad="$bad the video is black around $k;"
-        [ "$over" -eq 0 ] || bad="$bad $k's open had $over frame intervals over 20 ms;"
+        [ "${stalls:-0}" -eq 0 ] || bad="$bad $k's open had $stalls frame stalls over 20 ms (worst ${stall_worst:-0} ms);"
         [ "$(( ${g1:-0} - ${g0:-0} ))" -eq 0 ] || bad="$bad GL errors while $k was up;"
         awk -v a="$after" -v b="$v_base_drawn" 'BEGIN { exit !(a > b + 2) }' && bad="$bad the compositor still composes $after frames/s after $k closed (before: $v_base_drawn);"
     done
