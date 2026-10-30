@@ -69,6 +69,9 @@ pub struct Record {
     pub thumbnail: bool,
     /// The helper says live video can play for this card (`cameras.popupLive` is on and the live path is there); `None` from a helper that does not say.
     pub live: Option<bool>,
+    /// The helper says the camera has no stream a video window can play without the panel following its rate (a 1080p stream at 25 a second takes the panel
+    /// to 100 Hz): the card claims a texture, never a window. `false` from a helper that does not say.
+    pub texture_only: bool,
 }
 
 fn text(v: &Value, k: &str) -> String {
@@ -100,6 +103,7 @@ impl Record {
             over_apps: v.get("overApps").and_then(Value::as_bool),
             thumbnail: v.get("thumbnail").and_then(Value::as_bool) == Some(true),
             live: v.get("live").and_then(Value::as_bool),
+            texture_only: v.get("textureOnly").and_then(Value::as_bool) == Some(true),
             camera,
         })
     }
@@ -308,10 +312,12 @@ impl Popup {
         self.expanded.take()
     }
 
-    /// The claim on a video window for the card's picture box, while a card the record says can play live video is up: the shell posts it.
+    /// The claim on a video window for the card's picture box, while a card the record says can play live video is up: the shell posts it. A card whose
+    /// camera has only streams that would re-time the panel claims a texture instead (`texture_only`).
     pub fn claim(&self) -> Option<Value> {
         let capable = self.up && !self.viewer_up && self.current.as_ref().is_some_and(|c| c.live == Some(true));
-        self.live.claim(capable)
+        let texture_only = self.current.as_ref().is_some_and(|c| c.texture_only);
+        self.live.claim(capable, texture_only)
     }
 
     /// The picture box on the screen, in output pixels (the surface measured it at its last draw).
@@ -889,6 +895,23 @@ mod tests {
         let fx = p.update(&Input::Tick, T0 + 5_000);
         assert!(still_asks(&fx).is_empty(), "{fx:?}");
         assert_eq!(p.state()["live"]["video"], true);
+    }
+
+    #[test]
+    fn a_record_that_says_texture_only_claims_a_texture_and_the_texture_is_asked_for_the_low_stream() {
+        let mut p = Popup::new();
+        p.set_picture_rect(Some(BOX));
+        let Input::Helper { topic, mut data } = live_record(45, true) else { unreachable!() };
+        data["textureOnly"] = json!(true);
+        p.update(&Input::Helper { topic, data }, T0);
+        assert_eq!(p.claim().expect("a card that can play live claims")["texture_only"], true);
+        let fx = p.set_window(Window::Waiting, "texture", false, T0 + 60);
+        assert_eq!(live_asks(&fx), vec![json!({"camera": "275", "for": "popup", "window": "texture", "popup": 45})]);
+        // a record that does not say it is a window claim, as before
+        let mut q = Popup::new();
+        q.set_picture_rect(Some(BOX));
+        q.update(&live_record(46, true), T0);
+        assert!(q.claim().unwrap().get("texture_only").is_none());
     }
 
     #[test]

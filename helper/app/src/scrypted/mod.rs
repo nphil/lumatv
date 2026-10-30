@@ -27,6 +27,7 @@ pub mod link;
 pub mod multipart;
 pub mod options;
 pub mod policy;
+pub mod popup_stream;
 pub mod routes;
 pub mod sse;
 pub mod stills;
@@ -422,6 +423,13 @@ impl Inner {
             "clips": camera.has("clips"),
             "since": camera.earliest,
             "native": native,
+            "streams": camera
+                .streams
+                .iter()
+                .map(|s| json!({"quality": s.quality, "codec": s.codec, "width": s.width, "height": s.height, "fps": s.fps, "prebuffered": s.prebuffered}))
+                .collect::<Vec<_>>(),
+            // where this camera's pop-up plays: a window (it has a stream the panel keeps its rate with) or the compositor's texture
+            "popupVideo": if popup_stream::window_ok(camera) { "window" } else { "texture" },
             "prebuffered": prebuffered,
         })
     }
@@ -1037,6 +1045,8 @@ impl Inner {
                     return Some(decision);
                 }
                 let live_ok = self.config.popup_live && self.live.available();
+                // a window's decoder re-times the panel to its stream's rate: a camera with no calm stream has its pop-up drawn as a texture, never in a window
+                let texture_only = state.shown.iter().find(|c| c.id == event.camera).is_none_or(|c| !popup_stream::window_ok(c));
                 let value = json!({
                     "id": id,
                     "event": event.id,
@@ -1054,6 +1064,7 @@ impl Inner {
                     "test": test,
                     "source": "scrypted",
                     "live": live_ok,
+                    "textureOnly": texture_only,
                 });
                 crate::log_info!(
                     "cameras: pop-up {id} for {} {} on {name} (camera {}, event {}, source scrypted, {} s{}{})",
@@ -1063,7 +1074,11 @@ impl Inner {
                     event.id,
                     lasts_ms / 1000,
                     if test { ", a test" } else { "" },
-                    if live_ok { ", live video where a window is free" } else { ", stills only" },
+                    match (live_ok, texture_only) {
+                        (false, _) => ", stills only",
+                        (true, false) => ", live video where a window is free",
+                        (true, true) => ", live video as a texture (no stream the panel keeps its rate with)",
+                    },
                 );
                 state.popup = Some(Popup {
                     id,

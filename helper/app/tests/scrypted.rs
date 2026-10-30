@@ -571,6 +571,35 @@ fn a_person_at_the_door_pops_up_within_a_moment_with_everything_the_card_needs()
 }
 
 #[test]
+fn a_camera_with_no_calm_stream_pops_up_as_a_texture_and_one_with_a_low_stream_in_a_window() {
+    let world = linked_world(json!({}));
+    assert!(wait_until(WAIT, || world.bridge.events_open() == 1));
+    let only = |id: &str, streams: Value| {
+        let mut doc = FakeBridge::camera(id, id, "camera");
+        doc["native"] = json!({"codec": "h264", "width": 1920, "height": 1080, "fps": 25});
+        doc["streams"] = streams;
+        doc
+    };
+    let native = json!({"quality": "native", "codec": "h264", "width": 1920, "height": 1080, "fps": 25, "prebuffered": true});
+    let light = json!({"quality": "light", "codec": "h264", "width": 640, "height": 360, "fps": 15, "prebuffered": false});
+    world.bridge.set_cameras(vec![only("240", json!([native.clone()])), only("241", json!([native, light]))]);
+    let list = world
+        .rig
+        .wait_topic("cameras", WAIT, |t| t["cameras"].as_array().is_some_and(|c| c.iter().any(|c| c["id"] == "240")))
+        .expect("two cameras");
+    let by = |id: &str| list["cameras"].as_array().unwrap().iter().find(|c| c["id"] == id).unwrap().clone();
+    assert_eq!((by("240")["popupVideo"].as_str(), by("241")["popupVideo"].as_str()), (Some("texture"), Some("window")));
+    assert_eq!(by("241")["streams"][1]["quality"], "light", "the list says which streams a camera has");
+    world.bridge.push_event(world.bridge.event("240", "person", "new"));
+    let popup = world.wait_popup(|p| p["camera"] == "240").expect("a card for 240");
+    assert_eq!(popup["textureOnly"], true, "1080p at 25 would take the panel to 100 Hz");
+    world.post("/v1/cameras/popup/clear", json!({}));
+    world.bridge.push_event(world.bridge.event("241", "person", "new"));
+    let popup = world.wait_popup(|p| p["camera"] == "241").expect("a card for 241");
+    assert_eq!(popup["textureOnly"], false, "its low stream plays in a window");
+}
+
+#[test]
 fn only_the_kinds_the_owner_picked_pop_up_and_the_defaults_are_a_person_and_a_doorbell() {
     let world = linked_world(json!({}));
     assert!(wait_until(WAIT, || world.bridge.events_open() == 1));

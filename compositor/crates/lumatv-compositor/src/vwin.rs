@@ -251,6 +251,8 @@ pub enum Reason {
     Standby,
     /// A claim of higher priority took the window.
     Higher,
+    /// The claim asked for a texture and no window (`Request::texture_only`).
+    TextureOnly,
 }
 
 impl Reason {
@@ -263,6 +265,7 @@ impl Reason {
             Reason::TooBig => "too-big",
             Reason::Standby => "standby",
             Reason::Higher => "higher",
+            Reason::TextureOnly => "texture-only",
         }
     }
 
@@ -275,6 +278,7 @@ impl Reason {
             Reason::TooBig => "the stream is larger than the free window takes",
             Reason::Standby => "the screen is off",
             Reason::Higher => "a more important video took the window",
+            Reason::TextureOnly => "the claim asked for no window: its stream would re-time the panel",
         }
     }
 }
@@ -315,17 +319,21 @@ pub struct Request {
     /// Where the picture goes, in output pixels.
     pub rect: Rect,
     pub need: Option<Need>,
+    /// The caller's stream is one a hardware window would drag the panel's rate along with (a decoder at 25 fps, which the kernel follows to 100 Hz): no
+    /// window is offered, only a texture, which the CPU decodes and the panel never sees.
+    pub texture_only: bool,
 }
 
 impl Request {
-    /// A request from the UI channel or `ctl`: `{"id", "kind", "app"?, "rect": {"x","y","w","h"}, "need"?: {"codec","w","h","fps"}}`.
+    /// A request from the UI channel or `ctl`: `{"id", "kind", "app"?, "rect": {"x","y","w","h"}, "need"?: {"codec","w","h","fps"}, "texture_only"?: bool}`.
     pub fn from_json(v: &Value) -> Result<Request, String> {
         let id = v.get("id").and_then(Value::as_str).filter(|s| !s.is_empty() && s.len() <= 64).ok_or("a claim needs an id")?.to_string();
         let kind = v.get("kind").and_then(Value::as_str).and_then(Kind::parse).ok_or("kind is camera-full, camera-popup or pip")?;
         let rect = rect_of(v.get("rect").ok_or("a claim needs a rect")?)?;
         let need = v.get("need").and_then(Need::from_json);
         let app = v.get("app").and_then(Value::as_str).unwrap_or("").to_string();
-        Ok(Request { id, kind, app, rect, need })
+        let texture_only = v.get("texture_only").and_then(Value::as_bool) == Some(true);
+        Ok(Request { id, kind, app, rect, need, texture_only })
     }
 }
 
@@ -538,7 +546,7 @@ impl Allocator {
             wide: false,
             seq,
         };
-        let mut decision = self.decide(world, &req);
+        let mut decision = if req.texture_only { Decision::Denied(self.gate(world).unwrap_or(Reason::TextureOnly), None) } else { self.decide(world, &req) };
         if let Decision::Denied(reason, _) = decision
             && self.texture_for(&req, reason)
         {
@@ -1461,13 +1469,15 @@ impl crate::State {
             },
             ["claim", id, kind, rest @ ..] => {
                 let (Some(x), Some(y), Some(w), Some(h)) = (num(rest, 0), num(rest, 1), num(rest, 2), num(rest, 3)) else {
-                    return json!({"ok": false, "error": "vwin claim ID KIND X Y W H [APP] [CODEC] [WxH@FPS]"});
+                    return json!({"ok": false, "error": "vwin claim ID KIND X Y W H [APP] [CODEC] [WxH@FPS] [texture-only]"});
                 };
                 let mut v = json!({"op": "claim", "id": id, "kind": kind, "rect": {"x": x, "y": y, "w": w, "h": h}});
                 let (mut codec, mut size) = (None, None);
                 for t in &rest[4..] {
                     if Codec::parse(t).is_some() {
                         codec = Some(*t);
+                    } else if *t == "texture-only" {
+                        v["texture_only"] = json!(true);
                     } else if let Some((wh, fps)) = t.split_once('@')
                         && let Some((nw, nh)) = wh.split_once('x')
                     {
@@ -1489,7 +1499,7 @@ impl crate::State {
             }
             ["release", "all"] => ask(self, json!({"op": "releaseAll"})),
             ["release", id] => ask(self, json!({"op": "release", "id": id})),
-            _ => json!({"ok": false, "error": "vwin [off|idle|apps | texture on|off | slots N | claim ID camera-full|camera-popup|pip X Y W H [APP] [CODEC] [WxH@FPS] | move ID X Y W H | release ID|all]"}),
+            _ => json!({"ok": false, "error": "vwin [off|idle|apps | texture on|off | slots N | claim ID camera-full|camera-popup|pip X Y W H [APP] [CODEC] [WxH@FPS] [texture-only] | move ID X Y W H | release ID|all]"}),
         }
     }
 }
@@ -1503,7 +1513,7 @@ mod tests {
     }
 
     fn req(id: &str, kind: Kind, need: Option<Need>) -> Request {
-        Request { id: id.into(), kind, app: String::new(), rect: Rect::new(1200, 134, 520, 292), need }
+        Request { id: id.into(), kind, app: String::new(), rect: Rect::new(1200, 134, 520, 292), need, texture_only: false }
     }
 
     fn need(codec: Codec, w: u32, h: u32, fps: u32) -> Option<Need> {
@@ -1820,6 +1830,29 @@ mod tests {
         ended.sort();
         assert_eq!(ended, ["pop", "x"]);
         assert_eq!(a.request(&playing, req("y", Kind::CameraPopup, None)), Decision::Denied(Reason::Off, None));
+    }
+
+    #[test]
+    fn a_texture_only_claim_is_a_texture_even_where_a_window_is_free_and_never_a_window() {
+        let only = |id: &str| Request { texture_only: true, ..req(id, Kind::CameraPopup, need(Codec::H264, 1920, 1088, 30)) };
+        let mut a = Allocator::new(texture_policy(Mode::Apps));
+        // Home with every window free: a window would be granted, and the texture is what is wanted
+        assert!(matches!(a.request(&World::default(), only("a")), Decision::Texture { because: Reason::TextureOnly, .. }));
+        assert!(a.claim("a").is_some_and(|c| c.texture && c.slot.is_none()), "no window is held");
+        // over an app's video it is the same texture
+        let playing = World { app_elements: 1, app_playing: 1, ..World::default() };
+        assert!(matches!(a.request(&playing, only("b")), Decision::Texture { .. }));
+        // with textures off, or the screen off, or the whole switch off, it has nothing: never a window
+        a.policy.texture = false;
+        assert_eq!(a.request(&World::default(), only("c")), Decision::Denied(Reason::TextureOnly, None));
+        a.policy.texture = true;
+        assert_eq!(a.request(&World { standby: true, ..World::default() }, only("d")), Decision::Denied(Reason::Standby, None));
+        let mut off = Allocator::new(texture_policy(Mode::Off));
+        assert_eq!(off.request(&World::default(), only("e")), Decision::Denied(Reason::Off, None));
+        // and the claim the UI posts says so in JSON
+        let v = json!({"id": "p", "kind": "camera-popup", "rect": {"x": 1200, "y": 134, "w": 520, "h": 292}, "texture_only": true});
+        assert!(Request::from_json(&v).unwrap().texture_only);
+        assert!(!Request::from_json(&json!({"id": "p", "kind": "camera-popup", "rect": {"x": 1200, "y": 134, "w": 520, "h": 292}})).unwrap().texture_only);
     }
 
     #[test]

@@ -144,14 +144,19 @@ impl Live {
         self.phase == Phase::Given
     }
 
-    /// The claim the shell posts for the card's picture box, while a card that can play live video is up and has not given up.
-    pub fn claim(&self, capable: bool) -> Option<Value> {
+    /// The claim the shell posts for the card's picture box, while a card that can play live video is up and has not given up. `texture_only`: the camera's
+    /// streams would take the panel's rate along with a window's decoder, so the claim asks for the compositor's texture and never a window.
+    pub fn claim(&self, capable: bool, texture_only: bool) -> Option<Value> {
         let (x, y, w, h) = self.rect?;
         if !capable || self.camera.is_empty() || self.phase == Phase::Given {
             return None;
         }
         let (codec, nw, nh, fps) = NEED;
-        Some(json!({"id": CLAIM_ID, "kind": "camera-popup", "rect": {"x": x, "y": y, "w": w, "h": h}, "need": {"codec": codec, "w": nw, "h": nh, "fps": fps}}))
+        let mut claim = json!({"id": CLAIM_ID, "kind": "camera-popup", "rect": {"x": x, "y": y, "w": w, "h": h}, "need": {"codec": codec, "w": nw, "h": nh, "fps": fps}});
+        if texture_only {
+            claim["texture_only"] = json!(true);
+        }
+        Some(claim)
     }
 
     fn ask(&mut self, now: u64, tries: u8) -> Vec<Effect> {
@@ -333,16 +338,24 @@ mod tests {
     #[test]
     fn the_claim_is_the_picture_box_for_a_card_that_can_play_live_and_nobody_else() {
         let l = card();
-        let c = l.claim(true).unwrap();
+        let c = l.claim(true, false).unwrap();
         assert_eq!(c["id"], "camera-popup");
         assert_eq!(c["kind"], "camera-popup");
         assert_eq!(c["rect"], json!({"x": 1316, "y": 200, "w": 520, "h": 292}));
         assert_eq!(c["need"], json!({"codec": "h264", "w": 1920, "h": 1088, "fps": 30}), "a stream either window takes");
-        assert!(l.claim(false).is_none(), "a record that says no live video claims nothing");
-        assert!(Live::new().claim(true).is_none(), "no card, no claim");
+        assert!(l.claim(false, false).is_none(), "a record that says no live video claims nothing");
+        assert!(Live::new().claim(true, false).is_none(), "no card, no claim");
         let mut unmeasured = Live::new();
         unmeasured.begin("275", None);
-        assert!(unmeasured.claim(true).is_none(), "the picture box is not known yet");
+        assert!(unmeasured.claim(true, false).is_none(), "the picture box is not known yet");
+    }
+
+    #[test]
+    fn a_card_whose_camera_has_no_calm_stream_claims_a_texture_and_no_window() {
+        let l = card();
+        assert_eq!(l.claim(true, true).unwrap()["texture_only"], true);
+        assert!(l.claim(true, false).unwrap().get("texture_only").is_none(), "a window claim is as it was");
+        assert!(l.claim(false, true).is_none(), "and a card that cannot play live claims nothing either way");
     }
 
     #[test]
@@ -412,7 +425,7 @@ mod tests {
         assert_eq!(again.len(), 1, "asked again");
         let fx = l.topic(&stream("failed"), T0 + 3_000);
         assert!(l.given() && stops(&fx) == 1, "the second failure ends it, and the helper is told");
-        assert!(l.claim(true).is_none(), "and the window is let go");
+        assert!(l.claim(true, false).is_none(), "and the window is let go");
     }
 
     #[test]
@@ -444,7 +457,7 @@ mod tests {
         l.topic(&stream("playing"), T0 + 400);
         let fx = l.end(true);
         assert_eq!(stops(&fx), 1);
-        assert!(l.claim(true).is_none(), "nothing is served any more");
+        assert!(l.claim(true, false).is_none(), "nothing is served any more");
         let mut over = card();
         over.set_window(Window::Carried, "main", true, T0);
         assert_eq!(stops(&over.end(false)), 0, "OK opens the full view of the same camera: its own ask finds the stream there");

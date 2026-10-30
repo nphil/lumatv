@@ -44,6 +44,7 @@ The card fades and does not slide: its glass is four clipped bands around the ho
 ## Limits
 
 - Hardware video only where no app plays video: Home (the wallpaper's window is taken for the card and returns afterwards) and idle apps. Over YouTube, Plex, a game or a 120 fps stream the compositor's texture fallback (MultiView's: the feeder decodes the camera's low stream, at most 1280x720 at 30, and the compositor draws it into the card's box; `ctl vwin texture off` to switch it off) carries the card as live video; with it off, or where the compositor refuses it, the card shows stills, 8 a second (4 where an app holds both scalers), smoother than the QML card's one a second but not video. What the texture costs the app in front is the TV check's to say (B).
+- A pop-up's window plays only the camera's low stream (at most 1280x720 at 30, else 1920x1088 at 20: the streams the panel keeps 120 Hz with, `helper/app/src/scrypted/popup_stream.rs`); a camera without one is claimed as a texture only (`texture_only`), never a window. The full view is unchanged. See `vwin-refresh-result.md`.
 - One live camera at a time; the full view and the pop-up share the one feeder session, the later one wins.
 - Needs the feeder and its LS2 role on the set: `lumatv feeder install` (the owner's command; a role is a permission, so apply never writes it).
 - Needs the Rust `popup` kind (`ctl shell rust +popup`); the QML card remains for sets without it and asks for stills at 8 a second.

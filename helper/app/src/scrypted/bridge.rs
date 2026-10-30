@@ -32,12 +32,6 @@ pub fn accept() -> Value {
     json!({"codecs": ["h264", "h265"], "max_width": 4096, "max_height": 2304, "max_fps": 60})
 }
 
-/// What the display's sub window takes (the codec file's `multiview_sub`: 1920x1088 at 30): a camera pop-up's stream is chosen inside it, so that it
-/// plays in either window whichever the compositor gives.
-pub fn accept_popup() -> Value {
-    json!({"codecs": ["h264", "h265"], "max_width": 1920, "max_height": 1088, "max_fps": 30})
-}
-
 /// What the CPU path takes (a software decode into a texture): the camera's low stream, H.264 up to 720p at 30.
 pub fn accept_low() -> Value {
     json!({"codecs": ["h264"], "max_width": 1280, "max_height": 720, "max_fps": 30})
@@ -263,6 +257,7 @@ impl Trouble {
                     "Scrypted does not share that camera with this TV".into()
                 }
                 (_, "offline") => "The camera is offline".into(),
+                (_, "no_calm_stream") => "The camera has no low stream a video window can play without changing the panel's rate".into(),
                 (429, _) => "Scrypted is busy, try again".into(),
                 (501, _) => "Scrypted cannot do that for this camera".into(),
                 (504, _) => "Scrypted's recorder is too slow".into(),
@@ -550,9 +545,9 @@ impl Bridge {
         dial_of(&self.json(&live(camera, quality))?)
     }
 
-    /// A stream for a camera pop-up: the highest of the camera's inside the sub window's limits.
-    pub fn live_popup(&self, camera: &str, quality: &str) -> Result<Dial, Trouble> {
-        dial_of(&self.json(&live_within(camera, quality, accept_popup()))?)
+    /// A stream inside the limits `accept` names (a pop-up's window asks for each calm step in turn, `popup_stream`).
+    pub fn live_within(&self, camera: &str, quality: &str, accept: Value) -> Result<Dial, Trouble> {
+        dial_of(&self.json(&live_within(camera, quality, accept))?)
     }
 
     /// A stream for the CPU path: the camera's own low stream, inside [`accept_low`].
@@ -638,14 +633,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn each_path_has_its_own_limits_the_cpu_path_the_low_stream_the_sub_window_1080p30_and_the_full_view_the_decoders() {
+    fn each_path_has_its_own_limits_the_cpu_path_the_low_stream_and_the_full_view_the_decoders() {
         let low = accept_low();
         assert_eq!(
             (low["codecs"].clone(), low["max_width"].clone(), low["max_height"].clone(), low["max_fps"].clone()),
             (json!(["h264"]), json!(1280), json!(720), json!(30))
         );
-        let popup = accept_popup();
-        assert_eq!((popup["max_width"].clone(), popup["max_height"].clone(), popup["max_fps"].clone()), (json!(1920), json!(1088), json!(30)));
+        // a window's pop-up is limited by `popup_stream::Step`, the full view by what the decoder takes
         assert_eq!(accept()["max_width"], 4096, "the full view is up to what the decoder takes");
         let body: Value = serde_json::from_str(live_within("273", "light", accept_low()).json.as_deref().unwrap()).unwrap();
         assert_eq!((body["camera"].as_str(), body["quality"].as_str(), body["accept"]["max_height"].clone()), (Some("273"), Some("light"), json!(720)));
