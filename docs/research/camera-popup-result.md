@@ -1,5 +1,24 @@
 # Camera pop-up: live video in the corner
 
+## Resume here
+
+**Done** (all on forge/main; the TV has run the first two groups, round 21 read the rest as far as it did):
+
+- Pop-up on a video window: feeder `--ndl-app` and the idle allocator `b79dd141`, `df56b311`; helper and shell `f5227463`, `7cf6befc`; installer `0f207d4c`; QML stills `bc641553`.
+- Full view as an app, previews by path, the texture grant, the card's place: `92aad301`, `0a26df49`, `ea267bc7`, `1e715ee6` (the pop-up and the cards 32 px from the top and right edges).
+- **Round 21's storm and the units** (this change): a window that is not full screen is asked for in the UI's 1920x1080, which videooutputd scales to the panel; it was sent in the panel's pixels. The re-place check is read a moment after a placement, full-screen aware, and bounded at two. Code: `compositor/crates/lumatv-compositor/src/{vwin.rs,server/foreign.rs,luna.rs}`, tests `tests/{vwin,protocol}.rs`.
+
+**Next**, in order (Round 22 owns the TV):
+
+1. Install the build; run the TV check below, A first (A2 and A3 are the new readings: the sink's `displayOutput` is the claim twice, and the camera's picture is in the card's box, which has never been seen over Home), then D1 (no `placed again` storm on the same sink; `fullScreen` true).
+2. If the full view over Home is black or small after the switch: read `T ctl vwin` (`sinks[].fullScreen`, `displayOutput`, `replaced`) and the compositor journal for `left as it is`; the next suspects are a refusal of the full-screen placement (`Invalid Parameters` in `videooutput:` journal lines) and the old app's video still holding the scalers (a settle delay after Home comes forward).
+3. The art saver's picture (the vplane's non-full-screen window) was doubled by the same bug and is now its designed size (1856x1024 inside the screen, drifting): look at it once; likewise any app that plays video in a window rather than full screen.
+4. Nitin's go for `lumatv feeder install` where it is not installed, and a re-add of the device in Scrypted if the link says `refused`.
+
+**Open questions**: whether videooutputd keeps a sink's old `displayOutput` after a `fullScreen` placement (the code treats `fullScreen` as the answer); first frame under 1 s over an app (`homeMs`, `askedMs`, `firstLiveMs` say where the time goes); what the texture costs the app in front.
+
+**Artifacts**: renders `docs/mocks/host-rust/system/popup-live-*.jpg`; the units evidence `docs/research/multiview/tv-2026-10-30/luna-yt-feeder/journal-media.txt` and `luna-lgmv-both-playing/journal-media.txt` (`[doSetDisplayWindow]` against `[setWindow] output[...]`); the storm `docs/research/compositor/slot-2026-10-29-r21/d1-home.out`.
+
 A Scrypted event (person, doorbell, animal on a pet camera) puts a card in the top-right corner. The picture box is the camera's live video on a spare video window where one is free, stills at 8 a second where none is. Back dismisses, OK opens the Cameras full view of the same camera, and the card ends at its own time. Design: `scrypted-cameras-design.md` 3.3 to 3.7, `cameras-ui-spec.md` "The pop-up". Renders: `docs/mocks/host-rust/system/popup-live-{dark,light}{,-text200}.jpg`.
 
 ## The order
@@ -16,7 +35,8 @@ The card fades and does not slide: its glass is four clipped bands around the ho
 
 - videooutputd connects a video only for an app id on SAM's foreground list. The feeder's window id (`org.nphil.lumatv.cameras`) is not on it: claim granted, window placed, sink never connected. The feeder now opens its decoder for another app id than its window's (`--ndl-app`, `GF_APP`): `com.webos.app.home` over Home connected MAIN (appId home, 1280x720@30).
 - The "SDL_webOSSetExportedWindow: no video device" lines are not the fault; they also appear in the working vplane and GeForce NOW runs.
-- After connecting, videooutputd parked the video at 3840x2160 although the compositor's placement had been accepted. The compositor now compares the sink's destination with the claim and places it again (up to 12 times, 200 ms apart).
+- **The "parked at 3840,2160" video was a window asked for in the wrong units.** videooutputd takes a window's `displayOutput` in the UI's 1920x1080 and scales it to the panel itself (x2 on the C4); only a full-screen video (`fullScreen`, 3840x2160) is in the panel's pixels. Its own log shows it: LG's Multi View is asked for 12,273 944x531 (`[doSetDisplayWindow]`) and applies 24,546 1888x1062 (`[setWindow] output[...]`); the feeder's window asked for 312,590 1440x602 in the panel's pixels was applied at 624,1180 2880x1204 (`docs/research/multiview/tv-2026-10-30/luna-yt-feeder/journal-media.txt`). The compositor sent panel pixels, so every window but a full-screen one was twice as large and, for a corner window, off the panel: the black rectangle of round 20 (2560,1440 960x540 held as 3840,2160 with no size) and the storm of round 21 (the pop-up's 1316,247 520x292 held as 3840,988 0x1168, which the full view's claim was then compared with). It now sends a window in the UI's pixels (`ui_rect`), full screen in the panel's. The camera pop-up's small video over Home was therefore not in its box before this [INFERENCE: round 21 read `video true` and the sink, not the picture]; whether it is now is the TV check's to say (A3).
+- **Re-placing is a safety net, not a loop.** A claim whose video is on a sink somewhere else than it says is placed again at most twice (`REPLACE_MAX`), no sooner than 0.7 s after the video was last placed and first seen on the sink (the check runs at every frame and the status may predate the placement), then left with one journal line (`left as it is`). A sink that says `fullScreen` for a claim that covers the output is where it should be whatever rectangle it held before. `ctl vwin` has `replaced` (the counts) and each sink's `fullScreen`.
 - An NDL pipeline holds both scalers (`subScalerOccupied`, `lowDelayMode`). A second feeder kills the first (errorCode 600), and the foreground app's own id takes its MAIN away (YouTube stopped). Live video next to a playing app is therefore not offered: `ctl vwin` defaults to `idle` on the set (stills over apps), `apps` is an experiment.
 - `idle` denied every claim with `app-video` because an idle exported element of LG Home was counted as an app's video. Only the front non-Home window's elements that play, or are about to, count now; `ctl vwin` lists them (`elements`).
 
@@ -55,7 +75,7 @@ The time is read in the shell (`ctl shell`, `cameras.firstLiveMs`: from the OK t
 
 Known risks: the old app's video may still hold the scalers when the decoder loads right after Home comes forward (then `cameras.live` fails: OK asks again, and a settle delay after the foreground change is the first thing to add); videooutputd may not connect a video whose decoder loaded before Home was in front (this order avoids it). Home is the anchor because it is the one app LG's video path is known to connect a decoder's video for here; the card app (`org.nphil.lumatv.card`, `cardapp-result.md`: a real SAM app with its own card window, in the switcher) is the alternative anchor if launching Home proves unreliable: the shell would launch it instead and the feeder open its decoder for its id, with no change to the view itself.
 
-## TV check (round 21)
+## TV check (round 22)
 
 `T` runs a command on the set, `H` is the helper's loopback base URL as the earlier probes use it.
 
@@ -69,9 +89,9 @@ Setup:
 A. Home, live. Home in front.
 
 1. `T curl -s -X POST $H/v1/cameras/event -d '{"camera":"Cat Feeder","kind":"animal"}'` answers `popup:true`.
-2. Poll `T ctl shell` every 250 ms for 6 s: `rust.ui.popup.live` goes `phase asked` to `playing`, `window carried`, `slot main`, `sink MAIN`, then `video true`. Note the time from the POST to `video true`. `T ctl vwin`: claim `camera-popup` granted, placed, `sink` set.
-3. `T shot popup-home`: `popup-home-video.png` has the camera's picture in the card's box, `popup-home-display.png` the card's glass with the box clear. Look at it moving for 10 s (the camera's own motion, not a still).
-4. After the card ends, the helper log's `ended:` line: first picture ms, pictures a second against the camera's declared rate (smooth: at least 90 % of it), no `placed again` storm (at most 2).
+2. Poll `T ctl shell` every 250 ms for 6 s: `rust.ui.popup.live` goes `phase asked` to `playing`, `window carried`, `slot main`, `sink MAIN`, then `video true`. Note the time from the POST to `video true`. `T ctl vwin`: claim `camera-popup` granted, placed, `sink` set; the sink's `displayOutput` is the claim's rectangle twice (the picture box at 1316,247 520x292 is 2632,494 1040x584).
+3. `T shot popup-home`: `popup-home-video.png` has the camera's picture in the card's box (this is the first time it is asked for in the right units: if the box is black and `displayOutput` is not twice the claim, say what the sink holds and its `fullScreen`), `popup-home-display.png` the card's glass with the box clear. Look at it moving for 10 s (the camera's own motion, not a still).
+4. After the card ends, the helper log's `ended:` line: first picture ms, pictures a second against the camera's declared rate (smooth: at least 90 % of it). The compositor's journal has no `placed again` line for it, or two at most and then `left as it is` (`T ctl vwin` `replaced`).
 5. Frame gate: `python3 docs/research/perf/gate.py --surfaces quick --input-key 241 --tag popup-base` over Home with no card, then again with an event sent 1 s before (`--tag popup-live`). Both PASS; the card must not cost the compositor frames.
 6. Back on a live card after 600 ms: card gone in under 300 ms; `T ctl vwin` has no claim and `free` is back to 2 (the wallpaper returns within 3 s); the helper log has the stream's `ended:` line. A second event after that works (no stuck feeder).
 7. OK on a live card: the Cameras full view of the same camera opens and keeps playing, no `live/stop` between.
@@ -87,7 +107,7 @@ C. Only if A passes and Nitin agrees to a glitch risk: `T ctl vwin apps`, repeat
 
 D. The full view as an app (the time is OK to the first live picture, target under 1 s).
 
-1. From Home, OK on a tile of a 4K camera (Cameras tile in the quick panel, then OK): `T ctl shell` `rust.ui.cameras.firstLiveMs`, the helper log `live for full view on camera C: CODEC WxH at F ...` (native size and rate) and `ended: first picture after Y ms ... F a second`, the capture `T shot full-home` (`-video.png` has the camera at native size, `-display.png` the chrome). Report the resolution, the rate against the declared one and the three times.
+1. From Home, OK on a tile of a 4K camera (Cameras tile in the quick panel, then OK), and OK on a live card over Home (the same sink, its window changing from the card's box to the whole screen): `T ctl shell` `rust.ui.cameras.firstLiveMs`, the helper log `live for full view on camera C: CODEC WxH at F ...` (native size and rate) and `ended: first picture after Y ms ... F a second`, the capture `T shot full-home` (`-video.png` has the camera at native size, `-display.png` the chrome). The compositor journal and `T ctl vwin`: no `placed again` line for `cameras-full` (or two at most, then one `left as it is`), `replaced` empty or at most 2, the sink's `fullScreen` true and its `displayOutput` 0,0 3840x2160 (say what it holds if not). Report the resolution, the rate against the declared one and the three times.
 2. Over YouTube (1080p playing), an event, then OK on the card after 600 ms: the journal has `cameras: the full view takes the front from <YouTube's id>`, Home is in front within a second (`T ctl shell` `rust.ui.cameras.homeMs`: OK to Home in front; `askedMs`: OK to the stream asked for, the same moment), then the stream plays. Report `homeMs`, `askedMs`, the helper's `the bridge answered in X ms`, `first picture after Y ms`, `firstLiveMs` (the sum, the target under 1 s) and the picture the first frame had (the card's).
 3. Back: the journal has `cameras: Back brings <the id> back`, the app is in front again (its own state is the app's to say: note whether YouTube resumed or restarted), `T ctl vwin` has no claim, the feeder stops, and `T ctl shell` `cameras.switched` is false. The Home key from the view: Home, no app launched.
 4. The camera's strip in the full view (Up, then a clip) plays and Back from it goes to live; the same for a 1080p camera, where the card's stream (up to 1080p30) is already the camera's own.
@@ -97,4 +117,4 @@ Report: per step pass or fail, the POST to `video true` time, first picture ms, 
 
 ## Changelog line
 
-Camera pop-up: the card plays the camera's live video in the corner on Home where a video window is free (stills at 8 a second over a playing app, 4 where an app holds both scalers), with the feeder installed by `lumatv feeder install`; the idle video-window allocator no longer counts Home's idle element as an app's video. The Cameras full view is an app of its own: OK from a card or a tile over an app brings Home forward, plays the camera's native stream on the main window, and Back returns to the app.
+Camera pop-up: the card plays the camera's live video in the corner on Home where a video window is free (stills at 8 a second over a playing app, 4 where an app holds both scalers), with the feeder installed by `lumatv feeder install`; the idle video-window allocator no longer counts Home's idle element as an app's video. The Cameras full view is an app of its own: OK from a card or a tile over an app brings Home forward, plays the camera's native stream on the main window, and Back returns to the app. A video window that is not full screen is asked for in the UI's own pixels, which videooutputd scales to the panel (it was asked for in the panel's, twice as large and off the screen for a corner window), and a video that stays where it is after two placements is left alone (it was placed again twelve times).

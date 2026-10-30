@@ -323,13 +323,28 @@ impl State {
         destination.translated(origin.0, origin.1)
     }
 
-    /// An output rectangle in the panel's pixels, the space videooutputd places video in (LG's compositor scales by the
-    /// panel's ratio: 3840x2160 for a full-screen video on the C4, 134,196 3584x1964 for the Plex player's window).
+    /// An output rectangle in the panel's pixels: what videooutputd holds and reports (`getStatus`'s `displayOutput`), and what a full-screen placement
+    /// carries (3840x2160). A window is not asked for in these: see [`State::ui_rect`].
     pub(crate) fn panel_rect(&self, r: &Rect) -> Rect {
         let (pw, ph) = self.config.panel;
         let (ow, oh) = (self.config.width.max(1) as i64, self.config.height.max(1) as i64);
         let scale = |v: i32, p: u32, o: i64| (i64::from(v) * i64::from(p) / o) as i32;
         Rect::new(scale(r.x, pw, ow), scale(r.y, ph, oh), scale(r.w, pw, ow), scale(r.h, ph, oh))
+    }
+
+    /// An output rectangle in the UI's 1920x1080, the space a window is asked for in: videooutputd scales a `fullScreen: false` `displayOutput` by the panel's
+    /// ratio itself (x2 on the C4) and holds, and reports, the result. LG's compositor sends 12,273 944x531 for the left half of a Multi View and
+    /// videooutputd applies 24,546 1888x1062 (TV 2026-10-30, `[doSetDisplayWindow]` then `[setWindow] output[...]` in the Multi View captures; the same
+    /// request made in the panel's pixels was applied twice as large, off the panel for a corner window: the black rectangle of the camera pop-up over Home).
+    pub(crate) fn ui_rect(&self, r: &Rect) -> Rect {
+        let (ow, oh) = (i64::from(self.config.width.max(1)), i64::from(self.config.height.max(1)));
+        let scale = |v: i32, u: i64, o: i64| (i64::from(v) * u / o) as i32;
+        Rect::new(scale(r.x, 1920, ow), scale(r.y, 1080, oh), scale(r.w, 1920, ow), scale(r.h, 1080, oh))
+    }
+
+    /// Whether an output rectangle covers the whole output: what LG's compositor sends as `fullScreen`.
+    pub(crate) fn covers_output(&self, r: &Rect) -> bool {
+        r.x <= 0 && r.y <= 0 && r.right() >= self.config.width as i32 && r.bottom() >= self.config.height as i32
     }
 
     pub(crate) fn exported_changed(&mut self, window_id: &str) {
@@ -358,11 +373,16 @@ impl State {
             return;
         }
         self.foreign.placed.insert(window_id.to_string(), !dest.is_empty());
-        let full_screen = out_rect.x <= 0 && out_rect.y <= 0 && out_rect.right() >= self.config.width as i32 && out_rect.bottom() >= self.config.height as i32;
-        let panel = self.panel_rect(&out_rect);
+        let full_screen = self.covers_output(&out_rect);
+        // a full-screen video is the panel's whole size with `fullScreen`; any other is a window in the UI's own pixels, which videooutputd scales
+        let sent = if full_screen { self.panel_rect(&out_rect) } else { self.ui_rect(&out_rect) };
         for ctx in contexts {
-            let (uri, payload) = luna::video::placement(&ctx, original, source, &panel, full_screen);
+            let (uri, payload) = luna::video::placement(&ctx, original, source, &sent, full_screen);
             self.luna_call(uri, payload);
+        }
+        // a video window of LumaTV's: when the placement went out, for the check that reads videooutputd's answer to it (`vwin_replace_parked`)
+        if self.scene.window_of(surface).and_then(|w| self.scene.window(w)).is_some_and(|w| w.kind == crate::window::WindowType::VideoWindow) {
+            self.vwin.placed_at.insert(surface, crate::output::monotonic_ns());
         }
     }
 

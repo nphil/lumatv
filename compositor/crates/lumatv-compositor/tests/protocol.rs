@@ -534,12 +534,13 @@ fn exported_video_region_becomes_a_hole_and_a_placement_call() {
     assert_eq!(image.pixel(10, 10), [0x20, 0x20, 0x20, 0xff], "UI stays");
     assert_eq!(image.pixel(640, 360), [0, 0, 0, 0], "the exported region is a transparent hole");
     assert_eq!(image.pixel(800, 580), [0, 0, 0xff, 0xff], "what the app draws over its own video stays (the hole is cleared before the window, not after)");
-    // 160,90 960x540 of the output is 320,180 1920x1080 of the 4K panel; it is not the whole output.
+    // 160,90 960x540 of the output is asked for as it is: videooutputd scales a window by the panel's ratio itself (it applies 320,180 1920x1080 on the 4K panel);
+    // it is not the whole output.
     assert!(
         calls.iter().any(|c| c.contains("display/setDisplayWindow")
-            && c.contains("\"x\":320")
-            && c.contains("\"y\":180")
-            && c.contains("\"width\":1920")
+            && c.contains("\"x\":160")
+            && c.contains("\"y\":90")
+            && c.contains("\"width\":960")
             && c.contains("\"fullScreen\":false")
             && c.contains("_ctx_1")),
         "{calls:?}"
@@ -556,7 +557,7 @@ fn exported_video_region_becomes_a_hole_and_a_placement_call() {
     let mine = placed.iter().rev().find(|p| p["context"] == "_ctx_1").expect("a placement for the element");
     assert_eq!(mine["originalInput"], serde_json::json!({"x": 0, "y": 0, "width": 1920, "height": 1080}));
     assert_eq!(mine["sourceInput"], mine["originalInput"]);
-    assert_eq!(mine["displayOutput"], serde_json::json!({"x": 320, "y": 180, "width": 1920, "height": 1080}));
+    assert_eq!(mine["displayOutput"], serde_json::json!({"x": 160, "y": 90, "width": 960, "height": 540}));
     // The app empties the rectangle: hidden with LG's plain placement, which has no source and no original input.
     let none = client.region(0, 0, 0, 0);
     exported.set_exported_window(&none, &none);

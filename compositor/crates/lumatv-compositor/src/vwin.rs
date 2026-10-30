@@ -738,9 +738,12 @@ pub struct Sink {
     pub width: u64,
     pub height: u64,
     pub fps: f64,
-    /// `displayOutput`: where videooutputd shows this video, in the panel's pixels (x, y, width, height). A video that has been connected and not placed
-    /// is parked at 3840,2160 with no size.
+    /// `displayOutput`: where videooutputd shows this video, in the panel's pixels (x, y, width, height): the window it was asked for, scaled by the panel's ratio
+    /// and clamped to the panel. A window asked for in the panel's own pixels shows here at twice its size, off the panel for one in a corner: 3840,988 0x1168 for
+    /// a claim at 1316,247 520x292 (TV 2026-10-30, the storm of "placed again").
     pub dest: (i64, i64, i64, i64),
+    /// `fullScreen`: the video was placed full screen. Its `displayOutput` may be what the sink held before (a window the claim had), not the panel.
+    pub full_screen: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -770,6 +773,7 @@ impl Sinks {
                         let n = |k: &str| v.pointer(&format!("/displayOutput/{k}")).and_then(Value::as_i64).unwrap_or(0);
                         (n("x"), n("y"), n("width"), n("height"))
                     },
+                    full_screen: v.get("fullScreen").and_then(Value::as_bool).unwrap_or(false),
                 })
                 .collect(),
         })
@@ -786,7 +790,7 @@ impl Sinks {
                 .iter()
                 .map(|s| {
                     json!({"sink": s.name, "connected": s.connected, "z": s.z, "app": s.app, "occupiesBoth": s.occupied, "size": [s.width, s.height], "fps": s.fps,
-                           "displayOutput": [s.dest.0, s.dest.1, s.dest.2, s.dest.3], "context": s.context})
+                           "displayOutput": [s.dest.0, s.dest.1, s.dest.2, s.dest.3], "fullScreen": s.full_screen, "context": s.context})
                 })
                 .collect(),
         )
@@ -812,13 +816,16 @@ pub struct Vwin {
     pub status_token: Option<u64>,
     last_topic: Value,
     pub stats: Stats,
-    /// How often a claim's video was placed again because videooutputd held it elsewhere, and when last (monotonic nanoseconds).
-    replaced: std::collections::BTreeMap<String, (u32, u64)>,
+    /// The claims whose video is on a connected sink somewhere else than they say: since when (so that the sink's answer is read a moment after the
+    /// placement and the connection, not at the first frame), how often the placement was made again, and for which rectangle.
+    watch: std::collections::BTreeMap<String, Watch>,
+    /// When the placement of each of LumaTV's own video windows' elements last went out (monotonic nanoseconds): what the sink says before it is not an answer to it.
+    pub placed_at: std::collections::BTreeMap<crate::surface::SurfaceId, u64>,
     /// The contexts of LumaTV's own video elements that went (with the monotonic nanosecond they are forgotten at): videooutputd lists a sink for a moment
     /// after its element is destroyed, and a video of ours that is still going is no app's.
     gone: Vec<(String, u64)>,
-    /// How long apart a claim's video is placed again (nanoseconds); a test makes it long or nothing.
-    pub replace_gap_ns: u64,
+    /// How long after a placement, and after its video was first seen on a sink, the sink's answer is believed (nanoseconds); a test makes it nothing.
+    pub settle_ns: u64,
     /// The experiment of `docs/research/multiview-result.md` (`ctl vwin fg APP`): while a claim plays in a hardware window, this app is listed on the
     /// foreground list beside the card in front, as the sub app of a Multi View, the way LG's compositor lists the two apps of its own. The decoder of the
     /// feeder is opened for this app (`cameras.ndlApp`). Off (none) unless a TV round asks for it.
@@ -833,9 +840,10 @@ impl Vwin {
             status_token: None,
             last_topic: Value::Null,
             stats: Stats::default(),
-            replaced: std::collections::BTreeMap::new(),
+            watch: std::collections::BTreeMap::new(),
+            placed_at: std::collections::BTreeMap::new(),
             gone: Vec::new(),
-            replace_gap_ns: REPLACE_GAP_NS,
+            settle_ns: SETTLE_NS,
             fg_app: None,
         }
     }
@@ -847,9 +855,24 @@ const NEVER_BOUND_NS: u64 = 3_000_000_000;
 const GONE_NS: u64 = 5_000_000_000;
 /// The size of the window a feeder opens a video window with: it draws nothing until a texture claim makes it larger.
 pub const TEXTURE_WINDOW_PX: i32 = 16;
-/// How many times a claim's video is placed again where videooutputd held it elsewhere, and how long apart.
-const REPLACE_MAX: u32 = 12;
-const REPLACE_GAP_NS: u64 = 200_000_000;
+/// How many times a claim's video is placed again where videooutputd held it elsewhere, and how long after a placement its sink is believed. A placement that
+/// is lost is one lost once; a sink that stays where it is after two is not going to move for a third. videooutputd applies a placement within tens of
+/// milliseconds once the pipeline has said what the video is (0.5 s after the attach on LG's own captures), and its status follows.
+const REPLACE_MAX: u32 = 2;
+const SETTLE_NS: u64 = 700_000_000;
+
+/// What is known of one claim whose video is not where it says.
+#[derive(Clone, Copy, Debug, Default)]
+struct Watch {
+    /// When it was first seen so, or last placed again (monotonic nanoseconds).
+    since: u64,
+    /// How often it was placed again for `want`.
+    tries: u32,
+    /// The rectangle (the panel's pixels) the claim wants; a claim that moves starts over.
+    want: Rect,
+    /// Whether the giving up was said in the journal.
+    said: bool,
+}
 const STATUS_URI: &str = "luna://com.webos.service.videooutput/getStatus";
 
 impl crate::State {
@@ -1148,6 +1171,8 @@ impl crate::State {
             "wall": world.wall, "wallBoth": world.wall_wide, "standby": world.standby,
         });
         r["sinks"] = self.vwin.sinks.json();
+        // the claims whose video was placed again where videooutputd held it elsewhere, and how often
+        r["replaced"] = Value::Object(self.vwin.watch.iter().filter(|(_, w)| w.tries > 0).map(|(id, w)| (id.clone(), json!(w.tries))).collect());
         r["fgApp"] = self.vwin.fg_app.clone().map_or(Value::Null, Value::String);
         r["elements"] = self.vwin_elements_json();
         r["subscribed"] = self.vwin.status_token.is_some().into();
@@ -1322,42 +1347,85 @@ impl crate::State {
         }
     }
 
-    /// A video that is connected but that videooutputd holds somewhere else than its claim says (its pipeline parks it at 3840,2160 with no size when it
-    /// connects, and a placement made before that is lost: TV 2026-10-29, a granted and placed claim over Home showed a black rectangle): the placement
-    /// is made again, a few times for a claim, `REPLACE_GAP_NS` apart. A claim whose video is where it says is let go of.
+    /// A video that is connected but that videooutputd holds somewhere else than its claim says: the placement is made again, at most [`REPLACE_MAX`] times for a
+    /// claim and a rectangle, and then left as it is, with one line of the journal saying so. What the sink holds is in the panel's pixels (the claim's
+    /// rectangle scaled by the panel's ratio); a claim that covers the output is placed full screen, and a sink that says `fullScreen` is where it is meant to
+    /// be whatever rectangle it held before (TV 2026-10-30: a camera pop-up's video, then the full view's on the same sink, was "held" at the pop-up's doubled
+    /// rectangle and placed again twelve times). The sink's answer is believed `settle_ns` after the video was last placed and first seen on it: this runs at
+    /// every frame and the answer may be older than the placement. A claim whose video is where it says is let go of, and one that moved starts over.
     fn vwin_replace_parked(&mut self) {
         let now = crate::output::monotonic_ns();
-        // a claim's id, its surface, the rectangle it is to be at and the destination its video is held at
-        type Held = (String, crate::surface::SurfaceId, Rect, (i64, i64, i64, i64));
-        let mut again: Vec<Held> = Vec::new();
-        let mut settled: Vec<String> = Vec::new();
+        // a claim, what its video's sink holds and whether that is where it is meant to be, and when its video was last placed
+        struct Look {
+            id: String,
+            surface: crate::surface::SurfaceId,
+            want: Rect,
+            held: (i64, i64, i64, i64),
+            full_screen: bool,
+            there: bool,
+            placed_at: u64,
+        }
+        let mut looks: Vec<Look> = Vec::new();
         for c in self.vwin.alloc.granted() {
             let Some(wid) = c.window.map(WindowId) else { continue };
             let Some(window) = self.scene.window(wid).filter(|w| w.vwin_live) else { continue };
             let Some(sink) = self.vwin.sinks.of(&self.vwin_contexts(wid)) else { continue };
             let want = self.panel_rect(&c.rect);
             let near = |held: i64, wanted: i32| (held - i64::from(wanted)).abs() <= 2;
-            if near(sink.dest.0, want.x) && near(sink.dest.1, want.y) && near(sink.dest.2, want.w) && near(sink.dest.3, want.h) {
-                settled.push(c.id.clone());
-            } else {
-                again.push((c.id.clone(), window.surface, want, sink.dest));
-            }
+            let there = near(sink.dest.0, want.x) && near(sink.dest.1, want.y) && near(sink.dest.2, want.w) && near(sink.dest.3, want.h);
+            let there = there || (sink.full_screen && self.covers_output(&c.rect));
+            let placed_at = self.vwin.placed_at.get(&window.surface).copied().unwrap_or(0);
+            looks.push(Look { id: c.id.clone(), surface: window.surface, want, held: sink.dest, full_screen: sink.full_screen, there, placed_at });
         }
-        for id in settled {
-            self.vwin.replaced.remove(&id);
+        // a claim that is gone, or whose video is on no sink, leaves nothing of its count behind
+        self.vwin.watch.retain(|id, _| looks.iter().any(|l| &l.id == id));
+        enum Do {
+            Wait,
+            Say,
+            Again(u32),
         }
-        for (id, surface, want, held) in again {
-            let entry = self.vwin.replaced.entry(id.clone()).or_insert((0, 0));
-            if entry.0 >= REPLACE_MAX || now.saturating_sub(entry.1) < self.vwin.replace_gap_ns {
+        for look in looks {
+            if look.there {
+                self.vwin.watch.remove(&look.id);
                 continue;
             }
-            *entry = (entry.0 + 1, now);
-            let tries = entry.0;
-            self.journal(format!(
-                "vwin: claim {id}'s video is held at {},{} {}x{}, not {},{} {}x{}: placed again ({tries})",
-                held.0, held.1, held.2, held.3, want.x, want.y, want.w, want.h
-            ));
-            self.vwin_elements_changed(surface);
+            let settle = self.vwin.settle_ns;
+            let entry = self.vwin.watch.entry(look.id.clone()).or_default();
+            if entry.since == 0 || entry.want != look.want {
+                *entry = Watch { since: now, want: look.want, ..Watch::default() };
+            }
+            let act = if now.saturating_sub(entry.since.max(look.placed_at)) < settle {
+                Do::Wait
+            } else if entry.tries >= REPLACE_MAX {
+                if std::mem::replace(&mut entry.said, true) { Do::Wait } else { Do::Say }
+            } else {
+                entry.tries += 1;
+                entry.since = now;
+                Do::Again(entry.tries)
+            };
+            let (id, held, want) = (&look.id, look.held, look.want);
+            match act {
+                Do::Wait => {}
+                Do::Say => self.journal(format!(
+                    "vwin: claim {id}'s video is held at {},{} {}x{}{}, not {},{} {}x{}: placed again {REPLACE_MAX} times without effect, left as it is",
+                    held.0,
+                    held.1,
+                    held.2,
+                    held.3,
+                    if look.full_screen { " (full screen)" } else { "" },
+                    want.x,
+                    want.y,
+                    want.w,
+                    want.h
+                )),
+                Do::Again(tries) => {
+                    self.journal(format!(
+                        "vwin: claim {id}'s video is held at {},{} {}x{}, not {},{} {}x{}: placed again ({tries})",
+                        held.0, held.1, held.2, held.3, want.x, want.y, want.w, want.h
+                    ));
+                    self.vwin_elements_changed(look.surface);
+                }
+            }
         }
     }
 

@@ -1122,6 +1122,12 @@ Three changes, host-tested, none run on the set.
   | `setDisplayWindowProperty` | appRotation Deg0, aspectRatio original, fastMode on, textureRotation Deg0 at attach | the same | the same |
   | video mute | `avmutemanager/register` and `setAvMute videoMute on` at attach, off once the pipeline plays (2.7 s later); whether the compositor or the app's `wl_webos_exported.set_property("mute")` drives it is not in the capture | the app's `set_property` is passed through (`mute`, `registerMute`), nothing of the compositor's own | the same, and every exported property is journalled so the next slot shows who drives it |
 
+  Correction (2026-10-30, `docs/research/multiview/tv-2026-10-30/`): the first row's "panel's pixels" holds for a full-screen video only. videooutputd's own log
+  shows LG's windows asked for in the UI's 1920x1080 (`[doSetDisplayWindow] displayOutput {x:12, y:273, w:944, h:531}`) and applied at twice that
+  (`[setWindow] output[24,546,1888,1062]`; a `fullScreen: false` 1920x1080 is the whole panel): it scales a window itself, so the Plex window's
+  134,196 3584x1964 was the scaled hold of a 67,98 1792x982 request, not what LG sent. A window is sent in the UI's pixels now (`State::ui_rect`); a
+  full-screen video in the panel's, with `fullScreen`. `docs/research/camera-popup-result.md` has the TV evidence.
+
   Netflix's error (`getNextMediaSample returns ERROR`, 2331 at Loading) came
   200 ms after the 1920x1080, `fullScreen: false` placement; the same title
   played with that placement on the second gate, and the error class

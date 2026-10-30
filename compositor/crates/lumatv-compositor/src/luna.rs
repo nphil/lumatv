@@ -277,10 +277,11 @@ pub mod video {
     }
 
     /// LG's plain placement (`setVideoDisplayWindowRequested`): `displayOutput`, `context`, `fullScreen` and, when there is one, `appOutput`; no source,
-    /// and none of the crop's three rectangles. `displayOutput` is in the panel's pixels, not the compositor's: LG's compositor scales its 1080p rectangle
-    /// by the panel's ratio (the X4 captures of 2026-10-24: a full-screen video leaves videooutputd holding 3840x2160 and the Plex player's window
-    /// 134,196 3584x1964, twice its 1080p rectangle). `full_screen` is what LG sends when the element covers the output. A hidden element is this
-    /// with an empty rectangle.
+    /// and none of the crop's three rectangles. `displayOutput` of a window is in the UI's 1920x1080 and videooutputd scales it to the panel (x2 on the C4):
+    /// LG's compositor sends 12,273 944x531 and videooutputd applies 24,546 1888x1062 (TV 2026-10-30, the Multi View captures); the panel's pixels are for a
+    /// full-screen video (3840x2160, `fullScreen`), which videooutputd then holds as 3840x2160 (the X4 captures of 2026-10-24: and the Plex player's window
+    /// 134,196 3584x1964, twice the 1080p rectangle it was asked for; an earlier reading took that for what LG sent). `full_screen` is what LG sends when
+    /// the element covers the output. A hidden element is this with an empty rectangle.
     pub fn set_display_window(context: &str, destination: &Rect, full_screen: bool, app_output: Option<&Rect>) -> (String, Value) {
         let mut p = json!({"displayOutput": rect(destination), "context": context, "fullScreen": full_screen});
         if let Some(a) = app_output.filter(|a| a.w != 0 && a.h != 0) {

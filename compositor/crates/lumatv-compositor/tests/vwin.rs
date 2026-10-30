@@ -124,9 +124,10 @@ fn a_granted_claim_shows_its_window_with_a_hole_and_places_the_video_at_the_clai
     assert_eq!(image.pixel(1859, 374), HOLE, "and its last");
     assert_eq!(image.pixel(1299, 60), RED, "outside it, the app under the transparent window");
     assert_eq!(image.pixel(1860, 200), RED);
-    // the video is placed in the panel's pixels (the panel is twice the output)
+    // the video is asked for in the UI's own pixels, which videooutputd scales to the panel (TV 2026-10-30: LG sends 12,273 944x531 and it applies 24,546 1888x1062;
+    // a request in the panel's pixels was applied twice as large)
     let p = last_placement(&server, "_ctx_cam");
-    assert_eq!(p["displayOutput"], json!({"x": 2600, "y": 120, "width": 1120, "height": 630}), "{p}");
+    assert_eq!(p["displayOutput"], json!({"x": 1300, "y": 60, "width": 560, "height": 315}), "{p}");
     assert_eq!(p["fullScreen"], false);
     let r = server.eval(|s| s.vwin_report());
     assert_eq!(r["windows"][0]["live"], true, "{r}");
@@ -159,7 +160,7 @@ fn a_moved_claim_moves_the_hole_and_the_placement() {
     let image = server.eval(drawn);
     assert_eq!(image.pixel(1500, 200), RED, "the old place is the app's again");
     assert_eq!(image.pixel(300, 600), HOLE, "the new one is the hole");
-    assert_eq!(last_placement(&server, "_ctx_cam")["displayOutput"], json!({"x": 200, "y": 1000, "width": 960, "height": 540}));
+    assert_eq!(last_placement(&server, "_ctx_cam")["displayOutput"], json!({"x": 100, "y": 500, "width": 480, "height": 270}));
     // a rectangle that leaves the output, or a claim that was never made, is answered and changes nothing
     let reply = ask(&server, json!({"op": "move", "id": "cam", "rect": {"x": 1800, "y": 0, "w": 560, "h": 315}}));
     assert_eq!(reply["ok"], false);
@@ -544,43 +545,153 @@ fn a_claim_takes_the_wallpapers_window_though_another_is_free() {
     std::mem::forget((win, buf, _wall_el));
 }
 
-/// What videooutputd's status says of one sink: the video of `ctx`, connected, where it is shown (`dest`: x, y, width, height in the panel's pixels).
-fn sink_at(ctx: &str, dest: [i64; 4]) -> Value {
+/// What videooutputd's status says of one sink: the video of `ctx`, connected, where it is shown (`dest`: x, y, width, height in the panel's pixels) and whether it
+/// was placed full screen.
+fn sink_with(ctx: &str, dest: [i64; 4], full_screen: bool) -> Value {
     json!({"video": [
-        {"sink": "MAIN", "connected": true, "context": ctx, "appId": "com.webos.app.home", "zOrder": 0, "width": 1280, "height": 720, "frameRate": 30,
+        {"sink": "MAIN", "connected": true, "context": ctx, "appId": "com.webos.app.home", "zOrder": 0, "width": 1280, "height": 720, "frameRate": 30, "fullScreen": full_screen,
          "displayOutput": {"x": dest[0], "y": dest[1], "width": dest[2], "height": dest[3]}, "videoInfo": {"subScalerOccupied": true}},
         {"sink": "SUB0", "connected": false, "context": "", "zOrder": 1, "videoInfo": {}}]})
 }
 
+fn sink_at(ctx: &str, dest: [i64; 4]) -> Value {
+    sink_with(ctx, dest, false)
+}
+
+fn placed_again(server: &Server) -> Vec<String> {
+    server.eval(|s| s.journal.clone()).into_iter().filter(|l| l.contains("placed again (")).collect()
+}
+
+/// How long the compositor waits after a placement before it believes the sink's answer to it: a test cannot wait for it on a loaded machine, and the loop
+/// looks at every frame, so a test shuts the door (the wait is long) and opens it for one answer at a time.
+const DOOR_SHUT_NS: u64 = 600_000_000_000;
+
+fn shut(server: &Server) {
+    server.eval(|s| s.vwin.settle_ns = DOOR_SHUT_NS);
+}
+
+/// The sink's answer, believed once and now: judged inside one step of the compositor, so that no frame of its own loop can judge it twice.
+fn believed(server: &Server, status: Value) {
+    server.eval(move |s| {
+        s.vwin.settle_ns = 0;
+        s.vwin_status(&status);
+        s.vwin.settle_ns = DOOR_SHUT_NS;
+    });
+}
+
 #[test]
-fn a_video_that_videooutputd_holds_parked_is_placed_again_where_its_claim_says() {
-    // TV 2026-10-29: the placement made for a claim answered {returnValue: true}, and four seconds later the sink was parked at 3840,2160 with no size
+fn a_video_that_videooutputd_holds_elsewhere_is_placed_again_where_its_claim_says() {
     let mut server = Server::start();
     set_mode(&server, Mode::Idle);
     let _feeder = feeder(&mut server, "Cameras", "_ctx_cam");
     let reply = ask(&server, claim("cam", "camera-popup", "", POPUP));
     assert_eq!(state_of(&reply).0, "granted", "{reply}");
-    // the gap between two placements is made long: a loaded machine can take longer than the real one between two steps of this test
-    server.eval(|s| s.vwin.replace_gap_ns = 600_000_000_000);
+    shut(&server);
     let placed = server.eval(placements).len();
-    // connected, and parked: placed again at once (the panel is twice the output)
-    server.eval(|s| s.vwin_status(&sink_at("_ctx_cam", [3840, 2160, 0, 0])));
+    // connected, and where it was asked for (the panel is twice the UI: 1300,60 560x315 is 2600,120 1120x630 there): nothing to do
+    believed(&server, sink_at("_ctx_cam", [2600, 120, 1120, 630]));
+    assert_eq!(server.eval(placements).len(), placed, "where it was asked for: left alone");
+    assert!(placed_again(&server).is_empty());
+    // connected, and somewhere else (the old reading of the bug: parked at the panel's corner): placed again at once, in the UI's pixels again
+    believed(&server, sink_at("_ctx_cam", [3840, 2160, 0, 0]));
     let after = server.eval(placements);
     assert_eq!(after.len(), placed + 1, "one more placement: {after:?}");
-    assert_eq!(after.last().unwrap()["displayOutput"], json!({"x": 2600, "y": 120, "width": 1120, "height": 630}));
-    // asking again within the gap is not answered with another
+    assert_eq!(after.last().unwrap()["displayOutput"], json!({"x": 1300, "y": 60, "width": 560, "height": 315}));
+    // asking again before the answer to the placement can be believed is not answered with another
     server.eval(|s| s.vwin_status(&sink_at("_ctx_cam", [3840, 2160, 1, 0])));
     assert_eq!(server.eval(placements).len(), placed + 1, "not twice in a breath");
     // where the claim says (a pixel or two off is rounding): let go
-    server.eval(|s| s.vwin_status(&sink_at("_ctx_cam", [2601, 120, 1120, 629])));
-    // (the count starts over: no sleep is needed, the claim whose video was where it was told is let go of)
-    server.eval(|s| s.vwin_status(&sink_at("_ctx_cam", [3840, 2160, 0, 0])));
-    let journal = server.eval(|s| s.journal.clone());
-    let again = journal.iter().filter(|l| l.contains("placed again")).collect::<Vec<_>>();
-    assert_eq!(again.len(), 2, "{journal:?}");
+    believed(&server, sink_at("_ctx_cam", [2601, 120, 1120, 629]));
+    // (the count starts over: the claim whose video was where it was told is let go of)
+    believed(&server, sink_at("_ctx_cam", [3840, 2160, 0, 0]));
+    let again = placed_again(&server);
+    assert_eq!(again.len(), 2, "{again:?}");
     assert!(again.iter().all(|l| l.contains("(1)")), "the count starts over once the video has been where it was told: {again:?}");
     let r = server.eval(|s| s.vwin_report());
     assert_eq!(r["sinks"][0]["displayOutput"], json!([3840, 2160, 0, 0]), "{r}");
+    assert_eq!(r["sinks"][0]["fullScreen"], false, "{r}");
+    assert_eq!(r["replaced"], json!({"cam": 1}), "{r}");
+}
+
+#[test]
+fn a_video_that_stays_where_it_is_after_two_placements_is_left_and_the_journal_says_so_once() {
+    // TV 2026-10-30: the full view's video on the sink the camera pop-up had was "held" at the pop-up's rectangle and placed again twelve times
+    let mut server = Server::start();
+    set_mode(&server, Mode::Idle);
+    let _feeder = feeder(&mut server, "Cameras", "_ctx_cam");
+    assert_eq!(state_of(&ask(&server, claim("cam", "camera-popup", "", POPUP))).0, "granted");
+    shut(&server);
+    let placed = server.eval(placements).len();
+    for i in 0..8 {
+        believed(&server, sink_at("_ctx_cam", [3840, 988, 0, 1168 + i]));
+    }
+    assert_eq!(server.eval(placements).len(), placed + 2, "placed again twice, never more");
+    let journal = server.eval(|s| s.journal.clone());
+    let left: Vec<_> = journal.iter().filter(|l| l.contains("left as it is")).collect();
+    assert_eq!(left.len(), 1, "said once: {journal:?}");
+    assert_eq!(placed_again(&server).len(), 2);
+    // the claim moves: it is a new question, with its two placements (the sink's answer at the move is the old one, and is not believed)
+    let reply = ask(&server, json!({"op": "move", "id": "cam", "rect": {"x": 100, "y": 500, "w": 480, "h": 270}}));
+    assert_eq!(reply["ok"], true, "{reply}");
+    let placed = server.eval(placements).len();
+    for i in 0..4 {
+        believed(&server, sink_at("_ctx_cam", [3840, 988, 0, 1200 + i]));
+    }
+    assert_eq!(server.eval(placements).len(), placed + 2, "two more for the new rectangle");
+    assert_eq!(placed_again(&server).len(), 4);
+    assert_eq!(server.eval(|s| s.vwin_report())["replaced"], json!({"cam": 2}), "the report says how often");
+    // and a claim that is let go of leaves no count behind
+    ask(&server, json!({"op": "release", "id": "cam"}));
+    server.eval(|s| s.vwin_status(&sink_at("_ctx_cam", [3840, 988, 0, 1999])));
+    assert_eq!(server.eval(|s| s.vwin_report())["replaced"], json!({}));
+}
+
+#[test]
+fn a_full_screen_claim_is_where_it_says_when_the_sink_says_full_screen_whatever_rectangle_it_held_before() {
+    // the camera pop-up's window on the sink, then the full view's: the sink's `displayOutput` may stay the pop-up's
+    let mut server = Server::start();
+    set_mode(&server, Mode::Idle);
+    let _feeder = feeder(&mut server, "Cameras", "_ctx_cam");
+    assert_eq!(state_of(&ask(&server, claim("cam", "camera-popup", "", POPUP))).0, "granted");
+    shut(&server);
+    ask(&server, json!({"op": "release", "id": "cam"}));
+    let reply = ask(&server, claim("full", "camera-full", "", [0, 0, 1920, 1080]));
+    assert_eq!(state_of(&reply).0, "granted", "{reply}");
+    let p = last_placement(&server, "_ctx_cam");
+    assert_eq!(
+        (p["fullScreen"].as_bool(), &p["displayOutput"]),
+        (Some(true), &json!({"x": 0, "y": 0, "width": 3840, "height": 2160})),
+        "the panel's whole size: {p}"
+    );
+    let placed = server.eval(placements).len();
+    believed(&server, sink_with("_ctx_cam", [2600, 120, 1120, 630], true));
+    believed(&server, sink_with("_ctx_cam", [2600, 120, 1120, 631], true));
+    assert_eq!(server.eval(placements).len(), placed, "full screen by its own flag: not placed again");
+    assert!(placed_again(&server).is_empty());
+    // not full screen yet (the sink says so): placed again, as for any other claim
+    believed(&server, sink_with("_ctx_cam", [2600, 120, 1120, 630], false));
+    assert_eq!(server.eval(placements).len(), placed + 1);
+    // and at the panel's whole size it is where it says, flag or not
+    believed(&server, sink_with("_ctx_cam", [0, 0, 3840, 2160], false));
+    assert_eq!(server.eval(placements).len(), placed + 1);
+}
+
+#[test]
+fn a_sink_is_not_believed_in_the_first_moments_after_a_placement_and_a_video_that_connects_where_it_was_asked_for_is_never_placed_again() {
+    // the real wait (0.7 s) is kept: the claim is placed, the sink shows an older answer for a while, and the answer that comes after is the one that counts
+    let mut server = Server::start();
+    set_mode(&server, Mode::Idle);
+    let _feeder = feeder(&mut server, "Cameras", "_ctx_cam");
+    assert_eq!(state_of(&ask(&server, claim("cam", "camera-popup", "", POPUP))).0, "granted");
+    assert_eq!(server.eval(|s| s.vwin.settle_ns), 700_000_000, "the shipped wait");
+    let placed = server.eval(placements).len();
+    for i in 0..5 {
+        server.eval(move |s| s.vwin_status(&sink_at("_ctx_cam", [3840, 988, 0, 1168 + i])));
+    }
+    assert_eq!(server.eval(placements).len(), placed, "a sink that was seen a moment ago is not judged yet");
+    server.eval(|s| s.vwin_status(&sink_at("_ctx_cam", [2600, 120, 1120, 630])));
+    assert!(placed_again(&server).is_empty());
+    assert_eq!(server.eval(|s| s.vwin_report())["replaced"], json!({}));
 }
 
 #[test]
