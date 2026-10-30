@@ -1,5 +1,5 @@
 //! The frame-rate watcher against a fake `luna-send` (SAM's foreground app, from a file) and a fake panel: the status files in a
-//! temporary directory, the vsync count advanced by a thread at the rate the "display engine" runs, 100 Hz until `0 60` is written.
+//! temporary directory, the vsync count advanced by a thread at the rate the "display engine" runs, 100 Hz until `1 60` is written.
 
 mod support;
 
@@ -38,7 +38,7 @@ struct FakeSet {
     program: PathBuf,
     pid_file: PathBuf,
     hz: Arc<Mutex<f64>>,
-    /// Every `0 60` the watcher wrote, with whether a source was connected at that moment.
+    /// Every `1 60` the watcher wrote, with whether a source was connected at that moment.
     writes: Arc<Mutex<Vec<bool>>>,
     done: Arc<AtomicBool>,
     engine: Option<JoinHandle<()>>,
@@ -71,7 +71,7 @@ impl FakeSet {
         let hz = Arc::new(Mutex::new(100.0));
         let writes = Arc::new(Mutex::new(Vec::new()));
         let done = Arc::new(AtomicBool::new(false));
-        // The display engine: the count runs at `hz`; a write of `0 60` is taken (and recorded) and the rate becomes 120 Hz.
+        // The display engine: the count runs at `hz`; a write of `1 60` is taken (and recorded) and the rate becomes 120 Hz.
         let engine = {
             let (sources, hz, writes, done) =
                 (sources.clone(), hz.clone(), writes.clone(), done.clone());
@@ -86,7 +86,7 @@ impl FakeSet {
                     put(&sources.interrupts, &interrupts(count as u64));
                     let request = std::fs::read_to_string(&sources.fr_rate).unwrap_or_default();
                     if !request.is_empty() {
-                        assert_eq!(request, "0 60\n");
+                        assert_eq!(request, "1 60\n");
                         let scaler = std::fs::read_to_string(&sources.scaler).unwrap();
                         writes.lock().push(!scaler.contains("connect_src=NONE"));
                         std::fs::write(&sources.fr_rate, "").unwrap();
@@ -267,4 +267,47 @@ fn the_watcher_is_off_when_the_config_says_so_or_the_set_has_no_lever() {
         Config::parse(r#"{"frameRate": {"returnOnHome": "yes"}}"#).is_err(),
         "a bad value stops the start"
     );
+}
+
+#[test]
+fn the_end_of_a_camera_stream_over_home_is_a_check_without_any_foreground_change() {
+    let dir = tempfile::tempdir().unwrap();
+    let set = FakeSet::new(dir.path());
+    let ctx = ctx(dir.path(), &set.program, json!({}));
+    let (tx, rx) = mpsc::channel();
+    let handle = framerate::spawn_with(&ctx, set.sources.clone(), tx.clone(), rx)
+        .unwrap()
+        .expect("a thread");
+
+    // Home in front with the panel already at 120 Hz: the arrival check finds nothing to do.
+    set.window("NONE");
+    set.rate(120.0);
+    set.app(HOME);
+    thread::sleep(QUIET);
+    assert!(set.writes().is_empty());
+
+    // A pop-up's 25 fps stream re-times the panel; Home never leaves the front. While it plays nothing is written.
+    set.window("VDEC");
+    set.rate(100.0);
+    ctx.hub.set("cameras.live", json!({"state": "playing"}));
+    thread::sleep(QUIET);
+    assert!(set.writes().is_empty(), "nothing is written while a source is connected");
+
+    // The stream ends and its window closes: the panel is put back, with no source connected.
+    set.window("NONE");
+    ctx.hub.set("cameras.live", json!({"state": "idle"}));
+    assert!(wait_until(WAIT, || set.writes() == [false]), "{:?}", set.writes());
+
+    ctx.stop.request();
+    tx.send(Cmd::Stop).unwrap();
+    handle.join().unwrap();
+}
+
+#[test]
+fn a_view_is_ended_when_it_is_idle_or_failed() {
+    assert!(framerate::live_ended(&json!({"state": "idle"})));
+    assert!(framerate::live_ended(&json!({"state": "failed"})));
+    assert!(!framerate::live_ended(&json!({"state": "playing"})));
+    assert!(!framerate::live_ended(&json!({"state": "asking"})));
+    assert!(!framerate::live_ended(&json!({})));
 }

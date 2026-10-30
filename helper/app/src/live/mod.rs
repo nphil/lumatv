@@ -141,6 +141,8 @@ pub fn real_dial() -> Dial {
 pub struct Deps {
     pub feeder: Option<FeederSpec>,
     pub dial: Dial,
+    /// Main-window loads run as a direct video, so that the panel keeps its 120 Hz under a 25 or 50 fps camera (`cameras.directVideo`).
+    pub direct_video: bool,
 }
 
 /// What is being played.
@@ -1511,7 +1513,7 @@ pub fn texture_size(width: u32, height: u32) -> (u32, u32) {
     (even(f64::from(width)), even(f64::from(height)))
 }
 
-fn load(lease: &mut Lease, info: StreamInfo, ndl_app: &str, texture: bool, sub: bool) -> Result<(), String> {
+fn load(lease: &mut Lease, info: StreamInfo, ndl_app: &str, texture: bool, sub: bool, drop_threshold: i32) -> Result<(), String> {
     let codec = match info.codec {
         Codec::H264 => gf::CODEC_H264,
         Codec::H265 => gf::CODEC_H265,
@@ -1532,12 +1534,18 @@ fn load(lease: &mut Lease, info: StreamInfo, ndl_app: &str, texture: bool, sub: 
         std::thread::sleep(SUB_LIST_SETTLE);
     }
     client
-        .send_load(codec, info.width, info.height, info.fps)
+        .send_load(codec, info.width, info.height, info.fps, drop_threshold)
         .map_err(|e| e.to_string())?;
     client.send_state(true).map_err(|e| e.to_string())?;
     lease.loaded = true;
     Ok(())
 }
+
+/// The frame-drop threshold of a main-window NDL load. LG's kernel picks the panel's output rate from the decoder's rate, and a 25 or 50 fps
+/// stream puts the panel at 100 Hz (the 24, 30, 60 and 120 families keep it at 120); a threshold above 0 makes the decoder a direct video, whose
+/// display rate is fixed at 60 (`vo.c` `drop_threshold > 0`, `vdisp_core.c` `VDISP_MODE_DIRECT_VIDEO`), so a 25 fps camera leaves the panel at
+/// 120 Hz. 2 is what the GeForce NOW feeder runs with.
+const DIRECT_VIDEO_DROP: i32 = 2;
 
 /// How long the sub app's entry on the foreground list is given to reach LG's media stack before the sub-window pipeline loads.
 const SUB_LIST_SETTLE: Duration = Duration::from_millis(150);
@@ -1624,8 +1632,9 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease) -> bool {
         let playing = session.playing.lock();
         (playing.expect, playing.ndl_app.clone(), playing.texture, playing.sub)
     };
+    let drop = if inner.deps.direct_video && !texture && !sub { DIRECT_VIDEO_DROP } else { -1 };
     if let Some(info) = expect {
-        if let Err(why) = load(lease, info, &ndl_app, texture, sub) {
+        if let Err(why) = load(lease, info, &ndl_app, texture, sub, drop) {
             fail(inner, session, &why);
             return false;
         }
@@ -1671,7 +1680,7 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease) -> bool {
                     if lease.loaded {
                         let _ = lease.feeder().client.send_unload();
                     }
-                    if let Err(why) = load(lease, info, &ndl_app, texture, sub) {
+                    if let Err(why) = load(lease, info, &ndl_app, texture, sub, drop) {
                         fail(inner, session, &why);
                         return false;
                     }
@@ -1705,7 +1714,7 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease) -> bool {
                         ..info
                     };
                     let _ = lease.feeder().client.send_unload();
-                    if let Err(why) = load(lease, changed, &ndl_app, texture, sub) {
+                    if let Err(why) = load(lease, changed, &ndl_app, texture, sub, drop) {
                         fail(inner, session, &why);
                         return false;
                     }

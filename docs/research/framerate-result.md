@@ -235,10 +235,12 @@ reduced to a hub this is moot; a future HDMI source should match rate, and the T
    comes to the front; the screen coming on with Home in front counts too. One check then runs: the output is counted (`osd_irq`
    over 0.5 s); at 100 Hz the helper waits until the main window has no source (`connect_src=NONE` in
    `/proc/lgtv-driver/scaler/main.p0`, every 0.25 s for 15 s, then every 2 s), counts again with the window closed, looks at the
-   window once more, writes `0 60` to `/proc/lg/de/fr_rate` and counts a third time. The log line is
+   window once more, writes `1 60` (free run; `0 60` left the output at 99.9 Hz on the set, `vwin-refresh-result.md`) to `/proc/lg/de/fr_rate` and counts a third time. The log line is
    `frame rate: Home was left at 100.0 Hz with no video window open; set back to 120 Hz (119.6 Hz measured)`. Never a write while
    a source is connected; nothing at all while the subscription is down. `helper.json` `"frameRate": {"returnOnHome": false}`
    turns it off.
+   Camera video in the main window plays as a direct video (`cameras.directVideo`), whose rate the kernel fixes at 60, so a 25 fps camera
+   leaves the panel at 120 Hz (`vwin-refresh-result.md`).
 3. **The price.** The next start after a return applies the 25/50 video's rate at its connect (the decoder register) and its own
    at the first frame: a 120 -> 100 -> 120 pair about 0.2 s long, under videooutputd's mute and the start mute [INFERENCE until
    the TV check].

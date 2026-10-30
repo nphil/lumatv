@@ -1262,8 +1262,8 @@ impl Shell {
                 crate::cameras::app::Intent::ReturnToApp => {
                     if let Some(app) = self.cam_return.take() {
                         acts.push(Act::Log(format!("cameras: Back brings {app} back")));
-                        let payload = json!({"id": app});
-                        self.carry(Effect::Luna { tag: crate::system::layer::LAUNCH_TAG, uri: "luna://com.webos.applicationManager/launch".into(), payload, subscribe: false }, now, acts);
+                        // the compositor raises the app's own window; a launch would relaunch a web app that does not handle it (YouTube) at its start page
+                        self.carry(Effect::Channel { path: "/v1/front".into(), body: json!({"app": app}) }, now, acts);
                     }
                 }
             }
@@ -1962,11 +1962,18 @@ mod tests {
             .collect();
         assert_eq!(asked, vec![json!({"camera": "275", "for": "full", "window": "main"})]);
 
-        // Back: the view is gone and the app comes back
+        // Back: the view is gone and the app is raised by the compositor, not launched again (a launch reloads YouTube at its start page)
         let acts = key(&mut shell, "back", 5_000);
         assert!(!shell.cameras().app.viewer_up());
-        let launches = luna_calls(&acts, "/launch");
-        assert!(launches.iter().any(|l| l["payload"]["id"] == "netflix"), "the app comes back: {launches:?}");
+        let fronts: Vec<Value> = acts
+            .iter()
+            .filter_map(|a| match a {
+                Act::Channel(o) if o.path == "/v1/front" => o.body.clone(),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(fronts, vec![json!({"app": "netflix"})], "the app comes back");
+        assert!(luna_calls(&acts, "/launch").is_empty(), "and is not launched");
         assert_eq!(helper_calls(&acts, "/v1/cameras/live/stop"), 1);
     }
 

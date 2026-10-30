@@ -273,6 +273,7 @@ impl Scrypted {
             live::Deps {
                 feeder,
                 dial: deps.dial.clone().unwrap_or_else(live::real_dial),
+                direct_video: config.direct_video,
             },
             Box::new(move |view| {
                 hub.set(LIVE_TOPIC, view);

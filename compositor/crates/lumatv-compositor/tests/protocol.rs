@@ -1349,3 +1349,36 @@ fn volume_and_mute_keys_become_audio_calls_and_reach_no_app() {
     client.roundtrip();
     assert!(client.state.keys.is_empty(), "no app sees Volume or Mute: {:?}", client.state.keys);
 }
+
+/// The Cameras full view's Back: the app that Home covered comes back by a raise (its window restored to fullscreen, Home minimized, SAM's
+/// subscribers told), not by a launch that reloads a web app which does not handle its relaunch. An app with no card is reported as not raised.
+#[test]
+fn front_app_raises_the_covered_card_without_a_launch() {
+    use lumatv_wl_protocols::webos_shell::client::wl_webos_shell_surface::State as WlState;
+    use serde_json::json;
+    let (fullscreen, minimized) = (WlState::Fullscreen as u32, WlState::Minimized as u32);
+    let mut server = Server::start();
+    let mut client = Client::connect(&mut server);
+    let states = |s: &harness::ClientState, id: u32| -> Vec<u32> { s.states_of.iter().filter(|(w, _)| *w == id).map(|(_, st)| *st).collect() };
+    fn foreground(s: &mut lumatv_compositor::State) -> Vec<String> {
+        let info = s.luna_method("com.webos.surfacemanager", "getForegroundAppInfo", &json!({}), "com.webos.applicationManager").unwrap();
+        info["foregroundAppInfo"].as_array().unwrap().iter().map(|a| a["appId"].as_str().unwrap().to_string()).collect()
+    }
+    let app = client.card("_WEBOS_WINDOW_TYPE_CARD", "YouTube");
+    let app_id = app.webos.id().protocol_id();
+    let blue = client.shm_buffer(1920, 1080, 0xff00_00ff);
+    client.present(&app.surface, &blue);
+    assert!(client.wait_until(WAIT, |s| states(s, app_id) == [fullscreen]));
+    let home = client.card("_WEBOS_WINDOW_TYPE_CARD", "Home");
+    let home_id = home.webos.id().protocol_id();
+    let red = client.shm_buffer(1920, 1080, 0xffff_0000);
+    client.present(&home.surface, &red);
+    assert!(client.wait_until(WAIT, |s| states(s, app_id) == [fullscreen, minimized] && states(s, home_id) == [fullscreen]));
+    assert_eq!(server.eval(foreground), ["org.test.home"]);
+
+    assert!(server.eval(|s| lumatv_compositor::server::webos_shell::front_app(s, "org.test.youtube")));
+    assert!(client.wait_until(WAIT, |s| states(s, app_id) == [fullscreen, minimized, fullscreen] && states(s, home_id) == [fullscreen, minimized]));
+    assert_eq!(server.eval(foreground), ["org.test.youtube"]);
+
+    assert!(!server.eval(|s| lumatv_compositor::server::webos_shell::front_app(s, "org.test.closed")), "no card: nothing raised");
+}

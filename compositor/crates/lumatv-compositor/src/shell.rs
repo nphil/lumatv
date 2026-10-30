@@ -168,6 +168,8 @@ pub enum Msg {
     /// `POST /v1/vwin`: a claim for one of the display's hardware video windows, its move or its release (`vwin::State::vwin_command`); the answer is
     /// the topic `vwin`.
     Vwin(Value),
+    /// `POST /v1/front {app}`: the app that is running comes back to the front without a launch (`server::webos_shell::front_app`).
+    Front(String),
     /// `POST /v1/ui` with a `takes` list: the keys, by name (`ok`, `back`), the system layer wants as `syskey` events while an app keeps
     /// the keyboard focus (the overlay cards' OK and Back). A list that is empty is the layer letting them go.
     Takes(Vec<String>),
@@ -781,6 +783,14 @@ impl State {
                     return true;
                 }
             }
+            Msg::Front(app) => {
+                self.shell.note_seen(now);
+                crate::server::webos_shell::front_app(self, &app);
+                if self.output.draws_on_damage(now) {
+                    self.tick();
+                    return true;
+                }
+            }
             Msg::Takes(names) => {
                 self.shell.note_seen(now);
                 // only the names the keyboard's key table knows (`own_key_name`), each once
@@ -1387,6 +1397,13 @@ fn handle_request(req: &Request, token: &str, outbox: &Arc<Mutex<Outbox>>, inbox
         }
         ("POST", "/v1/vwin") => {
             inbox.send(Msg::Vwin(body));
+            Handled::Answer(200, json!({"ok": true}))
+        }
+        ("POST", "/v1/front") => {
+            let Some(app) = body.get("app").and_then(Value::as_str).filter(|a| !a.is_empty()) else {
+                return Handled::Answer(400, json!({"ok": false, "error": "app"}));
+            };
+            inbox.send(Msg::Front(app.to_string()));
             Handled::Answer(200, json!({"ok": true}))
         }
         _ => Handled::Answer(404, json!({"ok": false, "error": "no such route"})),

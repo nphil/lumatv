@@ -851,6 +851,14 @@ impl State {
                     return true;
                 }
             }
+            Msg::Front(app) => {
+                self.shell_rust.note_seen(now);
+                crate::server::webos_shell::front_app(self, &app);
+                if self.output.draws_on_damage(now) {
+                    self.tick();
+                    return true;
+                }
+            }
             Msg::Takes(names) => {
                 self.shell_rust.note_seen(now);
                 let mut takes: Vec<String> = Vec::new();

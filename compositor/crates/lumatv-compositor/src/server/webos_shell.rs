@@ -230,6 +230,32 @@ pub fn on_card_gone(state: &mut State) {
     settle_cards(state, None);
 }
 
+/// Brings the running app `app` back to the front without telling the app manager to launch it again: the card raised the way a card that
+/// asks for fullscreen is (`SetState`), the card in front minimized, the foreground pushed to SAM's subscribers. A launch of a web app that
+/// does not handle its own relaunch (YouTube: `handlesRelaunch` false) reloads it at its start page; a raise keeps the page and its video.
+/// An app with no card left (the app manager closed it) is launched, which is all there is to do for it. Returns whether a card was raised.
+pub fn front_app(state: &mut State, app: &str) -> bool {
+    let card = state
+        .scene
+        .windows()
+        .filter(|w| {
+            w.kind.is_card() && !w.in_group && w.front > 0 && w.map_serial > 0 && w.app_id() == app && state.surfaces.get(w.surface).is_some_and(|s| s.is_mapped())
+        })
+        .max_by_key(|w| w.front)
+        .map(|w| w.id);
+    let Some(wid) = card else {
+        state.journal(format!("front: {app} has no card, launching it"));
+        state.luna_call("luna://com.webos.applicationManager/launch".into(), serde_json::json!({"id": app}));
+        return false;
+    };
+    state.scene.raise(wid);
+    state.journal(format!("front: {app} (window {}) raised to the front, not launched again", wid.0));
+    settle_cards(state, None);
+    state.luna_notify();
+    super::seat::refocus(state);
+    true
+}
+
 /// The cards' states as LG's fullscreen container keeps them: the card at the front is fullscreen and every other card
 /// that was at the front is minimized, and each is told when its state changes. A client that restores fullscreen on
 /// a relaunch (WAM, from a minimized window) then has a state to change; without this Home's relaunch over HDMI 2 sent

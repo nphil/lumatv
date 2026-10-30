@@ -8,8 +8,16 @@
 //! Inside an app nothing is done: the next video's start carries LG's own switch, inside the firmware's start mute (round 11).
 //! When SAM reports Home in front, one check runs: the output is measured (the `osd_irq` count over 0.5 s); at 100 Hz the watcher
 //! waits until no source is connected to the main window (`connect_src=NONE` in the scaler's status), measures again, writes
-//! `0 60` to `/proc/lg/de/fr_rate` (the request the kernel itself makes for a 24, 30 or 60 fps source), measures once more and
-//! logs what it found. Nothing is ever written while a source is connected. The screen coming on with Home in front is a check too.
+//! `1 60` to `/proc/lg/de/fr_rate` (free run at the 60 family, 120 Hz on this panel), measures once more and logs what it found.
+//! Nothing is ever written while a source is connected. The screen coming on with Home in front is a check too, and so is the end of a
+//! camera stream (`cameras.live` idle or failed): a pop-up on Home leaves the panel at 100 Hz with Home in front all along.
+//!
+//! Free run, not `0 60`: the kernel's own request for a 24, 30 or 60 fps source is `0 60`, and it takes effect because the display
+//! clock oscillator then tracks that source's frame clock. With no source it tracks nothing, and a `0 60` written on the set left the
+//! output at 99.9 Hz (Frames120, 2026-10-30, from 04:42 on, "wrote 0 60 ... but the output measures 99.9 Hz"); only a playing video
+//! put 120 back. Free run (`isForceFreeRun`) switches the tracking off (`MCU_DE_IO_SetFrRate`: `VIDEO_CTRL_TRACE_DCO_FCW` false), so the
+//! sync set for the 60 family runs on the display's own clock. The kernel's next request (a video's first frame) switches tracking on
+//! again. [INFERENCE: read from LG's source, not yet seen on the set.]
 //!
 //! The price: at the next video's connect the kernel applies the rate still held in the decoder's register (the 25/50 video's), so
 //! that start goes to 100 Hz and back within its first frames, under the app's video mute and the firmware's start mute.
@@ -36,8 +44,8 @@ const FOREGROUND_URI: &str = "luna://com.webos.applicationManager/getForegroundA
 /// The interrupt that follows the panel's refresh: 120 a second at 120 Hz, 100 at 100 Hz (`DE2VSYNC` also counts input-side
 /// events, 150 to 245 a second on the round-11 runs).
 const VSYNC_IRQ: &str = "osd_irq";
-/// What is written: no free run, the 60 family (120 Hz on this panel). `_DE_WriteProcFunc` reads it with `sscanf("%d %d")`.
-const SET_120: &[u8] = b"0 60\n";
+/// What is written: free run, the 60 family (120 Hz on this panel). `_DE_WriteProcFunc` reads it with `sscanf("%d %d")`.
+const SET_120: &[u8] = b"1 60\n";
 
 /// The steps of a check.
 const POLL: Duration = Duration::from_millis(250);
@@ -74,6 +82,9 @@ pub enum Cmd {
     Foreground(Option<String>),
     /// The subscription's child ended.
     Ended,
+    /// A camera video ended (`cameras.live` went idle or failed): its decoder may have left the panel at 100 Hz with Home in front all along, which
+    /// no foreground change says.
+    VideoEnded,
     Stop,
 }
 
@@ -204,7 +215,7 @@ impl Panel for ProcPanel {
 pub enum Outcome {
     /// The output was in the 120 Hz band already.
     Already(f64),
-    /// It was at 100 Hz with no source connected: `0 60` was written, and `after` is the rate measured since.
+    /// It was at 100 Hz with no source connected: `1 60` was written, and `after` is the rate measured since.
     Returned { before: f64, after: f64 },
     /// The rate fit neither band, measurement after measurement: left alone.
     Unknown(f64),
@@ -229,7 +240,7 @@ enum Phase {
     AwaitClosed(Instant),
     /// No source connected: the rate once more before the write.
     Confirm(From),
-    /// `0 60` written at `wrote` over `before` Hz; the rate since.
+    /// `1 60` written at `wrote` over `before` Hz; the rate since.
     Verify {
         wrote: Instant,
         before: f64,
@@ -436,6 +447,37 @@ fn end_child(slot: &Mutex<Option<Child>>) {
     }
 }
 
+/// The camera stream's topic.
+const LIVE_TOPIC: &str = "cameras.live";
+/// How long the live watcher waits for an event before it looks at the stop flag.
+const LIVE_WAIT: Duration = Duration::from_secs(1);
+
+/// Whether a `cameras.live` view says no stream is playing or on its way.
+pub fn live_ended(view: &Value) -> bool {
+    matches!(view.get("state").and_then(Value::as_str), Some("idle" | "failed"))
+}
+
+/// Tells the watcher when a camera stream ends. A pop-up on Home is a 25 or 50 fps video the kernel re-times the panel for, and Home never left the
+/// front, so SAM's foreground subscription has nothing to say about it.
+fn watch_live(ctx: &Ctx, tx: Sender<Cmd>) -> std::io::Result<JoinHandle<()>> {
+    let (hub, stop) = (ctx.hub.clone(), ctx.stop.clone());
+    thread::Builder::new()
+        .name("framerate-live".to_owned())
+        .stack_size(128 * 1024)
+        .spawn(move || {
+            let topics = [LIVE_TOPIC.to_owned()];
+            let boot = hub.boot();
+            let mut seq = hub.events_after(None, Some(boot), Some(&topics[..])).seq;
+            while !stop.is_set() {
+                let batch = hub.wait_events(Some(seq), Some(boot), Some(&topics[..]), LIVE_WAIT);
+                seq = batch.seq;
+                if batch.events.iter().any(|e| live_ended(&e.data)) && tx.send(Cmd::VideoEnded).is_err() {
+                    break;
+                }
+            }
+        })
+}
+
 fn report(outcome: Outcome) {
     match outcome {
         Outcome::Already(hz) => crate::log_debug!("frame rate: Home at {hz:.1} Hz"),
@@ -443,7 +485,7 @@ fn report(outcome: Outcome) {
             "frame rate: Home was left at {before:.1} Hz with no video window open; set back to 120 Hz ({after:.1} Hz measured)"
         ),
         Outcome::Returned { before, after } => crate::log_warn!(
-            "frame rate: wrote 0 60 to fr_rate with Home in front at {before:.1} Hz and no video window, but the output measures {after:.1} Hz"
+            "frame rate: wrote 1 60 to fr_rate with Home in front at {before:.1} Hz and no video window, but the output measures {after:.1} Hz"
         ),
         Outcome::Unknown(hz) => {
             crate::log_info!(
@@ -500,6 +542,9 @@ fn run(ctx: &Ctx, sources: Sources, tx: &Sender<Cmd>, rx: &Receiver<Cmd>) {
         let slot = slot.clone();
         move || end_child(&slot)
     });
+    let live_watch = watch_live(ctx, tx.clone())
+        .map_err(|e| crate::log_warn!("frame rate: no watch on the camera streams ({e}); a pop-up's end is not looked at"))
+        .ok();
     let mut panel = ProcPanel::new(sources);
     let mut subscription: Option<Subscription> = None;
     let mut restart_at = Instant::now();
@@ -557,6 +602,12 @@ fn run(ctx: &Ctx, sources: Sources, tx: &Sender<Cmd>, rx: &Receiver<Cmd>) {
                 }
                 screen_on = on;
             }
+            Ok(Cmd::VideoEnded) => {
+                if home && screen_on && check.is_none() {
+                    check = Some(Check::new());
+                    next_step = Instant::now();
+                }
+            }
             Ok(Cmd::Foreground(app)) => {
                 let is_home = app.as_deref() == Some(HOME);
                 if is_home && !home && screen_on {
@@ -612,6 +663,9 @@ fn run(ctx: &Ctx, sources: Sources, tx: &Sender<Cmd>, rx: &Receiver<Cmd>) {
     }
     if let Some(s) = subscription.take() {
         s.end();
+    }
+    if let Some(handle) = live_watch {
+        let _ = handle.join();
     }
 }
 
@@ -928,7 +982,7 @@ mod tests {
         assert!(!panel.window_connected().unwrap());
         assert_eq!(panel.vsync_count().unwrap(), 3_644_835);
         panel.set_120().unwrap();
-        assert_eq!(std::fs::read(&sources.fr_rate).unwrap(), b"0 60\n");
+        assert_eq!(std::fs::read(&sources.fr_rate).unwrap(), b"1 60\n");
         std::fs::remove_file(&sources.scaler).unwrap();
         assert!(panel.window_connected().unwrap_err().contains("main.p0"));
         std::fs::write(
