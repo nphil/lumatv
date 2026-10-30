@@ -369,36 +369,56 @@ fn foreground(server: &Server) -> Vec<Value> {
 }
 
 #[test]
-fn the_foreground_list_names_the_second_app_of_a_multi_view_only_while_a_claim_plays_in_a_window_and_the_switch_is_on() {
+fn the_foreground_list_names_the_sub_apps_from_the_grant_of_the_sub_window_on_plain_or_as_a_multi_view() {
     let mut server = Server::start();
-    let _app = app(&mut server, "Bg", 0xffff_0000);
     set_mode(&server, Mode::Apps);
+    let mut player = Client::connect_extra(&mut server);
+    let win = player.card(CARD, "Player");
+    let buf = player.shm_buffer(1920, 1080, 0xff20_2020);
+    player.present(&win.surface, &buf);
+    assert!(player.wait_until(WAIT, |s| s.frames_done >= 1));
+    let _el = export(&mut player, &win.surface, "_ctx_app");
     let list = foreground(&server);
     assert_eq!((list.len(), list[0]["multiview"].as_bool(), list[0]["viewType"].as_str()), (1, Some(false), Some("normal")), "{list:?}");
+    let r = server.eval(|s| s.vwin_report());
+    assert_eq!(r["fg"], json!({"app": "com.webos.app.home", "multiview": false}), "on by default, Home, plain: {r}");
 
-    // switched on, nothing plays: the list is the card's alone
-    let r = server.eval(|s| s.vwin_ctl(&["fg", "com.webos.app.home"]));
-    assert_eq!((r["ok"].as_bool(), r["vwin"]["fgApp"].as_str()), (Some(true), Some("com.webos.app.home")), "{r}");
-    assert_eq!(foreground(&server).len(), 1);
-
-    // a claim plays in a window: the card is the primary app of a side by side Multi View and the feeder's decoder app is its second
-    let _feeder = feeder(&mut server, "Cameras", "_ctx_cam");
+    // the app's video holds MAIN: a claim is granted the sub window, and from the grant on (no feeder window yet) Home is the second entry, plain
+    let status = json!({"video": [
+        {"sink": "MAIN", "connected": true, "context": "_ctx_app", "appId": "netflix", "zOrder": 0, "width": 1920, "height": 1080, "frameRate": 30, "videoInfo": {}},
+        {"sink": "SUB0", "connected": false, "context": "", "zOrder": 1, "videoInfo": {}}]});
+    server.eval(move |s| s.vwin_status(&status));
     let reply = ask(&server, claim("cam", "camera-popup", "org.test.cameras", POPUP));
-    assert_eq!(reply["claim"]["slot"], "main", "{reply}");
+    assert_eq!(reply["claim"]["slot"], "sub", "{reply}");
     let list = foreground(&server);
     assert_eq!(list.len(), 2, "{list:?}");
-    assert_eq!((list[0]["multiview"].as_bool(), list[0]["primary"].as_bool(), list[0]["viewType"].as_str(), list[0]["order"].as_u64()), (Some(true), Some(true), Some("mvsxs"), Some(0)));
+    assert_eq!((list[0]["multiview"].as_bool(), list[0]["primary"].as_bool(), list[0]["viewType"].as_str(), list[0]["order"].as_u64()), (Some(false), Some(true), Some("normal"), Some(0)));
     assert_eq!(list[1]["appId"], "com.webos.app.home");
-    assert_eq!((list[1]["multiview"].as_bool(), list[1]["primary"].as_bool(), list[1]["viewType"].as_str(), list[1]["order"].as_u64()), (Some(true), Some(false), Some("mvsxs"), Some(1)));
+    assert_eq!((list[1]["multiview"].as_bool(), list[1]["primary"].as_bool(), list[1]["viewType"].as_str(), list[1]["order"].as_u64()), (Some(false), Some(false), Some("normal"), Some(1)));
     assert_eq!(list[1]["windowType"], CARD);
+    assert!(list[1]["processId"].as_str().is_some_and(|p| !p.is_empty()), "a process id, the compositor's own until the feeder's window is bound: {list:?}");
 
-    // the app that is in front is not listed twice, a bad id is refused, and off puts the list back
+    // the Multi View form marks both as the apps of a side by side Multi View; another app id is listed instead
+    let r = server.eval(|s| s.vwin_ctl(&["fg", "org.test.sub", "mv"]));
+    assert_eq!((r["ok"].as_bool(), r["vwin"]["fg"]["app"].as_str(), r["vwin"]["fg"]["multiview"].as_bool()), (Some(true), Some("org.test.sub"), Some(true)), "{r}");
+    let list = foreground(&server);
+    assert_eq!((list[0]["multiview"].as_bool(), list[0]["primary"].as_bool(), list[0]["viewType"].as_str(), list[0]["order"].as_u64()), (Some(true), Some(true), Some("mvsxs"), Some(0)));
+    assert_eq!(list[1]["appId"], "org.test.sub");
+    assert_eq!((list[1]["multiview"].as_bool(), list[1]["primary"].as_bool(), list[1]["viewType"].as_str(), list[1]["order"].as_u64()), (Some(true), Some(false), Some("mvsxs"), Some(1)));
+
+    // a bad id is refused, off lists the card alone, and so does the end of the claim
     let r = server.eval(|s| s.vwin_ctl(&["fg", "no spaces"]));
     assert_eq!(r["ok"], false, "{r}");
     let r = server.eval(|s| s.vwin_ctl(&["fg", "off"]));
-    assert_eq!(r["vwin"]["fgApp"], Value::Null);
+    assert_eq!(r["vwin"]["fg"], Value::Null);
+    assert_eq!(foreground(&server).len(), 1);
+    server.eval(|s| s.vwin_ctl(&["fg", "com.webos.app.home"]));
+    assert_eq!(foreground(&server).len(), 2);
+    let r = ask(&server, json!({"op": "release", "id": "cam"}));
+    assert_eq!(r["ok"], true, "{r}");
     let list = foreground(&server);
     assert_eq!((list.len(), list[0]["multiview"].as_bool(), list[0]["viewType"].as_str()), (1, Some(false), Some("normal")), "{list:?}");
+    std::mem::forget((win, buf));
 }
 
 #[test]

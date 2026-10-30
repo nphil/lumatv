@@ -34,7 +34,7 @@
 
 #include "gf_annexb.h"
 #include "gf_log.h"
-#include "gf_ndl.h"
+#include "gf_pipe.h"
 #include "gf_proto.h"
 #include "gf_sam.h"
 #include "gf_opus.h"
@@ -90,11 +90,15 @@ struct second {
 struct feeder {
     /* options */
     const char *lib, *app_id, *window_type, *window_id_opt, *window_id_file, *play_path, *audio_path, *sock_path;
-    /* The app id NDL_DirectMediaInit gets, when it is not the window's own (`--ndl-app`, or GF_APP from the engine before a load): LG's video path connects
+    /* The app id the pipeline is opened for, when it is not the window's own (`--ndl-app`, or GF_APP from the engine before a load): LG's video path connects
      * a video to its sink only for an app on SAM's foreground list, so a video window that is no app of its own plays for the app that is in front
      * (the wallpaper's player does the same with Home's id, vplane.c). Empty: `app_id`. */
     const char *ndl_app;
     char ndl_app_buf[128];
+    /* The driver the next load uses (`--pipe`, or GF_PIPE from the engine): NDL for the cloud game, the starfish pipeline for a video beside an app's
+     * (gf_pipe.h); and the sink that load asks for (`--sink`, GF_SINK): "" the main window, "sub_video" the sub window beside an app's video. */
+    const gf_pipe_ops *next_ops;
+    char sink[16];
     const char *ui_home;        /* the installed app's directory: the 64-bit UI is started from it and owns the window */
     pid_t ui_pid;
     /* SAM's side (gf_sam.c): started when SAM launched the app (no arguments, or its launch object) or with --sam. `chan` is this end of
@@ -105,10 +109,13 @@ struct feeder {
     char chan_in[1024];
     size_t chan_len;
     const char *stats_path;
-    int codec, width, height, fps, seconds, loop, hdr, drop_threshold, pts_unit, full_wait_ms, burst, no_ndl, no_window, once, export_first;
+    int codec, width, height, fps, seconds, loop, hdr, drop_threshold, pts_unit, full_wait_ms, burst, no_ndl, no_window, once, export_first, delay_load_ms;
     /* state */
-    gf_ndl *ndl;
-    int ndl_ready, loaded, playing, error;
+    gf_pipe *ndl;               /* the NDL library, opened when the program starts: the hello tells the engine whether it is there */
+    gf_pipe *smp;               /* the starfish library, opened at the first load that asks for it */
+    const gf_pipe_ops *ops;     /* the pipeline started (`pipe_ready`): which driver, and its object */
+    gf_pipe *pipe;
+    int pipe_ready, loaded, playing, error;
     vpl_wl *wl;
     char window_id[40];
     FILE *stats;
@@ -198,7 +205,7 @@ static void fill_status(struct feeder *f, gf_status *st) {
     st->cma_free_kb = (uint32_t)cma;
     st->mem_available_kb = (uint32_t)avail;
     st->rss_kb = (uint32_t)rss;
-    int aa = f->ndl_ready ? gf_ndl_audio_avail(f->ndl) : -1;
+    int aa = f->pipe_ready ? f->ops->audio_avail(f->pipe) : -1;
     st->audio_avail = aa < 0 ? 0 : (uint32_t)aa;
 }
 
@@ -223,29 +230,29 @@ static void write_second(struct feeder *f, int t) {
 /* ---- NDL events ------------------------------------------------------------------------------------------------------------ */
 
 static void drain_events(struct feeder *f, void (*emit)(struct feeder *, int, long long, const char *)) {
-    gf_ndl_event_clear(f->ndl);
+    f->ops->event_clear(f->pipe);
     int type;
     long long num;
     char text[200];
-    while (gf_ndl_next_event(f->ndl, &type, &num, text, sizeof text)) {
+    while (f->ops->next_event(f->pipe, &type, &num, text, sizeof text)) {
         if (type >= 0 && type < 64) f->ev_count[type]++;
         switch (type) {
-        case NDL_EV_LOAD_COMPLETED:
+        case GF_EV_LOAD_COMPLETED:
             f->loaded = 1;
             if (!f->first_loaded_ns) f->first_loaded_ns = gf_ns();
             break;
-        case NDL_EV_PLAYING:
+        case GF_EV_PLAYING:
             f->playing = 1;
             if (!f->first_playing_ns) f->first_playing_ns = gf_ns();
             break;
-        case NDL_EV_INT_ERROR:
+        case GF_EV_INT_ERROR:
             f->error = 1;
             f->sec.errors++;
             break;
-        case NDL_EV_INT_BUFFER_LOW:
-        case NDL_EV_STR_BUFFER_LOW: f->sec.low++; break;
-        case NDL_EV_STR_BUFFER_FULL: f->sec.full++; break;
-        case NDL_EV_STR_VIDEO_INFO: {
+        case GF_EV_INT_BUFFER_LOW:
+        case GF_EV_STR_BUFFER_LOW: f->sec.low++; break;
+        case GF_EV_STR_BUFFER_FULL: f->sec.full++; break;
+        case GF_EV_STR_VIDEO_INFO: {
             size_t o = 0;        /* the text is quoted into the summary's JSON: escape what would end the string */
             for (const char *s = text; *s && o + 3 < sizeof f->last_video_info; s++) {
                 if (*s == '"' || *s == '\\') f->last_video_info[o++] = '\\';
@@ -256,7 +263,7 @@ static void drain_events(struct feeder *f, void (*emit)(struct feeder *, int, lo
         }
         default: break;
         }
-        if (type != NDL_EV_INT_BUFFER_LOW && type != NDL_EV_STR_BUFFER_LOW && type != NDL_EV_STR_BUFFER_FULL)
+        if (type != GF_EV_INT_BUFFER_LOW && type != GF_EV_STR_BUFFER_LOW && type != GF_EV_STR_BUFFER_FULL)
             gf_say("event %d %lld %s", type, num, text);
         if (emit) emit(f, type, num, text);
     }
@@ -274,14 +281,14 @@ static int feed_video(struct feeder *f, const uint8_t *u, size_t n, int64_t pts_
         f->total_fed++;
         return 0;
     }
-    if (!f->ndl_ready) return -1;
+    if (!f->pipe_ready) return -1;
     int64_t t0 = gf_ns();
-    *queue = gf_ndl_queued(f->ndl);
+    *queue = f->ops->queued(f->pipe);
     sample_q(&f->sec, *queue);
-    long long pts = pts_ns / f->pts_unit;
+    long long pts = pts_ns;
     int rc, waited = 0;
     for (;;) {
-        rc = gf_ndl_feed_video(f->ndl, u, (unsigned)n, pts);
+        rc = f->ops->feed_video(f->pipe, u, (unsigned)n, pts);
         if (rc == 0) break;
         if (gf_ns() - t0 >= (int64_t)f->full_wait_ms * 1000000) break;
         waited = 1;
@@ -309,7 +316,7 @@ static int feed_audio(struct feeder *f, const uint8_t *d, size_t n, int64_t pts_
         f->total_afed++;
         return 0;
     }
-    if (!f->ndl_ready) return -1;
+    if (!f->pipe_ready) return -1;
     const void *data = d;
     size_t size = n;
     if (f->pcm) {
@@ -323,7 +330,7 @@ static int feed_audio(struct feeder *f, const uint8_t *d, size_t n, int64_t pts_
         data = f->pcm_buf;
         size = (size_t)frames * (size_t)f->audio_channels * sizeof(int16_t);
     }
-    int rc = gf_ndl_feed_audio(f->ndl, data, (unsigned)size, pts_ns / f->pts_unit);
+    int rc = f->ops->feed_audio(f->pipe, data, (unsigned)size, pts_ns);
     if (rc == 0) {
         f->audio_streak = 0;
         f->sec.afed++;
@@ -568,6 +575,16 @@ static void write_tex_stats(struct feeder *f) {
     f->tex.wall_prev_ns = now;
 }
 
+/* The pipeline the next load runs in: the driver `next_ops` names, its library opened once and kept (`ndl` at start-up, `smp` here). */
+static int choose_pipe(struct feeder *f, char *err, size_t cap) {
+    const gf_pipe_ops *ops = f->next_ops ? f->next_ops : &gf_ndl_ops;
+    gf_pipe **slot = ops == &gf_smp_ops ? &f->smp : &f->ndl;
+    if (!*slot && ops->open_lib(slot, ops == &gf_ndl_ops ? f->lib : NULL, err, cap) != 0) return -1;
+    f->ops = ops;
+    f->pipe = *slot;
+    return 0;
+}
+
 static int start_pipeline(struct feeder *f, const gf_load *l, char *err, size_t cap) {
     if (f->tex_w > 0 && f->tex_h > 0) return start_texture(f, l, err, cap);
     if (f->window_id_file && read_window_id_file(f) != 0) {
@@ -579,7 +596,7 @@ static int start_pipeline(struct feeder *f, const gf_load *l, char *err, size_t 
         f->loaded = f->playing = 1;
         return 0;
     }
-    if (!f->ndl && gf_ndl_open_lib(&f->ndl, f->lib, err, cap) != 0) return -1;
+    if (choose_pipe(f, err, cap) != 0) return -1;
     place_video(f, (int)l->width, (int)l->height);
     int pcm = l->audio == GF_AUDIO_OPUS && (f->audio_mode == AUDIO_PCM || (f->audio_mode == AUDIO_AUTO && f->pcm_sticky));
     char refused[300] = "";
@@ -590,10 +607,11 @@ static int start_pipeline(struct feeder *f, const gf_load *l, char *err, size_t 
             use.audio = GF_AUDIO_PCM_S16LE;
         }
         const char *ndl_app = f->ndl_app && f->ndl_app[0] ? f->ndl_app : f->app_id;
-        int rc = gf_ndl_start(f->ndl, ndl_app, f->window_id, &use, err, cap);
+        gf_pipe_opts opts = {.sink = f->sink};
+        int rc = f->ops->start(f->pipe, ndl_app, f->window_id, &use, &opts, err, cap);
         if (rc == 0) break;
-        gf_ndl_stop(f->ndl);
-        if (rc != GF_NDL_LOAD_FAILED || pcm || l->audio != GF_AUDIO_OPUS || f->audio_mode != AUDIO_AUTO) {
+        f->ops->stop(f->pipe);
+        if (rc != GF_PIPE_LOAD_FAILED || pcm || l->audio != GF_AUDIO_OPUS || f->audio_mode != AUDIO_AUTO) {
             close_decoder(f);
             if (refused[0]) {
                 char second[300];
@@ -603,7 +621,7 @@ static int start_pipeline(struct feeder *f, const gf_load *l, char *err, size_t 
             return -1;
         }
         snprintf(refused, sizeof refused, "%s", err);
-        gf_say("ndl: %s: the library refused the Opus load; decoding Opus here and loading PCM", err);
+        gf_say("%s: %s: the library refused the Opus load; decoding Opus here and loading PCM", f->ops->name, err);
         pcm = 1;
         f->pcm_sticky = 1;
     }
@@ -612,7 +630,7 @@ static int start_pipeline(struct feeder *f, const gf_load *l, char *err, size_t 
         f->audio_route = "pcm";
     }
     f->audio_streak = 0;
-    f->ndl_ready = 1;
+    f->pipe_ready = 1;
     f->loaded = f->playing = f->error = 0;
     f->first_loaded_ns = f->first_playing_ns = 0;
     return 0;
@@ -620,13 +638,13 @@ static int start_pipeline(struct feeder *f, const gf_load *l, char *err, size_t 
 
 static void stop_pipeline(struct feeder *f) {
     stop_texture(f);
-    if (f->ndl_ready) {
+    if (f->pipe_ready) {
         alarm(8);
-        gf_ndl_stop(f->ndl);
+        f->ops->stop(f->pipe);
         alarm(0);
     }
     close_decoder(f);
-    f->ndl_ready = 0;
+    f->pipe_ready = 0;
     f->loaded = f->playing = 0;
 }
 
@@ -637,8 +655,12 @@ static void close_all(struct feeder *f) {
         f->wl = NULL;
     }
     if (f->ndl) {
-        gf_ndl_free(f->ndl);
+        gf_ndl_ops.free(f->ndl);
         f->ndl = NULL;
+    }
+    if (f->smp) {
+        gf_smp_ops.free(f->smp);
+        f->smp = NULL;
     }
 }
 
@@ -755,6 +777,13 @@ static int run_play(struct feeder *f) {
     l.hdr_info = generator_hdr();
     l.drop_threshold = f->drop_threshold;
     l.pts_unit = f->pts_unit;
+    /* --delay-load: the window is up and can be claimed before the pipeline exists (a TV probe's order: claim, then load) */
+    for (int64_t until = gf_ns() + (int64_t)f->delay_load_ms * 1000000; f->delay_load_ms > 0 && !g_term && gf_ns() < until;) {
+        struct pollfd pf = {f->wl ? vpl_wl_fd(f->wl) : -1, POLLIN, 0};
+        int64_t left = until - gf_ns();
+        poll(&pf, f->wl ? 1 : 0, (int)(left / 1000000 + 1));
+        if (f->wl && dispatch_window(f) != 0) return 5;
+    }
     int64_t open_ns = gf_ns();
     if (start_pipeline(f, &l, err, sizeof err) != 0) {
         gf_say("pipeline: %s", err);
@@ -766,7 +795,7 @@ static int run_play(struct feeder *f) {
     fprintf(f->stats, "{\"start\":true,\"file\":\"%s\",\"units\":%zu,\"width\":%d,\"height\":%d,\"fps\":%d,\"codec\":%d,\"window\":\"%s\",\"audio\":%zu,"
                       "\"audio_route\":\"%s\",\"hdr\":%d,\"pts_unit\":%d,\"library\":\"%s\",\"features\":%u}\n",
             f->play_path, count, f->width, f->height, f->fps, f->codec, f->window_id, audio.count, audio.count ? f->audio_route : "none", f->hdr, f->pts_unit,
-            f->ndl ? gf_ndl_lib_name(f->ndl) : "none", f->ndl ? gf_ndl_features(f->ndl) : 0);
+            f->pipe_ready ? f->ops->lib_name(f->pipe) : "none", f->pipe_ready ? f->ops->features(f->pipe) : 0);
     fflush(f->stats);
 
     int64_t period = 1000000000LL / f->fps, aperiod = 20000000LL;
@@ -787,7 +816,7 @@ static int run_play(struct feeder *f) {
         struct pollfd fds[2];
         int nf = 0;
         if (f->wl) fds[nf++] = (struct pollfd){vpl_wl_fd(f->wl), POLLIN, 0};
-        if (f->ndl_ready) fds[nf++] = (struct pollfd){gf_ndl_event_fd(f->ndl), POLLIN, 0};
+        if (f->pipe_ready) fds[nf++] = (struct pollfd){f->ops->event_fd(f->pipe), POLLIN, 0};
         struct timespec to = {(time_t)(left > 0 ? left / 1000000000LL : 0), (long)(left > 0 ? left % 1000000000LL : 0)};
         int r = ppoll(fds, (nfds_t)nf, &to, NULL);
         if (r < 0 && errno != EINTR) break;
@@ -795,7 +824,7 @@ static int run_play(struct feeder *f) {
             rc = 5;
             break;
         }
-        if (f->ndl_ready) {
+        if (f->pipe_ready) {
             drain_events(f, NULL);
             if (f->error) {
                 gf_say("the pipeline reported an error; stopping");
@@ -831,8 +860,8 @@ static int run_play(struct feeder *f) {
         if ((vi >= count && !f->loop && (!audio.count || ai >= audio.count)) || (end && now >= end)) done = 1;
     }
     /* the last units are shown after they arrive; give the pipeline a moment and read its events once more */
-    if (f->ndl_ready) {
-        struct pollfd pf = {gf_ndl_event_fd(f->ndl), POLLIN, 0};
+    if (f->pipe_ready) {
+        struct pollfd pf = {f->ops->event_fd(f->pipe), POLLIN, 0};
         poll(&pf, 1, 300);
         drain_events(f, NULL);
     }
@@ -1130,7 +1159,7 @@ static void handle_message(struct feeder *f, struct client *c, uint8_t type, con
         }
         gf_load l;
         memcpy(&l, p, sizeof l);
-        if (f->ndl_ready || f->tex_on) stop_pipeline(f);
+        if (f->pipe_ready || f->tex_on) stop_pipeline(f);
         f->pts_unit = l.pts_unit > 0 ? l.pts_unit : GF_PTS_NS;
         char err[300];
         if (start_pipeline(f, &l, err, sizeof err) != 0) {
@@ -1171,8 +1200,8 @@ static void handle_message(struct feeder *f, struct client *c, uint8_t type, con
     }
     case GF_FLUSH:
         if (f->tex_on) gf_swdec_flush(f->swdec);
-        if (f->ndl_ready) {
-            int rc = gf_ndl_flush(f->ndl);
+        if (f->pipe_ready) {
+            int rc = f->ops->flush(f->pipe);
             gf_say("flush: %d", rc);
         }
         return;
@@ -1181,7 +1210,7 @@ static void handle_message(struct feeder *f, struct client *c, uint8_t type, con
         gf_say("unloaded");
         return;
     case GF_STATE:
-        if (f->ndl_ready && n >= 1) gf_ndl_set_state(f->ndl, p[0]);
+        if (f->pipe_ready && n >= 1) f->ops->set_state(f->pipe, p[0]);
         return;
     case GF_TEXTURE: {
         if (n < sizeof(gf_texture)) return;
@@ -1201,12 +1230,33 @@ static void handle_message(struct feeder *f, struct client *c, uint8_t type, con
         f->ndl_app = f->ndl_app_buf;
         return;
     }
+    case GF_PIPE: {
+        char name[8];
+        size_t len = n < sizeof name - 1 ? n : sizeof name - 1;
+        memcpy(name, p, len);
+        name[len] = 0;
+        const gf_pipe_ops *ops = gf_pipe_named(name);
+        if (!ops) {
+            gf_say("pipe: no driver called %s; ndl stays", name);
+            return;
+        }
+        f->next_ops = ops;
+        gf_say("pipe: %s from the next load on", ops->name);
+        return;
+    }
+    case GF_SINK: {
+        size_t len = n < sizeof f->sink - 1 ? n : sizeof f->sink - 1;
+        memcpy(f->sink, p, len);
+        f->sink[len] = 0;
+        gf_say("sink: %s from the next load on", f->sink[0] ? f->sink : "the main window");
+        return;
+    }
     case GF_HDR: {
         if (n < sizeof(gf_hdr)) return;
         gf_hdr h;
         memcpy(&h, p, sizeof h);
-        if (f->ndl_ready) {
-            int rc = gf_ndl_set_hdr(f->ndl, &h);
+        if (f->pipe_ready) {
+            int rc = f->ops->set_hdr(f->pipe, &h);
             gf_say("hdr: %d", rc);
         }
         return;
@@ -1267,7 +1317,7 @@ static int run_serve(struct feeder *f) {
         gf_say("window: %s", err);
         return 3;
     }
-    if (!f->no_ndl && gf_ndl_open_lib(&f->ndl, f->lib, err, sizeof err) != 0) gf_say("no library: %s (the engine will be told)", err);
+    if (!f->no_ndl && gf_ndl_ops.open_lib(&f->ndl, f->lib, err, sizeof err) != 0) gf_say("no library: %s (the engine will be told)", err);
     int ls = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     struct sockaddr_un sa;
     memset(&sa, 0, sizeof sa);
@@ -1295,9 +1345,9 @@ static int run_serve(struct feeder *f) {
     }
     if (f->ui_home) f->ui_pid = start_ui(f->ui_home, f->app_id, ui_end, f->preload);
     if (ui_end >= 0) close(ui_end);
-    gf_say("serving %s, window %s, library %s", f->sock_path, f->window_id, f->ndl ? gf_ndl_lib_name(f->ndl) : "none");
+    gf_say("serving %s, window %s, library %s", f->sock_path, f->window_id, f->ndl ? gf_ndl_ops.lib_name(f->ndl) : "none");
     fprintf(f->stats, "{\"serving\":\"%s\",\"window\":\"%s\",\"library\":\"%s\",\"features\":%u,\"pid\":%d}\n", f->sock_path, f->window_id,
-            f->ndl ? gf_ndl_lib_name(f->ndl) : "none", f->ndl ? gf_ndl_features(f->ndl) : 0, (int)getpid());
+            f->ndl ? gf_ndl_ops.lib_name(f->ndl) : "none", f->ndl ? gf_ndl_ops.features(f->ndl) : 0, (int)getpid());
     fflush(f->stats);
     int rc = 0;
     while (!g_term) {
@@ -1334,7 +1384,7 @@ static int run_serve(struct feeder *f) {
         hello.pid = (uint32_t)getpid();
         hello.window = f->wl != NULL;
         snprintf(hello.window_id, sizeof hello.window_id, "%s", f->window_id);
-        snprintf(hello.library_name, sizeof hello.library_name, "%s", f->ndl ? gf_ndl_lib_name(f->ndl) : "");
+        snprintf(hello.library_name, sizeof hello.library_name, "%s", f->ndl ? gf_ndl_ops.lib_name(f->ndl) : "");
         push_out(&c, GF_HELLO, &hello, sizeof hello, NULL, 0);
         flush_out(&c);
         int64_t next_status = gf_ns() + 1000000000LL;
@@ -1343,7 +1393,7 @@ static int run_serve(struct feeder *f) {
             int nf = 0;
             fds[nf++] = (struct pollfd){c.fd, POLLIN | (c.out_len ? POLLOUT : 0), 0};
             if (f->wl) fds[nf++] = (struct pollfd){vpl_wl_fd(f->wl), POLLIN, 0};
-            if (f->ndl_ready) fds[nf++] = (struct pollfd){gf_ndl_event_fd(f->ndl), POLLIN, 0};
+            if (f->pipe_ready) fds[nf++] = (struct pollfd){f->ops->event_fd(f->pipe), POLLIN, 0};
             int64_t left = (next_status - gf_ns()) / 1000000;
             int nx = extras_add(f, fds + nf);
             int r = poll(fds, (nfds_t)(nf + nx), left < 0 ? 0 : (int)left);
@@ -1362,7 +1412,7 @@ static int run_serve(struct feeder *f) {
                 g_term = 1;
                 break;
             }
-            if (f->ndl_ready) {
+            if (f->pipe_ready) {
                 drain_events(f, emit_event);
                 if (f->error) {
                     send_text(&c, GF_ERROR, 2, "the pipeline reported an error");
@@ -1371,7 +1421,7 @@ static int run_serve(struct feeder *f) {
             }
             if (gf_ns() >= next_status) {
                 if (f->tex_on) write_tex_stats(f);
-                if (f->ndl_ready || f->no_ndl || f->tex_on) {
+                if (f->pipe_ready || f->no_ndl || f->tex_on) {
                     gf_status st;
                     fill_status(f, &st);
                     push_out(&c, GF_STATUS, &st, sizeof st, NULL, 0);
@@ -1404,12 +1454,17 @@ out:
 
 static int run_probe(struct feeder *f) {
     char err[300] = "";
-    gf_ndl *n = NULL;
-    int ok = gf_ndl_open_lib(&n, f->lib, err, sizeof err) == 0;
-    printf("{\"library\":%s,\"name\":\"%s\",\"features\":%u,\"error\":\"%s\",\"app_id\":\"%s\",\"proto\":%d,\"sizes\":{\"load\":%zu,\"status\":%zu,\"hello\":%zu}}\n",
-           ok ? "true" : "false", ok ? gf_ndl_lib_name(n) : "", ok ? gf_ndl_features(n) : 0, err, f->app_id, GF_PROTO_VERSION, sizeof(gf_load),
-           sizeof(gf_status), sizeof(gf_hello));
-    if (ok) gf_ndl_free(n);
+    gf_pipe *n = NULL;
+    int ok = gf_ndl_ops.open_lib(&n, f->lib, err, sizeof err) == 0;
+    char serr[300] = "";
+    gf_pipe *s = NULL;
+    int smp = gf_smp_ops.open_lib(&s, NULL, serr, sizeof serr) == 0;
+    printf("{\"library\":%s,\"name\":\"%s\",\"features\":%u,\"error\":\"%s\",\"smp\":%s,\"smp_name\":\"%s\",\"smp_error\":\"%s\",\"app_id\":\"%s\",\"proto\":%d,"
+           "\"sizes\":{\"load\":%zu,\"status\":%zu,\"hello\":%zu}}\n",
+           ok ? "true" : "false", ok ? gf_ndl_ops.lib_name(n) : "", ok ? gf_ndl_ops.features(n) : 0, err, smp ? "true" : "false",
+           smp ? gf_smp_ops.lib_name(s) : "", serr, f->app_id, GF_PROTO_VERSION, sizeof(gf_load), sizeof(gf_status), sizeof(gf_hello));
+    if (ok) gf_ndl_ops.free(n);
+    if (smp) gf_smp_ops.free(s);
     return ok ? 0 : 1;
 }
 
@@ -1417,9 +1472,12 @@ static void usage(void) {
     fprintf(stderr,
             "usage: lumatv-gfn-feeder --probe | --play FILE [--codec h264|h265|av1] [--size WxH] [--fps N] [--seconds S] [--loop] [--hdr]\n"
             "         [--audio PKTS] [--audio-mode auto|opus|pcm] [--drop-threshold N] [--pts-unit ns|us|ms] [--full-wait-ms N] [--burst] [--no-ndl] [--stats FILE]\n"
+            "         [--delay-load MS] (the window first, the load that much later: a claim can be made in between)\n"
             "         [--texture WxH] [--swdec-lib DIR] (the picture is decoded here and painted into the window's buffers at that size; DIR holds libavcodec-lumatv)\n"
             "       | --serve SOCKET [--once]\n"
             "  common: [-w card|overlay|default|screensaver|video] [--window-id ID] [--window-id-file F] [--no-window] [-a APP_ID] [--ndl-app APP_ID] [-L NDL_LIB] [-e first|after]\n"
+            "          [--pipe ndl|smp] (the library a load runs in: NDL, the cloud game's, or the starfish pipeline an app's own video has)\n"
+            "          [--sink main|sub_video] (the sink the load asks for: the sub window beside an app's video needs --pipe smp and the app on the foreground list)\n"
             "  serve: [--ui-home DIR] starts DIR/bin64/lumatv-gfn-app through DIR/gfx64/launch.sh (SAM mode does this from the app's own directory);\n"
             "         [--sam] registers with SAM (no arguments, or SAM's launch object as the one argument, means serve with --sam)\n");
 }
@@ -1481,6 +1539,7 @@ int main(int argc, char **argv) {
                 return 2;
             }
         } else if (!strcmp(a, "--full-wait-ms") && v) f.full_wait_ms = atoi(argv[++i]);
+        else if (!strcmp(a, "--delay-load") && v) f.delay_load_ms = atoi(argv[++i]);
         else if (!strcmp(a, "--burst")) f.burst = 1;
         else if (!strcmp(a, "--no-ndl")) f.no_ndl = 1;
         else if (!strcmp(a, "--texture") && v) {
@@ -1499,7 +1558,16 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "-a") && v) f.app_id = argv[++i];
         else if (!strcmp(a, "--ndl-app") && v) f.ndl_app = argv[++i];
         else if (!strcmp(a, "-L") && v) f.lib = argv[++i];
-        else if (!strcmp(a, "-e") && v) f.export_first = strcmp(argv[++i], "after") != 0;
+        else if (!strcmp(a, "--pipe") && v) {
+            f.next_ops = gf_pipe_named(argv[++i]);
+            if (!f.next_ops) {
+                usage();
+                return 2;
+            }
+        } else if (!strcmp(a, "--sink") && v) {
+            snprintf(f.sink, sizeof f.sink, "%s", argv[++i]);
+            if (!strcmp(f.sink, "main")) f.sink[0] = 0;
+        } else if (!strcmp(a, "-e") && v) f.export_first = strcmp(argv[++i], "after") != 0;
         else if (!strcmp(a, "--sam")) f.sam_mode = 1;
         else if (a[0] == '{') {
             /* SAM starts a version 2 native app as `<main> '<json>'` (gf_sam.h) */

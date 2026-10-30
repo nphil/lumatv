@@ -181,6 +181,9 @@ pub struct Plan {
     /// The picture is decoded in the feeder and drawn by the compositor as a texture (a claim the windows could not carry, `slot texture`): no pipeline,
     /// no app id, no video plane (`gfn/feeder/src/gf_swdec.c`).
     pub texture: bool,
+    /// The compositor granted the sub window beside an app's video (`slot sub`): the load runs in the starfish pipeline (`GF_PIPE smp`, the one an app's own
+    /// video has, no game mode) and asks for the sub sink (`GF_SINK sub_video`); the compositor lists `ndl_app` on the foreground list meanwhile.
+    pub sub: bool,
     /// What the stream is for, in words for the log (`popup 41`); empty for the full view.
     pub purpose: String,
     /// The window type of the feeder this stream plays in (`video`: the compositor's own video window, played on once a claim is granted to it); empty:
@@ -960,6 +963,7 @@ struct Playing {
     expect: Option<StreamInfo>,
     ndl_app: String,
     texture: bool,
+    sub: bool,
     purpose: String,
     window: String,
 }
@@ -1211,6 +1215,7 @@ impl Live {
                 expect: want,
                 ndl_app: plan.ndl_app.clone(),
                 texture: plan.texture,
+                sub: plan.sub,
                 purpose: plan.purpose.clone(),
                 window: plan.window.clone(),
             }),
@@ -1274,6 +1279,7 @@ impl Live {
         playing.camera == plan.camera
             && playing.ndl_app == plan.ndl_app
             && playing.texture == plan.texture
+            && playing.sub == plan.sub
             && playing.window == plan.window
             && match (playing.expect, want) {
                 (Some(loaded), Some(want)) => loaded.same_pipeline(&want),
@@ -1295,6 +1301,7 @@ impl Live {
             playing.rate = plan.rate.max(1);
             playing.ndl_app.clone_from(&plan.ndl_app);
             playing.texture = plan.texture;
+            playing.sub = plan.sub;
             playing.purpose.clone_from(&plan.purpose);
             playing.window.clone_from(&plan.window);
             if let Some(want) = stream_of(&plan) {
@@ -1504,7 +1511,7 @@ pub fn texture_size(width: u32, height: u32) -> (u32, u32) {
     (even(f64::from(width)), even(f64::from(height)))
 }
 
-fn load(lease: &mut Lease, info: StreamInfo, ndl_app: &str, texture: bool) -> Result<(), String> {
+fn load(lease: &mut Lease, info: StreamInfo, ndl_app: &str, texture: bool, sub: bool) -> Result<(), String> {
     let codec = match info.codec {
         Codec::H264 => gf::CODEC_H264,
         Codec::H265 => gf::CODEC_H265,
@@ -1516,6 +1523,14 @@ fn load(lease: &mut Lease, info: StreamInfo, ndl_app: &str, texture: bool) -> Re
     let (tw, th) = if texture { texture_size(info.width, info.height) } else { (0, 0) };
     client.send_texture(tw, th).map_err(|e| e.to_string())?;
     client.send_app(ndl_app).map_err(|e| e.to_string())?;
+    // the sub window: the starfish pipeline asking for the sub sink; everything else the NDL session on the main window, as before
+    client.send_pipe(if sub { "smp" } else { "ndl" }).map_err(|e| e.to_string())?;
+    client.send_sink(if sub { "sub_video" } else { "" }).map_err(|e| e.to_string())?;
+    if sub {
+        // the compositor put the pipeline's app on SAM's foreground list when it granted the window; the media server and videooutputd read that list
+        // from SAM a moment later, and a pipeline they still count as background is not connected to its sink
+        std::thread::sleep(SUB_LIST_SETTLE);
+    }
     client
         .send_load(codec, info.width, info.height, info.fps)
         .map_err(|e| e.to_string())?;
@@ -1523,6 +1538,9 @@ fn load(lease: &mut Lease, info: StreamInfo, ndl_app: &str, texture: bool) -> Re
     lease.loaded = true;
     Ok(())
 }
+
+/// How long the sub app's entry on the foreground list is given to reach LG's media stack before the sub-window pipeline loads.
+const SUB_LIST_SETTLE: Duration = Duration::from_millis(150);
 
 /// One line of the log when a stream's session is over: what it was for, how long the first picture took and how many a second the feeder took.
 fn log_end(session: &Session) {
@@ -1602,12 +1620,12 @@ fn write_session(inner: &Arc<Inner>, pool: &Arc<Pool>, session: &Arc<Session>) {
 fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease) -> bool {
     let mut loaded: Option<StreamInfo> = None;
     // the load the bridge's description allows is started before the stream is dialled
-    let (expect, ndl_app, texture) = {
+    let (expect, ndl_app, texture, sub) = {
         let playing = session.playing.lock();
-        (playing.expect, playing.ndl_app.clone(), playing.texture)
+        (playing.expect, playing.ndl_app.clone(), playing.texture, playing.sub)
     };
     if let Some(info) = expect {
-        if let Err(why) = load(lease, info, &ndl_app, texture) {
+        if let Err(why) = load(lease, info, &ndl_app, texture, sub) {
             fail(inner, session, &why);
             return false;
         }
@@ -1653,7 +1671,7 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease) -> bool {
                     if lease.loaded {
                         let _ = lease.feeder().client.send_unload();
                     }
-                    if let Err(why) = load(lease, info, &ndl_app, texture) {
+                    if let Err(why) = load(lease, info, &ndl_app, texture, sub) {
                         fail(inner, session, &why);
                         return false;
                     }
@@ -1687,7 +1705,7 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease) -> bool {
                         ..info
                     };
                     let _ = lease.feeder().client.send_unload();
-                    if let Err(why) = load(lease, changed, &ndl_app, texture) {
+                    if let Err(why) = load(lease, changed, &ndl_app, texture, sub) {
                         fail(inner, session, &why);
                         return false;
                     }
@@ -2218,6 +2236,7 @@ mod tests {
             rate: 1,
             ndl_app: String::new(),
             texture: false,
+            sub: false,
             purpose: String::new(),
             window: String::new(),
             on_end: None,

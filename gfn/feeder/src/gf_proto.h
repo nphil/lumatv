@@ -26,6 +26,10 @@ enum gf_msg {
     GF_APP = 9,         /* text: the app id NDL is opened for from the next LOAD on ("" for the window's own); the window keeps its own id */
     GF_TEXTURE = 10,    /* gf_texture: from the next LOAD on the video is decoded here (gf_swdec.c) and painted into the window's own buffers at that size, which the
                          * compositor draws in the claim's rectangle: no NDL pipeline, no video plane. 0 x 0 is NDL again. Sent while a texture is loaded it resizes the buffers. */
+    GF_PIPE = 11,       /* text: the library the next LOAD runs in, "ndl" (the cloud game's, the default) or "smp" (the starfish pipeline an app's own video has: no game
+                         * mode, and the one that can ask for the sub window; gfn/feeder/src/gf_pipe.h) */
+    GF_SINK = 12,       /* text: the video sink the next LOAD asks for: "" the main window every pipeline gets, "sub_video" the sub window beside an app's video (the
+                         * starfish pipeline only; the compositor lists the pipeline's app beside the front card while the claim holds that window) */
     /* feeder -> engine */
     GF_LOADED = 16,     /* int32 ok (1), then text (the pipeline's answer or the error) */
     GF_EVENT = 17,      /* gf_event then text */

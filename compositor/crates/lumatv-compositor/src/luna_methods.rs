@@ -423,37 +423,38 @@ impl State {
         }
         let mut infos: Vec<Value> = items.into_iter().filter(|w| !w.app_id().is_empty()).map(|w| self.foreground_item(w)).collect();
         if !system_ui {
-            self.multiview_foreground(&mut infos);
+            self.sub_foreground(&mut infos);
         }
         json!({"returnValue": true, "mode": "normal", "foregroundAppInfo": infos})
     }
 
-    /// The experiment `ctl vwin fg APP` (docs/research/multiview-result.md): while a claim plays in a hardware window, `APP` is on the list beside the
-    /// card in front, and both are marked as the two apps of a side-by-side Multi View (`multiview`, `primary`, `viewType` `mvsxs`, `order`), the way
-    /// LG's compositor lists them (`StarfishForegroundAppInfoMgr.qml`). The media server takes its foreground pipelines from this list (SAM republishes it),
-    /// so a decoder opened for `APP` is a foreground one beside the front app's, and not the same app's second. Nothing is listed when the card in front
-    /// is `APP` itself, when no claim plays in a window (a texture is not a video), or when the switch is off.
-    fn multiview_foreground(&self, infos: &mut Vec<Value>) {
-        let Some(app) = self.vwin.fg_app.as_deref() else { return };
-        let playing = self.vwin.alloc.granted().filter(|c| !c.texture).find_map(|c| {
-            let w = c.window.and_then(|w| self.scene.window(WindowId(w)))?;
-            (w.vwin_live && w.map_serial > 0).then_some(w)
-        });
-        let Some(window) = playing else { return };
+    /// While a claim holds the sub window beside an app's video, the app the feeder's pipeline is opened for (`Vwin::fg`, `cameras.ndlApp`) is on the list
+    /// beside the card in front, from the grant on: LG's media server connects a video to a sink only for an app on SAM's foreground list, and it reads the
+    /// list from here (SAM republishes it), so the pipeline that asks for the sub sink (`gfn/feeder/src/gf_smp.c`) is a foreground one beside the front
+    /// app's and not the same app's second. The entry is a plain second card; with `multiview` on (the experiment of docs/research/multiview-result.md,
+    /// `ctl vwin fg APP mv`) both are marked as the two apps of a side-by-side Multi View the way LG's compositor lists them. Nothing is listed when the card
+    /// in front is the app itself, when no claim holds the sub window (a texture is not a video), or with the switch off.
+    fn sub_foreground(&self, infos: &mut Vec<Value>) {
+        let Some(fg) = self.vwin.fg.as_ref() else { return };
+        let Some(claim) = self.vwin.alloc.granted().find(|c| !c.texture && c.slot == Some(1)) else { return };
         let fullscreen = |i: &Value| i.get("viewType").is_some();
-        if infos.iter().any(|i| i["appId"] == app) || !infos.iter().any(fullscreen) {
+        if infos.iter().any(|i| i["appId"] == fg.app) || !infos.iter().any(fullscreen) {
             return;
         }
-        for (order, item) in infos.iter_mut().filter(|i| fullscreen(i)).enumerate() {
-            let o = item.as_object_mut().unwrap();
-            for (k, v) in [("multiview", json!(true)), ("primary", json!(order == 0)), ("viewType", json!("mvsxs")), ("order", json!(order))] {
-                o.insert(k.into(), v);
+        let view_type = if fg.multiview { "mvsxs" } else { "normal" };
+        if fg.multiview {
+            for (order, item) in infos.iter_mut().filter(|i| fullscreen(i)).enumerate() {
+                let o = item.as_object_mut().unwrap();
+                for (k, v) in [("multiview", json!(true)), ("primary", json!(order == 0)), ("viewType", json!(view_type)), ("order", json!(order))] {
+                    o.insert(k.into(), v);
+                }
             }
         }
         let order = infos.iter().filter(|i| fullscreen(i)).count();
+        let pid = claim.window.and_then(|w| self.scene.window(WindowId(w))).map_or_else(|| std::process::id().to_string(), |w| self.window_pid(w));
         infos.push(json!({
-            "appId": app, "displayId": 0, "processId": self.window_pid(window), "windowType": "_WEBOS_WINDOW_TYPE_CARD", "windowGroup": false, "params": {},
-            "multiview": true, "pip": false, "primary": false, "viewType": "mvsxs", "order": order,
+            "appId": fg.app, "displayId": 0, "processId": pid, "windowType": "_WEBOS_WINDOW_TYPE_CARD", "windowGroup": false, "params": {},
+            "multiview": fg.multiview, "pip": false, "primary": false, "viewType": view_type, "order": order,
         }));
     }
 

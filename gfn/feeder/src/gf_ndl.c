@@ -1,5 +1,15 @@
+/* LG's NDL DirectMedia (libNDL_directmedia.so.1, API 2, webOS 5 and later), loaded at run time: the video and audio ES feed, the HDR
+ * metadata, the cloud-game frame-drop threshold and the render-queue readings the probe records.
+ *
+ * The call order the library demands (jellyfin-webos-native docs/ndl.md, webosbrew/samples; the stand-in gfn/feeder/tests/fake_ndl.c
+ * refuses anything else): DL_Initialize, SetWindowId (or the library makes an SDL window and fails), Init(app id of the installed app
+ * whose role names the media client services), Load(video and audio info together), SetAppState(FOREGROUND) (or every unit is dropped
+ * silently), then Play per access unit. SetHDRInfo and SetFrameDropThreshold are applied after Load. The ES player has no clock: a unit is
+ * shown when it arrives, the PTS is for A/V alignment and the queue bookkeeping. The same shape as vplane/src/vpl_ndl.h, which this
+ * extends with audio, HDR and the game-mode knobs; it is its own copy so the saver and the stream can change independently.
+ */
 #define _GNU_SOURCE
-#include "gf_ndl.h"
+#include "gf_pipe.h"
 
 #include <dlfcn.h>
 #include <sched.h>
@@ -47,6 +57,7 @@ struct gf_ndl {
     int (*quit)(void);
     const char *(*get_error)(void);
     int started, loaded;
+    long long pts_unit;             /* what a feed's nanoseconds are divided by: the load's `pts_unit` */
 
     int lock;                       /* spin lock: callbacks run on the library's threads */
     struct { int type; long long num; char text[200]; } q[EVQ];
@@ -54,15 +65,18 @@ struct gf_ndl {
     int efd;
 };
 
-static gf_ndl *g_ndl;               /* the load callback carries no user pointer */
+#define N(p) ((struct gf_ndl *)(p))
+#define P(n) ((gf_pipe *)(n))
 
-static void lock(gf_ndl *n) { while (__atomic_exchange_n(&n->lock, 1, __ATOMIC_ACQUIRE)) sched_yield(); }
-static void unlock(gf_ndl *n) { __atomic_store_n(&n->lock, 0, __ATOMIC_RELEASE); }
+static struct gf_ndl *g_ndl;        /* the load callback carries no user pointer */
+
+static void lock(struct gf_ndl *n) { while (__atomic_exchange_n(&n->lock, 1, __ATOMIC_ACQUIRE)) sched_yield(); }
+static void unlock(struct gf_ndl *n) { __atomic_store_n(&n->lock, 0, __ATOMIC_RELEASE); }
 
 static void on_released(const char *type) { gf_say("ndl: resource released by policy: %s", type ? type : "?"); }
 
 static void on_event(int type, long long num, const char *text) {
-    gf_ndl *n = g_ndl;
+    struct gf_ndl *n = g_ndl;
     if (!n) return;
     lock(n);
     if (n->count < EVQ) {
@@ -77,8 +91,13 @@ static void on_event(int type, long long num, const char *text) {
     if (write(n->efd, &one, sizeof one) < 0) { /* already readable */ }
 }
 
-int gf_ndl_open_lib(gf_ndl **out, const char *lib, char *err, size_t cap) {
-    gf_ndl *n = calloc(1, sizeof *n);
+static const char *ndl_error(const gf_pipe *p) {
+    const char *e = N(p)->get_error ? N(p)->get_error() : NULL;
+    return e && *e ? e : "no message";
+}
+
+static int ndl_open_lib(gf_pipe **out, const char *lib, char *err, size_t cap) {
+    struct gf_ndl *n = calloc(1, sizeof *n);
     if (!n) {
         snprintf(err, cap, "out of memory");
         return -1;
@@ -124,7 +143,8 @@ int gf_ndl_open_lib(gf_ndl **out, const char *lib, char *err, size_t cap) {
         snprintf(err, cap, "NDL_DirectMedia_DL_Initialize failed (no implementation library)");
         goto fail;
     }
-    *out = n;
+    n->pts_unit = 1;
+    *out = P(n);
     return 0;
 fail:
     if (n->lib) dlclose(n->lib);
@@ -133,16 +153,12 @@ fail:
     return -1;
 }
 
-const char *gf_ndl_lib_name(const gf_ndl *n) { return n->lib_name; }
+static const char *ndl_lib_name(const gf_pipe *p) { return N(p)->lib_name; }
 
-unsigned gf_ndl_features(const gf_ndl *n) {
-    return (n->set_hdr ? GF_NDL_HAS_HDR : 0) | (n->set_drop ? GF_NDL_HAS_DROP_THRESHOLD : 0) | (n->flush ? GF_NDL_HAS_FLUSH : 0)
-         | (n->audio_avail ? GF_NDL_HAS_AUDIO_AVAIL : 0) | (n->set_area ? GF_NDL_HAS_SET_AREA : 0);
-}
-
-const char *gf_ndl_error(const gf_ndl *n) {
-    const char *e = n->get_error ? n->get_error() : NULL;
-    return e && *e ? e : "no message";
+static unsigned ndl_features(const gf_pipe *p) {
+    const struct gf_ndl *n = N(p);
+    return (n->set_hdr ? GF_PIPE_HAS_HDR : 0) | (n->set_drop ? GF_PIPE_HAS_DROP_THRESHOLD : 0) | (n->flush ? GF_PIPE_HAS_FLUSH : 0)
+         | (n->audio_avail ? GF_PIPE_HAS_AUDIO_AVAIL : 0) | (n->set_area ? GF_PIPE_HAS_SET_AREA : 0);
 }
 
 /* The sample-rate enum is not in frequency order (NDL_directmedia_types.h). */
@@ -160,16 +176,32 @@ static int pcm_rate(unsigned hz) {
     }
 }
 
-int gf_ndl_start(gf_ndl *n, const char *app_id, const char *window_id, const gf_load *l, char *err, size_t cap) {
+static int ndl_set_hdr(gf_pipe *p, const gf_hdr *h) {
+    struct gf_ndl *n = N(p);
+    if (!n->set_hdr) return -2;
+    struct hdr_info i;
+    memcpy(i.v, h, sizeof i.v);
+    return n->set_hdr(i);
+}
+
+static int ndl_set_drop_threshold(gf_pipe *p, int threshold) { return N(p)->set_drop ? N(p)->set_drop(threshold) : -2; }
+
+static int ndl_start(gf_pipe *p, const char *app_id, const char *window_id, const gf_load *l, const gf_pipe_opts *o, char *err, size_t cap) {
+    struct gf_ndl *n = N(p);
+    if (o->sink && o->sink[0]) {
+        snprintf(err, cap, "NDL cannot ask for the %s sink; the starfish pipeline can (--pipe smp)", o->sink);
+        return -1;
+    }
     if (n->set_window(window_id) != 0) {
-        snprintf(err, cap, "NDL_DirectMediaSetWindowId(%s): %s", window_id, gf_ndl_error(n));
+        snprintf(err, cap, "NDL_DirectMediaSetWindowId(%s): %s", window_id, ndl_error(p));
         return -1;
     }
     if (n->init(app_id, on_released) != 0) {
-        snprintf(err, cap, "NDL_DirectMediaInit(%s): %s", app_id, gf_ndl_error(n));
+        snprintf(err, cap, "NDL_DirectMediaInit(%s): %s", app_id, ndl_error(p));
         return -1;
     }
     n->started = 1;
+    n->pts_unit = l->pts_unit > 0 ? l->pts_unit : 1;
     g_ndl = n;
     struct data_info info;
     memset(&info, 0, sizeof info);
@@ -192,65 +224,57 @@ int gf_ndl_start(gf_ndl *n, const char *app_id, const char *window_id, const gf_
         }
     }
     if (n->load(&info, on_event) != 0) {
-        snprintf(err, cap, "NDL_DirectMediaLoad: %s", gf_ndl_error(n));
-        return GF_NDL_LOAD_FAILED;
+        snprintf(err, cap, "NDL_DirectMediaLoad: %s", ndl_error(p));
+        return GF_PIPE_LOAD_FAILED;
     }
     n->loaded = 1;
     if (n->set_state(0) != 0) {
-        snprintf(err, cap, "NDL_DirectMediaSetAppState(foreground): %s", gf_ndl_error(n));
+        snprintf(err, cap, "NDL_DirectMediaSetAppState(foreground): %s", ndl_error(p));
         return -1;
     }
     if (l->hdr) {
-        int rc = gf_ndl_set_hdr(n, &l->hdr_info);
+        int rc = ndl_set_hdr(p, &l->hdr_info);
         if (rc == -2) gf_say("ndl: this library has no NDL_DirectVideoSetHDRInfo; the stream's own SEI is what the display gets");
-        else if (rc != 0) gf_say("ndl: NDL_DirectVideoSetHDRInfo returned %d: %s", rc, gf_ndl_error(n));
+        else if (rc != 0) gf_say("ndl: NDL_DirectVideoSetHDRInfo returned %d: %s", rc, ndl_error(p));
     }
     if (l->drop_threshold >= 0) {
-        int rc = gf_ndl_set_drop_threshold(n, l->drop_threshold);
+        int rc = ndl_set_drop_threshold(p, l->drop_threshold);
         if (rc == -2) gf_say("ndl: this library has no NDL_DirectVideoSetFrameDropThreshold");
-        else if (rc != 0) gf_say("ndl: NDL_DirectVideoSetFrameDropThreshold(%d) returned %d: %s", l->drop_threshold, rc, gf_ndl_error(n));
+        else if (rc != 0) gf_say("ndl: NDL_DirectVideoSetFrameDropThreshold(%d) returned %d: %s", l->drop_threshold, rc, ndl_error(p));
     }
     return 0;
 }
 
-int gf_ndl_feed_video(gf_ndl *n, const void *unit, unsigned size, long long pts) {
-    int rc = n->play((void *)unit, size, pts);
+static int ndl_feed_video(gf_pipe *p, const void *unit, unsigned size, long long pts_ns) {
+    int rc = N(p)->play((void *)unit, size, pts_ns / N(p)->pts_unit);
     return rc == 0 ? 0 : 1;
 }
 
-int gf_ndl_feed_audio(gf_ndl *n, const void *data, unsigned size, long long pts) {
-    int rc = n->play_audio((void *)data, size, pts);
+static int ndl_feed_audio(gf_pipe *p, const void *data, unsigned size, long long pts_ns) {
+    int rc = N(p)->play_audio((void *)data, size, pts_ns / N(p)->pts_unit);
     return rc == 0 ? 0 : 1;
 }
 
-int gf_ndl_queued(gf_ndl *n) {
+static int ndl_queued(gf_pipe *p) {
     int len = -1;
-    if (!n->queued || n->queued(&len) != 0) return -1;
+    if (!N(p)->queued || N(p)->queued(&len) != 0) return -1;
     return len;
 }
 
-int gf_ndl_audio_avail(gf_ndl *n) {
+static int ndl_audio_avail(gf_pipe *p) {
     int v = -1;
-    if (!n->audio_avail || n->audio_avail(&v) != 0) return -1;
+    if (!N(p)->audio_avail || N(p)->audio_avail(&v) != 0) return -1;
     return v;
 }
 
-int gf_ndl_flush(gf_ndl *n) { return n->flush ? n->flush() : -2; }
+static int ndl_flush(gf_pipe *p) { return N(p)->flush ? N(p)->flush() : -2; }
 
-int gf_ndl_set_hdr(gf_ndl *n, const gf_hdr *h) {
-    if (!n->set_hdr) return -2;
-    struct hdr_info i;
-    memcpy(i.v, h, sizeof i.v);
-    return n->set_hdr(i);
-}
+static int ndl_set_state(gf_pipe *p, int foreground) { return N(p)->set_state(foreground ? 0 : 1); }
 
-int gf_ndl_set_drop_threshold(gf_ndl *n, int threshold) { return n->set_drop ? n->set_drop(threshold) : -2; }
+static int ndl_area(gf_pipe *p, int x, int y, int w, int h) { return N(p)->set_area ? N(p)->set_area(x, y, w, h) : -2; }
 
-int gf_ndl_set_state(gf_ndl *n, int foreground) { return n->set_state(foreground ? 0 : 1); }
-
-int gf_ndl_area(gf_ndl *n, int x, int y, int w, int h) { return n->set_area ? n->set_area(x, y, w, h) : -2; }
-
-void gf_ndl_stop(gf_ndl *n) {
+static void ndl_stop(gf_pipe *p) {
+    struct gf_ndl *n = N(p);
     if (n->loaded) n->unload();
     n->loaded = 0;
     if (n->started) n->quit();
@@ -258,23 +282,25 @@ void gf_ndl_stop(gf_ndl *n) {
     g_ndl = NULL;
 }
 
-void gf_ndl_free(gf_ndl *n) {
+static void ndl_free(gf_pipe *p) {
+    struct gf_ndl *n = N(p);
     if (!n) return;
-    if (n->started) gf_ndl_stop(n);
+    if (n->started) ndl_stop(p);
     if (n->dl_fin) n->dl_fin();
     /* no dlclose: LG's libraries start threads and register with the bus; they are not written to be unloaded */
     if (n->efd >= 0) close(n->efd);
     free(n);
 }
 
-int gf_ndl_event_fd(const gf_ndl *n) { return n->efd; }
+static int ndl_event_fd(const gf_pipe *p) { return N(p)->efd; }
 
-void gf_ndl_event_clear(gf_ndl *n) {
+static void ndl_event_clear(gf_pipe *p) {
     uint64_t v;
-    if (read(n->efd, &v, sizeof v) < 0) { /* nothing pending */ }
+    if (read(N(p)->efd, &v, sizeof v) < 0) { /* nothing pending */ }
 }
 
-int gf_ndl_next_event(gf_ndl *n, int *type, long long *num, char *text, size_t cap) {
+static int ndl_next_event(gf_pipe *p, int *type, long long *num, char *text, size_t cap) {
+    struct gf_ndl *n = N(p);
     lock(n);
     int got = n->count > 0;
     if (got) {
@@ -286,4 +312,33 @@ int gf_ndl_next_event(gf_ndl *n, int *type, long long *num, char *text, size_t c
     }
     unlock(n);
     return got;
+}
+
+const gf_pipe_ops gf_ndl_ops = {
+    .name = "ndl",
+    .open_lib = ndl_open_lib,
+    .lib_name = ndl_lib_name,
+    .features = ndl_features,
+    .start = ndl_start,
+    .feed_video = ndl_feed_video,
+    .feed_audio = ndl_feed_audio,
+    .queued = ndl_queued,
+    .audio_avail = ndl_audio_avail,
+    .flush = ndl_flush,
+    .set_hdr = ndl_set_hdr,
+    .set_drop_threshold = ndl_set_drop_threshold,
+    .set_state = ndl_set_state,
+    .area = ndl_area,
+    .stop = ndl_stop,
+    .free = ndl_free,
+    .event_fd = ndl_event_fd,
+    .event_clear = ndl_event_clear,
+    .next_event = ndl_next_event,
+    .error = ndl_error,
+};
+
+const gf_pipe_ops *gf_pipe_named(const char *name) {
+    if (!name || !*name || !strcmp(name, "ndl")) return &gf_ndl_ops;
+    if (!strcmp(name, "smp")) return &gf_smp_ops;
+    return NULL;
 }

@@ -19,6 +19,8 @@ pub const STATE: u8 = 6;
 pub const PING: u8 = 8;
 pub const APP: u8 = 9;
 pub const TEXTURE: u8 = 10;
+pub const PIPE: u8 = 11;
+pub const SINK: u8 = 12;
 pub const LOADED: u8 = 16;
 pub const EVENT: u8 = 17;
 pub const ACCEPT: u8 = 18;
@@ -386,6 +388,18 @@ impl Client {
     /// The app id NDL is opened for from the next load on; empty is the window's own (`GF_APP`).
     pub fn send_app(&mut self, app: &str) -> io::Result<()> {
         self.send(APP, app.as_bytes())
+    }
+
+    /// The library the next load runs in (`GF_PIPE`): `ndl`, the cloud game's, or `smp`, the starfish pipeline an app's own video has, the one that can take the
+    /// sub window (`gfn/feeder/src/gf_pipe.h`).
+    pub fn send_pipe(&mut self, pipe: &str) -> io::Result<()> {
+        self.send(PIPE, pipe.as_bytes())
+    }
+
+    /// The video sink the next load asks for (`GF_SINK`): empty for the main window as every pipeline gets, `sub_video` for the sub window beside an app's
+    /// video (the starfish pipeline only).
+    pub fn send_sink(&mut self, sink: &str) -> io::Result<()> {
+        self.send(SINK, sink.as_bytes())
     }
 
     /// The picture of the next load is decoded in the feeder and painted into its window's buffers at `width` x `height` (`GF_TEXTURE`); 0 x 0 is the

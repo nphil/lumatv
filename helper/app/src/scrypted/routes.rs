@@ -8,7 +8,7 @@
 //! | `GET /v1/cameras/{id}/recordings?from=&to=`, `/events?from=&to=&count=`, `/clips?from=&to=&count=` | the bridge's own JSON for the span |
 //! | `GET /v1/cameras/{id}/thumbnail?at=&w=&h=`, `/clip-thumbnail?clip=&w=&h=` | a picture of a recorded moment or a clip |
 //! | `GET /v1/cameras/events/{event}/thumbnail?w=&h=` | the picture of a pushed event |
-//! | `POST /v1/cameras/live {camera, quality?, for?, popup?, window?}` | starts live; the state is the `cameras.live` topic; a new camera ends the old session. `quality` is `native` (the camera's own stream), `balanced` (`medium`) or `light` (`low`). `for: "popup"` is a camera pop-up's picture: a stream inside the sub window's limits, in the feeder's `cameras.popupWindow` window, the decoder opened for the app the compositor's `window` (`main`, `sub`) says; `window: "texture"` is the CPU path, the low stream (up to 720p at 30, H.264); `popup` is the card's id, for the log. `for: "full"` is the Cameras full view on a video window (`window` `main` by default): the camera's own stream, up to 4K at its own rate |
+//! | `POST /v1/cameras/live {camera, quality?, for?, popup?, window?}` | starts live; the state is the `cameras.live` topic; a new camera ends the old session. `quality` is `native` (the camera's own stream), `balanced` (`medium`) or `light` (`low`). `for: "popup"` is a camera pop-up's picture: a stream inside the sub window's limits, in the feeder's `cameras.popupWindow` window, the decoder opened for Home (`cameras.ndlApp`); `window: "sub"` (the compositor granted the sub window beside an app's video) loads it in the starfish pipeline asking for the sub sink; `window: "texture"` is the CPU path, the low stream (up to 720p at 30, H.264); `popup` is the card's id, for the log. `for: "full"` is the Cameras full view on a video window (`window` `main` by default): the camera's own stream, up to 4K at its own rate |
 //! | `POST /v1/cameras/playback {camera, at, rate?}` or `{camera, clip}` | starts a recording or a clip |
 //! | `POST /v1/cameras/live/stop` | stops live or playback (the pipeline unloads off this path) |
 //! | `POST /v1/cameras/live/pause {paused}` | holds the picture of a recording (Play dials it again where it stopped) |
@@ -46,24 +46,20 @@ struct Usage {
     window: String,
     /// The compositor gave the picture a texture, not a window: the feeder decodes it and paints its window (`live::Plan::texture`).
     texture: bool,
+    /// The compositor gave the picture the sub window beside an app's video: the starfish pipeline asking for the sub sink (`live::Plan::sub`).
+    sub: bool,
     /// The quality asked for (`native`, `balanced`, `light`), for the log.
     quality: String,
 }
 
-/// The app the decoder is opened for (`cameras.ndlApp`) where the compositor gave the picture `window` (`main` or `sub`): the video window is no app on
-/// SAM's foreground list, so over the display's main window it plays for Home, which is in front; `own` is the window's own id.
-fn ndl_app_for(setting: &str, window: &str) -> String {
+/// The app the decoder is opened for (`cameras.ndlApp`): the video window is no app on SAM's foreground list, so over the display's main window it plays
+/// for Home, which is in front, and beside an app's video for Home too, which the compositor lists beside the app while the claim holds the sub window
+/// (its `ctl vwin fg` app, Home unless told otherwise); `own` is the window's own id.
+fn ndl_app_for(setting: &str) -> String {
     let plain = |id: &str| !id.is_empty() && id.len() <= 100 && id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'));
     match setting {
         "own" => String::new(),
-        "home" => HOME_APP.to_owned(),
-        "auto" | "" => {
-            if window == "sub" {
-                String::new()
-            } else {
-                HOME_APP.to_owned()
-            }
-        }
+        "home" | "auto" | "" => HOME_APP.to_owned(),
         id if plain(id) => id.to_owned(),
         _ => HOME_APP.to_owned(),
     }
@@ -563,6 +559,7 @@ impl Inner {
             rate: dial.rate,
             ndl_app: usage.ndl_app,
             texture: usage.texture,
+            sub: usage.sub,
             purpose: usage.purpose,
             window: usage.window,
             on_end: end_session(&dial),
@@ -612,9 +609,10 @@ impl Inner {
                 let quality = if texture { "light".to_owned() } else { quality };
                 let usage = Usage {
                     purpose,
-                    ndl_app: ndl_app_for(&self.config.ndl_app, window),
+                    ndl_app: ndl_app_for(&self.config.ndl_app),
                     window: self.config.popup_window.clone(),
                     texture,
+                    sub: window == "sub",
                     quality: quality.clone(),
                 };
                 self.start_stream_for(&camera, Mode::Live, usage, |bridge| {
@@ -632,9 +630,10 @@ impl Inner {
                 }
                 let usage = Usage {
                     purpose: "full view".to_owned(),
-                    ndl_app: ndl_app_for(&self.config.ndl_app, window),
+                    ndl_app: ndl_app_for(&self.config.ndl_app),
                     window: self.config.popup_window.clone(),
                     texture: false,
+                    sub: window == "sub",
                     quality: quality.clone(),
                 };
                 self.start_stream_for(&camera, Mode::Live, usage, |bridge| {
@@ -810,12 +809,12 @@ mod tests {
     }
 
     #[test]
-    fn the_decoder_is_opened_for_home_over_the_main_window_and_for_its_own_id_beside_one() {
-        assert_eq!(ndl_app_for("auto", "main"), HOME_APP);
-        assert_eq!(ndl_app_for("auto", "sub"), "");
-        assert_eq!(ndl_app_for("own", "main"), "");
-        assert_eq!(ndl_app_for("home", "sub"), HOME_APP);
-        assert_eq!(ndl_app_for("org.example.app", "main"), "org.example.app");
-        assert_eq!(ndl_app_for("bad id!", "main"), HOME_APP);
+    fn the_decoder_is_opened_for_home_in_either_window_unless_the_setting_names_an_app() {
+        assert_eq!(ndl_app_for("auto"), HOME_APP);
+        assert_eq!(ndl_app_for(""), HOME_APP);
+        assert_eq!(ndl_app_for("own"), "");
+        assert_eq!(ndl_app_for("home"), HOME_APP);
+        assert_eq!(ndl_app_for("org.example.app"), "org.example.app");
+        assert_eq!(ndl_app_for("bad id!"), HOME_APP);
     }
 }

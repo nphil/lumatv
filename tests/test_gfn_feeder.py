@@ -33,6 +33,7 @@ from fake_wayland import FakeCompositor  # noqa: E402
 BIN = os.path.join(FEEDER, "build", "host", "lumatv-gfn-feeder")
 ARM = os.path.join(FEEDER, "build", "arm", "lumatv-gfn-feeder")
 NDL = os.path.join(FEEDER, "build", "host", "libNDL_directmedia.so.1")
+SMP = os.path.join(FEEDER, "build", "host", "libplayerAPIs.so.1")
 STREAMS = os.path.join(ROOT, "gfn", "build", "streams")
 DECODERS = os.path.join(FEEDER, "build", "host", "lib")
 YUV_TEST = os.path.join(FEEDER, "build", "host", "yuv_test")
@@ -45,11 +46,12 @@ DROP = struct.Struct("<qii")
 EVENT = struct.Struct("<iiq")
 STATUS = struct.Struct("<5Q4I2I2II2I2III")
 HELLO = struct.Struct("<4I32s64s")
-GF = dict(LOAD=1, VIDEO=2, AUDIO=3, FLUSH=4, UNLOAD=5, STATE=6, HDR=7, PING=8, APP=9, TEXTURE=10, LOADED=16, EVENT=17, ACCEPT=18, DROP=19, STATUS=20, ERROR=21, PONG=22, HELLO=23)
+GF = dict(LOAD=1, VIDEO=2, AUDIO=3, FLUSH=4, UNLOAD=5, STATE=6, HDR=7, PING=8, APP=9, TEXTURE=10, PIPE=11, SINK=12, LOADED=16, EVENT=17, ACCEPT=18, DROP=19, STATUS=20, ERROR=21,
+          PONG=22, HELLO=23)
 
 
 def build():
-    if os.path.exists(BIN) and os.path.exists(NDL) and os.path.exists(ARM):
+    if os.path.exists(BIN) and os.path.exists(NDL) and os.path.exists(SMP) and os.path.exists(ARM):
         newest = max(os.path.getmtime(os.path.join(FEEDER, d, f)) for d in ("src", "tests") for f in os.listdir(os.path.join(FEEDER, d)))
         if os.path.getmtime(BIN) >= newest:
             return True
@@ -501,6 +503,88 @@ class Serve(unittest.TestCase):
             self.assertIn("Unload", log)
             self.assertNotIn("VIOLATION", log)
             self.assertFalse(os.path.exists(sock))
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            err.close()
+            fc.close()
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_the_starfish_pipeline_takes_the_sub_window_load_and_ndl_the_next(self):
+        """`GF_PIPE smp` and `GF_SINK sub_video` before a load: the load goes to LG's starfish library (its stand-in) asking for the sub sink, without game
+        mode, with the stream's own size as the ceiling, for the app named; the units are taken and the pipeline's events come back. NDL refuses a sink;
+        `GF_PIPE ndl` puts the next load back on it."""
+        tmp = tempfile.mkdtemp(prefix="gfn-feeder-smp-")
+        sock = os.path.join(tmp, "feed.sock")
+        ndl_log, smp_log = os.path.join(tmp, "ndl.log"), os.path.join(tmp, "smp.log")
+        fc = FakeCompositor()
+        env = dict(os.environ, **fc.env(), LD_LIBRARY_PATH=os.path.dirname(NDL), FAKE_NDL_LOG=ndl_log, FAKE_SMP_LOG=smp_log)
+        err = open(os.path.join(tmp, "feeder.log"), "w")
+        proc = subprocess.Popen([BIN, "--serve", sock, "--once", "-L", NDL, "-w", "video", "-a", "org.test.cameras", "--stats", os.path.join(tmp, "stats.jsonl")],
+                                env=env, stderr=err, stdout=subprocess.DEVNULL)
+        try:
+            c = Client(sock)
+            self.assertEqual(c.recv()[0], GF["HELLO"])
+            # NDL cannot ask for a sink: the load is refused with the reason
+            c.send(GF["SINK"], b"sub_video")
+            c.load(codec=1, w=1280, h=720, fps=30, audio=0, hdr=0, drop=-1)
+            (t, p), _ = c.until(GF["LOADED"])
+            self.assertEqual(struct.unpack_from("<i", p)[0], 0, p)
+            self.assertIn(b"NDL cannot ask for the sub_video sink", p)
+            # the starfish pipeline, for Home, the sub sink
+            c.send(GF["PIPE"], b"smp")
+            c.send(GF["APP"], b"com.webos.app.home")
+            c.load(codec=1, w=1280, h=720, fps=30, audio=0, hdr=0, drop=-1)
+            (t, p), _ = c.until(GF["LOADED"])
+            self.assertEqual(struct.unpack_from("<i", p)[0], 1, p)
+            t0 = 1_000_000_000
+            for i in range(12):
+                c.send(GF["VIDEO"], MEDIA_HEAD.pack(t0 + i * 33_333_333, 1 if i == 0 else 0) + bytes([0, 0, 0, 1, 0x65]) + bytes(60))
+            seen, accepted, events = {}, 0, []
+            deadline = time.time() + 5
+            while time.time() < deadline and (accepted < 12 or 22 not in events or 26 not in events):
+                t, p = c.recv()
+                seen[t] = p
+                if t == GF["ACCEPT"]:
+                    accepted += 1
+                elif t == GF["EVENT"]:
+                    events.append(EVENT.unpack_from(p)[0])
+            self.assertEqual(accepted, 12)
+            self.assertIn(22, events, "LOADCOMPLETED")
+            self.assertIn(26, events, "PLAYING")
+            c.send(GF["STATE"], b"\x00")
+            c.send(GF["UNLOAD"])
+            time.sleep(0.3)
+            log = open(smp_log).read()
+            load_line = next(l for l in log.splitlines() if l.startswith("Load "))
+            payload = json.loads(load_line[5:])
+            opt = payload["args"][0]["option"]
+            self.assertEqual(payload["args"][0]["mediaTransportType"], "BUFFERSTREAM")
+            self.assertEqual(opt["avSink"], {"videoSink": {"type": "sub_video"}})
+            self.assertEqual(opt["appId"], "com.webos.app.home")
+            self.assertTrue(opt["windowId"].startswith("_Window_Id_"), opt)
+            self.assertEqual(opt["adaptiveStreaming"], {"audioOnly": False, "maxWidth": 1280, "maxHeight": 720, "maxFrameRate": 30})
+            self.assertEqual(opt["externalStreamingInfo"]["contents"]["codec"], {"video": "H264"})
+            self.assertNotIn("lowDelayMode", opt)
+            self.assertNotIn("videoInfo", opt, "no game mode: the pipeline must not occupy the sub scaler for itself")
+            self.assertLess(log.index("notifyForeground"), log.index("Load "))
+            self.assertIn("Play", log)
+            self.assertEqual(log.count('"esData":1'), 12)
+            self.assertIn("notifyBackground", log)
+            self.assertIn("Unload", log)
+            self.assertNotIn("Load", open(ndl_log).read() if os.path.exists(ndl_log) else "", "NDL saw no load")
+            # back to NDL for the next load, on the main window
+            c.send(GF["PIPE"], b"ndl")
+            c.send(GF["SINK"], b"")
+            c.load(codec=1, w=1280, h=720, fps=30, audio=0, hdr=0, drop=-1)
+            (t, p), _ = c.until(GF["LOADED"])
+            self.assertEqual(struct.unpack_from("<i", p)[0], 1, p)
+            c.send(GF["UNLOAD"])
+            time.sleep(0.3)
+            self.assertIn("Load", open(ndl_log).read())
+            c.close()
+            proc.wait(timeout=10)
+            self.assertEqual(proc.returncode, 0)
         finally:
             if proc.poll() is None:
                 proc.kill()
