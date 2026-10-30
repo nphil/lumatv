@@ -351,10 +351,6 @@ pub struct CamerasConfig {
     pub ndl_app: String,
     /// Whether a camera pop-up plays live video where the compositor gives it a window. Off: it shows stills only.
     pub popup_live: bool,
-    /// Camera video in the display's main window plays as a direct video (a frame-drop threshold on the decoder), which fixes the display rate at 60
-    /// and so keeps the panel at 120 Hz under a 25 or 50 fps camera instead of LG's switch to 100 Hz that no later video undoes. Off: the decoder's
-    /// own pacing, and the frame-rate watcher's return on Home is the only thing that puts the panel back.
-    pub direct_video: bool,
     /// `POST /v1/cameras/event` makes a pop-up as a detector would, for the TV check and the tests. Off: the route refuses.
     pub test_events: bool,
 }
@@ -372,7 +368,6 @@ impl Default for CamerasConfig {
             popup_window: "video".to_owned(),
             ndl_app: "auto".to_owned(),
             popup_live: true,
-            direct_video: true,
             test_events: false,
         }
     }

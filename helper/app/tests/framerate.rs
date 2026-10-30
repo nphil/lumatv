@@ -270,7 +270,7 @@ fn the_watcher_is_off_when_the_config_says_so_or_the_set_has_no_lever() {
 }
 
 #[test]
-fn the_end_of_a_camera_stream_over_home_is_a_check_without_any_foreground_change() {
+fn a_camera_stream_over_home_is_put_back_while_it_plays_and_its_end_is_a_check_too() {
     let dir = tempfile::tempdir().unwrap();
     let set = FakeSet::new(dir.path());
     let ctx = ctx(dir.path(), &set.program, json!({}));
@@ -286,17 +286,26 @@ fn the_end_of_a_camera_stream_over_home_is_a_check_without_any_foreground_change
     thread::sleep(QUIET);
     assert!(set.writes().is_empty());
 
-    // A pop-up's 25 fps stream re-times the panel; Home never leaves the front. While it plays nothing is written.
+    // A pop-up's 25 fps stream re-times the panel at its first frame; Home never leaves the front. Once it plays, the rate is written with the
+    // source still connected (the firmware took no request without one on the set).
     set.window("VDEC");
     set.rate(100.0);
     ctx.hub.set("cameras.live", json!({"state": "playing"}));
+    assert!(wait_until(WAIT, || set.writes() == [true]), "{:?}", set.writes());
     thread::sleep(QUIET);
-    assert!(set.writes().is_empty(), "nothing is written while a source is connected");
+    assert_eq!(set.writes(), [true], "written once");
 
-    // The stream ends and its window closes: the panel is put back, with no source connected.
+    // The stream ends and its window closes at 120 Hz: nothing is left to do.
     set.window("NONE");
     ctx.hub.set("cameras.live", json!({"state": "idle"}));
-    assert!(wait_until(WAIT, || set.writes() == [false]), "{:?}", set.writes());
+    thread::sleep(QUIET);
+    assert_eq!(set.writes(), [true]);
+
+    // A stream that ended with the panel left at 100 Hz (its start was not seen) is put back once its window is closed.
+    set.rate(100.0);
+    ctx.hub.set("cameras.live", json!({"state": "asking"}));
+    ctx.hub.set("cameras.live", json!({"state": "failed"}));
+    assert!(wait_until(WAIT, || set.writes() == [true, false]), "{:?}", set.writes());
 
     ctx.stop.request();
     tx.send(Cmd::Stop).unwrap();

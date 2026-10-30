@@ -9,15 +9,14 @@
 //! When SAM reports Home in front, one check runs: the output is measured (the `osd_irq` count over 0.5 s); at 100 Hz the watcher
 //! waits until no source is connected to the main window (`connect_src=NONE` in the scaler's status), measures again, writes
 //! `1 60` to `/proc/lg/de/fr_rate` (free run at the 60 family, 120 Hz on this panel), measures once more and logs what it found.
-//! Nothing is ever written while a source is connected. The screen coming on with Home in front is a check too, and so is the end of a
-//! camera stream (`cameras.live` idle or failed): a pop-up on Home leaves the panel at 100 Hz with Home in front all along.
+//! Nothing is written while a source is connected, with one exception. The screen coming on with Home in front is a check too, and so is
+//! the end of a camera stream (`cameras.live` idle or failed): a pop-up on Home leaves the panel at 100 Hz with Home in front all along.
 //!
-//! Free run, not `0 60`: the kernel's own request for a 24, 30 or 60 fps source is `0 60`, and it takes effect because the display
-//! clock oscillator then tracks that source's frame clock. With no source it tracks nothing, and a `0 60` written on the set left the
-//! output at 99.9 Hz (Frames120, 2026-10-30, from 04:42 on, "wrote 0 60 ... but the output measures 99.9 Hz"); only a playing video
-//! put 120 back. Free run (`isForceFreeRun`) switches the tracking off (`MCU_DE_IO_SetFrRate`: `VIDEO_CTRL_TRACE_DCO_FCW` false), so the
-//! sync set for the 60 family runs on the display's own clock. The kernel's next request (a video's first frame) switches tracking on
-//! again. [INFERENCE: read from LG's source, not yet seen on the set.]
+//! The exception: when a camera stream starts to play with Home in front (`cameras.live` playing), the check waits a second for the
+//! kernel's re-timing at the stream's first frame and, at 100 Hz, writes at once with the source connected. Round 22 (2026-10-30): five
+//! variants of the request (`0 60`, `1 60`, `0 50`, `1 50`) written with no source connected left the output at 100 Hz, and only a playing
+//! 30/60 fps video put 120 back, so the firmware seems to take the request only with a window connected [INFERENCE, tested next]. The
+//! kernel re-sends its own only at a timing change, which a steady stream does not have. The rate is free run (`1 60`).
 //!
 //! The price: at the next video's connect the kernel applies the rate still held in the decoder's register (the 25/50 video's), so
 //! that start goes to 100 Hz and back within its first frames, under the app's video mute and the firmware's start mute.
@@ -85,6 +84,8 @@ pub enum Cmd {
     /// A camera video ended (`cameras.live` went idle or failed): its decoder may have left the panel at 100 Hz with Home in front all along, which
     /// no foreground change says.
     VideoEnded,
+    /// A camera video began to play (`cameras.live` went to playing): the kernel re-times the panel for a 25 or 50 fps stream at its first frame.
+    VideoPlaying,
     Stop,
 }
 
@@ -248,11 +249,15 @@ enum Phase {
     },
 }
 
-/// One check: measure, wait until no source is connected, measure again, write, measure.
+/// One check: measure, wait until no source is connected, measure again, write, measure. A check made for a camera stream that plays
+/// (`Check::playing`) writes at once while the source is connected: with no source the firmware did not take the request on the set (round 22:
+/// five writes at 100 Hz with no window, none changed the output), and the kernel only re-sends its own at a timing change, which a steady
+/// stream does not have.
 #[derive(Debug)]
 pub struct Check {
     phase: Phase,
     unsettled: u32,
+    playing: bool,
 }
 
 impl Default for Check {
@@ -282,6 +287,15 @@ impl Check {
         Self {
             phase: Phase::First(None),
             unsettled: 0,
+            playing: false,
+        }
+    }
+
+    /// A check for a camera stream that has begun to play with Home in front.
+    pub fn playing() -> Self {
+        Self {
+            playing: true,
+            ..Self::new()
         }
     }
 
@@ -299,8 +313,17 @@ impl Check {
                             let connected = panel.window_connected()?;
                             crate::log_info!(
                                 "frame rate: Home measures {hz:.1} Hz{}",
-                                if connected { "; a source is still connected to the main window, waiting for it to close" } else { "; no source connected" }
+                                if connected { " with a source connected to the main window" } else { " with no source connected" }
                             );
+                            if self.playing && connected {
+                                panel.set_120()?;
+                                self.phase = Phase::Verify {
+                                    wrote: now,
+                                    before: hz,
+                                    from: None,
+                                };
+                                return Ok(Step::Again(SETTLE));
+                            }
                             self.phase = Phase::AwaitClosed(now);
                         }
                         None => return Ok(self.unsettled(hz)),
@@ -464,6 +487,11 @@ pub fn live_ended(view: &Value) -> bool {
     matches!(view.get("state").and_then(Value::as_str), Some("idle" | "failed"))
 }
 
+/// Whether a `cameras.live` view says a stream plays.
+pub fn live_playing(view: &Value) -> bool {
+    view.get("state").and_then(Value::as_str) == Some("playing")
+}
+
 /// Tells the watcher when a camera stream ends. A pop-up on Home is a 25 or 50 fps video the kernel re-times the panel for, and Home never left the
 /// front, so SAM's foreground subscription has nothing to say about it.
 fn watch_live(ctx: &Ctx, tx: Sender<Cmd>) -> std::io::Result<JoinHandle<()>> {
@@ -475,11 +503,23 @@ fn watch_live(ctx: &Ctx, tx: Sender<Cmd>) -> std::io::Result<JoinHandle<()>> {
             let topics = [LIVE_TOPIC.to_owned()];
             let boot = hub.boot();
             let mut seq = hub.events_after(None, Some(boot), Some(&topics[..])).seq;
+            let mut playing = false;
             while !stop.is_set() {
                 let batch = hub.wait_events(Some(seq), Some(boot), Some(&topics[..]), LIVE_WAIT);
                 seq = batch.seq;
-                if batch.events.iter().any(|e| live_ended(&e.data)) && tx.send(Cmd::VideoEnded).is_err() {
-                    break;
+                for event in &batch.events {
+                    let now_playing = live_playing(&event.data);
+                    let sent = if now_playing && !playing {
+                        tx.send(Cmd::VideoPlaying)
+                    } else if live_ended(&event.data) {
+                        tx.send(Cmd::VideoEnded)
+                    } else {
+                        Ok(())
+                    };
+                    playing = now_playing;
+                    if sent.is_err() {
+                        return;
+                    }
                 }
             }
         })
@@ -489,10 +529,10 @@ fn report(outcome: Outcome) {
     match outcome {
         Outcome::Already(hz) => crate::log_debug!("frame rate: Home at {hz:.1} Hz"),
         Outcome::Returned { before, after } if band(after) == Some(120) => crate::log_info!(
-            "frame rate: Home was left at {before:.1} Hz with no video window open; set back to 120 Hz ({after:.1} Hz measured)"
+            "frame rate: Home was left at {before:.1} Hz; set back to 120 Hz ({after:.1} Hz measured)"
         ),
         Outcome::Returned { before, after } => crate::log_warn!(
-            "frame rate: wrote 1 60 to fr_rate with Home in front at {before:.1} Hz and no video window, but the output measures {after:.1} Hz"
+            "frame rate: wrote 1 60 to fr_rate with Home in front at {before:.1} Hz, but the output measures {after:.1} Hz"
         ),
         Outcome::Unknown(hz) => {
             crate::log_info!(
@@ -608,6 +648,13 @@ fn run(ctx: &Ctx, sources: Sources, tx: &Sender<Cmd>, rx: &Receiver<Cmd>) {
                     check = None;
                 }
                 screen_on = on;
+            }
+            Ok(Cmd::VideoPlaying) => {
+                if home && screen_on {
+                    check = Some(Check::playing());
+                    // the kernel re-times the panel at the stream's first frame, which a state of "playing" follows
+                    next_step = Instant::now() + Duration::from_millis(1000);
+                }
             }
             Ok(Cmd::VideoEnded) => {
                 if home && screen_on && check.is_none() {

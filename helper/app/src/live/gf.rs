@@ -344,7 +344,7 @@ impl Client {
         self.stream.write_all(&buf)
     }
 
-    pub fn send_load(&mut self, codec: u32, width: u32, height: u32, fps: u32, drop_threshold: i32) -> io::Result<()> {
+    pub fn send_load(&mut self, codec: u32, width: u32, height: u32, fps: u32) -> io::Result<()> {
         let load = Load {
             codec,
             width,
@@ -355,7 +355,7 @@ impl Client {
             sample_rate: 0,
             hdr: 0,
             hdr_info: Hdr::default(),
-            drop_threshold,
+            drop_threshold: -1,
             pts_unit: PTS_NS,
         };
         self.send(LOAD, bytes_of(&load))
@@ -493,7 +493,7 @@ mod tests {
         let head: MediaHead = read_struct(&payload).unwrap();
         assert_eq!((head.pts_ns, head.key), (1_000_000_000, 1));
         assert_eq!(&payload[16..], &[0, 0, 0, 1, 0x65]);
-        client.send_load(CODEC_H264, 1280, 720, 15, -1).unwrap();
+        client.send_load(CODEC_H264, 1280, 720, 15).unwrap();
         let (kind, payload) = read_frame(&mut b).unwrap();
         assert_eq!((kind, payload.len()), (LOAD, 100));
         let load: Load = read_struct(&payload).unwrap();

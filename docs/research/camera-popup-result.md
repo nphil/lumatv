@@ -53,7 +53,7 @@ The card fades and does not slide: its glass is four clipped bands around the ho
 
 Helper `cameras`: `popupLive` (true), `popupWindow` (`video`, the full view keeps `feederWindow`), `ndlApp` (`auto`: Home's id for the main window, the window's own for the sub one; `home`, `own` or an id), `testEvents` (false). Pop-up kinds follow the design (person, doorbell); a camera named like a pet or a cat has `animal` on too. The Home Assistant camera path is not in the helper (removed in `55fa00b5`); it is to come back as a source choice.
 
-`directVideo` (true): the main window's camera load runs as a direct video, so a 25 fps camera does not re-time the panel to 100 Hz. Back from the full view raises the app (`POST /v1/front`, journal `front: ...`) instead of launching it. Both: `vwin-refresh-result.md`.
+Back from the full view raises the app (`POST /v1/front`, journal `front: ...`) instead of launching it, which reloaded YouTube at its start page. A 25 fps camera in the main window re-times the panel to 100 Hz; the helper writes the rate back while it plays: `vwin-refresh-result.md`.
 
 Helper log, one line per decision: `cameras: pop-up N for KIND on NAME (... source scrypted, S s[, a test][, live video where a window is free|, stills only])`, `cameras: KIND on NAME (...) makes no pop-up: <reason>`, `cameras: live for pop-up N on camera C: CODEC WxH at F a second declared, window ..., decoder opened for ...`, and at its end `... ended: first picture after X ms, N pictures in S s = F a second`. The feeder's own log is `<run dir>/feeder.log`. Compositor: `vwin: claim X's video is held at ... not ...: placed again (n)`.
 
