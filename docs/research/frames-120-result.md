@@ -47,6 +47,10 @@ On forge main:
 - **Settings covers Home** (`Home::set_under_modal`, `Shell::after`): once Settings' sheets have faded in (at once from 100 Hz) Home's cards, dock and status bar
   step back as they do for the Apps library, and are back the moment Settings closes. The host's Settings step has 10-14 layers fewer (its Home has no dock tiles;
   the set's has 70-odd), and the picture is the same to the eye (cards showed faintly through the 96 % sheets and in the gutters).
+- **Settings' rail walked fast makes the page it comes to** (`SettingsSurface::page_waits`): a step within 200 ms of the last page made, with the focus on the rail,
+  waits until the rail has rested 120 ms; the first step after a rest, a step into the page and a tab make their page at once. On the host a fast walk (8 steps 60 ms
+  apart) draws 21.5 Mpx in 11 heavy frames where it drew 30.7 Mpx in 25, and ends on the same page; a walk of deliberate steps (400 ms) is unchanged
+  (`tests/test_settings_rail.py`, `page_waits` unit test).
 
 Next, in order:
 
@@ -55,8 +59,8 @@ Next, in order:
    60 fps video for a few seconds does too). The `dropped` line says "the compositor's own count". Rings:
    `/tmp/perf/gate-c4shell[-120]-<surface>-m<i>.ring.json` (`perf/ringsum.py FILE`). Expected at 120 Hz: settings-scroll well under the 192, the panels as they were.
 2. The rest is layers: a frame of more than 80 of them is a late frame at 120 Hz. In order of weight: the first frames of a panel open (cold layers: 12-13 ms for the first
-   two; made hidden ahead and shown a frame later, or fewer layers), the page change of Settings (the list is released and made again for each step of the rail:
-   100 layers made, deleted and drawn new every 60 ms; debounced until the rail rests, or its rows kept), Home as one picture while a panel fades over it.
+   two; made hidden ahead and shown a frame later, or fewer layers), the page change of Settings when it is made (the list is released and made again: 100 layers made,
+   deleted and drawn new; its rows could be kept), Home as one picture while a panel fades over it.
    `LUMASHOW_PROFILE=sync` in the compositor's environment prints the time of each part of a frame and what made cached backdrops stale (`render/src/profile.rs`).
 3. The panel stays at 100 Hz after a camera pop-up: fixed on the helper side by a2cdf659 (not mine); the gate flags it (`panel_refresh`).
 

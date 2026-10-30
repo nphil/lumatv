@@ -102,6 +102,13 @@ struct Built {
     over_video: bool,
 }
 
+/// Another step of the rail within this long of the last page made again is a walk of the rail, not a choice of a page: the page waits for the rail to rest. A
+/// page is a hundred layers made and drawn new, 10-16 ms of GPU at the set (round 22's 120 Hz ring: 60 of a cycle's 64 missed refreshes were the steps of the
+/// rail, one a 60 ms), and the person is looking at the rail.
+const RAIL_RAPID_MS: u64 = 200;
+/// How long the rail rests before the page that waited is made.
+const RAIL_REST_MS: u64 = 120;
+
 pub struct SettingsSurface {
     z: i32,
     built: Option<Built>,
@@ -114,12 +121,18 @@ pub struct SettingsSurface {
     /// The ids of the page's rows in the order the model last gave them, for the pointer's targets.
     row_ids: Vec<String>,
     view: Option<View>,
+    /// The id of the page on screen, the id of the page the model last named and when it named it, when a page was last made (ms), and when the page that
+    /// waits for the rail to rest is made.
+    page_shown: Option<String>,
+    page_named: Option<(String, u64)>,
+    page_made_at: u64,
+    page_due: Option<u64>,
 }
 
 impl SettingsSurface {
     /// `system_z` is where stack 1 begins; Settings draws in its own band over it ([`z::SETTINGS`]).
     pub fn new(system_z: i32) -> Self {
-        SettingsSurface { z: system_z + z::SETTINGS, built: None, pointer: Pointer::new(), hover: None, last_xy: (0.0, 0.0), buttons: 0, closing_at: None, row_ids: Vec::new(), view: None }
+        SettingsSurface { z: system_z + z::SETTINGS, built: None, pointer: Pointer::new(), hover: None, last_xy: (0.0, 0.0), buttons: 0, closing_at: None, row_ids: Vec::new(), view: None, page_shown: None, page_named: None, page_made_at: 0, page_due: None }
     }
 
     pub fn is_up(&self) -> bool {
@@ -129,19 +142,47 @@ impl SettingsSurface {
     /// Everything is made again at the next draw (the look or the text size changed).
     pub fn restyle(&mut self) {
         self.built = None;
+        self.page_shown = None;
+        self.page_named = None;
+        self.page_due = None;
     }
 
     pub fn due_at(&self) -> Option<u64> {
-        self.closing_at
+        [self.closing_at, self.page_due].into_iter().flatten().min()
     }
 
-    /// The fade out is over: the layers go.
+    /// The fade out is over: the layers go. The rail has rested: the page it chose is made.
     pub fn tick(&mut self, engine: &mut Engine, now: u64) -> bool {
         if self.closing_at.is_some_and(|at| now >= at) {
             self.closing_at = None;
             self.drop_all(engine);
             return true;
         }
+        self.page_tick(now)
+    }
+
+    /// The rail has rested: the frame that makes the page it chose is asked for, once.
+    fn page_tick(&mut self, now: u64) -> bool {
+        let due = self.page_due.is_some_and(|at| now >= at);
+        if due {
+            self.page_due = None;
+        }
+        due
+    }
+
+    /// Whether the page the model names waits: another page than the one on screen, the rail walking (it has the focus, and it moved on within
+    /// [`RAIL_RAPID_MS`] of the last page made), and not yet at rest for [`RAIL_REST_MS`]. The first step after a rest makes its page at once.
+    fn page_waits(&mut self, view: &View, page: &PageView, now: u64) -> bool {
+        if self.page_named.as_ref().is_none_or(|(id, _)| *id != page.id) {
+            self.page_named = Some((page.id.clone(), now));
+        }
+        let named_at = self.page_named.as_ref().map_or(now, |(_, t)| *t);
+        let other = self.page_shown.as_deref().is_some_and(|shown| shown != page.id);
+        if other && view.zone == Zone::Rail && now < self.page_made_at + RAIL_RAPID_MS && now < named_at + RAIL_REST_MS {
+            self.page_due = Some(named_at + RAIL_REST_MS);
+            return true;
+        }
+        self.page_due = None;
         false
     }
 
@@ -163,6 +204,9 @@ impl SettingsSurface {
         self.row_ids.clear();
         self.view = None;
         self.hover = None;
+        self.page_shown = None;
+        self.page_named = None;
+        self.page_due = None;
     }
 
     /// The rectangle of the page's pane and the rail's, for the host's checks of the picture.
@@ -243,7 +287,15 @@ impl SettingsSurface {
         }
         // the page
         match &view.page {
-            Some(page) => self.page(kit, engine, view, page, hover, now_ns)?,
+            Some(page) => {
+                if !self.page_waits(view, page, now) {
+                    self.page(kit, engine, view, page, hover, now_ns)?;
+                    if self.page_shown.as_deref() != Some(page.id.as_str()) {
+                        self.page_shown = Some(page.id.clone());
+                        self.page_made_at = now;
+                    }
+                }
+            }
             None => {
                 let b = self.built.as_mut().expect("built");
                 if let Some(l) = &mut b.list {
@@ -653,4 +705,70 @@ fn make_chevron(kit: &mut Kit, paint: &Paint, side: u32, up: bool, z: i32) -> st
     layer.pixels_mut().copy_from_slice(&px);
     layer.damage(None);
     Ok(Some(layer))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settings::view::Bar;
+
+    fn page(id: &str) -> PageView {
+        PageView {
+            id: id.into(),
+            title: String::new(),
+            subtitle: String::new(),
+            back: None,
+            chip: None,
+            tabs: Vec::new(),
+            tab: 0,
+            rows: Vec::new(),
+            stop: StopView::None,
+            seg: 0,
+            active: false,
+            figure: None,
+        }
+    }
+
+    fn view(zone: Zone) -> View {
+        View { open: true, zone, bar: Bar { title: String::new(), clock: String::new(), wired: false, link: false }, rail: Vec::new(), page: None, sheet: None, hints: Vec::new() }
+    }
+
+    /// Round 22's 120 Hz ring: 60 of a Settings walk's 64 missed refreshes were the steps of the rail, each a page of a hundred layers made and drawn new.
+    #[test]
+    fn a_page_waits_for_a_rail_that_is_walking_and_not_for_the_first_step_or_a_step_into_the_page() {
+        let mut s = SettingsSurface::new(0);
+        s.page_shown = Some("picture".into());
+        s.page_made_at = 1_000;
+        // the first step after a rest: its page at once
+        assert!(!s.page_waits(&view(Zone::Rail), &page("sound"), 1_300));
+        s.page_shown = Some("sound".into());
+        s.page_made_at = 1_300;
+        // the steps that follow within 200 ms of it wait for the rail to rest, and each moves the end of the rest on
+        assert!(s.page_waits(&view(Zone::Rail), &page("inputs"), 1_360));
+        assert_eq!(s.page_due, Some(1_360 + RAIL_REST_MS));
+        assert!(s.page_waits(&view(Zone::Rail), &page("network"), 1_420));
+        assert_eq!(s.due_at(), Some(1_420 + RAIL_REST_MS), "a tick of its own for the page");
+        // the rail has rested: the page it came to is made
+        assert!(!s.page_waits(&view(Zone::Rail), &page("network"), 1_420 + RAIL_REST_MS));
+        assert_eq!(s.page_due, None);
+        s.page_shown = Some("network".into());
+        s.page_made_at = 1_540;
+        // a step into the page is a choice of it: at once, and so is any page when the last was made long ago
+        assert!(!s.page_waits(&view(Zone::Page), &page("ambient"), 1_560));
+        assert!(!s.page_waits(&view(Zone::Rail), &page("ambient"), 1_900));
+        // the page on screen is the one named: nothing waits
+        s.page_shown = Some("ambient".into());
+        assert!(!s.page_waits(&view(Zone::Rail), &page("ambient"), 1_950));
+    }
+
+    #[test]
+    fn the_wait_for_the_rail_is_a_tick_that_asks_for_a_frame_once() {
+        let mut s = SettingsSurface::new(0);
+        s.page_due = Some(2_000);
+        assert_eq!(s.due_at(), Some(2_000));
+        assert!(!s.page_tick(1_999));
+        assert!(s.page_tick(2_000), "the frame that makes the page");
+        assert!(!s.page_tick(2_001));
+        assert_eq!(s.due_at(), None);
+    }
 }
