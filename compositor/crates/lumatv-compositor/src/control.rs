@@ -11,6 +11,8 @@ use crate::State;
 use crate::capture::write_png;
 
 pub const SOCKET_NAME: &str = "lumatv-control";
+/// The longest tail of the trace ring `ctl ring` answers on the loop's own thread (about 150 KB): a longer one goes to a thread that waits for its reader.
+const RING_INLINE_LINES: usize = 1500;
 
 pub fn socket_path(runtime_dir: &Path) -> PathBuf {
     runtime_dir.join(SOCKET_NAME)
@@ -369,6 +371,10 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
         "ring" => {
             let n = words.next().and_then(|w| w.parse::<usize>().ok()).unwrap_or(40);
             if crate::ring::is_open() {
+                if n > RING_INLINE_LINES {
+                    // Hundreds of KB do not fit the socket's buffer, and the loop writes without waiting: a thread answers, waiting for the reader.
+                    return Reply::Later(Box::new(move || json!({"ok": true, "lines": crate::ring::tail(n)}).to_string()));
+                }
                 json!({"ok": true, "lines": crate::ring::tail(n)})
             } else {
                 json!({"ok": false, "error": "no trace ring (--ring off)"})

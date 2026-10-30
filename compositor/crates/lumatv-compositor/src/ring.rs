@@ -29,8 +29,9 @@ use parking_lot::Mutex;
 
 pub const MAGIC: &[u8; 8] = b"LTVRING1";
 pub const HEADER: usize = 64;
-/// The text area of the compositor's own ring: about 25 s of the busiest trace, minutes of an idle one.
-pub const SIZE: usize = 192 * 1024;
+/// The text area of the compositor's own ring: about 25 s of the busiest trace at 120 Hz (a frame writes a `D`, an `L` and an `F` line, about 250 bytes),
+/// 50 s at 60, minutes of an idle one. The supervisor keeps up to `RING_MAX` (1 MiB) of it in a crash bundle.
+pub const SIZE: usize = 768 * 1024;
 /// The ring's file in the runtime directory; the supervisor looks for it there.
 pub const FILE_NAME: &str = "lumatv-trace.ring";
 pub const LINE_MAX: usize = 200;

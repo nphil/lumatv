@@ -147,6 +147,16 @@ def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
                     c[int(m.group(6))] += 1
         sm_pid = c.most_common(1)[0][0] if c else -1
 
+    # LumaTV's compositor is a child of the supervisor that `pidof surface-manager` names, run under its private loader (its threads are called
+    # `ld-linux-aarch6`); the supervisor's few runs say nothing of frames. `capture.sh start` writes the compositor's own process id, its loop
+    # thread's, into the trace as `loop N` (LG's surface-manager is its own loop: the same pid as --sm): that is the thread whose renders are read.
+    for e in ev:
+        if e[2] == 'tracing_mark_write':
+            m = re.match(r'loop (\d+)\s*$', e[5].strip())
+            if m:
+                sm_pid = int(m.group(1))
+                break
+
     # The kernel waits behind each late frame (kwait.py): the D-state intervals of the compositor's thread and of the threads it waited
     # for, labelled from the kernel stacks the capture's trigger left. A trace without scheduler events (a basic capture) has none.
     kctx = None

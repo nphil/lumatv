@@ -59,6 +59,7 @@ import sys
 import time
 
 import kwait
+import ringsum
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 # The tool is not on the set's PATH.
@@ -207,6 +208,11 @@ NUMBER_KEYS = {'number-keys': True, 'quick-access': False}      # what a surface
 # The compositor's own account of its transitions (`ctl transitions`, docs/research/transitions-result.md): the counters a surface that launches an app
 # reads before and after its measured cycles. The tool is the one the bundle carries (LOADGEN's loader and library path).
 CTL_TRANSITIONS = '/tmp/lumatv/lib/ld-linux-aarch64.so.1 --library-path /tmp/lumatv/lib /tmp/lumatv/bin/lumatv-compositor ctl --runtime-dir /tmp/xdg transitions'
+# The compositor's trace ring (`ctl ring N`, src/ring.rs): a line a frame drawn (`D`: render time, owed pixels, UI draws and layers), a line a flip (`L`: the
+# draw's cost to the GPU's finish, what the pacer made of it). The gate keeps the ring of every cycle it measures (<name>.ring.json beside the trace) and
+# prints its numbers (ringsum.py); the ring (768 KiB of text) holds about 50 s of the busiest frames at 60 Hz and 25 s at 120.
+CTL_RING = CTL_TRANSITIONS.rsplit(' ', 1)[0] + ' ring'
+RING_LINES = 8000
 
 # A page of LumaTV's Settings from its rail: Right enters it, Down held (the remote's own repeat: a move at the press and one every 100 ms from 300 ms on, 6 in 800 ms) and Up held walk its list, Back
 # is the rail again. Left and Right inside a page change a slider or a segment, so neither is pressed there.
@@ -805,10 +811,18 @@ def _worst(values):
     return max(vals) if vals else None
 
 
+def render_limits(th):
+    """The render-time limits under LumaTV's compositor. analyse.py reads the render time off the compositor's own loop thread there (the `loop` marker of the
+    trace; the supervisor `pidof surface-manager` names runs 0.5 ms a frame whatever is drawn), and that is one stage of a frame that is two deep: it may take
+    half a refresh (8.3 ms at 60 Hz, 4.2 at 120), where the 3 ms of the Qt clients' GUI thread was set for 60."""
+    half = 500.0 / REFRESH_HZ
+    return {k: None if th[k] is None else max(th[k], half * (4.0 / 3.0 if k == 'p90_window_ms' else 1.0)) for k in ('p90_render_ms', 'p90_window_ms')}
+
+
 def evaluate_windows(s, report, cycles, lg_compositor=False):
     """Checks for one surface from an analyse.py report that holds `cycles` cycles (windows of
     several captures concatenated)."""
-    th = s['thresholds']
+    th = s['thresholds'] if lg_compositor else dict(s['thresholds'], **render_limits(s['thresholds']))
     opens = [w for w in report['windows'] if w['name'] == f"{s['name']}-open"]
     closes = [w for w in report['windows'] if w['name'] == f"{s['name']}-close"]
     keyed = opens + (closes if s['transition'] else [])
@@ -1108,6 +1122,20 @@ class Rig:
         except (ValueError, KeyError, TypeError):
             raise RuntimeError(f'ctl transitions answered {out.strip()[:80]!r}')
 
+    def save_ring(self, name):
+        """The compositor's trace ring as it stands (a cycle's own: taken before the next one), into <name>.ring.json beside the trace. The path, or None
+        under LG's compositor (it has no ring) or when the set answered no ring."""
+        if self.lg_compositor():
+            return None
+        rc, out, _ = self.sh(f'{CTL_RING} {RING_LINES}', timeout=60)
+        if rc != 0 or '"lines"' not in out:
+            return None
+        os.makedirs(self.run.LOCAL, exist_ok=True)
+        path = f'{self.run.LOCAL}/{name}.ring.json'
+        with open(path, 'w') as f:
+            f.write(out)
+        return path
+
     def set_motion(self, enabled):
         """Switch the wallpaper's 10 Hz tick; Home reads the file every 2 s, so wait 3."""
         self.sh(TOOL + ' theme set ' + shlex.quote(json.dumps({'wallpaperMotion': {'enabled': bool(enabled)}})))
@@ -1258,7 +1286,7 @@ def annotate_shows(report, text, name):
 def run_surface(rig, s, tag, soak_cycles, log):
     base = f'gate-{tag}-{s["name"]}'
     res = {'name': s['name'], 'checks': [], 'traces': [], 'windows': [], 'log_lines': [], 'log_ignored': 0,
-           'log_unfiltered': False, 'rss': None, 'discarded': [], 'slides': []}
+           'log_unfiltered': False, 'rss': None, 'discarded': [], 'slides': [], 'rings': []}
     checks = res['checks']
     pid0 = rig.compositor_pid()
     saved = []
@@ -1290,11 +1318,14 @@ def run_surface(rig, s, tag, soak_cycles, log):
                 name = f'{base}-m{i}' + (f'-r{attempt}' if attempt else '')
                 res['traces'].append(name)
                 rig.capture(name, 'full')
-                trace = None
+                trace = ring = None
                 try:
                     rc, _, err = rig.sh(cycle_command(s, n), timeout=3600)
+                    ring = rig.save_ring(name)
                 finally:
                     trace, _sysfile = rig.stop(name)
+                if ring:
+                    res['rings'].append(ringsum.line(name, ringsum.summarize(ringsum.load(ring))))
                 if rc != 0:
                     checks.append(check('keys', False, rc, '== 0', f'kb.py exited {rc}: {err.strip()}'))
                 one = rig.analyse(name)
@@ -1401,6 +1432,8 @@ def run_gate(rig, surfaces, soak_cycles, tag, log=None, load=None, load_seconds=
                 now = want
             r = run_surface(rig, s, tag, soak_cycles, log)
             print(format_lines([r]), flush=True)
+            for ring_line in r.get('rings', []):
+                print(ring_line, flush=True)
             late = kwait_lines([r])
             if late:
                 print(late, flush=True)
