@@ -2,6 +2,67 @@
 
 ## Resume here
 
+On forge main (round 24's engine work):
+
+- `91589d0f` **Home from one picture.** The engine keeps stack 0 (Home) whole in a render target of its own, the floor (`rustui/render/src/host.rs`): a
+  frame draws into it what Home changed, and a page gets Home as one copy of it in each rectangle it owes. A panel or Settings moving over a Home that
+  stands draws its own layers and one copy, not Home's 70-90 in every pass, and the floor is current whenever Home shows, so an opening's first frames
+  only copy it. The panels' sheets have no backdrop of their own (`kit::pane`: tint only): their first frames were Home drawn again under the dim, which
+  appears over the whole screen, once for each page of the ring. The compositor also merges a page's rectangles where one pass over the engine's layers
+  costs less (`Engine::merge_areas`, the floor counted as one layer). Settings no longer covers Home (5a4d3f65 undone): under the floor Home costs one copy,
+  and the cover cost a whole frame as Settings opened and closed. The toast's `burst_end` limit is 300 ms (its slide is 220 ms).
+- `f14f87dd` **Pages copy what they owe.** A composed frame copies from the page drawn last what its page owes from the frames before (a framebuffer blit)
+  and draws only what it changed (`kms::frames`): a whole-screen change is one frame of drawing and two copies, not three frames of it.
+  `LUMATV_FLOOR=0` and `LUMATV_PAGE_COPY=0` in the compositor's environment (`surface-manager.env`) switch either off.
+- The host harness draws its pages as the compositor does (two stacks at the shell's `system_z`, the ring, the copies) and keeps its own time with
+  `--virtual` (one refresh a frame, however slow the host). `tests/host_budget.py` measures each gate surface that way; `test_frame_budget` holds quick,
+  picker and settings-scroll to 80 layers a frame at 120 Hz and every frame to the same frame drawn whole.
+
+The most layers one frame drew on the host (`tests/host_budget.py`: Home with its feeds, wallpaper motion and the weather's sprites off as the gate has
+them), with the floor and the copies off (`LUMATV_FLOOR=0 LUMATV_PAGE_COPY=0`) and on, and the GPU estimate at 1.5 ms + 0.085 ms a layer:
+
+| Surface | 120 Hz off | 120 Hz on | 60 Hz off | 60 Hz on |
+|---|---|---|---|---|
+| quick | 112 (11.0 ms) | 36 (4.6 ms) | 122 | 36 |
+| picker | 98 (9.8 ms) | 11 (2.4 ms) | 100 | 11 |
+| settings-scroll | 175 (16.4 ms) | 68 (7.3 ms) | 160 | 75 |
+| home-widgets | 115 (11.3 ms) | 119 (11.6 ms) | 115 | 119 |
+| toast | 25 | 12 | 25 | 12 |
+
+The set's Home and Settings have more layers than the host's (round 22: Home 70-87 in a frame, a Settings frame 87 of its own), so its frames are
+heavier by about that much.
+
+Of the plan, two items were not done:
+
+- **Settings keeping its page rows.** A page change draws the page's layers whether its rows are made new or kept: the cost is the layers a frame's
+  passes draw, not how new they are. With the copies a page change is one frame (68 layers on the host at 120 Hz), not three.
+- **home-widgets' dim as one layer.** Whatever changes in stack 0 is drawn again into the floor with everything under it, so a dim layer there costs what
+  the cards' restyles cost. A dim layer over the floor (stack 1) would cost two layers but is another look (it darkens, where the cards' 86 % opacity
+  shows the wallpaper through) and would sit over an app when Home is not in front. The focus entering the cards is one frame now (119 layers on the
+  host: the cards and the dock with what is under them), not three. The look or group pictures in the engine is the owner's call.
+
+TV check list (both gates, pop-ups off):
+
+1. Install forge main at `f14f87dd` or later; the compositor's and ui's md5 equal the build.
+2. Pop-ups off (`popups.on false`), the receiver muted.
+3. 60 Hz: `python3 compositor/tools/tv_gate.py --only frames --frames-quick`; `panel_refresh` 59.9 on every surface before anything else.
+4. 120 Hz: the same with `--refresh 120`; `panel_refresh` 119.9 on every surface.
+5. Against round 23 per surface: `dropped` for quick, picker, settings-scroll, apps-grid and home-widgets; toast `burst_end` under 300 ms.
+6. Rings (`perf/ringsum.py /tmp/perf/gate-c4shell[-120]-<surface>-m<i>.ring.json`): a panel's and Settings' frames at about 80 `layers` or fewer; after a
+   whole-screen change one heavy frame and light ones, not three heavy ones.
+7. By eye: Home under the quick panel, the picker and Settings (the cards faintly through the sheets, as before 5a4d3f65) and after each closes; a toast
+   and the volume over a playing app.
+8. Compositor log: no `page copy: GL error`. Its memory is about 8 MB more while Home shows (the floor).
+9. Anything wrong: `LUMATV_FLOOR=0` or `LUMATV_PAGE_COPY=0` in `surface-manager.env` and a compositor restart (the owner's step) tell the two apart.
+
+Next, in order:
+
+1. The TV round above.
+2. home-widgets' focus-enter dim (the owner's call above); apps-grid (the library is Home's own layers, stack 0, so the floor does not cover its frames).
+3. Re-check after any change: `python3 tests/host_budget.py --refresh 120` on the host, then the gates on the set; rings as in 6.
+
+## Rounds 22 and 23
+
 On forge main:
 
 - `8642b179`, `85ac5a6d` the gate's measurement: `analyse.py` read the supervisor, not the compositor, and took the compositor's 0.1 ms wakeups for renders; render
@@ -70,16 +131,6 @@ On forge main:
     10-19 ms), the rail's page steps and the page changes. Not reachable at 8.3 ms without the engine's help (a backdrop made ahead, Home as one picture under a fading panel).
   - The toast's burst is its own slide (220 ms, the layer beat) against the gate's 180 ms limit for the burst end: it failed so in round 21 too (241-253 ms). The limit or the beat is
     the owner's to choose; nothing here moves it.
-
-Next, in order:
-
-1. Decide the toast's burst limit (or its beat), and whether 120 Hz is a gate or a test mode: at 120 Hz a panel's first frames cannot hold 8.3 ms with the glass captured in the frame.
-2. The structural work, by weight: a panel's backdrop made ahead (`Scene::prepare_backdrop` makes a set between frames, as Home's wallpaper backdrop is) instead of captured in the
-   first frame; Home as one picture while a panel or Settings fades over it (the engine redraws every layer under a changing alpha); Settings' page build (about 100 layers made and drawn
-   new: its rows could be kept); the cards' dim as one veil or a cheaper pose. `LUMASHOW_PROFILE=sync` in the compositor's environment prints the time of each part of a frame and what made
-   cached backdrops stale (`rustui/render/src/profile.rs`): one run on the set with it would say what a panel's first frame spends.
-3. Re-check after any change: `python3 compositor/tools/tv_gate.py --only frames --frames-quick`, then with `--refresh 120`; read `panel_refresh` first. Rings:
-   `/tmp/perf/gate-c4shell[-120]-<surface>-m<i>.ring.json` (`perf/ringsum.py FILE`); the in-motion drops by window are `ringsum.motion_drops`.
 
 ## What the gate said, and what it measured
 

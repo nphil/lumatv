@@ -11,9 +11,10 @@
 //!             [--theme JSON] [--log FILE] [--reference] [--refresh HZ] [--virtual]
 //!
 //! The host's engine draws its pages the way the compositor on the set does: two stacks split at `--system-z` (Home under it,
-//! the system layer over it), stack 0 from its floor, each page only where it owes, at the panel's refresh (`--refresh`, 60). With
-//! `--virtual` the harness keeps its own time, one refresh a frame however long a frame takes to draw here: each frame is then what one
-//! refresh of the set draws, which is what a measurement of a frame's layers needs (`tests/host_frames.py`).
+//! the system layer over it), stack 0 from its floor, a page copying from the last what it owes from the frames before and drawing
+//! what changed, at the panel's refresh (`--refresh`, 60). With `--virtual` the harness keeps its own time, one refresh a frame
+//! however long a frame takes to draw here: each frame is then what one refresh of the set draws, which is what a measurement of a
+//! frame's layers needs (`tests/host_budget.py`).
 //!
 //! Host output lines: `[report] <json>` (what went to `POST /v1/ui`), `[luna] <json>`, `[helper] <json>`, `[eval] <json>`,
 //! `[frames] LABEL N`, `shot FILE`, `[frame] ...` per frame with `--log`, and `RESULT frames N gpu mean/max us ...` at the end.
