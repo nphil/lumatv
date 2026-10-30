@@ -1,0 +1,166 @@
+power state: active
+home stub before the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+LumaTV's compositor before the run: persistent
+avr: muted
+already mounted; 'cutover.sh status' says what runs
+
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 430270 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+evidence: 2 subscription(s) from SAM, 6 client lines, 12 loop stalls, 2 watchdog lines
+
+already mounted; 'cutover.sh status' says what runs
+
+GATE live-frames: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 430009 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+GATE refresh: measured hz 120 divider 1 shell 120 over 10 s: OSD flips/s 120.2, DE2VSYNC/s 120.8, osd_irq/s 120.2; compositor: "intervals":{"more":0,"one":1446,"three":0,"two":1,"worst_ms":16.677} "frames":{"late":0,"lost":0,"missed":1,"n":1447} "pipeline_ms":{"max":7.72446,"p50":2.5,"p99":6.25} flips/s 119.89183865742366; mali busy 12.2 %; temperature 57; slides (steps/ms/for): none
+
+GATE wake: reset
+
+/max 2.4/6.0/17.8 ms, late 12 lost 284 missed 1, 42 flips over 10 ms after the one before
+gate-c4shell-120-settings-scroll-m1-r2: 2309 frames drawn, render p50/p90/max 785/1558/3555 us, owed p50/p90/max 97280/609280/2073600 px (12 rects at most), ui draws p50/max 26/219, layers p50/max 18/142; 2243 flips, draw to GPU done p50/p90/max 2.5/5.6/18.4 ms, late 11 lost 291 missed 2, 47 flips over 10 ms after the one before
+gate-c4shell-120-settings-scroll-m2: 2316 frames drawn, render p50/p90/max 787/1502/3734 us, owed p50/p90/max 92416/645120/2073600 px (12 rects at most), ui draws p50/max 28/210, layers p50/max 20/139; 2253 flips, draw to GPU done p50/p90/max 2.5/5.6/18.9 ms, late 13 lost 290 missed 5, 49 flips over 10 ms after the one before
+gate-c4shell-120-settings-scroll-m2-r1: 2338 frames drawn, render p50/p90/max 766/1488/3446 us, owed p50/p90/max 97280/650752/2073600 px (12 rects at most), ui draws p50/max 26/205, layers p50/max 18/134; 2278 flips, draw to GPU done p50/p90/max 2.4/5.7/19.4 ms, late 8 lost 289 missed 3, 48 flips over 10 ms after the one before
+gate-c4shell-120-settings-scroll-m2-r2: 2314 frames drawn, render p50/p90/max 782/1493/3974 us, owed p50/p90/max 92416/650752/2073600 px (12 rects at most), ui draws p50/max 27/199, layers p50/max 19/128; 2255 flips, draw to GPU done p50/p90/max 2.5/5.9/18.8 ms, late 15 lost 290 missed 4, 51 flips over 10 ms after the one before
+settings-scroll: kernel waits: 57 late frame(s): 0 kernel-caused, 0 waiting for a CPU, 57 unexplained
+    settings-scroll-open +0.002 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    settings-scroll-open +0.018 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    settings-scroll-open +0.035 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    settings-scroll-open +0.06 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    settings-scroll-open +0.094 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    settings-scroll-open +0.594 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    settings-scroll-open +3.513 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    settings-scroll-open +3.538 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    settings-scroll-open +3.563 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    settings-scroll-open +3.588 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    settings-scroll-open +3.613 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    settings-scroll-open +3.638 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    ... 45 more late frames
+PASS  apps-grid       launch_path           none  ()  com.webos.app.discovery: the dock's tile 1, number key (evdev 2)
+PASS  apps-grid       windows                3/3  (== 3)
+PASS  apps-grid       panel_refresh       119.90  (120 Hz +-8 %)
+PASS  apps-grid       first_frame_ms        5.33  (<= 50)
+PASS  apps-grid       p90_render_ms         2.47  (< 4.16667)  317 frames
+PASS  apps-grid       p90_window_ms         2.56  (< 5.55556)  worst single window
+FAIL  apps-grid       dropped                  3  (<= 0)  the compositor's own count over 1402 flips after a frame of a motion (the trace read 8)
+FAIL  apps-grid       burst_over20             3  (<= 0)
+PASS  apps-grid       rss_growth_mb         0.00  (<= 1.01)  466 -> 466 pages over 1 cycles
+PASS  apps-grid       switches_restored number-keys, quick-access  (as found)
+PASS  apps-grid       log_errors               0  (== 0)
+PASS  apps-grid       compositor_pid       11175  (== 11175)
+gate-c4shell-120-apps-grid-m0: 2123 frames drawn, render p50/p90/max 879/1476/5185 us, owed p50/p90/max 107264/948736/2073600 px (12 rects at most), ui draws p50/max 29/188, layers p50/max 19/128; 2072 flips, draw to GPU done p50/p90/max 3.0/6.1/14.2 ms, late 10 lost 241 missed 2, 33 flips over 10 ms after the one before
+gate-c4shell-120-apps-grid-m0-r1: 2347 frames drawn, render p50/p90/max 732/910/3646 us, owed p50/p90/max 92416/891648/2073600 px (9 rects at most), ui draws p50/max 23/155, layers p50/max 15/74; 2340 flips, draw to GPU done p50/p90/max 2.3/4.5/12.9 ms, late 9 lost 366 missed 2, 37 flips over 10 ms after the one before
+gate-c4shell-120-apps-grid-m0-r2: 2346 frames drawn, render p50/p90/max 729/903/2060 us, owed p50/p90/max 92416/891648/2073600 px (9 rects at most), ui draws p50/max 24/155, layers p50/max 16/74; 2344 flips, draw to GPU done p50/p90/max 2.4/4.4/9.8 ms, late 4 lost 367 missed 5, 37 flips over 10 ms after the one before
+gate-c4shell-120-apps-grid-m1: 2324 frames drawn, render p50/p90/max 734/905/2010 us, owed p50/p90/max 92416/891648/2073600 px (9 rects at most), ui draws p50/max 23/155, layers p50/max 15/74; 2322 flips, draw to GPU done p50/p90/max 2.4/4.4/9.8 ms, late 6 lost 364 missed 3, 40 flips over 10 ms after the one before
+gate-c4shell-120-apps-grid-m1-r1: 2351 frames drawn, render p50/p90/max 725/903/1973 us, owed p50/p90/max 92416/891648/2073600 px (9 rects at most), ui draws p50/max 23/155, layers p50/max 15/74; 2348 flips, draw to GPU done p50/p90/max 2.3/4.4/9.8 ms, late 7 lost 360 missed 3, 43 flips over 10 ms after the one before
+gate-c4shell-120-apps-grid-m1-r2: 2339 frames drawn, render p50/p90/max 730/902/1932 us, owed p50/p90/max 92416/891648/2073600 px (9 rects at most), ui draws p50/max 23/155, layers p50/max 15/74; 2335 flips, draw to GPU done p50/p90/max 2.4/4.4/9.3 ms, late 5 lost 362 missed 4, 41 flips over 10 ms after the one before
+gate-c4shell-120-apps-grid-m2: 2368 frames drawn, render p50/p90/max 723/910/2832 us, owed p50/p90/max 92416/891648/2073600 px (9 rects at most), ui draws p50/max 24/155, layers p50/max 16/74; 2365 flips, draw to GPU done p50/p90/max 2.3/4.4/9.8 ms, late 4 lost 366 missed 2, 38 flips over 10 ms after the one before
+gate-c4shell-120-apps-grid-m2-r1: 2342 frames drawn, render p50/p90/max 729/915/2832 us, owed p50/p90/max 92416/891648/2073600 px (9 rects at most), ui draws p50/max 23/155, layers p50/max 15/74; 2339 flips, draw to GPU done p50/p90/max 2.4/4.4/9.8 ms, late 6 lost 364 missed 2, 38 flips over 10 ms after the one before
+gate-c4shell-120-apps-grid-m2-r2: 2351 frames drawn, render p50/p90/max 728/908/1949 us, owed p50/p90/max 92416/891648/2073600 px (9 rects at most), ui draws p50/max 23/155, layers p50/max 15/74; 2348 flips, draw to GPU done p50/p90/max 2.3/4.4/10.2 ms, late 9 lost 364 missed 1, 37 flips over 10 ms after the one before
+apps-grid: kernel waits: 53 late frame(s): 0 kernel-caused, 0 waiting for a CPU, 53 unexplained
+    apps-grid-open +0.126 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    apps-grid-open +3.412 s: 41.7 ms (overrun 25.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    apps-grid-open +3.454 s: 66.7 ms (overrun 50.1): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    apps-grid-open +3.521 s: 108.4 ms (overrun 91.8): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    apps-grid-open +3.629 s: 58.4 ms (overrun 41.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    apps-grid-open +3.688 s: 141.8 ms (overrun 125.1): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    apps-grid-open +3.83 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    apps-grid-open +3.846 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    apps-grid-open +3.863 s: 125.1 ms (overrun 108.4): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    apps-grid-open +3.988 s: 41.7 ms (overrun 25.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    apps-grid-open +4.03 s: 158.5 ms (overrun 141.8): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    apps-grid-open +4.188 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    ... 41 more late frames
+PASS  home-widgets    windows                3/3  (== 3)
+PASS  home-widgets    panel_refresh       119.90  (120 Hz +-8 %)
+PASS  home-widgets    first_frame_ms        5.98  (<= 50)
+PASS  home-widgets    p90_render_ms         2.47  (< 4.16667)  534 frames
+PASS  home-widgets    p90_window_ms         2.51  (< 5.55556)  worst single window
+PASS  home-widgets    dropped                  0  (<= 0)  the compositor's own count over 2397 flips after a frame of a motion (the trace read 0)
+PASS  home-widgets    burst_over20             0  (<= 0)
+PASS  home-widgets    rss_growth_mb         0.00  (<= 1.01)  466 -> 466 pages over 1 cycles
+PASS  home-widgets    log_errors               0  (== 0)
+PASS  home-widgets    compositor_pid       11175  (== 11175)
+gate-c4shell-120-home-widgets-m0: 2357 frames drawn, render p50/p90/max 760/994/1930 us, owed p50/p90/max 92416/903168/2073600 px (12 rects at most), ui draws p50/max 26/312, layers p50/max 18/160; 2353 flips, draw to GPU done p50/p90/max 2.5/5.3/10.3 ms, late 4 lost 185 missed 1, 21 flips over 10 ms after the one before
+gate-c4shell-120-home-widgets-m0-r1: 2385 frames drawn, render p50/p90/max 752/989/1855 us, owed p50/p90/max 92416/551680/1930240 px (12 rects at most), ui draws p50/max 28/316, layers p50/max 20/164; 2380 flips, draw to GPU done p50/p90/max 2.4/4.2/10.9 ms, late 0 lost 0 missed 0, 0 flips over 10 ms after the one before
+gate-c4shell-120-home-widgets-m0-r2: 2397 frames drawn, render p50/p90/max 751/991/3058 us, owed p50/p90/max 92416/547584/1930240 px (12 rects at most), ui draws p50/max 28/316, layers p50/max 20/164; 2393 flips, draw to GPU done p50/p90/max 2.4/4.1/10.8 ms, late 0 lost 0 missed 0, 0 flips over 10 ms after the one before
+gate-c4shell-120-home-widgets-m1: 2388 frames drawn, render p50/p90/max 750/1002/3021 us, owed p50/p90/max 92416/538368/1930240 px (12 rects at most), ui draws p50/max 28/316, layers p50/max 20/164; 2383 flips, draw to GPU done p50/p90/max 2.4/4.2/10.8 ms, late 0 lost 0 missed 0, 0 flips over 10 ms after the one before
+gate-c4shell-120-home-widgets-m1-r1: 2324 frames drawn, render p50/p90/max 767/998/3418 us, owed p50/p90/max 92416/548096/1930240 px (12 rects at most), ui draws p50/max 28/316, layers p50/max 20/164; 2319 flips, draw to GPU done p50/p90/max 2.5/4.0/10.9 ms, late 0 lost 0 missed 0, 0 flips over 10 ms after the one before
+gate-c4shell-120-home-widgets-m1-r2: 2239 frames drawn, render p50/p90/max 811/1035/2886 us, owed p50/p90/max 92416/546816/1930240 px (12 rects at most), ui draws p50/max 28/309, layers p50/max 20/160; 2234 flips, draw to GPU done p50/p90/max 2.6/4.2/10.8 ms, late 0 lost 0 missed 0, 0 flips over 10 ms after the one before
+gate-c4shell-120-home-widgets-m2: 2344 frames drawn, render p50/p90/max 764/998/3113 us, owed p50/p90/max 92416/547584/1930240 px (12 rects at most), ui draws p50/max 28/316, layers p50/max 20/164; 2339 flips, draw to GPU done p50/p90/max 2.5/4.2/10.7 ms, late 0 lost 0 missed 0, 0 flips over 10 ms after the one before
+gate-c4shell-120-home-widgets-m2-r1: 2416 frames drawn, render p50/p90/max 740/991/1926 us, owed p50/p90/max 92416/538368/1930240 px (12 rects at most), ui draws p50/max 28/316, layers p50/max 20/164; 2412 flips, draw to GPU done p50/p90/max 2.4/4.2/10.6 ms, late 0 lost 0 missed 0, 0 flips over 10 ms after the one before
+gate-c4shell-120-home-widgets-m2-r2: 2443 frames drawn, render p50/p90/max 739/966/1754 us, owed p50/p90/max 92416/533504/1930240 px (12 rects at most), ui draws p50/max 28/309, layers p50/max 20/160; 2442 flips, draw to GPU done p50/p90/max 2.4/4.1/10.3 ms, late 0 lost 0 missed 0, 0 flips over 10 ms after the one before
+VERDICT FAIL
+
+GATE refresh: measured hz 120 divider 1 shell 120 over 10 s: OSD flips/s 120.2, DE2VSYNC/s 120.8, osd_irq/s 120.1; compositor: "intervals":{"more":628,"one":159605,"three":101,"two":293,"worst_ms":942.518} "frames":{"late":219,"lost":10504,"missed":55,"n":160627} "pipeline_ms":{"max":26.10132,"p50":2.5,"p99":7.75} flips/s 112.34180505799908; mali busy 12.3 %; temperature 58; slides (steps/ms/for): none
+
+GATE refresh: measured hz 60 divider 2 shell 60 over 5 s: OSD flips/s 60.2, DE2VSYNC/s 121.6, osd_irq/s 120.4; compositor: "intervals":{"more":0,"one":423,"three":0,"two":0,"worst_ms":16.704} "frames":{"late":0,"lost":0,"missed":0,"n":423} "pipeline_ms":{"max":8.7218,"p50":2.5,"p99":3.5} flips/s 59.94586405499678; mali busy 6.7 %; temperature 58; slides (steps/ms/for): none
+
+GATE wake (frames): measured tick p50 0.01 p99 0.04 max 0.56 ms (n 171363); flip p50 0.00 p99 0.04 max 0.47 ms (n 159621); input p50 0.02 p99 0.04 max 0.34 ms (n 3502); tick waited on a busy loop p50 0.14 p99 2.30 max 5.77 ms (n 4992)
+
+GATE mem: measured rss 172636 KiB, locked 788000 KiB, swapped 0 KiB, malloc mmapped blocks 0; lock: locked what is touched (MCL_CURRENT|MCL_FUTURE|MCL_ONFAULT) in 5.1 ms; VmRSS 17 MiB, MemAvailable 940 MiB, RLIMIT_MEMLOCK 64 KiB, CAP_IPC_LOCK yes; the process's limit on locked memory: 65536 65536 bytes ; set: MemAvailable 434 MiB, CmaFree 3 MiB, swap in use 599 MiB
+
+lpc-probe irq: 10 s, home; CPUs online 0-2; default affinity f
+(* named in IRQ_NAMES)  IRQ  rate/s  per-CPU counts over the run  affinity  name
+*176    270.3    2703      0      0      0  0-3       176 Level c4250000.gpu
+*178    135.1    1351      0      0      0  0-3       178 Level c4250000.gpu
+*175    129.6    1296      0      0      0  0-3       175 Edge DE2VSYNC
+*104    128.9    1289      0      0      0  0-3       104 Edge osd_irq
+*128     67.0     670      0      0      0  0-3       128 Level ohci_hcd:usb8
+*124     46.8     468      0      0      0  0-3       124 Level eth0
+*130     16.5     165      0      0      0  0-3       130 Level xhci-hcd:usb1
+ 59      12.0     120      0      0      0  0-3       59 Level fe400000.i2c
+ 60       2.0      20      0      0      0  0-3       60 Level fe500000.i2c
+ 135      1.1      11      0      0      0  0-3       135 Edge hdmicec
+ 127      1.1      11      0      0      0  0-3       127 Level mmc0
+ 113      1.1      11      0      0      0  0-3       113 Edge TE_MCU[1]
+ 112      1.1      11      0      0      0  0-3       112 Edge TE_MCU[0]
+*120      0.8       8      0      0      0  0-3       120 Edge gfx_irq
+ 183      0.5       5      0      0      0  0-3       183 Level aud1
+ 201      0.3       3      0      0      0  0-3       201 Edge ipc_vdec
+*177      0.0       0      0      0      0  0-3       177 Level c4250000.gpu
+*174      0.0       0      0      0      0  0-3       174 Edge DE2IPC
+*132      0.0       0      0      0      0  0-3       132 Level xhci-hcd:usb5
+*131      0.0       0      0      0      0  0-3       131 Level xhci-hcd:usb3
+*129      0.0       0      0      0      0  0-3       129 Level ehci_hcd:usb7
+softirq TIMER      2689   1392   2657    597
+softirq NET_RX      577     42     34      0
+softirq TASKLET    1299      0      0      0
+softirq SCHED      1631    877   1631    339
+loop thread (pid 11454) ran on: CPU0 15 %, CPU1 1 %, CPU2 61 %, CPU3 23 %, over 100 samples
+
+lpc-probe wakeups: 10 s, home
+pid 11454: 483.6 runs/s, 13.5 % CPU: mali-cmar-backe[11510] 341.1, ld-linux-aarch6[11454] 137.8 (12.6 % CPU), luna-writer[11773] 2.2, lumatv-shell-ht[11775] 1.3, lumatv-shell-ht[11774] 1.2,
+pid 12007: 204.6 runs/s, 1.2 % CPU: ld-linux-aarch6[12007] 74.0, compositor-even[12009] 66.9, ld-linux-aarch6[12014] 62.8,
+pid 12008: 44.3 runs/s, 1.6 % CPU: qml-runner[12008] 26.7 (1.5 % CPU, 52 % preempted), mali-mem-purge[12042] 11.3, mali-cmar-backe[12047] 4.9, QNetworkAccessM[12050] 1.0,
+pid 30370: 0.0 runs/s, 0.0 % CPU:
+system: 6155 interrupts/s, 10624 context switches/s
+
+callbacks: 1750 of 1860 sent ahead of their flip, 18 with their commit; clients commit
+
+umount: /usr/bin/surface-manager: target is busy.
+revert: active; mounted: no; exe: /usr/bin/surface-manager
+recover: surface-manager-daemon.service active after 0s; exe /usr/bin/surface-manager
+recover: compositor answering on the bus after 0s
+recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+recover: WebAppMgr answering after 0s (active)
+recover: Home on the panel after 0s (capture 62755 bytes)
+recover: librdx reports swept; remaining 0
+
+divider after: 2
+avr: unmuted
+{"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+
+home stub after the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+persistent enable (the state the run found): TV's compositor after 0s
+   09:07:11 recover: librdx reports swept; remaining 0
+enabled (persistent): LumaTV's compositor stays live (recovery done after 0s more); 'cutover.sh disable' restores LG's
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 430270 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE live-frames: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 430009 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE refresh: measured hz 120 divider 1 shell 120 over 10 s: OSD flips/s 120.2, DE2VSYNC/s 120.8, osd_irq/s 120.2; compositor: "intervals":{"more":0,"one":1446,"three":0,"two":1,"worst_ms":16.677} "frames":{"late":0,"lost":0,"missed":1,"n":1447} "pipeline_ms":{"max":7.72446,"p50":2.5,"p99":6.25} flips/s 119.89183865742366; mali busy 12.2 %; temperature 57; slides (steps/ms/for): none
+GATE frames at 120 Hz: FAIL home-dpad ok [first_frame 7.26 p90_render 2.04]; quick NOT dropped=7,burst_over20=7 [first_frame 11.57 burst_end 138.77 p90_render 2.67]; picker NOT dropped=6,burst_over20=6 [first_frame 7.93 burst_end 148.49 p90_render 2.09]; toast NOT burst_end_ms=1997.73 [first_frame 4.27 burst_end 1997.73 p90_render 1.84]; settings-scroll NOT dropped=47,burst_over20=53 [first_frame 3.36 p90_render 2.64]; apps-grid NOT dropped=3,burst_over20=3 [first_frame 5.33 p90_render 2.47]; home-widgets ok [first_frame 5.98 p90_render 2.47] (surfaces home-dpad,quick,picker,toast,settings-scroll,apps-grid,home-widgets, 3 cycles; /tmp/lumatv-tv-out/frames-120.json)
+GATE refresh: measured hz 120 divider 1 shell 120 over 10 s: OSD flips/s 120.2, DE2VSYNC/s 120.8, osd_irq/s 120.1; compositor: "intervals":{"more":628,"one":159605,"three":101,"two":293,"worst_ms":942.518} "frames":{"late":219,"lost":10504,"missed":55,"n":160627} "pipeline_ms":{"max":26.10132,"p50":2.5,"p99":7.75} flips/s 112.34180505799908; mali busy 12.3 %; temperature 58; slides (steps/ms/for): none
+GATE refresh: measured hz 60 divider 2 shell 60 over 5 s: OSD flips/s 60.2, DE2VSYNC/s 121.6, osd_irq/s 120.4; compositor: "intervals":{"more":0,"one":423,"three":0,"two":0,"worst_ms":16.704} "frames":{"late":0,"lost":0,"missed":0,"n":423} "pipeline_ms":{"max":8.7218,"p50":2.5,"p99":3.5} flips/s 59.94586405499678; mali busy 6.7 %; temperature 58; slides (steps/ms/for): none
+GATE wake (frames): measured tick p50 0.01 p99 0.04 max 0.56 ms (n 171363); flip p50 0.00 p99 0.04 max 0.47 ms (n 159621); input p50 0.02 p99 0.04 max 0.34 ms (n 3502); tick waited on a busy loop p50 0.14 p99 2.30 max 5.77 ms (n 4992)
+GATE mem: measured rss 172636 KiB, locked 788000 KiB, swapped 0 KiB, malloc mmapped blocks 0; lock: locked what is touched (MCL_CURRENT|MCL_FUTURE|MCL_ONFAULT) in 5.1 ms; VmRSS 17 MiB, MemAvailable 940 MiB, RLIMIT_MEMLOCK 64 KiB, CAP_IPC_LOCK yes; the process's limit on locked memory: 65536 65536 bytes ; set: MemAvailable 434 MiB, CmaFree 3 MiB, swap in use 599 MiB
+GATE: FAIL
+wrote docs/research/compositor/gate-2026-10-30.txt
