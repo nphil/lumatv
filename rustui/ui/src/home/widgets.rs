@@ -64,6 +64,13 @@ impl Words {
         self.block.is_glyph_run()
     }
 
+    /// The lines whose text is wider than their box, which the text layer cuts off at the box's edge.
+    #[cfg(test)]
+    pub fn cut(&self, kit: &mut Kit) -> Vec<String> {
+        let mut wider = |f: &Frame, s: &Style, t: &str| kit.ui.fonts.measure(t, s.ty).width.ceil() > f.w + 1.0;
+        self.lines.iter().zip(&self.texts).filter(|((f, s), t)| wider(f, s, t)).map(|(_, t)| t.clone()).collect()
+    }
+
     /// Every line that says something, as the lint takes it: its box on the screen (`origin` is where the block's own origin is) and
     /// the block's layer, which is what the compositor places.
     pub fn lint(&self, kit: &mut Kit, lint: &mut crate::kit::lint::Lint, name: &str, origin: (f32, f32), panel: Option<usize>) {

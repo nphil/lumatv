@@ -132,8 +132,8 @@ fn plan(w: f32, h: f32, data: Data) -> Plan {
     let cond = slot(0.0, y, hero_w, 36.0, if temp_px >= 96.0 { 30.0 } else { 26.0 }, Weight::Medium, Align::Left);
     y += 36.0;
     let feels = feels_on.then(|| {
-        let s = slot(0.0, y, hero_w, 30.0, 22.0, Weight::Medium, Align::Left);
-        y += 30.0;
+        let s = slot(0.0, y, hero_w, 32.0, 24.0, Weight::Medium, Align::Left);
+        y += 32.0;
         s
     });
     let hero_bottom = y;
@@ -263,7 +263,7 @@ impl Weather {
         if let Some(hr) = &p.hours {
             for i in 0..hr.n {
                 let x = hr.x + i as f32 * hr.col_w;
-                let t = push(kit, &slot(x, hr.y, hr.col_w, 26.0, 22.0, Weight::Medium, Align::Centre), &mut lines);
+                let t = push(kit, &slot(x, hr.y, hr.col_w, 28.0, 24.0, Weight::Medium, Align::Centre), &mut lines);
                 let v = push(kit, &slot(x, hr.temp_y, hr.col_w, hr.temp_px * 1.25, hr.temp_px, Weight::SemiBold, Align::Centre), &mut lines);
                 map.hours.push((t, v));
             }
@@ -271,9 +271,9 @@ impl Weather {
         if let Some(d) = &p.days {
             for i in 0..d.rows {
                 let y = d.y + i as f32 * d.row_h;
-                let name = push(kit, &slot(d.x, y, d.day_w, d.row_h, 23.0, Weight::Medium, Align::Left), &mut lines);
-                let lo = push(kit, &slot(d.x + d.day_w + d.icon + 10.0, y, d.num_w, d.row_h, 23.0, Weight::Medium, Align::Right), &mut lines);
-                let hi = push(kit, &slot(d.x + d.w - d.num_w, y, d.num_w, d.row_h, 23.0, Weight::Medium, Align::Right), &mut lines);
+                let name = push(kit, &slot(d.x, y, d.day_w, d.row_h, 24.0, Weight::Medium, Align::Left), &mut lines);
+                let lo = push(kit, &slot(d.x + d.day_w + d.icon + 10.0, y, d.num_w, d.row_h, 24.0, Weight::Medium, Align::Right), &mut lines);
+                let hi = push(kit, &slot(d.x + d.w - d.num_w, y, d.num_w, d.row_h, 24.0, Weight::Medium, Align::Right), &mut lines);
                 map.days.push((name, lo, hi));
             }
         }

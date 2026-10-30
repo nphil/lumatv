@@ -2,22 +2,18 @@
 
 ## Resume here
 
-State: work in progress, pushed to `main` in steps (see the commits of the weather redesign, "Weather card/view/radar: ..."). Code is in `rustui/ui/src/home/`:
+State: built, tested and pushed to `main` (commit "Weather card, view and radar redesigned"); what is left is the TV check below (Round22) and whatever it finds. Code is in `rustui/ui/src/home/`:
 `weather_art.rs` + `weather_sprites.rs` (the moving sky), `weather_card.rs` (the card), `weather_view.rs` (Now and Details pages), `weather_gfx.rs` (arcs, lines,
 curves for the pictures), `radar_surface.rs` + `radar_view.rs` (the radar); helper: `helper/feeds/src/weather_more.rs` and `weather_ha.rs` (ten days), `helper/app/src/wxview.rs`
-(map size). Renders: `python3 tests/render_rust_weather.py --bin <release lumatv-ui> [--only card,view,radar]` (the radar needs the helper built from this tree:
-`--helper-bin <target>/debug/lumatv-helper`), into `docs/mocks/host-rust/home/`; the art alone: `cargo run --release --example weather_art -- <dir> [light] [view]`.
+(map size). Renders: `python3 tests/render_rust_weather.py --bin <release lumatv-ui> [--only card,view,radar,sheet]` (the radar needs the helper built from this tree:
+`--helper-bin <target>/debug/lumatv-helper`; it takes the local view over a whole loop and keeps the frame with rain nearest Now), into `docs/mocks/host-rust/home/`; the before/after
+sheet is `weather-redesign-before-after.png` there; the art alone: `cargo run --release --example weather_art -- <dir> [light] [view]`.
 
-Done: art engine (stage, parallax clouds, rotating rays, rain with depth and splashes, snow with sizes and sway, storm flash and bolts, wind lines, stars and shooting stars);
-card (plan by room, sky, smart line, hours with rain bars); view (Now: sky, reading, hours, ten days; Details: tiles that draw their number); radar (map over the whole
-screen, floating controls); helper ten days.
+If the TV check finds the sky too dear: thin it in `weather_art.rs` (the `few(..)` counts of near rain, splashes and snow first, then the far sheets); if the view's window is too dear, shrink
+`Stage` in `WeatherSurface::sky`. If a page's words are cut at a large text size: `weather_view::fit` takes the first of its variants that fits, else cuts with an ellipsis; the test
+`the_weather_view_cuts_no_words_at_either_text_size_in_either_look` holds it.
 
-Next, in order: (1) host renders of every page at 100 and 200 % text, dark and light, looked at and fixed; (2) `cargo test --release -p lumatv-ui --lib weather_art::tests::cost -- --ignored
---nocapture` into the numbers below; (3) the targeted tests (`cargo test -p lumatv-ui --lib weather radar surface::tests::the_weather`, helper `cargo test -p lumatv-feeds weather`) and
-`cargo clippy -p lumatv-ui --all-targets -- -D warnings`; (4) before/after sheet; (5) TV check by Round22 (list below).
-
-Open questions: none for Nitin. TV: the moving sky is more than the old one (about 25 to 40 sprites a card, up to 44 in the view); the scene has 256 layers (Home holds 122 with the old sky),
-so the counts are held by a test (`a_picture_is_few_layers...`).
+Open questions: none for Nitin. The scene has 256 layers (Home holds 122 with the old sky, up to about 140 with the new); the counts are held by a test (`a_picture_is_few_layers...`).
 
 ## What was wrong
 
@@ -42,6 +38,10 @@ whole 1920 x 1080 with four floating controls (what is shown, in a chip tinted w
 ticks and a tint over the forecast's part; the colours' legend); a frame fades out where its coverage ends. Details are eight tiles that draw their number: the day's span with the actual and
 the felt temperature, a compass, the UV scale, 24 hours of the chance of rain, the sun's arc with its place now, a ring for the humidity, the pressure's scale.
 
+Type and fit: words are 24 px at the least (the TV's caption size) and the pages stay readable at 200 % text: the hero drops its facts, the hours and the ten days show fewer columns and rows, a
+Details line takes a shorter way of saying it before it is cut (`weather_view::fit`), and the radar's controls grow with the words to 1.3 times and are as wide as their words need (`radar_surface::Geo`).
+The page behind the view is hidden by a fully opaque scrim (the theme's is 97 %, which let Home's words show through the open sky as ghosts).
+
 Helper: `weather.more` carries ten days (`daily[].code, hi, lo`); `weather_ha` fills them from the entity's forecast; the warm radar map is 1920 x 1080.
 
 ## Motion and its cost (the contract is the old one)
@@ -51,17 +51,19 @@ The picture moves only while it is seen (Home in front with nothing over the car
 back unseen; rain and snow far away are sheets that slide one period and are put back; what is near is sprites on their own paths. The frames' damage is the stage (the card's 433 x 244;
 in the view a window of 1,160 x 620 round the hero, the tint is still).
 
-Numbers: see the last section.
+Numbers: see Numbers below.
 
 ## Tests
 
 `weather_art` (every condition at the card's and the view's stage: whole pixels at rest, premultiplied, inside the box, sheets repeat, paths continuous, crossings put back unseen,
 rings add to one light, flashes soft, layers and bytes capped), `weather_card::plan`, `weather_view` (keys, words, smart line, week, hero flow), `weather_gfx`, `radar_surface`,
-`radar_view`, the Home lint with the hours at both text sizes in both looks, the helper's ten days.
+`radar_view`, the Home lint with the hours at both text sizes in both looks, every page of the view with no word wider than its box at both text sizes in both looks, the helper's ten days.
 
-## Numbers (host, release)
+## Numbers
 
-To be filled by `cost`.
+Not measured on the workstation: the release test build for `weather_art::tests::cost` (`cargo test --release -p lumatv-ui --lib weather_art::tests::cost -- --ignored --nocapture`, which prints
+sprites, KiB of pixels and the time of one tick for every condition at the card's and the view's stage) was left for the TV check, which measures the real cost (A3, A4, B1 below). What the
+tests hold: a card's sky is at most 38 layers and 2.2 MB of pixels, the view's at most 46 layers and 6 MB.
 
 ## TV check (round 22)
 

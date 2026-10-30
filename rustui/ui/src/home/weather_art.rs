@@ -403,8 +403,9 @@ impl Builder {
         let g = glow(&low, 215.0 * size, pal.sun_glow, 0.55);
         let m = Motion { scale: self.frac(0.05, 9.0, 0.0), alpha: self.frac(0.12, 9.0, 0.0), ..self.drift(3.0 * size, 2.5 * size) };
         self.add(g, centre, 0.9, 4.0, m);
-        // the rays: a ring of twelve, made in RINGS turns of a sixth of a revolution, one fading in as the one before it fades out, so that
-        // the ring is seen to turn once in `RINGS * RING_S` seconds (a ring that is large is made at half its size and shown twice as large)
+        // the rays: a ring of twelve, made in RINGS turns across a sixth of a revolution (the pattern repeats every sixth), one fading in as the
+        // one before it fades out, so that the ring is seen to turn all the time: a sixth of a revolution every `RING_S` seconds
+        // (a ring that is large is made at half its size and shown twice as large)
         let div = if self.c.px(2.0 * 84.0 * size + 12.0) > 230.0 { 2.0 } else { 1.0 };
         let ring = self.c.low(div);
         for j in 0..RINGS {
@@ -618,8 +619,8 @@ impl Builder {
     }
 }
 
-/// The ring of the sun's rays is made in this many turns, and each is a sixth of a revolution further round than the last; a sixth of a
-/// revolution takes `RING_S` seconds.
+/// The sun's rays are made in this many turns across a sixth of a revolution (the ring of twelve repeats every sixth) and take over from
+/// one another in turn; all of them in `RING_S` seconds, so the rays turn once in six times that, 2.4 minutes.
 const RINGS: usize = 10;
 const RING_S: u32 = 24;
 

@@ -1309,6 +1309,51 @@ mod tests {
         h.update(&Input::Helper { topic: "weather.more".into(), data: json!({"doc": {"fetchedAt": 6, "hourly": hours, "daily": [], "alerts": alerts}}) }, 1002);
     }
 
+    /// A whole reading for the view's pages (the wind makes it feel colder: the longest of the Details words).
+    fn weather_page(h: &mut Home) {
+        let days: Vec<Value> = [("Today", "rain", 71, 51), ("Sat", "cloud", 73, 51), ("Sun", "rain", 62, 48), ("Mon", "partly", 66, 56), ("Tue", "drizzle", 59, 44)]
+            .iter()
+            .map(|(d, k, hi, lo)| json!({"day": d, "kind": k, "hi": format!("{hi}\u{b0}"), "lo": format!("{lo}\u{b0}")}))
+            .collect();
+        let doc = json!({"doc": {"fetchedAt": 7, "lat": 33.75, "lon": -84.39, "place": "Atlanta", "current": {"time": "2026-10-30T15:00", "temp": 61.0, "feelsLike": 57.0, "code": 63, "isDay": true, "humidity": 53.0, "windMph": 12.0},
+            "display": {"place": "Atlanta", "temp": "61\u{b0}", "cond": "Rain", "stats": "Feels like 57\u{b0} \u{b7} 53% humidity \u{b7} 12 mph", "nowKind": "rain", "days": days}}, "state": "fresh"});
+        h.update(&Input::Helper { topic: "weather".into(), data: doc }, 1006);
+        let hours: Vec<Value> = (0..24).map(|i| json!({"time": format!("2026-10-30T{:02}:00", (15 + i) % 24), "temp": 61.0 - f64::from(i % 9), "rainPct": if i < 8 { 70.0 } else { 10.0 }, "code": 63, "isDay": true, "windMph": 12.0})).collect();
+        let daily: Vec<Value> = (0..10).map(|i| json!({"date": format!("2026-11-{:02}", i + 1), "sunrise": "2026-10-30T07:41", "sunset": "2026-10-30T18:25", "uvMax": 4.0, "rainPct": 40.0, "rainIn": 0.2, "code": 61, "hi": 70.0, "lo": 50.0})).collect();
+        let more = json!({"doc": {"fetchedAt": 7, "now": {"uvIndex": 4.0, "gustMph": 24.0, "windDeg": 225.0, "pressureHpa": 1013.0, "cloudPct": 40.0, "visibilityM": 24000.0, "rainIn": 0.0}, "hourly": hours, "daily": daily,
+            "alerts": [{"event": "Flood Watch", "severity": "Moderate", "headline": "Flood Watch until Friday morning", "ends": "2026-10-31T08:00:00-04:00"}]}});
+        h.update(&Input::Helper { topic: "weather.more".into(), data: more }, 1007);
+    }
+
+    #[test]
+    fn the_weather_view_cuts_no_words_at_either_text_size_in_either_look() {
+        for mode in [Mode::Dark, Mode::Light] {
+            for scale in [1.0, 2.0] {
+                let (h, mut kit) = testkit::kit_in(mode, scale);
+                let mut engine = Engine::new(&kit).expect("an engine");
+                let theme = lumatv_tokens::Tokens::shipped().json().clone();
+                let mut home = Home::new(theme, super::super::grid::shipped(), json!({}));
+                fixtures(&mut home);
+                weather_page(&mut home);
+                for (i, key) in ["down", "right", "right", "ok"].into_iter().enumerate() {
+                    press(&mut home, key, 2000 + 100 * i as u64);
+                }
+                assert_eq!(home.layer, Layer::Weather, "{mode:?} at {scale}");
+                let mut s = HomeSurface::new(1000);
+                s.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
+                for page in 0..3u64 {
+                    if page > 0 {
+                        press(&mut home, "down", 2500 + 100 * page);
+                    }
+                    s.apply(&mut kit, &mut engine, &mut home, 2600 + 100 * page).expect("the view drawn");
+                    let cut = s.weather_view.as_ref().expect("the view is up").cut_words(&mut kit);
+                    assert!(cut.is_empty(), "{mode:?} at {scale}, page {page}: {cut:?}");
+                }
+                std::mem::forget(h);
+            }
+        }
+    }
+
     fn lint_home_with(mode: Mode, scale: f32, layout: Value, hours: bool) -> (Vec<crate::kit::lint::Finding>, usize) {
         let (h, mut kit) = testkit::kit_in(mode, scale);
         let mut engine = Engine::new(&kit).expect("an engine");

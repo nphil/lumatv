@@ -206,10 +206,26 @@ class Helper:
         shutil.rmtree(self.dir, ignore_errors=True)
 
 
-def render_radar(binary, helper, case, mode, scale, tmp, level='1', at=26000):
-    """The radar page: OK on the card, Down to the radar, the frames and the map coming from the helper; one picture when they are there."""
+def thumb_x(path):
+    """Where the time bar's thumb (the accent mark) is on a render of the radar, or None."""
+    from PIL import Image
+    px = Image.open(path).convert('RGB').load()
+    hits = []
+    for x in range(420, 1840):
+        n = sum(1 for y in range(938, 994) if (lambda p: p[2] > 170 and p[2] - p[1] > 55 and p[0] > 90)(px[x, y]))
+        if n >= 20:
+            hits.append(x)
+    return sum(hits) / len(hits) if hits else None
+
+
+def render_radar(binary, helper, case, mode, scale, tmp, level='1', at=38000):
+    """The radar page: OK on the card, Down to the radar, the frames and the map coming from the helper. The loop plays (a frame in half a second), so
+    the local view is taken many times over one loop and the render picked is the one with the thumb on the Now tick, and one in the forecast: returns
+    (now, forecast); the globe is one picture (forecast is None)."""
     SH.BIN = binary
-    name = os.path.join(tmp, 'radar-%s-%s-%s-%s.png' % (case, mode, scale or 1, level))
+    many = level == '1'
+    times = [at + i * 1100 for i in range(21)] if many else [at]
+    names = [os.path.join(tmp, 'radar-%s-%s-%s-%s-%02d.png' % (case, mode, scale or 1, level, i)) for i in range(len(times))]
     now_ms = int(time.time() * 1000)
     feeds = {"weather": reading(case, now_ms), "weather.more": more(case, now_ms)}
     # the shell's clock is the real one here, as the helper's is
@@ -220,9 +236,36 @@ def render_radar(binary, helper, case, mode, scale, tmp, level='1', at=26000):
         extra += step
     if level != '1':
         extra += H.RustHome.k(at - 4000, level)
-    extra += ['--snap', '%d:%s' % (at, name)]
-    rc, out, _, _, _ = SH.run(wait=at + 1500, extra=extra, helper=helper, kinds='home', text_scale=scale or 1.0, mode=mode, timeout=300)
-    return name
+    for t, n in zip(times, names):
+        extra += ['--snap', '%d:%s' % (t, n)]
+    SH.run(wait=times[-1] + 1500, extra=extra, helper=helper, kinds='home', text_scale=scale or 1.0, mode=mode, timeout=400)
+    if not many:
+        return names[0], None
+    found = [(thumb_x(n), n) for n in names if os.path.exists(n)]
+    found = [(x, n) for x, n in found if x is not None]
+    if not found:
+        return names[-1], None
+    # the bar runs from 2 h behind to 6 h ahead, so Now is a quarter of the way
+    frac = 0.25
+    # the track: x of a frame is TRACK_X + TRACK_W of the way from the first to the last (radar_surface.rs, on the bar at x 64)
+    here, soon = 64 + 360 + 1384 * frac, 64 + 360 + 1384 * min(1.0, frac + 0.375)
+    score = {n: echo(n) for _, n in found}
+    if os.environ.get('WD_DEBUG'):
+        print('thumbs', sorted((round(x), score[n]) for x, n in found), 'now at', round(here))
+
+    def pick(frames, target):
+        """The frame with the most rain on it when there is some (a picture of a radar with nothing on it shows nothing), else the one nearest `target`."""
+        wet = [f for f in frames if score[f[1]] >= 300]
+        return max(wet, key=lambda f: score[f[1]])[1] if wet else min(frames or found, key=lambda f: abs(f[0] - target))[1]
+
+    return pick([f for f in found if f[0] <= here + 40], here), pick([f for f in found if f[0] >= here + 150], soon)
+
+
+def echo(path):
+    """How much rain there is on a render of the radar: the pixels of the map that are the teal of an echo (a quarter of the size)."""
+    from PIL import Image
+    data = Image.open(path).convert('RGB').crop((0, 150, 1920, 900)).resize((480, 188)).tobytes()
+    return sum(1 for i in range(0, len(data), 3) if data[i + 1] > 110 and data[i + 2] > 120 and data[i] < data[i + 1] - 8)
 
 
 def sheet(paths, cols, cell, label=None):
@@ -252,8 +295,8 @@ def before_after(out, tmp, base='fd0c9687'):
     def new(name):
         return Image.open(os.path.join(out, name)).convert('RGB')
 
-    W, gap = 2480, 20
-    label_h = 56
+    W, gap = 2000, 20
+    label_h = 52
     rows = []
 
     def cards(sheet, order, cell, cols=4):
@@ -273,24 +316,36 @@ def before_after(out, tmp, base='fd0c9687'):
         x, y = 12 + (idx % 4) * (433 + 12), 12 + (idx // 4) * (480 + 12)
         new_cards.append(nsheet.crop((x, y, x + 433, y + 480)))
 
-    def strip(tiles, label, height):
+    from PIL import ImageFont
+    try:
+        font = ImageFont.truetype(os.path.join(ROOT, 'docs/mocks/fonts/Manrope-Variable.ttf'), 30)
+        font.set_variation_by_axes([600])
+    except Exception:
+        font = ImageFont.load_default()
+
+    def strip(tiles, labels, height=None):
+        """Tiles side by side, each with its words above it (the old ones in grey, the new ones in white)."""
+        scale = (W - gap * (len(tiles) + 1)) / sum(t.width for t in tiles)
+        height = max(int(t.height * scale) for t in tiles)
         img = Image.new('RGB', (W, height + label_h), (14, 12, 24))
         d = ImageDraw.Draw(img)
-        d.text((24, 14), label, fill=(230, 226, 245))
         x = gap
-        scale = (W - gap * (len(tiles) + 1)) / sum(t.width for t in tiles)
-        for t in tiles:
+        for t, label in zip(tiles, labels):
             tw, th = int(t.width * scale), int(t.height * scale)
+            d.text((x + 8, 8), label, fill=(150, 146, 170) if label.startswith('BEFORE') else (240, 236, 255), font=font)
             img.paste(t.resize((tw, th), Image.LANCZOS), (x, label_h))
             x += tw + gap
         return img
 
-    rows.append(strip(old_cards, 'BEFORE  the card (clear, rain, storm, snow)', 640))
-    rows.append(strip(new_cards, 'AFTER   the card', 640))
-    pair = lambda a, b, la, lb: strip([a, b], la + '   |   ' + lb, 650)
-    rows.append(pair(old('weather-view-now.png'), new('weather-view-now-rain-dark-text100.jpg'), 'BEFORE  the view, first page', 'AFTER   the view, Now (ten days, hours, sky)'))
-    rows.append(pair(old('weather-view-details.png'), new('weather-view-details-rain-dark-text100.jpg'), 'BEFORE  Details', 'AFTER   Details'))
-    rows.append(pair(old('weather-view-radar-forecast.png'), new('weather-radar-rain-local-dark-text100.jpg'), 'BEFORE  the radar', 'AFTER   the radar'))
+    rows.append(strip(old_cards, ['BEFORE  the card: clear', 'rain', 'storm', 'snow'], 640))
+    rows.append(strip(new_cards, ['AFTER  the card: clear', 'rain', 'storm (with a warning)', 'snow'], 640))
+    pair = lambda a, b, la, lb: strip([a, b], [la, lb], 650)
+    rows.append(pair(old('weather-view-now.png'), new('weather-view-now-rain-dark-text100.jpg'), 'BEFORE  the view, first page', 'AFTER  the view, Now: the reading, the hours, ten days, the sky'))
+    rows.append(pair(old('weather-view-details.png'), new('weather-view-details-rain-dark-text100.jpg'), 'BEFORE  Details', 'AFTER  Details: each number drawn'))
+    rows.append(pair(old('weather-view-radar-forecast.png'), new('weather-radar-rain-local-dark-text100.jpg'), 'BEFORE  the radar (a framed card)', 'AFTER  the radar, the map over the screen'))
+    rows.append(pair(new('weather-radar-rain-forecast-dark-text100.jpg'), new('weather-radar-rain-globe-dark-text100.jpg'), 'AFTER  the radar in the forecast (tinted chip, tinted bar)', 'AFTER  the globe'))
+    rows.append(pair(new('weather-view-now-clear-day-light-text100.jpg'), new('weather-view-details-clear-day-light-text100.jpg'), 'AFTER  the light look: Now', 'AFTER  the light look: Details'))
+    rows.append(pair(new('weather-view-now-rain-dark-text200.jpg'), new('weather-radar-rain-local-dark-text200.jpg'), 'AFTER  200 % text: Now', 'AFTER  200 % text: the radar'))
     height = sum(r.height for r in rows)
     sheet_img = Image.new('RGB', (W, height), (14, 12, 24))
     y = 0
@@ -358,11 +413,13 @@ def main():
                     sc = None if scale == 1 else scale
                     for case in args.radar_cases.split(','):
                         for level in ('1', '3') if (mode == 'dark' and scale == 1) else ('1',):
-                            src = render_radar(args.bin, helper, case, mode, sc, tmp, level=level, at=args.radar_at)
+                            src, ahead = render_radar(args.bin, helper, case, mode, sc, tmp, level=level, at=args.radar_at)
                             if os.path.exists(src):
                                 lvl = {'1': 'local', '2': 'region', '3': 'globe'}[level]
                                 jpeg(src, os.path.join(args.out, 'weather-radar-%s-%s-%s-text%d.jpg' % (case, lvl, mode, int(scale * 100))))
                                 print('wrote radar', case, lvl, mode, scale)
+                                if ahead and mode == 'dark' and scale == 1:
+                                    jpeg(ahead, os.path.join(args.out, 'weather-radar-%s-forecast-%s-text%d.jpg' % (case, mode, int(scale * 100))))
         finally:
             helper.close()
     if 'sheet' in only:

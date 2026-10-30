@@ -18,26 +18,20 @@ use crate::kit::text::role_style;
 use compositor_protocol::{Edges, Ease, Fill, Props, Rect, Rgba, Shape};
 use lumatv_tokens::TypeRole;
 use std::collections::HashMap;
-use ui::components::{Align, plate};
+use ui::components::{Align, Style, plate};
 use ui::geometry::Frame;
 use ui::lucent::palette::{Mode, PaletteRole};
 use ui::scene::{ImageLayer, ShapeLayer};
 use ui::text::Weight;
 
 const MARGIN: f32 = 64.0;
-/// The controls: the chips under the view's bar, the legend and the time bar above the foot of the screen (inside the TV's safe area).
+/// The controls: the chips under the view's bar, the legend and the time bar above the foot of the screen (inside the TV's safe area); their sizes are [`Geo`].
 const CHIP_Y: f32 = 128.0;
-const CHIP_H: f32 = 52.0;
-const BAR: Frame = Frame { x: MARGIN, y: 924.0, w: 1792.0, h: 92.0 };
-const LEGEND: Frame = Frame { x: MARGIN, y: 860.0, w: 330.0, h: 48.0 };
 /// The forecast is drawn lighter than what a radar saw (the same ramp, 78 %).
 const FORECAST_ALPHA: f32 = 0.78;
 const FADE_MS: u32 = 240;
 /// Where a frame's coverage ends, its edge fades out over this many pixels.
 const EDGE_FEATHER: f32 = 72.0;
-/// The time bar's track: where it starts and how wide it is, in the bar's own pixels.
-const TRACK_X: f32 = 360.0;
-const TRACK_W: f32 = 1384.0;
 
 /// Where a place is in the world's units (Web Mercator, 0 to 1 each way).
 fn world_of(lon: f64, lat: f64) -> (f64, f64) {
@@ -122,6 +116,7 @@ pub struct RadarPage {
     legend_img: ImageLayer,
     legend_words: Words,
     attribution: Words,
+    geo: Geo,
     mode_key: String,
     chips_key: String,
     bar_key: String,
@@ -130,16 +125,87 @@ pub struct RadarPage {
     reduced: bool,
 }
 
-/// The chips' widths, and the gap between them (the row ends at the margin).
-const CHIPS: [(&str, f32); 3] = [("1  Local", 156.0), ("2  Region", 176.0), ("3  Globe", 156.0)];
-const CHIP_GAP: f32 = 10.0;
-const MODE_W: f32 = 440.0;
+/// The chips' words and their widths at the 100 % text size (the row ends at the margin).
+const CHIP_LABELS: [(&str, f32); 3] = [("1  Local", 156.0), ("2  Region", 176.0), ("3  Globe", 156.0)];
 /// A picture of a control is this much larger than its plate on every side, for the plate's edge and its ring.
 const PAD: f32 = 3.0;
 
-fn chips_frame() -> Frame {
-    let total: f32 = CHIPS.iter().map(|c| c.1).sum::<f32>() + CHIP_GAP * (CHIPS.len() as f32 - 1.0);
-    Frame::new(MARGIN + 1792.0 - total, CHIP_Y, total, CHIP_H)
+/// The chrome's sizes. At the 100 % text size they are the layout drawn first; at a larger one the words and their plates grow together, to at most
+/// 1.3 times (the map is the page, and the chrome is not to take it), and a plate is as wide as its words need when that is more.
+#[derive(Clone, Copy)]
+struct Geo {
+    /// How much larger than at 100 % the chrome is.
+    k: f32,
+    chip_h: f32,
+    gap: f32,
+    chip_w: [f32; 3],
+    mode_w: f32,
+    /// Where the mode's second word starts (the first is the radar, the forecast or the globe).
+    mode_caption_x: f32,
+    bar: Frame,
+    legend: Frame,
+    /// The time bar's track in the bar's own pixels: where it starts, how wide it is, and where its ticks are.
+    track_x: f32,
+    track_w: f32,
+    track_y: f32,
+    /// The line height of a caption.
+    cap_h: f32,
+}
+
+/// A style of the role's face at the chrome's size: the role at the 100 % text size, times `k`.
+fn style_k(kit: &Kit, role: TypeRole, weight: Option<Weight>, colour: Rgba, align: Align, k: f32) -> Style {
+    let mut s = role_style(kit, role, weight, colour, align);
+    s.ty.px = (kit.ty(role).px as f32 / kit.text_scale * k).round().max(8.0) as u32;
+    s
+}
+
+fn measured(kit: &mut Kit, text: &str, style: &Style) -> f32 {
+    kit.ui.fonts.measure(text, style.ty).width.ceil()
+}
+
+impl Geo {
+    fn new(kit: &mut Kit) -> Self {
+        let k = kit.text_scale.clamp(1.0, 1.3);
+        let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
+        let label = style_k(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Left, k);
+        let caption = style_k(kit, TypeRole::Caption, None, ink2, Align::Left, k);
+        let chip_w = CHIP_LABELS.map(|(text, base)| (base * k).max(measured(kit, text, &label) + 44.0 * k));
+        let label_w = ["RADAR", "FORECAST", "GLOBE"].iter().map(|t| measured(kit, t, &label)).fold(0.0, f32::max);
+        let caption_w = ["what the radar saw", "model, not radar"].iter().map(|t| measured(kit, t, &caption)).fold(0.0, f32::max);
+        let mode_caption_x = (190.0 * k).max(26.0 * k + label_w + 24.0 * k);
+        let bar_h = (92.0 * k).round();
+        let bar = Frame::new(MARGIN, 1016.0 - bar_h, 1792.0, bar_h);
+        let legend_h = (48.0 * k).round();
+        let track_x = (360.0 * k).round();
+        Self {
+            k,
+            chip_h: (52.0 * k).round(),
+            gap: 10.0 * k,
+            chip_w,
+            mode_w: (440.0 * k).max(mode_caption_x + caption_w + 22.0 * k),
+            mode_caption_x,
+            bar,
+            legend: Frame::new(MARGIN, bar.y - 16.0 - legend_h, (330.0 * k).round(), legend_h),
+            track_x,
+            track_w: bar.w - track_x - 48.0 * k,
+            track_y: (28.0 * k).round(),
+            cap_h: ui::components::line_height(caption.ty),
+        }
+    }
+
+    fn chips(&self) -> Frame {
+        let total: f32 = self.chip_w.iter().sum::<f32>() + self.gap * 2.0;
+        Frame::new(MARGIN + 1792.0 - total, CHIP_Y, total, self.chip_h)
+    }
+
+    fn mode(&self) -> Frame {
+        Frame::new(MARGIN, CHIP_Y, self.mode_w, self.chip_h)
+    }
+
+    /// Where Now is on the track.
+    fn now_x(&self) -> f32 {
+        self.track_x + self.track_w * BACK_S as f32 / (BACK_S + AHEAD_S) as f32
+    }
 }
 
 /// A control's plate on a picture: the sheet colour mostly opaque over the map, with an edge of the ink (or `ring`, a coloured edge, for what is chosen).
@@ -174,7 +240,8 @@ impl RadarPage {
     pub fn new(kit: &mut Kit, z: i32) -> std::io::Result<Self> {
         let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
         let accent = kit.ui.look.accent();
-        let cap_h = kit.line(TypeRole::Caption);
+        let g = Geo::new(kit);
+        let (k, cap_h) = (g.k, g.cap_h);
         let pin = kit.ui.scene.shape(14, 14, z + 3, plate::solid(ink, 7.0), Props::at(MAP_W as f32 / 2.0 - 7.0, MAP_H as f32 / 2.0 - 7.0));
         let pin_ring = kit.ui.scene.shape(30, 30, z + 2, plate::ring(faded(ink, 0.55), 15.0, 2.0), Props::at(MAP_W as f32 / 2.0 - 15.0, MAP_H as f32 / 2.0 - 15.0));
         let (cx, cy) = (MAP_W as f32 / 2.0, MAP_H as f32 / 2.0);
@@ -191,80 +258,81 @@ impl RadarPage {
         )?;
         place.set_props(Props::at(cx - 400.0, cy - 40.0));
         // what is shown, top left: the mode in a word and what it is
-        let mode_f = Frame::new(MARGIN, CHIP_Y, MODE_W, CHIP_H);
-        let mode_img = control_picture(kit, mode_f, z + 4, |k, c, f| paint_plate(k, c, f, CHIP_H / 2.0, 0.88, None))?;
+        let mode_f = g.mode();
+        let mode_img = control_picture(kit, mode_f, z + 4, |kit, c, f| paint_plate(kit, c, f, g.chip_h / 2.0, 0.88, None))?;
         let mut mode_words = Words::new(
             kit,
-            Frame::new(0.0, 0.0, MODE_W, CHIP_H),
+            Frame::new(0.0, 0.0, g.mode_w, g.chip_h),
             z + 7,
             vec![
-                (Frame::new(26.0, 0.0, 170.0, CHIP_H), role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Left), String::new()),
-                (Frame::new(190.0, 0.0, MODE_W - 190.0 - 22.0, CHIP_H), role_style(kit, TypeRole::Caption, None, ink2, Align::Left), String::new()),
+                (Frame::new(26.0 * k, 0.0, g.mode_caption_x - 26.0 * k, g.chip_h), style_k(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Left, k), String::new()),
+                (Frame::new(g.mode_caption_x, 0.0, g.mode_w - g.mode_caption_x - 22.0 * k, g.chip_h), style_k(kit, TypeRole::Caption, None, ink2, Align::Left, k), String::new()),
             ],
         )?;
         mode_words.set_props(Props::at(mode_f.x, mode_f.y));
         // the three views, top right
-        let cf = chips_frame();
-        let chips_img = control_picture(kit, cf, z + 4, |k, c, f| {
+        let cf = g.chips();
+        let chips_img = control_picture(kit, cf, z + 4, |kit, c, f| {
             let mut x = f.x;
-            for (_, w) in CHIPS {
-                paint_plate(k, c, Frame::new(x, f.y, w, CHIP_H), CHIP_H / 2.0, 0.88, None);
-                x += w + CHIP_GAP;
+            for w in g.chip_w {
+                paint_plate(kit, c, Frame::new(x, f.y, w, g.chip_h), g.chip_h / 2.0, 0.88, None);
+                x += w + g.gap;
             }
         })?;
         let mut lines = Vec::new();
         let mut x = 0.0;
-        for (label, w) in CHIPS {
-            lines.push((Frame::new(x, 0.0, w, CHIP_H), role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink2, Align::Centre), label.to_owned()));
-            x += w + CHIP_GAP;
+        for ((label, _), w) in CHIP_LABELS.iter().zip(g.chip_w) {
+            lines.push((Frame::new(x, 0.0, w, g.chip_h), style_k(kit, TypeRole::Label, Some(Weight::SemiBold), ink2, Align::Centre, k), (*label).to_owned()));
+            x += w + g.gap;
         }
-        let mut chip_words = Words::new(kit, Frame::new(0.0, 0.0, cf.w, CHIP_H), z + 7, lines)?;
+        let mut chip_words = Words::new(kit, Frame::new(0.0, 0.0, cf.w, g.chip_h), z + 7, lines)?;
         chip_words.set_props(Props::at(cf.x, cf.y));
         // the time bar, along the foot
-        let bar_img = control_picture(kit, BAR, z + 4, |k, c, f| paint_plate(k, c, f, 30.0, 0.9, None))?;
-        let thumb = kit.ui.scene.shape(8, 30, z + 8, plate::solid(accent, 4.0), HIDDEN);
-        let now_x = TRACK_X + TRACK_W * BACK_S as f32 / (BACK_S + AHEAD_S) as f32;
+        let bar_img = control_picture(kit, g.bar, z + 4, |kit, c, f| paint_plate(kit, c, f, 30.0 * k, 0.9, None))?;
+        let thumb = kit.ui.scene.shape(8, (30.0 * k).round() as u32, z + 8, plate::solid(accent, 4.0), HIDDEN);
+        let (now_x, foot) = (g.now_x(), g.bar.h - 14.0 * k - cap_h);
         let mut bar_words = Words::new(
             kit,
-            Frame::new(0.0, 0.0, BAR.w, BAR.h),
+            Frame::new(0.0, 0.0, g.bar.w, g.bar.h),
             z + 7,
             vec![
-                (Frame::new(96.0, 12.0, 250.0, 40.0), role_style(kit, TypeRole::Body, Some(Weight::SemiBold), ink, Align::Left), String::new()),
-                (Frame::new(96.0, 50.0, 250.0, cap_h), role_style(kit, TypeRole::Caption, None, ink2, Align::Left), String::new()),
-                (Frame::new(TRACK_X - 6.0, BAR.h - 14.0 - cap_h, 140.0, cap_h), role_style(kit, TypeRole::Caption, None, ink2, Align::Left), String::new()),
-                (Frame::new(now_x - 70.0, BAR.h - 14.0 - cap_h, 140.0, cap_h), role_style(kit, TypeRole::Caption, None, ink, Align::Centre), String::new()),
-                (Frame::new(TRACK_X + TRACK_W - 134.0, BAR.h - 14.0 - cap_h, 140.0, cap_h), role_style(kit, TypeRole::Caption, None, ink2, Align::Right), String::new()),
+                (Frame::new(96.0 * k, 12.0 * k, 250.0 * k, 40.0 * k), style_k(kit, TypeRole::Body, Some(Weight::SemiBold), ink, Align::Left, k), String::new()),
+                (Frame::new(96.0 * k, 50.0 * k, 250.0 * k, cap_h), style_k(kit, TypeRole::Caption, None, ink2, Align::Left, k), String::new()),
+                (Frame::new(g.track_x - 6.0 * k, foot, 140.0 * k, cap_h), style_k(kit, TypeRole::Caption, None, ink2, Align::Left, k), String::new()),
+                (Frame::new(now_x - 70.0 * k, foot, 140.0 * k, cap_h), style_k(kit, TypeRole::Caption, None, ink, Align::Centre, k), String::new()),
+                (Frame::new(g.track_x + g.track_w - 134.0 * k, foot, 140.0 * k, cap_h), style_k(kit, TypeRole::Caption, None, ink2, Align::Right, k), String::new()),
                 // on the globe, in place of the track: what it shows
-                (Frame::new(TRACK_X - 6.0, 12.0, 1100.0, 40.0), role_style(kit, TypeRole::Body, Some(Weight::SemiBold), ink, Align::Left), String::new()),
-                (Frame::new(TRACK_X - 6.0, 50.0, 1100.0, cap_h), role_style(kit, TypeRole::Caption, None, ink2, Align::Left), String::new()),
+                (Frame::new(g.track_x - 6.0 * k, 12.0 * k, 1100.0, 40.0 * k), style_k(kit, TypeRole::Body, Some(Weight::SemiBold), ink, Align::Left, k), String::new()),
+                (Frame::new(g.track_x - 6.0 * k, 50.0 * k, 1100.0, cap_h), style_k(kit, TypeRole::Caption, None, ink2, Align::Left, k), String::new()),
             ],
         )?;
-        bar_words.set_props(Props::at(BAR.x, BAR.y));
+        bar_words.set_props(Props::at(g.bar.x, g.bar.y));
         // the legend of the colours, above the bar: its plate and the colours in one picture
         let light = kit.mode == Mode::Light;
-        let legend_img = control_picture(kit, LEGEND, z + 4, |k, c, f| {
-            paint_plate(k, c, f, LEGEND.h / 2.0, 0.88, None);
+        let legend_img = control_picture(kit, g.legend, z + 4, |kit, c, f| {
+            paint_plate(kit, c, f, g.legend.h / 2.0, 0.88, None);
             let stops: Vec<(f32, Rgba)> = ramp(!light).iter().map(|(p, rgb, a)| (*p / 0.77, Rgba((f32::from(rgb[0]) * a) as u8, (f32::from(rgb[1]) * a) as u8, (f32::from(rgb[2]) * a) as u8, (a * 255.0) as u8))).collect();
-            gfx::gradient_bar(c, Frame::new(f.x + 92.0, f.y + LEGEND.h / 2.0 - 6.0, LEGEND.w - 184.0, 12.0), 6.0, &stops);
+            gfx::gradient_bar(c, Frame::new(f.x + 92.0 * k, f.y + g.legend.h / 2.0 - 6.0, g.legend.w - 184.0 * k, 12.0), 6.0, &stops);
         })?;
         let mut legend_words = Words::new(
             kit,
-            Frame::new(0.0, 0.0, LEGEND.w, LEGEND.h),
+            Frame::new(0.0, 0.0, g.legend.w, g.legend.h),
             z + 7,
             vec![
-                (Frame::new(20.0, 0.0, 80.0, LEGEND.h), role_style(kit, TypeRole::Caption, None, ink2, Align::Left), "Light".to_owned()),
-                (Frame::new(LEGEND.w - 100.0, 0.0, 80.0, LEGEND.h), role_style(kit, TypeRole::Caption, None, ink2, Align::Right), "Heavy".to_owned()),
+                (Frame::new(20.0 * k, 0.0, 80.0 * k, g.legend.h), style_k(kit, TypeRole::Caption, None, ink2, Align::Left, k), "Light".to_owned()),
+                (Frame::new(g.legend.w - 100.0 * k, 0.0, 80.0 * k, g.legend.h), style_k(kit, TypeRole::Caption, None, ink2, Align::Right, k), "Heavy".to_owned()),
             ],
         )?;
-        legend_words.set_props(Props::at(LEGEND.x, LEGEND.y));
+        legend_words.set_props(Props::at(g.legend.x, g.legend.y));
         // the attributions the data and the map ask for, small, over the bar's right
+        let att_w = 1792.0 - g.legend.w - 24.0 * k;
         let mut attribution = Words::new(
             kit,
-            Frame::new(0.0, 0.0, 1300.0, cap_h),
+            Frame::new(0.0, 0.0, att_w, cap_h),
             z + 7,
-            vec![(Frame::new(0.0, 0.0, 1300.0, cap_h), role_style(kit, TypeRole::Caption, None, faded(ink2, 0.85), Align::Right), String::new())],
+            vec![(Frame::new(0.0, 0.0, att_w, cap_h), style_k(kit, TypeRole::Caption, None, faded(ink2, 0.85), Align::Right, k), String::new())],
         )?;
-        attribution.set_props(Props::at(MARGIN + 1792.0 - 1300.0, BAR.y - cap_h - 14.0));
+        attribution.set_props(Props::at(MARGIN + 1792.0 - att_w, g.bar.y - cap_h - 14.0));
         Ok(Self {
             z,
             map: None,
@@ -284,6 +352,7 @@ impl RadarPage {
             legend_img,
             legend_words,
             attribution,
+            geo: g,
             mode_key: String::new(),
             chips_key: String::new(),
             bar_key: String::new(),
@@ -403,10 +472,12 @@ impl RadarPage {
         let accent = kit.ui.look.accent();
         let light = kit.mode == Mode::Light;
         let twelve = home.theme.pointer("/clock/twelveHour").and_then(serde_json::Value::as_bool) != Some(false);
+        let g = self.geo;
+        let k = g.k;
         let (t0, t1) = (r.now_s - BACK_S, r.now_s + AHEAD_S);
-        let x_of = |t: i64| TRACK_X + TRACK_W * ((t - t0) as f32 / (t1 - t0).max(1) as f32).clamp(0.0, 1.0);
+        let x_of = |t: i64| g.track_x + g.track_w * ((t - t0) as f32 / (t1 - t0).max(1) as f32).clamp(0.0, 1.0);
         // the track sits in the upper half of the bar, its words in the lower, and the thumb (30 px) is as tall as the ticks and the clock's mark are together
-        let track_y = 28.0;
+        let track_y = g.track_y;
         let globe = r.level() == Level::Globe;
         // the bar's picture: its plate, the play and pause button (on the globe the pad that turns it), and the track: a tick for every frame of the
         // window (held ones strong), the radar's in the ink, the forecast's in the accent on a tint of it, and the clock
@@ -416,52 +487,52 @@ impl RadarPage {
             self.bar_key = key;
             let playing = r.playing;
             let held: Vec<bool> = win.iter().map(|f| r.holds(f)).collect();
-            repaint(&mut self.bar_img, BAR, |c, f| {
-                paint_plate(kit, c, f, 30.0, 0.9, None);
+            repaint(&mut self.bar_img, g.bar, |c, f| {
+                paint_plate(kit, c, f, 30.0 * k, 0.9, None);
                 let at = |x: f32, y: f32| (x + PAD, y + PAD);
                 if !win.is_empty() {
                     let nowx = x_of(r.now_s);
                     // what is ahead of the clock is the model's: tinted, so that it reads apart from what the radar saw
-                    let (tx, ty) = at(nowx, track_y - 12.0);
-                    c.rounded(Frame::new(tx, ty, TRACK_X + TRACK_W - nowx + 10.0, 34.0), 12.0, faded(accent, 0.13));
-                    let (lx, ly) = at(TRACK_X, track_y + 5.0);
-                    c.rounded(Frame::new(lx, ly, TRACK_W, 2.0), 1.0, faded(ink, 0.18));
+                    let (tx, ty) = at(nowx, track_y - 12.0 * k);
+                    c.rounded(Frame::new(tx, ty, g.track_x + g.track_w - nowx + 10.0 * k, 34.0 * k), 12.0 * k, faded(accent, 0.13));
+                    let (lx, ly) = at(g.track_x, track_y + 5.0 * k);
+                    c.rounded(Frame::new(lx, ly, g.track_w, 2.0), 1.0, faded(ink, 0.18));
                     for (f, on) in win.iter().zip(&held) {
                         let (x, y) = at(x_of(f.t) - 1.5, track_y);
                         let colour = if f.kind == Kind::Forecast { faded(accent, if *on { 0.95 } else { 0.35 }) } else { faded(ink, if *on { 0.8 } else { 0.28 }) };
-                        c.rounded(Frame::new(x, y, 3.0, 12.0), 1.5, colour);
+                        c.rounded(Frame::new(x, y, 3.0, 12.0 * k), 1.5, colour);
                     }
-                    let (x, y) = at(nowx - 1.0, track_y - 10.0);
-                    c.rounded(Frame::new(x, y, 2.0, 28.0), 1.0, faded(ink, 0.9));
+                    let (x, y) = at(nowx - 1.0, track_y - 10.0 * k);
+                    c.rounded(Frame::new(x, y, 2.0, 28.0 * k), 1.0, faded(ink, 0.9));
                 }
-                let (bx, by) = at(50.0, BAR.h / 2.0);
+                let (bx, by) = at(50.0 * k, g.bar.h / 2.0);
                 if !globe {
-                    gfx::arc(c, bx, by, 27.0, 3.0, 0.0, std::f32::consts::TAU, accent);
+                    gfx::arc(c, bx, by, 27.0 * k, 3.0, 0.0, std::f32::consts::TAU, accent);
                     if playing {
                         // pause: two bars
-                        c.rounded(Frame::new(bx - 9.0, by - 10.0, 6.0, 20.0), 2.0, ink);
-                        c.rounded(Frame::new(bx + 3.0, by - 10.0, 6.0, 20.0), 2.0, ink);
+                        c.rounded(Frame::new(bx - 9.0 * k, by - 10.0 * k, 6.0 * k, 20.0 * k), 2.0, ink);
+                        c.rounded(Frame::new(bx + 3.0 * k, by - 10.0 * k, 6.0 * k, 20.0 * k), 2.0, ink);
                     } else {
-                        gfx::head(c, (bx + 11.0, by), std::f32::consts::FRAC_PI_2, 20.0, 22.0, ink);
+                        gfx::head(c, (bx + 11.0 * k, by), std::f32::consts::FRAC_PI_2, 20.0 * k, 22.0 * k, ink);
                     }
                 } else {
                     // the pad: four arrows round the OK that zooms
                     for q in 0..4 {
                         let a = q as f32 * std::f32::consts::FRAC_PI_2;
                         let (sa, ca) = (a.sin(), -a.cos());
-                        gfx::head(c, (bx + sa * 26.0, by + ca * 26.0), a, 11.0, 14.0, ink);
+                        gfx::head(c, (bx + sa * 26.0 * k, by + ca * 26.0 * k), a, 11.0 * k, 14.0 * k, ink);
                     }
-                    gfx::arc(c, bx, by, 10.0, 3.0, 0.0, std::f32::consts::TAU, accent);
+                    gfx::arc(c, bx, by, 10.0 * k, 3.0, 0.0, std::f32::consts::TAU, accent);
                 }
             });
         }
         // the thumb
         match r.current().filter(|_| !globe) {
-            Some(f) => self.thumb.set(Props::at(BAR.x + x_of(f.t) - 4.0, BAR.y + track_y - 9.0)),
+            Some(f) => self.thumb.set(Props::at(g.bar.x + x_of(f.t) - 4.0, g.bar.y + track_y - 9.0 * k)),
             None => self.thumb.set(HIDDEN),
         }
         // the legend is for the radar's colours: not on the globe
-        self.legend_img.set(if globe { HIDDEN } else { Props::at(LEGEND.x - PAD, LEGEND.y - PAD) });
+        self.legend_img.set(if globe { HIDDEN } else { Props::at(g.legend.x - PAD, g.legend.y - PAD) });
         // the words
         let (mode, mode_colour, line, sub) = if globe {
             ("GLOBE", ink, String::new(), String::new())
@@ -485,10 +556,10 @@ impl RadarPage {
         if mode_key != self.mode_key {
             self.mode_key = mode_key;
             let forecast = mode == "FORECAST";
-            repaint(&mut self.mode_img, Frame::new(0.0, 0.0, MODE_W, CHIP_H), |c, f| {
-                paint_plate(kit, c, f, CHIP_H / 2.0, 0.88, None);
+            repaint(&mut self.mode_img, Frame::new(0.0, 0.0, g.mode_w, g.chip_h), |c, f| {
+                paint_plate(kit, c, f, g.chip_h / 2.0, 0.88, None);
                 if forecast {
-                    c.rounded(f, CHIP_H / 2.0, faded(accent, 0.20));
+                    c.rounded(f, g.chip_h / 2.0, faded(accent, 0.20));
                 }
             });
         }
@@ -496,11 +567,11 @@ impl RadarPage {
         if chips_key != self.chips_key {
             self.chips_key = chips_key;
             let level = r.level() as usize;
-            repaint(&mut self.chips_img, chips_frame(), |c, f| {
+            repaint(&mut self.chips_img, g.chips(), |c, f| {
                 let mut x = f.x;
-                for (i, (_, w)) in CHIPS.iter().enumerate() {
-                    paint_plate(kit, c, Frame::new(x, f.y, *w, CHIP_H), CHIP_H / 2.0, if i == level { 0.97 } else { 0.88 }, (i == level).then_some(accent));
-                    x += w + CHIP_GAP;
+                for (i, w) in g.chip_w.iter().enumerate() {
+                    paint_plate(kit, c, Frame::new(x, f.y, *w, g.chip_h), g.chip_h / 2.0, if i == level { 0.97 } else { 0.88 }, (i == level).then_some(accent));
+                    x += w + g.gap;
                 }
             });
         }
@@ -518,14 +589,25 @@ impl RadarPage {
             String::new()
         };
         let place = home.weather.pointer("/doc/display/place").and_then(serde_json::Value::as_str).unwrap_or("").to_owned();
-        let attribution = if globe { "Rain: NASA IMERG, about 6 h behind  \u{b7}  Cloud: satellite  \u{b7}  Earth: NASA".to_owned() } else { "Radar: NEXRAD and HRRR via Iowa Environmental Mesonet  \u{b7}  Map: OpenStreetMap, OpenFreeMap".to_owned() };
+        // what the data and the map ask to be said, whole when it fits what the legend leaves and a shorter way of saying it when it does not
+        let words: [&str; 2] = if globe {
+            ["Rain: NASA IMERG, about 6 h behind  \u{b7}  Cloud: satellite  \u{b7}  Earth: NASA", "Rain: NASA IMERG  \u{b7}  Cloud: satellite  \u{b7}  Earth: NASA"]
+        } else {
+            ["Radar: NEXRAD and HRRR via Iowa Environmental Mesonet  \u{b7}  Map: OpenStreetMap, OpenFreeMap", "Radar: NEXRAD, HRRR via IEM  \u{b7}  Map: OpenStreetMap, OpenFreeMap"]
+        };
+        let att_style = style_k(kit, TypeRole::Caption, None, ink2, Align::Right, k);
+        let room = g.bar.w - g.legend.w - 24.0 * k;
+        let attribution = match words.iter().find(|t| measured(kit, t, &att_style) <= room) {
+            Some(t) => (*t).to_owned(),
+            None => ui::components::text::ellipsise(&mut kit.ui.fonts, words[1], att_style.ty, room),
+        };
         let key = format!("{mode}|{line}|{sub}|{detail}|{status}|{attribution}|{place}|{}", r.level() as u8);
         if key != self.words_key {
             self.words_key = key;
             let level = r.level() as usize;
             self.place.set_many(kit, &[(0, &place, ink), (1, &status, ink)]);
             self.mode_words.set_many(kit, &[(0, mode, mode_colour), (1, detail, ink2)]);
-            let chip: Vec<(usize, &str, Rgba)> = CHIPS.iter().enumerate().map(|(i, (label, _))| (i, *label, if i == level { ink } else { ink2 })).collect();
+            let chip: Vec<(usize, &str, Rgba)> = CHIP_LABELS.iter().enumerate().map(|(i, (label, _))| (i, *label, if i == level { ink } else { ink2 })).collect();
             self.chip_words.set_many(kit, &chip);
             let (left, now_l, right) = if globe { ("", "", "") } else { ("\u{2212}2 h", "Now", "+6 h") };
             let (title, about) = if globe { ("Rain and cloud from space", "NASA rain, about 6 h behind; satellite cloud") } else { ("", "") };
@@ -576,4 +658,34 @@ mod tests {
         assert!((pose.x + 192.0 - MAP_W as f32 / 2.0).abs() < 1.0 && (pose.y + 192.0 - MAP_H as f32 / 2.0).abs() < 1.0, "{pose:?}");
         assert!((pose.scale * 384.0 - side as f32).abs() < 0.5);
     }
+    #[test]
+    fn the_chrome_keeps_clear_of_itself_and_of_the_screens_edge_at_either_text_size() {
+        use crate::kit::testkit;
+        for scale in [1.0, 2.0] {
+            let (h, mut kit) = testkit::kit_in(Mode::Dark, scale);
+            let g = Geo::new(&mut kit);
+            assert!((1.0..=1.3).contains(&g.k), "{scale}: the chrome grows with the words, but to 1.3 times at most");
+            // the row under the view's bar: what is shown, then the three views, a gap between them and inside the margins
+            assert!(g.mode().right() + 16.0 <= g.chips().x, "{scale}: the mode chip meets the view chips");
+            assert!(g.chips().right() <= MARGIN + 1792.0 + 0.5 && g.mode().x >= MARGIN, "{scale}");
+            // from the foot up: the bar inside the safe area, the legend above it, and the attribution over the bar clear of the legend's top
+            assert!(g.bar.bottom() <= 1016.5, "{scale}: the bar is below the safe area");
+            assert!(g.legend.bottom() + 8.0 <= g.bar.y, "{scale}: the legend meets the bar");
+            // the words are in their plates: the chips' words are as tall as the chips allow, the time and what it is fit their boxes, the track starts after them
+            let body = style_k(&kit, TypeRole::Body, Some(Weight::SemiBold), Rgba(255, 255, 255, 255), Align::Left, g.k);
+            let cap = style_k(&kit, TypeRole::Caption, None, Rgba(255, 255, 255, 255), Align::Left, g.k);
+            let label = style_k(&kit, TypeRole::Label, Some(Weight::SemiBold), Rgba(255, 255, 255, 255), Align::Left, g.k);
+            assert!(ui::components::line_height(label.ty) <= g.chip_h, "{scale}: a chip is not as tall as its words");
+            assert!(measured(&mut kit, "12:00 AM", &body) <= 250.0 * g.k, "{scale}: the time is wider than its box");
+            for words in ["in 5 h 59 min", "1 h 59 min ago", "now"] {
+                assert!(measured(&mut kit, words, &cap) <= 250.0 * g.k, "{scale}: {words}");
+            }
+            assert!(g.track_x >= (96.0 + 250.0) * g.k, "{scale}: the track starts under the time");
+            for (text, w) in CHIP_LABELS.iter().map(|(t, _)| *t).zip(g.chip_w) {
+                assert!(measured(&mut kit, text, &label) + 16.0 <= w, "{scale}: {text}");
+            }
+            std::mem::forget(h);
+        }
+    }
+
 }

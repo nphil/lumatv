@@ -394,6 +394,16 @@ const BOTTOM: f32 = 1016.0;
 const WIDTH: f32 = 1792.0;
 
 /// A style of `px` pixels in the Label role's face.
+/// The first of `words` (the whole of it first, then shorter ways) that fits `room`; the last one cut with an ellipsis when none does.
+fn fit(kit: &mut Kit, style: &Style, words: &[String], room: f32) -> String {
+    for w in words {
+        if kit.ui.fonts.measure(w, style.ty).width <= room {
+            return w.clone();
+        }
+    }
+    words.last().map(|w| ui::components::text::ellipsise(&mut kit.ui.fonts, w, style.ty, room)).unwrap_or_default()
+}
+
 fn sty(kit: &Kit, px: f32, weight: Weight, colour: Rgba, align: Align) -> Style {
     let mut ty = kit.ty(TypeRole::Label);
     ty.px = px.round().max(8.0) as u32;
@@ -425,7 +435,7 @@ struct Hero {
 fn hero_flow(s: f32, avail: f32) -> Hero {
     let height = |tp: f32, facts: bool| -> f32 {
         let base = 40.0 * s * 1.3 - 6.0 + tp * 0.92 + 6.0 + 48.0 * s * 1.3 + 28.0 * s * 1.35 + 10.0 + 36.0 * s * 1.35;
-        base + if facts { 26.0 + 22.0 * s * 1.3 + 36.0 * s * 1.3 + 4.0 } else { 0.0 }
+        base + if facts { 26.0 + 24.0 * s * 1.3 + 36.0 * s * 1.3 + 4.0 } else { 0.0 }
     };
     let mut tp = (236.0 * s).round();
     if height(tp, true) <= avail {
@@ -438,8 +448,20 @@ fn hero_flow(s: f32, avail: f32) -> Hero {
 }
 
 impl WeatherSurface {
+    /// The words of the page that are wider than their boxes.
+    #[cfg(test)]
+    pub fn cut_words(&self, kit: &mut Kit) -> Vec<String> {
+        let Some(made) = &self.made else { return Vec::new() };
+        let mut cut: Vec<String> = made.words.iter().flat_map(|w| w.cut(kit)).collect();
+        cut.extend(made.cards.iter().flat_map(|c| c._words.cut(kit)));
+        cut
+    }
+
     pub fn new(kit: &mut Kit, home: &Home, z: i32) -> std::io::Result<Self> {
-        let scrim = kit.ui.scene.shape(1920, 1080, z, plate::solid(kit.tokens.extra(kit.mode).scrim_hide, 0.0), Props::at(0.0, 0.0));
+        // The theme's scrim hides the page by 97 % only; with a page of open sky and a map, Home's words behind it would show as faint ghosts.
+        let Rgba(r, g, b, a) = kit.tokens.extra(kit.mode).scrim_hide;
+        let straight = |c: u8| (u16::from(c) * 255 / u16::from(a.max(1))).min(255) as u8;
+        let scrim = kit.ui.scene.shape(1920, 1080, z, plate::solid(Rgba(straight(r), straight(g), straight(b), 255), 0.0), Props::at(0.0, 0.0));
         let bar_f = Frame::new(MARGIN, 56.0, WIDTH, 56.0);
         // the bar is above the page, whatever the page draws (the radar's map is over the whole screen)
         let bar = kit.ui.scene.glass(WIDTH as u32, 56, z + 20, glass_of(kit, PaneKind::Pill, 56.0, false, false), Props::at(bar_f.x, bar_f.y));
@@ -596,7 +618,7 @@ impl WeatherSurface {
             let hum = d.num("/current/humidity").map(|v| format!("{}%", v.round() as i64)).unwrap_or_default();
             let uv = d.more_num("/now/uvIndex").map(|u| format!("{} {}", u.round() as i64, uv_word(u))).unwrap_or_default();
             let rain = d.more.pointer("/daily/0/rainPct").and_then(Value::as_f64).map(|p| format!("{}%", p.round() as i64)).unwrap_or_default();
-            let (lp, vp) = (22.0 * s, 34.0 * s);
+            let (lp, vp) = (24.0 * s, 34.0 * s);
             for (i, (label, value)) in [("WIND", wind), ("HUMIDITY", hum), ("UV INDEX", uv), ("RAIN TODAY", rain)].into_iter().enumerate() {
                 let x = 8.0 + i as f32 * 222.0;
                 lines.push((Frame::new(x, y, 216.0, lp * 1.3), sty(kit, lp, Weight::SemiBold, ink2, Align::Left), label.to_owned()));
@@ -612,7 +634,7 @@ impl WeatherSurface {
             let band = Frame::new(MARGIN, 704.0, 1240.0, BOTTOM - 704.0);
             let n = ((band.w - 48.0) / (99.0 * s.max(1.0))).floor().clamp(4.0, 12.0) as usize;
             let col_w = ((band.w - 48.0) / n as f32).floor();
-            let (tp, vp, pp) = (24.0 * s, 34.0 * s, 22.0 * s);
+            let (tp, vp, pp) = (24.0 * s, 34.0 * s, 24.0 * s);
             let ic = (52.0 * s.min(1.15)).round();
             let mut y = 16.0;
             let time_y = y;
@@ -650,7 +672,7 @@ impl WeatherSurface {
                         canvas.picture(p, (cx - ic / 2.0).round() as i32, icon_y.round() as i32, ic as u32, ic as u32);
                     }
                     if any_rain && bar_h >= 20.0 {
-                        let bw = 22.0 * s.min(1.15);
+                        let bw = 24.0 * s.min(1.15);
                         let prob = (h.get("rainPct").and_then(Value::as_f64).unwrap_or(0.0) / 100.0).clamp(0.0, 1.0) as f32;
                         canvas.rounded(Frame::new(cx - bw / 2.0, bar_top, bw, bar_h), bw / 2.0, faded(ink, 0.08));
                         if prob >= 0.03 {
@@ -681,7 +703,7 @@ impl WeatherSurface {
             let panel = Frame::new(MARGIN + 1264.0, TOP, WIDTH - 1264.0, BOTTOM - TOP);
             // the panel's words grow with the text size to a point: past it the ranges would be left no room
             let sd = s.min(1.15);
-            let (cap_px, dp, np) = (22.0 * sd, 30.0 * sd, 28.0 * sd);
+            let (cap_px, dp, np) = (24.0 * sd, 30.0 * sd, 28.0 * sd);
             let head_h = 22.0 + cap_px * 1.3 + 14.0;
             let row_h = (79.0 * s.min(1.2)).round();
             let rows = (((panel.h - head_h - 14.0) / row_h).floor() as usize).min(days.len()).max(1);
@@ -700,7 +722,7 @@ impl WeatherSurface {
                 let name_y = if has_rain { y + row_h * 0.12 } else { y + (row_h - dp * 1.3) / 2.0 };
                 lines.push((Frame::new(28.0, name_y, name_w, dp * 1.3), sty(kit, dp, if i == 0 { Weight::SemiBold } else { Weight::Medium }, ink, Align::Left), r.name.clone()));
                 let rain = r.rain.filter(|p| *p >= 20.0).map(|p| format!("{}%", p.round() as i64)).unwrap_or_default();
-                lines.push((Frame::new(28.0, y + row_h * 0.12 + dp * 1.3 - 4.0, name_w, 22.0 * sd * 1.3), sty(kit, 20.0 * sd, Weight::Medium, legible(accent, ink, light), Align::Left), rain));
+                lines.push((Frame::new(28.0, y + row_h * 0.12 + dp * 1.3 - 4.0, name_w, 24.0 * sd * 1.3), sty(kit, 24.0 * sd, Weight::Medium, legible(accent, ink, light), Align::Left), rain));
                 lines.push((Frame::new(lo_x, y, num_w, row_h), sty(kit, np, Weight::Medium, ink2, Align::Right), format!("{}\u{b0}", r.lo.round() as i64)));
                 lines.push((Frame::new(hi_x, y, num_w, row_h), sty(kit, np, Weight::SemiBold, ink, Align::Right), format!("{}\u{b0}", r.hi.round() as i64)));
             }
@@ -747,7 +769,7 @@ impl WeatherSurface {
         let mut top = TOP;
         if !alerts.is_empty() {
             let shown = alerts.len().min(2);
-            let (ep, hp) = (30.0 * s, 22.0 * s);
+            let (ep, hp) = (30.0 * s, 24.0 * s);
             let row = ep * 1.3 + hp * 1.3 + 12.0;
             let h = 24.0 + shown as f32 * row + 8.0;
             let mut lines: Vec<Line> = Vec::new();
@@ -769,7 +791,7 @@ impl WeatherSurface {
         let tile_h = ((BOTTOM - top - gap) / 2.0).floor();
         let metric = d.fahrenheit;
         let w_in = |v: f64| if metric { format!("{v:.2} in") } else { format!("{:.0} mm", v * 25.4) };
-        let (lp, vp, sp) = (22.0 * s, 64.0 * s.min(1.2), 26.0 * s);
+        let (lp, vp, sp) = (24.0 * s, 64.0 * s.min(1.2), 26.0 * s);
         let (lh, vh, sh) = (lp * 1.3, vp * 1.1, sp * 1.35);
 
         // (column, row, columns spanned, label, value, sub-line, what it draws)
@@ -786,29 +808,35 @@ impl WeatherSurface {
         let temp = d.num("/current/temp").unwrap_or(0.0);
         let feels = d.num("/current/feelsLike");
         let wind_mph = d.num("/current/windMph");
-        let feels_note = match (feels, wind_mph) {
-            (Some(f), Some(w)) if (f - temp).abs() < 2.0 => {
-                let _ = w;
-                "Similar to the actual temperature".to_owned()
+        // each in its whole and in a shorter way, for a tile that is narrow at a large text size
+        let feels_note: Vec<String> = match (feels, wind_mph) {
+            (Some(f), Some(_)) if (f - temp).abs() < 2.0 => vec!["Similar to the actual temperature".into(), "About the same".into()],
+            (Some(f), Some(w)) if f < temp => {
+                if w >= 8.0 {
+                    vec!["The wind makes it feel colder".into(), "Colder with the wind".into()]
+                } else {
+                    vec!["Feels colder than it is".into(), "Colder than it is".into()]
+                }
             }
-            (Some(f), Some(w)) if f < temp => if w >= 8.0 { "The wind makes it feel colder".to_owned() } else { "Feels colder than it is".to_owned() },
-            (Some(_), _) => "Feels warmer than it is".to_owned(),
-            _ => String::new(),
+            (Some(_), _) => vec!["Feels warmer than it is".into(), "Warmer than it is".into()],
+            _ => Vec::new(),
         };
         // the day's low and high, which the actual and the felt temperature are set against
         let day_deg = |k: &str| d.doc.pointer(&format!("/display/days/0/{k}")).and_then(Value::as_str).and_then(|t| t.trim_end_matches('\u{b0}').parse::<f32>().ok());
         let (day_lo, day_hi) = (day_deg("lo").unwrap_or(temp as f32 - 8.0).min(temp as f32).min(feels.unwrap_or(temp) as f32), day_deg("hi").unwrap_or(temp as f32 + 8.0).max(temp as f32).max(feels.unwrap_or(temp) as f32));
-        let mut tiles: Vec<(usize, usize, usize, &str, String, String, Draw)> = Vec::new();
+        // a tile: its column, row and span, its label, its value, its sub line (the whole of it, then shorter ways) and what it draws
+        type Tile<'a> = (usize, usize, usize, &'a str, String, Vec<String>, Draw);
+        let mut tiles: Vec<Tile> = Vec::new();
         tiles.push((0, 0, 1, "FEELS LIKE", feels.map(|v| d.deg(v)).unwrap_or_default(), feels_note, Draw::Feels(temp as f32, feels.unwrap_or(temp) as f32, day_lo, day_hi)));
         let wind = wind_mph.map(|v| format!("{} mph{}", v.round() as i64, d.more_num("/now/windDeg").map(|dg| format!(" {}", compass(dg))).unwrap_or_default())).unwrap_or_default();
         let gust = d.more_num("/now/gustMph").map(|g| format!("Gusts {} mph", g.round() as i64)).unwrap_or_default();
-        tiles.push((1, 0, 1, "WIND", wind, gust, Draw::Wind(d.more_num("/now/windDeg").unwrap_or(0.0) as f32)));
+        tiles.push((1, 0, 1, "WIND", wind, vec![gust], Draw::Wind(d.more_num("/now/windDeg").unwrap_or(0.0) as f32)));
         let uv = d.more_num("/now/uvIndex");
-        tiles.push((2, 0, 1, "UV INDEX", uv.map(|u| format!("{}", u.round() as i64)).unwrap_or_else(|| "\u{2013}".into()), uv.map(|u| uv_word(u).to_owned()).unwrap_or_default(), Draw::Uv(uv.unwrap_or(0.0) as f32)));
+        tiles.push((2, 0, 1, "UV INDEX", uv.map(|u| format!("{}", u.round() as i64)).unwrap_or_else(|| "\u{2013}".into()), vec![uv.map(|u| uv_word(u).to_owned()).unwrap_or_default()], Draw::Uv(uv.unwrap_or(0.0) as f32)));
         let rain = d.more.pointer("/daily/0/rainPct").and_then(Value::as_f64);
         let amount = d.more.pointer("/daily/0/rainIn").and_then(Value::as_f64).map(&w_in).unwrap_or_default();
         let chances: Vec<f32> = d.hours().iter().take(24).map(|h| h.get("rainPct").and_then(Value::as_f64).unwrap_or(0.0) as f32).collect();
-        tiles.push((3, 0, 1, "RAIN TODAY", rain.map(|p| format!("{}%", p.round() as i64)).unwrap_or_else(|| "\u{2013}".into()), if amount.is_empty() { String::new() } else { format!("{amount} expected") }, Draw::Rain(chances)));
+        tiles.push((3, 0, 1, "RAIN TODAY", rain.map(|p| format!("{}%", p.round() as i64)).unwrap_or_else(|| "\u{2013}".into()), vec![if amount.is_empty() { String::new() } else { format!("{amount} expected") }], Draw::Rain(chances)));
         let rise = d.more.pointer("/daily/0/sunrise").and_then(Value::as_str).filter(|t| t.len() >= 16);
         let set = d.more.pointer("/daily/0/sunset").and_then(Value::as_str).filter(|t| t.len() >= 16);
         let now_t = d.doc.pointer("/current/time").and_then(Value::as_str).and_then(minutes);
@@ -818,26 +846,32 @@ impl WeatherSurface {
             _ => (None, 0),
         };
         let daylight = if daylen > 0 { format!("{} h {} min of daylight", daylen / 60, daylen % 60) } else { String::new() };
-        tiles.push((0, 1, 2, "SUNRISE AND SUNSET", String::new(), daylight, Draw::Sun(dayfrac, daylen)));
+        tiles.push((0, 1, 2, "SUNRISE AND SUNSET", String::new(), vec![daylight], Draw::Sun(dayfrac, daylen)));
         let hum = d.num("/current/humidity");
         let cloud = d.more_num("/now/cloudPct").map(|c| format!("Cloud cover {}%", c.round() as i64)).unwrap_or_default();
-        tiles.push((2, 1, 1, "HUMIDITY", hum.map(|v| format!("{}%", v.round() as i64)).unwrap_or_else(|| "\u{2013}".into()), cloud, Draw::Humidity(hum.unwrap_or(0.0) as f32)));
+        tiles.push((2, 1, 1, "HUMIDITY", hum.map(|v| format!("{}%", v.round() as i64)).unwrap_or_else(|| "\u{2013}".into()), vec![cloud], Draw::Humidity(hum.unwrap_or(0.0) as f32)));
         let pressure = d.more_num("/now/pressureHpa");
         let vis = d.more_num("/now/visibilityM").map(|m| if metric { format!("Visibility {} mi", (m / 1609.34).round() as i64) } else { format!("Visibility {} km", (m / 1000.0).round() as i64) }).unwrap_or_default();
         let p_text = pressure.map(|p| if metric { format!("{:.2} inHg", p * 0.029_53) } else { format!("{} hPa", p.round() as i64) }).unwrap_or_else(|| "\u{2013}".into());
-        tiles.push((3, 1, 1, "PRESSURE", p_text, vis, Draw::Pressure(pressure.unwrap_or(1013.0) as f32)));
+        tiles.push((3, 1, 1, "PRESSURE", p_text, vec![vis], Draw::Pressure(pressure.unwrap_or(1013.0) as f32)));
 
         for (col, row, span, label, value, sub, draw) in tiles {
             let w = tile_w * span as f32 + gap * (span as f32 - 1.0);
             let rect = Frame::new(MARGIN + col as f32 * (tile_w + gap), top + row as f32 * (tile_h + gap), w, tile_h);
             let vpx = if value.chars().count() > 6 { vp * 0.78 } else { vp };
-            let mut lines: Vec<Line> = vec![(Frame::new(28.0, 24.0, w - 56.0, lh), sty(kit, lp, Weight::SemiBold, ink2, Align::Left), label.to_owned())];
+            let label_style = sty(kit, lp, Weight::SemiBold, ink2, Align::Left);
+            let label = fit(kit, &label_style, &[label.to_owned()], w - 56.0);
+            let mut lines: Vec<Line> = vec![(Frame::new(28.0, 24.0, w - 56.0, lh), label_style, label)];
             let mut y = 24.0 + lh + 4.0;
             if !value.is_empty() {
-                lines.push((Frame::new(28.0, y, w - 56.0, vh), sty(kit, vpx, Weight::SemiBold, ink, Align::Left), value));
+                let value_style = sty(kit, vpx, Weight::SemiBold, ink, Align::Left);
+                let value = fit(kit, &value_style, &[value], w - 56.0);
+                lines.push((Frame::new(28.0, y, w - 56.0, vh), value_style, value));
                 y += vh + 2.0;
             }
-            lines.push((Frame::new(28.0, y, w - 56.0, sh), sty(kit, sp, Weight::Medium, ink2, Align::Left), sub));
+            let sub_style = sty(kit, sp, Weight::Medium, ink2, Align::Left);
+            let sub = fit(kit, &sub_style, &sub, w - 56.0);
+            lines.push((Frame::new(28.0, y, w - 56.0, sh), sub_style, sub));
             y += sh + 14.0;
             // the graphic's room: under the words to the tile's foot
             let g = Frame::new(28.0, y, w - 56.0, (tile_h - y - 26.0).max(0.0));
@@ -846,12 +880,12 @@ impl WeatherSurface {
             if g.h >= 60.0 {
                 match &draw {
                     Draw::Pressure(_) => {
-                        extra.push((Frame::new(g.x, g.bottom() - sh, 120.0, sh), sty(kit, 22.0 * s, Weight::Medium, ink2, Align::Left), "Low".to_owned()));
-                        extra.push((Frame::new(g.right() - 120.0, g.bottom() - sh, 120.0, sh), sty(kit, 22.0 * s, Weight::Medium, ink2, Align::Right), "High".to_owned()));
+                        extra.push((Frame::new(g.x, g.bottom() - sh, 120.0, sh), sty(kit, 24.0 * s, Weight::Medium, ink2, Align::Left), "Low".to_owned()));
+                        extra.push((Frame::new(g.right() - 120.0, g.bottom() - sh, 120.0, sh), sty(kit, 24.0 * s, Weight::Medium, ink2, Align::Right), "High".to_owned()));
                     }
                     Draw::Uv(_) => {
-                        extra.push((Frame::new(g.x, g.bottom() - sh, 120.0, sh), sty(kit, 22.0 * s, Weight::Medium, ink2, Align::Left), "0".to_owned()));
-                        extra.push((Frame::new(g.right() - 120.0, g.bottom() - sh, 120.0, sh), sty(kit, 22.0 * s, Weight::Medium, ink2, Align::Right), "11+".to_owned()));
+                        extra.push((Frame::new(g.x, g.bottom() - sh, 120.0, sh), sty(kit, 24.0 * s, Weight::Medium, ink2, Align::Left), "0".to_owned()));
+                        extra.push((Frame::new(g.right() - 120.0, g.bottom() - sh, 120.0, sh), sty(kit, 24.0 * s, Weight::Medium, ink2, Align::Right), "11+".to_owned()));
                     }
                     Draw::Sun(_, _) => {
                         let (r, sn) = (rise.map(|t| clock_label(t, d.twelve)).unwrap_or_default(), set.map(|t| clock_label(t, d.twelve)).unwrap_or_default());
@@ -862,16 +896,16 @@ impl WeatherSurface {
                         let x_of = |v: f32| g.x + 24.0 + (g.w - 48.0) * (v - lo) / (hi - lo).max(1.0);
                         let (xa, xf) = (x_of(*a), x_of(*f));
                         let mid = g.y + g.h / 2.0;
-                        extra.push((Frame::new(xa - 90.0, mid - 20.0 - sh, 180.0, sh), sty(kit, 22.0 * s, Weight::Medium, ink2, Align::Centre), format!("Actual {}", d.deg(f64::from(*a)))));
-                        extra.push((Frame::new(xf - 90.0, mid + 22.0, 180.0, sh), sty(kit, 22.0 * s, Weight::SemiBold, ink, Align::Centre), format!("Feels {}", d.deg(f64::from(*f)))));
+                        extra.push((Frame::new(xa - 90.0, mid - 20.0 - sh, 180.0, sh), sty(kit, 24.0 * s, Weight::Medium, ink2, Align::Centre), format!("Actual {}", d.deg(f64::from(*a)))));
+                        extra.push((Frame::new(xf - 90.0, mid + 22.0, 180.0, sh), sty(kit, 24.0 * s, Weight::SemiBold, ink, Align::Centre), format!("Feels {}", d.deg(f64::from(*f)))));
                         if s <= 1.2 {
-                            extra.push((Frame::new(g.x, g.bottom() - sh, 120.0, sh), sty(kit, 22.0 * s, Weight::Medium, ink2, Align::Left), d.deg(f64::from(*lo))));
-                            extra.push((Frame::new(g.right() - 120.0, g.bottom() - sh, 120.0, sh), sty(kit, 22.0 * s, Weight::Medium, ink2, Align::Right), d.deg(f64::from(*hi))));
+                            extra.push((Frame::new(g.x, g.bottom() - sh, 120.0, sh), sty(kit, 24.0 * s, Weight::Medium, ink2, Align::Left), d.deg(f64::from(*lo))));
+                            extra.push((Frame::new(g.right() - 120.0, g.bottom() - sh, 120.0, sh), sty(kit, 24.0 * s, Weight::Medium, ink2, Align::Right), d.deg(f64::from(*hi))));
                         }
                     }
                     Draw::Rain(_) => {
-                        extra.push((Frame::new(g.x, g.bottom() - sh, 120.0, sh), sty(kit, 22.0 * s, Weight::Medium, ink2, Align::Left), "Now".to_owned()));
-                        extra.push((Frame::new(g.right() - 120.0, g.bottom() - sh, 120.0, sh), sty(kit, 22.0 * s, Weight::Medium, ink2, Align::Right), "24 h".to_owned()));
+                        extra.push((Frame::new(g.x, g.bottom() - sh, 120.0, sh), sty(kit, 24.0 * s, Weight::Medium, ink2, Align::Left), "Now".to_owned()));
+                        extra.push((Frame::new(g.right() - 120.0, g.bottom() - sh, 120.0, sh), sty(kit, 24.0 * s, Weight::Medium, ink2, Align::Right), "24 h".to_owned()));
                     }
                     _ => {}
                 }
