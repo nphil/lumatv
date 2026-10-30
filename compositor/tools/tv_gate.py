@@ -38,7 +38,8 @@ standby once the panel is 4 hours past the last one) short. When one is due the 
 Every session carries the set's own safety timer (cutover.sh enable --session --max-minutes): if this driver or the
 workstation dies in the middle of the gate, the set ends the session by itself and LG's compositor and Home come back.
 
-Afterwards LG's compositor is live and the enabled flag is removed, whatever failed. --enable-after (Nitin's decision:
+Afterwards the set is in the state the run found it: LG's compositor is live with the flag removed, except that a set that was persistent
+(`enabled` says `persistent`) gets the persistent enable again at the end, whatever failed. --enable-after (Nitin's decision:
 live once the gate passes) takes the firmware build the gate has just passed on into compositor/firmware/verified.list
 (the working tree: commit it), installs it on the set, and enables LumaTV's compositor for good; a pass on another build
 than the list holds is what makes that build one LumaTV may start on at boot."""
@@ -406,6 +407,10 @@ def main():
     stub_before = homestub_status()
     stub_was_on = homestub_is_on(stub_before)
     print("home stub before the run: %s" % stub_before)
+    # LumaTV's compositor as the run finds it (/var/lib/lumatv/compositor/enabled says `persistent`): the run ends in that state, not on
+    # LG's compositor with the flag gone (round 20: a video gate left LG's Home up for the family).
+    was_persistent = tv.tv("cat /var/lib/lumatv/compositor/enabled 2>/dev/null", 20).strip() == "persistent"
+    print("LumaTV's compositor before the run: %s" % ("persistent" if was_persistent else "not persistent"))
     avr_mute(True)
     try:
         # Not live yet: the firmware check on the set's own files, and the supervisor's question about a held Home key.
@@ -535,6 +540,11 @@ def main():
                 print("home stub after the run: %s" % homestub_status())
             except Exception as e:
                 print("home stub on failed: %s" % e)
+        if was_persistent:
+            try:
+                print("persistent enable (the state the run found): " + pty("sh /tmp/lumatv/cutover.sh enable", 300).strip()[-200:])
+            except Exception as e:
+                print("persistent enable failed: %s" % e)
     ok = all_passed(lines)
     print("\n".join(lines))
     print("GATE: %s" % ("PASS" if ok else "FAIL"))
