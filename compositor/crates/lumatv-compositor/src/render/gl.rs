@@ -1402,6 +1402,11 @@ impl Gl {
             ui.draw_over(fbo, rects)?;
         }
         self.finish_ui()?;
+        #[cfg(feature = "ui")]
+        if let Some(cost) = &self.ui_frame {
+            stats.ui_draws = cost.draw_calls;
+            stats.ui_layers = cost.layers;
+        }
         if let Some(c) = plan.cursor {
             let tex = self.cursor_texture();
             for r in rects {

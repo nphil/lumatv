@@ -84,6 +84,9 @@ pub struct RenderStats {
     /// The rectangles the frame owed and their area in pixels (what was cleared and drawn again); a full-screen frame is 2,073,600.
     pub rects: u32,
     pub owed_px: u64,
+    /// The UI engine's draw calls and layers in the frame (`FrameCost`): what a Home under an app costs shows here.
+    pub ui_draws: u32,
+    pub ui_layers: u32,
 }
 
 pub trait Output {

@@ -1312,13 +1312,17 @@ video)
     #    constant alpha and every hole is opaque black, a video app with sound and no picture (round 19, 2026-10-29);
     #  2 the DISPLAY capture's middle is not black (mean luma and spread: tv-pngstat.py) in at least two of three captures 2 s apart;
     #  3 nothing over the video: the compositor's CPU a second stays under LUMATV_VIDEO_MAX_CPU percent of a core (default 10, a starting bar for the
-    #    first round: the numbers are in the line, tighten it from them), and the frames it composes and the OSD's flips are in the line;
+    #    first round: the numbers are in the line, tighten it from them), and it composes under LUMATV_VIDEO_MAX_FPS frames a second (default 0.5): a
+    #    full-screen video app commits nothing while it plays, and a Home that went on drawing behind it was 2.5 composed frames a second of 12 ms of
+    #    the GPU each (round 19, found by the ring's flips); the OSD's flips are in the line;
     #  4 each overlay over the video (the volume display, the quick panel, the input picker, the notifications drawer, a toast, an alert; LUMATV_VIDEO_OVERLAYS
-    #    names others or fewer): it shows (first frame under the panels' 150 ms bar), the video is still seen around it (the upper left of the capture), the
-    #    frame intervals of the open have none over 20 ms (`ctl refresh`), no GL error, and 3 s after its close the compositor composes no more than before it.
+    #    names others or fewer): it shows (first frame under the panels' 150 ms bar, a reading good to the gate's own polling: the ring says when the
+    #    first flip landed), the video is still seen around it (the upper left of the capture), no frame stall over 20 ms inside its motion (`ctl refresh`
+    #    `runs`: the video app's own gaps between commits are not stalls), no GL error, and 3 s after its close the compositor composes no more than before
+    #    it. Each overlay's refresh, ring and wake reports are kept (video-APP-KIND-*.json; tv-ringflips.py reads the ring).
     # The apps: youtube (a video by its id, LUMATV_VIDEO_YT), netflix (the Dolby Vision test film as the netflix check does), plex (PlxNative: it is
     # launched and the owner starts a film; the check waits LUMATV_VIDEO_WAIT s for its video), current (whatever plays now, nothing launched or closed).
-    v_app=${2:-current}; v_secs=${3:-120}; v_wait=${LUMATV_VIDEO_WAIT:-45}; v_cpu_max=${LUMATV_VIDEO_MAX_CPU:-10}
+    v_app=${2:-current}; v_secs=${3:-120}; v_wait=${LUMATV_VIDEO_WAIT:-45}; v_cpu_max=${LUMATV_VIDEO_MAX_CPU:-10}; v_fps_max=${LUMATV_VIDEO_MAX_FPS:-0.5}
     v_overlays=${LUMATV_VIDEO_OVERLAYS:-osd,quick,picker,drawer,toast,alert}
     case $v_app in
         youtube) v_id=youtube.leanback.v4; v_launch="{\"id\":\"$v_id\",\"params\":{\"contentTarget\":\"https://www.youtube.com/tv?v=${LUMATV_VIDEO_YT:-aqz-KE-bpKQ}\"}}" ;;
@@ -1362,6 +1366,8 @@ video)
     v_base_drawn=$VS_DRAWN
     info="$info; over $v_secs s with nothing over the video: compositor CPU $VS_CPU % of a core, composed $VS_DRAWN frames/s, OSD flips $VS_FLIPS/s, Mali busy $VS_MALI %"
     awk -v c="$VS_CPU" -v m="$v_cpu_max" 'BEGIN { exit !(c > m) }' && bad="$bad the compositor used $VS_CPU % of a core under a video with nothing over it (bar $v_cpu_max %);"
+    awk -v f="$VS_DRAWN" -v m="$v_fps_max" 'BEGIN { exit !(f > m) }' && bad="$bad the compositor composed $VS_DRAWN frames/s under a video with nothing over it (bar $v_fps_max): something draws behind the video;"
+    ctl ring 1500 > $OUT/$name-idle-ring.json
     # 4 each overlay over the video
     v_pm=$(rust_poll_ms); v_ov=""
     for k in $(echo "$v_overlays" | tr ',' ' '); do

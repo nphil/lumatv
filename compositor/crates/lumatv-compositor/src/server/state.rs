@@ -59,6 +59,8 @@ pub struct Stats {
     /// What the last drawn frame owed: its rectangles and their pixels (`RenderStats::rects`, `owed_px`).
     pub rects_last: u32,
     pub owed_px_last: u64,
+    pub ui_draws_last: u32,
+    pub ui_layers_last: u32,
     pub skipped_items: u64,
     pub gl_errors: u64,
     /// Buffers whose first-use costs the commit paid (`Output::prepare_buffer`).
@@ -642,6 +644,8 @@ impl State {
                     stats.render_us_last = st.render_us;
                     stats.rects_last = st.rects;
                     stats.owed_px_last = st.owed_px;
+                    stats.ui_draws_last = st.ui_draws;
+                    stats.ui_layers_last = st.ui_layers;
                     stats.render_us_max = stats.render_us_max.max(st.render_us);
                     stats.skipped_items += st.skipped as u64;
                     stats.gl_errors = st.gl_errors;

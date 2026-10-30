@@ -170,6 +170,15 @@ class Video(Fixture):
         out = self.run_video()
         self.assertIn("the compositor used 0.0 % of a core under a video with nothing over it (bar -1 %)", out)
 
+    def test_frames_composed_under_a_video_with_nothing_over_it_fail_it_with_the_rate(self):
+        # the fake never moves the counter, so the rate is 0.0 and a bar below it is crossed
+        self.env["LUMATV_VIDEO_MAX_FPS"] = "-1"
+        out = self.run_video()
+        self.assertIn("the compositor composed 0.0 frames/s under a video with nothing over it (bar -1): something draws behind the video", out)
+        self.assertTrue(out.startswith("GATE video-current: FAIL"), out)
+        self.env["LUMATV_VIDEO_MAX_FPS"] = "0.5"
+        self.assertTrue(self.run_video().startswith("GATE video-current: PASS"))
+
     def test_an_overlay_that_stalls_inside_its_motion_fails_it_by_name_with_the_worst_stall(self):
         hurt = json.loads(json.dumps(REFRESH_OK))
         hurt["measure"]["runs"] = {"n": 1, "stalls": 4, "stall_worst_ms": 50.0, "gaps": 2}
@@ -195,6 +204,7 @@ class Video(Fixture):
         out = self.run_video()
         self.assertTrue(out.startswith("GATE video-current: PASS"), out)
         out_dir = self.env["LUMATV_OUT"]
+        self.assertTrue(os.path.exists(os.path.join(out_dir, "video-current-idle-ring.json")))
         for kind in ("osd", "quick"):
             for part in ("refresh", "ring", "wake"):
                 self.assertTrue(os.path.exists(os.path.join(out_dir, f"video-current-{kind}-{part}.json")), (kind, part))

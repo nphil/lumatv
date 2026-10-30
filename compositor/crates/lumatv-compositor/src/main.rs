@@ -597,11 +597,13 @@ fn run(config: Config) -> io::Result<()> {
         if state.stats.frames_drawn != drawn_seen {
             drawn_seen = state.stats.frames_drawn;
             ring::note(format_args!(
-                "D frame {} render {} us owed {} px in {} rects ({})",
+                "D frame {} render {} us owed {} px in {} rects, ui {} draws {} layers ({})",
                 drawn_seen,
                 state.stats.render_us_last,
                 state.stats.owed_px_last,
                 state.stats.rects_last,
+                state.stats.ui_draws_last,
+                state.stats.ui_layers_last,
                 handled_names(handled)
             ));
         }
