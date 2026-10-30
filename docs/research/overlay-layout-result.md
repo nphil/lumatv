@@ -43,8 +43,8 @@ Home's own 64 (the toasts' zone at their own 24).
 |---|---|---|---|
 | Volume bar (`volume`) | x 64 to 1856, y 134 to 1016 | bottom edge, centred, 64 above the edge; 120 higher over an app | left, bottom or right edge and slides along it; vertical on the sides; only the bottom edge rises over an app (subtitles at 905 to 1010) |
 | Mute mark (`mute`) | x 64 to 1856, y 134 to 810 | not placed: the four corners over an app, the status bar's row over Home | placed, it visits four places of a 48 px square that leans into the screen, in turn, every 10 s, never under a card that is up |
-| Camera window (`popup`) | the same | top right, 560 wide, 469 tall at 100 % text | ends at x 1856 (was 1824) |
-| Notifications (`cards`) | the same | top right; under the window where they meet (above it when anchored low) | a card that does not fit beside the window waits (`waits`) |
+| Camera pop-up (`popup`) | the column: x 32 to 1888, y 32 to 810 (half of Home's larger safe margin from the edges, never under 24; 2026-10-30, "much less padding") | top right, 560 wide, 469 tall at 100 % text | ends at x 1888 (was 1856); not held to the lint's safe area, like the toasts' corner |
+| Notifications (`cards`) | the column | top right; under the window where they meet (above it when anchored low) | a card that does not fit beside the window waits (`waits`) |
 | Toasts (`toast`) | x 24 to 1896, y 24 to 810 | top right, 24 from the edges | up to three |
 
 `Registry::layout_all(user, frame, sizes, work, over_app)` gives every item's rectangle from what the owner placed, the frame (`Frame::from_json(layout.json, theme overlays.limit)`)

@@ -1873,6 +1873,25 @@ mod tests {
     }
 
     #[test]
+    fn the_camera_pop_ups_video_window_is_where_the_owner_placed_the_card_and_in_its_corner_half_of_homes_safe_margin_in_by_default() {
+        let record = json!({"id": 42, "event": "e42", "camera": "275", "name": "Cat Feeder", "kind": "person", "at": 1_000, "untilMs": u64::MAX / 4, "thumbnail": false, "live": true});
+        let claim_of = |shell: &mut Shell| {
+            let mut acts = shell.helper(&Event::Topic { topic: "cameras.popup".into(), data: record.clone() }, 2_000);
+            acts.extend(shell.tick(2_050));
+            claims(&acts).into_iter().find(|c| c["id"] == "camera-popup").expect("the card claims a window")["rect"].clone()
+        };
+        let (_h, mut shell) = home_shell("popup,cameras");
+        let r = claim_of(&mut shell);
+        // the card is 560 wide with 20 px of air round the 520 wide picture: its right edge is at 1888, 32 from the screen's, and its top at 32
+        assert_eq!((r["x"].as_i64().unwrap() + r["w"].as_i64().unwrap() + 20, r["y"].as_i64().unwrap() < 32 + 160), (1888, true), "{r}");
+        let placed = json!({"layout": {"overlays": {"popup": {"anchor": "bottom-left", "dx": 0, "dy": 0}}}});
+        let (_h, mut moved) = home_shell_with("popup,cameras", &placed);
+        let r = claim_of(&mut moved);
+        assert_eq!(r["x"].as_i64().unwrap(), 32 + 20, "the picture's window follows the card to the left edge of its zone: {r}");
+        assert!(r["y"].as_i64().unwrap() + r["h"].as_i64().unwrap() <= 810, "and stays above the bottom quarter: {r}");
+    }
+
+    #[test]
     fn ok_on_a_live_card_over_an_app_brings_home_forward_for_the_full_view_which_asks_for_its_stream_when_home_is_in_front_and_back_brings_the_app_back() {
         let (_h, mut shell) = home_shell("popup,cameras");
         let camera = json!({"id": "275", "name": "Cat Feeder", "room": "", "online": true, "live": true, "recordings": true, "events": true, "clips": false, "since": 0,

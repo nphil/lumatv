@@ -630,7 +630,7 @@ pub struct View {
     pub held_rect: Option<Rect>,
     /// The panel's title, in browse mode only.
     pub heading: Option<&'static str>,
-    /// The item and where it is: "Camera window  ·  Top right, moved".
+    /// The item and where it is: "Camera pop-up  ·  Top right, moved".
     pub subject: String,
     pub notice: String,
     pub hint: &'static str,

@@ -224,8 +224,8 @@
   "overlays": {
     "enabled": false,
     "maxVisible": 2,
-    "top": 134,
-    "right": 64,
+    "top": 32,
+    "right": 32,
     "width": 560,
     "gap": 16,
     "limit": 810,

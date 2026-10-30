@@ -330,6 +330,12 @@ impl Frame {
             number(limit, LIMIT, 360, H),
         )
     }
+
+    /// How far the camera window's column keeps from the screen's edges, at the top and at the right and left: half of Home's larger safe margin (32
+    /// of 64), so the pop-up sits in its corner, and never less than the toasts' own 24 (Nitin, 2026-10-30: "much less padding, halve the margin").
+    pub fn column_inset(&self) -> i32 {
+        (self.safe_x.max(self.safe_y) / 2).max(TOAST)
+    }
 }
 
 /// The room an item may be in.
@@ -341,6 +347,9 @@ pub enum ZoneKind {
     Edge,
     /// The toasts' own: near the corners at the top and sides, and down to the TV-safe foot of the screen, where they rest by default.
     Toast,
+    /// The camera window's and the cards' column: up in the corner, half of Home's safe margin from the edges (over Home it covers the status bar's
+    /// right end while it is up), down to the bottom quarter's top.
+    Column,
 }
 
 impl ZoneKind {
@@ -349,6 +358,7 @@ impl ZoneKind {
             ZoneKind::Content => "content",
             ZoneKind::Edge => "edge",
             ZoneKind::Toast => "toast",
+            ZoneKind::Column => "column",
         }
     }
 
@@ -357,6 +367,7 @@ impl ZoneKind {
             ZoneKind::Content => Rect::from_edges(f.safe_x, f.top, W - f.safe_x, f.limit),
             ZoneKind::Edge => Rect::from_edges(f.safe_x, f.top, W - f.safe_x, H - REST),
             ZoneKind::Toast => Rect::from_edges(TOAST, TOAST, W - TOAST, H - f.safe_y.max(TOAST_FOOT)),
+            ZoneKind::Column => Rect::from_edges(f.column_inset(), f.column_inset(), W - f.column_inset(), f.limit),
         }
     }
 }
@@ -419,9 +430,9 @@ pub const ITEMS: [Item; 5] = [
     },
     Item {
         id: "popup",
-        title: "Camera window",
+        title: "Camera pop-up",
         icon: "video",
-        zone: ZoneKind::Content,
+        zone: ZoneKind::Column,
         edges: &[],
         lift: 0,
         drift: 0,
@@ -434,7 +445,7 @@ pub const ITEMS: [Item; 5] = [
         id: "cards",
         title: "Notifications",
         icon: "bell",
-        zone: ZoneKind::Content,
+        zone: ZoneKind::Column,
         edges: &[],
         lift: 0,
         drift: 0,

@@ -74,7 +74,7 @@ fn it_opens_on_the_item_asked_for_with_nothing_in_the_hand() {
     let v = e.view(0);
     assert_eq!((v.selected, v.mode, v.focus), ("popup", "browse", "items"));
     assert_eq!(v.heading, Some("Layout of pop-ups"));
-    assert_eq!(v.subject, "Camera window  \u{b7}  Top right");
+    assert_eq!(v.subject, "Camera pop-up  \u{b7}  Top right");
     assert_eq!(
         v.hint,
         "\u{2190} \u{2192} Choose  \u{b7}  OK Pick up  \u{b7}  Down Buttons  \u{b7}  Back Done"
@@ -92,8 +92,8 @@ fn it_opens_on_the_item_asked_for_with_nothing_in_the_hand() {
     // every item in its own size, the volume bar as it sits over an app (60 higher), the cards under the window
     let r = |id: &str| rect(&e, id, 0);
     assert_eq!(r("volume"), Rect::new(740, 928, 440, 60));
-    assert_eq!(r("popup"), Rect::new(1296, 134, 560, 469));
-    assert_eq!(r("cards"), Rect::new(1296, 134 + 469 + 16, 560, 165));
+    assert_eq!(r("popup"), Rect::new(1328, 32, 560, 469));
+    assert_eq!(r("cards"), Rect::new(1328, 32 + 469 + 16, 560, 165));
     assert_eq!(v.guides.safe, Rect::new(64, 54, 1792, 972));
     assert_eq!(v.guides.status_bar, Rect::new(64, 54, 1792, 60));
     assert_eq!(v.guides.bottom_quarter, Rect::new(0, 810, 1920, 270));
@@ -132,10 +132,10 @@ fn an_item_is_picked_up_moved_in_fine_steps_and_put_down_where_it_is_and_only_th
     assert!(v.items.iter().find(|i| i.id == "popup").unwrap().in_hand);
     assert!(pad.taps(&mut e, &[Key::Left]).is_empty()); // nothing is written until it is put down
     let moved = rect(&e, "popup", pad.t);
-    assert_eq!((1296 - moved.x, moved.y), (12, 134)); // one fine step of 12 px
+    assert_eq!((1328 - moved.x, moved.y), (12, 32)); // one fine step of 12 px
     assert_eq!(
         e.view(pad.t).held_rect,
-        Some(Rect::new(1296, 134, 560, 469))
+        Some(Rect::new(1328, 32, 560, 469))
     ); // its old place stays outlined
     assert!(e.user().is_empty());
     let out = saved(&pad.taps(&mut e, &[Key::Ok]));
@@ -160,9 +160,9 @@ fn back_puts_an_item_back_and_writes_nothing() {
     let (mut e, mut pad) = (editor_on(json!({})), Pad::new());
     e.start(Some("popup"));
     pad.taps(&mut e, &[Key::Ok, Key::Left, Key::Down]);
-    assert_ne!(rect(&e, "popup", pad.t), Rect::new(1296, 134, 560, 469));
+    assert_ne!(rect(&e, "popup", pad.t), Rect::new(1328, 32, 560, 469));
     assert!(pad.taps(&mut e, &[Key::Back]).is_empty());
-    assert_eq!(rect(&e, "popup", pad.t), Rect::new(1296, 134, 560, 469));
+    assert_eq!(rect(&e, "popup", pad.t), Rect::new(1328, 32, 560, 469));
     assert!(e.user().is_empty());
     assert_eq!(e.view(pad.t).mode, "browse");
     // and put down where it was picked up, nothing is saved either
@@ -180,7 +180,7 @@ fn a_held_key_glides_to_the_zones_edge_and_stops_flush() {
     let r = rect(&e, "popup", pad.t);
     assert_eq!(
         (r.right(), r.bottom(), e.view(pad.t).notice.as_str()),
-        (1856, 810, "")
+        (1888, 810, "")
     );
     pad.taps(&mut e, &[Key::Back]);
     // from a corner of its own, held left it ends at the zone's start, flush
@@ -191,7 +191,7 @@ fn a_held_key_glides_to_the_zones_edge_and_stops_flush() {
     pad.taps(&mut e, &[Key::Ok]);
     pad.hold(&mut e, Key::Left, 400);
     let r = rect(&e, "popup", pad.t);
-    assert_eq!((r.x, r.bottom()), (64, 810));
+    assert_eq!((r.x, r.bottom()), (32, 810));
 }
 
 #[test]
@@ -224,9 +224,9 @@ fn the_volume_bar_turns_the_corner_on_a_fresh_press_and_a_side_edge_flips_with_t
     assert_eq!((r.x, r.w, r.h, r.bottom()), (64, 96, 440, 1048)); // vertical, flush with Home's edge, its foot where the bottom edge's was
     pad.taps(&mut e, &[Key::Ok]);
     assert_eq!(e.user().get("volume").unwrap().anchor, Anchor::Left);
-    // the opposite key flips it to the right edge at the same height, where the camera window and the cards are: refused
+    // the opposite key flips it to the right edge at the same height, where the cards are (the camera window is above it): refused
     pad.taps(&mut e, &[Key::Ok, Key::Right]);
-    assert_eq!(e.view(pad.t).notice, "Camera window is in the way");
+    assert_eq!(e.view(pad.t).notice, "Notifications is in the way");
     pad.taps(&mut e, &[Key::Back]);
     assert_eq!(e.user().get("volume").unwrap().anchor, Anchor::Left);
 }
@@ -248,7 +248,7 @@ fn reset_this_and_reset_all_put_items_back_through_the_buttons() {
         json!({"toast": {"anchor": "bottom-right", "dx": 0.0, "dy": 0.0}})
     );
     assert_eq!(e.view(pad.t).notice, "Back to where it was");
-    assert_eq!(rect(&e, "popup", pad.t), Rect::new(1296, 134, 560, 469));
+    assert_eq!(rect(&e, "popup", pad.t), Rect::new(1328, 32, 560, 469));
     assert!(pad.taps(&mut e, &[Key::Ok]).is_empty()); // the window is not placed any more: Reset this has nothing to do
     // Reset all
     let out = saved(&pad.taps(&mut e, &[Key::Right, Key::Ok]));
@@ -327,7 +327,7 @@ fn a_new_map_from_the_caller_replaces_what_the_editor_knows_and_puts_a_move_back
     );
     e.set_user(other);
     assert_eq!(e.view(pad.t).mode, "browse");
-    assert_eq!(rect(&e, "popup", pad.t), Rect::new(64, 810 - 469, 560, 469));
+    assert_eq!(rect(&e, "popup", pad.t), Rect::new(32, 810 - 469, 560, 469));
 }
 
 #[test]

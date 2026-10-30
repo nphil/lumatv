@@ -23,20 +23,20 @@ fn the_models_fallbacks_are_the_shipped_layout() {
 }
 
 #[test]
-fn the_pop_up_and_the_cards_end_where_homes_right_edge_does() {
+fn the_pop_up_and_the_cards_sit_half_of_homes_safe_margin_from_the_corner() {
     let (layout, theme) = (data("layout.json"), data("theme.json"));
     let o = &theme["overlays"];
-    // the QML shell's column: `overlays.top` below the status bar's row, `overlays.right` from the screen's right edge, `overlays.width` wide
+    // the QML shell's column: `overlays.top` and `overlays.right` from the screen's edges (half of the larger of Home's safe margins, 32 of 64), `overlays.width` wide
     let f = Frame::from_json(&layout, o.get("limit"));
     assert_eq!(
         o["top"].as_i64(),
-        Some(i64::from(f.top)),
-        "overlays.top is where Home's content starts"
+        Some(i64::from(f.column_inset())),
+        "overlays.top is the column's inset"
     );
     assert_eq!(
         o["right"].as_i64(),
-        Some(i64::from(f.safe_x)),
-        "overlays.right is Home's own margin, 64"
+        Some(i64::from(f.column_inset())),
+        "overlays.right is the column's inset, 32"
     );
     assert_eq!(o["gap"].as_i64(), Some(i64::from(STACK)));
     let w = o["width"].as_i64().unwrap() as i32;

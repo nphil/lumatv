@@ -883,7 +883,7 @@ mod tests {
                 let items = g["items"].as_array().unwrap();
                 assert_eq!(items.len(), 5, "volume, mute, camera window, notifications, toasts");
                 let popup = items.iter().find(|i| i["id"] == "popup").unwrap();
-                assert_eq!((rect(popup).0 + rect(popup).2, rect(popup).1), (1856.0, 134.0), "the camera window flush in its corner at {scale}: {popup}");
+                assert_eq!((rect(popup).0 + rect(popup).2, rect(popup).1), (1888.0, 32.0), "the camera window flush in its corner at {scale}: {popup}");
                 let panel = rect(&g["panel"]);
                 for i in items {
                     if i["waits"] != true {
@@ -908,7 +908,7 @@ mod tests {
         e.key(EKey::Right, 1150);
         draw(&mut kit, &mut engine, &mut s, &e, 1200);
         assert_eq!(s.geometry()["selected"], "popup");
-        assert!(s.geometry()["subject"].as_str().unwrap().starts_with("Camera window"));
+        assert!(s.geometry()["subject"].as_str().unwrap().starts_with("Camera pop-up"));
         let before = rect(s.geometry()["items"].as_array().unwrap().iter().find(|i| i["id"] == "popup").unwrap());
         e.key(EKey::Ok, 1300);
         e.key(EKey::Left, 1400);

@@ -117,16 +117,23 @@ fn the_frame_is_homes_own_with_fallbacks_when_home_has_not_said() {
 #[test]
 fn the_zones_follow_homes_content_area() {
     let (f, r) = (frame(), reg());
-    assert_eq!(r.zone_of("popup", &f), Rect::new(64, 134, 1792, 676));
+    assert_eq!(r.zone_of("popup", &f), Rect::new(32, 32, 1856, 778));
     assert_eq!(r.zone_of("cards", &f), r.zone_of("popup", &f));
     assert_eq!(r.zone_of("mute", &f), Rect::new(64, 134, 1792, 676));
     assert_eq!(r.zone_of("volume", &f), Rect::new(64, 134, 1792, 914));
     assert_eq!(r.zone_of("toast", &f), Rect::new(24, 24, 1872, 1002));
-    // every zone but the toasts' ends where Home's grid does on the right and on the left (LayoutGrid.area)
-    for id in ["popup", "cards", "mute", "volume"] {
+    // the volume bar's and the mute mark's zones end where Home's grid does on the right and on the left (LayoutGrid.area); the camera window's and the
+    // cards' column is half of Home's safe margin from the edges (Nitin, 2026-10-30)
+    for id in ["mute", "volume"] {
         let z = r.zone_of(id, &f);
         assert_eq!((z.x, z.right()), (64, 1920 - 64), "{id}");
     }
+    for id in ["popup", "cards"] {
+        let z = r.zone_of(id, &f);
+        assert_eq!((z.x, z.y, z.right()), (32, 32, 1920 - 32), "{id}");
+    }
+    assert_eq!(f.column_inset(), 32);
+    assert_eq!(Frame::new(20, 10, 60, 20, 810).column_inset(), 24, "never closer than the toasts' own 24");
     // and none lets an overlay card into the bottom quarter but the toasts, which rest at the foot of the screen with 5 % of the height
     // (54 px) of air under them
     for id in ["popup", "cards", "mute"] {
@@ -134,6 +141,7 @@ fn the_zones_follow_homes_content_area() {
     }
     assert_eq!(r.zone_of("toast", &f).bottom(), 1080 - TOAST_FOOT);
     assert_eq!(ZoneKind::Content.name(), "content");
+    assert_eq!(ZoneKind::Column.name(), "column");
 }
 
 #[test]
@@ -142,15 +150,15 @@ fn defaults_are_where_the_items_were_drawn_before() {
     // the camera window and the cards: 560 wide at the top right below the status bar's row, ending where Home's right edge does
     assert_eq!(
         rect_of("popup", &e, 560, 469),
-        Rect::new(1296, 134, 560, 469)
+        Rect::new(1328, 32, 560, 469)
     );
     assert_eq!(
         rect_of("cards", &e, 560, 165),
-        Rect::new(1296, 134, 560, 165)
+        Rect::new(1328, 32, 560, 165)
     );
     assert_eq!(
         rect_of("popup", &e, 560, 469).right(),
-        1920 - frame().safe_x
+        1920 - frame().column_inset()
     );
     // the toasts: centred at the foot of the screen, 54 px (5 %) above the bottom edge, 560 wide
     assert_eq!(rect_of("toast", &e, 560, 98), Rect::new(680, 928, 560, 98));
@@ -282,7 +290,7 @@ fn a_placement_is_an_anchor_and_fractions_of_the_room_left() {
         z.y
     );
     // text at 200 %: the same corner, a larger card, still flush
-    assert_eq!(rect_of("popup", &User::default(), 560, 640).right(), 1856);
+    assert_eq!(rect_of("popup", &User::default(), 560, 640).right(), 1888);
 }
 
 #[test]
@@ -461,10 +469,10 @@ fn an_arrow_moves_an_item_a_fine_step_a_tap_stops_on_the_next_stop_and_a_held_ke
     for i in 0..500 {
         h = step("popup", &h, Dir::Left, held(i)).placement;
     }
-    assert_eq!(rect_of("popup", &placed("popup", h), 560, 469).x, 64);
+    assert_eq!(rect_of("popup", &placed("popup", h), 560, 469).x, 32);
     // an item as wide as its zone has no room to go sideways
     let mut wide = Sizes::new();
-    wide.set("popup", Size::new(1792, 469));
+    wide.set("popup", Size::new(1856, 469));
     assert!(
         !reg()
             .step("popup", &p, Dir::Left, &wide, &frame(), tap())
@@ -484,7 +492,7 @@ fn down_and_up_move_in_the_room_the_item_has_left_and_never_into_the_bottom_quar
         .placement;
     let mut d = step("popup", &p, Dir::Down, tap());
     assert!(d.moved);
-    assert!(rect_of("popup", &placed("popup", d.placement), 560, 469).y > 134);
+    assert!(rect_of("popup", &placed("popup", d.placement), 560, 469).y > 32);
     for i in 0..60 {
         d = step("popup", &d.placement, Dir::Down, held(i));
     }
@@ -616,10 +624,10 @@ fn a_vertical_bar_is_as_tall_as_its_own_size_says_and_the_room_is_the_edges() {
 fn the_cards_go_under_the_camera_window_when_they_share_its_corner_above_it_when_they_grow_upwards_and_stand_alone_elsewhere()
  {
     let l = all(&User::default(), false);
-    assert_eq!(l.rect("popup"), Some(Rect::new(1296, 134, 560, 469)));
+    assert_eq!(l.rect("popup"), Some(Rect::new(1328, 32, 560, 469)));
     assert_eq!(
         l.rect("cards"),
-        Some(Rect::new(1296, 134 + 469 + 16, 560, 165))
+        Some(Rect::new(1328, 32 + 469 + 16, 560, 165))
     ); // under it, 16 apart
     assert!(l.rect("cards").unwrap().bottom() <= 810);
     // low in the zone they grow upwards: above the window when it is at the bottom too
@@ -636,19 +644,19 @@ fn the_cards_go_under_the_camera_window_when_they_share_its_corner_above_it_when
     // in different corners they do not touch each other
     let l = all(&placed("cards", at(Anchor::BottomLeft, 0.0, 0.0)), false);
     let c = l.rect("cards").unwrap();
-    assert_eq!((c.x, c.bottom()), (64, 810));
+    assert_eq!((c.x, c.bottom()), (32, 810));
     assert!(!c.meets(&l.rect("popup").unwrap(), 0));
     assert!(at(Anchor::TopRight, 0.0, 0.0).grows_down() && !low.grows_down());
     // the room a column of cards has: the whole zone alone, what is left beside the window
     let z = reg().zone_of("cards", &frame());
-    assert_eq!(column_room(&z, None, 16, true), 676);
+    assert_eq!(column_room(&z, None, 16, true), 778);
     assert_eq!(
-        column_room(&z, Some(&Rect::new(1296, 134, 560, 469)), 16, true),
-        810 - (134 + 469 + 16)
+        column_room(&z, Some(&Rect::new(1328, 32, 560, 469)), 16, true),
+        810 - (32 + 469 + 16)
     );
     assert_eq!(
-        column_room(&z, Some(&Rect::new(1296, 600, 560, 210)), 16, false),
-        600 - 16 - 134
+        column_room(&z, Some(&Rect::new(1328, 600, 560, 210)), 16, false),
+        600 - 16 - 32
     );
 }
 
@@ -658,7 +666,7 @@ fn an_item_cannot_be_put_where_another_is_and_the_stacked_pair_are_not_in_each_o
     let who = |id: &str, r: Rect| reg().blocker(&l, id, &r, None);
     assert_eq!(who("volume", Rect::new(1300, 140, 96, 440)), Some("popup"));
     assert_eq!(
-        who("volume", Rect::new(1856 - 96, 700, 96, 300)),
+        who("volume", Rect::new(1856 - 96, 600, 96, 300)),
         Some("cards")
     ); // the cards sit under the window
     assert_eq!(who("volume", Rect::new(64, 300, 96, 440)), None);
@@ -718,7 +726,7 @@ fn cards_that_do_not_fit_beside_a_tall_camera_window_wait_for_it() {
     tall.set("popup", Size::new(560, 676))
         .set("cards", Size::new(560, 330));
     let l = reg().layout_all(&User::default(), &frame(), &tall, None, false);
-    assert_eq!(l.rect("cards").unwrap().y, 134 + 676 + STACK);
+    assert_eq!(l.rect("cards").unwrap().y, 32 + 676 + STACK);
     assert!(l.waits("cards")); // it would end at 1156, below the zone
     assert!(!all(&User::default(), false).waits("cards")); // 100 % text: it fits under the window
     // standing alone it is not waiting for anything
@@ -737,19 +745,19 @@ fn the_room_the_cards_have_is_the_zones_less_the_windows_only_where_they_share_i
     let room = |u: &User, w: Option<&Rect>| {
         reg().column_room_for("cards", u, &frame(), w, 16, Size::new(560, 165))
     };
-    let win = Rect::new(1296, 134, 560, 469);
-    assert_eq!(room(&User::default(), Some(&win)), 810 - (134 + 469 + 16)); // top right under the window
-    assert_eq!(room(&User::default(), None), 676);
+    let win = Rect::new(1328, 32, 560, 469);
+    assert_eq!(room(&User::default(), Some(&win)), 810 - (32 + 469 + 16)); // top right under the window
+    assert_eq!(room(&User::default(), None), 778);
     assert_eq!(
-        room(&User::default(), Some(&Rect::new(64, 134, 560, 469))),
-        676
+        room(&User::default(), Some(&Rect::new(32, 32, 560, 469))),
+        778
     ); // the window is in the other corner
     assert_eq!(
         room(
             &placed("cards", at(Anchor::BottomRight, 0.0, 0.0)),
             Some(&win)
         ),
-        676
+        778
     ); // anchored low they do not meet it
 }
 
@@ -811,8 +819,8 @@ fn a_pointer_drags_an_item_to_a_place_and_near_a_stop_it_lands_on_the_stop() {
     let c = reg()
         .at_point(
             "popup",
-            f64::from(1856 - 280 - 6),
-            f64::from(134 + 234 + 5),
+            f64::from(1888 - 280 - 6),
+            f64::from(32 + 234 + 5),
             &sizes(),
             &f,
             &p,

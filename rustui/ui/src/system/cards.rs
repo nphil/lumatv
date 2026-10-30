@@ -81,8 +81,8 @@ impl Config {
         Config {
             enabled: t.get("enabled").and_then(Value::as_bool) == Some(true) || t.get("rust").and_then(Value::as_bool) == Some(true),
             max_visible: num(t.get("maxVisible"), 2.0, 1.0, 3.0).round() as usize,
-            top: num(t.get("top"), 134.0, 0.0, 540.0),
-            right: num(t.get("right"), 64.0, 0.0, 480.0),
+            top: num(t.get("top"), 32.0, 0.0, 540.0),
+            right: num(t.get("right"), 32.0, 0.0, 480.0),
             width: num(t.get("width"), 560.0, 320.0, 900.0),
             gap: num(t.get("gap"), 16.0, 0.0, 64.0),
             limit: num(t.get("limit"), 810.0, 360.0, 1080.0),

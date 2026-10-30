@@ -414,9 +414,9 @@ mod tests {
         let items = &b["items"];
         assert_eq!(
             items["popup"]["rect"],
-            json!({"x": 1296, "y": 134, "w": 560, "h": 469})
+            json!({"x": 1328, "y": 32, "w": 560, "h": 469})
         );
-        assert_eq!(items["cards"]["rect"]["y"], 134 + 469 + 16);
+        assert_eq!(items["cards"]["rect"]["y"], 32 + 469 + 16);
         // centred at the foot, above the volume bar it stacks on (988 - 16 - 98)
         assert_eq!(
             items["toast"]["rect"],
@@ -446,9 +446,10 @@ mod tests {
         let (status, b) = call(&s, "POST", "/v1/placement/layout", sent);
         assert_eq!(status, 200, "{b}");
         let items = &b["items"];
+        // the column keeps half of the safe margin Home sent (96) from the corner
         assert_eq!(
             items["popup"]["rect"],
-            json!({"x": 96, "y": 134, "w": 560, "h": 640})
+            json!({"x": 48, "y": 48, "w": 560, "h": 640})
         );
         assert_eq!(items["popup"]["slide"], json!({"x": -1, "y": 0}));
         assert_eq!(items["volume"]["rect"]["x"], 1920 - 96 - 96);
@@ -508,7 +509,7 @@ mod tests {
         key(&s, "ok", 1000);
         let b = key(&s, "left", 2000);
         assert_eq!(b["view"]["mode"], "move");
-        assert_eq!(b["view"]["items"][2]["rect"]["x"], 1296 - 12);
+        assert_eq!(b["view"]["items"][2]["rect"]["x"], 1328 - 12);
         let b = key(&s, "ok", 3000);
         let saved = &b["effects"][0]["save"];
         assert_eq!(saved["popup"]["anchor"], "top-right");

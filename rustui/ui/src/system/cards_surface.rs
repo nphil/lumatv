@@ -416,7 +416,8 @@ impl CardsSurface {
 
     pub fn feed_lint(&self, kit: &mut Kit, lint: &mut Lint) {
         for (i, s) in self.slots.iter().enumerate() {
-            let panel = lint.panel(&format!("card {i}"), s.frame, s.paint, true);
+            // the column is its own zone, like the toasts' corner: half of Home's safe margin from the edges, so it is not held to the safe area
+            let panel = lint.panel(&format!("card {i}"), s.frame, s.paint, false);
             for (j, w) in s.words.iter().enumerate() {
                 lint.word(kit, &format!("card {i} words {j}"), &w.text, w.frame, w.style, Some(panel));
             }
@@ -476,7 +477,7 @@ mod tests {
             ],
             T0,
         );
-        o.refresh((134.0, 810.0), &mut |e| f64::from(CardsSurface::height_of(kit, e, 560.0, false)), T0);
+        o.refresh((32.0, 810.0), &mut |e| f64::from(CardsSurface::height_of(kit, e, 560.0, false)), T0);
         o.shown().to_vec()
     }
 
@@ -502,14 +503,14 @@ mod tests {
             for scale in [1.0, 2.0] {
                 let (_h, mut kit, mut s) = rig(mode, scale);
                 let shown = two_cards(&mut kit);
-                // at 200 % text the second card would end below the limit, so it waits: the first always shows
-                assert_eq!(shown.len(), if scale == 1.0 { 2 } else { 1 }, "how many fit above 810 at {scale}");
+                // the column starts at 32, so two cards fit above 810 at both sizes (at 200 % the second waited while it began at 134)
+                assert_eq!(shown.len(), 2, "how many fit above 810 at {scale}");
                 assert!(s.apply(&mut kit, &shown, &col(None), 1000).unwrap());
                 let g = s.geometry();
                 let cards = g.as_array().unwrap();
                 let a = &cards[0];
-                assert_eq!(a["x"].as_f64().unwrap() + a["w"].as_f64().unwrap(), 1856.0, "flush at x 1856: {a}");
-                assert_eq!(a["y"].as_f64().unwrap(), 134.0);
+                assert_eq!(a["x"].as_f64().unwrap() + a["w"].as_f64().unwrap(), 1888.0, "flush half of Home's safe margin from the right edge: {a}");
+                assert_eq!(a["y"].as_f64().unwrap(), 32.0);
                 if let Some(b) = cards.get(1) {
                     assert_eq!(b["y"].as_f64().unwrap(), a["y"].as_f64().unwrap() + a["h"].as_f64().unwrap() + 16.0, "the second under the first at its real height");
                     assert!(b["y"].as_f64().unwrap() + b["h"].as_f64().unwrap() <= 810.0, "the column ends above the bottom quarter: {b}");
@@ -527,7 +528,7 @@ mod tests {
             let mut o = Overlay::new(&json!({}));
             let score = json!({"league": "Premier League", "status": "78'", "live": true, "home": {"name": "Arsenal", "abbr": "ARS", "score": 2}, "away": {"name": "Chelsea", "abbr": "CHE", "score": 1}});
             o.posted(&[note("s", "score", "Arsenal 2, Chelsea 1", "", json!([]), score)], T0);
-            o.refresh((134.0, 810.0), &mut |e| f64::from(CardsSurface::height_of(&mut kit, e, 560.0, false)), T0);
+            o.refresh((32.0, 810.0), &mut |e| f64::from(CardsSurface::height_of(&mut kit, e, 560.0, false)), T0);
             assert!(s.apply(&mut kit, o.shown(), &col(None), 1000).unwrap());
             assert_eq!(o.shown()[0].cls, "score");
             let found = lint_of(&mut kit, &s);
@@ -542,9 +543,9 @@ mod tests {
         let popup = Size::new(560, 469);
         s.apply(&mut kit, &shown[..1], &col(Some(popup)), 1000).unwrap();
         let g = s.geometry();
-        assert_eq!(g[0]["y"].as_f64().unwrap(), 134.0 + 469.0 + 16.0, "under the window: {g}");
-        assert_eq!(s.room(Some(popup), 560.0), (134.0 + 469.0 + 16.0, 810.0), "the room under the window");
-        assert_eq!(s.room(None, 560.0), (134.0, 810.0), "the zone's own");
+        assert_eq!(g[0]["y"].as_f64().unwrap(), 32.0 + 469.0 + 16.0, "under the window: {g}");
+        assert_eq!(s.room(Some(popup), 560.0), (32.0 + 469.0 + 16.0, 810.0), "the room under the window");
+        assert_eq!(s.room(None, 560.0), (32.0, 810.0), "the zone's own");
         // the card goes: it fades out and is dropped after the beat
         s.apply(&mut kit, &[], &col(None), 2000).unwrap();
         assert!(!s.is_up());
@@ -568,7 +569,7 @@ mod tests {
     fn a_column_anchored_low_has_the_whole_zones_room_stacks_up_from_its_edge_with_the_first_card_nearest_it_and_stays_in_the_zone() {
         let (_h, mut kit) = testkit::kit(1.0);
         let mut s = low(None);
-        assert_eq!(s.room(None, 560.0), (134.0, 810.0), "the room is the zone's, whichever edge it is anchored to");
+        assert_eq!(s.room(None, 560.0), (32.0, 810.0), "the room is the zone's, whichever edge it is anchored to");
         // the queue is asked with that room: two cards fit, where counting from the card's own place (810 - 150) would let one show
         let shown = two_cards(&mut kit);
         assert_eq!(shown.len(), 2, "two cards at 100 % text");
@@ -580,7 +581,7 @@ mod tests {
         let bottom = |c: &Value| c["y"].as_f64().unwrap() + c["h"].as_f64().unwrap();
         assert_eq!(bottom(a), 810.0, "the first card ends at the zone's foot: {g}");
         assert_eq!(bottom(b) + 16.0, a["y"].as_f64().unwrap(), "the second is above it with the gap: {g}");
-        assert!(b["y"].as_f64().unwrap() >= 134.0, "inside the zone: {g}");
+        assert!(b["y"].as_f64().unwrap() >= 32.0, "inside the zone: {g}");
     }
 
     #[test]
@@ -590,7 +591,7 @@ mod tests {
         let mut s = low(Some("bottom-right"));
         let popup = Size::new(560, 300);
         let (top, limit) = s.room(Some(popup), 560.0);
-        assert_eq!(top, 134.0);
+        assert_eq!(top, 32.0);
         assert_eq!(limit, 810.0 - 300.0 - 16.0, "above the window");
         let shown = two_cards(&mut kit);
         let one = &shown[..1];

@@ -217,9 +217,10 @@ Item {
     function nameOf(i) { return i >= 0 && i < cameras.length ? (cameras[i].name || cameras[i].id) : "" }
 
     // ================================================================= the pop-up card (docs/mocks/cameras/popup)
-    // Top right, ending where Home's status bar does (theme overlays.right, 64: layout.json safe.x) and below its row (54 + 60 + 20 = 134): the mute mark's
-    // row; the mark keeps to the left corner while this is up (LumaOverlay tells the volume display).
-    readonly property int rightEdge: Lu.theme && Lu.theme.overlays && Lu.theme.overlays.right !== undefined ? Lu.theme.overlays.right : 64     // the cards under it use the same
+    // Top right, half of Home's safe margin from the corner (theme overlays.right and overlays.top, 32: half of layout.json safe.x; docs/research/camera-popup-result.md);
+    // the mute mark keeps to the left corner while this is up (LumaOverlay tells the volume display).
+    readonly property int rightEdge: Lu.theme && Lu.theme.overlays && Lu.theme.overlays.right !== undefined ? Lu.theme.overlays.right : 32     // the cards under it use the same
+    readonly property int topEdge: Lu.theme && Lu.theme.overlays && Lu.theme.overlays.top !== undefined ? Lu.theme.overlays.top : 32
     readonly property int padX: Lu.space(5)       // 20
     readonly property int cardW: 560
     readonly property int previewW: cardW - 2 * padX
@@ -227,7 +228,7 @@ Item {
     // card ends above 75 % of the height (810): the film's subtitles and the volume bar keep the bottom quarter (docs/research/overlays-result.md).
     readonly property int previewNat: Math.floor(previewW * 9 / 16)
     readonly property int cardLimit: 810
-    readonly property int previewH: Math.max(120, Math.min(previewNat, ((cardLimit - 134 - (2 * padX + head.height + 2 * Lu.space(3) + foot.height)) >> 1) << 1))
+    readonly property int previewH: Math.max(120, Math.min(previewNat, ((cardLimit - topEdge - (2 * padX + head.height + 2 * Lu.space(3) + foot.height)) >> 1) << 1))
     // where the card ends, for the overlay system's cards that go under it
     readonly property real popupBottom: card.y + card.height
     readonly property real popupRight: card.x + card.width     // and where it ends across: where Home's right edge is
@@ -236,7 +237,7 @@ Item {
         width: cams.cardW
         height: head.y + head.height + Lu.space(3) + cams.previewH + Lu.space(3) + foot.height + cams.padX
         x: cams.width - cams.rightEdge - width
-        y: 134
+        y: cams.topEdge
         cardRadius: Lu.radius("card")
         fillAlpha: cams.paneAlpha
         opacity: cams.popupUp ? 1 : 0

@@ -148,8 +148,8 @@ class Overlays(HostCase):
         self.assertEqual(s["cls"], ["timer"])
         for g in s["geometry"]:
             self.assertLessEqual(g["y"] + g["h"], 810, "no card ends below 75 % of the height")
-            self.assertEqual(g["x"] + g["w"], 1920 - 64, "ends where Home's right edge does")
-            self.assertGreaterEqual(g["y"], 134)
+            self.assertEqual(g["x"] + g["w"], 1920 - 32, "half of Home's safe margin from the right edge")
+            self.assertGreaterEqual(g["y"], 32)
 
     def test_two_alerts_stack_one_under_the_other_inside_the_zone(self):
         steps = [(READY, publish("plugins", ROSTER) + notes("ha")),
@@ -160,7 +160,7 @@ class Overlays(HostCase):
         self.assertEqual(s["ids"], ["a1", "a2"], out[-2000:])
         g = s["geometry"]
         self.assertEqual(len(g), 2)
-        self.assertEqual(g[0]["y"], 134)
+        self.assertEqual(g[0]["y"], 32)
         self.assertGreater(g[1]["y"], g[0]["y"] + g[0]["h"], "the second is under the first, with a gap")
         self.assertEqual(g[1]["y"] - (g[0]["y"] + g[0]["h"]), 16)
         self.assertLessEqual(g[1]["y"] + g[1]["h"], 810)

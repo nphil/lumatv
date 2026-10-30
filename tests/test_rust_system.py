@@ -309,8 +309,8 @@ class RustSystem(unittest.TestCase):
         self.assertEqual(reports[0]['takes'], ['ok', 'back'], "up for over 600 ms: OK and Back are the card's, and nothing else")
         self.assertFalse(reports[0]['wants'], "the arrows stay the app's")
         geo = [e for e in res['evals'] if isinstance(e, dict) and 'popup' in e][0]['popup']
-        self.assertEqual(geo['x'] + geo['w'], 1856, "flush where Home's status bar ends: %s" % geo)
-        self.assertEqual(geo['y'], 134)
+        self.assertEqual(geo['x'] + geo['w'], 1888, "half of Home's safe margin from the right edge: %s" % geo)
+        self.assertEqual(geo['y'], 32, "and from the top")
         asked = res['helper'].frames
         self.assertTrue(asked and all((c, w, h) == ('300', geo['picture']['w'], geo['picture']['h']) for c, w, h, _ in asked), "stills at the picture's size: %s" % asked[:3])
         self.assertIn(['/v1/cameras/popup/clear', {}], res['helper'].posts, "Back clears it and the helper is told")
@@ -431,7 +431,7 @@ class RustSystem(unittest.TestCase):
         self.assertEqual(reports[1]['takes'], ['ok', 'back'])
         cards = [e for e in res['evals'] if isinstance(e, dict) and 'cards' in e][0]['cards']
         self.assertEqual(len(cards), 2, cards)
-        self.assertEqual(cards[0]['x'] + cards[0]['w'], 1856)
+        self.assertEqual(cards[0]['x'] + cards[0]['w'], 1888)
         self.assertEqual(cards[1]['y'], cards[0]['y'] + cards[0]['h'] + 16)
         self.assertIn(['/v1/plugins/kitchen/actions/stop', {}], res['helper'].posts, "OK ran the record's first action")
         self.assertEqual(reports[3]['takes'], [], "both cards dismissed: the keys are the app's again")
@@ -465,7 +465,7 @@ class RustSystem(unittest.TestCase):
                     self.assertGreaterEqual(geo['cards'][0]['y'], geo['popup']['y'] + geo['popup']['h'], "the cards go under the camera's card: %s" % geo)
                 else:
                     self.assertTrue(geo['cards'] and 'popup' not in geo, "the cards alone: %s" % geo)
-                    self.assertEqual(geo['cards'][0]['x'] + geo['cards'][0]['w'], 1856)
+                    self.assertEqual(geo['cards'][0]['x'] + geo['cards'][0]['w'], 1888)
                 if Image and os.path.exists(shot):
                     im = Image.open(shot).convert('RGB')
                     folder = render_dir()

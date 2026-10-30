@@ -445,7 +445,8 @@ impl PopupSurface {
 
     pub fn feed_lint(&self, kit: &mut Kit, lint: &mut Lint) {
         if let Some(b) = &self.current {
-            let panel = lint.panel("camera card", b.frame, b.paint, true);
+            // the column is its own zone, like the toasts' corner: half of Home's safe margin from the edges, so it is not held to the safe area
+            let panel = lint.panel("camera card", b.frame, b.paint, false);
             for (i, w) in b.words.iter().enumerate() {
                 lint.word(kit, &format!("camera card words {i}"), &w.text, w.frame, w.style, Some(panel));
             }
@@ -509,8 +510,8 @@ mod tests {
                 let p = up(true);
                 assert!(s.apply(&mut kit, &p.view(), None, 0, false, 1000).unwrap());
                 let g = s.geometry();
-                assert_eq!(g["x"].as_f64().unwrap() + g["w"].as_f64().unwrap(), 1856.0, "ends where Home's status bar does: {g}");
-                assert_eq!(g["y"].as_f64().unwrap(), 134.0);
+                assert_eq!(g["x"].as_f64().unwrap() + g["w"].as_f64().unwrap(), 1888.0, "half of Home's safe margin from the right edge: {g}");
+                assert_eq!(g["y"].as_f64().unwrap(), 32.0);
                 assert!(g["y"].as_f64().unwrap() + g["h"].as_f64().unwrap() <= 810.0, "ends above the bottom quarter at {scale}: {g}");
                 let pic = &g["picture"];
                 if scale == 1.0 {
@@ -535,7 +536,7 @@ mod tests {
             let p = up(false);
             s.apply(&mut kit, &p.view(), None, 0, false, 1000).unwrap();
             let g = s.geometry();
-            assert_eq!(g["x"].as_f64().unwrap(), 64.0, "flush left at {scale}: {g}");
+            assert_eq!(g["x"].as_f64().unwrap(), 32.0, "flush left at {scale}: {g}");
             assert_eq!(g["y"].as_f64().unwrap() + g["h"].as_f64().unwrap(), 810.0, "flush at the zone's bottom at {scale}: {g}");
         }
     }

@@ -7,7 +7,7 @@
 //!   the bottom quarter.
 //! - [`motion`]: one arrow press (a fine step that stops on the corners, thirds and middle; a held key that glides), the volume bar that
 //!   slides along three edges and turns the corner, a pointer's drop.
-//! - [`editor`]: the controller of the editor screen: browse, pick up, move, put down, put back, Reset, refusals ("Camera window is in the
+//! - [`editor`]: the controller of the editor screen: browse, pick up, move, put down, put back, Reset, refusals ("Camera pop-up is in the
 //!   way"), and the [`editor::View`] a toolkit draws. It asks its caller to save and never saves itself.
 //!
 //! A surface asks `Registry::rect_of` (or `layout_all` for the whole screen) where its item is, given the size it measured; it never keeps a
