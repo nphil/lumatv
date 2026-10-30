@@ -4,19 +4,25 @@
 //! large so the card ends above the zone's bottom) and the picture's state and the keys in the foot. Nothing is drawn in the picture box until a
 //! picture arrives but a quiet plate with the camera's glyph, so the card never shows an empty hole.
 //!
-//! The card is made when it comes and dropped when it has gone (the scene's budget): it slides in from a touch to the right as it fades in and out
-//! again quicker; its words are made again in place when they change (the age), and only the picture, the state and the dot change after that.
+//! **The picture box is a hole in the glass.** The card's glass is four bands of one pane (above the box, below it and at each side), so that the box is
+//! clear: the live video (`popup_live.rs`) plays on the display's video plane under it and shows through. The box's four corners are masks in the glass's
+//! own colour outside an arc of the tile's radius, since the plane's picture has square corners. While no video is the picture the box holds the still, the
+//! event's picture or the plate, a layer of the shell's that covers the hole, and the card looks the same whichever it is.
+//!
+//! The card is made when it comes and dropped when it has gone (the scene's budget): it fades in and out again quicker (the glass is clipped in the screen's
+//! own pixels, so it does not slide: a slide would move the glass and not its clip); its words are made again in place when they change (the age), and only
+//! the picture, the state and the dot change after that.
 
 use super::parts::{HIDDEN, Sheet, hint_into, hint_width};
 use super::popup::{Face, View, PICTURE};
 use crate::kit::hint::{Action, Hint, Key};
 use crate::kit::icon;
 use crate::kit::lint::Lint;
-use crate::kit::pane::{Pane, PaneKind};
+use crate::kit::pane::{self, Pane, PaneKind};
 use crate::kit::picture::{Fit, Picture};
 use crate::kit::text::{Text, role_style, width_of};
 use crate::kit::{Kit, wrap};
-use compositor_protocol::{Props, Rgba};
+use compositor_protocol::{Props, Rect, Rgba};
 use lumatv_placement::{Frame as PlacementFrame, Rect as PlaceRect, Registry, Size, User};
 use lumatv_tokens::{Radius, TypeRole};
 use serde_json::{Value, json};
@@ -31,7 +37,8 @@ fn glyph_px(kit: &Kit) -> f32 {
     (36.0 * (1.0 + 0.6 * (kit.text_scale - 1.0))).round()
 }
 const DOT: f32 = 12.0;
-const SLIDE: f32 = 24.0;
+/// The card fades; it does not slide (see the module's note on the clipped glass).
+const SLIDE: f32 = 0.0;
 const FACES: [Face; 4] = [Face::Connecting, Face::EventPicture, Face::Live, Face::NoPicture];
 
 /// Everything about the card that does not change while the same words are on it.
@@ -87,7 +94,7 @@ fn plan(kit: &mut Kit, view: &View, room: f32) -> Plan {
     let natural = (inner * 9.0 / 16.0).floor();
     let spare = room - (2.0 * pad + head_h + 2.0 * kit.space(3) + foot_h);
     let prev_h = natural.min(((spare as i32) >> 1 << 1) as f32).max(120.0);
-    let pic_y = pad + head_h + kit.space(3);
+    let pic_y = (pad + head_h + kit.space(3)).round();
     let foot_y = pic_y + prev_h + kit.space(3);
     let mut placed = Vec::new();
     let (mut x, mut y) = (if one_line { pad + inner - keys_w } else { pad }, if one_line { foot_y } else { foot_y + line + kit.space(1) });
@@ -105,7 +112,7 @@ fn plan(kit: &mut Kit, view: &View, room: f32) -> Plan {
         pad,
         name: (Frame::new(text_x, pad, text_w, nh), name, name_style),
         what: what_frames,
-        picture: Frame::new(pad, pic_y, inner, prev_h),
+        picture: Frame::new(pad.round(), pic_y, WIDTH - 2.0 * pad.round(), prev_h),
         state: (Frame::new(pad + DOT + kit.space(2), foot_y, state_w - DOT - kit.space(2), line), caption),
         dot: (pad, foot_y + ((line - DOT) / 2.0).round()),
         hints: placed,
@@ -139,6 +146,27 @@ fn placeholder(kit: &mut Kit, w: u32, h: u32, radius: f32) -> Picture {
     p
 }
 
+/// One corner of the picture box that the video's square corner must not show at: the glass's own colour outside an arc of `r` pixels, transparent inside it
+/// (`corner` 0 top left, 1 top right, 2 bottom left, 3 bottom right).
+fn corner_mask(r: u32, corner: u32, tint: Rgba) -> Picture {
+    let rf = r as f32;
+    let mut rgba = vec![0u8; (r * r * 4) as usize];
+    for y in 0..r {
+        for x in 0..r {
+            // mirrored into the top left quadrant, where the arc's centre is r in from both edges
+            let mx = if corner & 1 == 1 { r - 1 - x } else { x };
+            let my = if corner & 2 == 2 { r - 1 - y } else { y };
+            let dist = ((mx as f32 + 0.5 - rf).powi(2) + (my as f32 + 0.5 - rf).powi(2)).sqrt();
+            let outside = 1.0 - (rf - dist + 0.5).clamp(0.0, 1.0);
+            let i = ((y * r + x) * 4) as usize;
+            for (c, v) in [tint.0, tint.1, tint.2, tint.3].into_iter().enumerate() {
+                rgba[i + c] = (f32::from(v) * outside).round() as u8;
+            }
+        }
+    }
+    Picture { width: r, height: r, rgba }
+}
+
 struct Word {
     text: String,
     frame: Frame,
@@ -160,6 +188,10 @@ struct Built {
     face: Face,
     state_word: usize,
     picture_frame: Frame,
+    /// Where the picture's layer rests while it shows: it is taken out of the picture box (the hole) while the video is the picture.
+    picture_rest: Props,
+    /// The picture box is a hole at the moment.
+    video: bool,
 }
 
 pub struct PopupSurface {
@@ -209,6 +241,18 @@ impl PopupSurface {
         }
         if !view.up {
             if let Some(mut gone) = self.current.take() {
+                // the video goes with its claim, and what a hole shows then is the display behind it: the box shows its plate while the card fades
+                if gone.video {
+                    let radius = kit.tokens.radius(Radius::Tile);
+                    gone.sheet.move_part(gone.picture, gone.picture_rest);
+                    let size = gone.sheet.image_mut(gone.picture).map(|l| (l.width(), l.height()));
+                    if let Some((pw, ph)) = size {
+                        let plate = placeholder(kit, pw, ph, radius);
+                        if let Some(l) = gone.sheet.image_mut(gone.picture) {
+                            plate.paint(l);
+                        }
+                    }
+                }
                 let slide = if kit.ui.look.reduced_motion { 0.0 } else { SLIDE };
                 gone.sheet.slide_out(kit, slide);
                 self.leaving.push((gone.sheet, now_ms + u64::from(kit.beat_ms(crate::kit::motion::Beat::Rest)) + 40));
@@ -230,8 +274,14 @@ impl PopupSurface {
             self.current = Some(built);
         }
         let b = self.current.as_mut().expect("built above");
-        // the picture box: the best picture there is, else the plate
-        if b.painted != Some((revision, view.face)) {
+        // the picture box: a hole over the video plane while the stream is the picture, else the best picture there is, else the plate
+        if b.video != view.video {
+            b.video = view.video;
+            let rest = b.picture_rest;
+            b.sheet.move_part(b.picture, if view.video { Props { opacity: 0.0, visible: false, ..rest } } else { rest });
+            b.painted = None;
+        }
+        if !view.video && b.painted != Some((revision, view.face)) {
             let radius = kit.tokens.radius(Radius::Tile);
             let (pw, ph) = match b.sheet.image_mut(b.picture) {
                 Some(l) => (l.width(), l.height()),
@@ -272,7 +322,30 @@ impl PopupSurface {
     fn build(kit: &mut Kit, z: i32, view: &View, p: &Plan, at: (f32, f32), sig: String, over_video: bool) -> std::io::Result<Built> {
         let frame = Frame::new(at.0, at.1, WIDTH, p.height);
         let mut sheet = Sheet::new();
-        sheet.pane(Pane::new(kit, frame, z, PaneKind::Card, over_video));
+        // the glass is four bands of one pane, clear where the picture box is (a hole the video plays through), and the box's corners are masks
+        let pic = Frame::new(at.0 + p.picture.x, at.1 + p.picture.y, p.picture.w, p.picture.h);
+        let reach = 64.0;
+        let (left, top, right, bottom) = (frame.x - reach, frame.y - reach, frame.x + frame.w + reach, frame.y + frame.h + reach);
+        for clip in [
+            Rect { x: left, y: top, w: right - left, h: pic.y - top },
+            Rect { x: left, y: pic.y + pic.h, w: right - left, h: bottom - pic.y - pic.h },
+            Rect { x: left, y: pic.y, w: pic.x - left, h: pic.h },
+            Rect { x: pic.x + pic.w, y: pic.y, w: right - pic.x - pic.w, h: pic.h },
+        ] {
+            sheet.pane(Pane::clipped(kit, frame, z, PaneKind::Card, over_video, clip));
+        }
+        let radius = kit.tokens.radius(Radius::Tile).min(pic.w / 2.0).min(pic.h / 2.0).ceil();
+        if radius >= 1.0 {
+            let tint = pane::glass(kit, PaneKind::Card, frame.h, over_video).tint;
+            let r = radius as u32;
+            for corner in 0..4u32 {
+                let cx = if corner & 1 == 1 { pic.x + pic.w - radius } else { pic.x };
+                let cy = if corner & 2 == 2 { pic.y + pic.h - radius } else { pic.y };
+                let mut layer = kit.ui.scene.image(r, r, z + 1, HIDDEN)?;
+                corner_mask(r, corner, tint).paint(&mut layer);
+                sheet.image(layer, (cx, cy));
+            }
+        }
         let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
         if let Some(g) = icon::layer(kit, p.icon, glyph_px(kit) as u32, ink, z + 1, HIDDEN)? {
             sheet.image(g, (at.0 + p.pad, at.1 + p.pad));
@@ -292,6 +365,7 @@ impl PopupSurface {
         let (pw, ph) = (p.picture.w as u32, p.picture.h as u32);
         let layer = kit.ui.scene.image(pw, ph, z + 1, HIDDEN)?;
         let picture = sheet.image(layer, (at.0 + p.picture.x, at.1 + p.picture.y));
+        let picture_rest = sheet.at(picture).unwrap_or(Props::at(0.0, 0.0));
         // the state: its dot while a still is on screen, its words
         let live = kit.ui.look.colour(PaletteRole::Live);
         let dot_layer = plate::shape(&kit.ui, Frame::new(0.0, 0.0, DOT, DOT), z + 2, plate::solid(live, DOT / 2.0));
@@ -326,6 +400,8 @@ impl PopupSurface {
             face: view.face,
             state_word,
             picture_frame: p.picture,
+            picture_rest,
+            video: false,
         })
     }
 
@@ -348,12 +424,20 @@ impl PopupSurface {
         self.current.as_ref().map(|b| PlaceRect::new(b.frame.x as i32, b.frame.y as i32, b.frame.w as i32, b.frame.h as i32))
     }
 
+    /// The picture box on the screen in output pixels while the card is up: what the live video's claim asks the compositor for.
+    pub fn picture_rect(&self) -> Option<(i32, i32, i32, i32)> {
+        self.current.as_ref().map(|b| {
+            ((b.frame.x + b.picture_frame.x).round() as i32, (b.frame.y + b.picture_frame.y).round() as i32, b.picture_frame.w.round() as i32, b.picture_frame.h.round() as i32)
+        })
+    }
+
     pub fn geometry(&self) -> Value {
         match &self.current {
             Some(b) => json!({
                 "x": b.frame.x, "y": b.frame.y, "w": b.frame.w, "h": b.frame.h,
                 "picture": {"x": b.frame.x + b.picture_frame.x, "y": b.frame.y + b.picture_frame.y, "w": b.picture_frame.w, "h": b.picture_frame.h},
                 "face": b.face.words(),
+                "video": b.video,
             }),
             None => Value::Null,
         }
@@ -453,6 +537,69 @@ mod tests {
             let g = s.geometry();
             assert_eq!(g["x"].as_f64().unwrap(), 64.0, "flush left at {scale}: {g}");
             assert_eq!(g["y"].as_f64().unwrap() + g["h"].as_f64().unwrap(), 810.0, "flush at the zone's bottom at {scale}: {g}");
+        }
+    }
+
+    #[test]
+    fn the_picture_box_is_a_hole_while_the_video_is_the_picture_and_the_card_has_the_same_layers_either_way() {
+        for scale in [1.0, 2.0] {
+            let (_h, mut kit) = testkit::kit(scale);
+            let mut s = PopupSurface::new(1090, &json!({}), &layout());
+            let p = up(true);
+            s.apply(&mut kit, &p.view(), None, 0, false, 1000).unwrap();
+            let layers = s.layers();
+            let (x, y, w, h) = s.picture_rect().expect("the card is up");
+            let g = s.geometry();
+            assert_eq!((f64::from(x), f64::from(y), f64::from(w), f64::from(h)), (g["picture"]["x"].as_f64().unwrap(), g["picture"]["y"].as_f64().unwrap(), g["picture"]["w"].as_f64().unwrap(), g["picture"]["h"].as_f64().unwrap()), "whole pixels, as the claim needs");
+            assert_eq!((w % 2, h % 2), (0, 0), "an even size, as the decoders like it");
+            {
+                let b = s.current.as_ref().unwrap();
+                assert!(b.sheet.at(b.picture).unwrap().visible && !b.video, "the shell's picture covers the box at first");
+            }
+            let mut v = p.view();
+            v.video = true;
+            v.face = Face::Live;
+            s.apply(&mut kit, &v, None, 1, false, 1100).unwrap();
+            let b = s.current.as_ref().unwrap();
+            assert!(b.video && !b.sheet.at(b.picture).unwrap().visible, "the picture is taken out of the box: the video shows through");
+            assert_eq!(s.geometry()["video"], true);
+            assert_eq!(s.layers(), layers, "a hole is a layer taken out of the box, not a layer more or less");
+            assert!(lint_of(&mut kit, &s).is_empty(), "at {scale}");
+            // the video goes: the shell's picture is back
+            v.video = false;
+            s.apply(&mut kit, &v, None, 2, false, 1200).unwrap();
+            let b = s.current.as_ref().unwrap();
+            assert!(!b.video && b.sheet.at(b.picture).unwrap().visible);
+            // and the card leaves with its plate in the box, not the display behind it
+            v.video = true;
+            s.apply(&mut kit, &v, None, 3, false, 1300).unwrap();
+            v.up = false;
+            s.apply(&mut kit, &v, None, 4, false, 1400).unwrap();
+            assert!(!s.is_up() && s.layers() > 0, "it fades out: its layers are kept until it has");
+            assert!(s.tick(10_000));
+        }
+    }
+
+    #[test]
+    fn the_corners_of_the_box_are_masks_that_are_clear_inside_the_arc_and_the_glass_outside_it() {
+        let tint = Rgba(10, 20, 30, 200);
+        for corner in 0..4u32 {
+            let m = corner_mask(12, corner, tint);
+            // the outer corner pixel is the glass, the pixel at the inner corner of the square (inside the arc) is clear
+            let outer = match corner {
+                0 => m.at(0, 0),
+                1 => m.at(11, 0),
+                2 => m.at(0, 11),
+                _ => m.at(11, 11),
+            };
+            let inner = match corner {
+                0 => m.at(11, 11),
+                1 => m.at(0, 11),
+                2 => m.at(11, 0),
+                _ => m.at(0, 0),
+            };
+            assert_eq!(outer, [10, 20, 30, 200], "the glass at the outer corner of corner {corner}");
+            assert_eq!(inner, [0, 0, 0, 0], "clear at the inner corner of corner {corner}");
         }
     }
 

@@ -19,6 +19,7 @@ pub mod overlay;
 pub mod parts;
 pub mod plugins;
 pub mod popup;
+pub mod popup_live;
 pub mod popup_surface;
 pub mod saver;
 pub mod toast;

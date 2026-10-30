@@ -121,6 +121,8 @@ struct Posted {
     grant: Grant,
     /// The world at the time of the post (none before the first topic).
     world: Option<World>,
+    /// The sink videooutputd lists the claim's video on (`MAIN`, `SUB0`): the proof that the decoder is connected and the picture can be the plane's.
+    sink: Option<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -154,6 +156,11 @@ impl Vwin {
         self.posted.get(id).map_or(&NONE, |p| &p.grant)
     }
 
+    /// The sink the claim's video is on, once the compositor has read it from videooutputd (`None` before, and for a claim that has no video).
+    pub fn sink(&self, id: &str) -> Option<&str> {
+        self.posted.get(id).and_then(|p| p.sink.as_deref())
+    }
+
     /// The compositor's switch as the topic last said it; `off` until it has said.
     pub fn mode(&self) -> &str {
         self.world.as_ref().map_or("off", |w| w.mode.as_str())
@@ -171,7 +178,13 @@ impl Vwin {
                 let line = match &p.grant {
                     Grant::None => json!({"state": "none"}),
                     Grant::Asked => json!({"state": "asked"}),
-                    Grant::Granted { slot, placed } => json!({"state": "granted", "slot": slot, "placed": placed}),
+                    Grant::Granted { slot, placed } => {
+                        let mut line = json!({"state": "granted", "slot": slot, "placed": placed});
+                        if let Some(sink) = &p.sink {
+                            line["sink"] = json!(sink);
+                        }
+                        line
+                    }
                     Grant::Denied { reason, .. } => json!({"state": "denied", "reason": reason}),
                     Grant::Preempted { reason, .. } => json!({"state": "preempted", "reason": reason}),
                 };
@@ -193,7 +206,7 @@ impl Vwin {
 
     fn post(&mut self, request: &Value, now: u64) -> Effect {
         let id = id_of(request).unwrap_or_default().to_string();
-        self.posted.insert(id, Posted { request: request.clone(), at_ms: now, grant: Grant::Asked, world: self.world.clone() });
+        self.posted.insert(id, Posted { request: request.clone(), at_ms: now, grant: Grant::Asked, world: self.world.clone(), sink: None });
         claim(request)
     }
 
@@ -273,6 +286,7 @@ impl Vwin {
                 Some("preempted") => Grant::Preempted { reason: word("reason"), text: word("text") },
                 _ => Grant::Asked,
             };
+            posted.sink = line.get("sink").and_then(Value::as_str).map(str::to_string);
             // A refused claim is asked again when the world changed since it was asked (the switch turned on, an app's video ended, a window freed),
             // and not before: the same answer to the same question is not worth a post.
             let refused = matches!(posted.grant, Grant::Denied { .. } | Grant::Preempted { .. });

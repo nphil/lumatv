@@ -363,6 +363,44 @@ class RustSystem(unittest.TestCase):
                 if os.path.exists(shot):
                     os.remove(shot)
 
+    def test_a_card_that_plays_live_asks_the_compositor_for_a_window_first_and_is_a_hole_over_the_video_with_the_glass_around_it(self):
+        try:
+            from PIL import Image
+        except ImportError:
+            Image = None
+        granted = {'id': 'camera-popup', 'kind': 'camera-popup', 'state': 'granted', 'reason': '', 'text': '', 'slot': 'main', 'placed': True, 'sink': 'MAIN'}
+        vwin = {'mode': 'idle', 'slots': 2, 'free': 1, 'apps': 0, 'wall': False, 'claims': [granted]}
+        for scale in (1.0, 2.0):
+            for mode in ('dark', 'light'):
+                sc, r = self.popup_run(scale=scale, mode=mode, kind='animal', name='Cat Feeder', label='', live=True, late=1.0, foreground=HOME)
+                shot = os.path.join(tempfile.gettempdir(), 'rustsystem-popup-live-%s-%s-%d.png' % (scale, mode, os.getpid()))
+                r.eval(1400, 'state')
+                r.channel(1800, 'vwin', vwin)
+                r.helper(1900, 'cameras.live', sc.live_topic('300', mode='live', state='playing', fps=15, fedFps=14.9))
+                r.eval(3700, 'state').eval(3700, 'lint').eval(3700, 'geometry').snap(3800, shot)
+                r.wait = 4200
+                res = sc.run(r)
+                self.assertEqual(res['rc'], 0, res['out'][-3000:])
+                states = [e for e in res['evals'] if isinstance(e, dict) and 'kinds' in e]
+                before, after = states[0], states[-1]
+                self.assertEqual(before['vwin']['claims']['camera-popup'], {'state': 'asked'}, "the claim is made as the card is drawn, before any stream: %s" % before.get('vwin'))
+                asks = [b for p, b in res['helper'].posts if p == '/v1/cameras/live']
+                self.assertEqual(asks, [{'camera': '300', 'for': 'popup', 'window': 'main', 'popup': 41}], "the stream is asked for once, after the grant")
+                self.assertEqual(after['popup']['live']['video'], True, "the hole is open: %s" % after['popup'])
+                geo = [e for e in res['evals'] if isinstance(e, dict) and 'popup' in e and 'video' in e['popup']][0]['popup']
+                self.assertTrue(geo['video'] and geo['picture']['w'] % 2 == 0 and geo['picture']['h'] % 2 == 0, geo)
+                lint = [e for e in res['evals'] if isinstance(e, list)]
+                self.assertEqual(lint[0], [], "%s at %s: %s" % (mode, scale, lint[0]))
+                if Image and os.path.exists(shot):
+                    im = Image.open(shot).convert('RGB')
+                    folder = render_dir()
+                    if folder:
+                        out = os.path.join(folder, 'system')
+                        os.makedirs(out, exist_ok=True)
+                        im.resize((1280, 720)).save(os.path.join(out, 'popup-live-%s%s.jpg' % (mode, '' if scale == 1.0 else '-text200')), 'JPEG', quality=80)
+                if os.path.exists(shot):
+                    os.remove(shot)
+
     # ---- the overlay cards (test_overlays.py)
 
     def cards_run(self, scale=1.0, mode='dark', foreground=APP, wait=4200, extra_kinds='', notes=None, backdrop='game'):

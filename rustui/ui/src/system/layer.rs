@@ -291,6 +291,16 @@ impl Layer {
         out
     }
 
+    /// The claim the camera pop-up makes on a video window for its picture box, while it is up and the record says it can play live video.
+    pub fn popup_claim(&self, kinds: &Kinds) -> Option<Value> {
+        if kinds.popup { self.popup.claim() } else { None }
+    }
+
+    /// What the compositor made of that claim (the shell reads it from the `vwin` topic), and whether videooutputd lists the video on a sink.
+    pub fn popup_window(&mut self, kinds: &Kinds, window: crate::cameras::app::Window, slot: &str, sink: bool, now: u64) -> Vec<Effect> {
+        if kinds.popup { self.popup.set_window(window, slot, sink, now) } else { Vec::new() }
+    }
+
     /// The subscriptions the kinds ask for at the start.
     pub fn start(&mut self, kinds: &Kinds) -> Vec<Effect> {
         self.popup.set_can_expand(kinds.cameras);
@@ -515,6 +525,7 @@ impl Layer {
             face: super::popup::Face::Live,
             can_expand: true,
             armed: true,
+            video: false,
         };
         let (size, _) = self.popup_surface.measure(kit, &view);
         sizes.set("popup", size);
@@ -628,6 +639,8 @@ impl Layer {
                 Ok(on) => live |= on,
                 Err(e) => return Err(format!("camera pop-up: {e}")),
             }
+            // where the picture box is on the screen: what the live video's claim is for
+            self.popup.set_picture_rect(self.popup_surface.picture_rect());
         }
         if kinds.cards {
             let popup = if kinds.popup && self.popup.up() { self.popup_surface.frame().map(|r| lumatv_placement::Size::new(r.w, r.h)) } else { None };

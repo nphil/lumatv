@@ -5,7 +5,7 @@
 //! buffer is not a layer of the engine), so the backdrop is the tint alone until Home is a layer stack of the engine.
 
 use super::Kit;
-use compositor_protocol::{Backdrop, Glass, Props};
+use compositor_protocol::{Backdrop, Glass, Props, Rect};
 use lumatv_tokens::Radius;
 use ui::geometry::Frame;
 use ui::lucent::material::{ControlState, MaterialContext, SmartMaterial};
@@ -61,12 +61,23 @@ pub struct Pane {
     frame: Frame,
     kind: PaneKind,
     over_video: bool,
+    /// Only this part of the glass is drawn (logical pixels of the screen): a card with a hole in it is made of several panes of one frame, each
+    /// showing a band of it.
+    clip: Option<Rect>,
 }
 
 impl Pane {
     pub fn new(kit: &Kit, frame: Frame, z: i32, kind: PaneKind, over_video: bool) -> Self {
         let layer = kit.ui.scene.glass(frame.w.round() as u32, frame.h.round() as u32, z, glass(kit, kind, frame.h, over_video), Props::at(frame.x, frame.y));
-        Self { layer, frame, kind, over_video }
+        Self { layer, frame, kind, over_video, clip: None }
+    }
+
+    /// A pane that shows only the part of its glass inside `clip` (the screen's logical pixels): the other bands of the same frame, side by side, make the
+    /// glass whole but for what they leave out (the hole a video plays through).
+    pub fn clipped(kit: &Kit, frame: Frame, z: i32, kind: PaneKind, over_video: bool, clip: Rect) -> Self {
+        let at = Props { clip: Some(clip), ..Props::at(frame.x, frame.y) };
+        let layer = kit.ui.scene.glass(frame.w.round() as u32, frame.h.round() as u32, z, glass(kit, kind, frame.h, over_video), at);
+        Self { layer, frame, kind, over_video, clip: Some(clip) }
     }
 
     pub fn layer(&self) -> &GlassLayer {
@@ -79,7 +90,7 @@ impl Pane {
 
     /// The pane's rest properties: where it was made.
     pub fn at(&self) -> Props {
-        Props::at(self.frame.x, self.frame.y)
+        Props { clip: self.clip, ..Props::at(self.frame.x, self.frame.y) }
     }
 
     /// Moves the pane's rest (its size cannot change: a pane that must be wider is made again).

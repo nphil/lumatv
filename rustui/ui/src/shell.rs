@@ -814,6 +814,19 @@ impl Shell {
         if self.kinds.cameras && self.cameras.app.set_window(crate::cameras::app::Window::of(self.vwin.grant(crate::cameras::app::CLAIM_ID))) {
             self.redraw = true;
         }
+        // ... and the camera pop-up's: its stream is asked for once a window is granted, and taken away when the window is
+        if self.kinds.popup {
+            let id = crate::system::popup_live::CLAIM_ID;
+            let window = crate::cameras::app::Window::of(self.vwin.grant(id));
+            let slot = match self.vwin.grant(id) {
+                crate::host::vwin::Grant::Granted { slot, .. } => slot.clone(),
+                _ => String::new(),
+            };
+            let sink = self.vwin.sink(id).is_some();
+            for e in self.sys.popup_window(&self.kinds, window, &slot, sink, now) {
+                self.carry(e, now, acts);
+            }
+        }
         // the bell's badge counts what the drawer's log holds unread: a toast arrives, or the drawer opens and marks it seen
         if self.kinds.home && self.kinds.drawer && self.home.set_unread(self.panels.unread()) {
             self.redraw = true;
@@ -851,6 +864,12 @@ impl Shell {
             match self.sys.apply(&self.kinds, &mut self.kit, &mut self.engine, now) {
                 Ok(on) => live |= on,
                 Err(e) => acts.push(Act::Log(e)),
+            }
+            // the pop-up's picture box is known once the card is drawn: its claim on a video window is made now, not with the next input
+            if self.kinds.popup {
+                for e in self.vwin.want(&self.vwin_wants(), now) {
+                    self.carry(e, now, acts);
+                }
             }
             let now_ns = self.kit.ui.scene.now_ns();
             self.panels.set_bell(self.home.bell_frame());
@@ -1163,11 +1182,12 @@ impl Shell {
         &mut self.cameras
     }
 
-    /// What the screens want on the display's video windows now (the claims the compositor's `vwin` is asked for): the Cameras full view's live picture.
-    /// A screen with nothing live wants nothing, and the claim it had is released. A screen that wants a picture-in-picture adds its `Pip::request()` here.
+    /// What the screens want on the display's video windows now (the claims the compositor's `vwin` is asked for): the Cameras full view's live picture and
+    /// the camera pop-up's. A screen with nothing live wants nothing, and the claim it had is released. A screen that wants a picture-in-picture adds its
+    /// `Pip::request()` here.
     fn vwin_wants(&self) -> Vec<Value> {
         let live = if self.kinds.cameras { self.cameras.app.live_claim().map(|c| c.request()) } else { None };
-        live.into_iter().collect()
+        live.into_iter().chain(self.sys.popup_claim(&self.kinds)).collect()
     }
 
     /// What Settings asked of the shell: to close, to launch LG's Settings app, to open the layout editor; the theme it wrote becomes the
@@ -1749,6 +1769,50 @@ mod tests {
         acts.extend(shell.tick(1_450));
         let posted = claims(&acts);
         assert_eq!(posted.iter().map(|b| b["op"].as_str().unwrap_or("")).collect::<Vec<_>>(), vec!["release"], "{posted:?}");
+    }
+
+    #[test]
+    fn the_camera_pop_up_claims_a_video_window_first_asks_for_the_stream_when_it_is_granted_and_opens_its_hole_when_a_sink_has_it() {
+        let (_h, mut shell) = home_shell("popup,cameras");
+        let record = json!({"id": 41, "event": "e41", "camera": "275", "name": "Cat Feeder", "kind": "animal", "at": 1_000, "untilMs": u64::MAX / 4, "thumbnail": false, "live": true});
+        let mut acts = shell.helper(&Event::Topic { topic: "cameras.popup".into(), data: record }, 2_000);
+        acts.extend(shell.tick(2_050));
+        let posted = claims(&acts);
+        assert_eq!(posted.len(), 1, "one claim for the picture box: {posted:?}");
+        assert_eq!((posted[0]["op"].as_str(), posted[0]["kind"].as_str(), posted[0]["id"].as_str()), (Some("claim"), Some("camera-popup"), Some("camera-popup")));
+        assert_eq!(posted[0]["rect"]["w"], 520, "the card's picture box: {posted:?}");
+        assert_eq!(helper_calls(&acts, "/v1/cameras/live"), 0, "no stream before a window is granted");
+
+        // granted and not drawing yet: the helper is asked, for the window the compositor named
+        let line = |placed: bool, sink: Value| json!({"id": "camera-popup", "kind": "camera-popup", "state": "granted", "reason": "", "text": "", "slot": "main", "placed": placed, "sink": sink});
+        let topic = |claim: Value| Event::Topic { topic: "vwin".into(), data: json!({"mode": "idle", "slots": 2, "free": 1, "apps": 0, "wall": false, "claims": [claim]}) };
+        let acts = shell.channel(&topic(line(false, Value::Null)), 2_100);
+        assert_eq!(helper_calls(&acts, "/v1/cameras/live"), 1, "asked once the window is granted");
+        let asked = acts
+            .iter()
+            .find_map(|a| match a {
+                Act::Helper(o) if o.path == "/v1/cameras/live" => o.body.clone(),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(asked, json!({"camera": "275", "for": "popup", "window": "main", "popup": 41}));
+
+        // the stream plays and the window draws, but nothing lists the video on a sink yet: no hole
+        shell.helper(&Event::Topic { topic: "cameras.live".into(), data: json!({"camera": "275", "mode": "live", "state": "playing", "fps": 15, "fedFps": 14.8}) }, 2_600);
+        shell.channel(&topic(line(true, Value::Null)), 2_700);
+        shell.tick(3_100);
+        assert_eq!(shell.state()["popup"]["live"]["video"], false, "a hole over a decoder nobody has seen connected is black");
+        // a sink has it: the hole opens once the handoff has passed
+        shell.channel(&topic(line(true, json!("MAIN"))), 3_200);
+        shell.tick(3_300);
+        assert_eq!(shell.state()["popup"]["live"]["video"], true, "{}", shell.state()["popup"]);
+        assert_eq!(shell.geometry()["popup"]["video"], true);
+
+        // Back: the card goes, the claim is released, the stream is stopped
+        let acts = key(&mut shell, "back", 4_000);
+        let posted = claims(&acts);
+        assert_eq!(posted.iter().map(|b| b["op"].as_str().unwrap_or("")).collect::<Vec<_>>(), vec!["release"], "{posted:?}");
+        assert_eq!(helper_calls(&acts, "/v1/cameras/live/stop"), 1);
     }
 
     /// Opens the kind `name` over Home; the kinds that nothing but their owner closes are closed by `close_owner`.
