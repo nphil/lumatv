@@ -74,7 +74,7 @@ Item {
         LS.adhoc.call(action.serviceURI, action.serviceMethod || "", JSON.stringify(action.launchParams || {}))
     }
 
-    // ---- toasts: a pill at the top right, the first line the title, the rest the subtitle; gone after its timeout (LG's 5 s)
+    // ---- toasts: a pill at the bottom centre, the first line the title, the rest the subtitle; gone after its timeout (LG's 5 s)
     function toast(m) {
         var text = String(m.message || "").replace(/<br\s*\/?>/gi, "\n").replace(/^\s+|\s+$/g, "")
         if (text === "") return
@@ -226,10 +226,17 @@ Item {
     Timer { id: restTimer; interval: Lu.restMs; onTriggered: notify.rested = true }
 
     // ============================================================= drawing
-    // toasts
+    // toasts: centred at the foot of the screen, 54 px (5 % of the height, the TV-safe margin) above the bottom edge, the newest at the foot
+    // with the older ones above it. While the volume bar's card is up (`barTop`, `barBottom`, from the overlay through Shell.qml) and the
+    // column would meet it (16 px of air kept), the column sits above the bar; a bar lifted over an app is clear of it and moves nothing.
+    property int barTop: -1
+    property int barBottom: -1
+    readonly property int toastFoot: 1080 - 54
     Column {
         id: toastStack
-        x: 1920 - width - Lu.space(6); y: Lu.space(6)
+        readonly property bool barMeets: notify.barTop >= 0 && notify.barTop < notify.toastFoot + 16 && notify.barBottom + 16 > notify.toastFoot - height
+        x: Math.round((1920 - width) / 2)
+        y: (barMeets ? notify.barTop - 16 : notify.toastFoot) - height
         width: 560
         spacing: Lu.space(2)
         // One slot is kept built even with no toast (hidden), and shown once at the shell's warm-up with a pangram: the first real
@@ -238,7 +245,7 @@ Item {
         Repeater {
             model: Math.max(1, notify.toasts.length)
             delegate: Rectangle {
-                readonly property var t: notify.toasts[index] || notify.warmToast
+                readonly property var t: notify.toasts[notify.toasts.length - 1 - index] || notify.warmToast
                 visible: index < notify.toasts.length || notify.warming
                 width: toastStack.width
                 height: toastBody.height + 2 * Lu.space(3)

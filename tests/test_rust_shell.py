@@ -94,7 +94,7 @@ class RustShell(unittest.TestCase):
         self.assertFalse(evals[2]['osd'], "the display went after its hold")
         toasts = evals[3]['toasts']
         self.assertEqual(len(toasts), 1)
-        self.assertEqual((toasts[0]['x'], toasts[0]['y'], toasts[0]['w']), (1920 - 24 - 560, 24, 560), "the upper right safe corner: %s" % toasts)
+        self.assertEqual((toasts[0]['x'], toasts[0]['y'] + toasts[0]['h'], toasts[0]['w']), (680, 1080 - 54, 560), "centred at the foot, 54 px above the bottom edge: %s" % toasts)
         reports = self.reports(out)
         self.assertTrue(any(r['live'] and r['state']['osd'] for r in reports), "the display was reported live: %s" % [r['state'] for r in reports])
         self.assertTrue(any(r['state']['toasts'] == 1 for r in reports), "the toast was reported")
@@ -113,7 +113,7 @@ class RustShell(unittest.TestCase):
             Image = None
         if Image:
             im = Image.open(shot).convert('RGB')
-            self.assertNotEqual(im.getpixel((1600, 70)), (0, 0, 0), "the toast's card is drawn in the corner")
+            self.assertNotEqual(im.getpixel((960, 1000)), (0, 0, 0), "the toast's card is drawn at the foot")
             self.assertEqual(im.getpixel((960, 540)), (0, 0, 0), "nothing else is")
         os.remove(shot)
 

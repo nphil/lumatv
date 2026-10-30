@@ -1,7 +1,7 @@
 //! The model, one rule a test: anchors and offsets in fractions of the room an item has, the zones, the defaults (where every item was before the
 //! owner could place it), stepping with the arrows, the volume bar's edges, stacking, overlaps, the mute mark's drift.
 
-use lumatv_placement::model::{GAP, STACK, SUBS};
+use lumatv_placement::model::{GAP, STACK, SUBS, TOAST_FOOT};
 use lumatv_placement::motion::{STOPS, axis, pixels};
 use lumatv_placement::{
     Anchor, Dir, Frame, Item, Layout, Placement, Point, Press, Rect, Registry, Size, Sizes, User,
@@ -120,16 +120,18 @@ fn the_zones_follow_homes_content_area() {
     assert_eq!(r.zone_of("cards", &f), r.zone_of("popup", &f));
     assert_eq!(r.zone_of("mute", &f), Rect::new(64, 134, 1792, 676));
     assert_eq!(r.zone_of("volume", &f), Rect::new(64, 134, 1792, 882));
-    assert_eq!(r.zone_of("toast", &f), Rect::new(24, 24, 1872, 786));
+    assert_eq!(r.zone_of("toast", &f), Rect::new(24, 24, 1872, 1002));
     // every zone but the toasts' ends where Home's grid does on the right and on the left (LayoutGrid.area)
     for id in ["popup", "cards", "mute", "volume"] {
         let z = r.zone_of(id, &f);
         assert_eq!((z.x, z.right()), (64, 1920 - 64), "{id}");
     }
-    // and none lets an overlay card into the bottom quarter
-    for id in ["popup", "cards", "mute", "toast"] {
+    // and none lets an overlay card into the bottom quarter but the toasts, which rest at the foot of the screen with 5 % of the height
+    // (54 px) of air under them
+    for id in ["popup", "cards", "mute"] {
         assert!(r.zone_of(id, &f).bottom() <= 810, "{id}");
     }
+    assert_eq!(r.zone_of("toast", &f).bottom(), 1080 - TOAST_FOOT);
     assert_eq!(ZoneKind::Content.name(), "content");
 }
 
@@ -149,8 +151,8 @@ fn defaults_are_where_the_items_were_drawn_before() {
         rect_of("popup", &e, 560, 469).right(),
         1920 - frame().safe_x
     );
-    // the toasts: 24 from the top and from the right edge, 560 wide
-    assert_eq!(rect_of("toast", &e, 560, 98), Rect::new(1336, 24, 560, 98));
+    // the toasts: centred at the foot of the screen, 54 px (5 %) above the bottom edge, 560 wide
+    assert_eq!(rect_of("toast", &e, 560, 98), Rect::new(680, 928, 560, 98));
     // the volume bar: centred, 64 above the bottom edge, 440 by 60; over an app 120 higher
     assert_eq!(rect_of("volume", &e, 440, 60), Rect::new(740, 956, 440, 60));
     assert_eq!(reg().lift_over("volume", &e, true), 120);
@@ -669,8 +671,13 @@ fn an_item_cannot_be_put_where_another_is_and_the_stacked_pair_are_not_in_each_o
     );
     assert_eq!(who("mute", Rect::new(r.x - 64 - 9, r.y, 64, 64)), None);
     assert_eq!(GAP, 8);
-    // the toasts above the camera window are clear of it
+    // the toasts at the foot are clear of the camera window; over Home the bar is at the same foot, so they stack above it (over an app the
+    // lifted bar is already clear of them)
     assert_eq!(who("toast", l.rect("toast").unwrap()), None);
+    let home = all(&User::default(), false);
+    let (bar, toast) = (home.rect("volume").unwrap(), home.rect("toast").unwrap());
+    assert!(toast.bottom() + STACK <= bar.y && !toast.meets(&bar, 0), "{toast:?} over {bar:?}");
+    assert_eq!(l.rect("toast").unwrap(), Rect::new(680, 928, 560, 98));
     // the volume bar on the right edge is in the way of the default column: the owner has to move that first
     let right = rect_of(
         "volume",
@@ -683,10 +690,11 @@ fn an_item_cannot_be_put_where_another_is_and_the_stacked_pair_are_not_in_each_o
 
 #[test]
 fn a_move_may_never_make_a_new_overlap_but_it_can_always_leave_an_old_one() {
-    // at 200 % text the toast is taller than the room above the camera window: it is on it from the start
+    // at 200 % text a toast at the top right is taller than the room above the camera window: it is on it from the start
     let mut tall = sizes();
     tall.set("toast", Size::new(560, 190));
-    let l = reg().layout_all(&User::default(), &frame(), &tall, None, false);
+    let user = placed("toast", at(Anchor::TopRight, 0.0, 0.0));
+    let l = reg().layout_all(&user, &frame(), &tall, None, false);
     let popup = l.rect("popup").unwrap();
     assert!(l.rect("toast").unwrap().meets(&popup, 8));
     // moving the camera window while the toast covers it is refused by the plain rule, and allowed when the move leaves that overlap as it was

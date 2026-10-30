@@ -7,8 +7,8 @@
 //! which is where it was drawn before the owner could place it.
 //!
 //! The zones are the rules the overlays already kept: nothing over Home's status bar's row, nothing in the bottom quarter (the film's
-//! subtitles and the volume bar keep it), and the right and left edges are Home's own (`layout.json` `safe`), so a card at the top right
-//! ends where the status bar ends.
+//! subtitles and the volume bar keep it; only the toasts reach the foot of the screen, see [`TOAST_FOOT`]), and the right and left edges
+//! are Home's own (`layout.json` `safe`), so a card at the top right ends where the status bar ends.
 
 use serde::Serialize;
 use serde_json::{Map, Value, json};
@@ -31,6 +31,8 @@ pub const LIMIT: i32 = 810;
 pub const REST: i32 = 64;
 /// The toasts' own inset from the screen's edges; the QML shell's toasts have always been drawn this far in.
 pub const TOAST: i32 = 24;
+/// The air a toast keeps under it at the foot of the screen: 5 % of the height, the TV-safe margin (Lucent `safe.y`).
+pub const TOAST_FOOT: i32 = 54;
 /// The mute mark: the TV's smallest target.
 pub const MARK: i32 = 64;
 /// The mark moves this far, four places of a square, so a panel never holds one still mark.
@@ -336,7 +338,7 @@ pub enum ZoneKind {
     Content,
     /// The same, down to the volume bar's rest above the bottom edge.
     Edge,
-    /// The toasts' own, nearer the corner.
+    /// The toasts' own: near the corners at the top and sides, and down to the TV-safe foot of the screen, where they rest by default.
     Toast,
 }
 
@@ -353,7 +355,7 @@ impl ZoneKind {
         match self {
             ZoneKind::Content => Rect::from_edges(f.safe_x, f.top, W - f.safe_x, f.limit),
             ZoneKind::Edge => Rect::from_edges(f.safe_x, f.top, W - f.safe_x, H - REST),
-            ZoneKind::Toast => Rect::from_edges(TOAST, TOAST, W - TOAST, f.limit),
+            ZoneKind::Toast => Rect::from_edges(TOAST, TOAST, W - TOAST, H - f.safe_y.max(TOAST_FOOT)),
         }
     }
 }
@@ -377,7 +379,8 @@ pub struct Item {
     pub drift: i32,
     /// An item with a way of its own until the owner places it (the mute mark's corners over an app).
     pub auto: bool,
-    /// The item it goes beside when the two share a corner (the cards go under the camera window).
+    /// The item it goes beside when the two meet (the cards go under the camera window; the toasts, which rest at the foot of the screen, go
+    /// above the volume bar while it is up).
     pub stacks: Option<&'static str>,
     /// Where it was drawn before the owner could place it.
     pub default: Placement,
@@ -448,8 +451,8 @@ pub const ITEMS: [Item; 5] = [
         lift: 0,
         drift: 0,
         auto: false,
-        stacks: None,
-        default: Placement::new(Anchor::TopRight, 0.0, 0.0),
+        stacks: Some("volume"),
+        default: Placement::new(Anchor::Bottom, 0.0, 0.0),
         sample: Size::new(560, 98),
     },
 ];
@@ -887,7 +890,7 @@ impl Registry {
         json!({
             "items": items,
             "screen": {"w": W, "h": H},
-            "rules": {"gap": GAP, "stack": STACK, "toastInset": TOAST, "rest": REST, "step": crate::motion::STEP, "stops": crate::motion::STOPS, "subtitles": SUBS},
+            "rules": {"gap": GAP, "stack": STACK, "toastInset": TOAST, "toastFoot": TOAST_FOOT, "rest": REST, "step": crate::motion::STEP, "stops": crate::motion::STOPS, "subtitles": SUBS},
         })
     }
 }

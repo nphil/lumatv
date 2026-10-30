@@ -51,6 +51,16 @@ impl Kit {
         }
     }
 
+    /// Shows `layer` at `to`, coming in from `by` away from it (the edge it rests against) while it fades in over `beat`.
+    pub fn arrive_from(&self, layer: &Layer, to: Props, by: (f32, f32), beat: Beat) {
+        if self.beat_ms(beat) == 0 {
+            layer.set(to);
+        } else {
+            layer.set(Props { x: to.x + by.0, y: to.y + by.1, opacity: 0.0, ..to });
+            layer.animate(to, self.beat_ms(beat), Ease::Out);
+        }
+    }
+
     /// Takes `layer` away from `from`: fades out over `beat` and is hidden at the end (the compositor hides a layer whose animation
     /// ends invisible).
     pub fn leave(&self, layer: &Layer, from: Props, beat: Beat) {

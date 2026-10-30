@@ -16,7 +16,7 @@ use crate::kit::text::{Text, role_style};
 use crate::kit::wrap;
 use crate::kit::{Engine, Kit};
 use compositor_protocol::{Fill, Rgba, Shape};
-use lumatv_placement::{Frame as PlacementFrame, Registry, Size, Sizes, User};
+use lumatv_placement::{Frame as PlacementFrame, Registry, Size, User, model::TOAST};
 use lumatv_tokens::{Radius, TypeRole};
 use serde_json::{Value, json};
 use ui::components::{Align, Style, plate};
@@ -115,12 +115,15 @@ impl AlertSurface {
         self.user = user;
     }
 
-    /// Where the toasts' column starts (the input popup is right-aligned with it).
+    /// Where the input popup starts: right-aligned with the toasts' column where the owner placed it. Until he does it keeps the top
+    /// right, the toasts' place before they moved to the foot of the screen: the popup is a sheet with buttons the keys answer, and the
+    /// foot is the volume bar's.
     fn toast_origin(&self, w: f32, h: f32) -> (f32, f32) {
-        let mut sizes = Sizes::new();
-        sizes.set("toast", Size::new(560, h as i32));
-        let laid = self.registry.layout_all(&self.user, &self.frame, &sizes, None, false);
-        laid.rect("toast").map_or((1920.0 - 24.0 - w, 24.0), |r| ((r.x + r.w) as f32 - w, r.y as f32))
+        let corner = (1920.0 - TOAST as f32 - w, TOAST as f32);
+        if !self.user.has("toast") {
+            return corner;
+        }
+        self.registry.rect_of("toast", &self.user, &self.frame, Size::new(560, h as i32)).map_or(corner, |r| ((r.x + r.w) as f32 - w, r.y as f32))
     }
 
     pub fn is_up(&self) -> bool {

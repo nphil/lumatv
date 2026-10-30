@@ -254,6 +254,9 @@ Item {
     readonly property real rowH: Math.max(numProbe.implicitHeight, logoH, glyph)
     LuText { id: numProbe; visible: false; role: "label"; font.weight: Font.DemiBold; text: "100" }
     readonly property int bottomGap: Math.round(height - card.y - card.height)     // from the bar to the bottom edge, for the tests
+    // where the bar is while it is drawn (the toasts keep clear of it), else -1
+    readonly property int barTop: card.visible ? Math.round(card.y) : -1
+    readonly property int barBottom: card.visible ? Math.round(card.y + card.height) : -1
     LuPane {
         id: card
         width: Math.max(440, 2 * osd.padX + osd.numW + osd.gap + osd.barMin + (osd.logoW > 0 ? osd.gap + osd.logoW : 0))

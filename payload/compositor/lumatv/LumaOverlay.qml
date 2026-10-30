@@ -85,6 +85,9 @@ Item {
     readonly property bool dnd: surface !== "" || homeBusy || systemBusy || viewerUp || panelLeaving || switcherUp
     // the volume display has something on screen or is fading: this layer is drawn for it whatever else is up
     readonly property bool osdLive: !rustOsd && !!osdRes.item && osdRes.item.live
+    // the volume bar's place while it is drawn, for the toasts to keep clear of it (-1: it is not)
+    readonly property int osdBarTop: !rustOsd && !!osdRes.item ? osdRes.item.barTop : -1
+    readonly property int osdBarBottom: !rustOsd && !!osdRes.item ? osdRes.item.barBottom : -1
     // a panel that has been told to go is still sliding away: this layer stays drawn until it has gone
     readonly property bool panelLeaving: (!!quickRes.item && quickRes.item.leaving === true) || (!!pickerRes.item && pickerRes.item.leaving === true)
     // and one that has gone is parked in the scene for a few seconds, off the screen (panels/PanelMotion.qml): this layer stays in the scene too
