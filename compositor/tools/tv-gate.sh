@@ -257,6 +257,8 @@ rust_undriven() {
 rust_budget() { case $1 in quick|picker|drawer) echo 150 ;; esac; }
 # The compositor's counter of frames drawn and of GL errors, from `ctl status`.
 rust_drawn() { ctl status | python3 $RUSTJSON stats.drawn; }
+# The frames in which the UI engine drew something (the video app's own commits are composed frames too, and are not the shell's).
+rust_ui_drawn() { ctl status | python3 $RUSTJSON stats.uiDrawn; }
 rust_gl_errors() { ctl status | sed -n 's/.*gl errors \([0-9][0-9]*\).*/\1/p' | head -n 1; }
 # What one `ctl shell` takes (ms, to three reads): a first-frame reading is a poll of it, so it is good to about twice this.
 rust_poll_ms() { t=$(uptime_cs); for i in 1 2 3; do rust_get rust.connected > /dev/null; done; echo $(( ($(uptime_cs) - t) * 10 / 3 )); }
@@ -553,17 +555,17 @@ cpu_ticks() { awk '{ print $14 + $15 }' $PROC/$1/stat 2>/dev/null; }
 per_s() { awk -v a="${1:-0}" -v b="${2:-0}" -v s="$3" 'BEGIN { printf "%.1f", (b - a) / s }'; }
 # Whether a window of the compositor has exported a video element (a hole, or one expected): `ctl windows` lists them under "video".
 video_up() { ctl windows | grep -o '"video":\[[^]]*\]' | head -n 1 | grep -q '{'; }
-# The compositor's work over SECS seconds of the screen as it is: VS_CPU (percent of one core), VS_DRAWN (frames composed a second), VS_FLIPS (the
-# OSD's page flips a second) and VS_MALI (the GPU's busy share, percent). With nothing over a video the compositor has nothing to compose: the
-# numbers are the cost of the video app's own commits.
+# The compositor's work over SECS seconds of the screen as it is: VS_CPU (percent of one core), VS_DRAWN (frames composed a second), VS_UI (the frames
+# a second in which the shell's UI engine drew something: `stats.uiDrawn`), VS_FLIPS (the OSD's page flips a second) and VS_MALI (the GPU's busy
+# share, percent). With nothing over a video the shell has nothing to draw; the frames composed are the video app's own commits.
 video_sample() {
     vs_pid=$(pgrep -f 'bin/lumatv-compositor' | head -n 1)
     vs_hz=$(getconf CLK_TCK 2>/dev/null || echo 100)
-    c0=$(cpu_ticks "${vs_pid:-self}"); d0=$(ctl status | python3 $RUSTJSON stats.drawn); f0=$(fb_flips); b0=$(mali_count busy_time); i0=$(mali_count idle_time)
+    c0=$(cpu_ticks "${vs_pid:-self}"); d0=$(ctl status | python3 $RUSTJSON stats.drawn); u0=$(rust_ui_drawn); f0=$(fb_flips); b0=$(mali_count busy_time); i0=$(mali_count idle_time)
     sleep "$1"
-    c1=$(cpu_ticks "${vs_pid:-self}"); d1=$(ctl status | python3 $RUSTJSON stats.drawn); f1=$(fb_flips); b1=$(mali_count busy_time); i1=$(mali_count idle_time)
+    c1=$(cpu_ticks "${vs_pid:-self}"); d1=$(ctl status | python3 $RUSTJSON stats.drawn); u1=$(rust_ui_drawn); f1=$(fb_flips); b1=$(mali_count busy_time); i1=$(mali_count idle_time)
     VS_CPU=$(awk -v a="${c0:-0}" -v b="${c1:-0}" -v hz="$vs_hz" -v s="$1" 'BEGIN { printf "%.1f", (b - a) * 100 / hz / s }')
-    VS_DRAWN=$(per_s "$d0" "$d1" "$1"); VS_FLIPS=$(per_s "$f0" "$f1" "$1")
+    VS_DRAWN=$(per_s "$d0" "$d1" "$1"); VS_UI=$(per_s "$u0" "$u1" "$1"); VS_FLIPS=$(per_s "$f0" "$f1" "$1")
     VS_MALI=$(awk -v b0="${b0:-0}" -v b1="${b1:-0}" -v i0="${i0:-0}" -v i1="${i1:-0}" 'BEGIN { t = (b1 - b0) + (i1 - i0); if (t > 0) printf "%.1f", 100 * (b1 - b0) / t; else print "?" }')
 }
 # A DISPLAY capture (LG's capture service: the blend of the video plane and the OSD, what the panel shows) of the region as pngstat.py reads it:
@@ -1312,17 +1314,19 @@ video)
     #    constant alpha and every hole is opaque black, a video app with sound and no picture (round 19, 2026-10-29);
     #  2 the DISPLAY capture's middle is not black (mean luma and spread: tv-pngstat.py) in at least two of three captures 2 s apart;
     #  3 nothing over the video: the compositor's CPU a second stays under LUMATV_VIDEO_MAX_CPU percent of a core (default 10, a starting bar for the
-    #    first round: the numbers are in the line, tighten it from them), and it composes under LUMATV_VIDEO_MAX_FPS frames a second (default 0.5): a
-    #    full-screen video app commits nothing while it plays, and a Home that went on drawing behind it was 2.5 composed frames a second of 12 ms of
-    #    the GPU each (round 19, found by the ring's flips); the OSD's flips are in the line;
+    #    first round: the numbers are in the line, tighten it from them), and the frames in which the shell's UI engine drew something (`stats.uiDrawn`) are
+    #    under LUMATV_VIDEO_MAX_UI_FPS a second (default 0.1): a Home that went on drawing behind a video was 2.5 frames a second of 12 ms of the GPU each
+    #    (round 19, found by the ring's flips). The frames composed are in the line too: the video app's own commits make them (YouTube's player UI: 2 to
+    #    50 a second, each the whole page), and no rule is made of them; the OSD's flips are in the line;
     #  4 each overlay over the video (the volume display, the quick panel, the input picker, the notifications drawer, a toast, an alert; LUMATV_VIDEO_OVERLAYS
     #    names others or fewer): it shows (first frame under the panels' 150 ms bar, a reading good to the gate's own polling: the ring says when the
     #    first flip landed), the video is still seen around it (the upper left of the capture), no frame of its motion dropped (`ctl refresh` `motion`: a
-    #    flip over 20 ms after the frame of a running animation; the video app's own gaps and the pause between a motion's phases are none), no GL error, and 3 s after its close the compositor composes no more than before
-    #    it. Each overlay's refresh, ring and wake reports are kept (video-APP-KIND-*.json; tv-ringflips.py reads the ring).
+    #    flip over 20 ms after the frame of a running animation; the video app's own gaps and the pause between a motion's phases are none), no GL error, and
+    #    3 s after its close the shell has drawn at most one more frame. Each overlay's refresh, ring and wake reports are kept (video-APP-KIND-*.json;
+    #    tv-ringflips.py reads the ring).
     # The apps: youtube (a video by its id, LUMATV_VIDEO_YT), netflix (the Dolby Vision test film as the netflix check does), plex (PlxNative: it is
     # launched and the owner starts a film; the check waits LUMATV_VIDEO_WAIT s for its video), current (whatever plays now, nothing launched or closed).
-    v_app=${2:-current}; v_secs=${3:-120}; v_wait=${LUMATV_VIDEO_WAIT:-45}; v_cpu_max=${LUMATV_VIDEO_MAX_CPU:-10}; v_fps_max=${LUMATV_VIDEO_MAX_FPS:-0.5}
+    v_app=${2:-current}; v_secs=${3:-120}; v_wait=${LUMATV_VIDEO_WAIT:-45}; v_cpu_max=${LUMATV_VIDEO_MAX_CPU:-10}; v_ui_max=${LUMATV_VIDEO_MAX_UI_FPS:-0.1}
     v_overlays=${LUMATV_VIDEO_OVERLAYS:-osd,quick,picker,drawer,toast,alert}
     case $v_app in
         youtube) v_id=youtube.leanback.v4; v_launch="{\"id\":\"$v_id\",\"params\":{\"contentTarget\":\"https://www.youtube.com/tv?v=${LUMATV_VIDEO_YT:-aqz-KE-bpKQ}\"}}" ;;
@@ -1363,10 +1367,9 @@ video)
     # 3 nothing over the video
     ctl refresh reset > /dev/null
     video_sample "$v_secs"
-    v_base_drawn=$VS_DRAWN
-    info="$info; over $v_secs s with nothing over the video: compositor CPU $VS_CPU % of a core, composed $VS_DRAWN frames/s, OSD flips $VS_FLIPS/s, Mali busy $VS_MALI %"
+    info="$info; over $v_secs s with nothing over the video: compositor CPU $VS_CPU % of a core, the shell drew $VS_UI frames/s, composed $VS_DRAWN frames/s (the video app's own commits included), OSD flips $VS_FLIPS/s, Mali busy $VS_MALI %"
     awk -v c="$VS_CPU" -v m="$v_cpu_max" 'BEGIN { exit !(c > m) }' && bad="$bad the compositor used $VS_CPU % of a core under a video with nothing over it (bar $v_cpu_max %);"
-    awk -v f="$VS_DRAWN" -v m="$v_fps_max" 'BEGIN { exit !(f > m) }' && bad="$bad the compositor composed $VS_DRAWN frames/s under a video with nothing over it (bar $v_fps_max): something draws behind the video;"
+    awk -v f="$VS_UI" -v m="$v_ui_max" 'BEGIN { exit !(f > m) }' && bad="$bad the shell drew $VS_UI frames/s under a video with nothing over it (bar $v_ui_max): something of it draws behind the video;"
     ctl ring 1500 > $OUT/$name-idle-ring.json
     # 4 each overlay over the video
     v_pm=$(rust_poll_ms); v_ov=""
@@ -1399,17 +1402,17 @@ video)
         rust_close $k
         w=0; while [ $w -lt $((RUST_OPEN * 2)) ] && rust_is_open $k "$(rust_get $v_path)"; do sleep 0.5; w=$((w+1)); done
         sleep 1
-        d2=$(rust_drawn); sleep 3; d3=$(rust_drawn)
+        d2=$(rust_drawn); u2=$(rust_ui_drawn); sleep 3; d3=$(rust_drawn); u3=$(rust_ui_drawn)
         cpu=$(awk -v a="${c0:-0}" -v b="${c1:-0}" -v hz="$vs_hz" 'BEGIN { printf "%.0f", (b - a) * 100 / hz / 2 }')
-        after=$(per_s "$d2" "$d3" 3)
-        what="$k: first frame ${first:-none} ms, composed +$(( ${d1:-0} - ${d0:-0} )) frames and $(( $(fb_flips) - ${f0:-0} )) flips in the open, CPU about $cpu %, animation frames dropped ${stalls:-?} (worst ${stall_worst:-0} ms; $over intervals over 20 ms counting the video's own gaps), frames late ${late:-?} lost ${lost:-?} missed ${missed:-?}, around it $(ps_val "$l" mean) mean $(ps_val "$l" std) spread, composed $after/s 3 s after the close;"
+        after=$(per_s "$d2" "$d3" 3); after_ui=$((${u3:-0} - ${u2:-0}))
+        what="$k: first frame ${first:-none} ms, composed +$(( ${d1:-0} - ${d0:-0} )) frames and $(( $(fb_flips) - ${f0:-0} )) flips in the open, CPU about $cpu %, animation frames dropped ${stalls:-?} (worst ${stall_worst:-0} ms; $over intervals over 20 ms counting the video's own gaps), frames late ${late:-?} lost ${lost:-?} missed ${missed:-?}, around it $(ps_val "$l" mean) mean $(ps_val "$l" std) spread, composed $after/s and the shell drew $after_ui frames in the 3 s after the close;"
         v_ov="$v_ov $what"
         [ -n "$first" ] || bad="$bad $k did not show;"
         case $k in quick|picker|drawer) [ -z "$first" ] || [ "$first" -le $((150 + 2 * v_pm)) ] || bad="$bad $k's first frame ${first} ms is over the 150 ms bar;" ;; esac
         [ "$(ps_val "$l" black)" = no ] || bad="$bad the video is black around $k;"
         [ "${stalls:-0}" -eq 0 ] || bad="$bad $k's open dropped $stalls frames of its motion (over 20 ms after a frame of a running animation, worst ${stall_worst:-0} ms);"
         [ "$(( ${g1:-0} - ${g0:-0} ))" -eq 0 ] || bad="$bad GL errors while $k was up;"
-        awk -v a="$after" -v b="$v_base_drawn" 'BEGIN { exit !(a > b + 2) }' && bad="$bad the compositor still composes $after frames/s after $k closed (before: $v_base_drawn);"
+        [ "$after_ui" -le 1 ] || bad="$bad the shell drew $after_ui frames in the 3 s after $k closed;"
     done
     info="$info; overlays:$v_ov"
     echo "$info" > $OUT/$name-result.txt

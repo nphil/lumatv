@@ -108,7 +108,7 @@ case "$*" in
 *) echo '{"returnValue":true}' ;;
 esac
 '''
-STATUS_OK = {"ok": True, "pageFormat": "AR24", "videoHolesOpaque": False, "stats": {"drawn": 100}}
+STATUS_OK = {"ok": True, "pageFormat": "AR24", "videoHolesOpaque": False, "stats": {"drawn": 100, "uiDrawn": 5}}
 REFRESH_OK = {"ok": True, "hz": 60, "measure": {"intervals": {"one": 100, "two": 0, "three": 0, "more": 0, "worst_ms": 16.9}, "motion": {"intervals": 90, "dropped": 0, "dropped_worst_ms": 0.0},
                                                 "frames": {"late": 0, "lost": 0, "missed": 0}}}
 SHELL = {"ok": True, "rust": {"connected": True, "kinds": ["osd"], "ui": {"kinds": ["osd", "quick"], "osd": True, "panels": {"quick": "open"}}}}
@@ -170,14 +170,17 @@ class Video(Fixture):
         out = self.run_video()
         self.assertIn("the compositor used 0.0 % of a core under a video with nothing over it (bar -1 %)", out)
 
-    def test_frames_composed_under_a_video_with_nothing_over_it_fail_it_with_the_rate(self):
-        # the fake never moves the counter, so the rate is 0.0 and a bar below it is crossed
-        self.env["LUMATV_VIDEO_MAX_FPS"] = "-1"
+    def test_frames_the_shell_draws_under_a_video_with_nothing_over_it_fail_it_with_the_rate_and_the_apps_own_commits_do_not(self):
+        # the fake never moves the counters, so the rate is 0.0 and a bar below it is crossed
+        self.env["LUMATV_VIDEO_MAX_UI_FPS"] = "-1"
         out = self.run_video()
-        self.assertIn("the compositor composed 0.0 frames/s under a video with nothing over it (bar -1): something draws behind the video", out)
+        self.assertIn("the shell drew 0.0 frames/s under a video with nothing over it (bar -1): something of it draws behind the video", out)
         self.assertTrue(out.startswith("GATE video-current: FAIL"), out)
-        self.env["LUMATV_VIDEO_MAX_FPS"] = "0.5"
-        self.assertTrue(self.run_video().startswith("GATE video-current: PASS"))
+        self.env["LUMATV_VIDEO_MAX_UI_FPS"] = "0.1"
+        out = self.run_video()
+        self.assertTrue(out.startswith("GATE video-current: PASS"), out)
+        self.assertIn("the shell drew 0.0 frames/s, composed 0.0 frames/s (the video app's own commits included)", out)
+        self.assertIn("the shell drew 0 frames in the 3 s after the close", out)
 
     def test_an_overlay_that_drops_frames_of_its_motion_fails_it_by_name_with_the_worst_gap(self):
         hurt = json.loads(json.dumps(REFRESH_OK))

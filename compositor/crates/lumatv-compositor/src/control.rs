@@ -39,7 +39,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
                 "callbacksAtCommit": state.stats.callbacks_at_commit, "clientCallbacks": state.client_callbacks.word(),
                 "releases": state.stats.releases, "skipped": state.stats.skipped_items,
                 "renderUsLast": state.stats.render_us_last, "renderUsMax": state.stats.render_us_max, "passUsMax": state.stats.pass_us_max,
-                "prepared": state.stats.prepared, "frameImports": state.stats.frame_imports,
+                "prepared": state.stats.prepared, "frameImports": state.stats.frame_imports, "uiDrawn": state.stats.ui_frames,
             },
             "check": {"ok": state.check.ok, "bad": state.check.bad, "unread": state.check.unread},
             "focus": state.seat.focus.map(|s| s.0),

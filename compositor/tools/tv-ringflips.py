@@ -27,16 +27,19 @@ def main(argv):
         return 1
     start = starts[-1]
     t0 = float(lines[start].split()[0])
-    flips, costs = [], []
+    f_flips, l_flips, costs = [], [], []
     for line in lines[start:]:
         if float(line.split()[0]) - t0 > span:
             break
-        m = re.search(r" [FL] flip ([0-9.]+)", line)
+        m = re.search(r" F flip ([0-9.]+)", line)
         if m:
-            flips.append(float(m.group(1)))
-        m = re.search(r" L flip [0-9.]+ \+[0-9.]+ ms: frame ([0-9.]+) ms \(([a-z ]+)\), late (-?\d+) lost (\d+)( missed)?", line)
+            f_flips.append(float(m.group(1)))
+        m = re.search(r" L flip ([0-9.]+) \+[0-9.]+ ms: frame ([0-9.]+) ms \(([a-z ]+)\), late (-?\d+) lost (\d+)( missed)?", line)
         if m:
-            costs.append((float(m.group(1)), int(m.group(3)), int(m.group(4)), bool(m.group(5))))
+            l_flips.append(float(m.group(1)))
+            costs.append((float(m.group(2)), int(m.group(4)), int(m.group(5)), bool(m.group(6))))
+    # builds with the `L` lines write one for every flip, the older ones only the `F` line of the last flip a pass reached
+    flips = l_flips or f_flips
     if not flips:
         print("no flips within %.1f s of %s" % (span, note))
         return 0
