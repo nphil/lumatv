@@ -218,6 +218,18 @@ const COMPOSITOR_RECTS: usize = 12;
 /// Frames planned with stack 0 not drawn (Home under an app's picture) before the floor's memory is given back.
 const FLOOR_UNUSED_FRAMES: u32 = 240;
 
+/// A merge of rectangles into covers is taken only where the covers draw at most a quarter more of the panel than the rectangles
+/// (in quarters). On the set a pass's pixels cost as well as its layers: in round 26 the dock's tiles and the library's cells merged
+/// into one cover of about 1 Mpx took 7.2-7.6 ms of GPU at the median, where round 23 drew the same frames as 8-10 rectangles of
+/// 0.4-0.6 Mpx in 4.7 ms, and apps-grid and home-widgets dropped 13 and 24 refreshes at 120 Hz against 3 and 3. A list's rows are
+/// bands with a few pixels between them, and stay one cover.
+const MERGE_GROWTH_QUARTERS: u64 = 5;
+
+/// `merged` where its covers draw no more than [`MERGE_GROWTH_QUARTERS`] of `region`'s pixels, else `region` as it was.
+fn within_growth(merged: Region, region: Region) -> Region {
+    if merged.pixels() * 4 <= region.pixels() * MERGE_GROWTH_QUARTERS { merged } else { region }
+}
+
 /// Stack 0 kept whole in a render target of its own (the module's notes).
 struct Floor {
     /// Made by the first frame that draws stack 0, and given back when stack 0 has not been drawn for a while.
@@ -990,16 +1002,17 @@ impl Engine {
 
     /// `areas`, what a page owes, as the rectangles the planned frame is cheapest drawn in ([`Planned::merged`]): a pass draws every
     /// layer that meets its rectangle, so the rows of a list that scrolls (a dozen bands, each with the sheet and the copy of the
-    /// floor under it) are cheaper as one cover. The rectangles that come back hold all that `areas` did and do not overlap: the
-    /// page draws its stacks and its windows over all of them in turn, and an overlap would be drawn over twice. Left as they are
-    /// with no frame planned.
+    /// floor under it) are cheaper as one cover. Covers that would draw much more of the panel than the rectangles are not taken
+    /// ([`MERGE_GROWTH_QUARTERS`]). The rectangles that come back hold all that `areas` did and do not overlap: the page draws its
+    /// stacks and its windows over all of them in turn, and an overlap would be drawn over twice. Left as they are with no frame
+    /// planned.
     pub fn merge_areas(&mut self, areas: &mut Vec<Area>) {
         let (floor, layers) = (self.floor.is_some(), self.drawn.len());
         let Some(external) = self.external.as_mut() else { return };
         let Some(planned) = external.planned.as_ref() else { return };
         let Some(region) = Region::exact(areas) else { return };
         // With the floor, stack 0 is one copy in each pass, whatever it holds.
-        let merged = planned.merged(region, if floor { external.split..layers } else { 0..layers });
+        let merged = within_growth(planned.merged(region, if floor { external.split..layers } else { 0..layers }), region);
         if merged == region {
             return;
         }
@@ -1058,8 +1071,10 @@ impl Engine {
                 if let Some(picture) = floor.target {
                     if !floor.owed.is_empty() {
                         // The floor's passes are merged as the renderer merges its own pages' (a pass draws every layer of Home that
-                        // meets it); they may overlap, which a picture of one stack, cleared and drawn whole in each, does not mind.
-                        let owed = planned.merged(floor.owed.region(), 0..surface.to);
+                        // meets it), within the same growth; they may overlap, which a picture of one stack, cleared and drawn whole in
+                        // each, does not mind.
+                        let owed = floor.owed.region();
+                        let owed = within_growth(planned.merged(owed, 0..surface.to), owed);
                         let draw = Draw { surface, slot: None, target: picture.framebuffer, areas: Some(owed), clear: true };
                         let report = engine.renderer.draw_planned(planned, &draw);
                         external.report.add(&report);

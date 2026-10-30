@@ -9,7 +9,7 @@ On forge main (round 24's engine work):
   stands draws its own layers and one copy, not Home's 70-90 in every pass, and the floor is current whenever Home shows, so an opening's first frames
   only copy it. The panels' sheets have no backdrop of their own (`kit::pane`: tint only): their first frames were Home drawn again under the dim, which
   appears over the whole screen, once for each page of the ring. The compositor also merges a page's rectangles where one pass over the engine's layers
-  costs less (`Engine::merge_areas`, the floor counted as one layer). Settings no longer covers Home (5a4d3f65 undone): under the floor Home costs one copy,
+  costs less (`Engine::merge_areas`, the floor counted as one layer), within a quarter more pixels (below). Settings no longer covers Home (5a4d3f65 undone): under the floor Home costs one copy,
   and the cover cost a whole frame as Settings opened and closed. The toast's `burst_end` limit is 300 ms (its slide is 220 ms).
 - `f14f87dd` **Pages copy what they owe.** A composed frame copies from the page drawn last what its page owes from the frames before (a framebuffer blit)
   and draws only what it changed (`kms::frames`): a whole-screen change is one frame of drawing and two copies, not three frames of it.
@@ -17,6 +17,13 @@ On forge main (round 24's engine work):
 - The host harness draws its pages as the compositor does (two stacks at the shell's `system_z`, the ring, the copies) and keeps its own time with
   `--virtual` (one refresh a frame, however slow the host). `tests/host_budget.py` measures each gate surface that way; `test_frame_budget` holds quick,
   picker and settings-scroll to 80 layers a frame at 120 Hz and every frame to the same frame drawn whole.
+- **Round 26 on a988b80a** (120 Hz, pop-ups off), the compositor's own count against round 23: settings-scroll 41 -> 5, quick 7 -> 0 (burst_over20 1),
+  picker 5 -> 0, home-dpad 0 -> 1, but apps-grid 3 -> 13 and home-widgets 3 -> 24 (with `LUMATV_FLOOR=0` 8 and 22, with `LUMATV_PAGE_COPY=0` 18 and 23);
+  60 Hz settings-scroll 3, apps-grid 2, home-widgets 6. The rings say why: the merge of a page's rectangles made the dock's tiles and the library's cells one
+  cover of about 1 Mpx (1 rectangle, 50-200 layers, 7.2-7.6 ms of GPU at the median, p90 8.3-8.5) where round 23 drew them as 8-10 rectangles of 0.4-0.6 Mpx
+  (4.7 ms): on the set a pass's pixels cost as well as its layers, which the merge's cost (LumaShow's Show's, 6144 px a layer) does not see. A merge is now
+  taken only where its covers draw at most a quarter more of the panel than the rectangles (`MERGE_GROWTH_QUARTERS`, for the page and for the floor's own
+  passes): a list's rows (bands a few pixels apart) stay one cover, sparse tiles stay apart.
 
 The most layers one frame drew on the host (`tests/host_budget.py`: Home with its feeds, wallpaper motion and the weather's sprites off as the gate has
 them), with the floor and the copies off (`LUMATV_FLOOR=0 LUMATV_PAGE_COPY=0`) and on, and the GPU estimate at 1.5 ms + 0.085 ms a layer:
@@ -43,23 +50,24 @@ Of the plan, two items were not done:
 
 TV check list (both gates, pop-ups off):
 
-1. Install forge main at `f14f87dd` or later; the compositor's and ui's md5 equal the build.
+1. Install forge main at the commit after `a988b80a` that bounds the merge, or later; the compositor's and ui's md5 equal the build.
 2. Pop-ups off (`popups.on false`), the receiver muted.
-3. 60 Hz: `python3 compositor/tools/tv_gate.py --only frames --frames-quick`; `panel_refresh` 59.9 on every surface before anything else.
-4. 120 Hz: the same with `--refresh 120`; `panel_refresh` 119.9 on every surface.
-5. Against round 23 per surface: `dropped` for quick, picker, settings-scroll, apps-grid and home-widgets; toast `burst_end` under 300 ms.
-6. Rings (`perf/ringsum.py /tmp/perf/gate-c4shell[-120]-<surface>-m<i>.ring.json`): a panel's and Settings' frames at about 80 `layers` or fewer; after a
-   whole-screen change one heavy frame and light ones, not three heavy ones.
-7. By eye: Home under the quick panel, the picker and Settings (the cards faintly through the sheets, as before 5a4d3f65) and after each closes; a toast
-   and the volume over a playing app.
-8. Compositor log: no `page copy: GL error`. Its memory is about 8 MB more while Home shows (the floor).
-9. Anything wrong: `LUMATV_FLOOR=0` or `LUMATV_PAGE_COPY=0` in `surface-manager.env` and a compositor restart (the owner's step) tell the two apart.
+3. 120 Hz first: `python3 compositor/tools/tv_gate.py --only frames --frames-quick --refresh 120`; `panel_refresh` 119.9 on every surface.
+4. Against round 26: apps-grid and home-widgets back to round 23's 3 and 3 or fewer; settings-scroll 5, quick 0, picker 0 held.
+5. If apps-grid or home-widgets still drop more than round 23: run those two with `LUMATV_FLOOR=0` (as round 26 did): fewer drops then say the floor's
+   extra pass costs Home's own walks, and Home could draw straight into the page while nothing of stack 1 shows.
+6. 60 Hz: the same without `--refresh`; `panel_refresh` 59.9.
+7. Rings (`perf/ringsum.py`): the heavy frames of apps-grid and home-widgets in several rectangles again (round 26: 1), a panel's and Settings' frames
+   at about 80 `layers` or fewer.
+8. By eye: Home under the quick panel, the picker and Settings, and after each closes; a toast and the volume over a playing app.
+9. Compositor log: no `page copy: GL error`.
 
 Next, in order:
 
 1. The TV round above.
-2. home-widgets' focus-enter dim (the owner's call above); apps-grid (the library is Home's own layers, stack 0, so the floor does not cover its frames).
-3. Re-check after any change: `python3 tests/host_budget.py --refresh 120` on the host, then the gates on the set; rings as in 6.
+2. home-widgets' focus-enter dim (the owner's call above).
+3. Re-check after any change: `python3 tests/host_budget.py --refresh 120` on the host (it counts layers, not pixels: the set's per-pixel cost is not in it),
+   then the gates on the set; rings as in 7.
 
 ## Rounds 22 and 23
 

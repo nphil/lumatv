@@ -85,12 +85,14 @@ class Table(unittest.TestCase):
         alert = gate.find(['alert'])[0]
         self.assertEqual(gate.cycle_tokens(alert)[-1], 's2.5', 'a surface that gives no close_settle_s waits as long after the close as after the open')
 
-    def test_every_toast_carries_a_text_of_its_own(self):
-        # kb.py cannot be imported without the set's key device: read what it sends
+    def test_the_toast_is_raised_by_the_compositors_control_socket_with_a_text_of_its_own(self):
+        # kb.py cannot be imported without the set's key device: read what it sends. LG's createToast stalled the set for 20 minutes
+        # in round 26: the gate raises LumaTV's toast through `ctl shell show toast`.
         with open(os.path.join(os.path.dirname(gate.__file__), 'kb.py')) as f:
             source = f.read()
-        self.assertEqual(source.count('A toast for the gate {N}'), 2, 'the message and the readable text')
-        self.assertIn("payload.replace('{N}'", source)
+        self.assertNotIn('luna://com.webos.notification/createToast', source)
+        self.assertIn("'toast': ['shell', 'show', 'toast', 'A_toast_for_the_gate_{N}|Placement_check']", source)
+        self.assertIn("word.replace('{N}', n)", source)
 
 
 class Commands(unittest.TestCase):

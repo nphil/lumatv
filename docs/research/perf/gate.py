@@ -403,10 +403,10 @@ SURFACES = [
     # The gallery is built by the theme flag, not by a key (Home polls theme.json within 2 s), and
     # BACK turns the flag off again. Each cycle sets it, waits for the build, then times the first
     # D-pad move inside the built gallery (open) and BACK (close).
-    # LG's own toast and alert, for the baseline the rebuilt ones (PLAN phase 2) must beat, and LumaTV's own under its compositor (the
-    # shell client's Notify.qml, `compositor-surfaces-result.md`). A luna call opens them (`!toast`, `!alert` in kb.py) and nothing closes
-    # the toast but its own timer (about 5 s); the alert is closed by OK. Run on request (`--surfaces toast,alert`): the stock ones are not
-    # expected to pass. A cycle of the toast is 7.8 s. With 8 s on each side of the close it was 16.3 s, longer than a full capture's ring
+    # The toast and the alert (`--surfaces toast,alert`). The toast is LumaTV's, raised through the compositor's control socket
+    # (`!toast` in kb.py: `ctl shell show toast`, the shell's own feed path; LG's createToast stalled the set for 20 minutes in round 26),
+    # and nothing closes it but its own timer (8 s); the alert is LG's createAlert, closed by OK. The stock alert is not expected to pass.
+    # A cycle of the toast is 7.8 s. With 8 s on each side of the close it was 16.3 s, longer than a full capture's ring
     # holds: LG's toast on 2026-10-25 and LumaTV's on 2026-10-27 each found 2 windows of 3, the two of LumaTV's without any `Q:` marker
     # and with the display's OSD interrupt "back" 281 and 582 ms into them (the oldest events of CPU 0's ring were gone).
     # The toast slides in on the layer beat (220 ms): that slide is the burst, not a drop, so its end is held to 300 ms rather than the

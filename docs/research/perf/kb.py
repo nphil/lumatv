@@ -102,15 +102,19 @@ def mark(name):
 
 
 LUNA = {
-    # The fields LG's view reads of every notification (`userData.id` of a toast, `readable` and `showTimeout` of an
-    # alert): without them its own code logs a TypeError or a binding warning per notification, which the gate counts.
-    # {N} is made different for every call: a toast that repeats the text of one still up replaces it in place (LG's model and LumaTV's
-    # both do), and nothing then changes on the screen for the gate to time.
-    'toast': ('luna://com.webos.notification/createToast',
-              '{"sourceId":"com.webos.app.home","message":"A toast for the gate {N}","readable":"A toast for the gate {N}","userData":{"id":"gate"}}'),
+    # The fields LG's view reads of every notification (`readable` and `showTimeout` of an alert): without them its own code logs a
+    # binding warning per notification, which the gate counts.
     'alert': ('luna://com.webos.notification/createAlert',
               '{"sourceId":"com.webos.app.home","title":"An alert for the gate","message":"Closed by the gate with OK.","readable":"An alert for the gate",'
               '"showTimeout":false,"buttons":[{"label":"OK"}]}'),
+}
+
+# What the compositor's control socket raises (`lumatv-compositor ctl shell show KIND TEXT`, the gate's tools deployed under LUMATV_D):
+# LumaTV's toast by the shell's own feed path. LG's notification service is not asked (a createToast stalled the set for 20 minutes in
+# round 26). In TEXT an underscore is a space and a bar a line break. {N} is made different for every call: a toast that repeats the
+# text of one still up replaces it in place, and nothing then changes on the screen for the gate to time.
+CTL = {
+    'toast': ['shell', 'show', 'toast', 'A_toast_for_the_gate_{N}|Placement_check'],
 }
 
 
@@ -130,13 +134,19 @@ def door(name):
 
 
 def luna(name):
+    """A `!name` token: a door written, a control command or a luna call spawned; `Q:<name>-sent` is marked when it has returned."""
     if name in DOOR:
         return door(name)
     import subprocess
-    uri, payload = LUNA[name]
-    payload = payload.replace('{N}', str(int(time.time() * 1000) % 1000000))
-    child = subprocess.Popen(['luna-send', '-n', '1', uri, payload], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL, close_fds=True)
+    n = str(int(time.time() * 1000) % 1000000)
+    if name in CTL:
+        d = os.environ.get('LUMATV_D', '/tmp/lumatv')
+        argv = [d + '/lib/ld-linux-aarch64.so.1', '--library-path', d + '/lib', d + '/bin/lumatv-compositor', 'ctl', '--runtime-dir', '/tmp/xdg']
+        argv += [word.replace('{N}', n) for word in CTL[name]]
+    else:
+        uri, payload = LUNA[name]
+        argv = ['luna-send', '-n', '1', uri, payload.replace('{N}', n)]
+    child = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
 
     def sent():
         child.wait()
