@@ -90,3 +90,5 @@ Fails to tell apart: `videooutputd` not connecting (the connector logs `No rende
 ## Changelog line
 
 Camera pictures play over any app: where no video window can carry one (an app's video, a 4K120 game, no window free) the pop-up and the picture-in-picture are granted a texture, decoded by the feeder on the CPU and drawn by the compositor over the claim's rectangle; the foreground list of LG's Multi View is an experiment switch (`ctl vwin fg`).
+
+A camera plays in the display's second hardware window beside an app's video: the feeder loads it in LG's own starfish pipeline asking for the sub sink (the option every app may set), and the compositor lists the pipeline's app on the foreground list while the claim holds that window; no CPU decode, the texture stays the fallback.
