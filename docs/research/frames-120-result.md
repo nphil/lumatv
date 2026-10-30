@@ -61,11 +61,22 @@ TV check list (both gates, pop-ups off):
    at about 80 `layers` or fewer.
 8. By eye: Home under the quick panel, the picker and Settings, and after each closes; a toast and the volume over a playing app.
 9. Compositor log: no `page copy: GL error`.
+10. settings-scroll at 60 Hz: the walk's first frames (below). In the ring, the frame after OK's release: its `P ... ms in one pass` and the
+    `trace: tick ... (latch lead ...)` line before it.
+
+**settings-scroll at 60 Hz in round 26** (3 dropped, 1 a cycle). The frames of 150-217 ms at +7.2 s of the open window, and of 183-300 ms in the close
+windows, are idle gaps after the walk's last frame: the compositor's thread ran 0.6-0.8 ms in them and the GPU 0-7 ms, nothing was due, and the ring
+counts none of them. The drops are the walk's first frame, the same in each cycle: OK on "All settings" starts the quick panel's slide-out and
+Settings' fade in one commit (Settings made: about 100 layers). The engine draws the fade's first frame at the latch the pacer set from the cheap
+frames before it (8.8 ms before the refresh), and applying the commit makes that pass 7.0-7.2 ms of CPU (render 2.8-3.0 ms), so the frame misses its
+refresh; the next frame takes its place, and the flip comes 33.4 ms after the last (`late 1 lost 1 missed`). Rounds 22-23 had the same frame (0-4 drops
+on this surface at 60 Hz): not from this round's changes. Ways out, not done: make Settings before its fade begins (the commit that makes it then
+lands in a frame with nothing moving), or have the pacer start a frame early when a large commit waits.
 
 Next, in order:
 
 1. The TV round above.
-2. home-widgets' focus-enter dim (the owner's call above).
+2. home-widgets' focus-enter dim (the owner's call above); Settings made ahead of its fade (the 60 Hz drop above).
 3. Re-check after any change: `python3 tests/host_budget.py --refresh 120` on the host (it counts layers, not pixels: the set's per-pixel cost is not in it),
    then the gates on the set; rings as in 7.
 
