@@ -599,6 +599,8 @@ fn run_host(o: Options) -> io::Result<()> {
             return Err(io::Error::other("the scene closed"));
         }
         let now_ns = clock_ns();
+        // as the compositor does: a large commit is taken in as it arrives, not in the frame that shows it
+        engine.take_in_ahead(now_ns);
         let due = match engine.demand() {
             Demand::EveryRefresh => true,
             Demand::At(at) => now_ns >= at,
@@ -632,7 +634,7 @@ fn run_host(o: Options) -> io::Result<()> {
             }
             if o.log.is_some() {
                 log.line(&format!(
-                    "[frame] {drawn} at {} ms: damage {} px, drew {} px in {} rects ({:.1} %), layers {} culled {} cpu {} us gpu {} us backdrops {} ({} us) floor {} px{}",
+                    "[frame] {drawn} at {} ms: damage {} px, drew {} px in {} rects ({:.1} %), layers {} culled {} cpu {} us gpu {} us backdrops {} ({} us) floor {} px apply {} us{}",
                     elapsed(t0),
                     cost.damage_px,
                     cost.region_px,
@@ -645,6 +647,7 @@ fn run_host(o: Options) -> io::Result<()> {
                     cost.backdrops,
                     cost.backdrop_us,
                     cost.floor_px,
+                    cost.apply_us,
                     cost.gl_error.map_or(String::new(), |e| format!(" GL error {e:#x}"))
                 ));
             }

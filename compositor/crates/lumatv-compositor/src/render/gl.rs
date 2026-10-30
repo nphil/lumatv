@@ -1864,6 +1864,8 @@ impl Output for Gl {
                 self.redraw_all = true;
                 return Ok(true);
             }
+            // A large commit (a screen made) is taken in now, in the time to the frame's latch, and not in the frame.
+            ui.engine().take_in_ahead(now);
             if ui.wants_frame(now) {
                 return Ok(true);
             }

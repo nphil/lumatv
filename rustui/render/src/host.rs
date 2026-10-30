@@ -123,6 +123,8 @@ pub struct FrameCost {
     pub mismatch_px: u64,
     /// The panel pixels of the floor drawn again: what stack 0 changed since the floor was last drawn into.
     pub floor_px: u64,
+    /// Of `cpu_us`: taking in the app's commits in the frame (none for a commit taken in ahead, [`Engine::take_in_ahead`]).
+    pub apply_us: u32,
 }
 
 /// What reading the app's requests did.
@@ -174,7 +176,17 @@ pub struct Engine {
     /// Copies a picture of the panel's size into a target: the floor into a page, and on the host's pages what a page owes from
     /// the frames before from the page drawn last.
     copier: Option<PictureCopy>,
+    /// A large commit was taken in ahead of its frame ([`Engine::take_in_ahead`]): the next frame is due for it.
+    ahead: bool,
+    /// Commits are taken in ahead of their frame (`LUMATV_AHEAD=0` takes them in with the frame, as before).
+    take_ahead: bool,
+    /// The time the frame being drawn spent taking in commits.
+    apply_ns: u64,
 }
+
+/// A waiting commit of at least this many operations is taken in ahead of its frame ([`Engine::take_in_ahead`]). Settings made at its
+/// opening is several hundred (about 100 layers, each made, styled and placed); a frame of a motion is a handful.
+const AHEAD_OPS: usize = 64;
 
 /// A frame drawn in two stacks, between [`Engine::plan`] and [`Engine::finish`].
 struct External {
@@ -557,6 +569,9 @@ impl Engine {
                 }),
                 floor,
                 copier: copy,
+                ahead: false,
+                take_ahead: std::env::var("LUMATV_AHEAD").as_deref() != Ok("0"),
+                apply_ns: 0,
             },
             app,
         ))
@@ -710,7 +725,25 @@ impl Engine {
 
     /// Work between frames changed what the next frame draws (a glyph list swapped in, a backdrop published).
     pub fn redraw_wanted(&self) -> bool {
-        self.renderer.wants_frame()
+        self.renderer.wants_frame() || self.ahead
+    }
+
+    /// Takes in now the waiting commits when they are large ([`AHEAD_OPS`]), so that the frame that shows them does not: the
+    /// frame after a key that makes a screen (Settings, about 100 layers) spent 7.0-7.2 ms of the compositor's loop at the set
+    /// with 2.8-3.0 ms of drawing, at a latch the pacer had set from the cheap frames before it (8.8 ms before the refresh), and
+    /// missed its refresh (round 26, 60 Hz). Taken in when the commit arrives, the work is done in the time to the latch. The
+    /// next frame is due for it ([`Engine::redraw_wanted`]); its motion starts from when it was taken in. Whether it took them.
+    pub fn take_in_ahead(&mut self, now_ns: u64) -> bool {
+        let ops: usize = self.waiting.iter().map(|batch| batch.ops.len()).sum();
+        if !self.take_ahead || ops < AHEAD_OPS {
+            return false;
+        }
+        self.scoped(|engine| {
+            engine.apply_commits(now_ns);
+            engine.apply_ns = 0;
+        });
+        self.ahead = true;
+        true
     }
 
     /// Whether housekeeping has more to do.
@@ -779,6 +812,7 @@ impl Engine {
     }
 
     fn apply_commits(&mut self, now_ns: u64) {
+        let began = Instant::now();
         for batch in std::mem::take(&mut self.waiting) {
             if let Some(tag) = batch.tag {
                 self.taken_tag = self.taken_tag.max(tag);
@@ -801,6 +835,7 @@ impl Engine {
             }
         }
         self.forward_events();
+        self.apply_ns += began.elapsed().as_nanos() as u64;
     }
 
     /// Clears each frame to nothing instead of opaque black, so that the window shows what is under it wherever no layer is drawn:
@@ -816,6 +851,8 @@ impl Engine {
             return self.draw_stacks(now_ns);
         }
         let began = Instant::now();
+        self.ahead = false;
+        self.apply_ns = 0;
         self.apply_waiting(now_ns);
         self.scene.advance(now_ns);
         self.scene.resolve(now_ns, &mut self.drawn);
@@ -952,6 +989,7 @@ impl Engine {
             damage_px: report.damage_px,
             mismatch_px: self.mismatch.map_or(0, |m| m.pixels),
             floor_px: self.floor.as_ref().map_or(0, |floor| floor.drawn_px),
+            apply_us: (std::mem::take(&mut self.apply_ns) / 1000) as u32,
         }
     }
 
@@ -963,6 +1001,8 @@ impl Engine {
             return Err(io::Error::other("plan: not an engine inside a compositor, or a frame is already planned"));
         }
         self.scoped(|engine| {
+            engine.ahead = false;
+            engine.apply_ns = 0;
             engine.apply_commits(now_ns);
             engine.scene.advance(now_ns);
             engine.scene.resolve(now_ns, &mut engine.drawn);

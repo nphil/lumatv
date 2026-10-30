@@ -28,8 +28,8 @@ sys.path.insert(0, HERE)
 import test_rust_home as home  # noqa: E402  (Home's make-believe feeds)
 
 BIN = os.environ.get('LUMATV_UI_BIN') or os.path.join(ROOT, 'rustui', 'target', 'debug', 'lumatv-ui')
-FRAME = re.compile(r"^\[frame\] (\d+) at (\d+) ms: damage (\d+) px, drew (\d+) px in (\d+) rects \([\d.]+ %\), layers (\d+) culled \d+ cpu \d+ us gpu \d+ us"
-                   r".*? floor (\d+) px", re.M)
+FRAME = re.compile(r"^\[frame\] (\d+) at (\d+) ms: damage (\d+) px, drew (\d+) px in (\d+) rects \([\d.]+ %\), layers (\d+) culled \d+ cpu (\d+) us gpu \d+ us"
+                   r".*? floor (\d+) px apply (\d+) us", re.M)
 SURFACES = ['quick', 'picker', 'settings-scroll', 'home-widgets', 'toast']
 #: when a walk starts: Home has drawn its feeds and rests
 START_MS = 6000
@@ -93,9 +93,15 @@ def walk_of(surface):
             w.push('show', {'kind': 'toast', 'n': n, 'page': 'Placement check|A toast for the gate'})
             w.wait(7000)
     elif surface == 'settings-scroll':
-        # OK on the quick panel's "All settings", then SETTINGS_PAGE, the rail down, SETTINGS_PAGE, the rail up, Back
+        # the quick panel's foot (QUICK_PANEL_FOOT), OK on its "All settings", then SETTINGS_PAGE, the rail down, SETTINGS_PAGE, the rail up, Back
+        w.at = START_MS - 2200
+        w.push('show', {'kind': 'quick', 'n': 1})
+        w.wait(1300)
+        w.taps('down', 20, 30)
+        w.at = START_MS
         w.mark('open')
-        w.push('show', {'kind': 'settings', 'page': 'picture'})
+        w.key('ok')
+        w.key('ok', 'up', at=w.at + 50)
         w.wait(600)
         for page in ('picture', 'system'):
             w.mark(page + ' list')
@@ -149,7 +155,7 @@ def walk_of(surface):
 
 def run(surface, refresh=120, binary=BIN, reference=False):
     """Runs the walk of `surface`; returns ([(label, [frame, ...]), ...], mismatched frames, the run's output). A frame is
-    (ms, drawn px, rects, layers, floor px)."""
+    (ms, drawn px, rects, layers, floor px, CPU us, of it taking in commits us)."""
     data = tempfile.mkdtemp(prefix='hostbudget-')
     os.makedirs(os.path.join(data, 'theme'))
     shutil.copy(os.path.join(ROOT, 'payload', 'wallpaper', 'wall_1080.png'), os.path.join(data, 'theme', 'wall_1080.png'))
@@ -178,7 +184,7 @@ def run(surface, refresh=120, binary=BIN, reference=False):
     shutil.rmtree(data, ignore_errors=True)
     if r.returncode != 0:
         raise RuntimeError('%s: lumatv-ui failed: %s' % (surface, (r.stdout + r.stderr)[-2000:]))
-    fr = [(int(m[2]), int(m[4]), int(m[5]), int(m[6]), int(m[7])) for m in FRAME.finditer(text)]
+    fr = [(int(m[2]), int(m[4]), int(m[5]), int(m[6]), int(m[8]), int(m[7]), int(m[9])) for m in FRAME.finditer(text)]
     windows = []
     for (at, label), (nxt, _) in zip(w.marks, w.marks[1:]):
         windows.append((label, [f for f in fr if at <= f[0] < nxt]))
@@ -207,7 +213,7 @@ def main(argv=None):
             print('  %-22s %4d frames, most layers %3d (%.1f ms), %d over %d' % (label, len(fs), most, gpu_ms(most), heavy, budget))
             if a.frames:
                 for f in fs:
-                    print('      %6d ms  drew %8d px in %2d rects  layers %3d  floor %8d px' % f)
+                    print('      %6d ms  drew %8d px in %2d rects  layers %3d  floor %8d px  cpu %6d us (commits %6d us)' % f)
     return 0
 
 
