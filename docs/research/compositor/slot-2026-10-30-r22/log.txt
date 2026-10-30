@@ -65,3 +65,8 @@
 05:23:40 shot d4-clip
 05:24:31 shot d4-scrub
 05:24:37 shot d4-clip2
+05:54:46 shot vr-popup-nodirect
+05:55:44 shot vr-popup-nodirect2
+05:56:47 shot vr-back-yt
+05:57:22 shot vr-yt-before
+05:58:06 shot vr-yt-after

@@ -1,0 +1,6 @@
+baseline 102.5 (connect_src NONE)
+echo '1 60' > /proc/lg/de/fr_rate -> osd_irq/s 102.5
+echo '0 50' > /proc/lg/de/fr_rate -> osd_irq/s 102.5
+echo '0 60' > /proc/lg/de/fr_rate -> osd_irq/s 102.0
+echo '1 50' > /proc/lg/de/fr_rate -> osd_irq/s 102.5
+echo '1 60' > /proc/lg/de/fr_rate -> osd_irq/s 102.0
