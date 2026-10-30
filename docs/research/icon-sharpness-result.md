@@ -51,3 +51,7 @@ Pictures: `ui-sharpness/icon-lg-before-after.png` (LG, before, after; 1:1 crops 
 
 Capture the same four tiles (Netflix, PLX, Apple TV, YouTube) at rest, and Apple TV focused, at 1:1 from `r20-luma-home-full.png`'s positions;
 the edge rise should read at or under the table's "after" column, and a two-line text block ("At home", "Home Assistant") at or under 1.1 px median.
+
+## TV result
+
+On the set (forge bc641553, ctl capture), edge rise of the same logos: Netflix 1.66, PLX 1.41, Apple TV 1.87, YouTube 1.46, Apple TV focused 1.97; text "At home" 1.08 and "Home Assistant" 1.05 px median. Each equals the host render, and four tiles are at or under LG's. Picture: `ui-sharpness/icon-tv-lg-vs-after.png` (LG above, LumaTV below).
