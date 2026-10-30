@@ -6,7 +6,7 @@ Evidence tags: `TV:` read on this set (file named), `SRC:` LG's published source
 
 Done and pushed: the research below; the read-only probes (`compositor/tools/tv-multiview-read.sh`, bundled as `mvread.sh`); a **texture** path for a camera picture that no video window can carry (the feeder decodes the small stream on the CPU and paints its window, the compositor draws the window over the claim's rectangle), host-tested end to end; the Multi View foreground list as an experiment switch (`ctl vwin fg APP`). Nothing has run on the set.
 
-Open, in order: Round21 reads P1 (the media stack's words) and P3 (LG's own Multi View) to settle how the sub app's pipeline is chosen; T0 to T3 measure what the texture costs on the set; E1 and E2 test the foreground-list experiment beside YouTube. The sub window itself (hardware decode beside an app, no CPU) is **not** proven usable yet; the texture is the part that works regardless.
+Open, in order: Round21 reads P1 (the media stack's words) and P3 (LG's own Multi View) to settle how the sub app's pipeline is chosen; T0 to T3 measure what the texture costs on the set; E1 and E2 test the foreground-list experiment beside YouTube, and E3 (after P3) the feeder under the sub app's id in LG's own Multi View. The sub window itself (hardware decode beside an app, no CPU) is **not** proven usable yet; the texture is the part that works regardless.
 
 ## Answer in short
 
