@@ -2,12 +2,12 @@
 
 ## Resume here
 
-On forge main (own worktree `/tmp/Frames120-wt2`, delete it only when finished):
+On forge main:
 
 - `8642b179`, `85ac5a6d` the gate's measurement: `analyse.py` read the supervisor, not the compositor, and took the compositor's 0.1 ms wakeups for renders; render
   limits follow the refresh; every measured cycle's trace ring is kept (`/tmp/perf/<name>.ring.json`, `perf/ringsum.py`); `perf/frametl.py` prints a trace's flips.
 - `9e100ea4` Home's GPU wallpaper stands still and its weather rests while Settings or a panel is over Home; Settings opens without its fade from 100 Hz.
-- Round 22 on 2138070f (60 and 120 Hz, wallpaper motion off as the gate sets it) and this commit's changes, in order of weight:
+- `b421f486` Round 22 on 2138070f (60 and 120 Hz, wallpaper motion off as the gate sets it), in order of weight:
   1. **The 120 Hz run is not a 120 Hz run after 04:42.** A camera popup (a hardware video window) made the TV re-time the panel from 120 to 100 Hz
      (`the panel refreshes every 10.00 ms now (8.33 before)` in the compositor log, DE2VSYNC 100.8/s at the end of the run) and it stayed there, also after
      the popup closed; every flip 10.0 ms after the last was a dropped frame against the 10 ms of 120 Hz (idle Home 1205). The gate now judges each window by
