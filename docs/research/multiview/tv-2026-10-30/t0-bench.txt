@@ -1,0 +1,9 @@
+== 480x270
+{"clip":"/tmp/gfn/clips/cam720p30.h264","codec":"h264","src":"1280x720","out":"480x270","units":600,"pictures":600,"decode_ms_avg":7.08,"decode_ms_max":14.53,"convert_ms_avg":4.82,"convert_ms_max":6.24,"cpu_ms_per_picture":11.90}
+
+== 640x360
+{"clip":"/tmp/gfn/clips/cam720p30.h264","codec":"h264","src":"1280x720","out":"640x360","units":600,"pictures":600,"decode_ms_avg":7.08,"decode_ms_max":13.24,"convert_ms_avg":5.53,"convert_ms_max":6.53,"cpu_ms_per_picture":12.61}
+
+== 960x540
+{"clip":"/tmp/gfn/clips/cam720p30.h264","codec":"h264","src":"1280x720","out":"960x540","units":600,"pictures":600,"decode_ms_avg":7.21,"decode_ms_max":13.53,"convert_ms_avg":11.72,"convert_ms_max":13.82,"cpu_ms_per_picture":18.93}
+

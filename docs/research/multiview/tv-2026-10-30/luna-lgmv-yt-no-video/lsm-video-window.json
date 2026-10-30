@@ -1,0 +1,25 @@
+{
+    "foregroundVideoWindow": [
+        {
+            "appId": "com.webos.app.livetv",
+            "appWindow": {
+                "height": 531,
+                "width": 944,
+                "x": 964,
+                "y": 273
+            },
+            "context": "3dCAeFb48F030E315Fcb7DDe36e1eB7",
+            "displayOutput": {
+                "height": 531,
+                "width": 944,
+                "x": 964,
+                "y": 273
+            },
+            "fullScreen": false,
+            "isPig": true,
+            "windowId": "_Window_Id_6"
+        }
+    ],
+    "returnValue": true
+}
+

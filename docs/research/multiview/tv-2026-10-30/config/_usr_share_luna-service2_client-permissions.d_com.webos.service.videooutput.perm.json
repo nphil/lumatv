@@ -1,0 +1,10 @@
+{
+  "com.webos.service.videooutput": [
+    "settings",
+    "tv.management",
+    "applications.internal",
+    "notifications",
+    "all",
+    "public"
+  ]
+}

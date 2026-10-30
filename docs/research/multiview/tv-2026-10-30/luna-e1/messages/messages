@@ -1,0 +1,753 @@
+2026-10-30T05:23:44.248217Z [30825.105887360] user.info audiod [] AudioD REQUEST_RECEIVED {} qualityManager.cpp(1621): Purpose is empty
+2026-10-30T05:23:44.248552Z [30825.106219000] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(956): ModuleManager:notifyContentType
+2026-10-30T05:23:44.248592Z [30825.106257260] user.info audiod [] AudioD SETTINGS_SERVICE_MANAGER {} settingsServiceManager.cpp(261): eventContentType :: contentType: media 
+2026-10-30T05:23:44.248620Z [30825.106284360] user.info audiod [] AudioD SETTINGS_SERVICE_MANAGER {} settingsServiceManager.cpp(270): eventContentType :: contentType: media is same, skip!
+2026-10-30T05:23:44.248644Z [30825.106308360] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(126): ModuleManager:notifySetCopyRightValue pipelineId:_fF73kY88dBFEdc copyright:free 
+2026-10-30T05:23:44.248667Z [30825.106330300] user.info audiod [] AudioD TV_MANAGER {} tvManagerEvents.cpp(85): eventSetCopyRightValue
+2026-10-30T05:23:44.249121Z [30825.106789300] user.info audiod [] AudioD TV_MANAGER {} tvManagerUtil.cpp(1478): [setCopyrightValue]Set copyright value free for pipelineId _fF73kY88dBFEdc
+2026-10-30T05:23:44.249213Z [30825.106876760] user.info audiod [] AudioD TV_MANAGER {} tvManagerUtil.cpp(384): TV::setSCMSAPI Call setSettings with payload is : {"copyright":"free"}
+2026-10-30T05:23:44.249237Z [30825.106901160] user.info audiod [] AudioD AUDIO_MIXER {} mixerInterfaceUmi.cpp(243): AudioMixer: setSettings category: scms
+2026-10-30T05:23:44.249260Z [30825.106923320] user.info audiod [] AudioD REQUEST_AOD {} umiaudiomixer.cpp(288): Call SetSettings with params:'{"category":"scms","value":{"copyright":"free"}}'
+2026-10-30T05:23:44.249280Z [30825.106944320] user.info audiooutputd [] audiooutputd AUDIO_SET_SETTINGS_CALL {} setSettings request for category:scms with value:{"copyright":"free"}
+2026-10-30T05:23:44.249339Z [30825.107005560] user.info audiooutputd [] umi INFO_LOG {} umitvaudio.cpp:setSettings(1549) category scms Payload received is {"copyright":"free"}
+2026-10-30T05:23:44.249379Z [30825.107042880] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:setAlsaDriverSettings(753) Set driver settings for category scms
+2026-10-30T05:23:44.249403Z [30825.107067000] user.info audiooutputd [] umi INFO_LOG {} umitvaudioutil.cpp:setSpdifSecurity(1319) setSpdifSecurity for scms api with copyright value as free
+2026-10-30T05:23:44.249425Z [30825.107089180] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(1828): createAudioInputProperties: notify- {"returnValue":true,"audioInputProperty":[{"codec":"opus","pipelineId":"_fF73kY88dBFEdc","immersive":"none"}]}
+2026-10-30T05:23:44.249450Z [30825.107113660] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(115): ModuleManager:notifySetImmersiveMode pipelineId:_fF73kY88dBFEdc immersiveMode:none 
+2026-10-30T05:23:44.249472Z [30825.107135560] user.info audiod [] AudioD DOLBY_MANAGER {} dolbyManager.cpp(51): eventSetImmersiveMode
+2026-10-30T05:23:44.249493Z [30825.107156780] user.info audiod [] AudioD DOLBY_MANAGER {} dolbyManager.cpp(1015): Set Immersive value none for pipelineId _fF73kY88dBFEdc
+2026-10-30T05:23:44.249514Z [30825.107177820] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(1420): QualityManager:getting Foreground AppId: youtube.leanback.v4
+2026-10-30T05:23:44.249534Z [30825.107198200] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(43): addChannelChangeInfo for pipelineId:_fF73kY88dBFEdc
+2026-10-30T05:23:44.249555Z [30825.107219140] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(93): mMapChannelChangeInfo size:1
+2026-10-30T05:23:44.249576Z [30825.107239360] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(100): pipelineId:_fF73kY88dBFEdc bitset status:10
+2026-10-30T05:23:44.249596Z [30825.107259920] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(544): streamType : umimedia
+2026-10-30T05:23:44.249684Z [30825.107349720] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(545): pipelineId : _fF73kY88dBFEdc
+2026-10-30T05:23:44.249729Z [30825.107393660] user.info videooutputd [] val-starfish DEBUG {} epollEventProcess() kernel event happens, event[0].fd: 7
+2026-10-30T05:23:44.249755Z [30825.107418760] user.info videooutputd [] val-starfish DEBUG {} v4l2EventProcess() wId=(0), fd=(7), v4l2Ev.id=(9972002)
+2026-10-30T05:23:44.249776Z [30825.107440240] user.info videooutputd [] videooutputd DEBUG {} sendApplyDoneWindowRegionSubscribers() called, wId:0, delayTime:8
+2026-10-30T05:23:44.249798Z [30825.107461500] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(1904): isAudioFreerunMode: [0], pipelineType: [audiovideo], isGameMode: [0], hasPTPDELAY: [0]
+2026-10-30T05:23:44.249849Z [30825.107514900] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(369): updateAudioFreerunModeInfoJson :: isGameMode[0] foregroundAppId[youtube.leanback.v4], categoryType[audioInputInfo], sourceType[MEDIA] -> isAudioFreerunMode[0]
+2026-10-30T05:23:44.249882Z [30825.107546120] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(557): Call setQualityAttribute API with payload is : {"categoryInfo":{"codec":"opus","channel":2,"immersive":"none"},"requestType":"setAudioInputInfo","pipelineInfo":{"sourceAttribute":"MEDIA","resource":"ADEC1","sourceType":"MEDIA","reset":false,"contentType":"movie","gameInfo":{"isGameMode":false},"pipelinetype":"audiovideo","streamType":"umimedia","videoType":"main_video","pipelineId":"_fF73kY88dBFEdc"},"activeState":true,"categoryType":"audioInputInfo"}
+2026-10-30T05:23:44.249984Z [30825.107647840] user.info pqcontroller [] pqcontroller PQCONTROLLER_SERVICE {} [v4l2_event_handler][185] V4L2EVNET: V4L2_CID_EXT_VPQ_SUBSCRIBE_VIDEO_LATENCY, latency = 100
+2026-10-30T05:23:44.250007Z [30825.107670580] user.info pqcontroller [] pqcontroller LS2_SEND {} setVideoLatencyTime: pipelineId: _fF73kY88dBFEdc, latencyTime: 100
+2026-10-30T05:23:44.250028Z [30825.107692080] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(91): Received: /tv/setVideoLatencyTime '{"pipelineId":"_fF73kY88dBFEdc","videoLatencyTime":100}'
+2026-10-30T05:23:44.250052Z [30825.107715700] user.info audiod [] AudioD AUDIO_MIXER {} mixerInterfaceUmi.cpp(243): AudioMixer: setSettings category: videoLatencyTime
+2026-10-30T05:23:44.250074Z [30825.107737220] user.info audiod [] AudioD REQUEST_AOD {} umiaudiomixer.cpp(288): Call SetSettings with params:'{"category":"videoLatencyTime","value":{"pipelineId":"_fF73kY88dBFEdc","videoLatencyTime":100}}'
+2026-10-30T05:23:44.250094Z [30825.107758240] user.info audiooutputd [] audiooutputd AUDIO_SET_SETTINGS_CALL {} setSettings umi returnStatus 0
+2026-10-30T05:23:44.250116Z [30825.107779920] user.info audiooutputd [] audiooutputd AUDIO_GET_SETTINGS_CALL {} Audio getSettings request for category:arcAvSyncTime, settings:{}
+2026-10-30T05:23:44.250138Z [30825.107801660] user.info audiooutputd [] umi INFO_LOG {} umitvaudioquality.cpp:getSettings(1003) get settings for category arcAvSyncTime, settings:{}
+2026-10-30T05:23:44.250159Z [30825.107822680] user.info audiooutputd [] aal_delay DELAY_INFO {} [_updateSoundOutput] soundout is tv_external_speaker
+2026-10-30T05:23:44.250180Z [30825.107843260] user.info audiooutputd [] audiooutputd AUDIO_GET_SETTINGS_CALL {} Audio getSettings response:true
+2026-10-30T05:23:44.250202Z [30825.107865380] user.info audiooutputd [] audiooutputd AUDIO_SET_SETTINGS_CALL {} setSettings request for category:scms with value:{"copyright":"free"}
+2026-10-30T05:23:44.250223Z [30825.107886420] user.info audiooutputd [] umi INFO_LOG {} umitvaudio.cpp:setSettings(1549) category scms Payload received is {"copyright":"free"}
+2026-10-30T05:23:44.250243Z [30825.107907100] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:setAlsaDriverSettings(753) Set driver settings for category scms
+2026-10-30T05:23:44.250264Z [30825.107927980] user.info audiooutputd [] umi INFO_LOG {} umitvaudioutil.cpp:setSpdifSecurity(1319) setSpdifSecurity for scms api with copyright value as free
+2026-10-30T05:23:44.250287Z [30825.107950480] user.info audiooutputd [] audiooutputd AUDIO_SET_SETTINGS_CALL {} setSettings umi returnStatus 0
+2026-10-30T05:23:44.250699Z [30825.108362760] user.info audiooutputd [] audiooutputd AUDIO_SET_QUALITY_ATTRIBUTE_CALL {} setQualityAttribute request for:{"categoryInfo":{"codec":"opus","channel":2,"immersive":"none"},"requestType":"setAudioInputInfo","pipelineInfo":{"sourceAttribute":"MEDIA","sourceType":"MEDIA","resource":"ADEC1","contentType":"movie","gameInfo":{"isGameMode":false},"pipelinetype":"audiovideo","streamType":"umimedia","reset":false,"videoType":"main_video","pipelineId":"_fF73kY88dBFEdc"},"activeState":true,"categoryType":"audioInputInfo"}
+2026-10-30T05:23:44.250724Z [30825.108388000] user.info audiooutputd [] umi INFO_LOG {} umitvaudio.cpp:setQualityAttribute(1472) payload received is {"categoryInfo":{"codec":"opus","channel":2,"immersive":"none"},"requestType":"setAudioInputInfo","pipelineInfo":{"sourceAttribute":"MEDIA","sourceType":"MEDIA","resource":"ADEC1","contentType":"movie","gameInfo":{"isGameMode":false},"pipelinetype":"audiovideo","streamType":"umimedia","reset":false,"videoType":"main_video","pipelineId":"_fF73kY88dBFEdc"},"activeState":true,"categoryType":"audioInputInfo"}
+2026-10-30T05:23:44.250746Z [30825.108410160] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updatePipelineInfo(1283) updatePipelineInfo : pipelineId = _fF73kY88dBFEdc
+2026-10-30T05:23:44.250767Z [30825.108431080] user.info audiooutputd [] umi INFO_LOG {} umitvaudioutil.cpp:isNewPipelineId(1211) Checking PipelineId is New or existing _fF73kY88dBFEdc
+2026-10-30T05:23:44.250788Z [30825.108451880] user.info audiooutputd [] umi INFO_LOG {} umitvaudioutil.cpp:isNewPipelineId(1225) PipelineId is matching, so need to update the map pipelineId _fF73kY88dBFEdc
+2026-10-30T05:23:44.250809Z [30825.108472720] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updatePipelineInfo(1294) Calling updateExistingPipelineInfo
+2026-10-30T05:23:44.250830Z [30825.108494100] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateExistingPipelineInfo(1240) updateExistingPipelineInfo to update existing pipelineInfo {"sourceAttribute":"MEDIA","sourceType":"MEDIA","resource":"ADEC1","contentType":"movie","gameInfo":{"isGameMode":false},"pipelinetype":"audiovideo","streamType":"umimedia","reset":false,"videoType":"main_video","pipelineId":"_fF73kY88dBFEdc"}
+2026-10-30T05:23:44.250852Z [30825.108515420] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateExistingPipelineInfo(1242) updateExistingPipelineInfo Vector of map values size 1
+2026-10-30T05:23:44.250873Z [30825.108536940] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateExistingPipelineInfo(1253) PipelineId is matching, so need to update the map pipelineId _fF73kY88dBFEdc
+2026-10-30T05:23:44.250926Z [30825.108591480] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateExistingPipelineInfo(1267) Updated exiting audio video info map and values are contentType movie
+2026-10-30T05:23:44.250958Z [30825.108621800] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateExistingPipelineInfo(1267) Updated exiting audio video info map and values are params0 4096
+2026-10-30T05:23:44.250980Z [30825.108643660] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateExistingPipelineInfo(1267) Updated exiting audio video info map and values are params1 2304
+2026-10-30T05:23:44.251003Z [30825.108666780] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateExistingPipelineInfo(1267) Updated exiting audio video info map and values are params2 progressive
+2026-10-30T05:23:44.251025Z [30825.108688600] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateExistingPipelineInfo(1267) Updated exiting audio video info map and values are params3 24.000000
+2026-10-30T05:23:44.251046Z [30825.108709500] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateExistingPipelineInfo(1267) Updated exiting audio video info map and values are params4 none
+2026-10-30T05:23:44.251075Z [30825.108738860] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateExistingPipelineInfo(1267) Updated exiting audio video info map and values are params5 adaptive
+2026-10-30T05:23:44.251096Z [30825.108759900] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateExistingPipelineInfo(1267) Updated exiting audio video info map and values are pipelineId _fF73kY88dBFEdc
+2026-10-30T05:23:44.251117Z [30825.108780560] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateExistingPipelineInfo(1267) Updated exiting audio video info map and values are pipelinetype audiovideo
+2026-10-30T05:23:44.251138Z [30825.108801420] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateExistingPipelineInfo(1267) Updated exiting audio video info map and values are resource ADEC1
+2026-10-30T05:23:44.251158Z [30825.108822220] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateExistingPipelineInfo(1267) Updated exiting audio video info map and values are sourceAttribute MEDIA
+2026-10-30T05:23:44.251216Z [30825.108882720] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateExistingPipelineInfo(1267) Updated exiting audio video info map and values are sourceType MEDIA
+2026-10-30T05:23:44.251257Z [30825.108920820] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateExistingPipelineInfo(1267) Updated exiting audio video info map and values are streamType umimedia
+2026-10-30T05:23:44.251279Z [30825.108943200] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateExistingPipelineInfo(1267) Updated exiting audio video info map and values are videoType main_video
+2026-10-30T05:23:44.251300Z [30825.108964320] user.info audiooutputd [] umi INFO_LOG {} umitvaudio.cpp:setAudioVideoCategoryInfo(1431) setAudioVideoCategoryInfo::RequestType = setAudioInputInfo 
+2026-10-30T05:23:44.251322Z [30825.108985740] user.info audiooutputd [] umi INFO_LOG {} umitvaudio.cpp:setActiveState(1696) Setting ActiveStatus: 1
+2026-10-30T05:23:44.251344Z [30825.109007640] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:setAudioInputInfo(1449) setAudioInputInfo is called to update category values of existing pipelineInfo
+2026-10-30T05:23:44.251367Z [30825.109031180] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:setAudioInputInfo(1470) pipelineID [_fF73kY88dBFEdc]
+2026-10-30T05:23:44.251388Z [30825.109120260] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:setAudioInputInfo(1481) [AutoAVSync] Update audio input info for exist pipelineID
+2026-10-30T05:23:44.251500Z [30825.109164900] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateAudioCategoryInfo(1306) updateAudioCategoryInfo to update category values {"codec":"opus","channel":2,"immersive":"none"} of existing pipelineInfo {"sourceAttribute":"MEDIA","sourceType":"MEDIA","resource":"ADEC1","contentType":"movie","gameInfo":{"isGameMode":false},"pipelinetype":"audiovideo","streamType":"umimedia","reset":false,"videoType":"main_video","pipelineId":"_fF73kY88dBFEdc"}
+2026-10-30T05:23:44.251526Z [30825.109189740] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateAudioCategoryInfo(1322) Resource ID values are ADEC1
+2026-10-30T05:23:44.251550Z [30825.109213540] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateAudioCategoryInfo(1335) update audio free run mode false
+2026-10-30T05:23:44.251570Z [30825.109233980] user.info audiooutputd [] umi INFO_LOG {} umitvaudio.cpp:getActiveState(1701) Getting ActiveStatus: 1
+2026-10-30T05:23:44.251591Z [30825.109255260] user.info audiooutputd [] umi INFO_LOG {} umitvaudioquality.cpp:updateCodecImmersiveFormat(676) Called updateCodecImmersiveFormat to update codec and immersive format
+2026-10-30T05:23:44.251612Z [30825.109275660] user.info audiooutputd [] umi INFO_LOG {} umitvsoundengine.cpp:setImmersiveFormat(74) Setting immersive info  immersiveFormat none
+2026-10-30T05:23:44.251633Z [30825.109296980] user.info audiooutputd [] aal_se AALSE_INFO {} setImmersiveInfo:: immersive_info[none] was called, skip
+2026-10-30T05:23:44.251663Z [30825.109327160] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateAudioCategoryInfo(1433) AudioVideoInfoMap Values audioFreerunMode false
+2026-10-30T05:23:44.251684Z [30825.109348140] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateAudioCategoryInfo(1433) AudioVideoInfoMap Values channel 2
+2026-10-30T05:23:44.251706Z [30825.109370060] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateAudioCategoryInfo(1433) AudioVideoInfoMap Values codec opus
+2026-10-30T05:23:44.251728Z [30825.109391480] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateAudioCategoryInfo(1433) AudioVideoInfoMap Values contentType movie
+2026-10-30T05:23:44.251749Z [30825.109412240] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateAudioCategoryInfo(1433) AudioVideoInfoMap Values immersive none
+2026-10-30T05:23:44.251769Z [30825.109432980] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateAudioCategoryInfo(1433) AudioVideoInfoMap Values params0 4096
+2026-10-30T05:23:44.251790Z [30825.109453220] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateAudioCategoryInfo(1433) AudioVideoInfoMap Values params1 2304
+2026-10-30T05:23:44.251810Z [30825.109473720] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateAudioCategoryInfo(1433) AudioVideoInfoMap Values params2 progressive
+2026-10-30T05:23:44.251830Z [30825.109494120] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateAudioCategoryInfo(1433) AudioVideoInfoMap Values params3 24.000000
+2026-10-30T05:23:44.251851Z [30825.109514780] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateAudioCategoryInfo(1433) AudioVideoInfoMap Values params4 none
+2026-10-30T05:23:44.251873Z [30825.109536660] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateAudioCategoryInfo(1433) AudioVideoInfoMap Values params5 adaptive
+2026-10-30T05:23:44.251893Z [30825.109557320] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateAudioCategoryInfo(1433) AudioVideoInfoMap Values pipelineId _fF73kY88dBFEdc
+2026-10-30T05:23:44.251914Z [30825.109577880] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateAudioCategoryInfo(1433) AudioVideoInfoMap Values pipelinetype audiovideo
+2026-10-30T05:23:44.252080Z [30825.109746320] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateAudioCategoryInfo(1433) AudioVideoInfoMap Values resource ADEC1
+2026-10-30T05:23:44.252110Z [30825.109774500] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateAudioCategoryInfo(1433) AudioVideoInfoMap Values sourceAttribute MEDIA
+2026-10-30T05:23:44.252133Z [30825.109796980] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateAudioCategoryInfo(1433) AudioVideoInfoMap Values sourceType MEDIA
+2026-10-30T05:23:44.252155Z [30825.109818520] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateAudioCategoryInfo(1433) AudioVideoInfoMap Values streamType umimedia
+2026-10-30T05:23:44.252175Z [30825.109839080] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:updateAudioCategoryInfo(1433) AudioVideoInfoMap Values videoType main_video
+2026-10-30T05:23:44.252196Z [30825.109859940] user.info audiooutputd [] umi NL_SOUND {"input_source":"MEDIA","input_codec":"opus","earc_output_codec":1,"arc_output_codec":1,"wowcast_output_codec":1,"sound_output":"tv_external_speaker"} 
+2026-10-30T05:23:44.252217Z [30825.109880640] user.info audiooutputd [] umi INFO_LOG {} umitvdelay.cpp:registerAudioVideoInfo(248) calling registerAvParams
+2026-10-30T05:23:44.252237Z [30825.109900760] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:setAudioInputInfo(1514) [AutoAVSync] Check Delay update params!![_fF73kY88dBFEdc] VI:1/VLT:-1/DU:0
+2026-10-30T05:23:44.252257Z [30825.109921120] user.info audiooutputd [] umi INFO_LOG {} umitvgain.cpp:registerAudioVideoInfo(94) Calling registerAvParams
+2026-10-30T05:23:44.252289Z [30825.109953060] user.info audiooutputd [] aal_gain GAIN_INFO {} [registerAvParams]
+2026-10-30T05:23:44.252312Z [30825.109976060] user.info audiooutputd [] umi INFO_LOG {} umitvgain.cpp:setInputGain(135) calling setGainAsInput
+2026-10-30T05:23:44.252334Z [30825.109997880] user.info audiooutputd [] aal_gain GAIN_INFO {} [_getGainIndex] source Type is [MEDIA]
+2026-10-30T05:23:44.252354Z [30825.110017780] user.info audiooutputd [] aal_gain GAIN_INFO {} [_getGainIndex] index[17]
+2026-10-30T05:23:44.252376Z [30825.110039660] user.info audiooutputd [] aal_gain GAIN_INFO {} [_getAutoVolume] auto volume is 0!! ret 0
+2026-10-30T05:23:44.252396Z [30825.110059880] user.info audiooutputd [] aal_gain GAIN_INFO {} [_getHiDevGainBoost] HiDev is false!! ret 0
+2026-10-30T05:23:44.252417Z [30825.110080980] user.info audiooutputd [] aal_gain GAIN_INFO {} [_getSoundOutput] sound out is [tv_external_speaker] 3 ret[0]
+2026-10-30T05:23:44.252438Z [30825.110101920] user.info audiooutputd [] aal_gain GAIN_INFO {} [_getSoundOutput] sound out is [tv_external_speaker] 3 ret[0]
+2026-10-30T05:23:44.252495Z [30825.110159860] user.info audiooutputd [] aal_gain GAIN_INFO {} [_updateSoundOutput] soundout is tv_external_speaker
+2026-10-30T05:23:44.252523Z [30825.110186500] user.info audiooutputd [] aal_gain GAIN_INFO {} [_updateSoundOutput] ret[0]
+2026-10-30T05:23:44.252545Z [30825.110209080] user.info audiooutputd [] aal_gain GAIN_INFO {} [_getGainIndex] source Type is [MEDIA]
+2026-10-30T05:23:44.252566Z [30825.110229320] user.info audiooutputd [] aal_gain GAIN_INFO {} [_getGainIndex] index[17]
+2026-10-30T05:23:44.252587Z [30825.110250860] user.info audiooutputd [] aal_gain SVU_AUDIO {} [_updateInputAttr] input volume is 100
+2026-10-30T05:23:44.252607Z [30825.110270960] user.info audiooutputd [] aal_gain GAIN_INFO {} [_sumGainAndVolume] result main[0x7f]/fine[0x00]
+2026-10-30T05:23:44.252628Z [30825.110292220] user.info audiooutputd [] aal_gain SVU_AUDIO {} [_updateInputAttr] main[0x7f], fine[0x00]
+2026-10-30T05:23:44.252653Z [30825.110316400] user.info audiooutputd [] aal_gain GAIN_INFO {} [_updateInputAttr] ret[0]
+2026-10-30T05:23:44.252673Z [30825.110336740] user.info audiooutputd [] aal_gain GAIN_INFO {} [_getGainIndex] source Type is [MEDIA]
+2026-10-30T05:23:44.252693Z [30825.110356820] user.info audiooutputd [] aal_gain GAIN_INFO {} [_getGainIndex] index[17]
+2026-10-30T05:23:44.252713Z [30825.110377180] user.info audiooutputd [] aal_gain GAIN_INFO {} [_getSoundOutput] sound out is [tv_external_speaker] 3 ret[0]
+2026-10-30T05:23:44.252735Z [30825.110398560] user.info audiooutputd [] aal_gain GAIN_INFO {} [_getSoundOutput] sound out is [tv_external_speaker] 3 ret[0]
+2026-10-30T05:23:44.252755Z [30825.110418920] user.info audiooutputd [] aal_gain GAIN_INFO {} [_updateSoundOutput] soundout is tv_external_speaker
+2026-10-30T05:23:44.252776Z [30825.110439460] user.info audiooutputd [] aal_gain GAIN_INFO {} [_updateSoundOutput] ret[0]
+2026-10-30T05:23:44.252796Z [30825.110459720] user.info audiooutputd [] aal_gain SVU_AUDIO {} [_updateOutputAttr][Main] soudOut[1] main[0x7e] fine[0x03]
+2026-10-30T05:23:44.252816Z [30825.110479800] user.info audiooutputd [] aal_gain SVU_AUDIO {} [_updateOutputAttr][Sub] soudOut[2] main[0x7f] fine[0x00]
+2026-10-30T05:23:44.252836Z [30825.110499700] user.info audiooutputd [] aal_gain GAIN_INFO {} [_updateOutputAttr] ret[0]
+2026-10-30T05:23:44.252862Z [30825.110525920] user.info audiooutputd [] aal_gain GAIN_INFO {} [drvSetInputVolume]
+2026-10-30T05:23:44.252884Z [30825.110547320] user.info audiooutputd [] aal_gain SVU_AUDIO {} [ALSA][setGainInputParam] type [0x01], port[1]
+2026-10-30T05:23:44.252903Z [30825.110567140] user.info audiooutputd [] aal_gain SVU_AUDIO {} [ALSA][setGainInputParam] main[0x7f], fine[0x00]
+2026-10-30T05:23:44.252923Z [30825.110587020] user.info audiooutputd [] aal_gain SVU_AUDIO {} [setGainInputParam] gain is 8388608 [0x800000]
+2026-10-30T05:23:44.252943Z [30825.110607040] user.info audiooutputd [] aal_gain GAIN_INFO {} [setGainInputParam][E] ret[0]
+2026-10-30T05:23:44.253002Z [30825.110667060] user.info audiooutputd [] aal_gain GAIN_INFO {} [_setInputGain] ret[0]
+2026-10-30T05:23:44.253079Z [30825.110743820] user.info audiooutputd [] aal_gain GAIN_INFO {} [_getAutoVolume] auto volume is 0!! ret 0
+2026-10-30T05:23:44.253246Z [30825.110913660] user.info audiooutputd [] aal_gain GAIN_INFO {} [drvSetOutputGain]
+2026-10-30T05:23:44.253647Z [30825.111338100] user.info audiooutputd [] aal_gain SVU_AUDIO {} [ALSA][setGainOutputParam] Sound Out [1]
+2026-10-30T05:23:44.253749Z [30825.111415300] user.info audiooutputd [] aal_gain SVU_AUDIO {} [ALSA][setGainOutputParam] main[0x7e], fine[0x03] Gain[7639499]
+2026-10-30T05:23:44.253808Z [30825.111473740] user.info audiooutputd [] aal_gain SVU_AUDIO {} [setGainOutputParam] 1 / 7639499
+2026-10-30T05:23:44.253843Z [30825.111506920] user.info audiooutputd [] aal_gain GAIN_INFO {} [setGainOutputParam][E] ret[0]
+2026-10-30T05:23:44.253867Z [30825.111530400] user.info audiooutputd [] aal_gain GAIN_INFO {} [_setOutputGain] ret[0]
+2026-10-30T05:23:44.253901Z [30825.111564740] user.info audiooutputd [] aal_gain GAIN_INFO {} [_getAutoVolume] auto volume is 0!! ret 0
+2026-10-30T05:23:44.253927Z [30825.111590880] user.info audiooutputd [] aal_gain GAIN_INFO {} [drvSetOutputGain]
+2026-10-30T05:23:44.253948Z [30825.111612160] user.info audiooutputd [] aal_gain SVU_AUDIO {} [ALSA][setGainOutputParam] Sound Out [2]
+2026-10-30T05:23:44.256828Z [30825.114502560] user.info audiooutputd [] aal_gain SVU_AUDIO {} [ALSA][setGainOutputParam] main[0x7f], fine[0x00] Gain[8388608]
+2026-10-30T05:23:44.256946Z [30825.114613380] user.info audiooutputd [] aal_gain SVU_AUDIO {} [setGainOutputParam] 2 / 8388608
+2026-10-30T05:23:44.256995Z [30825.114659980] user.info audiooutputd [] aal_gain GAIN_INFO {} [setGainOutputParam][E] ret[0]
+2026-10-30T05:23:44.257030Z [30825.114694580] user.info audiooutputd [] aal_gain GAIN_INFO {} [_setOutputGain] ret[0]
+2026-10-30T05:23:44.257056Z [30825.114720520] user.info audiooutputd [] aal_gain GAIN_INFO {} [setGainAsInput] ret[0]
+2026-10-30T05:23:44.257080Z [30825.114743900] user.info audiooutputd [] umi INFO_LOG {} umitvgain.cpp:registerAudioVideoInfoForEncoder(108) Calling registerAencAvParams For Encoder
+2026-10-30T05:23:44.257103Z [30825.114767100] user.info audiooutputd [] aal_gain GAIN_INFO {} [registerAencAvParams]
+2026-10-30T05:23:44.257128Z [30825.114791420] user.info audiooutputd [] umi INFO_LOG {} umitvgain.cpp:setAencGain(147) calling setAencVolume
+2026-10-30T05:23:44.257384Z [30825.115053440] user.info audiooutputd [] aal_gain GAIN_INFO {} [_checkParamExist] sourceType is not exist
+2026-10-30T05:23:44.257509Z [30825.115173140] user.err audiooutputd [] aal_gain GAIN_INFO {} [_getGainIndex] sourceType is not exist!!
+2026-10-30T05:23:44.257531Z [30825.115194660] user.warning audiooutputd [] aal_gain GAIN_INFO {} [setAencVolume] Fail to get Gain Index
+2026-10-30T05:23:44.257554Z [30825.115218040] user.err audiooutputd [] umi GAIN_AAL_ERROR {} umitvgain.cpp:setAencGain(150) Failed to set AENC gain
+2026-10-30T05:23:44.257578Z [30825.115241400] user.info audiooutputd [] umi INFO_LOG {} umitvsoundengine.cpp:registerAudioVideoInfo(56) Calling registerAvParams
+2026-10-30T05:23:44.257600Z [30825.115263220] user.info audiooutputd [] aal_se AALSE_INFO {} getIsAiSoundDisabled:: soundOutput[tv_external_speaker] codec[opus] isNpuUsageDisabled[0] :: ret[0]
+2026-10-30T05:23:44.257621Z [30825.115284400] user.info audiooutputd [] aal_se AALSE_INFO {} [_isPswTuned][index: 0], soundMode: [standard] => isPswTuned[0]
+2026-10-30T05:23:44.257643Z [30825.115306280] user.info audiooutputd [] aal_se AALSE_TYPES_INFO {} GetSoundEngineMode::  aalSeIndex[0] :: supportedSoundEngine[1], supportedSmartSound[2], soundMode[0], isDolbyAtmos[1], isAiSound[0]
+2026-10-30T05:23:44.257664Z [30825.115327260] user.info audiooutputd [] aal_se AALSE_TYPES_INFO {} GetSoundEngineMode::  isVirtualSurround[0], isForcedDolbyAtmos[0], isDolbyAtmosContents[0], aiSoundGen[5]
+2026-10-30T05:23:44.257726Z [30825.115392740] user.info audiooutputd [] aal_se AALSE_TYPES_INFO {} GetSoundEngineMode::  isInstartSoundEngine[1], isLNESupported[1], isAiSoundDisabled[0], powerEvent[2], isPSWTuned[0]
+2026-10-30T05:23:44.257782Z [30825.115447000] user.info audiooutputd [] aal_se AALSE_TYPES_INFO {} GetSoundEngineMode:: ret: [2] 
+2026-10-30T05:23:44.257807Z [30825.115471140] user.info audiooutputd [] aal_se AALSE_INFO {} _setLGSEDownMix[index:0]:: bLGSEDownMix[0] is same as before, skip
+2026-10-30T05:23:44.257828Z [30825.115492060] user.info audiooutputd [] aal_se AALSE_INFO {} [_isPswTuned][index: 10], soundMode: [standard] => isPswTuned[0]
+2026-10-30T05:23:44.257851Z [30825.115514580] user.info audiooutputd [] aal_se AALSE_TYPES_INFO {} GetSoundEngineMode::  aalSeIndex[10] :: supportedSoundEngine[1], supportedSmartSound[2], soundMode[0], isDolbyAtmos[1], isAiSound[0]
+2026-10-30T05:23:44.257873Z [30825.115536880] user.info audiooutputd [] aal_se AALSE_TYPES_INFO {} GetSoundEngineMode::  isVirtualSurround[0], isForcedDolbyAtmos[0], isDolbyAtmosContents[0], aiSoundGen[5]
+2026-10-30T05:23:44.257894Z [30825.115557940] user.info audiooutputd [] aal_se AALSE_TYPES_INFO {} GetSoundEngineMode::  isInstartSoundEngine[1], isLNESupported[1], isAiSoundDisabled[0], powerEvent[2], isPSWTuned[0]
+2026-10-30T05:23:44.257915Z [30825.115578600] user.info audiooutputd [] aal_se AALSE_TYPES_INFO {} GetSoundEngineMode:: ret: [2] 
+2026-10-30T05:23:44.257936Z [30825.115599260] user.warning audiooutputd [] aal_se AALSE_WARNING {} isSupportedSeModeForIndex[index:10]:: seMode[2] is not supported!!
+2026-10-30T05:23:44.257958Z [30825.115621920] user.info audiooutputd [] aal_se AALSE_INFO {} _setSoundEngineMode[index:10] :: mSeMode[1] will be set
+2026-10-30T05:23:44.257979Z [30825.115642760] user.info audiooutputd [] aal_se AALSE_INFO {} _setLGSEDownMix[index:10]:: bLGSEDownMix[0] is same as before, skip
+2026-10-30T05:23:44.258000Z [30825.115664080] user.info audiooutputd [] aal_se AALSE_ALSA_INFO {} setInteger::[aal_se_index:10]for [LGSE SoundEngine Mode] with value [1]
+2026-10-30T05:23:44.258021Z [30825.115684640] user.info audiooutputd [] aal_se AALSE_INFO {} [_isPswTuned][index: 20], soundMode: [standard] => isPswTuned[0]
+2026-10-30T05:23:44.258042Z [30825.115706180] user.info audiooutputd [] aal_se AALSE_TYPES_INFO {} GetSoundEngineMode::  aalSeIndex[20] :: supportedSoundEngine[1], supportedSmartSound[2], soundMode[0], isDolbyAtmos[1], isAiSound[0]
+2026-10-30T05:23:44.258065Z [30825.115728560] user.info audiooutputd [] aal_se AALSE_TYPES_INFO {} GetSoundEngineMode::  isVirtualSurround[0], isForcedDolbyAtmos[0], isDolbyAtmosContents[0], aiSoundGen[5]
+2026-10-30T05:23:44.258086Z [30825.115750000] user.info audiooutputd [] aal_se AALSE_TYPES_INFO {} GetSoundEngineMode::  isInstartSoundEngine[1], isLNESupported[1], isAiSoundDisabled[0], powerEvent[2], isPSWTuned[0]
+2026-10-30T05:23:44.258108Z [30825.115771740] user.info audiooutputd [] aal_se AALSE_TYPES_INFO {} GetSoundEngineMode:: ret: [2] 
+2026-10-30T05:23:44.258129Z [30825.115792580] user.warning audiooutputd [] aal_se AALSE_WARNING {} isSupportedSeModeForIndex[index:20]:: seMode[2] is not supported!!
+2026-10-30T05:23:44.258150Z [30825.115813380] user.info audiooutputd [] aal_se AALSE_INFO {} _setSoundEngineMode[index:20] :: mSeMode[1] will be set
+2026-10-30T05:23:44.258172Z [30825.115835780] user.info audiooutputd [] aal_se AALSE_INFO {} _setLGSEDownMix[index:20]:: bLGSEDownMix[0] is same as before, skip
+2026-10-30T05:23:44.258193Z [30825.115950480] user.info audiooutputd [] aal_se AALSE_ALSA_INFO {} setInteger::[aal_se_index:20]for [LGSE SoundEngine Mode] with value [1]
+2026-10-30T05:23:44.258562Z [30825.116232860] user.info audiooutputd [] aal_se AALSE_INFO {} [_isPswTuned][index: 30], soundMode: [standard] => isPswTuned[0]
+2026-10-30T05:23:44.258607Z [30825.116271360] user.info audiooutputd [] aal_se AALSE_TYPES_INFO {} GetSoundEngineMode::  aalSeIndex[30] :: supportedSoundEngine[1], supportedSmartSound[2], soundMode[0], isDolbyAtmos[1], isAiSound[0]
+2026-10-30T05:23:44.258632Z [30825.116295820] user.info audiooutputd [] aal_se AALSE_TYPES_INFO {} GetSoundEngineMode::  isVirtualSurround[0], isForcedDolbyAtmos[0], isDolbyAtmosContents[0], aiSoundGen[5]
+2026-10-30T05:23:44.258669Z [30825.116332980] user.info audiooutputd [] aal_se AALSE_TYPES_INFO {} GetSoundEngineMode::  isInstartSoundEngine[1], isLNESupported[1], isAiSoundDisabled[0], powerEvent[2], isPSWTuned[0]
+2026-10-30T05:23:44.258693Z [30825.116356520] user.info audiooutputd [] aal_se AALSE_TYPES_INFO {} GetSoundEngineMode:: ret: [2] 
+2026-10-30T05:23:44.258713Z [30825.116377100] user.info audiooutputd [] aal_se AALSE_INFO {} _setLGSEDownMix[index:30]:: bLGSEDownMix[0] is same as before, skip
+2026-10-30T05:23:44.258734Z [30825.116397540] user.info audiooutputd [] aal_se AALSE_INFO {} [_isPswTuned][index: 40], soundMode: [standard] => isPswTuned[0]
+2026-10-30T05:23:44.258806Z [30825.116471760] user.info audiooutputd [] aal_se AALSE_TYPES_INFO {} GetSoundEngineMode::  aalSeIndex[40] :: supportedSoundEngine[1], supportedSmartSound[2], soundMode[0], isDolbyAtmos[1], isAiSound[0]
+2026-10-30T05:23:44.258832Z [30825.116496340] user.info audiooutputd [] aal_se AALSE_TYPES_INFO {} GetSoundEngineMode::  isVirtualSurround[0], isForcedDolbyAtmos[0], isDolbyAtmosContents[0], aiSoundGen[5]
+2026-10-30T05:23:44.258854Z [30825.116517820] user.info audiooutputd [] aal_se AALSE_TYPES_INFO {} GetSoundEngineMode::  isInstartSoundEngine[1], isLNESupported[1], isAiSoundDisabled[0], powerEvent[2], isPSWTuned[0]
+2026-10-30T05:23:44.258875Z [30825.116538440] user.info audiooutputd [] aal_se AALSE_TYPES_INFO {} GetSoundEngineMode:: ret: [2] 
+2026-10-30T05:23:44.258895Z [30825.116558940] user.warning audiooutputd [] aal_se AALSE_WARNING {} isSupportedSeModeForIndex[index:40]:: seMode[2] is not supported!!
+2026-10-30T05:23:44.258917Z [30825.116580620] user.info audiooutputd [] aal_se AALSE_INFO {} _setSoundEngineMode[index:40] :: mSeMode[1] will be set
+2026-10-30T05:23:44.258939Z [30825.116602580] user.info audiooutputd [] aal_se AALSE_INFO {} _setLGSEDownMix[index:40]:: bLGSEDownMix[0] is same as before, skip
+2026-10-30T05:23:44.258960Z [30825.116623780] user.info audiooutputd [] aal_se AALSE_ALSA_INFO {} setInteger::[aal_se_index:40]for [LGSE SoundEngine Mode] with value [1]
+2026-10-30T05:23:44.258982Z [30825.116645840] user.info audiooutputd [] aal_se AALSE_INFO {} [_isPswTuned][index: 50], soundMode: [standard] => isPswTuned[0]
+2026-10-30T05:23:44.259004Z [30825.116667380] user.info audiooutputd [] aal_se AALSE_TYPES_INFO {} GetSoundEngineMode::  aalSeIndex[50] :: supportedSoundEngine[1], supportedSmartSound[2], soundMode[0], isDolbyAtmos[1], isAiSound[0]
+2026-10-30T05:23:44.259024Z [30825.116687860] user.info audiooutputd [] aal_se AALSE_TYPES_INFO {} GetSoundEngineMode::  isVirtualSurround[0], isForcedDolbyAtmos[0], isDolbyAtmosContents[0], aiSoundGen[5]
+2026-10-30T05:23:44.259045Z [30825.116708820] user.info audiooutputd [] aal_se AALSE_TYPES_INFO {} GetSoundEngineMode::  isInstartSoundEngine[1], isLNESupported[1], isAiSoundDisabled[0], powerEvent[2], isPSWTuned[0]
+2026-10-30T05:23:44.259065Z [30825.116728880] user.info audiooutputd [] aal_se AALSE_TYPES_INFO {} GetSoundEngineMode:: ret: [2] 
+2026-10-30T05:23:44.259086Z [30825.116749960] user.info audiooutputd [] aal_se AALSE_INFO {} _setLGSEDownMix[index:50]:: bLGSEDownMix[0] is same as before, skip
+2026-10-30T05:23:44.259107Z [30825.116770500] user.info audiooutputd [] audiooutputd AUDIO_SET_QUALITY_ATTRIBUTE_CALL {} setQualityAttribute umi returnStatus 0
+2026-10-30T05:23:44.259130Z [30825.116793560] user.info audiooutputd [] audiooutputd AUDIO_SET_SETTINGS_CALL {} setSettings request for category:videoLatencyTime with value:{"pipelineId":"_fF73kY88dBFEdc","videoLatencyTime":100}
+2026-10-30T05:23:44.259151Z [30825.116814540] user.info audiooutputd [] umi INFO_LOG {} umitvaudio.cpp:setSettings(1549) category videoLatencyTime Payload received is {"pipelineId":"_fF73kY88dBFEdc","videoLatencyTime":100}
+2026-10-30T05:23:44.259171Z [30825.116834900] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:setDelaySettings(1014) Set delay settings for category videoLatencyTime
+2026-10-30T05:23:44.259203Z [30825.116866940] user.info audiooutputd [] umi INFO_LOG {} umitvdelay.cpp:setVideoLatencyTime(303) Request to setVideoLatencyTime
+2026-10-30T05:23:44.259224Z [30825.116888120] user.info audiooutputd [] umi INFO_LOG {} umitvdelay.cpp:setVideoLatencyTime(314) pipelineID pre[_fuUXTX8I66xsvk], cur[_fF73kY88dBFEdc], AV[_fF73kY88dBFEdc]
+2026-10-30T05:23:44.259535Z [30825.117205780] user.info audiooutputd [] umi INFO_LOG {} umitvdelay.cpp:setVideoLatencyTime(337) [AutoAVSync] videoLatencyTime[_fF73kY88dBFEdc] [pre : -1, cur : 100]
+2026-10-30T05:23:44.259584Z [30825.117249720] user.info audiooutputd [] umi INFO_LOG {} umitvdelay.cpp:setVideoLatencyTime(339) [AutoAVSync] Check Delay update params!![_fF73kY88dBFEdc] AI:1/VI:1/VLT:100/DU:0
+2026-10-30T05:23:44.259615Z [30825.117279020] user.info audiooutputd [] aal_delay SVU_AUDIO {} [setVideoLatencyTime][S] pipelineID = _fF73kY88dBFEdc, videoLatencyTime = 100 
+2026-10-30T05:23:44.259640Z [30825.121304440] user.info audiooutputd [] aal_delay SVU_AUDIO {} [setVideoLatencyTime][auto_avsync] update [_fF73kY88dBFEdc]: 100 ms
+2026-10-30T05:23:44.263753Z [30825.121422620] user.info audiooutputd [] umi INFO_LOG {} umitvdelay.cpp:getCurrentSourceType(434) getCurrentSourceType sourceType: MEDIA
+2026-10-30T05:23:44.263811Z [30825.121476540] user.info audiooutputd [] umi INFO_LOG {} umitvdelay.cpp:isSkipDelayUpdate(466) isSkipDelayUpdate :: memc delay is skip update
+2026-10-30T05:23:44.263847Z [30825.121511040] user.info audiooutputd [] umi INFO_LOG {} umitvdelay.cpp:setVideoLatencyTime(361) [AutoAVSync] video latencytime update should be skip for adaptive stream
+2026-10-30T05:23:44.263876Z [30825.121539760] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:storeSettings(1171) Store settings key for category videoLatencyTime
+2026-10-30T05:23:44.263900Z [30825.121564460] user.info audiooutputd [] audiooutputd AUDIO_SET_SETTINGS_CALL {} setSettings umi returnStatus 0
+2026-10-30T05:23:44.264053Z [30825.121716660] user.info pqcontroller [] pqcontroller LS2_RECEIVED {} getDimensionInfoResponse:{"returnValue":true,"method":"getSystemSettings","app_id":"","category":"dimensionInfo","caller":"com.webos.service.videooutput","settings":{"resolution":"fhd","input":"default"}}
+2026-10-30T05:23:44.264077Z [30825.121741160] user.info pqcontroller [] pqcontroller LS2_RECEIVED {} getDimensionInfoResponse 3d(2),input(21),dynamicRange(0)
+2026-10-30T05:23:44.264098Z [30825.121762240] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [805][ISF_VIDEO] pqcontroller_isIsfCalibrated=0
+2026-10-30T05:23:44.264168Z [30825.121833120] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [pqcontrollerVideoInfo_getFormatNotiFlagPerApp] bFormatNotiFlag(1)
+2026-10-30T05:23:44.264339Z [30825.122007880] user.info pqcontroller [] pqcontroller-ux-plugin PQCONTROLLER_UX_PLUGIN_CTL {} [pq_ux_SetProperties]
+2026-10-30T05:23:44.264463Z [30825.122127860] user.info btaudiosrc [] bluetooth-audio-source SETTINGS {} _gIsSurroundSoundOut: false    [adapter_setting_isSurroundSoundOut (720)] 
+2026-10-30T05:23:44.267994Z [30825.125665540] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(85): Received: _getGainAsInputCallback: got '{"returnValue":true,"settings":{"gainValue":"0x7E03","soundOutput":"tv_external_speaker"}}'
+2026-10-30T05:23:44.268605Z [30825.126275660] user.info mojodb-luna [] DB8 MOJ_DB_WARNING {} No work space id was set. Load last work space
+2026-10-30T05:23:44.268664Z [30825.126328740] user.info audiod [] AudioD TV_MANAGER {} tvManagerCallbacks.cpp(839): gainValue : 0x7E03 
+2026-10-30T05:23:44.268691Z [30825.126355120] user.info audiod [] AudioD TV_MANAGER {} tvManagerCallbacks.cpp(842): soundOutputValue : tv_external_speaker 
+2026-10-30T05:23:44.268714Z [30825.126378060] user.info audiod [] AudioD TV_MANAGER {} tvManagerUtil.cpp(919): TVManager setGainValue: existing = 0x7E03, received = 0x7E03
+2026-10-30T05:23:44.268736Z [30825.126400260] user.info audiod [] AudioD TV_MANAGER {} tvManagerCallbacks.cpp(850): payload is {"returnValue":true,"gainValue":"0x7E03","soundOutput":"tv_external_speaker"}
+2026-10-30T05:23:44.268775Z [30825.126439040] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(85): Received: _getArcAvSyncTimeCallback: got '{"returnValue":true,"settings":"null"}'
+2026-10-30T05:23:44.268797Z [30825.126461180] user.err audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(1248): ArcAvSyncTime Values Not Received
+2026-10-30T05:23:44.268819Z [30825.126483240] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(85): Received: _getGainAsInputCallback: got '{"returnValue":true,"settings":{"gainValue":"0x7E03","soundOutput":"tv_external_speaker"}}'
+2026-10-30T05:23:44.268840Z [30825.126504040] user.info mojodb-luna [] DB8 MOJ_DB_WARNING {} No work space id was set. Load last work space
+2026-10-30T05:23:44.268861Z [30825.126524980] user.info audiod [] AudioD TV_MANAGER {} tvManagerCallbacks.cpp(839): gainValue : 0x7E03 
+2026-10-30T05:23:44.268883Z [30825.126546880] user.info audiod [] AudioD TV_MANAGER {} tvManagerCallbacks.cpp(842): soundOutputValue : tv_external_speaker 
+2026-10-30T05:23:44.268905Z [30825.126568740] user.info audiod [] AudioD TV_MANAGER {} tvManagerUtil.cpp(919): TVManager setGainValue: existing = 0x7E03, received = 0x7E03
+2026-10-30T05:23:44.269597Z [30825.127268200] user.info audiod [] AudioD TV_MANAGER {} tvManagerCallbacks.cpp(850): payload is {"returnValue":true,"gainValue":"0x7E03","soundOutput":"tv_external_speaker"}
+2026-10-30T05:23:44.269855Z [30825.127523320] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(85): Received: _getArcAvSyncTimeCallback: got '{"returnValue":true,"settings":"null"}'
+2026-10-30T05:23:44.269910Z [30825.127574400] user.err audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(1248): ArcAvSyncTime Values Not Received
+2026-10-30T05:23:44.269938Z [30825.127602460] user.info mojodb-luna [] DB8 MOJ_DB_WARNING {} No work space id was set. Load last work space
+2026-10-30T05:23:44.269962Z [30825.127625780] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(85): Received: _getGainAsInputCallback: got '{"returnValue":true,"settings":{"gainValue":"0x7E03","soundOutput":"tv_external_speaker"}}'
+2026-10-30T05:23:44.269984Z [30825.127648080] user.info audiod [] AudioD TV_MANAGER {} tvManagerCallbacks.cpp(839): gainValue : 0x7E03 
+2026-10-30T05:23:44.270007Z [30825.127670500] user.info audiod [] AudioD TV_MANAGER {} tvManagerCallbacks.cpp(842): soundOutputValue : tv_external_speaker 
+2026-10-30T05:23:44.270028Z [30825.127691740] user.info audiod [] AudioD TV_MANAGER {} tvManagerUtil.cpp(919): TVManager setGainValue: existing = 0x7E03, received = 0x7E03
+2026-10-30T05:23:44.270051Z [30825.127714320] user.info audiod [] AudioD TV_MANAGER {} tvManagerCallbacks.cpp(850): payload is {"returnValue":true,"gainValue":"0x7E03","soundOutput":"tv_external_speaker"}
+2026-10-30T05:23:44.270072Z [30825.127735560] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(85): Received: _getArcAvSyncTimeCallback: got '{"returnValue":true,"settings":"null"}'
+2026-10-30T05:23:44.270092Z [30825.127755960] user.err audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(1248): ArcAvSyncTime Values Not Received
+2026-10-30T05:23:44.270114Z [30825.127777800] user.info audiod [] AudioD AUDIO_POLICY_MANAGER {} audioPolicyManager.cpp(1224): in _setInputVolumeCallBack
+2026-10-30T05:23:44.270135Z [30825.127798720] user.info mojodb-luna [] DB8 MOJ_DB_WARNING {} No work space id was set. Load last work space
+2026-10-30T05:23:44.270639Z [30825.128308300] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(85): Received: _setInputVolumeCallBack: got '{"source":"ADEC1","returnValue":true,"sink":"MAIN","volume":100}'
+2026-10-30T05:23:44.270717Z [30825.128381600] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(85): Received: _setInputVolumeCallBack: got '{"source":"ADEC1","returnValue":true,"sink":"MAIN","volume":100}'
+2026-10-30T05:23:44.270746Z [30825.128409820] user.info audiod [] AudioD AUDIO_POLICY_MANAGER {} audioPolicyManager.cpp(1245): _setInputVolumeCallBack ::Successfully Set the input volume for source: ADEC1 sink: MAIN volume 100
+2026-10-30T05:23:44.270784Z [30825.128448500] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(85): Received: _getGainAsInputCallback: got '{"returnValue":true,"settings":{"gainValue":"0x7E03","soundOutput":"tv_external_speaker"}}'
+2026-10-30T05:23:44.270808Z [30825.128471680] user.info audiod [] AudioD TV_MANAGER {} tvManagerCallbacks.cpp(839): gainValue : 0x7E03 
+2026-10-30T05:23:44.270829Z [30825.128492680] user.info audiod [] AudioD TV_MANAGER {} tvManagerCallbacks.cpp(842): soundOutputValue : tv_external_speaker 
+2026-10-30T05:23:44.270853Z [30825.128516360] user.info audiod [] AudioD TV_MANAGER {} tvManagerUtil.cpp(919): TVManager setGainValue: existing = 0x7E03, received = 0x7E03
+2026-10-30T05:23:44.273038Z [30825.130708640] user.info audiod [] AudioD TV_MANAGER {} tvManagerCallbacks.cpp(850): payload is {"returnValue":true,"gainValue":"0x7E03","soundOutput":"tv_external_speaker"}
+2026-10-30T05:23:44.273084Z [30825.130748200] user.info mojodb-luna [] DB8 MOJ_DB_WARNING {} No work space id was set. Load last work space
+2026-10-30T05:23:44.273109Z [30825.130772740] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(44): Received _setSCMSCallback with params:'{"returnValue":true,"category":"scms"}'
+2026-10-30T05:23:44.273130Z [30825.130794240] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(85): Received: _getArcAvSyncTimeCallback: got '{"returnValue":true,"settings":"null"}'
+2026-10-30T05:23:44.273152Z [30825.130816340] user.err audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(1248): ArcAvSyncTime Values Not Received
+2026-10-30T05:23:44.273173Z [30825.130837240] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(44): Received _setSCMSCallback with params:'{"returnValue":true,"category":"scms"}'
+2026-10-30T05:23:44.273195Z [30825.130859380] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(44): Received _setQualityAttributeCallback with params:'{"returnValue":true}'
+2026-10-30T05:23:44.273218Z [30825.130881820] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(148): ModuleManager:notifyGetGainAsInput gainType:output soundOutput: 
+2026-10-30T05:23:44.273240Z [30825.130903520] user.info audiod [] AudioD TV_MANAGER {} tvManagerEvents.cpp(92): eventGetGainAsInput
+2026-10-30T05:23:44.273260Z [30825.130923760] user.info audiod [] AudioD TV_MANAGER {} tvManagerUtil.cpp(780): getGainAsInputForSubscribers : gainType = output, soundOutput = 
+2026-10-30T05:23:44.273281Z [30825.130944980] user.info audiod [] AudioD TV_MANAGER {} tvManagerUtil.cpp(798): sending to AOD : gainType = output, soundOutput = tv_external_speaker
+2026-10-30T05:23:44.273378Z [30825.131044940] user.info audiod [] AudioD AUDIO_MIXER {} mixerInterfaceUmi.cpp(257): AudioMixer: getSettings
+2026-10-30T05:23:44.273411Z [30825.131074660] user.info audiod [] AudioD REQUEST_AOD {} umiaudiomixer.cpp(309): Call GetSettings with params:'{"category":"gainValue","settings":{"gainType":"output","soundOutput":"tv_external_speaker"}}'
+2026-10-30T05:23:44.273433Z [30825.131096640] user.info audiod [] AudioD TV_MANAGER {} tvManagerUtil.cpp(802): _getGainAsInput umi mixer call successfull
+2026-10-30T05:23:44.273456Z [30825.131119400] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(1109): getArcAvSyncTimeForSubscribers
+2026-10-30T05:23:44.273478Z [30825.131141720] user.info audiod [] AudioD AUDIO_MIXER {} mixerInterfaceUmi.cpp(257): AudioMixer: getSettings
+2026-10-30T05:23:44.273499Z [30825.131162660] user.info audiod [] AudioD REQUEST_AOD {} umiaudiomixer.cpp(309): Call GetSettings with params:'{"category":"arcAvSyncTime","settings":{}}'
+2026-10-30T05:23:44.273614Z [30825.131279860] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(91): Received: /tv/setQualityAttribute '{"categoryType":"audioInputInfo","requestType":"setAudioInputInfo","pipelineInfo":{"pipelineId":"_fF73kY88dBFEdc","streamType":"umimedia","contentType":"movie","sourceType":"MEDIA","resource":"ADEC1","sourceAttribute":"MEDIA","reset":false,"gameInfo":{"isGameMode":false},"pipelinetype":"audiovideo","videoType":"main_video"},"categoryInfo":{"codec":"opus","channel":2,"immersive":"none"}} '
+2026-10-30T05:23:44.273663Z [30825.131327260] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(766): Received data in setQualityAttributeCallback : {"categoryInfo":{"codec":"opus","channel":2,"immersive":"none"},"requestType":"setAudioInputInfo","pipelineInfo":{"sourceAttribute":"MEDIA","resource":"ADEC1","sourceType":"MEDIA","reset":false,"contentType":"movie","gameInfo":{"isGameMode":false},"pipelinetype":"audiovideo","streamType":"umimedia","videoType":"main_video","pipelineId":"_fF73kY88dBFEdc"},"categoryType":"audioInputInfo"}
+2026-10-30T05:23:44.273687Z [30825.131350740] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(93): mMapChannelChangeInfo size:1
+2026-10-30T05:23:44.273709Z [30825.131372600] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(100): pipelineId:_fF73kY88dBFEdc bitset status:11
+2026-10-30T05:23:44.273731Z [30825.131394900] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(814): [_AVMUTE][_setQualityAttributeCallback][814] check channel change info
+2026-10-30T05:23:44.273753Z [30825.131416360] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(823): [_AVMUTE][_setQualityAttributeCallback][823] check channel change info
+2026-10-30T05:23:44.273773Z [30825.131437140] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(881): [_AVMUTE] removeAVmuteForAudioVideoType called
+2026-10-30T05:23:44.273795Z [30825.131459040] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(139): ChannelChangeInfo :: eAudioVideoInfo
+2026-10-30T05:23:44.273864Z [30825.131530440] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(139): ChannelChangeInfo :: eAudioVideoInfo
+2026-10-30T05:23:44.273893Z [30825.131557160] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(1705): [_AVMUTE]startDelayUpdateAVUnmuteTimer Request to start timer with pipelineid:_fF73kY88dBFEdc for av unmute for delay update
+2026-10-30T05:23:44.273917Z [30825.131580620] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(1714): [_AVMUTE] Timer for av unmute for delay update is created with id:_fF73kY88dBFEdc
+2026-10-30T05:23:44.273940Z [30825.131603660] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(895): [_AVMUTE] video latency time is not set. startDelayUpdateAVUnmuteTimer
+2026-10-30T05:23:44.273960Z [30825.131624120] user.info audiod [] AudioD PARSE_JSON {} utils.cpp(512): AudioD response with params:'{"returnValue":true}'
+2026-10-30T05:23:44.274073Z [30825.131736460] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(44): Received _setVideoLatencyTimeCallback with params:'{"returnValue":true,"category":"videoLatencyTime"}'
+2026-10-30T05:23:44.274094Z [30825.131757740] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(91): Received: /tv/setVideoLatencyTime '{"pipelineId":"_fF73kY88dBFEdc","videoLatencyTime":100}'
+2026-10-30T05:23:44.274116Z [30825.131779620] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(1026): _setVideoLatencyTimeCallback::_fF73kY88dBFEdc/100
+2026-10-30T05:23:44.274136Z [30825.131799960] user.info audiod [] AudioD PARSE_JSON {} utils.cpp(512): AudioD response with params:'{"returnValue":true}'
+2026-10-30T05:23:44.274157Z [30825.131820320] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(75): [AutoAVSync] addVideoLatencyTimeInfo for pipelineId:_fF73kY88dBFEdc, videolatency:100
+2026-10-30T05:23:44.274210Z [30825.131876660] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(139): ChannelChangeInfo :: eAudioVideoInfo
+2026-10-30T05:23:44.274239Z [30825.131903220] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(1057): [_AVMUTE][_setVideoLatencyTimeCallback][1057]Call setAVMuteForDelayUpdate for video latency time
+2026-10-30T05:23:44.274261Z [30825.131925200] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(1730): Call setAVMuteForDelayUpdate API with Payload is : {"muteOn":false,"contextId":"_fF73kY88dBFEdc","muteType":"audioMute","muteOwner":"audiod"}
+2026-10-30T05:23:44.274292Z [30825.131956040] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(1696): [_AVMUTE] Removed timer for av unmute for delay update
+2026-10-30T05:23:44.274313Z [30825.131977180] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(32): removing channel change info for pipelineId:_fF73kY88dBFEdc
+2026-10-30T05:23:44.274335Z [30825.131999100] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(93): mMapChannelChangeInfo size:0
+2026-10-30T05:23:44.274480Z [30825.132146160] user.info avmutemanager [] avmutemanager AUDIO_MUTE {} [SetMuteDBMuteOwner][119] DelMuteOwner(com.webos.service.audio) in _fF73kY88dBFEdc
+2026-10-30T05:23:44.274510Z [30825.132173720] user.info avmutemanager [] avmutemanager AUDIO_MUTE {} [DelMuteOwner][230] Mute del (com.webos.service.audio) remains { }
+2026-10-30T05:23:44.274580Z [30825.132244540] user.info avmutemanager [] avmutemanager AUDIO_MUTE {} [SetMute][118] Mute(Active) resources {adec1,} owners {}
+2026-10-30T05:23:44.274605Z [30825.132268540] user.info avmutemanager [] avmutemanager audio_mute_driver_called {"CLOCK":30825.128,"status":"audio_mute_off resources {adec1,} owners {}","PerfType":"audio_mute","PerfGroup":"com.webos.service.avmutemanager"} 
+2026-10-30T05:23:44.274627Z [30825.132291060] user.info audiooutputd [] audiooutputd AUDIO_GET_SETTINGS_CALL {} Audio getSettings request for category:gainValue, settings:{"gainType":"output","soundOutput":"tv_external_speaker"}
+2026-10-30T05:23:44.274650Z [30825.132313540] user.info audiooutputd [] umi INFO_LOG {} umitvaudioquality.cpp:getSettings(1003) get settings for category gainValue, settings:{"gainType":"output","soundOutput":"tv_external_speaker"}
+2026-10-30T05:23:44.274672Z [30825.132335660] user.info avmutemanager [] avmutemanager AUDIO_MUTE {} End [setAvMute][412] {"muteOn":false,"returnValue":true,"contextId":"_fF73kY88dBFEdc","muteType":"audioMute","muteOwner":"com.webos.service.audio"}
+2026-10-30T05:23:44.274693Z [30825.132356960] user.info audiooutputd [] umi INFO_LOG {} umitvgain.cpp:getGainAsInput(225) Calling getGainAsInput of Gain middleware library : type =output, soundOutput =tv_external_speaker
+2026-10-30T05:23:44.274714Z [30825.132378120] user.info audiooutputd [] aal_gain GAIN_INFO {} [_getGainIndex] source Type is [MEDIA]
+2026-10-30T05:23:44.274736Z [30825.132400000] user.info audiooutputd [] aal_gain GAIN_INFO {} [_getGainIndex] index[17]
+2026-10-30T05:23:44.274756Z [30825.132420220] user.info audiooutputd [] aal_gain GAIN_INFO {} [getGainAsInput] target Output[tv_speaker]
+2026-10-30T05:23:44.274777Z [30825.132440680] user.info audiooutputd [] umi INFO_LOG {} umitvgain.cpp:getGainAsInput(240) getGainAsInput returned gain value = 0x7E03
+2026-10-30T05:23:44.274798Z [30825.132461660] user.info audiooutputd [] audiooutputd AUDIO_GET_SETTINGS_CALL {} Audio getSettings response:{"gainValue":"0x7E03","soundOutput":"tv_external_speaker"}
+2026-10-30T05:23:44.274842Z [30825.132506020] user.info audiooutputd [] audiooutputd AUDIO_GET_SETTINGS_CALL {} Audio getSettings request for category:arcAvSyncTime, settings:{}
+2026-10-30T05:23:44.274960Z [30825.132626560] user.info audiooutputd [] umi INFO_LOG {} umitvaudioquality.cpp:getSettings(1003) get settings for category arcAvSyncTime, settings:{}
+2026-10-30T05:23:44.274995Z [30825.132658920] user.info audiooutputd [] aal_delay DELAY_INFO {} [_updateSoundOutput] soundout is tv_external_speaker
+2026-10-30T05:23:44.275018Z [30825.132681480] user.info audiooutputd [] audiooutputd AUDIO_GET_SETTINGS_CALL {} Audio getSettings response:true
+2026-10-30T05:23:44.275040Z [30825.132703740] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(85): Received: _getGainAsInputCallback: got '{"returnValue":true,"settings":{"gainValue":"0x7E03","soundOutput":"tv_external_speaker"}}'
+2026-10-30T05:23:44.275061Z [30825.132725220] user.info audiod [] AudioD TV_MANAGER {} tvManagerCallbacks.cpp(839): gainValue : 0x7E03 
+2026-10-30T05:23:44.275082Z [30825.132745720] user.info audiod [] AudioD TV_MANAGER {} tvManagerCallbacks.cpp(842): soundOutputValue : tv_external_speaker 
+2026-10-30T05:23:44.275114Z [30825.132777980] user.info audiod [] AudioD TV_MANAGER {} tvManagerUtil.cpp(919): TVManager setGainValue: existing = 0x7E03, received = 0x7E03
+2026-10-30T05:23:44.275136Z [30825.132799900] user.info audiod [] AudioD TV_MANAGER {} tvManagerCallbacks.cpp(850): payload is {"returnValue":true,"gainValue":"0x7E03","soundOutput":"tv_external_speaker"}
+2026-10-30T05:23:44.275159Z [30825.132822880] user.warning legacy-broadcast-atsc [] AdapterAvmutemanager2.4 MSG_TRUNCATED {"MSGID":"MUTESTATUS","CAUSE":"Log message exceeded 1024 bytes","TRUNCATED_MSG":"(RECEIVED)listMuteStatusCallback(318) result:{\"audioMute\":[{\"audioMuteStatus\":false,\"contextId\":\"_02bovJ59ii1rzB\"},{\"audioMuteS ..."}
+2026-10-30T05:23:44.275186Z [30825.132849740] user.info legacy-broadcast-atsc [] AdapterAvmutemanager2.4 MUTESTATUS {} (RECEIVED)listMuteStatusCallback(318) result:{"audioMute":[{"audioMuteStatus":false,"contextId":"_02bovJ59ii1rzB"},{"audioMuteStatus":false,"contextId":"_0CtkRJ5e4ImSUk"},{"audioMuteStatus":false,"contextId":"_0FvnBE5fX0sPxd"},{"audioMuteStatus":false,"contextId":"_0NbzJF5RvUDpBc"},{"audioMuteStatus":false,"contextId":"_0zjpGF5KC2eO4d"},{"audioMuteStatus":false,"contextId":"_L0MGoE5x12wcS1"},{"audioMuteStatus":false,"contextId":"_L2juYG5ofcVk69"},{"audioMuteStatus":false,"contextId":"_LAKMDB5wcLyt58"},{"audioMuteStatus":false,"contextId":"_LLEfqE5qcPspKE"},{"audioMuteStatus":false,"contextId":"_Lf5bzF5YSWUUZn"},{"audioMuteStatus":false,"contextId":"_LgrsEG5F4fmWGY"},{"audioMuteStatus":false,"contextId":"_Ll6CiE5qGVpPby"},{"audioMuteStatus":false,"contextId":"_LmKo5G5D96m5aZ"},{"audioMuteStatus":false,"contextId":"_LtJJZG53cbAMoi"},{"audioMuteStatus":false,"contextId":"_LyQeyE5XfFfNgG"},{"audioMuteStatus":false,"context
+2026-10-30T05:23:44.275210Z [30825.132873740] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(85): Received: _getArcAvSyncTimeCallback: got '{"returnValue":true,"settings":"null"}'
+2026-10-30T05:23:44.275231Z [30825.132894780] user.err audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(1248): ArcAvSyncTime Values Not Received
+2026-10-30T05:23:44.275253Z [30825.132916540] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(44): Received _setAVMuteCallback with params:'{"muteOn":false,"returnValue":true,"contextId":"_fF73kY88dBFEdc","muteType":"audioMute","muteOwner":"com.webos.service.audio"}'
+2026-10-30T05:23:44.275274Z [30825.132937580] user.info legacy-broadcast-atsc [] broadcast.adapter avmutemanager {} sendMuteStatus(121) registered audio pipeline = 0/19, unregistered audio pipeline = 19/19
+2026-10-30T05:23:44.275294Z [30825.132958020] user.info legacy-broadcast-atsc [] broadcast.adapter avmutemanager {} sendMuteStatus(158) registered video pipeline = 0/19, unregistered video pipeline = 19/19
+2026-10-30T05:23:44.275315Z [30825.132978300] user.info audiod [] AudioD LUNA_EVENT_SUBSCRIBER {} lunaEventSubscriber.cpp(122): Subscription Callback recieved from ctx = 8,8
+2026-10-30T05:23:44.275335Z [30825.132998720] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(32): ModuleManager Callback recived LUNA_KEY_TYPE_E:8
+2026-10-30T05:23:44.275358Z [30825.133021400] user.info audiod [] AudioD CONNECTION_MANAGER {} connectionCallbacks.cpp(1022): eventKeyInfo LUNA_KEY_TYPE_E = 8
+2026-10-30T05:23:44.275379Z [30825.133042580] user.warning audiod [] AudioD MSG_TRUNCATED {"MSGID":"PARSE_JSON","CAUSE":"Log message exceeded 1024 bytes","TRUNCATED_MSG":"messageUtils.cpp(85): Received: audioMuteStatus: got '{\"audioMute\":[{\"audioMuteStatus\":false,\"contextId\":\"_02bovJ59ii1rzB\",\"mut ..."}
+2026-10-30T05:23:44.275404Z [30825.133067520] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(85): Received: audioMuteStatus: got '{"audioMute":[{"audioMuteStatus":false,"contextId":"_02bovJ59ii1rzB","muteOwner":[],"muteTarget":[]},{"audioMuteStatus":false,"contextId":"_0CtkRJ5e4ImSUk","muteOwner":[],"muteTarget":[]},{"audioMuteStatus":false,"contextId":"_0FvnBE5fX0sPxd","muteOwner":[],"muteTarget":[]},{"audioMuteStatus":false,"contextId":"_0NbzJF5RvUDpBc","muteOwner":[],"muteTarget":[]},{"audioMuteStatus":false,"contextId":"_0zjpGF5KC2eO4d","muteOwner":[],"muteTarget":[]},{"audioMuteStatus":false,"contextId":"_L0MGoE5x12wcS1","muteOwner":[],"muteTarget":[]},{"audioMuteStatus":false,"contextId":"_L2juYG5ofcVk69","muteOwner":[],"muteTarget":[]},{"audioMuteStatus":false,"contextId":"_LAKMDB5wcLyt58","muteOwner":[],"muteTarget":[]},{"audioMuteStatus":false,"contextId":"_LLEfqE5qcPspKE","muteOwner":[],"muteTarget":[]},{"audioMuteStatus":false,"contextId":"_Lf5bzF5YSWUUZn","muteOwner":[],"muteTarget":[]},{"audioMuteStatus":false,"
+2026-10-30T05:23:44.275433Z [30825.133096260] user.info audiod [] AudioD CONNECTION_MANAGER {} connectionManager.cpp(1553): audioMuteStatus received
+2026-10-30T05:23:44.275453Z [30825.133117140] user.info audiod [] AudioD CONNECTION_MANAGER {} connectionManager.cpp(1562): audioMuteStatus for pipelineId:_02bovJ59ii1rzB muteStatus:0
+2026-10-30T05:23:44.275474Z [30825.133137740] user.info audiod [] AudioD CONNECTION_INFO {} connectInfo.cpp(1172): updateInputMute for pipelineId:_02bovJ59ii1rzB muteStatus:0
+2026-10-30T05:23:44.275495Z [30825.133158380] user.info audiod [] AudioD CONNECTION_MANAGER {} connectionManager.cpp(1574): audioMuteStatus unknown pipeline id
+2026-10-30T05:23:44.279150Z [30825.136822180] user.info mojodb-luna [] DB8 MOJ_DB_WARNING {} No work space id was set. Load last work space
+2026-10-30T05:23:44.279245Z [30825.136910020] user.info pqcontroller [] pqcontroller LS2_RECEIVED {} getAiPictureResponse:{"returnValue":true,"method":"getSystemSettings","app_id":"","category":"aiPicture","dimension":{"pictureMode":"filmMaker","input":"default"},"settings":{"ai_Genre":"off","ai_Brightness":"off","ai_Picture":"off"}}
+2026-10-30T05:23:44.279276Z [30825.136940660] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} controller_getAiPictureMenueData : Picture UI Menu (ai_Picture : 0)
+2026-10-30T05:23:44.279299Z [30825.136962540] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} controller_getAiPictureMenueData : Picture UI Menu (ai_Genre : 0)
+2026-10-30T05:23:44.279319Z [30825.136983220] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} controller_getAiPictureMenueData : Picture UI Menu (ai_Brightness : 0)
+2026-10-30T05:23:44.279498Z [30825.137163460] user.info mojodb-luna [] DB8 MOJ_DB_WARNING {} No work space id was set. Load last work space
+2026-10-30T05:23:44.279776Z [30825.137441460] user.info mojodb-luna [] DB8 MOJ_DB_WARNING {} No work space id was set. Load last work space
+2026-10-30T05:23:44.280050Z [30825.137715040] user.info mojodb-luna [] DB8 MOJ_DB_WARNING {} No work space id was set. Load last work space
+2026-10-30T05:23:44.281691Z [30825.139362200] user.info mojodb-luna [] DB8 MOJ_DB_WARNING {} No work space id was set. Load last work space
+2026-10-30T05:23:44.282661Z [30825.140330980] user.info mojodb-luna [] DB8 MOJ_DB_WARNING {} No work space id was set. Load last work space
+2026-10-30T05:23:44.283074Z [30825.140745600] user.info mojodb-luna [] DB8 MOJ_DB_WARNING {} No work space id was set. Load last work space
+2026-10-30T05:23:44.283488Z [30825.141156560] user.info mojodb-luna [] DB8 MOJ_DB_WARNING {} No work space id was set. Load last work space
+2026-10-30T05:23:44.302432Z [30825.160103560] user.info cobalt [] cobalt COBALT {} [v4:MainWebModule][MainWebModule/9108:1030/012344.302213:INFO:xml_http_request.cc(1376)] Fetching: https://www.youtube.com/api/stats/playback?ns=yt&el=adunit&cpn=CRHUmISyY8UPsN5Q&ver=2&cmt=0.017&f[...]S1NFR3VqQUhkdktvV2pYb0prNU9keUhDRkFNWFdra0hmQVR4b0RSdjF1U2NucERMX01vVjBrODVBNmFRaUd4V0Z1N3hlZkg4cg 
+2026-10-30T05:23:44.304560Z [30825.162232060] user.info cobalt [] cobalt COBALT {} [v4:MainWebModule][MainWebModule/9108:1030/012344.304369:INFO:xml_http_request.cc(1376)] Fetching: https://www.youtube.com/ptracking?html5=1&video_id=vIc0Q2DaMs4&cpn=CRHUmISyY8UPsN5Q&ei=3ynkat3dMeir9eQP8uPc6AE&ptk=youtube_host&ptchn=youtube_host&pltype=adpromoted 
+2026-10-30T05:23:44.329118Z [30825.186789540] user.info mojodb-luna [] DB8 MOJ_DB_WARNING {} No work space id was set. Load last work space
+2026-10-30T05:23:44.329523Z [30825.187194300] user.info mojodb-luna [] DB8 MOJ_DB_WARNING {} No work space id was set. Load last work space
+2026-10-30T05:23:44.329946Z [30825.187615140] user.info mojodb-luna [] DB8 MOJ_DB_WARNING {} No work space id was set. Load last work space
+2026-10-30T05:23:44.330254Z [30825.187922800] user.info mojodb-luna [] DB8 MOJ_DB_WARNING {} No work space id was set. Load last work space
+2026-10-30T05:23:44.330322Z [30825.187986980] user.info audiod [] AudioD LUNA_EVENT_SUBSCRIBER {} lunaEventSubscriber.cpp(122): Subscription Callback recieved from ctx = 24,24
+2026-10-30T05:23:44.330349Z [30825.188012960] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(32): ModuleManager Callback recived LUNA_KEY_TYPE_E:24
+2026-10-30T05:23:44.330372Z [30825.188036320] user.info audiod [] AudioD SETTINGS_SERVICE_MANAGER {} settingsServiceManager.cpp(424): eventKeyInfo key = 24
+2026-10-30T05:23:44.330413Z [30825.188079640] user.warning audiod [] AudioD MSG_TRUNCATED {"MSGID":"PARSE_JSON","CAUSE":"Log message exceeded 1024 bytes","TRUNCATED_MSG":"messageUtils.cpp(85): Received: settingPictureEvent: got '{\"returnValue\":true,\"method\":\"getSystemSettings\",\"app_id\":\"\",\"categor ..."}
+2026-10-30T05:23:44.330453Z [30825.188117280] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(85): Received: settingPictureEvent: got '{"returnValue":true,"method":"getSystemSettings","app_id":"","category":"picture","dimension":{"pictureMode":"filmMaker","dynamicRange":"sdr","input":"default"},"settings":{"expressionEnhancer":"off","whiteBalanceLuminance":"130","cinemaVPosition":"0","whiteBalanceRed10pt":[0,0,0,0,0,0,0,0,0,0],"DtmMastering4k":60,"cinemaZoomRatio":"0","colorGamut":"auto","whiteBalanceGreen":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"skyColor":"0","motionPro":"off","color":"50","avMode":"off","whiteBalanceBlue10pt":[0,0,0,0,0,0,0,0,0,0],"whiteBalanceRedOffset":"0","whiteBalanceMethod":"2","colorManagementLuminanceBlue":"0","DtmProfessional":false,"colorManagementLuminanceMagenta":"0","whiteBalanceBlue":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"captionZoomVPosition":"0","whiteBalanceApplyAllInputs":"off","mediaZoomVPosition":"0","captionZoomRatio":"0","zoomRatio":"0","dynamicColor":"off","pictureMode":
+2026-10-30T05:23:44.331169Z [30825.188832500] user.info audiod [] AudioD SETTINGS_SERVICE_MANAGER {} settingsServiceManager.cpp(1115): Called settingPictureEvent() function for picture setting
+2026-10-30T05:23:44.331194Z [30825.188857420] user.err audiod [] AudioD SETTINGS_SERVICE_MANAGER {} settingsServiceManager.cpp(1125): Failed mixer call
+2026-10-30T05:23:44.332514Z [30825.190184980] user.info panelcontroller [] LOG LS2_RECEIVED {} getSystemSettingsResponse
+2026-10-30T05:23:44.332607Z [30825.190271560] user.info panelcontroller [] LOG LS2_INFO {} [getSystemSettingsResponse] PSM:filmMaker
+2026-10-30T05:23:44.332635Z [30825.190299100] user.info panelcontroller [] LOG LS2_INFO {} [getSystemSettingsResponse] input:default 
+2026-10-30T05:23:44.332657Z [30825.190320740] user.info panelcontroller [] LOG LS2_INFO {} [getSystemSettingsResponse] _gIsPSMGame:0, _gIsInputLagOn:0, _gIsMemcDelayLevel:1
+2026-10-30T05:23:44.332678Z [30825.190342160] user.info panelcontroller [] LOG LS2_SEND {} [setInputLagOptimizationActive] isActive=0
+2026-10-30T05:23:44.332700Z [30825.190363280] user.info videooutputd [] videooutputd DEBUG {} setPictureSettingsValue() checkSetWindow:0, pictureModeSet:1, input:default, dynamicRange:sdr, pictureMode:filmMaker
+2026-10-30T05:23:44.332721Z [30825.190384860] user.info videooutputd [] videooutputd DEBUG {} responseParserCb4Game() message ret:1, subscribed:0
+2026-10-30T05:23:44.332742Z [30825.190405200] user.info panelcontroller [] LOG LS2_SEND {} setInputLagOptimizationActive Done
+2026-10-30T05:23:44.332761Z [30825.190425180] user.info panelcontroller [] LOG LS2_INFO {} [getSystemSettingsResponse] isNeedInputLagFromSettings:0
+2026-10-30T05:23:44.332792Z [30825.190455440] user.info panelcontroller [] LOG INFO {} [setInputLagOptimization] isNeedInputLagFromVideo/isNeedInputLagFromSettings/isNeedInputLagFromAppmgr (0/0/0) 
+2026-10-30T05:23:44.332815Z [30825.190479100] user.info panelcontroller [] LOG vbe-oled-qms {} [mw_setInputLagOptimization] _gIsNeedInputLag = 0
+2026-10-30T05:23:44.332836Z [30825.190499280] user.info panelcontroller [] LOG LS2_SEND {} updateInputLagOptimizationStatus [subsCount: 0]
+2026-10-30T05:23:44.332856Z [30825.190519280] user.info panelcontroller [] LOG LS2_RECEIVED {} getSystemSettingsResponse
+2026-10-30T05:23:44.332876Z [30825.190540160] user.info panelcontroller [] LOG LS2_INFO {} [getSystemSettingsResponse] motionPro:off 
+2026-10-30T05:23:44.332898Z [30825.190561740] user.info panelcontroller [] LOG LS2_SEND {} [setInputLagOptimizationActive] isActive=0
+2026-10-30T05:23:44.332918Z [30825.190581980] user.info panelcontroller [] LOG LS2_SEND {} setInputLagOptimizationActive Done
+2026-10-30T05:23:44.332939Z [30825.190602560] user.info panelcontroller [] LOG LS2_INFO {} [getSystemSettingsResponse] isNeedInputLagFromSettings:0
+2026-10-30T05:23:44.332960Z [30825.190623660] user.info panelcontroller [] LOG INFO {} [setInputLagOptimization] isNeedInputLagFromVideo/isNeedInputLagFromSettings/isNeedInputLagFromAppmgr (0/0/0) 
+2026-10-30T05:23:44.332980Z [30825.190643700] user.info panelcontroller [] LOG vbe-oled-qms {} [mw_setInputLagOptimization] _gIsNeedInputLag = 0
+2026-10-30T05:23:44.333001Z [30825.190664780] user.info panelcontroller [] LOG LS2_SEND {} updateInputLagOptimizationStatus [subsCount: 0]
+2026-10-30T05:23:44.333021Z [30825.190684880] user.info panelcontroller [] LOG LS2_RECEIVED {} getSystemSettingsResponse
+2026-10-30T05:23:44.333041Z [30825.190704860] user.info panelcontroller [] LOG LS2_INFO {} [getSystemSettingsResponse] motionProOLED:off 
+2026-10-30T05:23:44.333061Z [30825.190724900] user.info panelcontroller [] LOG LS2_SEND {} [setInputLagOptimizationActive] isActive=0
+2026-10-30T05:23:44.333081Z [30825.190745080] user.info panelcontroller [] LOG LS2_SEND {} setInputLagOptimizationActive Done
+2026-10-30T05:23:44.333101Z [30825.190765100] user.info panelcontroller [] LOG LS2_INFO {} [getSystemSettingsResponse] isNeedInputLagFromSettings:0
+2026-10-30T05:23:44.333122Z [30825.190785580] user.info panelcontroller [] LOG INFO {} [setInputLagOptimization] isNeedInputLagFromVideo/isNeedInputLagFromSettings/isNeedInputLagFromAppmgr (0/0/0) 
+2026-10-30T05:23:44.333142Z [30825.190805460] user.info panelcontroller [] LOG vbe-oled-qms {} [mw_setInputLagOptimization] _gIsNeedInputLag = 0
+2026-10-30T05:23:44.333162Z [30825.190825600] user.info panelcontroller [] LOG LS2_SEND {} updateInputLagOptimizationStatus [subsCount: 0]
+2026-10-30T05:23:44.333182Z [30825.190845740] user.info videooutputd [] videooutputd DEBUG {} responseParserCb() ********** ret:1, category:picture, method:getSystemSettings
+2026-10-30T05:23:44.333202Z [30825.190865860] user.info panelcontroller [] LOG LS2_RECEIVED {} getSystemSettingsResponse
+2026-10-30T05:23:44.333222Z [30825.190885840] user.info panelcontroller [] LOG LS2_INFO {} [getSystemSettingsResponse] dynamicContrast:off
+2026-10-30T05:23:44.333244Z [30825.190908000] user.info panelcontroller [] LOG LS2_SEND {} [setInputLagOptimizationActive] isActive=0
+2026-10-30T05:23:44.333265Z [30825.190928460] user.info panelcontroller [] LOG LS2_SEND {} setInputLagOptimizationActive Done
+2026-10-30T05:23:44.333285Z [30825.190948720] user.info panelcontroller [] LOG LS2_INFO {} [getSystemSettingsResponse] isNeedInputLagFromSettings:0
+2026-10-30T05:23:44.333306Z [30825.190969880] user.info panelcontroller [] LOG INFO {} [setInputLagOptimization] isNeedInputLagFromVideo/isNeedInputLagFromSettings/isNeedInputLagFromAppmgr (0/0/0) 
+2026-10-30T05:23:44.333327Z [30825.190990920] user.info panelcontroller [] LOG vbe-oled-qms {} [mw_setInputLagOptimization] _gIsNeedInputLag = 0
+2026-10-30T05:23:44.333348Z [30825.191011540] user.info panelcontroller [] LOG LS2_SEND {} updateInputLagOptimizationStatus [subsCount: 0]
+2026-10-30T05:23:44.333376Z [30825.191039660] user.warning pqcontroller [] pqcontroller MSG_TRUNCATED {"MSGID":"LS2_RECEIVED","CAUSE":"Log message exceeded 1024 bytes","TRUNCATED_MSG":"getSystemSettingsResponse:{\"returnValue\":true,\"method\":\"getSystemSettings\",\"app_id\":\"\",\"category\":\"picture\",\"dimension\":{\"pictu ..."}
+2026-10-30T05:23:44.333402Z [30825.191065520] user.info pqcontroller [] pqcontroller LS2_RECEIVED {} getSystemSettingsResponse:{"returnValue":true,"method":"getSystemSettings","app_id":"","category":"picture","dimension":{"pictureMode":"filmMaker","dynamicRange":"sdr","input":"default"},"settings":{"expressionEnhancer":"off","whiteBalanceLuminance":"130","whiteBalanceRed10pt":[0,0,0,0,0,0,0,0,0,0],"DtmMastering4k":60,"motionPro":"off","wssZoomVPosition":"0","whiteBalanceGreen":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"colorGamut":"auto","color":"50","truMotionJudder":"0","whiteBalanceRedOffset":"0","whiteBalanceMethod":"2","grassColor":"0","colorManagementLuminanceBlue":"0","colorManagementLuminanceMagenta":"0","DtmProfessional":false,"whiteBalanceBlue":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"whiteBalanceApplyAllInputs":"off","mediaZoomVPosition":"0","captionZoomRatio":"0","pcScreenSaver":"20min","skyColor":"0","pictureMode":"filmMaker","whiteBalanceBlueOffset":"0","dynamicColor":"off","colorManagementSaturationRed":"0","co
+2026-10-30T05:23:44.333423Z [30825.191087160] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [805][ISF_VIDEO] pqcontroller_isIsfCalibrated=0
+2026-10-30T05:23:44.333444Z [30825.191107660] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [pqcontrollerVideoInfo_getFormatNotiFlagPerApp] bFormatNotiFlag(1)
+2026-10-30T05:23:44.333464Z [30825.191128060] user.info pqcontroller [] pqcontroller-ux-plugin PQCONTROLLER_UX_PLUGIN_CTL {} [pq_ux_SetProperties]
+2026-10-30T05:23:44.333484Z [30825.191147980] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [controller_getPictureMenueData][1285]
+2026-10-30T05:23:44.333505Z [30825.191168580] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [controller_getPictureMenueData][1324]
+2026-10-30T05:23:44.333525Z [30825.191188680] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [controller_getPictureMenueDataByArrary][1474] Picture UI Menu : blackLevel
+2026-10-30T05:23:44.333546Z [30825.191209920] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [controller_getPictureMenueData][1331]
+2026-10-30T05:23:44.333566Z [30825.191229920] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [controller_getPictureMenueData][1334]
+2026-10-30T05:23:44.333762Z [30825.191428960] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [controller_getPictureMenueDataByArrary][1474] Picture UI Menu : isfMode
+2026-10-30T05:23:44.333806Z [30825.191470920] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [157][ISF] (1) isf update [21][19] - 0 ,0
+2026-10-30T05:23:44.333830Z [30825.191494320] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [controller_getPictureMenueDataByArrary][1534] pqcontroller_updateISFheader end
+2026-10-30T05:23:44.333852Z [30825.191515360] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [controller_getPictureMenueDataByArrary][1474] Picture UI Menu : whiteBalanceRed
+2026-10-30T05:23:44.333873Z [30825.191536300] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [controller_getPictureMenueDataByArrary][1474] Picture UI Menu : whiteBalanceGreen
+2026-10-30T05:23:44.333894Z [30825.191557580] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [controller_getPictureMenueDataByArrary][1474] Picture UI Menu : whiteBalanceBlue
+2026-10-30T05:23:44.333914Z [30825.191577960] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [controller_getPictureMenueDataByArrary][1474] Picture UI Menu : adjustingLuminance
+2026-10-30T05:23:44.333934Z [30825.191597600] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [controller_getPictureMenueDataByArrary][1474] Picture UI Menu : whiteBalanceRed10pt
+2026-10-30T05:23:44.333962Z [30825.191626100] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [controller_getPictureMenueDataByArrary][1474] Picture UI Menu : whiteBalanceGreen10pt
+2026-10-30T05:23:44.333983Z [30825.191646680] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [controller_getPictureMenueDataByArrary][1474] Picture UI Menu : whiteBalanceBlue10pt
+2026-10-30T05:23:44.334003Z [30825.191666620] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [controller_getPictureMenueDataByArrary][1474] Picture UI Menu : adjustingLuminance10pt
+2026-10-30T05:23:44.334047Z [30825.191713360] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [controller_getPictureMenueDataByArrary][1474] Picture UI Menu : pictureSettingModified
+2026-10-30T05:23:44.334081Z [30825.191745300] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [controller_getPictureMenueData][1390]
+2026-10-30T05:23:44.334103Z [30825.191767080] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [controller_getPictureMenueData][1390]
+2026-10-30T05:23:44.334124Z [30825.191787520] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [controller_getPictureMenueData][1390]
+2026-10-30T05:23:44.334145Z [30825.191808920] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [controller_getPictureMenueData][1390]
+2026-10-30T05:23:44.334165Z [30825.191829020] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [wrapper_ux_controlUi] id(3), param(0, 0, 0, 0)
+2026-10-30T05:23:44.334249Z [30825.191915040] user.info pqcontroller [] pqcontroller-ux-plugin PQCONTROLLER_UX_PLUGIN_CTL {} [pluginObserver_setUiMessageCallback] OBSERVER_MSG_ENERGY_CONSUM_POPUP   
+2026-10-30T05:23:44.334284Z [30825.191948000] user.info pqcontroller [] pqcontroller-ux-plugin PQCONTROLLER_UX_PLUGIN_CTL {} [plugin_displayEnergyConsumptionPopup][260] [0][0]
+2026-10-30T05:23:44.334755Z [30825.192422440] user.info eplmanager [] eplmanager LS2_RECEIVED {} getSystemSettings:{"returnValue":true,"method":"getSystemSettings","app_id":"","category":"picture","dimension":{"pictureMode":"filmMaker","dynamicRange":"sdr","input":"default"},"settings":{"pictureMode":"filmMaker","backlight":"80"}}
+2026-10-30T05:23:44.334821Z [30825.192485960] user.info eplmanager [] eplmanager EPL_CTRL {} [onChangedPictureMode]:[filmMaker]
+2026-10-30T05:23:44.334847Z [30825.192510940] user.info eplmanager [] eplmanager EPL_CTRL {} [onChangedBacklight] [80]
+2026-10-30T05:23:44.335045Z [30825.192711740] user.info pqcontroller [] pqcontroller-ux-plugin LUNA_RECEIVED_INFO {} getSystemSettingsResponse:{"returnValue":true,"method":"getSystemSettings","app_id":"","category":"picture","dimension":{"pictureMode":"filmMaker","dynamicRange":"sdr","input":"default"},"settings":{"pictureSettingModified":{"natural":false,"vivid":false,"aps":false,"eco":false,"dolbyHdrVivid":false,"expert2":false,"bright":false,"dolbyHdrStandard":false,"dolbyHdrPersonalized":false,"eyeq":false,"dolbyHdrGame":false,"sports":false,"hdrGame":false,"game":false,"hdrCinemaBright":false,"normal":false,"hdrPersonalized":false,"dolbyHdrCinemaBright":false,"cinema":false,"dolbyHdrCinema":false,"movie":false,"hdrFilmMaker":false,"hdrEco":false,"filmMaker":false,"expert1":false,"personalized":false,"hdrCinema":false,"hdrVivid":false,"hdrStandard":false}}}
+2026-10-30T05:23:44.335232Z [30825.192899640] user.info ocpservice [] com.webos.service.ocp SETTING {} screenShift: on, logoLuminance: light, energySaving: auto, pictureMode: filmMaker, backlight: 80, contrast: 85, brightness: 50
+2026-10-30T05:23:44.340504Z [30825.198177560] user.info SettingsService [] SettingsService PrefsPerAppHandler {"service":"com.webos.service.videooutput","appId":"(null)"} delSubscription
+2026-10-30T05:23:44.342792Z [30825.200463040] user.info panelcontroller [] LOG LS2_RECEIVED {} getSystemSettingsResponse
+2026-10-30T05:23:44.342900Z [30825.200564520] user.info pqcontroller [] pqcontroller LS2_RECEIVED {} getSystemSettingsResponse:{"returnValue":true,"method":"getSystemSettings","app_id":"youtube.leanback.v4","category":"picture","dimension":{"pictureMode":"filmMaker","input":"default"},"settings":{"truMotionMode":"off"}}
+2026-10-30T05:23:44.342940Z [30825.200604360] user.info panelcontroller [] LOG LS2_INFO {} [getSystemSettingsResponse] truMotionMode:off app_id:com.webos.app.hdmi2
+2026-10-30T05:23:44.342963Z [30825.200627080] user.info panelcontroller [] LOG LS2_SEND {} [setInputLagOptimizationActive] isActive=0
+2026-10-30T05:23:44.342984Z [30825.200647920] user.info panelcontroller [] LOG LS2_SEND {} setInputLagOptimizationActive Done
+2026-10-30T05:23:44.343004Z [30825.200668280] user.info panelcontroller [] LOG LS2_INFO {} [getSystemSettingsResponse] isNeedInputLagFromSettings:0
+2026-10-30T05:23:44.343025Z [30825.200688580] user.info panelcontroller [] LOG INFO {} [setInputLagOptimization] isNeedInputLagFromVideo/isNeedInputLagFromSettings/isNeedInputLagFromAppmgr (0/0/0) 
+2026-10-30T05:23:44.343045Z [30825.200708660] user.info panelcontroller [] LOG vbe-oled-qms {} [mw_setInputLagOptimization] _gIsNeedInputLag = 0
+2026-10-30T05:23:44.343067Z [30825.200731380] user.info panelcontroller [] LOG LS2_SEND {} updateInputLagOptimizationStatus [subsCount: 0]
+2026-10-30T05:23:44.343090Z [30825.200753660] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [wrapper_ux_controlUi] id(3), param(0, 0, 0, 0)
+2026-10-30T05:23:44.344136Z [30825.201806540] user.info pqcontroller [] pqcontroller-ux-plugin PQCONTROLLER_UX_PLUGIN_CTL {} [pluginObserver_setUiMessageCallback] OBSERVER_MSG_ENERGY_CONSUM_POPUP   
+2026-10-30T05:23:44.344225Z [30825.201889580] user.info pqcontroller [] pqcontroller-ux-plugin PQCONTROLLER_UX_PLUGIN_CTL {} [plugin_displayEnergyConsumptionPopup][260] [0][0]
+2026-10-30T05:23:44.345423Z [30825.203093920] user.info mojodb-luna [] DB8 MOJ_DB_WARNING {} No work space id was set. Load last work space
+2026-10-30T05:23:44.345752Z [30825.203417600] user.info mojodb-luna [] DB8 MOJ_DB_WARNING {} No work space id was set. Load last work space
+2026-10-30T05:23:44.345987Z [30825.203651740] user.info mojodb-luna [] DB8 MOJ_DB_WARNING {} No work space id was set. Load last work space
+2026-10-30T05:23:44.346196Z [30825.203860640] user.info mojodb-luna [] DB8 MOJ_DB_WARNING {} No work space id was set. Load last work space
+2026-10-30T05:23:44.352225Z [30825.209895520] user.info videooutputd [] videooutputd DEBUG {} setAspectRatioSettingsValue() Aspect Ratio configured as : aspectRatioMode: 1, alldirZooms: 0 12 0 12, VertZooms:0 0, inputDim:default(24), app_id:youtube.leanback.v4, category:aspectRatio
+2026-10-30T05:23:44.352317Z [30825.209981040] user.info videooutputd [] videooutputd DEBUG {} setAspectRatioSettingsValue() Aspect Ratio configured as : justscan:1, inputDim:default(24), resolutionDim:fhd(1), app_id:youtube.leanback.v4, category:aspectRatio
+2026-10-30T05:23:44.353753Z [30825.211424120] user.info cobalt [] cobalt.sb COBALT {} [v4:timeupdate][9467:INFO:webos_buffering_info.h(73)] CURRENT_TIME Updated (2):41708
+2026-10-30T05:23:44.365327Z [30825.222998720] user.info cobalt [] cobalt.sb COBALT {} [v4:player_worker1][9463:INFO:webos_media_pipeline.cc(318)] Video EOS enqueued
+2026-10-30T05:23:44.365506Z [30825.223173460] user.info mojodb-luna [] DB8 MOJ_DB_WARNING {} No work space id was set. Load last work space
+2026-10-30T05:23:44.365989Z [30825.223657720] user.info mojodb-luna [] DB8 MOJ_DB_WARNING {} No work space id was set. Load last work space
+2026-10-30T05:23:44.366381Z [30825.224049680] user.info mojodb-luna [] DB8 MOJ_DB_WARNING {} No work space id was set. Load last work space
+2026-10-30T05:23:44.366739Z [30825.224408380] user.info mojodb-luna [] DB8 MOJ_DB_WARNING {} No work space id was set. Load last work space
+2026-10-30T05:23:44.367108Z [30825.224777180] user.info mojodb-luna [] DB8 MOJ_DB_WARNING {} No work space id was set. Load last work space
+2026-10-30T05:23:44.367518Z [30825.225186880] user.info mojodb-luna [] DB8 MOJ_DB_WARNING {} No work space id was set. Load last work space
+2026-10-30T05:23:44.370695Z [30825.228365820] user.info cobalt [] smp.api handleSoundMode {"uid":"_fF73kY88dBFEdc", "tid": "9465", "msg":"{\"subscribed\":true,\"category\":\"sound\",\"method\":\"getSystemSettings\",\"dimension\":{\"audioInput\":\"media\",\"soundOutput\":\"tv_external_speaker\"},\"settings\":{\"soundMode\":\"standard\"},\"returnValue\":true}"} 
+2026-10-30T05:23:44.370808Z [30825.228473080] user.info cobalt [] smp.api handleSoundMode {"uid":"_fF73kY88dBFEdc", "tid": "9465", "msg":"settings.soundMode[standard]"} 
+2026-10-30T05:23:44.372145Z [30825.229810880] user.info mojodb-luna [] DB8 MOJ_DB_WARNING {} No work space id was set. Load last work space
+2026-10-30T05:23:44.372577Z [30825.230242440] user.info mojodb-luna [] DB8 MOJ_DB_WARNING {} No work space id was set. Load last work space
+2026-10-30T05:23:44.372912Z [30825.230576220] user.info mojodb-luna [] DB8 MOJ_DB_WARNING {} No work space id was set. Load last work space
+2026-10-30T05:23:44.373373Z [30825.231037640] user.info mojodb-luna [] DB8 MOJ_DB_WARNING {} No work space id was set. Load last work space
+2026-10-30T05:23:44.376061Z [30825.233729260] user.warning pqcontroller [] pqcontroller MSG_TRUNCATED {"MSGID":"LS2_RECEIVED","CAUSE":"Log message exceeded 1024 bytes","TRUNCATED_MSG":"[PQCONTROLLER_ERP]getFactoryValueResponse:{\"subscribed\":false,\"returnValue\":true,\"results\":[{\"category\":\"picture\",\"method\":\"get ..."}
+2026-10-30T05:23:44.376137Z [30825.233800900] user.info pqcontroller [] pqcontroller LS2_RECEIVED {} [PQCONTROLLER_ERP]getFactoryValueResponse:{"subscribed":false,"returnValue":true,"results":[{"category":"picture","method":"getSystemSettingFactoryValue","dimension":{"dynamicRange":"sdr","input":"default"},"settings":{"pictureMode":"eco"},"returnValue":true},{"category":"picture","method":"getSystemSettingFactoryValue","dimension":{"pictureMode":"filmMaker","input":"default"},"settings":{"backlight":"80"},"returnValue":true},{"category":"picture","method":"getSystemSettingFactoryValue","dimension":{"pictureMode":"filmMaker","input":"default"},"settings":{"contrast":"85"},"returnValue":true},{"category":"picture","method":"getSystemSettingFactoryValue","dimension":{"pictureMode":"filmMaker","input":"default"},"settings":{"brightness":"50"},"returnValue":true},{"category":"picture","method":"getSystemSettingFactoryValue","dimension":{"pictureMode":"filmMaker","input":"default"},"settings":{"dynamicContrast":"off"},"returnValue":true},{"c
+2026-10-30T05:23:44.385436Z [30825.243108540] user.info cobalt [] cobalt COBALT {} [v4:MainWebModule][MainWebModule/9108:1030/012344.385226:INFO:xml_http_request.cc(1376)] Fetching: https://googleads.g.doubleclick.net/pagead/id 
+2026-10-30T05:23:44.394301Z [30825.251973440] user.info cobalt [] cobalt COBALT {} [v4:MainWebModule][MainWebModule/9108:1030/012344.393920:INFO:xml_http_request.cc(1376)] Fetching: https://googleads.g.doubleclick.net/pagead/id?slf_rd=1 
+2026-10-30T05:23:44.395634Z [30825.253304840] user.info cobalt [] cobalt.sb COBALT {} [v4:timeupdate][9467:INFO:webos_buffering_info.h(73)] CURRENT_TIME Updated (3):83416
+2026-10-30T05:23:44.407396Z [30825.265069900] user.info cobalt [] cobalt COBALT {} [v4:MainWebModule][MainWebModule/9108:1030/012344.407136:WARNING:html_element_factory.cc(178)] Unknown HTML element: <iframe>. 
+2026-10-30T05:23:44.407989Z [30825.265660680] user.info cobalt [] cobalt COBALT {} [v4:MainWebModule][MainWebModule/9108:1030/012344.407811:INFO:xml_http_request.cc(1376)] Fetching: https://www.youtube.com/pagead/interaction/?ai=Czfwn2ynkauTtH6TMo8cP4rvAgA_fl8fDigHqyaqPwRa2kB8QA[...]uted_playback_start&ms=%5BCLICK_MS%5D&ad_mt=100&acvw=%5BVIEWABILITY%5D&gv=%5BGOOGLE_VIEWABILITY%5D 
+2026-10-30T05:23:44.437868Z [30825.295539040] user.info cobalt [] cobalt.sb COBALT {} [v4:timeupdate][9467:INFO:webos_buffering_info.h(73)] CURRENT_TIME Updated (4):125125
+2026-10-30T05:23:44.479273Z [30825.336945900] user.info cobalt [] cobalt.sb COBALT {} [v4:timeupdate][9467:INFO:webos_buffering_info.h(73)] CURRENT_TIME Updated (5):166833
+2026-10-30T05:23:44.520560Z [30825.378232620] user.info cobalt [] cobalt.sb COBALT {} [v4:timeupdate][9467:INFO:webos_buffering_info.h(73)] CURRENT_TIME Updated (6):208541
+2026-10-30T05:23:44.648101Z [30825.505773220] user.info avmutemanager [] avmutemanager VIDEO_MUTE {} [processMuteCallBack][126] kernel event happens, event[0].fd: 9
+2026-10-30T05:23:44.648222Z [30825.505887220] user.info avmutemanager [] avmutemanager SVU_video_mute_off_internal {"CLOCK":30825.505,"status":"video_mute_off","PerfType":"video_main_mute","PerfGroup":"com.webos.service.avmutemanager"} 
+2026-10-30T05:23:44.726865Z [30825.584537440] user.info videooutputd [] videooutputd DEBUG {} getDimensionInput() [DimensionInfo] curInput[default], spCurForegroundAppID[youtube.leanback.v4], contentType[movie], dvrStatus[0], dvrInput[dtv], timingMode[none], sp444Bypass[0]
+2026-10-30T05:23:44.726974Z [30825.584639240] user.info videooutputd [] videooutputd DEBUG {} changed444BypassHdmiDescriptionInfo() bChanged:0 bypassInput[4->4], curInput[default], winMode[none->none]
+2026-10-30T05:23:44.727003Z [30825.584666680] user.info videooutputd [] videooutputd DEBUG {} checkGameScreenPosition() ret(0), inputCache(24), gameOptimizer(0), screenRatio(3), arcFullSize(0), screenSize(3), arcOutputRect[0, 0, 0, 0]
+2026-10-30T05:23:44.727027Z [30825.584690480] user.info videooutputd [] videooutputd DEBUG {} changedSettingsDescriptionInfo() [DescriptionInfo] [bChanged:1], fullsize [1->0], clientId [_fF73kY88dBFEdc->_fF73kY88dBFEdc], rotate [0->0]foregroundAppID [youtube.leanback.v4->youtube.leanback.v4], contentType [movie->movie], aspectRatio [1->1], justScan [4->4], autoAspectRatio [0->0], InputRectUserSet [1->1], ExtraMainAppID [youtube.leanback.v4->youtube.leanback.v4], SubAppIDcheck [0->0], GameMode [0->0], GameScreenPosition [0->0]
+2026-10-30T05:23:44.727049Z [30825.584713020] user.info videooutputd [] videooutputd DEBUG {} requestSettingsDescriptionActive() Description setting by [active:0] [appID:youtube.leanback.v4] [key:arcPerApp] [Category:aspectRatio]
+2026-10-30T05:23:44.727071Z [30825.584734280] user.info videooutputd [] videooutputd DEBUG {} checkGameScreenPosition() ret(0), inputCache(24), gameOptimizer(0), screenRatio(3), arcFullSize(0), screenSize(3), arcOutputRect[0, 0, 0, 0]
+2026-10-30T05:23:44.727092Z [30825.584755700] user.info videooutputd [] videooutputd DEBUG {} updateSettingsDescriptionInfo() arc_menu, arcPerApp, active=false, dimensionAppID:youtube.leanback.v4, getRotateStatus():0, spAspectRatioProperty:1, spJustScanProperty:4, autoAspectRatio:0, spInputRectUserSet:1, contentType:movie, checkGameScreenPosition():0
+2026-10-30T05:23:44.727113Z [30825.584776900] user.info videooutputd [] videooutputd DEBUG {} changedJustScanDescriptionInfo() [DescriptionInfo] [bChanged:0], clientId [_fF73kY88dBFEdc->_fF73kY88dBFEdc], foregroundAppID [youtube.leanback.v4->youtube.leanback.v4], contentType [movie->movie], orbitOverscan [0->0], preGameMode [0->0], prePCMode [0->0]
+2026-10-30T05:23:44.727134Z [30825.584797780] user.info videooutputd [] videooutputd DEBUG {} checkGameScreenPosition() ret(0), inputCache(24), gameOptimizer(0), screenRatio(3), arcFullSize(0), screenSize(3), arcOutputRect[0, 0, 0, 0]
+2026-10-30T05:23:44.727155Z [30825.584818440] user.info videooutputd [] videooutputd DEBUG {} changedGameScreenPositionDescriptionInfo() bChanged:0 gameScreenPositionActive[0->0]
+2026-10-30T05:23:44.727176Z [30825.584840060] user.info videooutputd [] videooutputd DEBUG {} checkGameScreenSize() ret(0), inputCache(24), gameOptimizer(0), gameMode(0), arcFullSize(0), arcOutputRect[0, 0, 0, 0]
+2026-10-30T05:23:44.727197Z [30825.584861120] user.info videooutputd [] videooutputd DEBUG {} changedGameScreenSizeDescriptionInfo() bChanged:0 gameScreenSizeActive[0->0]
+2026-10-30T05:23:44.727389Z [30825.585055340] user.info pqcontroller [] pqcontroller LS2_RECEIVED {} setProperties:{"seamlessLowDelay":false}
+2026-10-30T05:23:44.727432Z [30825.585096800] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [controller_saveFactoryData][340] START
+2026-10-30T05:23:44.727637Z [30825.585300980] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [controller_saveFactoryData][360] END
+2026-10-30T05:23:44.727662Z [30825.585326060] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [DIL_VPQ_MEMC_SetLowDelayMode] bMEMCLowDelayMode [0]
+2026-10-30T05:23:44.727761Z [30825.585425700] user.info videooutputd [] videooutputd DEBUG {} requestPQset() [muteClientID:_fF73kY88dBFEdc] [SKIP MUTE] [id:119] [winMode:none]
+2026-10-30T05:23:44.728012Z [30825.585676260] user.info videooutputd [] videooutputd DEBUG {} requestPQset() [SentLsToken] (1067){"video":{"displayOutput":{"width":1440,"y":486,"x":312,"height":810},"444bypassPath":false,"sourceInput":{"width":1080,"y":0,"x":0,"height":608},"winMode":"none","fullScreen":false,"frameRate":24,"scanType":"progressive","connected":true,"height":608,"connectedSourcePort":2,"context":"_fF73kY88dBFEdc","inputDimension":"default","videoInfo":{"path":"network","rotation":"Deg0","lowDelayMode":false,"autoAspectRatio":false,"pixelAspectRatio":{"width":1,"height":1},"afd":16,"adaptive":true,"rgbRange":"LIMITED","hdrType":"none","subScalerOccupied":false,"hfrEnabled":false,"sei":{"whitePointX":0,"displayPrimariesY2":0,"displayPrimariesX2":0,"displayPrimariesY1":0,"displayPrimariesX1":0,"displayPrimariesY0":0,"displayPrimariesX0":0,"maxContentLightLevel":0,"minDisplayMasteringLuminance":0,"maxDisplayMasteringLuminance":0,"maxPicAverageLightLevel":0,"whitePointY":0},"vui":{"transferCharacteristi
+2026-10-30T05:23:44.728046Z [30825.585709960] user.info videooutputd [] videooutputd DEBUG {} sendSinkUpdateToSubscribers() called
+2026-10-30T05:23:44.728068Z [30825.585731380] user.info videooutputd [] videooutputd DEBUG {} getClientInfo() getClientInfo with sinkname: MAIN
+2026-10-30T05:23:44.728089Z [30825.585752320] user.info videooutputd [] videooutputd DEBUG {} getClientInfo() compare sink : MAIN, MAIN
+2026-10-30T05:23:44.728120Z [30825.585784400] user.info videooutputd [] videooutputd DEBUG {} buildVideoSinkStatus() buildVideoSinkStatus sink: MAIN, connected:1
+2026-10-30T05:23:44.728234Z [30825.585900080] user.info videooutputd [] videooutputd DEBUG {} buildVideoSinkStatus() buildVideoSinkStatus sink: SUB0, connected:0
+2026-10-30T05:23:44.728466Z [30825.586132080] user.info videooutputd [] videooutputd DEBUG {} doPostWork() do rest work
+2026-10-30T05:23:44.728520Z [30825.586191180] user.info videooutputd [] videooutputd DEBUG {} doFastModeTimerCb() doFastModeTimerCb do rest work, vssFastModeTimerId:5546
+2026-10-30T05:23:44.730233Z [30825.587909520] user.info captureservice [] capture PERMISSION {} permissionManager.cpp.getCurrentPipelineId():179 (rx): current pipeline id = _fF73kY88dBFEdc
+2026-10-30T05:23:44.730384Z [30825.588049860] user.info panelcontroller [] LOG LS2_RECEIVED {} [getStatusResponse][videoAdapter][S]
+2026-10-30T05:23:44.730422Z [30825.588085660] user.info panelcontroller [] LOG LS2_INFO {} [getStatusResponse][videoAdapter] connectedSource(VDEC),contentType(movie),appId(youtube.leanback.v4)
+2026-10-30T05:23:44.730445Z [30825.588108720] user.info panelcontroller [] LOG LS2_INFO {} [getStatusResponse][videoAdapter] frameRate(24),hdrType(none),vrrEnabled(0),qmsVrrEnabled(0),qftEnabled(0)
+2026-10-30T05:23:44.730467Z [30825.588130600] user.info panelcontroller [] LOG vbe-oled-dpc {} [on_hdr_type_changed] HDR type (none => none)
+2026-10-30T05:23:44.730490Z [30825.588153300] user.info pqcontroller [] pqcontroller LS2_SEND {} [sendSetSystemSettings] {"category":"picture","settings":{"memcDelayLevel":"max"}}
+2026-10-30T05:23:44.730510Z [30825.588174220] user.info panelcontroller [] LOG vbe-oled-dpc {} [enable_dpc] Dpc ON, ret=0
+2026-10-30T05:23:44.730531Z [30825.588194640] user.info panelcontroller [] LOG LS2_INFO {} [getStatusResponse][videoAdapter] syncHdrTypeFromVideooutputd Done 
+2026-10-30T05:23:44.730553Z [30825.588216520] user.info panelcontroller [] LOG LS2_INFO {} [getStatusResponse][videoAdapter] syncSettingsValue Done 
+2026-10-30T05:23:44.730573Z [30825.588237080] user.info panelcontroller [] LOG LS2_INFO {} [getStatusResponse][videoAdapter] prevAppIdIsUnknwon(no), prevhdmiAppId(0), hdmiAppId(0)
+2026-10-30T05:23:44.730594Z [30825.588257920] user.info panelcontroller [] LOG LS2_INFO {} [getStatusResponse][videoAdapter] hdmiNum(0)
+2026-10-30T05:23:44.730637Z [30825.588301220] user.info panelcontroller [] LOG LS2_INFO {} [getStatusResponse][videoAdapter] Changed as prevAppIdIsUnknwon(no), prevhdmiAppId(0)
+2026-10-30T05:23:44.730663Z [30825.588326860] user.info panelcontroller [] LOG LS2_INFO {} [getStatusResponse][videoAdapter] Now, isNeedInputLagFromVideo is changed as isNeedInputLag(0) 
+2026-10-30T05:23:44.730684Z [30825.588348260] user.info panelcontroller [] LOG LS2_INFO {} [getStatusResponse][videoAdapter] Now, isNeedDclkTo165HzFromVideo is changed as isNeedDclkTo165Hz(0)
+2026-10-30T05:23:44.730706Z [30825.588369360] user.info panelcontroller [] LOG INFO {} [setInputLagOptimization] isNeedInputLagFromVideo/isNeedInputLagFromSettings/isNeedInputLagFromAppmgr (0/0/0) 
+2026-10-30T05:23:44.730727Z [30825.588390380] user.info panelcontroller [] LOG vbe-oled-qms {} [mw_setInputLagOptimization] _gIsNeedInputLag = 0
+2026-10-30T05:23:44.730748Z [30825.588411500] user.info panelcontroller [] LOG LS2_SEND {} updateInputLagOptimizationStatus [subsCount: 0]
+2026-10-30T05:23:44.730771Z [30825.588434420] user.warning pqcontroller [] pqcontroller MSG_TRUNCATED {"MSGID":"LS2_RECEIVED","CAUSE":"Log message exceeded 1024 bytes","TRUNCATED_MSG":"setPQ:{\"video\":{\"444bypassPath\":false,\"displayOutput\":{\"width\":1440,\"y\":486,\"x\":312,\"height\":810},\"sourceInput\":{\"width\":1080,\" ..."}
+2026-10-30T05:23:44.730792Z [30825.588455680] user.info panelcontroller [] LOG LS2_INFO {} [getStatusResponse][videoAdapter][E]
+2026-10-30T05:23:44.730819Z [30825.588483020] user.info pqcontroller [] pqcontroller LS2_RECEIVED {} setPQ:{"video":{"444bypassPath":false,"displayOutput":{"width":1440,"y":486,"x":312,"height":810},"sourceInput":{"width":1080,"y":0,"x":0,"height":608},"winMode":"none","fullScreen":false,"frameRate":24,"scanType":"progressive","connected":true,"height":608,"connectedSourcePort":2,"context":"_fF73kY88dBFEdc","inputDimension":"default","videoInfo":{"rotation":"Deg0","path":"network","lowDelayMode":false,"autoAspectRatio":false,"pixelAspectRatio":{"width":1,"height":1},"afd":16,"adaptive":true,"rgbRange":"LIMITED","hdrType":"none","subScalerOccupied":false,"hfrEnabled":false,"sei":{"whitePointX":0,"displayPrimariesY2":0,"displayPrimariesX2":0,"displayPrimariesY1":0,"displayPrimariesX1":0,"maxContentLightLevel":0,"displayPrimariesX0":0,"displayPrimariesY0":0,"maxDisplayMasteringLuminance":0,"maxPicAverageLightLevel":0,"whitePointY":0,"minDisplayMasteringLuminance":0},"vui":{"transferCharacteristics":1,"colorPrimaries":1,"matrixCoeffs":1}},
+2026-10-30T05:23:44.730843Z [30825.588506820] user.info pqcontroller [] pqcontroller PQCONTROLLER_SERVICE {} [setPQ] miracastTxData is NULL!!
+2026-10-30T05:23:44.730865Z [30825.588528520] user.info pqcontroller [] pqcontroller PQCONTROLLER_SERVICE {} [parseVideoTimingInfoMiracastTx] miracastTxData is NULL!!
+2026-10-30T05:23:44.730886Z [30825.588549660] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [pqcontrollerVideoInfo_saveTimingInfoMiracastTx]mode(0) 
+2026-10-30T05:23:44.730907Z [30825.588571200] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [pqcontrollerVideoInfo_saveTimingInfo] window_id(0)'s Video info
+2026-10-30T05:23:44.730936Z [30825.588599980] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [_loggingVideoInfo][winID: 0]ouput window (312, 486, 1440, 810), windowMode(0) 
+2026-10-30T05:23:44.730960Z [30825.588623920] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [_loggingVideoInfo][winID: 0]video W x H:( 1080 x 608 ),frameRate: 24, scanType:0
+2026-10-30T05:23:44.730982Z [30825.588646000] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [_loggingVideoInfo][winID: 0]hdrType: 0, timingMode:0, hdmiMode:0, pixeclEncoding:0
+2026-10-30T05:23:44.731004Z [30825.588667780] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [_loggingVideoInfo][winID: 0]colormetry: 0, Ext colormetry:0
+2026-10-30T05:23:44.731026Z [30825.588690100] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [_loggingVideoInfo][winID: 0]pipe line id: _fF73kY88dBFEdc, allmMode:0, vrrMode:0, vrrQmsMode:0
+2026-10-30T05:23:44.731056Z [30825.588719860] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [_loggingVideoInfo][winID: 0]aviContentType: 0
+2026-10-30T05:23:44.731079Z [30825.588742980] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [_loggingVideoInfo][winID: 0]inputDimension: 21
+2026-10-30T05:23:44.731100Z [30825.588763780] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [_loggingVideoInfo][winID: 0]appStatus: 0
+2026-10-30T05:23:44.731121Z [30825.588784760] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [pqcontrollerVideoInfo_isHdmiSTBConnected][1937] eim_stb port(1:0,2:0,3:0,4:0)
+2026-10-30T05:23:44.731144Z [30825.588808040] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [pqcontrollerVideoInfo_isHdmiSTBConnected][1940] inputDim(21), bConnected(0)
+2026-10-30T05:23:44.731165Z [30825.588828860] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [mw_pq_setLowLatencySignal] gbIsLowLatancySignal = 0 
+2026-10-30T05:23:44.731186Z [30825.588849420] user.info pqcontroller [] pqcontroller-ux-plugin PQCONTROLLER_UX_PLUGIN_CTL {} [pq_ux_SetVideoInfo]
+2026-10-30T05:23:44.731206Z [30825.588869800] user.info pqcontroller [] pqcontroller-ux-plugin PQCONTROLLER_UX_PLUGIN_CTL {} [createHdrToast] BlockHDRToast:[0]  FormatNotiFlagPerApp:[1]PowerState:[1] hdrType:[0]
+2026-10-30T05:23:44.731228Z [30825.588891300] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [controller_setPictureMenuAll][Start]
+2026-10-30T05:23:44.731251Z [30825.588914400] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [_mPqMenuWrapper_getMenuItemSimple][606] Cont=85,Bright=50,Color=50,Tint=0,Shp=10,Backlight=80,DisplayMode=0,CT=-50,Color=50,DContrast=0,DTM=1,DColor=0,NR=0,Gamma=3,Film=1,MEC=0,ColorGamut=1,MpegNR=0,SmoothGradation=0,SR=0,LD=1,AmbientLight=0,PeakBrightness=0
+2026-10-30T05:23:44.731272Z [30825.588935340] user.info pqcontroller [] pqcontroller-ux-plugin PQCONTROLLER_UX_PLUGIN_CTL {} [pq_ux_SetUiMenuData]
+2026-10-30T05:23:44.731294Z [30825.588957340] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [805][ISF_VIDEO] pqcontroller_isIsfCalibrated=0
+2026-10-30T05:23:44.731315Z [30825.588978800] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [pqcontrollerVideoInfo_getFormatNotiFlagPerApp] bFormatNotiFlag(1)
+2026-10-30T05:23:44.731336Z [30825.589000060] user.info pqcontroller [] pqcontroller-ux-plugin PQCONTROLLER_UX_PLUGIN_CTL {} [pq_ux_SetProperties]
+2026-10-30T05:23:44.731361Z [30825.589024820] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [_mPqMenuWrapper_getExceptionCtrlData][1158] statusOfException[0]
+2026-10-30T05:23:44.731382Z [30825.589045920] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [mw_pq_setPicCtrl][625] PM:19, BL:80, CO:85, BR:50, SH:10, CL:50, TN:0, CT:-50, EQ:5, EC:0, AI:0, DEE:0, ocp:0
+2026-10-30T05:23:44.731404Z [30825.589067900] user.info pqcontroller [] pqcontroller PQ_SET_VIDEO_MENU_START {"CLOCK":30825.588,"PerfType":"pq_setVideoMenu","PerfGroup":"com.webos.service.pqcontroller"} 
+2026-10-30T05:23:44.731425Z [30825.589088380] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [Ext_Calib][DIL_VPQ_FILEDB_SetEnable] [869] bEnable == 0  
+2026-10-30T05:23:44.731445Z [30825.589108500] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [pq_setVideoMenu][659] Start
+2026-10-30T05:23:44.731465Z [30825.589128680] user.info pqcontroller [] pqcontroller-ux-plugin PQCONTROLLER_UX_PLUGIN_CTL {} [pluginObserver_handleMenuDescription] OBSERVER_MSG_MENU_DESCRIPTION 
+2026-10-30T05:23:44.731488Z [30825.589151780] user.info pqcontroller [] pqcontroller-ux-plugin PQCONTROLLER_UX_PLUGIN_CTL {} [pq_ux_setColorTempMenuInfoToDB] [967] PIG, Disable Color Temp Men
+2026-10-30T05:23:44.731510Z [30825.589173480] user.info pqcontroller [] pqcontroller-ux-plugin LUNA_SEND_INFO {} setSystemSettingDescActive Call: {"category":"picture","key":"colorTemperature","ui":{"active":false}}
+2026-10-30T05:23:44.731531Z [30825.589194260] user.info pqcontroller [] pqcontroller-ux-plugin PQCONTROLLER_UX_PLUGIN_CTL {} [pq_ux_setWhiteBalanceActiveInfoToDB] [1031] Disable White Balance by (Eye Comfort Mode On)
+2026-10-30T05:23:44.731561Z [30825.589224820] user.info pqcontroller [] pqcontroller-ux-plugin LUNA_SEND_INFO {} setSystemSettingDescActive Call: {"category":"picture","key":"whiteBalanceActive","ui":{"active":false}}
+2026-10-30T05:23:44.731583Z [30825.589246500] user.info pqcontroller [] pqcontroller-ux-plugin PQCONTROLLER_UX_PLUGIN_CTL {} [pq_ux_setEyeComfortModeInfoToDB] [1056] PIG, Disable Eye Comfort
+2026-10-30T05:23:44.731603Z [30825.589266880] user.info pqcontroller [] pqcontroller-ux-plugin LUNA_SEND_INFO {} setSystemSettingDescActive Call: {"category":"picture","key":"eyeComfortMode","ui":{"active":false}}
+2026-10-30T05:23:44.731624Z [30825.589287840] user.info pqcontroller [] pqcontroller-ux-plugin PQCONTROLLER_UX_PLUGIN_CTL {} [pq_ux_setPictureModeInfoToDB][1148][UHDA] filmMakerMode(0)(0->0)
+2026-10-30T05:23:44.731646Z [30825.589309300] user.info pqcontroller [] pqcontroller-ux-plugin PQCONTROLLER_UX_PLUGIN_CTL {} [pq_ux_setGammaInfoToDB] [1504] Disable Gamma by extern file db
+2026-10-30T05:23:44.731666Z [30825.589329960] user.info pqcontroller [] pqcontroller-ux-plugin LUNA_SEND_INFO {} setSystemSettingDescActive Call: {"category":"picture","key":"gamma","ui":{"active":false}}
+2026-10-30T05:23:44.731688Z [30825.589352160] user.info pqcontroller [] pqcontroller-ux-plugin PQCONTROLLER_UX_PLUGIN_CTL {} [pq_ux_setDynamicContrastInfoToDB] [2042] PIG, Disable dynamicContrast
+2026-10-30T05:23:44.731709Z [30825.589372760] user.info pqcontroller [] pqcontroller-ux-plugin LUNA_SEND_INFO {} setSystemSettingDescActive Call: {"category":"picture","key":"dynamicContrast","ui":{"active":false}}
+2026-10-30T05:23:44.731731Z [30825.589394460] user.info pqcontroller [] pqcontroller-ux-plugin PQCONTROLLER_UX_PLUGIN_CTL {} [pq_ux_setDynamicColorInfoToDB] [2078] PIG, Disable dynamicColor
+2026-10-30T05:23:44.731752Z [30825.589415520] user.info pqcontroller [] pqcontroller-ux-plugin LUNA_SEND_INFO {} setSystemSettingDescActive Call: {"category":"picture","key":"dynamicColor","ui":{"active":false}}
+2026-10-30T05:23:44.731773Z [30825.589436780] user.info pqcontroller [] pqcontroller-ux-plugin PQCONTROLLER_UX_PLUGIN_CTL {} [pluginObserver_handleMenuDescription] OBSERVER_MSG_MENU_DESCRIPTION 
+2026-10-30T05:23:44.731794Z [30825.589457780] user.info pqcontroller [] pqcontroller-ux-plugin PQCONTROLLER_UX_PLUGIN_CTL {} [pq_ux_setPictureModeInfoToDB][1148][UHDA] filmMakerMode(0)(0->0)
+2026-10-30T05:23:44.731815Z [30825.589478400] user.info pqcontroller [] DILE_VBE DILE_VBE {"INFO":"[DILE_VBE_Read4KTcon][379] Now Start at 0x007f, ret(0)/semaval(1) "} 
+2026-10-30T05:23:44.732345Z [30825.590012260] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [_pq_setDolbyHDRCtrl][564] Start, eDolbyPictureMode = (5)
+2026-10-30T05:23:44.732415Z [30825.590079200] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [_pq_setAiFunctions][874] set : currAiSqm(0), _prevAiSqm(0)
+2026-10-30T05:23:44.732440Z [30825.590103680] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [_pq_setBasicCtrl][594] Start
+2026-10-30T05:23:44.732546Z [30825.590211640] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [_pq_setBasicCtrl][610] End
+2026-10-30T05:23:44.732582Z [30825.590245840] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [_pq_setAdvCtrlMenu] START **********   
+2026-10-30T05:23:44.732606Z [30825.590270080] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [_pq_setAdvCtrlMenu][427] CF:0, GM:0, DC:0, DTM:1, FC:0, NR:0, MNR:0, SMOOTHGD:0, GA:3, FM0, BL:2, MEC:0, CG:0, SR:0, LD:0, MEMC:0, AMBIENTLIGHT:0, PEAKBRITGHNESS:0
+2026-10-30T05:23:44.732629Z [30825.590292640] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [DIL_VPQ_SetLowDelayMode] bGameMode [0]
+2026-10-30T05:23:44.732650Z [30825.590314280] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [PQ_LocalContrast, 261]  eUI_DynamicContrast = 0, expressionEnhancer = 0
+2026-10-30T05:23:44.732671Z [30825.590334960] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [pq_setDynamicToneMapping][S] eUI_DTM=1, eUI_DC=0
+2026-10-30T05:23:44.732713Z [30825.590377460] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [pq_setDynamicToneMapping][E]
+2026-10-30T05:23:44.733013Z [30825.590682300] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [DIL_VPQ_SetFilmMode][1340] Set Real cinema : 0
+2026-10-30T05:23:44.733075Z [30825.590739180] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [pq_setBlackLevel][S] uiBlackLevel:2, currentInput:10, pqlHDMIColorDomain:3, qntRng:1, colorSystem:0
+2026-10-30T05:23:44.733099Z [30825.590763240] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [_GetBlackLevelType_V2][S] uiBlackLevel:2, currentInput:10, pqlHDMIColorDomain:3, inputRng:1, colorSystem:0, retBlackLevelType:1
+2026-10-30T05:23:44.733121Z [30825.590784400] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [pq_setBlackLevel][E] Skip Setting
+2026-10-30T05:23:44.733837Z [30825.591501460] user.info pqcontroller [] pqcontroller LS2_SEND {} [sendSetSystemSettings] {"category":"picture","settings":{"memcDelayLevel":"mid"}}
+2026-10-30T05:23:44.733931Z [30825.591595340] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [DIL_VPQ_MEMC_SetMotionCompensation][E]Set de-blurr(0), de-judder(0), type(0), ret(0)
+2026-10-30T05:23:44.733955Z [30825.591619120] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [_pq_setAdvCtrlMenu][540] End
+2026-10-30T05:23:44.733977Z [30825.591640520] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [pq_setVideoMenu][738] End
+2026-10-30T05:23:44.733998Z [30825.591661740] user.info pqcontroller [] pqcontroller PQ_SET_VIDEO_MENU_END {"CLOCK":30825.591,"PerfType":"pq_setVideoMenu","PerfGroup":"com.webos.service.pqcontroller"} 
+2026-10-30T05:23:44.734019Z [30825.591682360] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [mw_pq_setPicCtrl][652] END
+2026-10-30T05:23:44.734039Z [30825.591702540] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [controller_setPictureMenuAll] PSM : 19[End]
+2026-10-30T05:23:44.734433Z [30825.592099600] user.info videooutputd [] videooutputd DEBUG {} responseParserCb() requestPQset response [muteClientID:_fF73kY88dBFEdc] [id:119] json: (48){"context":"_fF73kY88dBFEdc","returnValue":true}
+2026-10-30T05:23:44.739989Z [30825.597659800] user.info SettingsService [] SettingsService SYSTEM_SETTING_CHANGED {"Caller":"com.webos.service.pqcontroller","Category":"picture","Key":"memcDelayLevel","Option":"max"} Settings changed
+2026-10-30T05:23:44.746474Z [30825.604146580] user.info panelcontroller [] LOG LS2_RECEIVED {} getSystemSettingsResponse
+2026-10-30T05:23:44.746587Z [30825.604251360] user.info panelcontroller [] LOG LS2_INFO {} [getSystemSettingsResponse] _gIsMemcDelayLevel:1, _gIsPSMGame:0, _gIsInputLagOn:0,
+2026-10-30T05:23:44.746615Z [30825.604278720] user.info panelcontroller [] LOG LS2_SEND {} [setInputLagOptimizationActive] isActive=0
+2026-10-30T05:23:44.746638Z [30825.604301740] user.info panelcontroller [] LOG LS2_SEND {} setInputLagOptimizationActive Done
+2026-10-30T05:23:44.746661Z [30825.604324620] user.info audiod [] AudioD LUNA_EVENT_SUBSCRIBER {} lunaEventSubscriber.cpp(122): Subscription Callback recieved from ctx = 24,24
+2026-10-30T05:23:44.746682Z [30825.604346540] user.info panelcontroller [] LOG LS2_INFO {} [getSystemSettingsResponse] isNeedInputLagFromSettings:0
+2026-10-30T05:23:44.746707Z [30825.604370780] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(32): ModuleManager Callback recived LUNA_KEY_TYPE_E:24
+2026-10-30T05:23:44.746728Z [30825.604391880] user.info audiod [] AudioD SETTINGS_SERVICE_MANAGER {} settingsServiceManager.cpp(424): eventKeyInfo key = 24
+2026-10-30T05:23:44.746749Z [30825.604413120] user.info panelcontroller [] LOG INFO {} [setInputLagOptimization] isNeedInputLagFromVideo/isNeedInputLagFromSettings/isNeedInputLagFromAppmgr (0/0/0) 
+2026-10-30T05:23:44.746771Z [30825.604434740] user.info panelcontroller [] LOG vbe-oled-qms {} [mw_setInputLagOptimization] _gIsNeedInputLag = 0
+2026-10-30T05:23:44.746810Z [30825.604474260] user.info panelcontroller [] LOG LS2_SEND {} updateInputLagOptimizationStatus [subsCount: 0]
+2026-10-30T05:23:44.746834Z [30825.604498160] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(85): Received: settingPictureEvent: got '{"returnValue":true,"method":"getSystemSettings","app_id":"","category":"picture","caller":"com.webos.service.pqcontroller","settings":{"memcDelayLevel":"max"},"dimension":{}}'
+2026-10-30T05:23:44.746856Z [30825.604520080] user.info audiod [] AudioD SETTINGS_SERVICE_MANAGER {} settingsServiceManager.cpp(1115): Called settingPictureEvent() function for picture setting
+2026-10-30T05:23:44.746879Z [30825.604542520] user.info audiod [] AudioD AUDIO_MIXER {} mixerInterfaceUmi.cpp(243): AudioMixer: setSettings category: picture
+2026-10-30T05:23:44.746899Z [30825.604562940] user.info audiod [] AudioD REQUEST_AOD {} umiaudiomixer.cpp(288): Call SetSettings with params:'{"category":"picture","value":{"memcDelayLevel":"max"}}'
+2026-10-30T05:23:44.746921Z [30825.604584420] user.info audiooutputd [] audiooutputd AUDIO_SET_SETTINGS_CALL {} setSettings request for category:picture with value:{"memcDelayLevel":"max"}
+2026-10-30T05:23:44.746943Z [30825.604606260] user.info audiooutputd [] umi INFO_LOG {} umitvaudio.cpp:setSettings(1549) category picture Payload received is {"memcDelayLevel":"max"}
+2026-10-30T05:23:44.746964Z [30825.604628160] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:setOtherCategorySettings(1132) Set settings for category picture
+2026-10-30T05:23:44.747329Z [30825.604996220] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:setPictureSettings(1078) Set picture settings for {"memcDelayLevel":"max"}
+2026-10-30T05:23:44.747394Z [30825.605058660] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:setPictureSettings(1097) memcDelayLevelValue max is changes update Delay
+2026-10-30T05:23:44.747419Z [30825.605082640] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:storeSettings(1171) Store settings key for category picture
+2026-10-30T05:23:44.747444Z [30825.605107580] user.info videooutputd [] videooutputd DEBUG {} responseParserCb() ********** ret:1, category:picture, method:getSystemSettings
+2026-10-30T05:23:44.747471Z [30825.605135060] user.info audiooutputd [] audiooutputd AUDIO_SET_SETTINGS_CALL {} setSettings umi returnStatus 0
+2026-10-30T05:23:44.747492Z [30825.605155740] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(85): Received: _updateSettingsStatus: got '{"returnValue":true,"category":"picture"}'
+2026-10-30T05:23:44.747514Z [30825.605177540] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(85): Received: _updateSettingsStatus: got '{"returnValue":true,"category":"picture"}'
+2026-10-30T05:23:44.747622Z [30825.605286480] user.info pqcontroller [] pqcontroller LS2_RECEIVED {} getSystemSettingsResponse:{"returnValue":true,"method":"getSystemSettings","app_id":"","category":"picture","caller":"com.webos.service.pqcontroller","settings":{"memcDelayLevel":"max"},"dimension":{}}
+2026-10-30T05:23:44.747825Z [30825.605489060] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [wrapper_ux_controlUi] id(3), param(0, 0, 0, 0)
+2026-10-30T05:23:44.747930Z [30825.605594200] user.info pqcontroller [] pqcontroller-ux-plugin PQCONTROLLER_UX_PLUGIN_CTL {} [pluginObserver_setUiMessageCallback] OBSERVER_MSG_ENERGY_CONSUM_POPUP   
+2026-10-30T05:23:44.747954Z [30825.605617920] user.info pqcontroller [] pqcontroller-ux-plugin PQCONTROLLER_UX_PLUGIN_CTL {} [plugin_displayEnergyConsumptionPopup][260] [0][0]
+2026-10-30T05:23:44.783791Z [30825.641462660] user.info SettingsService [] SettingsService SYSTEM_SETTING_CHANGED {"Caller":"com.webos.service.pqcontroller","Category":"picture","Key":"memcDelayLevel","Option":"mid"} Settings changed
+2026-10-30T05:23:44.788409Z [30825.646081000] user.info panelcontroller [] LOG LS2_RECEIVED {} getSystemSettingsResponse
+2026-10-30T05:23:44.788499Z [30825.646162940] user.info panelcontroller [] LOG LS2_INFO {} [getSystemSettingsResponse] _gIsMemcDelayLevel:1, _gIsPSMGame:0, _gIsInputLagOn:0,
+2026-10-30T05:23:44.788534Z [30825.646197560] user.info panelcontroller [] LOG LS2_SEND {} [setInputLagOptimizationActive] isActive=0
+2026-10-30T05:23:44.788556Z [30825.646219900] user.info panelcontroller [] LOG LS2_SEND {} setInputLagOptimizationActive Done
+2026-10-30T05:23:44.788579Z [30825.646242320] user.info panelcontroller [] LOG LS2_INFO {} [getSystemSettingsResponse] isNeedInputLagFromSettings:0
+2026-10-30T05:23:44.788600Z [30825.646263420] user.info panelcontroller [] LOG INFO {} [setInputLagOptimization] isNeedInputLagFromVideo/isNeedInputLagFromSettings/isNeedInputLagFromAppmgr (0/0/0) 
+2026-10-30T05:23:44.788622Z [30825.646285840] user.info panelcontroller [] LOG vbe-oled-qms {} [mw_setInputLagOptimization] _gIsNeedInputLag = 0
+2026-10-30T05:23:44.788644Z [30825.646307280] user.info panelcontroller [] LOG LS2_SEND {} updateInputLagOptimizationStatus [subsCount: 0]
+2026-10-30T05:23:44.789956Z [30825.647627700] user.info audiod [] AudioD LUNA_EVENT_SUBSCRIBER {} lunaEventSubscriber.cpp(122): Subscription Callback recieved from ctx = 24,24
+2026-10-30T05:23:44.790055Z [30825.647719820] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(32): ModuleManager Callback recived LUNA_KEY_TYPE_E:24
+2026-10-30T05:23:44.790096Z [30825.647759700] user.info audiod [] AudioD SETTINGS_SERVICE_MANAGER {} settingsServiceManager.cpp(424): eventKeyInfo key = 24
+2026-10-30T05:23:44.790120Z [30825.647784260] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(85): Received: settingPictureEvent: got '{"returnValue":true,"method":"getSystemSettings","app_id":"","category":"picture","caller":"com.webos.service.pqcontroller","settings":{"memcDelayLevel":"mid"},"dimension":{}}'
+2026-10-30T05:23:44.790384Z [30825.648050380] user.info videooutputd [] videooutputd DEBUG {} responseParserCb() ********** ret:1, category:picture, method:getSystemSettings
+2026-10-30T05:23:44.790656Z [30825.648322460] user.info audiod [] AudioD SETTINGS_SERVICE_MANAGER {} settingsServiceManager.cpp(1115): Called settingPictureEvent() function for picture setting
+2026-10-30T05:23:44.790702Z [30825.648366380] user.info audiod [] AudioD AUDIO_MIXER {} mixerInterfaceUmi.cpp(243): AudioMixer: setSettings category: picture
+2026-10-30T05:23:44.790725Z [30825.648389260] user.info audiod [] AudioD REQUEST_AOD {} umiaudiomixer.cpp(288): Call SetSettings with params:'{"category":"picture","value":{"memcDelayLevel":"mid"}}'
+2026-10-30T05:23:44.791223Z [30825.648892280] user.info audiooutputd [] audiooutputd AUDIO_SET_SETTINGS_CALL {} setSettings request for category:picture with value:{"memcDelayLevel":"mid"}
+2026-10-30T05:23:44.791302Z [30825.648965940] user.info audiooutputd [] umi INFO_LOG {} umitvaudio.cpp:setSettings(1549) category picture Payload received is {"memcDelayLevel":"mid"}
+2026-10-30T05:23:44.791327Z [30825.648990760] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:setOtherCategorySettings(1132) Set settings for category picture
+2026-10-30T05:23:44.791348Z [30825.649012180] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:setPictureSettings(1078) Set picture settings for {"memcDelayLevel":"mid"}
+2026-10-30T05:23:44.791373Z [30825.649036340] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:setPictureSettings(1097) memcDelayLevelValue mid is changes update Delay
+2026-10-30T05:23:44.791394Z [30825.649057340] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:storeSettings(1171) Store settings key for category picture
+2026-10-30T05:23:44.791415Z [30825.649079040] user.info audiooutputd [] audiooutputd AUDIO_SET_SETTINGS_CALL {} setSettings umi returnStatus 0
+2026-10-30T05:23:44.791959Z [30825.649628420] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(85): Received: _updateSettingsStatus: got '{"returnValue":true,"category":"picture"}'
+2026-10-30T05:23:44.792099Z [30825.649765020] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(85): Received: _updateSettingsStatus: got '{"returnValue":true,"category":"picture"}'
+2026-10-30T05:23:44.792984Z [30825.650654040] user.info pqcontroller [] pqcontroller LS2_RECEIVED {} getSystemSettingsResponse:{"returnValue":true,"method":"getSystemSettings","app_id":"","category":"picture","caller":"com.webos.service.pqcontroller","settings":{"memcDelayLevel":"mid"},"dimension":{}}
+2026-10-30T05:23:44.793129Z [30825.650795620] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} [wrapper_ux_controlUi] id(3), param(0, 0, 0, 0)
+2026-10-30T05:23:44.793236Z [30825.650902040] user.info pqcontroller [] pqcontroller-ux-plugin PQCONTROLLER_UX_PLUGIN_CTL {} [pluginObserver_setUiMessageCallback] OBSERVER_MSG_ENERGY_CONSUM_POPUP   
+2026-10-30T05:23:44.793271Z [30825.650935260] user.info pqcontroller [] pqcontroller-ux-plugin PQCONTROLLER_UX_PLUGIN_CTL {} [plugin_displayEnergyConsumptionPopup][260] [0][0]
+2026-10-30T05:23:45.232478Z [30826.090152580] user.info pqcontroller [] pqcontroller LS2_SEND {} setVideoLatencyTime: pipelineId: _fF73kY88dBFEdc, latencyTime: 100
+2026-10-30T05:23:45.232594Z [30826.090259660] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(91): Received: /tv/setVideoLatencyTime '{"pipelineId":"_fF73kY88dBFEdc","videoLatencyTime":100}'
+2026-10-30T05:23:45.232624Z [30826.090288540] user.info audiod [] AudioD AUDIO_MIXER {} mixerInterfaceUmi.cpp(243): AudioMixer: setSettings category: videoLatencyTime
+2026-10-30T05:23:45.232661Z [30826.090324580] user.info audiod [] AudioD REQUEST_AOD {} umiaudiomixer.cpp(288): Call SetSettings with params:'{"category":"videoLatencyTime","value":{"pipelineId":"_fF73kY88dBFEdc","videoLatencyTime":100}}'
+2026-10-30T05:23:45.233352Z [30826.091021360] user.info audiooutputd [] audiooutputd AUDIO_SET_SETTINGS_CALL {} setSettings request for category:videoLatencyTime with value:{"pipelineId":"_fF73kY88dBFEdc","videoLatencyTime":100}
+2026-10-30T05:23:45.233423Z [30826.091087160] user.info audiooutputd [] umi INFO_LOG {} umitvaudio.cpp:setSettings(1549) category videoLatencyTime Payload received is {"pipelineId":"_fF73kY88dBFEdc","videoLatencyTime":100}
+2026-10-30T05:23:45.233448Z [30826.091111860] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:setDelaySettings(1014) Set delay settings for category videoLatencyTime
+2026-10-30T05:23:45.233470Z [30826.091134060] user.info audiooutputd [] umi INFO_LOG {} umitvdelay.cpp:setVideoLatencyTime(303) Request to setVideoLatencyTime
+2026-10-30T05:23:45.233495Z [30826.091158740] user.info audiooutputd [] umi INFO_LOG {} umitvdelay.cpp:setVideoLatencyTime(314) pipelineID pre[_fuUXTX8I66xsvk], cur[_fF73kY88dBFEdc], AV[_fF73kY88dBFEdc]
+2026-10-30T05:23:45.233516Z [30826.091179960] user.info audiooutputd [] umi INFO_LOG {} umitvdelay.cpp:setVideoLatencyTime(337) [AutoAVSync] videoLatencyTime[_fF73kY88dBFEdc] [pre : -1, cur : 100]
+2026-10-30T05:23:45.233540Z [30826.091203740] user.info audiooutputd [] umi INFO_LOG {} umitvdelay.cpp:setVideoLatencyTime(339) [AutoAVSync] Check Delay update params!![_fF73kY88dBFEdc] AI:1/VI:1/VLT:100/DU:0
+2026-10-30T05:23:45.233561Z [30826.091224480] user.info audiooutputd [] aal_delay SVU_AUDIO {} [setVideoLatencyTime][S] pipelineID = _fF73kY88dBFEdc, videoLatencyTime = 100 
+2026-10-30T05:23:45.233581Z [30826.091244760] user.info audiooutputd [] aal_delay SVU_AUDIO {} [setVideoLatencyTime]videoLatencyTime is not changed. skip update!!
+2026-10-30T05:23:45.233603Z [30826.091266200] user.info audiooutputd [] umi INFO_LOG {} umitvdelay.cpp:getCurrentSourceType(434) getCurrentSourceType sourceType: MEDIA
+2026-10-30T05:23:45.233623Z [30826.091287160] user.info audiooutputd [] umi INFO_LOG {} umitvdelay.cpp:isSkipDelayUpdate(466) isSkipDelayUpdate :: memc delay is skip update
+2026-10-30T05:23:45.233651Z [30826.091314460] user.info audiooutputd [] umi INFO_LOG {} umitvdelay.cpp:setVideoLatencyTime(361) [AutoAVSync] video latencytime update should be skip for adaptive stream
+2026-10-30T05:23:45.233674Z [30826.091338020] user.info audiooutputd [] umi INFO_LOG {} umitvaudiosettings.cpp:storeSettings(1171) Store settings key for category videoLatencyTime
+2026-10-30T05:23:45.233714Z [30826.091378280] user.info audiooutputd [] audiooutputd AUDIO_SET_SETTINGS_CALL {} setSettings umi returnStatus 0
+2026-10-30T05:23:45.233738Z [30826.091401560] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(44): Received _setVideoLatencyTimeCallback with params:'{"returnValue":true,"category":"videoLatencyTime"}'
+2026-10-30T05:23:45.233759Z [30826.091422680] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(91): Received: /tv/setVideoLatencyTime '{"pipelineId":"_fF73kY88dBFEdc","videoLatencyTime":100}'
+2026-10-30T05:23:45.233779Z [30826.091442860] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(1026): _setVideoLatencyTimeCallback::_fF73kY88dBFEdc/100
+2026-10-30T05:23:45.234011Z [30826.091678900] user.info audiod [] AudioD PARSE_JSON {} utils.cpp(512): AudioD response with params:'{"returnValue":true}'
+2026-10-30T05:23:45.234042Z [30826.091705720] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(75): [AutoAVSync] addVideoLatencyTimeInfo for pipelineId:_fF73kY88dBFEdc, videolatency:100
+2026-10-30T05:23:45.234063Z [30826.091727160] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(1061): [_AVMUTE] audio/video input info is not ready!!
+2026-10-30T05:23:45.469697Z [30826.327370460] user.info eplmanager [] eplmanager LS2_SEND {} executeOneShot
+2026-10-30T05:23:45.492198Z [30826.349872100] user.info captureservice [] capture PROPERTY {} captureClient.h.print():139 clinet ID : -3510332
+2026-10-30T05:23:45.492294Z [30826.349959440] user.info captureservice [] capture PROPERTY {} captureClient.h.print():140 clinet name : com.webos.service.oledepl
+2026-10-30T05:23:45.492322Z [30826.349985740] user.info captureservice [] capture PROPERTY {} captureClient.h.print():141 method : 2
+2026-10-30T05:23:45.492344Z [30826.350007500] user.info captureservice [] capture PROPERTY {} captureClient.h.print():52 ===< capture data >===
+2026-10-30T05:23:45.492365Z [30826.350028520] user.info captureservice [] capture PROPERTY {} captureClient.h.print():53 width : 640
+2026-10-30T05:23:45.492386Z [30826.350049860] user.info captureservice [] capture PROPERTY {} captureClient.h.print():54 height : 360
+2026-10-30T05:23:45.492408Z [30826.350071380] user.info captureservice [] capture PROPERTY {} captureClient.h.print():55 format : 3
+2026-10-30T05:23:45.492428Z [30826.350091540] user.info captureservice [] capture PROPERTY {} captureClient.h.print():56 isProgressive : 1
+2026-10-30T05:23:45.492448Z [30826.350112120] user.info captureservice [] capture PROPERTY {} captureClient.h.print():57 ======================
+2026-10-30T05:23:45.492469Z [30826.350132900] user.info captureservice [] capture PROPERTY {} captureClient.h.print():87 ===< capture dest info >===
+2026-10-30T05:23:45.492490Z [30826.350153180] user.info captureservice [] capture PROPERTY {} captureClient.h.print():88 file path : /tmp/capture.rgb
+2026-10-30T05:23:45.492510Z [30826.350173900] user.info captureservice [] capture PROPERTY {} captureClient.h.print():89 memory name : 
+2026-10-30T05:23:45.492530Z [30826.350193880] user.info captureservice [] capture PROPERTY {} captureClient.h.print():90 memory size : 0
+2026-10-30T05:23:45.492550Z [30826.350213680] user.info captureservice [] capture PROPERTY {} captureClient.h.print():91 ===========================
+2026-10-30T05:23:45.492570Z [30826.350234140] user.info captureservice [] capture PROPERTY {} captureClient.h.print():146 timestamp : 0
+2026-10-30T05:23:45.494079Z [30826.351744020] user.info eplmanager [] eplmanager LS2_RECEIVED {} executeOneShot:{"capturedHeight":360,"writtenBytes":691200,"returnValue":true,"capturedWidth":640}
+2026-10-30T05:23:45.496573Z [30826.354247380] user.info eplmanager [] eplmanager EPL_CTRL {} [_callback_OSDCaptureCheckTimer] StillRegionCnt : 0 / nStillTh: 80   max level : 255   target: 200   status: 0 
+2026-10-30T05:23:46.418521Z [30827.276192940] user.info cobalt [] cobalt COBALT {} [v4:MainWebModule][MainWebModule/9108:1030/012346.418254:WARNING:html_element_factory.cc(178)] Unknown HTML element: <iframe>. 
+2026-10-30T05:23:46.418953Z [30827.276618960] user.info cobalt [] cobalt COBALT {} [v4:MainWebModule][MainWebModule/9108:1030/012346.418795:INFO:xml_http_request.cc(1376)] Fetching: https://www.youtube.com/pagead/interaction/?ai=Czfwn2ynkauTtH6TMo8cP4rvAgA_fl8fDigHqyaqPwRa2kB8QA[...]_muted_playback_2s&ms=%5BCLICK_MS%5D&ad_mt=2102&acvw=%5BVIEWABILITY%5D&gv=%5BGOOGLE_VIEWABILITY%5D 
+2026-10-30T05:23:46.763214Z [30827.620886880] user.info memchute [] MM MEMMGR_SYSTRIM {}  trim process: 30511 WebAppMgr is not support trimming
+2026-10-30T05:23:47.319155Z [30828.176827460] user.info cobalt [] cobalt COBALT {} [v4:MainWebModule][MainWebModule/9108:1030/012347.318930:WARNING:html_element_factory.cc(178)] Unknown HTML element: <canvas>. 
+2026-10-30T05:23:47.366362Z [30828.224035140] user.info cobalt [] cobalt COBALT {} [v4:MainWebModule][MainWebModule/9108:1030/012347.366137:WARNING:window.cc(366)] In older Cobalt(<19), btoa() can not take a string containing NULL. Be careful that you don't need to stay compatible with old versions of Cobalt if you use btoa. 
+2026-10-30T05:23:47.368567Z [30828.226238140] user.info cobalt [] cobalt COBALT {} [v4:MainWebModule][MainWebModule/9108:1030/012347.368368:WARNING:html_element_factory.cc(178)] Unknown HTML element: <iframe>. 
+2026-10-30T05:23:47.368911Z [30828.226576220] user.info cobalt [] cobalt COBALT {} [v4:MainWebModule][MainWebModule/9108:1030/012347.368794:INFO:xml_http_request.cc(1376)] Fetching: https://www.youtube.com/api/stats/atr?ns=yt&el=adunit&cpn=CRHUmISyY8UPsN5Q&ver=2&cmt=2.978&fmt=78[...]S1NFR3VqQUhkdktvV2pYb0prNU9keUhDRkFNWFdra0hmQVR4b0RSdjF1U2NucERMX01vVjBrODVBNmFRaUd4V0Z1N3hlZkg4cg 
+2026-10-30T05:23:47.982065Z [30828.839739660] user.info multiviewcontroller [] MVC MVC {} TID: 5244 [_luna_init_callback_surfacemanager_getForegroundWindowInfo, 2888] {"returnValue":true,"windows":[{"appId":"org.nphil.lumatv.shell","windowType":"_WEBOS_WINDOW_TYPE_LUMATV_HOME"},{"appId":"org.nphil.lumatv.shell","windowType":"_WEBOS_WINDOW_TYPE_LUMATV_SYSTEM"},{"appId":"com.webos.app.home","windowType":"_WEBOS_WINDOW_TYPE_CARD"},{"appId":"youtube.leanback.v4","windowType":"_WEBOS_WINDOW_TYPE_CARD"}]}
+2026-10-30T05:23:48.150672Z [30829.008345520] user.debug alwaysready [] alwaysready DBGMSG {} retryGetReservation start
+2026-10-30T05:23:48.150780Z [30829.008445100] user.debug alwaysready [] alwaysready DBGMSG {} luna://com.palm.db/search: Request: {                                     "query":{                                         "from":"com.webos.service.tvReservationAgent.info:1",                                         "select":[                                             "startTime",                                             "reserveType"                                         ]                                     },                                     "watch":true,                                     "subscribe":true                                 }
+2026-10-30T05:23:48.150810Z [30829.008474360] user.debug alwaysready [] alwaysready DBGMSG {} retryGetReservation end
+2026-10-30T05:23:48.151230Z [30829.008894120] user.warning mojodb-luna [] DB8 MOJ_SERVICE_WARNING {"sender":"com.webos.service.alwaysready","method":"search","error":"kind not registered: 'com.webos.service.tvReservationAgent.info:1'","reqErr":-3970} 
+2026-10-30T05:23:48.151261Z [30829.008925040] user.warning mojodb-luna [] DB8 MOJ_SERVICE_WARNING {"sender":"com.webos.service.alwaysready","method":"search","payload":{"query":{"from":"com.webos.service.tvReservationAgent.info:1","select":["startTime","reserveType"]},"subscribe":true,"watch":true},"error":"kind not registered: 'com.webos.service.tvReservationAgent.info:1'","reqErr":-3970} 
+2026-10-30T05:23:48.151640Z [30829.009304480] user.debug alwaysready [] alwaysready DBGMSG {} _getReservation: Response:{"errorCode":-3970,"errorText":"kind not registered: 'com.webos.service.tvReservationAgent.info:1'","returnValue":false}
+2026-10-30T05:23:48.151668Z [30829.009331460] user.debug alwaysready [] alwaysready DBGMSG {} Cancel getReservation
+2026-10-30T05:23:48.351082Z [30829.208752900] user.debug alwaysready [] alwaysready DBGMSG {} Start 'virtual void AODOnTimer::runTaskDirector()'
+2026-10-30T05:23:48.351179Z [30829.208843980] user.debug alwaysready [] alwaysready DBGMSG {} Timer is not runing.
+2026-10-30T05:23:48.470806Z [30829.328479820] user.info eplmanager [] eplmanager LS2_SEND {} executeOneShot
+2026-10-30T05:23:48.494254Z [30829.351927920] user.info captureservice [] capture PROPERTY {} captureClient.h.print():139 clinet ID : -3510332
+2026-10-30T05:23:48.494450Z [30829.352118260] user.info captureservice [] capture PROPERTY {} captureClient.h.print():140 clinet name : com.webos.service.oledepl
+2026-10-30T05:23:48.494553Z [30829.352218820] user.info captureservice [] capture PROPERTY {} captureClient.h.print():141 method : 2
+2026-10-30T05:23:48.494639Z [30829.352304880] user.info captureservice [] capture PROPERTY {} captureClient.h.print():52 ===< capture data >===
+2026-10-30T05:23:48.494877Z [30829.352542920] user.info captureservice [] capture PROPERTY {} captureClient.h.print():53 width : 640
+2026-10-30T05:23:48.495068Z [30829.352734340] user.info captureservice [] capture PROPERTY {} captureClient.h.print():54 height : 360
+2026-10-30T05:23:48.495160Z [30829.352825120] user.info captureservice [] capture PROPERTY {} captureClient.h.print():55 format : 3
+2026-10-30T05:23:48.495242Z [30829.352907580] user.info captureservice [] capture PROPERTY {} captureClient.h.print():56 isProgressive : 1
+2026-10-30T05:23:48.495387Z [30829.353053780] user.info captureservice [] capture PROPERTY {} captureClient.h.print():57 ======================
+2026-10-30T05:23:48.495489Z [30829.353154880] user.info captureservice [] capture PROPERTY {} captureClient.h.print():87 ===< capture dest info >===
+2026-10-30T05:23:48.495573Z [30829.353238400] user.info captureservice [] capture PROPERTY {} captureClient.h.print():88 file path : /tmp/capture.rgb
+2026-10-30T05:23:48.495650Z [30829.353315400] user.info captureservice [] capture PROPERTY {} captureClient.h.print():89 memory name : 
+2026-10-30T05:23:48.495730Z [30829.353394780] user.info captureservice [] capture PROPERTY {} captureClient.h.print():90 memory size : 0
+2026-10-30T05:23:48.495802Z [30829.353466800] user.info captureservice [] capture PROPERTY {} captureClient.h.print():91 ===========================
+2026-10-30T05:23:48.495903Z [30829.353569040] user.info captureservice [] capture PROPERTY {} captureClient.h.print():146 timestamp : 0
+2026-10-30T05:23:48.497721Z [30829.355391340] user.info eplmanager [] eplmanager LS2_RECEIVED {} executeOneShot:{"capturedHeight":360,"writtenBytes":691200,"returnValue":true,"capturedWidth":640}
+2026-10-30T05:23:48.500359Z [30829.358023120] user.info eplmanager [] eplmanager EPL_CTRL {} [_callback_OSDCaptureCheckTimer] StillRegionCnt : 0 / nStillTh: 80   max level : 255   target: 200   status: 0 
+2026-10-30T05:23:48.725828Z [30829.583499880] user.info videooutputd [] videooutputd DEBUG {} getStatus() ========== getStatus ==========
+2026-10-30T05:23:48.725930Z [30829.583594800] user.info videooutputd [] videooutputd DEBUG {} getClientInfo() getClientInfo with sinkname: MAIN
+2026-10-30T05:23:48.725960Z [30829.583624460] user.info videooutputd [] videooutputd DEBUG {} getClientInfo() compare sink : MAIN, MAIN
+2026-10-30T05:23:48.725987Z [30829.583650600] user.info videooutputd [] videooutputd DEBUG {} buildVideoSinkStatus() buildVideoSinkStatus sink: MAIN, connected:1
+2026-10-30T05:23:48.726009Z [30829.583672360] user.info videooutputd [] videooutputd DEBUG {} buildVideoSinkStatus() buildVideoSinkStatus sink: SUB0, connected:0
+2026-10-30T05:23:48.821519Z [30829.679190360] user.info videooutputd [] videooutputd DEBUG {} getStatus() ========== getStatus ==========
+2026-10-30T05:23:48.821619Z [30829.679283500] user.info videooutputd [] videooutputd DEBUG {} getClientInfo() getClientInfo with sinkname: MAIN
+2026-10-30T05:23:48.821650Z [30829.679314120] user.info videooutputd [] videooutputd DEBUG {} getClientInfo() compare sink : MAIN, MAIN
+2026-10-30T05:23:48.821675Z [30829.679338540] user.info videooutputd [] videooutputd DEBUG {} buildVideoSinkStatus() buildVideoSinkStatus sink: MAIN, connected:1
+2026-10-30T05:23:48.821712Z [30829.679376400] user.info videooutputd [] videooutputd DEBUG {} buildVideoSinkStatus() buildVideoSinkStatus sink: SUB0, connected:0
+2026-10-30T05:23:48.840020Z [30829.697693640] user.info sam [] SAM API_REQUEST {"category":"/","method":"getForegroundAppInfo","caller":"com.webos.lunasend-9578","status":"received_request"} 
+2026-10-30T05:23:48.898060Z [30829.755732520] user.info multiviewcontroller [] MVC MVC {} TID: 5244 [_interface_api_getStatus, 2799] {}
+2026-10-30T05:23:48.898162Z [30829.755826960] user.info multiviewcontroller [] MVC MVC {} TID: 5244 [luna_info_getSupportMultiview, 1956] SupportMultiview : 1
+2026-10-30T05:23:48.898193Z [30829.755856680] user.info multiviewcontroller [] MVC MVC {} TID: 5244 [luna_wrapper_messageReply, 121] LSMessageReply called. reply : {"status":{"processing":"not_multiview","appList":{},"prepareTargetAppId":"","usageType":"","layoutList":{},"orientation":"","requestedControlMode":"","mainAppLayout":{},"releasedAppRole":"","apps":[],"mediaChangeState":"none","requestedMode":"","is4KHFRSignal":false,"mode":"full","mainAppId":"","requestedAppList":{},"audioOutList":[{"index":0,"volume":100}],"suggestionQueryAppId":"","requestedAudioOutList":[],"workingEvent":"none","event":"none","inputMode":"none","supportMultiScreen":false,"subAppLayout":{},"supportSubHDR":true,"foregroundAppId":"youtube.leanback.v4","subAppPosition":"","audioOut":"main","subAppSize":"","subAppId":"","controlMode":"none","toolType":"normalTV","multiviewSuggestionQuery":[],"requestedAudioOut":"","requestedSubAppId":"","requestedMainAppId":""},"returnValue":true}
+2026-10-30T05:23:48.911059Z [30829.768732520] user.info tvpowerd [] tvpowerd CLIENT_REGISTER {} [/power/getPowerStateHandler] sender: com.webos.lunasend-9593
+2026-10-30T05:23:48.911161Z [30829.768827480] user.info tvpowerd [] tvpowerd TVPOWER_GETPOWERSTATE {} { "state": "Active" }
+2026-10-30T05:23:48.920148Z [30829.777820940] user.info multiviewcontroller [] MVC MVC {} TID: 5244 [_interface_api_getMultiviewStatus, 2874] {}
+2026-10-30T05:23:48.920240Z [30829.777905440] user.info multiviewcontroller [] MVC MVC {} TID: 5244 [luna_info_getSupportMultiview, 1956] SupportMultiview : 1
+2026-10-30T05:23:48.920270Z [30829.777934500] user.info multiviewcontroller [] MVC MVC {} TID: 5244 [luna_wrapper_messageReply, 121] LSMessageReply called. reply : {"returnValue":true,"multiviewStatus":{"prepareTargetAppId":"","releasedAppRole":"","apps":[],"event":"none","foregroundAppId":"youtube.leanback.v4","usageType":"","mode":"full","processing":"not_multiview","audioOutList":[{"appId":"","index":0,"volume":100,"audioProperty":""}],"controlMode":"none","audioOut":"main","inputMode":"none","toolType":"normalTV","supportMultiAudioOut":true}}
+2026-10-30T05:23:48.932881Z [30829.790553280] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(88): Received: /getSoundOut '{}'
+2026-10-30T05:23:48.932987Z [30829.790652100] user.info audiod [] AudioD VOLUME_SCENARIO_MANAGER {} volumeScenarioManager.cpp(591):  reply = {"returnValue":true,"muted":false,"volume":11,"scenario":"mastervolume_tv_speaker_ext"}
+2026-10-30T05:23:48.944311Z [30829.801983640] user.info multiviewcontroller [] MVC MVC {} TID: 5244 [_interface_api_getMediaControlStatus, 2710] Called
+2026-10-30T05:23:48.944423Z [30829.802087900] user.info multiviewcontroller [] MVC MVC {} TID: 5244 [luna_info_getSupportMultiview, 1956] SupportMultiview : 1
+2026-10-30T05:23:48.944454Z [30829.802117820] user.info multiviewcontroller [] MVC MVC {} TID: 5244 [luna_wrapper_messageReply, 121] LSMessageReply called. reply : {"returnValue":true,"mediaControlStatus":{"audioOutIndexList":[0],"requestedMode":"","requestedMainAppId":"","requestedSubAppId":"","toolType":"normalTV","inputMode":"none","usageType":"","mediaChangeState":"none","foregroundAppId":"youtube.leanback.v4","is4KHFRSignal":false,"mainAppId":"","processing":"not_multiview","audioOut":0,"mode":"full","subAppId":"","controlMode":"none"}}
+2026-10-30T05:23:48.952985Z [30829.810656860] user.err ls-hubd [] ls-hubd LSHUB_NOT_LSTED {"SERVICE_NAME":"com.webos.service.acb","EXE":"/usr/bin/luna-send","APP_ID":"(null)","PID":9604} Service not listed in service files (cmdline: /usr/bin/luna-send -n 1 -w 2000 -f luna://com.webos.service.acb/getForegroundAppInfo {})
+2026-10-30T05:23:48.953074Z [30829.810738920] user.warning ls-hubd [] ls-hubd LSHUB_NO_SERVICE {} _LSHubSendQueryNameReplyMessage: Failed Connecting to Service err_code: -4, service_name: "com.webos.service.acb", unique_name: "(null)", static, fd -1 
+2026-10-30T05:23:48.967486Z [30829.825159000] user.info sam [] SAM API_REQUEST {"category":"/","method":"running","caller":"com.webos.lunasend-9606","status":"received_request"} 
+2026-10-30T05:23:48.977393Z [30829.835065580] user.info sam [] SAM API_REQUEST {"category":"/","method":"getForegroundAppInfo","caller":"com.webos.lunasend-9609","status":"received_request"} 

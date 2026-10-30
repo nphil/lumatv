@@ -1,0 +1,440 @@
+%s Closing Multiview by EXIT key
+%s Mandatory multiviewcontroller conf file (-c/--conf) not provided!
+%s [%s, %d] %s, usageType: %s, controlMode: %s, inputMode: %s, viewMode: %s mainAppTitle: %s, subAppTitle: %s
+%s [%s, %d] Already exist in _gMultiviewAppList : %s %s %s %s
+%s [%s, %d] Can`t change view type in multi screen
+%s [%s, %d] Can`t use in multi screen
+%s [%s, %d] ChangeSubAppSizeByInputMode: %s
+%s [%s, %d] Changed game options
+%s [%s, %d] Changed game ui
+%s [%s, %d] Create game ui status file
+%s [%s, %d] Do not change game option (%d)
+%s [%s, %d] Exit multiview by external launch (%s : %s : %s)
+%s [%s, %d] Exit multiview by thinq app launch multiviewsettings
+%s [%s, %d] Fail to create MVC directory
+%s [%s, %d] Fail to exit multiview.
+%s [%s, %d] Fail to read game input : %s
+%s [%s, %d] Fail to recovery game input : %s
+%s [%s, %d] Fail to recovery game option
+%s [%s, %d] Fail to recovery game ui status
+%s [%s, %d] Failed to turn off game option.
+%s [%s, %d] Failure to send getMultiviewStatus to subscriber
+%s [%s, %d] Filtered sub app by blacklistCountryGroup
+%s [%s, %d] ForegroundAppNotChanged: %s
+%s [%s, %d] Game mode on in dual monitor. Close sub app.
+%s [%s, %d] Invalid SubApp: %s for MainApp: %s
+%s [%s, %d] Invalid current sub app position : %s
+%s [%s, %d] Invalid sub app size: %s
+%s [%s, %d] IsSubAppInvalid: %s
+%s [%s, %d] It is not multiview mode
+%s [%s, %d] It is not multiview mode now
+%s [%s, %d] Live tv use SUB_SCALER. %s is full.
+%s [%s, %d] MVC initialization has not been completed.
+%s [%s, %d] Multiview close by restriction in half done
+%s [%s, %d] Multiview half main launch done
+%s [%s, %d] Multiview information is changed
+%s [%s, %d] Multiview is exited because AirPlay %s content.
+%s [%s, %d] Multiview is exited because of %s.
+%s [%s, %d] Multiview launch done
+%s [%s, %d] Multiview status is changing to launch mode.
+%s [%s, %d] Not multiview while wait launch ack.
+%s [%s, %d] Not support multiview
+%s [%s, %d] Notify OnMultiviewCloseRequested before closing Multiview
+%s [%s, %d] Orientation is changed to landscape. currentMode: %s, mainAppId : %s, subAppId : %s
+%s [%s, %d] Orientation is changed to portrait. currentMode : %s, currentControlMode : %s, mainAppId : %s, subAppId : %s
+%s [%s, %d] Received VideoInfo HDMI%d: hdrType [%s], subScalerOccupied [%d], vrrEnabled [%d], frameRate [%d], resolution [%d x %d]
+%s [%s, %d] Recovery game ui status
+%s [%s, %d] Recovery game ui status file
+%s [%s, %d] Remove Multiview (watcher) client, id : %s
+%s [%s, %d] Requested %s is not sub app
+%s [%s, %d] Requested app is not included in multiview.
+%s [%s, %d] Requested multiview launch finished.
+%s [%s, %d] Set forced off game mode
+%s [%s, %d] Skip half main done because of launch sub app sequence.
+%s [%s, %d] Sub App Position : %s
+%s [%s, %d] Sub App Size : %s
+%s [%s, %d] SubAppId : %s, return : %d
+%s [%s, %d] SupportMultiview : %d
+%s [%s, %d] The Sub App is in quadrant %d
+%s [%s, %d] Try turn off game option
+%s [%s, %d] Turn off game option
+%s [%s, %d] Waiting get windowId
+%s [%s, %d] _IsNotifyTurnOffHDMIGameOption : %s
+%s [%s, %d] _gEnableGameOptionOFF (%d)
+%s [%s, %d] _gForegroundAppId : %s
+%s [%s, %d] _gIs4KHFRSignal : %s
+%s [%s, %d] _gIsForcedOffByGameMode : %s
+%s [%s, %d] _gLiveTVUseSubscaler : %s
+%s [%s, %d] _gMultiviewAppList : %s %s %s %s
+%s [%s, %d] _gReceivedSupportMultiview : %s
+%s [%s, %d] _gRequestedSubAppId : %s
+%s [%s, %d] _gSupportHomePIP : %s
+%s [%s, %d] _gSupportMultiScreen : %s
+%s [%s, %d] _gSupportMultiview : %s
+%s [%s, %d] appId : %s, windowId : %s
+%s [%s, %d] apps are launched. mainAppId : %s, subAppId : %s, mode : %s
+%s [%s, %d] apps will be launched. mainAppId: %s, subAppId: %s, mode: %s, usageType: %s
+%s [%s, %d] changeMultiviewLayout API for change mode fails
+%s [%s, %d] control mode is changed. role : %s, currentMode : %s, mainAppId : %s, subAppId : %s
+%s [%s, %d] curSubApp:%s, requestedSubApp:%s, foregroundAppId:%s
+%s [%s, %d] gameInput : %s, freesync : %s
+%s [%s, %d] gameInput : %s, gameOptimization : %s
+%s [%s, %d] gameInput : %s, gameOptimization : %s, freesync : %s
+%s [%s, %d] launch Multiview, index [%d], app [%s], mode [%s]
+%s [%s, %d] mainAppId:%s, subAppId:%s, viewType:%s, mode:%d
+%s [%s, %d] mobile orientation : %s, sub app size : %s
+%s [%s, %d] mode is changed. requestedMode:%s, mainAppId : %s, subAppId : %s
+%s [%s, %d] position is changed. currentMode : %s, currentSubAppPosition : %s, mainAppId : %s, subAppId : %s
+%s [%s, %d] position is dragged and dropped. currentMode : %s, mainAppId : %s, subAppId : %s
+%s [%s, %d] position is dragged and dropped. currentMode : %s, orientation : %s, mainAppId : %s, subAppId : %s
+%s [%s, %d] setMultiViewLayout for relaunching : %s
+%s [%s, %d] size is changed. currentMode : %s, currentSize : %s, mainAppId : %s, subAppId : %s
+%s [%s, %d] size is changed. orientation : %s, currentMode : %s, subAppSize : %s, mainAppId : %s, subAppId : %s
+%s [%s, %d] sub app list is NULL
+%s [%s,%d] gameMode object exists
+%s get multiview config : %s
+%s multiviewcontroller service end!!!
+%s multiviewcontroller service start!!!
+- multiviewcontroller
+/mnt/lg/cmn_data/multiviewcontroller
+/mnt/lg/cmn_data/multiviewcontroller/game_ui_status.txt
+/mnt/lg/cmn_data/multiviewcontroller/hdmi_gameoption.txt
+/some/path/multiviewcontroller_constratins.json
+/usr/share/localization/multiviewcontroller
+/usr/src/debug/lib32-multiviewcontroller/1.0.0-205.2.paparoa.4-r4/git/src/interface/interface_api.c
+Activating {Multi View} while playing games may disable some game features and distort screen images.
+Can`t launch multiview during recording
+Cannot be launched for restriction(SUBSCALER)
+End Multi View.
+Exit Multi View
+Fail to close multiview
+MAIN_SCALER
+MAIN_SOUND
+MANDATORY: Path to multiviewcontroller conf file
+Move sub screen
+Multi View
+Multi View cannot be run at this time.
+Multi View has ended.
+Multi View is not available during recording or Live Playback.
+Multi View is now off to allow recording or Live Playback.
+Multi View is running.
+Multiview cannot be launched because the game option cannot be turned off.
+Multiview cannot be launched for app update
+Multiview cannot be launched for fore launch request not done
+Multiview cannot be launched for restriction
+Multiview is not supported in this TV
+NL_EXIT_MULTIVIEW
+NL_LAUNCH_MULTIVIEW
+OnMultiviewAppCloseRequested
+OnMultiviewAppReleased
+OnMultiviewCloseRequested
+OnMultiviewClosed
+OnMultiviewLayoutConfigured
+OnSubAppPositionChanged
+OnSubAppSizeChanged
+Play sound of sub screen
+Run Multi View.
+SUB_SCALER
+SUB_SCALER2
+Sub Screen
+Switch to PIP mode
+The app on the sub screen could not run with the one on the main screen simultaneously, so it was closed.
+The content currently playing does not support Multi-View.
+The multi-view feature has been terminated due to the execution of unsupported content.
+This content does not support Multi View.
+This content does not support the multi-view feature.
+This content supports Multi View's Side by Side feature only.
+_controller_hdmi_callback_getForegroundApps
+_controller_hdmi_callback_settingsservice_getSystemSettingsGameMode
+_controller_hdmi_callback_surfacemanager_getForegroundVideoWindow
+_controller_hdmi_getGameModeObj
+_controller_lifecycle_changeDnDSubAppPosition_callback
+_controller_lifecycle_changeSubAppPosition_callback
+_controller_lifecycle_changeSubAppSize_callback
+_controller_lifecycle_getMultiViewLayoutAnimationState_callback
+_controller_lifecycle_setPipSubAppLandscapeDefaultPositionInQuadrant
+_controller_lifecycle_setPipSubAppLandscapeNextDefaultPosition
+_controller_lifecycle_setPipSubAppLandscapePosition
+_controller_lifecycle_setPipSubAppMovePosition
+_controller_media_callback_getForegroundApps
+_controller_mobile_changeDnDSubAppPosition_callback
+_controller_mobile_changeSubAppPosition_callback
+_controller_mobile_changeSubAppPosition_portrait
+_controller_mobile_changeSubAppSize_callback
+_controller_mobile_setPipSubAppPortraitDefaultPositionInQuadrant
+_controller_mobile_setPipSubAppPortraitMovePosition
+_controller_mobile_setPipSubAppPortraitNextDefaultPosition
+_controller_orbit_changeSubAppPosition
+_controller_popup_callback_getForegroundApps
+_controller_restriction_callback_getForegroundApps
+_controller_tv_callback_getForegroundApps
+_interface_api_changeSubAppPosition
+_interface_api_changeSubAppSize
+_interface_api_closeMultiview
+_interface_api_findCombinationFromSubApps
+_interface_api_getMultiviewAppList
+_interface_api_getMultiviewStatus
+_interface_api_getMultiviewSupportOption
+_interface_api_getSubAppList
+_interface_api_shouldChangeSubAppPosition
+_interface_api_voiceMoveSubAppPosition
+_luna_init_callback_applicationManager_getForegroundApps
+_luna_init_callback_applicationManager_getForegroundApps_checkMode
+_luna_init_callback_applicationManager_getForegroundApps_setInformation
+_luna_init_callback_lowlevelstorage_getData
+_luna_init_callback_surfacemanager_getForegroundWindowInfo
+_luna_mvc_client_connectedCb
+_main_initialize()
+change mode from pip to sxs
+change mode from sxs to pip
+change sub app position from BL to TL
+change sub app position from BR to BL
+change sub app position from TL to TR
+change sub app position from TR to BR
+change sub app size from large to small
+change sub app size from small to large
+changeSubAppPosition
+changeSubAppSize
+close sub app
+closeMultiview
+com.webos.app.multiviewsettings
+com.webos.service.lowlevelstorage
+com.webos.service.multiviewcontroller
+controller_hdmi_checkHdmiIsGameMode
+controller_hdmi_checkWindowId
+controller_hdmi_clearHDMISignalInfoWithoutMultiviewList
+controller_hdmi_getEnableGameOptionOFF
+controller_hdmi_getIndexByWindowId
+controller_launch_launchMultiviewSetting
+controller_lifecycle_changeDnDSubAppPosition
+controller_lifecycle_changeSubAppPosition
+controller_lifecycle_changeSubAppSize
+controller_list_getAvailableAppListNotSupportMultiScreen
+controller_list_getAvailableAppListNotSupportMultiScreenByIndex
+controller_list_getChangeableListNotSupportMultiScreen
+controller_list_getSubAppList
+controller_list_isIncludeMultiviewCombi
+controller_list_isValidSubAppForMainApp
+controller_media_checkSubscalerRestriction
+controller_media_check_GameoptionMenu
+controller_media_check_HDMIGameoption
+controller_media_disable_GameoptionMenu
+controller_media_enable_GameoptionMenu
+controller_media_recoveryGameoptionMenu
+controller_media_recovery_HDMIGameoption
+controller_media_turnOff_HDMIGameoption
+controller_mobile_changeDnDSubAppPosition
+controller_mobile_changeSubAppPosition
+controller_mobile_changeSubAppSize
+controller_popup_createToast_subAppInvalid
+controller_popup_createToast_turnOffHDMIGameOption
+controller_voice_response_runMultiView
+currentSubAppPosition
+foregroundAppId
+foregroundApps
+foregroundVideoWindow
+gForegroundAppsCBForHDMI
+gForegroundAppsCBForMedia
+gForegroundAppsCBForPopup
+gForegroundAppsCBForRestriction
+gForegroundAppsCBForTV
+g_main_loop_is_running
+g_main_loop_new
+g_main_loop_quit
+g_main_loop_run
+g_main_loop_unref
+g_option_context_add_main_entries
+gameInput
+gameMode
+gameOptimization
+getMultiviewAppList
+getMultiviewStatus
+getMultiviewSupportOption
+getSubAppList
+is4KHFRSignal
+launch pip multiview
+launch_half_main_done
+launch_half_sub_done
+luna://com.webos.applicationManager/getForegroundApps
+luna://com.webos.media/notifyMultiviewControlMode
+luna://com.webos.service.lowlevelstorage/getData
+luna://com.webos.service.multiviewcontroller/changeControlMode
+luna://com.webos.service.multiviewcontroller/changeSubAppPosition
+luna://com.webos.surfacemanager/changeMultiViewLayout
+luna://com.webos.surfacemanager/getForegroundVideoWindow
+luna://com.webos.surfacemanager/getForegroundWindowInfo
+luna://com.webos.surfacemanager/getMultiViewLayoutAnimationState
+luna://com.webos.surfacemanager/setMultiViewLayout
+luna_call_surfacemanager_changeMultiViewLayout
+luna_call_surfacemanager_changeMultiViewLayoutForMobile
+luna_call_surfacemanager_changeMultiViewLayoutForMobile_deprecated
+luna_call_surfacemanager_changeMultiViewLayout_deprecated
+luna_call_surfacemanager_setMultiViewLayout
+luna_call_surfacemanager_setMultiViewLayoutForLaunchFailure
+luna_call_surfacemanager_setMultiViewLayoutForMobile
+luna_call_surfacemanager_setMultiViewLayoutForMobile_deprecated
+luna_call_surfacemanager_setMultiViewLayoutForTargetFullScreen
+luna_call_surfacemanager_setMultiViewLayoutForTargetFullScreenWithCB
+luna_call_surfacemanager_setMultiViewLayout_deprecated
+luna_call_umediaserver_notifyMultiviewControlMode
+luna_handle_initialize( "com.webos.service.multiviewcontroller", _gMainLoop, methods_list)
+luna_info_addForegroundAppList
+luna_info_addMultiviewApp
+luna_info_clearCurrentMultiviewForKeeping
+luna_info_clearForegroundAppList
+luna_info_clearMultiviewApp
+luna_info_clearMultiviewAppIdList
+luna_info_clearMultiviewAppList
+luna_info_clearMultiviewApps
+luna_info_clearMultiviewConfig
+luna_info_clearMultiviewSettingsParams
+luna_info_freeMultiviewLayout
+luna_info_freeMultiviewPrevLayout
+luna_info_getChangeSubAppSizeByInputMode
+luna_info_getCurrentMultiviewForKeeping
+luna_info_getDnDSubAppLayout
+luna_info_getForegroundAppId
+luna_info_getForegroundAppNotChanged
+luna_info_getHaveMultiviewSettingsParams
+luna_info_getIs4KHFRSignal
+luna_info_getIsForcedOffByGameMode
+luna_info_getIsNotifyTurnOffHDMIGameOption
+luna_info_getIsSubAppInvalid
+luna_info_getIsSupportHomePIP
+luna_info_getLiveTVUseSubscaler
+luna_info_getMultiviewAppIdByIndex
+luna_info_getMultiviewAppIdList
+luna_info_getMultiviewAppIdListCount
+luna_info_getMultiviewAppIdTable
+luna_info_getMultiviewAppLastIndex
+luna_info_getMultiviewAppList
+luna_info_getMultiviewApps
+luna_info_getMultiviewConfigObj
+luna_info_getMultiviewOrientationByIndex
+luna_info_getMultiviewSettingsParams
+luna_info_getReceivedSupportMultiview
+luna_info_getRequestedSubAppId
+luna_info_getSubAppId
+luna_info_getSubAppPosition
+luna_info_getSubAppSize
+luna_info_getSubAppTitle
+luna_info_getSupportMultiScreen
+luna_info_getSupportMultiview
+luna_info_getSupportMultiviewFromConfigd
+luna_info_includeForegroundAppList
+luna_info_includeInMultiviewApps
+luna_info_removeMultiviewApp
+luna_info_setChangeSubAppSizeByInputMode
+luna_info_setCurrentMultiviewForKeeping
+luna_info_setDnDSubAppLayout
+luna_info_setForegroundAppId
+luna_info_setForegroundAppNotChanged
+luna_info_setIs4KHFRSignal
+luna_info_setIsForcedOffByGameMode
+luna_info_setIsNotifyTurnOffHDMIGameOption
+luna_info_setIsSubAppInvalid
+luna_info_setIsSupportHomePIP
+luna_info_setLiveTVUseSubscaler
+luna_info_setMultiviewAppList
+luna_info_setMultiviewSettingsParams
+luna_info_setReceivedSupportMultiview
+luna_info_setRequestedSubAppId
+luna_info_setRequestedSubAppId_deprecated
+luna_info_setSubAppId
+luna_info_setSubAppPosition
+luna_info_setSubAppSize
+luna_info_setSubAppTitle
+luna_info_setSupportMultiScreen
+luna_info_setSupportMultiviewFromConfigd
+luna_info_showMultiviewStatus
+luna_info_updateMultiviewAppList
+luna_init_setForegroundAppsCBForHDMI
+luna_init_setForegroundAppsCBForMedia
+luna_init_setForegroundAppsCBForPopup
+luna_init_setForegroundAppsCBForRestriction
+luna_init_setForegroundAppsCBForTV
+luna_mvc_client_addMultiviewClient
+luna_mvc_client_addMultiviewWatcherClient
+luna_mvc_client_destroyClientAckLists
+luna_mvc_client_getSentCloseRequestedEvent
+luna_mvc_client_haveMultiviewClients
+luna_mvc_client_haveMultiviewWatcherClients
+luna_mvc_client_initializeClientAckLists
+luna_mvc_client_isAllMultiviewClientAcked
+luna_mvc_client_isAllMultiviewWatcherClientAcked
+luna_mvc_client_isMultiviewClientAcked
+luna_mvc_client_isMultiviewWatcherClientAcked
+luna_mvc_client_monitorClientConnection
+luna_mvc_client_removeMultiviewClient
+luna_mvc_client_removeMultiviewWatcherClient
+luna_mvc_client_resetAllMultiviewClientAcks
+luna_mvc_client_resetAllMultiviewWatcherClientAcks
+luna_mvc_client_setMultiviewClientAck
+luna_mvc_client_setMultiviewWatcherClientAck
+luna_mvc_client_setSentCloseRequestedEvent
+luna_subscription_getMultiviewStatus
+luna_subscription_getMultiviewStatus_reply
+main/sub screen
+multiView
+multi_screen
+multiview.homePIP
+multiview.preset
+multiview.recommendedApps
+multiview.recommendedAppsMulti
+multiview.supportDualMonitor
+multiview.supportMultiScreen
+multiview.supportMultiview
+multiview.supportSubHDR
+multiviewApp
+multiviewAppList
+multiviewStatus
+multiviewSuggestionQuery
+multiview_voice
+multiviewcontroller
+mvpip
+not_multiview
+policyAction
+primary
+release sub app's control mode
+requestedSubAppId
+set sub app's control mode
+subApp
+subAppId
+subAppLayout
+subAppPosition
+subAppSize
+subScalerOccupied
+supportMultiScreen
+supportMultiview
+tv_multiview_change_view_type
+tv_multiview_enter_control_mode
+tv_multiview_exit
+tv_multiview_exit_control_mode
+tv_multiview_exit_negative
+tv_multiview_launch
+tv_multiview_move_sub_app_position
+tv_multiview_switch_sound
+{"category":"other","dimension":{"gameInput":"%s"},"settings":{"gameOptimization":"%s","freesync":"%s"}}
+{"category":"other","dimension":{"gameInput":"hdmi%d"},"settings":{"gameOptimization":"off","freesync":"off"}}
+{"category":"other","dimension":{"gameInput":"hdmi1"},"keys":["freesync","gameOptimization"],"subscribe":true}
+{"category":"other","dimension":{"gameInput":"hdmi2"},"keys":["freesync","gameOptimization"],"subscribe":true}
+{"category":"other","dimension":{"gameInput":"hdmi3"},"keys":["freesync","gameOptimization"],"subscribe":true}
+{"category":"other","dimension":{"gameInput":"hdmi4"},"keys":["freesync","gameOptimization"],"subscribe":true}
+{"category":"other","key":"gameMode","subscribe":true}
+{"category":"other","key":"gameOptimization","ui":{"visible":false}}
+{"category":"other","key":"gameOptimization","ui":{"visible":true}}
+{"configNames":["multiview.supportMultiview", "multiview.preset", "multiview.supportMultiScreen", "multiview.supportDualMonitor", "multiview.recommendedApps", "multiview.recommendedAppsMulti", "multiview.supportSubHDR", "com.webos.surfacemanager.compositorGeometry","profile.list","profile.gaming", "com.webos.service.config.selection", "multiview.homePIP"], "subscribe":true}
+{"configNames":["multiview.supportMultiview", "multiview.supportDualMonitor", "multiview.supportMultiScreen", "multiview.supportSubHDR", "multiview.preset", "multiview.recommendedApps", "multiview.recommendedAppsMulti","multiview.homePIP", "com.webos.surfacemanager.compositorGeometry"]}
+{"hints":{"windowId" : "%s"},"subscribe":true}
+{"id":"com.webos.app.multiviewsettings", "params":{"position":"sub"}}
+{"id":"com.webos.service.multiviewcontroller.preset:1", "owner":"com.webos.service.multiviewcontroller", "indexes":[{"name":"index", "props":[{"name":"mainAppId"}, {"name":"subAppId"}, {"name":"mode"}]}]}
+{"id":"com.webos.service.multiviewcontroller.recent:1", "owner":"com.webos.service.multiviewcontroller", "indexes":[{"name":"index", "props":[{"name":"usageType"}, {"name":"mode"}, {"name":"appId"}, {"name":"order"}, {"name":"timeStamp"}]}]}
+{"objects":[{"_kind":"com.webos.service.multiviewcontroller.preset:1", "mainAppId":"%s", "subAppId":"%s", "mode":"%s", "description":"%s"}]}
+{"objects":[{"_kind":"com.webos.service.multiviewcontroller.recent:1", "appId":"%s", "order":%d, "mode":"%s", "usageType":"%s", "timeStamp":%d}]}
+{"permissions":[{"type":"db.kind", "object":"com.webos.service.multiviewcontroller.preset:1", "caller":"com.webos.*", "operations":{"create":"deny", "read":"allow", "update":"deny", "delete":"deny"}}]}
+{"permissions":[{"type":"db.kind", "object":"com.webos.service.multiviewcontroller.recent:1", "caller":"com.webos.*", "operations":{"create":"deny", "read":"allow", "update":"deny", "delete":"deny"}}]}
+{"query": {"from": "com.webos.service.multiviewcontroller.preset:1", "where": [{"prop": "mainAppId", "op": "=", "val": "%s"}, {"prop": "subAppId", "op": "=", "val": "%s"}, {"prop": "mode", "op": "=", "val": "%s"}]}}
+{"query": {"from": "com.webos.service.multiviewcontroller.recent:1"}}
+{"query":{"from":"com.webos.service.multiviewcontroller.preset:1"}}
+{"query":{"from":"com.webos.service.multiviewcontroller.recent:1"}}
+{main/sub screen}'s sound is currently playing.

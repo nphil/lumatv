@@ -1,0 +1,25 @@
+{
+    "foregroundVideoWindow": [
+        {
+            "appId": "youtube.leanback.v4",
+            "appWindow": {
+                "height": 1080,
+                "width": 1920,
+                "x": 0,
+                "y": 0
+            },
+            "context": "_0xbpCk8Li71RV7",
+            "displayOutput": {
+                "height": 1080,
+                "width": 1440,
+                "x": 240,
+                "y": 0
+            },
+            "fullScreen": false,
+            "isPig": true,
+            "windowId": "_Window_Id_13"
+        }
+    ],
+    "returnValue": true
+}
+

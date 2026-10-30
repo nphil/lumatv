@@ -1,0 +1,12 @@
+{
+  "exeName": "/usr/bin/mvclient",
+  "allowedNames": ["com.webos.multiview.client.*"],
+  "type": "regular",
+  "permissions": [
+    {
+      "inbound": ["com.webos.service.multiviewcontroller"],
+      "outbound": ["com.webos.service.multiviewcontroller"],
+      "service": "com.webos.multiview.client.*"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+    "com.webos.app.multiviewsettings-*": [
+        "private",
+        "public"
+    ]
+}

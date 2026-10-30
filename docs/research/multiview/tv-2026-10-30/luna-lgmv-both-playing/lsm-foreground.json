@@ -1,0 +1,48 @@
+{
+    "foregroundAppInfo": [
+        {
+            "appId": "youtube.leanback.v4",
+            "displayId": 0,
+            "multiview": true,
+            "order": 0,
+            "params": {
+            },
+            "pip": false,
+            "primary": true,
+            "processId": "14717",
+            "viewType": "mvsxs",
+            "windowGroup": false,
+            "windowType": "_WEBOS_WINDOW_TYPE_CARD"
+        },
+        {
+            "appId": "com.webos.app.livedmost",
+            "displayId": 0,
+            "params": {
+            },
+            "processId": "14098",
+            "windowGroup": true,
+            "windowGroupOwner": false,
+            "windowGroupOwnerId": "com.webos.app.livetv",
+            "windowType": "_WEBOS_WINDOW_TYPE_CARD"
+        },
+        {
+            "appId": "com.webos.app.livetv",
+            "displayId": 0,
+            "multiview": true,
+            "order": 1,
+            "params": {
+            },
+            "pip": false,
+            "primary": false,
+            "processId": "2513",
+            "viewType": "mvsxs",
+            "windowGroup": true,
+            "windowGroupOwner": true,
+            "windowGroupOwnerId": "",
+            "windowType": "_WEBOS_WINDOW_TYPE_CARD"
+        }
+    ],
+    "mode": "multiview",
+    "returnValue": true
+}
+

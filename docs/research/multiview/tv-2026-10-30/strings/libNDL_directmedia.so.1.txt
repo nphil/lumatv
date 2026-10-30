@@ -1,0 +1,3 @@
+NDL_DirectMediaSetWindowId
+NDL_IMPL_DirectMediaSetWindowId
+_dl_NDL_IMPL_DirectMediaSetWindowId

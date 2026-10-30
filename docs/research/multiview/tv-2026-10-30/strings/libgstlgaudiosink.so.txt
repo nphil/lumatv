@@ -1,0 +1,59 @@
+<audio_sink> Set game mode %s
+<audio_sink> This application is Cloud Game(DIRECTMEDIA)
+<audio_sink> This application is for Cloud Game (Google Stadia) PCM Multi Channel
+<audio_sink> applying PROP_GAME_MODE...%d
+GLogLevelFlags
+GST_LEVEL_COUNT
+GST_LEVEL_DEBUG
+GST_LEVEL_ERROR
+GST_LEVEL_FIXME
+GST_LEVEL_INFO
+GST_LEVEL_LOG
+GST_LEVEL_MEMDUMP
+GST_LEVEL_NONE
+GST_LEVEL_TRACE
+GST_LEVEL_WARNING
+GST_RANK_PRIMARY
+G_LOG_LEVEL_CRITICAL
+G_LOG_LEVEL_DEBUG
+G_LOG_LEVEL_ERROR
+G_LOG_LEVEL_INFO
+G_LOG_LEVEL_MASK
+G_LOG_LEVEL_MESSAGE
+G_LOG_LEVEL_WARNING
+Game Mode
+Game Mode.(bypass fader)
+GstDebugLevel
+LGAO_FADE_PROP_REMAIN_DURATION
+LGAO_RTS_BUFFERING_LEVEL
+LX_LOGM_LEVEL_DEBUG
+LX_LOGM_LEVEL_ERROR
+LX_LOGM_LEVEL_INFO
+LX_LOGM_LEVEL_MAX
+LX_LOGM_LEVEL_NOTI
+LX_LOGM_LEVEL_TRACE
+LX_LOGM_LEVEL_WARNING
+PROP_GAME_MODE
+RTS Buffering Level %u -> %u
+RTS_RENDER_BUFFER_LEVEL_R2R
+Set game mode %s
+Set game mode (%d -> %d)
+This application is Cloud Game(DIRECTMEDIA)
+This application is for Cloud Game (Google Stadia) PCM Multi Channel
+applying PROP_GAME_MODE...%d
+buffering_level
+game-mode
+lgao_get_game_mode
+lgao_get_game_mode (pAudioRen->ao, &game_mode) failed!
+lgao_get_rts (pAudioRen->ao, LGAO_RTS_BUFFERING_LEVEL, &val) failed!
+lgao_set_fade (pAudioRen->ao, LGAO_FADE_PROP_REMAIN_DURATION, duration) failed!
+lgao_set_game_mode
+lgao_set_game_mode (pAudioRen->ao, pAudioRen->game_mode) failed!
+lgao_set_rts (pAudioRen->ao, LGAO_RTS_BUFFERING_LEVEL, pAudioRen->render_buf_thres) failed!
+log_level
+log_level_debug
+log_level_error
+log_level_info
+log_level_noti
+log_level_trace
+log_level_warning

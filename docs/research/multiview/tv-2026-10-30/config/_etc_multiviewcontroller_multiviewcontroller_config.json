@@ -1,0 +1,30 @@
+{
+    "license" : "@@@LICENSE  Copyright (c) 2025 LG Electronics, Inc.  Unless otherwise specified or set forth in the NOTICE file, all content,  including all source code files and documentation files in this repository are :  Confidential computer software. Valid license from LG required for  possession, use or copying.  LICENSE@@@  Information Multiview Controller Configuration info",
+    "version" : "1.0",
+    "constraints":{
+        "layout":{
+            "notSupportPip":[
+                {
+                    "appId":"com.webos.chromecast-settings",
+                    "description":"curtain app for chromecast"
+                },
+                {
+                    "appId":"com.webos.chromecast",
+                    "description":"chromecast app"
+                }
+            ],
+            "notSupportInputMode":[
+                {
+                    "appId":"com.webos.chromecast-settings",
+                    "description":"curtain app for chromecast, restricted type"
+                }
+            ]
+        }
+    },
+    "representativeId":[
+        {
+            "prefixId":"com.lgshop.app",
+            "description":"shoptime app"
+        }
+    ]
+}

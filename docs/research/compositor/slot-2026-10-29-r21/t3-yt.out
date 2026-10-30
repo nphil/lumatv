@@ -1,0 +1,13 @@
+01:21:29 kinds+: {'ok': True, 'rust': {'can': ['cameras', 'settings', 'displaylab', 'keyboard', 'quick', 'picker', 'drawer', 'switcher'], 'connected': True, 'enabled': True, 'engine': True, 'error': None, 'gaveUp': False, 'kinds': ['alert', 'cameras', 'confirm', 'displaylab', 'drawer', 'entry', 'home', 'keyboard', '
+playing after 1 s
+01:21:46 elements: [('youtube.leanback.v4', True, True), ('com.webos.app.lgchannels', False, False)]
+01:21:46 POST: {"api":1,"lastsMs":12000,"now":1793337706091,"ok":true,"popup":true}
+01:21:46 +0.52s popup.live {"fedFps": 0.0, "fps": 0.0, "phase": "asked", "sink": false, "slot": "texture", "stream": "", "video": false, "window": "waiting"}
+01:21:47 +1.12s popup.live {"fedFps": 0.0, "fps": 25.0, "phase": "asked", "sink": false, "slot": "texture", "stream": "starting", "video": false, "window": "waiting"}
+01:21:47 +1.72s popup.live {"fedFps": 0.0, "fps": 25.0, "phase": "playing", "sink": true, "slot": "texture", "stream": "playing", "video": true, "window": "carried"}
+/tmp/lumatv-r21/docs/research/compositor/slot-2026-10-29-r21/img/popup-yt.jpg (ctl, source 1920x1080)
+01:21:55 vwin: [{"app": "", "slot": "texture", "placed": true, "sink": "texture", "texture": true, "state": "granted", "text": ""}]
+01:22:05 popup state: {"up": false}
+01:22:05 helper log: 2026-10-30T05:21:53Z INFO  cameras: other on Plant Room Cat Feeder (camera 240, event e1793330149) makes no pop-up: its kind is not one this camera notifies for | 2026-10-30T05:21:58Z INFO  cameras: live for pop-up 1 on camera 240 ended: first picture after 572 ms, 268 pictures in 10.7 s = 25.0 a second, 0 refused, 100 lost | 2026-10-30T05:21:58Z INFO  cameras: other on Plant Room Cat Feeder (camera 240, event e1793330151) makes no pop-up: its kind is not one this camera notifies for | 2026-10-30T05:21:58Z INFO  cameras: other on Plant Room Cat Feeder (camera 240, event e1793330151) makes no pop-up: its kind is not one this camera notifies for | 2026-10-30T05:22:03Z INFO  cameras: other on Plant Room Cat Feeder (camera 240, event e1793330153) makes no pop-up: its kind is not one this camera notifies for | 2026-10-30T05:22:03Z INFO  cameras: other on Plant Room Cat Feeder (camera 240, event e1793330153) makes no pop-up: its kind is not one this camera notifies for
+01:22:05 Back -> popup gone after 0.24 s: {"up": false} ; claims []
+01:22:08 helper log after: 2026-10-30T05:21:58Z INFO  cameras: live for pop-up 1 on camera 240 ended: first picture after 572 ms, 268 pictures in 10.7 s = 25.0 a second, 0 refused, 100 lost

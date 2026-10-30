@@ -1,0 +1,30 @@
+{
+    "exeName":"/usr/sbin/videooutputd",
+    "type": "regular",
+    "allowedNames": ["com.webos.service.videooutput",
+                     "com.webos.rm.client.*"],
+    "permissions": [
+        {
+            "service":"com.webos.service.videooutput",
+            "outbound":[
+                "com.webos.service.settings",
+                "com.webos.service.config",
+                "com.webos.service.tvpower",
+                "com.webos.service.nop",
+                "com.webos.notification",
+                "com.webos.service.avmutemanager",
+                "com.webos.service.pqcontroller",
+                "com.webos.applicationManager",
+                "com.webos.service.faultmanager",
+                "com.webos.service.factorymanager",
+                "com.webos.service.multiviewcontroller",
+                "com.webos.service.lowlevelstorage"
+            ]
+        },
+        {
+          "service":"com.webos.rm.client.*",
+          "inbound":["com.webos.media"],
+          "outbound":["com.webos.media"]
+        }
+    ]
+}

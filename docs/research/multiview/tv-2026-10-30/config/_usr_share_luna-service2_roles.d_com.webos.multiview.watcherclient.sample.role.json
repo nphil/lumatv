@@ -1,0 +1,12 @@
+{
+  "exeName": "/usr/bin/mvwatcherclient",
+  "allowedNames": ["com.webos.multiview.watcherclient.*"],
+  "type": "regular",
+  "permissions": [
+    {
+      "inbound": ["com.webos.service.multiviewcontroller"],
+      "outbound": ["com.webos.service.multiviewcontroller"],
+      "service": "com.webos.multiview.watcherclient.*"
+    }
+  ]
+}

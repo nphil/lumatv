@@ -1,0 +1,12 @@
+{
+  "exeName": "/usr/sbin/multiviewcontroller",
+  "allowedNames": ["com.webos.service.multiviewcontroller"],
+  "type": "regular",
+  "permissions": [
+    {
+      "inbound": ["*"],
+      "outbound": ["*"],
+      "service": "com.webos.service.multiviewcontroller"
+    }
+  ]
+}

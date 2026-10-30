@@ -1,0 +1,44 @@
+<%s> Use HFR %s
+GLogLevelFlags
+GST_LEVEL_COUNT
+GST_LEVEL_DEBUG
+GST_LEVEL_ERROR
+GST_LEVEL_FIXME
+GST_LEVEL_INFO
+GST_LEVEL_LOG
+GST_LEVEL_MEMDUMP
+GST_LEVEL_NONE
+GST_LEVEL_TRACE
+GST_LEVEL_WARNING
+GST_RANK_PRIMARY
+G_LOG_LEVEL_CRITICAL
+G_LOG_LEVEL_DEBUG
+G_LOG_LEVEL_ERROR
+G_LOG_LEVEL_INFO
+G_LOG_LEVEL_MASK
+G_LOG_LEVEL_MESSAGE
+G_LOG_LEVEL_WARNING
+Google Cloud Game) buffer length in renderingQ
+Google Cloud Game) frame drop threshold
+GstDebugLevel
+PROP_LOW_DELAY
+Use HFR %s
+gst_lx_videosink_thumbnail_bilinear_Scaler_UVInterleaved
+gst_lx_videosink_thumbnail_bilinear_Scaler_Y
+gst_lx_videosink_thumbnail_bilinear_Scaler_YUVInterleaved
+is_HFR
+log_level
+log_level_debug
+log_level_error
+log_level_info
+log_level_noti
+log_level_trace
+log_level_warning
+lxvo_set_hfr
+max-content-light-level
+max-pic-average-light-level
+max_content_light_level
+max_pic_average_light_level
+sub_h
+sub_v
+width:%d,height:%d,addr_y:%08lx,addr_c:%08lx,stride_y:%d,stride_c:%d,sub_h:%d,sub_v:%d
