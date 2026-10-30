@@ -22,7 +22,7 @@ The card fades and does not slide: its glass is four clipped bands around the ho
 
 ## Limits
 
-- Live only where no app plays video: Home (the wallpaper's window is taken for the card and returns afterwards) and idle apps. Over YouTube, Plex or any playing video the card shows stills, 8 a second, smoother than the QML card's one a second but not video.
+- Hardware video only where no app plays video: Home (the wallpaper's window is taken for the card and returns afterwards) and idle apps. Over YouTube, Plex, a game or a 120 fps stream the compositor's texture fallback (MultiView's: the feeder decodes the camera's low stream, at most 1280x720 at 30, and the compositor draws it into the card's box; `ctl vwin texture off` to switch it off) carries the card as live video; with it off, or where the compositor refuses it, the card shows stills, 8 a second (4 where an app holds both scalers), smoother than the QML card's one a second but not video. What the texture costs the app in front is the TV check's to say (B).
 - One live camera at a time; the full view and the pop-up share the one feeder session, the later one wins.
 - Needs the feeder and its LS2 role on the set: `lumatv feeder install` (the owner's command; a role is a permission, so apply never writes it).
 - Needs the Rust `popup` kind (`ctl shell rust +popup`); the QML card remains for sets without it and asks for stills at 8 a second.
@@ -53,7 +53,7 @@ OK on a card or a tile of a camera that plays live, with the compositor's video 
 
 The time is read in the shell (`ctl shell`, `cameras.firstLiveMs`: from the OK that opened the view to the first live picture) and in the helper's log (`live for full view ...: the bridge answered in X ms`, then `ended: first picture after Y ms`). The start inside the helper was already parallel (the feeder is leased and the decoder loaded, 0.2 to 0.4 s, while the stream is dialled and Scrypted's prebuffer replays); what is new is the order at the app switch, and the stream from the pop-up that is kept for the view when it is the same stream.
 
-Known risks: the old app's video may still hold the scalers when the decoder loads right after Home comes forward (then `cameras.live` fails: OK asks again, and a settle delay after the foreground change is the first thing to add); videooutputd may not connect a video whose decoder loaded before Home was in front (this order avoids it).
+Known risks: the old app's video may still hold the scalers when the decoder loads right after Home comes forward (then `cameras.live` fails: OK asks again, and a settle delay after the foreground change is the first thing to add); videooutputd may not connect a video whose decoder loaded before Home was in front (this order avoids it). Home is the anchor because it is the one app LG's video path is known to connect a decoder's video for here; the card app (`org.nphil.lumatv.card`, `cardapp-result.md`: a real SAM app with its own card window, in the switcher) is the alternative anchor if launching Home proves unreliable: the shell would launch it instead and the feeder open its decoder for its id, with no change to the view itself.
 
 ## TV check (round 21)
 
@@ -77,17 +77,18 @@ A. Home, live. Home in front.
 7. OK on a live card: the Cameras full view of the same camera opens and keeps playing, no `live/stop` between.
 8. An event left alone ends by itself at `lastsMs`, and the claim goes with it.
 
-B. Over YouTube (1080p30 playing). Send the same event.
+B. Over YouTube (1080p30 playing). Send the same event. With the texture fallback on (`ctl vwin texture on`, the default) no hardware window is given over an app's video, so the card plays the camera's low stream decoded by the feeder and drawn by the compositor:
 
-1. `rust.ui.popup.live.window` is `refused` (or `waiting`, then `refused`); `T ctl vwin` claim `camera-popup` denied with `app-video` or `both-scalers`; the helper log has no `live for pop-up` line. The card shows stills (look at the corner for 10 s: about 8 a second, not one).
-2. YouTube's picture and sound are unharmed: `world.appPlaying` 1, no stall, no switch to another app. Back clears the card; the claim list is empty.
+1. `rust.ui.popup.live` has `window carried`, `slot texture`, `video true`; `T ctl vwin` claim `camera-popup` granted with `slot texture`, `sink texture`; the helper log has `live for pop-up N ...: h264 WxH ... window texture` with a low-resolution stream (at most 1280x720 at 30). The corner moves (the camera's own rate, not a still).
+2. YouTube's picture and sound are unharmed, measured against 30 s without the card: its frame counter (`world.appPlaying` 1, no stall), the compositor's frame gate (`docs/research/perf/gate.py --surfaces quick --tag popup-texture`), and the feeder's CPU (`top -b -n 1` while the card is up). Any lost frame of the app: `T ctl vwin texture off` and repeat; the card then shows stills (`window refused`, `app-video`, 8 a second) and the app must be whole. Back clears the card, the claim goes and the feeder stops.
+3. Over a game or a 120 fps stream (both scalers held): the same, and the same two readings; if the app drops frames with the texture on, `texture off` and the card shows stills at 4 a second (`both-scalers`).
 
 C. Only if A passes and Nitin agrees to a glitch risk: `T ctl vwin apps`, repeat B with YouTube, and `cameras.ndlApp` `own` for one Home run. Stop at the first glitch of YouTube's picture, `T ctl vwin idle`, note the mode, app and frame rate.
 
 D. The full view as an app (the time is OK to the first live picture, target under 1 s).
 
 1. From Home, OK on a tile of a 4K camera (Cameras tile in the quick panel, then OK): `T ctl shell` `rust.ui.cameras.firstLiveMs`, the helper log `live for full view on camera C: CODEC WxH at F ...` (native size and rate) and `ended: first picture after Y ms ... F a second`, the capture `T shot full-home` (`-video.png` has the camera at native size, `-display.png` the chrome). Report the resolution, the rate against the declared one and the three times.
-2. Over YouTube (1080p playing), an event, then OK on the card after 600 ms: the journal has `cameras: the full view takes the front from <YouTube's id>`, Home is in front within a second (`T ctl shell` `foreground`), then the stream is asked for. Report the time from the OK to Home in front, to `video true`, and the `firstLiveMs`; and the picture the first frame had (the card's).
+2. Over YouTube (1080p playing), an event, then OK on the card after 600 ms: the journal has `cameras: the full view takes the front from <YouTube's id>`, Home is in front within a second (`T ctl shell` `rust.ui.cameras.homeMs`: OK to Home in front; `askedMs`: OK to the stream asked for, the same moment), then the stream plays. Report `homeMs`, `askedMs`, the helper's `the bridge answered in X ms`, `first picture after Y ms`, `firstLiveMs` (the sum, the target under 1 s) and the picture the first frame had (the card's).
 3. Back: the journal has `cameras: Back brings <the id> back`, the app is in front again (its own state is the app's to say: note whether YouTube resumed or restarted), `T ctl vwin` has no claim, the feeder stops, and `T ctl shell` `cameras.switched` is false. The Home key from the view: Home, no app launched.
 4. The camera's strip in the full view (Up, then a clip) plays and Back from it goes to live; the same for a 1080p camera, where the card's stream (up to 1080p30) is already the camera's own.
 5. A first-open failure after the switch (`cameras.live` `failed`, or `SUB_SCALER ... released` in `/var/log/messages`): note the time since Home came forward.

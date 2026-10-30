@@ -158,7 +158,12 @@ impl Live {
         let tag = self.next_tag();
         self.ask_tag = Some(tag);
         self.phase = Phase::Asked { at: now, tries };
-        let window = if self.slot == "main" { "main" } else { "sub" };
+        // the window the compositor named: `main` and `sub` are the display's, `texture` the compositor's own drawing of the camera's low stream
+        let window = match self.slot.as_str() {
+            "main" => "main",
+            "texture" => "texture",
+            _ => "sub",
+        };
         let mut body = json!({"camera": self.camera, "for": "popup", "window": window});
         if let Some(card) = self.card {
             body["popup"] = json!(card);
@@ -353,6 +358,23 @@ mod tests {
         assert!(asks(&l.set_window(Window::Carried, "sub", false, T0 + 30)).is_empty());
         let mut main = card();
         assert_eq!(asks(&main.set_window(Window::Carried, "main", true, T0))[0].1["window"], "main");
+    }
+
+    #[test]
+    fn a_texture_grant_asks_for_the_low_stream_by_name_and_its_hole_needs_no_sink() {
+        let mut l = card();
+        let fx = l.set_window(Window::Waiting, "texture", false, T0);
+        assert_eq!(asks(&fx)[0].1, json!({"camera": "275", "for": "popup", "window": "texture", "popup": 41}), "the helper picks the camera's low stream for it");
+        l.topic(&stream("playing"), T0 + 400);
+        l.set_window(Window::Carried, "texture", false, T0 + 500);
+        assert!(!l.video(T0 + 400 + HANDOFF_MS - 1), "the handoff is counted from the stream's first picture");
+        assert!(l.video(T0 + 400 + HANDOFF_MS), "the compositor paints it itself: placed is all there is to wait for");
+        // the same stream under a hardware window with no sink is still no hole
+        let mut h = card();
+        h.set_window(Window::Waiting, "main", false, T0);
+        h.topic(&stream("playing"), T0 + 400);
+        h.set_window(Window::Carried, "main", false, T0 + 500);
+        assert!(!h.video(T0 + 10_000));
     }
 
     #[test]

@@ -1129,6 +1129,7 @@ fn the_full_view_opened_over_an_app_takes_the_front_asks_for_the_main_window_onc
     let fx = r.topic("foreground", json!({"app": "com.webos.app.home", "home": true}));
     assert_eq!(live_posts(&fx), [json!({"camera": "273", "for": "full", "window": "main"})]);
     assert!(r.app.take_intents().is_empty(), "it does not ask again");
+    assert_eq!((r.app.debug()["homeMs"].clone(), r.app.debug()["askedMs"].clone()), (json!(300), json!(300)), "Home was in front 300 ms after the OK, and the stream was asked for then");
     // Back closes the view and brings the app back
     r.at(2_000);
     r.press("back");

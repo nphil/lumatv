@@ -214,6 +214,9 @@ pub struct App {
     /// When the full view was opened (this camera's), and how long it took to show live video.
     opened_at: u64,
     first_live_ms: Option<u64>,
+    /// How long after the opening Home was in front (the app switch) and the stream was asked for.
+    home_ms: Option<u64>,
+    asked_ms: Option<u64>,
     /// What the compositor made of the full view's claim on a video window (the shell sets it from the `vwin` topic).
     window: Window,
     screen: Screen,
@@ -254,6 +257,8 @@ impl App {
             switched: false,
             opened_at: 0,
             first_live_ms: None,
+            home_ms: None,
+            asked_ms: None,
             window: Window::Unclaimed,
             screen: Screen::Closed,
             strip: None,
@@ -495,6 +500,8 @@ impl App {
         }
         self.opened_at = self.now;
         self.first_live_ms = None;
+        self.home_ms = None;
+        self.asked_ms = None;
         if ask_live {
             self.ensure_live(true, fx);
         } else {
@@ -537,6 +544,7 @@ impl App {
         match (want, self.asked.clone()) {
             (Some(id), asked) if force || asked.as_deref() != Some(&id) => {
                 self.asked = Some(id.clone());
+                self.asked_ms.get_or_insert(self.now.saturating_sub(self.opened_at));
                 self.expect = Expect::Live;
                 self.commit_hint = None;
                 self.thumb_pending = false;
@@ -632,6 +640,9 @@ impl App {
                 let front = data.get("home").and_then(Value::as_bool).is_some_and(|h| !h);
                 if front != self.app_front {
                     self.app_front = front;
+                    if !front && self.switched {
+                        self.home_ms.get_or_insert(now.saturating_sub(self.opened_at));
+                    }
                     if self.is_full() {
                         self.ensure_live(false, fx);
                     }
@@ -1708,6 +1719,8 @@ impl App {
             "vwinOn": self.vwin_on,
             "openedAt": self.opened_at,
             "firstLiveMs": self.first_live_ms,
+            "homeMs": self.home_ms,
+            "askedMs": self.asked_ms,
         })
     }
 }
