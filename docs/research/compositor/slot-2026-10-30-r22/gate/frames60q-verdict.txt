@@ -1,0 +1,27 @@
+GATE wake: reset
+PASS  apps-grid       launch_path           none  ()  com.webos.app.discovery: the dock's tile 1, number key (evdev 2)
+PASS  apps-grid       windows                3/3  (== 3)
+PASS  apps-grid       first_frame_ms       12.45  (<= 50)
+PASS  apps-grid       p90_render_ms         1.25  (< 8.33333)  46 frames
+PASS  apps-grid       p90_window_ms         1.66  (< 11.1111)  worst single window
+FAIL  apps-grid       dropped                  1  (<= 0)
+FAIL  apps-grid       burst_over20             1  (<= 0)
+PASS  apps-grid       rss_growth_mb         0.00  (<= 1.01)  457 -> 457 pages over 1 cycles
+PASS  apps-grid       switches_restored number-keys, quick-access  (as found)
+PASS  apps-grid       log_errors               0  (== 0)
+PASS  apps-grid       compositor_pid        3697  (== 3697)
+PASS  home-widgets    windows                3/3  (== 3)
+PASS  home-widgets    first_frame_ms       13.22  (<= 50)
+PASS  home-widgets    p90_render_ms         0.53  (< 8.33333)  2 frames
+PASS  home-widgets    p90_window_ms         0.58  (< 11.1111)  worst single window
+PASS  home-widgets    dropped                  0  (<= 0)
+PASS  home-widgets    burst_over20             0  (<= 0)
+PASS  home-widgets    rss_growth_mb         0.00  (<= 1.01)  457 -> 457 pages over 1 cycles
+PASS  home-widgets    log_errors               0  (== 0)
+PASS  home-widgets    compositor_pid        3697  (== 3697)
+VERDICT FAIL
+GATE wake (frames): measured tick p50 0.01 p99 0.04 max 0.29 ms (n 78110); flip p50 0.02 p99 0.05 max 0.27 ms (n 76833); input p50 0.02 p99 0.05 max 0.10 ms (n 3502); tick waited on a busy loop p50 0.16 p99 3.33 max 5.18 ms (n 1794)
+GATE mem: measured rss 163352 KiB, locked 786952 KiB, swapped 0 KiB, malloc mmapped blocks 0; lock: locked what is touched (MCL_CURRENT|MCL_FUTURE|MCL_ONFAULT) in 5.3 ms; VmRSS 17 MiB, MemAvailable 932 MiB, RLIMIT_MEMLOCK 64 KiB, CAP_IPC_LOCK yes; the process's limit on locked memory: 65536 65536 bytes ; set: MemAvailable 442 MiB, CmaFree 3 MiB, swap in use 599 MiB
+GATE frames: FAIL home-dpad NOT burst_over20=2 [first_frame 15.52 p90_render 2.08]; quick NOT burst_end_ms=1688.46,burst_over20=8 [first_frame 6.83 burst_end 1688.46 p90_render 2.54]; picker NOT burst_end_ms=1734.53,burst_over20=5 [first_frame 33.0 burst_end 1734.53 p90_render 0.56]; toast NOT burst_end_ms=1999.56 [first_frame 15.51 burst_end 1999.56 p90_render 0.41]; settings-scroll NOT burst_over20=10 [first_frame 26.64 p90_render 4.16]; apps-grid NOT dropped=1,burst_over20=1 [first_frame 12.45 p90_render 1.25]; home-widgets ok [first_frame 13.22 p90_render 0.53] (surfaces home-dpad,quick,picker,toast,settings-scroll,apps-grid,home-widgets, 3 cycles; /tmp/lumatv-tv-out/frames.json)
+GATE wake (frames): measured tick p50 0.01 p99 0.04 max 0.29 ms (n 78110); flip p50 0.02 p99 0.05 max 0.27 ms (n 76833); input p50 0.02 p99 0.05 max 0.10 ms (n 3502); tick waited on a busy loop p50 0.16 p99 3.33 max 5.18 ms (n 1794)
+GATE mem: measured rss 163352 KiB, locked 786952 KiB, swapped 0 KiB, malloc mmapped blocks 0; lock: locked what is touched (MCL_CURRENT|MCL_FUTURE|MCL_ONFAULT) in 5.3 ms; VmRSS 17 MiB, MemAvailable 932 MiB, RLIMIT_MEMLOCK 64 KiB, CAP_IPC_LOCK yes; the process's limit on locked memory: 65536 65536 bytes ; set: MemAvailable 442 MiB, CmaFree 3 MiB, swap in use 599 MiB

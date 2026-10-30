@@ -1,0 +1,33 @@
+GATE refresh: measured hz 120 divider 1 shell 120 over 10 s: OSD flips/s 120.1, DE2VSYNC/s 120.7, osd_irq/s 120.1; compositor: "intervals":{"more":0,"one":1445,"three":0,"two":2,"worst_ms":16.684} "frames":{"late":0,"lost":1,"missed":2,"n":1447} "pipeline_ms":{"max":8.78244,"p50":3.25,"p99":7.75} flips/s 119.80887253471082; mali busy 16.1 %; temperature 58; slides (steps/ms/for): none
+GATE wake: reset
+PASS  apps-grid       launch_path           none  ()  com.webos.app.discovery: the dock's tile 1, number key (evdev 2)
+PASS  apps-grid       windows                3/3  (== 3)
+PASS  apps-grid       first_frame_ms        8.41  (<= 50)
+PASS  apps-grid       p90_render_ms         2.94  (< 4.16667)  617 frames
+PASS  apps-grid       p90_window_ms         3.14  (< 5.55556)  worst single window
+FAIL  apps-grid       dropped                521  (<= 0)
+FAIL  apps-grid       burst_over20           139  (<= 0)
+PASS  apps-grid       rss_growth_mb         0.00  (<= 1.01)  503 -> 503 pages over 1 cycles
+PASS  apps-grid       switches_restored number-keys, quick-access  (as found)
+PASS  apps-grid       log_errors               0  (== 0)
+PASS  apps-grid       compositor_pid       15130  (== 15130)
+PASS  home-widgets    windows                3/3  (== 3)
+PASS  home-widgets    first_frame_ms        7.41  (<= 50)
+PASS  home-widgets    p90_render_ms         2.45  (< 4.16667)  1356 frames
+PASS  home-widgets    p90_window_ms         2.46  (< 5.55556)  worst single window
+FAIL  home-widgets    dropped               1205  (<= 0)
+FAIL  home-widgets    burst_over20          1949  (<= 0)
+PASS  home-widgets    rss_growth_mb         0.00  (<= 1.01)  503 -> 503 pages over 1 cycles
+PASS  home-widgets    log_errors               0  (== 0)
+PASS  home-widgets    compositor_pid       15130  (== 15130)
+VERDICT FAIL
+GATE refresh: measured hz 120 divider 1 shell 120 over 10 s: OSD flips/s 100.2, DE2VSYNC/s 100.8, osd_irq/s 100.2; compositor: "intervals":{"more":240,"one":158062,"three":52,"two":2623,"worst_ms":1000.905} "frames":{"late":1376,"lost":3795,"missed":117,"n":160977} "pipeline_ms":{"max":28.5729,"p50":3.75,"p99":14.0} flips/s 98.53149022228624; mali busy 14.4 %; temperature 57; slides (steps/ms/for): none
+GATE refresh: measured hz 60 divider 2 shell 60 over 5 s: OSD flips/s 50.2, DE2VSYNC/s 101.4, osd_irq/s 100.4; compositor: "intervals":{"more":0,"one":352,"three":0,"two":0,"worst_ms":20.036} "frames":{"late":0,"lost":0,"missed":0,"n":352} "pipeline_ms":{"max":9.0718,"p50":2.5,"p99":7.25} flips/s 49.95491248924048; mali busy 9.8 %; temperature 57; slides (steps/ms/for): none
+GATE wake (frames): measured tick p50 0.01 p99 0.04 max 0.70 ms (n 168401); flip p50 0.02 p99 0.05 max 0.71 ms (n 159888); input p50 0.02 p99 0.04 max 0.12 ms (n 3502); tick waited on a busy loop p50 0.14 p99 3.58 max 12.20 ms (n 3358)
+GATE mem: measured rss 173584 KiB, locked 787540 KiB, swapped 0 KiB, malloc mmapped blocks 0; lock: locked what is touched (MCL_CURRENT|MCL_FUTURE|MCL_ONFAULT) in 5.8 ms; VmRSS 17 MiB, MemAvailable 938 MiB, RLIMIT_MEMLOCK 64 KiB, CAP_IPC_LOCK yes; the process's limit on locked memory: 65536 65536 bytes ; set: MemAvailable 405 MiB, CmaFree 3 MiB, swap in use 599 MiB
+GATE refresh: measured hz 120 divider 1 shell 120 over 10 s: OSD flips/s 120.1, DE2VSYNC/s 120.7, osd_irq/s 120.1; compositor: "intervals":{"more":0,"one":1445,"three":0,"two":2,"worst_ms":16.684} "frames":{"late":0,"lost":1,"missed":2,"n":1447} "pipeline_ms":{"max":8.78244,"p50":3.25,"p99":7.75} flips/s 119.80887253471082; mali busy 16.1 %; temperature 58; slides (steps/ms/for): none
+GATE frames at 120 Hz: FAIL home-dpad NOT dropped=169,burst_over20=788 [first_frame 9.31 p90_render 2.35]; quick NOT burst_end_ms=1753.49,dropped=33,burst_over20=880 [first_frame 2.31 burst_end 1753.49 p90_render 3.6]; picker NOT burst_end_ms=1796.36,dropped=39,burst_over20=910 [first_frame 6.19 burst_end 1796.36 p90_render 3.35]; toast NOT burst_end_ms=1995.96,dropped=38,burst_over20=567 [first_frame 9.11 burst_end 1995.96 p90_render 2.5]; settings-scroll NOT dropped=44,burst_over20=1450 [first_frame 22.88 p90_render 4.05]; apps-grid NOT dropped=521,burst_over20=139 [first_frame 8.41 p90_render 2.94]; home-widgets NOT dropped=1205,burst_over20=1949 [first_frame 7.41 p90_render 2.45] (surfaces home-dpad,quick,picker,toast,settings-scroll,apps-grid,home-widgets, 3 cycles; /tmp/lumatv-tv-out/frames-120.json)
+GATE refresh: measured hz 120 divider 1 shell 120 over 10 s: OSD flips/s 100.2, DE2VSYNC/s 100.8, osd_irq/s 100.2; compositor: "intervals":{"more":240,"one":158062,"three":52,"two":2623,"worst_ms":1000.905} "frames":{"late":1376,"lost":3795,"missed":117,"n":160977} "pipeline_ms":{"max":28.5729,"p50":3.75,"p99":14.0} flips/s 98.53149022228624; mali busy 14.4 %; temperature 57; slides (steps/ms/for): none
+GATE refresh: measured hz 60 divider 2 shell 60 over 5 s: OSD flips/s 50.2, DE2VSYNC/s 101.4, osd_irq/s 100.4; compositor: "intervals":{"more":0,"one":352,"three":0,"two":0,"worst_ms":20.036} "frames":{"late":0,"lost":0,"missed":0,"n":352} "pipeline_ms":{"max":9.0718,"p50":2.5,"p99":7.25} flips/s 49.95491248924048; mali busy 9.8 %; temperature 57; slides (steps/ms/for): none
+GATE wake (frames): measured tick p50 0.01 p99 0.04 max 0.70 ms (n 168401); flip p50 0.02 p99 0.05 max 0.71 ms (n 159888); input p50 0.02 p99 0.04 max 0.12 ms (n 3502); tick waited on a busy loop p50 0.14 p99 3.58 max 12.20 ms (n 3358)
+GATE mem: measured rss 173584 KiB, locked 787540 KiB, swapped 0 KiB, malloc mmapped blocks 0; lock: locked what is touched (MCL_CURRENT|MCL_FUTURE|MCL_ONFAULT) in 5.8 ms; VmRSS 17 MiB, MemAvailable 938 MiB, RLIMIT_MEMLOCK 64 KiB, CAP_IPC_LOCK yes; the process's limit on locked memory: 65536 65536 bytes ; set: MemAvailable 405 MiB, CmaFree 3 MiB, swap in use 599 MiB

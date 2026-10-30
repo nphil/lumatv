@@ -43,3 +43,8 @@
 03:38:26 shot mq-i3
 03:38:36 shot mq-bazarr
 03:38:47 shot mq-bazarr-test
+05:08:49 shot m2-after
+05:09:25 shot popup-home-a
+05:10:02 shot popup-home-b1
+05:10:06 shot popup-home-b2
+05:10:51 shot full-home

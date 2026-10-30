@@ -2,7 +2,8 @@
 
 ## Resume here
 
-- Installed: forge 5afc7e41 (worktree `/tmp/lumatv-r22`, staged as `/data/home/tmp/lumatv-next`; build script `/tmp/r22-build/build22.sh`). LumaTV compositor persistent and live, helper running, Smart home listener on (6054, HA's LumaShow entry connected).
+- Installed now: forge 2138070f (second install, 04:14; 5afc7e41 was the first). Weather redesign 740048bf is NOT installed yet: rebuild from HEAD, install, run docs/research/weather-redesign-result.md 'TV check (round 22)'.
+- First install: forge 5afc7e41 (worktree `/tmp/lumatv-r22`, staged as `/data/home/tmp/lumatv-next`; build script `/tmp/r22-build/build22.sh`). LumaTV compositor persistent and live, helper running, Smart home listener on (6054, HA's LumaShow entry connected).
 - Newer commits (21a560e3 video windows in UI px, e81474d6 sub window) are not installed yet; rebuild and reinstall when Frames120 pushes or at 05:00, then run CameraPopup's A2/A3 and D1, SubWindow's M2, and the frames gate at 60 and 120 Hz.
 - Marquee 0.9.3: done (below). The receiver stays muted until the end of the night; unmute to 0.52 at the end.
 - Changed on the set for the night, to put back at the end: picture backlight (filmMaker/default) 0, original 80 (the 68 seen at the start was the OLED care dim in progress); `/var/lib/lumatv/helper.json` gained `cameras.testEvents` true (original kept as `helper.json.before-r22`).
@@ -38,3 +39,16 @@
 | 30 opens and closes | pass: 30 of 30 reached the foreground, Home came back, each close logged `egl exit: unbound=1 surface ... destroyed=true context ... destroyed=true`, 0 crashes (`marquee-30-cycles.log`; the crash log grows 94 bytes per start, build ids only) |
 
 Remote keys: `kb.py` presses did not reach Marquee under LumaTV's compositor (the Rust shell took them fine); `ctl key <evdev code>` did (UP 103, DOWN 108, LEFT 105, RIGHT 106, OK 28, BACK 412), so the Marquee walk used that.
+
+## Round 2 on forge 2138070f (installed 04:14: 21a560e3 video windows in UI px, e81474d6 sub window, 9e100ea4 and 85ac5a6d frames)
+
+| Check | Result |
+|---|---|
+| Frames gate 60 Hz `--only frames --frames-quick` | FAIL: dropped 0 everywhere but apps-grid 1; burst_over20 home-dpad 2, quick 8, picker 5, settings-scroll 10, apps-grid 1, home-widgets 0; toast burst_end 1999 ms (`gate/frames60q-verdict.txt`) |
+| Frames gate 120 Hz | FAIL: dropped home-dpad 169, quick 33, picker 39, toast 38, settings-scroll 44, apps-grid 521, home-widgets (idle Home) 1205; burst_over20 567 to 1949 (`gate/frames120q-verdict.txt`) |
+| A2 pop-up window | pass: claim camera-popup 1348,145 520x292, sink MAIN displayOutput 2696,290,1040,584 (the claim twice), fullScreen false |
+| A3 picture in the card's box | pass: the camera's picture is in the box over Home (`popup-home-a.png`, `popup-home-b2.png`); POST to `video true` 0.98 s (250 ms polling) |
+| A4 stream | first picture 151 to 293 ms; 26.4 to 26.8 pictures a second against 25 declared; no `placed again` line, `replaced` empty |
+| D1 full view over Home | pass: claim cameras-full 0,0 1920x1080, sink displayOutput 0,0,3840,2160, fullScreen true, `replaced` empty, no `placed again`; first picture 152 ms; Back returns to Home with no claim (`full-home.png`) |
+| Dock with the Marquee icon | `dock-marquee.png` |
+| M2 sub window (SubWindow's script) | the sub sink was asked for once (`current [2:MainVideo], new [4:SubVideo]`) and videooutputd put the connect back on MAIN (`videoSinkType main_video`); SUB0 never connected; files in `docs/research/multiview/tv-2026-10-30/m2/` |

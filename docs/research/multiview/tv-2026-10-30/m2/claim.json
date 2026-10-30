@@ -1,0 +1,1 @@
+{"claim":{"app":"org.nphil.lumatv.cameras","id":"m2","kind":"pip","limits":{"fps":30,"h":1088,"w":1920},"need":{"codec":"h264","fps":30,"h":720,"w":1280},"placed":true,"reason":"","rect":{"h":315,"w":560,"x":1300,"y":60},"sink":null,"slot":"sub","state":"granted","text":"","texture":false,"wide":false,"window":8},"ok":true}
