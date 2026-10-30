@@ -295,7 +295,14 @@ impl Check {
                     };
                     match band(hz) {
                         Some(120) => return Ok(Step::Done(Outcome::Already(hz))),
-                        Some(_) => self.phase = Phase::AwaitClosed(now),
+                        Some(_) => {
+                            let connected = panel.window_connected()?;
+                            crate::log_info!(
+                                "frame rate: Home measures {hz:.1} Hz{}",
+                                if connected { "; a source is still connected to the main window, waiting for it to close" } else { "; no source connected" }
+                            );
+                            self.phase = Phase::AwaitClosed(now);
+                        }
                         None => return Ok(self.unsettled(hz)),
                     }
                 }
