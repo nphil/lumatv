@@ -500,6 +500,7 @@ fn offered(verb: &str, ctl: &[String]) -> bool {
 
 /// The tile of one shared entity: `ent` is what is known of it (`None`: Home Assistant no longer shares it), `ctl` the services Home
 /// Assistant lets the TV call on it now (empty: shown, not controlled).
+#[allow(clippy::too_many_arguments)] // one tile is made of exactly these: who, what is known, what may be done, how it reads
 pub fn tile(id: &str, name: Option<&str>, area: Option<&str>, ent: Option<&Ent>, ctl: &[String], ctl_pin: &[String], unit: &str, reach: Reach) -> Value {
     let domain = domain_of(id).unwrap_or("");
     let group = Group::of_domain(domain);

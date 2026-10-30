@@ -450,13 +450,13 @@ impl Machine {
                         return done(Err(wire::words("needs_touch").into()));
                     }
                     Some(item) if call.touch => {
-                        let ok = entity.starts_with("lock.") && call.verb == "unlock" && (item.ctl_pin.iter().any(|v| *v == call.verb) || item.ctl.iter().any(|v| *v == call.verb));
+                        let ok = entity.starts_with("lock.") && call.verb == "unlock" && (item.ctl_pin.contains(&call.verb) || item.ctl.contains(&call.verb));
                         if !ok {
                             drop(shared);
                             return done(Err(wire::words("not_allowed").into()));
                         }
                     }
-                    Some(item) if item.ctl.iter().any(|v| *v == call.verb) => {}
+                    Some(item) if item.ctl.contains(&call.verb) => {}
                     Some(_) => {
                         drop(shared);
                         return done(Err(wire::words("not_allowed").into()));

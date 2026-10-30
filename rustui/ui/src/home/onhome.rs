@@ -105,6 +105,16 @@ fn glyph(kit: &mut Kit, pictures: &mut Pictures, name: &str, side: u32, colour: 
 
 // ---- the card
 
+/// One tile to paint: where, whether the inner focus is on it, its tone, its glyph and whether its thing is gone.
+struct Drawn {
+    x: f32,
+    y: f32,
+    focused: bool,
+    colour: Rgba,
+    px: Option<Vec<u8>>,
+    gone: bool,
+}
+
 pub struct OnHome {
     pub block: Words,
     art: ImageLayer,
@@ -225,7 +235,7 @@ impl OnHome {
         }
         let radius = kit.tokens.radius(Radius::Control);
         let (w, h) = (self.art.width(), self.art.height());
-        let mut drawn: Vec<(f32, f32, bool, Rgba, Option<Vec<u8>>, bool)> = Vec::new();
+        let mut drawn: Vec<Drawn> = Vec::new();
         let mut note_icon: Option<(Rgba, Option<Vec<u8>>)> = None;
         if list.is_empty() {
             let (title, sub, tone) = note_of(topic);
@@ -255,7 +265,7 @@ impl OnHome {
                 let colour = tone_colour(kit, text("tone"));
                 let (c, r) = (s % self.cols, s / self.cols);
                 let px = glyph(kit, pictures, text("icon"), self.icon_px, colour);
-                drawn.push((c as f32 * (self.tile_w + GAP), self.row_top + r as f32 * (self.tile_h + GAP), inner == Some(index), colour, px, t.get("available").and_then(Value::as_bool) == Some(false)));
+                drawn.push(Drawn { x: c as f32 * (self.tile_w + GAP), y: self.row_top + r as f32 * (self.tile_h + GAP), focused: inner == Some(index), colour, px, gone: t.get("available").and_then(Value::as_bool) == Some(false) });
             }
         }
         let refs: Vec<(usize, &str, Rgba)> = changes.iter().map(|(i, s, c)| (*i, s.as_str(), *c)).collect();
@@ -267,7 +277,7 @@ impl OnHome {
         {
             let mut canvas = Canvas { px: self.art.pixels_mut(), w, h };
             let (tw, th) = (self.tile_w, self.tile_h);
-            for (x, y, focused, colour, px, gone) in &drawn {
+            for Drawn { x, y, focused, colour, px, gone } in &drawn {
                 canvas.rounded(Frame::new(*x, *y, tw, th), radius, if *focused { lit } else { plate_colour });
                 canvas.disc(x + 14.0 + self.disc / 2.0, y + th / 2.0, self.disc / 2.0, faded(*colour, if *gone { 0.12 } else { 0.22 }));
                 if let Some(px) = px {

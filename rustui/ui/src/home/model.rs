@@ -995,15 +995,13 @@ impl Home {
                     _ => {}
                 }
             }
-            ONHOME_TAG => {
-                if status != 200 {
-                    let words = data.pointer("/error/message").and_then(Value::as_str).filter(|w| !w.is_empty()).unwrap_or("Home Assistant did not do that").to_owned();
-                    self.onhome_said = Some((words.clone(), self.now + 4000));
-                    if let Some(sheet) = self.sheet.as_mut() {
-                        sheet.say(&words, self.now);
-                    }
-                    self.redraw(out);
+            ONHOME_TAG if status != 200 => {
+                let words = data.pointer("/error/message").and_then(Value::as_str).filter(|w| !w.is_empty()).unwrap_or("Home Assistant did not do that").to_owned();
+                self.onhome_said = Some((words.clone(), self.now + 4000));
+                if let Some(sheet) = self.sheet.as_mut() {
+                    sheet.say(&words, self.now);
                 }
+                self.redraw(out);
             }
             _ => {}
         }
