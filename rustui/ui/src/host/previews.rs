@@ -460,8 +460,11 @@ impl Previews {
         }
         let code = data.pointer("/error/code").and_then(Value::as_str).unwrap_or("");
         match code {
-            // the helper holds that no picture is wanted: the switch it reads says off while this one says on
-            "previews_disabled" => self.parked_until = now + PARK_MS,
+            // the helper reads the owner's switch (the file) as off while this side has it on: the file was changed by another hand
+            "previews_disabled" => {
+                self.parked_until = now + PARK_MS;
+                out.extend(self.helper_says_off());
+            }
             // a moment ago, or one at a time: the same ask again shortly
             "too_soon" | "busy" => {
                 if live_now {
@@ -497,6 +500,7 @@ impl Previews {
             // the helper reads the owner's switch as off; this side reads it as on: not asked again for a while
             if self.on {
                 self.parked_until = now + PARK_MS;
+                return self.helper_says_off();
             }
             return Vec::new();
         }
@@ -513,6 +517,14 @@ impl Previews {
         self.index = index;
         let want: Vec<(String, u64)> = self.index.iter().map(|(k, a)| (k.clone(), *a)).collect();
         want.into_iter().flat_map(|(k, a)| self.fetch_picture(&k, a)).collect()
+    }
+
+    /// The helper keeps and serves nothing while the switch it reads (theme.json) is off: nothing is shown here either, whatever this side
+    /// last read of the theme.
+    fn helper_says_off(&mut self) -> Vec<Effect> {
+        let had = !self.pics.is_empty() || !self.held.is_empty() || !self.index.is_empty();
+        self.forget_all();
+        if had { vec![Effect::Redraw] } else { Vec::new() }
     }
 
     /// A picture's bytes came back. Returns whether a tile's picture is another now (not while the picker is not calm: then the bytes wait).
@@ -1145,5 +1157,27 @@ mod tests {
 
     fn asked_key(path: &str) -> String {
         path.trim_start_matches("/v1/previews/").to_owned()
+    }
+
+    #[test]
+    fn a_helper_that_reads_the_switch_as_off_makes_the_model_forget_its_pictures_and_ask_nothing_for_a_minute() {
+        for via_capture in [true, false] {
+            let mut p = up();
+            p.opened(&facts(HDMI2, false), 100);
+            let fx = answer(&mut p, 200, ok_at(150), 200);
+            assert!(deliver(&mut p, &fx, bmp(8, 8, [1, 1, 1]), 5000), "a picture is held");
+            assert_eq!(p.held.len(), 1);
+            let fx = if via_capture {
+                assert_eq!(posts(&tick(&mut p, 5_600)), vec![("hdmi2".to_owned(), "live".to_owned())]);
+                answer(&mut p, 403, fail("previews_disabled"), 5_700)
+            } else {
+                let doc = json!({"ok": true, "previews": {"enabled": false, "items": {}}});
+                p.update(&Input::Fetched { tag: tags::INDEX, status: 200, data: doc }, &facts(HDMI2, false), true, 5_700).0
+            };
+            assert!(fx.iter().any(|e| matches!(e, Effect::Redraw)), "the tiles are drawn again without the picture (capture: {via_capture})");
+            assert!(p.held.is_empty() && p.pics.is_empty() && p.index.is_empty(), "nothing is shown or kept (capture: {via_capture})");
+            assert_eq!(p.parked_until, 5_700 + PARK_MS);
+            assert!(!p.can_ask(5_700 + PARK_MS - 1) && p.can_ask(5_700 + PARK_MS));
+        }
     }
 }

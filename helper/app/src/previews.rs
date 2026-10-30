@@ -457,6 +457,27 @@ impl Previews {
             != Some(false)
     }
 
+    /// Whether the owner's switch is off. The first request that finds it so lets go of what was kept (a switch changed by hand, or by
+    /// anything but the shell, which deletes as it turns it off, leaves nothing behind).
+    fn off(&self) -> bool {
+        if self.enabled() {
+            return false;
+        }
+        let held = {
+            let mut state = self.state.lock();
+            self.load(&mut state);
+            !state.shots.is_empty()
+        };
+        let files = fs::read_dir(&self.dir).is_ok_and(|l| {
+            l.flatten()
+                .any(|e| e.file_name().to_string_lossy().ends_with(".jpg"))
+        });
+        if held || files {
+            self.clear(None);
+        }
+        true
+    }
+
     fn index_file(&self) -> PathBuf {
         self.dir.join("index.json")
     }
@@ -602,7 +623,7 @@ impl Previews {
     }
 
     fn status(&self) -> Response {
-        let enabled = self.enabled();
+        let enabled = !self.off();
         let mut state = self.state.lock();
         self.load(&mut state);
         let items: serde_json::Map<String, Value> = state
@@ -637,7 +658,7 @@ impl Previews {
         if !key_ok(key) {
             return error_response(404, "no_picture", "there is no such input");
         }
-        if !self.enabled() {
+        if self.off() {
             return error_response(
                 403,
                 "previews_disabled",
@@ -677,7 +698,7 @@ impl Previews {
                 "key is livetv or hdmi1 to hdmi9; why is live, open, arrive, periodic, leaving or standby",
             );
         };
-        if !self.enabled() {
+        if self.off() {
             return error_response(
                 403,
                 "previews_disabled",
@@ -1221,9 +1242,9 @@ mod tests {
         let status = json_of(&call(&r, "GET", &[], ""));
         assert_eq!(status["previews"]["enabled"], false);
         assert_eq!(status["previews"]["items"], json!({}));
-        // deleting is always allowed
-        assert_eq!(json_of(&call(&r, "DELETE", &[], ""))["cleared"], 1);
+        // the first request that found it off let go of what was kept, and deleting is always allowed
         assert!(!r.dir.path().join("previews").join("hdmi1.jpg").exists());
+        assert_eq!(json_of(&call(&r, "DELETE", &[], ""))["cleared"], 0);
         // a theme without the key, or on, is on
         theme(&r, r#"{"inputs": {"hdmi1": "always"}}"#);
         assert_eq!(shoot(&r, "hdmi1", "open").status, 200);
@@ -1567,13 +1588,20 @@ mod tests {
     }
 
     #[test]
-    fn every_reason_but_live_goes_to_the_flash_when_it_is_taken_and_an_input_going_from_the_front_is_one() {
+    fn every_reason_but_live_goes_to_the_flash_when_it_is_taken_and_an_input_going_from_the_front_is_one()
+     {
         let r = rig();
         for why in ["open", "arrive", "periodic", "leaving", "standby"] {
             let b = json_of(&shoot(&r, "hdmi3", why));
             assert_eq!(b["saved"], true, "{why}");
-            let on_flash: Value = serde_json::from_slice(&fs::read(r.dir.path().join("previews/index.json")).unwrap()).unwrap();
-            assert_eq!(on_flash["items"]["hdmi3"]["at"], b["at"], "{why}: the flash has this one");
+            let on_flash: Value = serde_json::from_slice(
+                &fs::read(r.dir.path().join("previews/index.json")).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(
+                on_flash["items"]["hdmi3"]["at"], b["at"],
+                "{why}: the flash has this one"
+            );
         }
         let stats = &json_of(&call(&r, "GET", &[], ""))["previews"]["stats"];
         assert_eq!(stats["last"]["why"], "standby");
