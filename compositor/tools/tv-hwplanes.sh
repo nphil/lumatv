@@ -10,7 +10,9 @@
 #   hwplanes.sh afbc                         A1/A2: what the plane and the GPU list, the pages' layout, the registers, a frame time reading
 #   hwplanes.sh layout on|off|alpha-on|alpha-off   A3: the page layout switched while running (afbc on|off, pagealpha on|off), the ring converted one page per frame
 #   hwplanes.sh shot NAME                    LG's DISPLAY and VIDEO captures to out/hwplanes/NAME-display.png and NAME-video.png
-#   hwplanes.sh feeder CLIP SIZE CODEC FPS SECS [APP]   the feeder in a video window, in the background (V2 to V7); one per APP id (default the Cameras app's)
+#   hwplanes.sh feeder CLIP SIZE CODEC FPS SECS [APP [NDLAPP]]   the feeder in a video window, in the background (V2 to V7); one per APP id (default the Cameras
+#                                            app's). NDLAPP is the app id its decoder is opened for (--ndl-app): LG's video path connects a video only for
+#                                            an app on SAM's foreground list, so com.webos.app.home shows over Home where the window's own id does not
 #   hwplanes.sh vwin                         the claims, the windows, the sinks videooutputd reports
 #   hwplanes.sh sizes                        V6: a claim moved through sizes from 114x64 to full screen, a capture each
 #   hwplanes.sh stop                         kill the feeder, release every claim, vwin off, pointer gpu
@@ -149,14 +151,14 @@ step_shot() {
 }
 
 step_feeder() {
-    clip=$1; size=$2; codec=$3; fps=$4; secs=$5; app=${6:-$APP}
+    clip=$1; size=$2; codec=$3; fps=$4; secs=$5; app=${6:-$APP}; ndl=${7:-}
     [ -x $FEEDER ] || { say "no $FEEDER: upload gfn/feeder/build/arm/lumatv-gfn-feeder (tv_hwplanes.py put-feeder)"; exit 1; }
     [ -f "$clip" ] || { say "no clip $clip (tv_hwplanes.py put-clip)"; exit 1; }
     # only the feeder of this app id is replaced: V7 runs two, each with an id of its own
     pkill -f "lumatv-gfn-feeder.* -a $app( |\$)" 2> /dev/null
     sleep 0.5
-    XDG_RUNTIME_DIR=$RT WAYLAND_DISPLAY=wayland-0 $FEEDER --play "$clip" --size "$size" --codec "$codec" --fps "$fps" --seconds "$secs" --loop -w video -a "$app" --stats $OUT/feeder-$app.jsonl > $OUT/feeder-$app.log 2>&1 &
-    say "feeder started: pid $! ($clip $size $codec at $fps for $secs s, window type video, app $app); log out/hwplanes/feeder-$app.log"
+    XDG_RUNTIME_DIR=$RT WAYLAND_DISPLAY=wayland-0 $FEEDER --play "$clip" --size "$size" --codec "$codec" --fps "$fps" --seconds "$secs" --loop -w video -a "$app" ${ndl:+--ndl-app "$ndl"} --stats $OUT/feeder-$app.jsonl > $OUT/feeder-$app.log 2>&1 &
+    say "feeder started: pid $! ($clip $size $codec at $fps for $secs s, window type video, app $app${ndl:+, decoder opened for $ndl}); log out/hwplanes/feeder-$app.log"
 }
 
 step_vwin() {

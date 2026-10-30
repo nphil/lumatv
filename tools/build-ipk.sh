@@ -122,6 +122,9 @@ vplane/build/arm/lumatv-vplane
 payload/vplane/vplane.sh
 payload/vplane/role.json
 payload/vplane/clips/index.json
+gfn/feeder/build/arm/lumatv-gfn-feeder
+payload/feeder/feeder.sh
+payload/feeder/role.json
 tools/cardapp.sh
 tools/gfnapp.sh
 gfn/build/${GFN_ID}_${GFN_VERSION}_all.ipk
@@ -186,6 +189,12 @@ if [ -n "$MISSING" ]; then
         *vplane/build/arm/lumatv-vplane*)
             # Git-ignored like the helper; the art saver would keep drawing its own picture and say nothing.
             echo "The 32-bit video-plane player is built by vplane/build.sh (zig); this package is not built without it." >&2
+            ;;
+    esac
+    case "$MISSING" in
+        *gfn/feeder/build/arm/lumatv-gfn-feeder*)
+            # Git-ignored like the helper; the cameras' live picture would have no program and the helper would say so in its log only.
+            echo "The camera feeder is built by gfn/feeder/build.sh (zig); this package is not built without it." >&2
             ;;
     esac
     case "$MISSING" in
@@ -354,6 +363,11 @@ mkdir -p "$DATA_ROOT/payload/vplane/clips"
 cp vplane/build/arm/lumatv-vplane payload/vplane/vplane.sh payload/vplane/role.json "$DATA_ROOT/payload/vplane/"
 cp payload/vplane/clips/* "$DATA_ROOT/payload/vplane/clips/"
 chmod 755 "$DATA_ROOT/payload/vplane/lumatv-vplane" "$DATA_ROOT/payload/vplane/vplane.sh"
+# The camera feeder (32-bit, the GeForce NOW app's program too) that plays a camera's live picture on the video plane, with the LS2 role it needs and the
+# script that installs them. As for the player: the role is a permission for a new program, so only the owner's `lumatv feeder install` writes it.
+mkdir -p "$DATA_ROOT/payload/feeder"
+cp gfn/feeder/build/arm/lumatv-gfn-feeder payload/feeder/feeder.sh payload/feeder/role.json "$DATA_ROOT/payload/feeder/"
+chmod 755 "$DATA_ROOT/payload/feeder/lumatv-gfn-feeder" "$DATA_ROOT/payload/feeder/feeder.sh"
 mkdir -p "$DATA_ROOT/payload/frame"
 cp "$BUILD_DIR/frame-ipk/$APP_ID.frame.ipk" "$DATA_ROOT/payload/frame/"
 mkdir -p "$DATA_ROOT/payload/card"
