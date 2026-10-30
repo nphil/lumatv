@@ -1378,7 +1378,11 @@ video)
         ctl note video-overlay-$k > /dev/null
         ctl refresh reset > /dev/null
         g0=$(rust_gl_errors); c0=$(cpu_ticks "${vs_pid:-self}"); d0=$(rust_drawn); f0=$(fb_flips)
-        v_path=$(rust_path $k); t0=$(uptime_cs); first=""
+        v_path=$(rust_path $k); first=""
+        # (a note in the ring right before the trigger: `tv-ringflips.py RING video-trigger-KIND` dates the first flip from it, to the millisecond, where `first`
+        # below is a poll of the shell's own report)
+        ctl note video-trigger-$k > /dev/null
+        t0=$(uptime_cs)
         rust_trigger $k
         while [ $(( $(uptime_cs) - t0 )) -lt $((RUST_OPEN * 100)) ]; do
             if rust_is_open $k "$(rust_get $v_path)"; then first=$((($(uptime_cs) - t0) * 10)); break; fi
