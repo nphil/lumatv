@@ -109,7 +109,7 @@ case "$*" in
 esac
 '''
 STATUS_OK = {"ok": True, "pageFormat": "AR24", "videoHolesOpaque": False, "stats": {"drawn": 100}}
-REFRESH_OK = {"ok": True, "hz": 60, "measure": {"intervals": {"one": 100, "two": 0, "three": 0, "more": 0, "worst_ms": 16.9}, "runs": {"n": 1, "stalls": 0, "stall_worst_ms": 0.0, "gaps": 2},
+REFRESH_OK = {"ok": True, "hz": 60, "measure": {"intervals": {"one": 100, "two": 0, "three": 0, "more": 0, "worst_ms": 16.9}, "motion": {"intervals": 90, "dropped": 0, "dropped_worst_ms": 0.0},
                                                 "frames": {"late": 0, "lost": 0, "missed": 0}}}
 SHELL = {"ok": True, "rust": {"connected": True, "kinds": ["osd"], "ui": {"kinds": ["osd", "quick"], "osd": True, "panels": {"quick": "open"}}}}
 
@@ -179,24 +179,24 @@ class Video(Fixture):
         self.env["LUMATV_VIDEO_MAX_FPS"] = "0.5"
         self.assertTrue(self.run_video().startswith("GATE video-current: PASS"))
 
-    def test_an_overlay_that_stalls_inside_its_motion_fails_it_by_name_with_the_worst_stall(self):
+    def test_an_overlay_that_drops_frames_of_its_motion_fails_it_by_name_with_the_worst_gap(self):
         hurt = json.loads(json.dumps(REFRESH_OK))
-        hurt["measure"]["runs"] = {"n": 1, "stalls": 4, "stall_worst_ms": 50.0, "gaps": 2}
+        hurt["measure"]["motion"] = {"intervals": 40, "dropped": 4, "dropped_worst_ms": 50.0}
         hurt["measure"]["frames"] = {"late": 4, "lost": 4, "missed": 3}
         self.ctl_reply("refresh", hurt)
         out = self.run_video()
         self.assertTrue(out.startswith("GATE video-current: FAIL"), out)
-        self.assertIn("osd's open had 4 frame stalls over 20 ms (worst 50.0 ms)", out)
+        self.assertIn("osd's open dropped 4 frames of its motion (over 20 ms after a frame of a running animation, worst 50.0 ms)", out)
         self.assertIn("frames late 4 lost 4 missed 3", out)
 
-    def test_the_video_apps_own_gaps_are_intervals_over_20_ms_but_no_stall(self):
+    def test_the_video_apps_own_gaps_are_intervals_over_20_ms_but_drop_nothing(self):
         idle = json.loads(json.dumps(REFRESH_OK))
         idle["measure"]["intervals"] = {"one": 0, "two": 0, "three": 0, "more": 8, "worst_ms": 560.0}
-        idle["measure"]["runs"] = {"n": 0, "stalls": 0, "stall_worst_ms": 0.0, "gaps": 8}
+        idle["measure"]["motion"] = {"intervals": 0, "dropped": 0, "dropped_worst_ms": 0.0}
         self.ctl_reply("refresh", idle)
         out = self.run_video()
         self.assertTrue(out.startswith("GATE video-current: PASS"), out)
-        self.assertIn("frame stalls over 20 ms 0 (worst 0.0 ms; 8 intervals over 20 ms counting the video's own gaps)", out)
+        self.assertIn("animation frames dropped 0 (worst 0.0 ms; 8 intervals over 20 ms counting the video's own gaps)", out)
 
     def test_each_overlays_flips_ring_and_wake_latencies_are_kept_with_the_evidence(self):
         self.ctl_reply("ring 1500", {"ok": True, "lines": ["1.000 L flip 1.000 +16.7 ms: frame 5.0 ms (gpu done), late 0 lost 0"]})

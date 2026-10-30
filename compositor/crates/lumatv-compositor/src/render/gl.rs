@@ -486,6 +486,18 @@ impl Gl {
         }
     }
 
+    /// Whether an animation of the engine's runs after the frame just drawn: the next frame is due at the next refresh.
+    pub fn ui_animating(&self) -> bool {
+        #[cfg(feature = "ui")]
+        {
+            self.ui.as_ref().is_some_and(|ui| ui.animating())
+        }
+        #[cfg(not(feature = "ui"))]
+        {
+            false
+        }
+    }
+
     /// Ends the planned UI frame without drawing it (the window below is scanned out directly, and nothing of the UI
     /// shows): the app still gets its receipt when that frame reaches the panel.
     pub fn skip_ui_frame(&mut self) -> io::Result<()> {

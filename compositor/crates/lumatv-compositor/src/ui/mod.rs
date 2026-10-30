@@ -139,6 +139,11 @@ impl Ui {
             }
     }
 
+    /// Whether an animation of the engine runs, so that the frame after this one is due at the next refresh (the demand at every refresh).
+    pub fn animating(&self) -> bool {
+        matches!(self.engine.demand(), Demand::EveryRefresh)
+    }
+
     /// A tick with no frame due: the commits that show nothing by themselves (a glyph atlas made, chunks of it) are applied, and
     /// the upload work they leave is done now (`tidy_more` only says what the last tidy left over), then a round of housekeeping
     /// while there is any left. What they change asks for a frame through [`Ui::wants_frame`]. Nothing enters the context when

@@ -147,6 +147,8 @@ fn a_launch_and_a_return_are_a_card_growing_out_of_its_tile_over_the_rust_home_a
         worst = worst.max(black(&img, true));
         if step == 0 {
             assert!(rig.server.eval(|s| s.scene.transitions.stats.launches == 1 && s.scene.transitions.holds_home()), "a launch is moving and Home is held");
+            let plan = rig.server.eval(|s| (s.scene.last_plan().animating, s.scene.last_plan().home_hidden));
+            assert_eq!(plan, (true, false), "the card is moving: the next frame is due at the next refresh, and Home is drawn under it");
             let topic = rig.server.eval(|s| s.shell_topic_values().into_iter().find(|(n, _)| n == "foreground").map(|(_, v)| v));
             let topic = topic.expect("the foreground topic");
             assert_eq!((topic["home"].as_bool(), topic["covered"].as_bool()), (Some(true), Some(false)), "{topic}");
@@ -156,6 +158,7 @@ fn a_launch_and_a_return_are_a_card_growing_out_of_its_tile_over_the_rust_home_a
     let settled = tick(&rig.server, t0 + 400 * MS);
     assert_eq!(settled.pixel(960, 540)[..3], [0xd0, 0x40, 0x40]);
     assert!(rig.server.eval(|s| !s.scene.transitions.holds_home()), "the card is whole: Home is covered now");
+    assert_eq!(rig.server.eval(|s| (s.scene.last_plan().animating, s.scene.last_plan().home_hidden)), (false, true), "nothing moves and Home is not drawn");
 
     // the app goes: its last picture shrinks into the tile over Home, which is under it from the first frame
     win.surface.destroy();

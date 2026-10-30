@@ -350,6 +350,9 @@ pub struct Plan {
     /// The Rust Home (the engine's stack 0) is under a window that covers the output and nothing moves: nothing of it can be seen, so the frame
     /// does not draw it (and its changes owe nothing): what an overlay over a playing video asked the GPU for was Home's 70-odd layers again.
     pub home_hidden: bool,
+    /// A transition is moving or fading at the plan's time (the engine's own animations are asked of it: `Gl::ui_animating`): the frame after this
+    /// one is due at the next refresh.
+    pub animating: bool,
 }
 
 impl Plan {
@@ -421,6 +424,7 @@ impl Plan {
         self.content_ns = None;
         self.video = false;
         self.home_hidden = false;
+        self.animating = false;
         if let Some(t) = &mut self.tiles {
             t.clear();
         }
@@ -1228,6 +1232,7 @@ impl Scene {
         // Home is hidden for the frames in which an app's card has covered it and nothing is in transition (a launch and a return draw it as the
         // underlay, and a frame that finds it back draws it whole: `Gl::set_home_hidden`).
         self.plan.home_hidden = self.home_rust && !self.transitions.active() && self.home_covered_in(surfaces);
+        self.plan.animating = self.transitions.animating(now_ns);
         for h in &self.holes {
             let Some(before) = self.plan.items.iter().position(|i| i.surface == h.surface) else { continue };
             let item = &self.plan.items[before];

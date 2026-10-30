@@ -195,24 +195,16 @@ pub struct Measure {
     pub lost: u64,
     pub missed: u64,
     pub pipeline: Histogram,
-    /// Runs of flips (each at most [`RUN_GAP_NS`] after the last) that ended with [`RUN_MIN`] flips or more, the idle gaps between runs, and the
-    /// intervals over [`STALL_NS`] inside those runs: a motion that missed a refresh. The run still going is counted by [`Measure::runs`].
-    runs_done: u64,
-    gaps: u64,
-    stalls_done: u64,
-    stall_worst_done_ns: u64,
-    run_flips: u32,
-    run_stalls: u32,
-    run_worst_ns: u64,
+    /// The flips that followed a frame with an animation still running after it ([`Measure::motion`]), the ones of them over [`STALL_NS`]
+    /// (refreshes the motion missed) and the worst of those.
+    motion_intervals: u64,
+    motion_dropped: u64,
+    motion_worst_ns: u64,
 }
 
-/// An interval over this ends a run of frames: the gaps between a video app's own commits (about half a second apart) and a toast's hold are over
-/// it; the frames of a motion, and a stall inside one, are under it.
-pub const RUN_GAP_NS: u64 = 250_000_000;
-/// The frame rule of the PLAN (`GAP_LIMIT_MS` of the gate): an interval over this inside a run is a stall.
+/// The frame rule of the PLAN (`GAP_LIMIT_MS` of the gate): a flip later than this after the one of a frame that had an animation running after
+/// it is a refresh the motion missed.
 pub const STALL_NS: u64 = 20_000_000;
-/// Flips a run needs to count as a motion: two are a pair (an app's commit and the frame after it), which no stall belongs to.
-pub const RUN_MIN: u32 = 3;
 
 impl Measure {
     /// A flip `interval_ns` after the last (0 for the first) at a `period_ns` refresh.
@@ -223,7 +215,6 @@ impl Measure {
         self.last_ns = now_ns;
         self.flips += 1;
         if interval_ns == 0 {
-            self.run_flips = 1;
             return;
         }
         let refreshes = (interval_ns + period_ns / 2) / period_ns.max(1);
@@ -234,38 +225,21 @@ impl Measure {
             _ => self.more += 1,
         }
         self.worst_interval_ns = self.worst_interval_ns.max(interval_ns);
-        if interval_ns > RUN_GAP_NS {
-            self.close_run();
-            self.gaps += 1;
-            self.run_flips = 1;
-        } else {
-            self.run_flips += 1;
-            if interval_ns > STALL_NS {
-                self.run_stalls += 1;
-                self.run_worst_ns = self.run_worst_ns.max(interval_ns);
-            }
-        }
     }
 
-    /// The run that ended is counted when it was a motion (a pair or a lone flip is not one).
-    fn close_run(&mut self) {
-        if self.run_flips >= RUN_MIN {
-            self.runs_done += 1;
-            self.stalls_done += self.run_stalls as u64;
-            self.stall_worst_done_ns = self.stall_worst_done_ns.max(self.run_worst_ns);
+    /// A flip `interval_ns` after the last, whose frame was drawn `was_animating` (an animation of the scene or the engine ran after it, so
+    /// that the frame after it was due at the next refresh). Only the flips that follow such a frame are judged: a gap after a still screen
+    /// (a video app's own commits, a toast's hold) or between the phases of a motion (the glass's rest before it settles) is no frame missed,
+    /// and an interval over [`STALL_NS`] after a frame of a running animation is.
+    pub fn motion(&mut self, interval_ns: u64, was_animating: bool) {
+        if !was_animating || interval_ns == 0 {
+            return;
         }
-        self.run_flips = 0;
-        self.run_stalls = 0;
-        self.run_worst_ns = 0;
-    }
-
-    /// The motions the flips made: `(runs, stalls, the worst stall in ns)`, the run that is still going included. A stall is an interval over
-    /// [`STALL_NS`] between two flips of one run of [`RUN_MIN`] flips or more; the gaps between runs (the idle cadence of a video app's own
-    /// commits, a hold) are none, so a frame rule that is read here is not failed by a screen that was still.
-    pub fn runs(&self) -> (u64, u64, u64) {
-        let open = self.run_flips >= RUN_MIN;
-        let (stalls, worst) = if open { (self.run_stalls as u64, self.run_worst_ns) } else { (0, 0) };
-        (self.runs_done + open as u64, self.stalls_done + stalls, self.stall_worst_done_ns.max(worst))
+        self.motion_intervals += 1;
+        if interval_ns > STALL_NS {
+            self.motion_dropped += 1;
+            self.motion_worst_ns = self.motion_worst_ns.max(interval_ns);
+        }
     }
 
     /// A frame of ours landed: its pipeline (draw to the GPU's finish) and what the pacer said.
@@ -289,14 +263,13 @@ impl Measure {
     pub fn report(&self, period_ns: u64) -> Value {
         let ms = |ns: u64| ns as f64 / 1e6;
         let pct = |p: u32| self.pipeline.percentile_ns(p).map(ms);
-        let (runs, stalls, stall_worst) = self.runs();
         json!({
             "period_ms": ms(period_ns),
             "seconds": (self.last_ns.saturating_sub(self.since_ns)) as f64 / 1e9,
             "flips": self.flips,
             "flips_per_second": self.rate_hz(),
             "intervals": {"one": self.one, "two": self.two, "three": self.three, "more": self.more, "worst_ms": ms(self.worst_interval_ns)},
-            "runs": {"n": runs, "stalls": stalls, "stall_worst_ms": ms(stall_worst), "gaps": self.gaps},
+            "motion": {"intervals": self.motion_intervals, "dropped": self.motion_dropped, "dropped_worst_ms": ms(self.motion_worst_ns)},
             "frames": {"n": self.frames, "late": self.late, "lost": self.lost, "missed": self.missed},
             "pipeline_ms": {"p50": pct(50), "p99": pct(99), "max": (self.pipeline.n() > 0).then(|| ms(self.pipeline.max_ns()))},
         })
@@ -304,91 +277,69 @@ impl Measure {
 }
 
 #[cfg(test)]
-mod run_tests {
+mod motion_tests {
     use super::*;
 
-    const P60: u64 = 16_666_667;
     const MS: u64 = 1_000_000;
 
-    /// Flips at the given intervals (ms) after a first flip at 1 s, as `FlipTiming::landed` feeds them.
-    fn feed(m: &mut Measure, intervals_ms: &[u64]) {
-        let mut t = 1_000 * MS;
-        for &i in intervals_ms {
-            t += i * MS;
-            m.flip(t, i * MS, P60);
+    fn report(m: &Measure) -> (u64, u64, f64) {
+        let r = m.report(16_666_667);
+        (r["motion"]["intervals"].as_u64().unwrap(), r["motion"]["dropped"].as_u64().unwrap(), r["motion"]["dropped_worst_ms"].as_f64().unwrap())
+    }
+
+    #[test]
+    fn a_video_apps_own_gaps_and_a_holds_are_judged_by_no_animation_and_drop_nothing() {
+        let mut m = Measure::default();
+        // the flips of a still screen: each one's frame had nothing running after it
+        for gap in [550, 520, 540, 33, 560, 1000] {
+            m.motion(gap * MS, false);
         }
+        assert_eq!(report(&m), (0, 0, 0.0));
     }
 
     #[test]
-    fn a_video_apps_own_cadence_is_gaps_and_no_stall() {
+    fn the_pause_between_the_phases_of_a_motion_is_no_drop_because_the_slide_ended_before_it() {
         let mut m = Measure::default();
-        feed(&mut m, &[550, 520, 540, 560, 500, 530]);
-        assert_eq!(m.runs(), (0, 0, 0));
-        assert_eq!(m.report(P60)["runs"]["gaps"], 6);
-        // the old buckets still call every one of them an interval over 20 ms
-        assert_eq!(m.more, 6);
-    }
-
-    #[test]
-    fn an_idle_pair_is_not_a_motion() {
-        let mut m = Measure::default();
-        feed(&mut m, &[600, 33, 600, 20, 600]);
-        assert_eq!(m.runs(), (0, 0, 0));
-    }
-
-    #[test]
-    fn a_motion_with_a_missed_refresh_has_one_stall_and_the_gaps_around_it_are_not_stalls() {
-        let mut m = Measure::default();
-        // idle gap, 20 frames a refresh apart with one 33 ms interval in the middle, idle gap, a lone flip
-        let mut v = vec![540];
-        v.extend([17; 9]);
-        v.push(33);
-        v.extend([17; 10]);
-        v.extend([540, 540]);
-        feed(&mut m, &v);
-        let r = m.report(P60);
-        assert_eq!((r["runs"]["n"].as_u64(), r["runs"]["stalls"].as_u64(), r["runs"]["gaps"].as_u64()), (Some(1), Some(1), Some(3)));
-        assert_eq!(r["runs"]["stall_worst_ms"].as_f64().unwrap().round(), 33.0);
-    }
-
-    #[test]
-    fn a_motion_still_going_is_counted_and_a_thirty_frames_a_second_cadence_is_all_stalls() {
-        let mut m = Measure::default();
-        feed(&mut m, &[540, 33, 33, 33, 33]);
-        assert_eq!(m.runs(), (1, 4, 33 * MS));
-    }
-
-    #[test]
-    fn a_hold_between_two_motions_ends_the_first_and_starts_the_second() {
-        let mut m = Measure::default();
-        let mut v = vec![540];
-        v.extend([17; 6]);
-        v.push(1200);
-        v.extend([17; 6]);
-        feed(&mut m, &v);
-        let (runs, stalls, _) = m.runs();
-        assert_eq!((runs, stalls), (2, 0));
-    }
-
-    #[test]
-    fn at_120_hz_two_refreshes_are_not_a_stall_and_three_are() {
-        let mut m = Measure::default();
-        let p = 8_333_333;
-        let mut t = 1_000 * MS;
-        for i in [540 * MS, 8_333_333, 8_333_333, 16_666_667, 8_333_333, 25_000_000, 8_333_333] {
-            t += i;
-            m.flip(t, i, p);
+        // 8 frames of a slide a refresh apart, the last drawn with the animation over; 100 ms of nothing; the settle's frames a refresh apart
+        for _ in 0..7 {
+            m.motion(17 * MS, true);
         }
-        assert_eq!(m.runs(), (1, 1, 25 * MS));
+        m.motion(100 * MS, false);
+        for _ in 0..30 {
+            m.motion(17 * MS, true);
+        }
+        assert_eq!(report(&m), (37, 0, 0.0));
     }
 
     #[test]
-    fn a_measure_that_starts_over_forgets_the_run() {
+    fn a_flip_over_20_ms_after_a_frame_of_a_running_animation_is_a_drop_and_the_worst_is_kept() {
         let mut m = Measure::default();
-        feed(&mut m, &[540, 17, 17, 33]);
-        assert_eq!(m.runs().1, 1);
+        for gap in [17, 17, 34, 17, 67, 17] {
+            m.motion(gap * MS, true);
+        }
+        assert_eq!(report(&m), (6, 2, 67.0));
+        // exactly 20 ms is the rule's bar, not over it; a first flip (no interval) is nothing
+        m.motion(20 * MS, true);
+        m.motion(0, true);
+        assert_eq!(report(&m).1, 2);
+    }
+
+    #[test]
+    fn at_120_hz_two_refreshes_are_under_the_rule_and_three_are_over_it() {
+        let mut m = Measure::default();
+        m.motion(8_333_333, true);
+        m.motion(16_666_667, true);
+        m.motion(25_000_000, true);
+        assert_eq!(report(&m).1, 1);
+    }
+
+    #[test]
+    fn a_measure_that_starts_over_forgets_the_drops() {
+        let mut m = Measure::default();
+        m.motion(50 * MS, true);
+        assert_eq!(report(&m).1, 1);
         m = Measure::default();
-        assert_eq!(m.runs(), (0, 0, 0));
+        assert_eq!(report(&m), (0, 0, 0.0));
     }
 }
 

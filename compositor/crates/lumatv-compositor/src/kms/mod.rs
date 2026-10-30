@@ -163,6 +163,9 @@ struct Frame {
     timing: Timing,
     /// The commit carries the fence of the job that sampled the window's buffer: a direct frame that waited for its client.
     acquire: bool,
+    /// An animation was still running after this frame (a transition, or the engine's demand at every refresh): the next frame is due at the
+    /// next refresh, so a flip that comes later than that is a refresh the motion missed (`refresh::Measure::motion`).
+    animating: bool,
     #[cfg(feature = "ui")]
     ui: Option<lumatv_render::host::FrameCost>,
 }
@@ -172,6 +175,7 @@ struct Frame {
 struct InFlight {
     timing: Timing,
     fence: Option<OwnedFd>,
+    animating: bool,
     #[cfg(feature = "ui")]
     ui: Option<lumatv_render::host::FrameCost>,
 }
@@ -239,6 +243,8 @@ pub struct Kms {
     /// Flips left of the start-up trace: a new buffer prepared starts one (a client's first frames, the time the gates
     /// lose refreshes), and every tick, commit and flip until it runs out gets a `trace:` line.
     trace_left: u32,
+    /// Whether the frame of the last flip had an animation still running after it (`Frame::animating`): the interval to the next flip is judged by it.
+    last_flip_animating: bool,
     seq: u64,
     /// The OSD's vblank divider (`refresh`): written for 120 Hz, put back at 60 and at exit.
     divider: crate::refresh::Divider,
@@ -579,6 +585,7 @@ impl Kms {
             flips_reached_over_1ms: 0,
             reach_worst_ns: 0,
             trace_left: 0,
+            last_flip_animating: false,
             seq: 0,
             divider: crate::refresh::Divider::new(),
             refresh_hz: crate::refresh::DEFAULT_HZ,
@@ -727,7 +734,9 @@ impl Kms {
             mono_ns().saturating_sub(rt_ns.saturating_sub(stamp_ns))
         };
         // A flip nothing was waiting for (one taken as overdue) teaches the interval and nothing else.
+        let mut animating = false;
         let frame = self.in_flight.take().map(|flight| {
+            animating = flight.animating;
             #[cfg(feature = "ui")]
             if let Some(cost) = flight.ui {
                 self.gl.ui_presented(presented_ns, &cost);
@@ -736,18 +745,23 @@ impl Kms {
         });
         let since_ns = presented_ns.saturating_sub(self.timing.last_flip_ns());
         let landed = self.timing.landed(presented_ns, frame);
+        // A refresh the motion missed: the frame of the flip before this one had an animation running after it, so this flip was due at the next
+        // refresh; a gap over the frame rule's 20 ms is a drop in a motion, where a gap after a still screen or between a motion's phases is not.
+        self.timing.measure.motion(since_ns, self.last_flip_animating);
+        self.last_flip_animating = animating;
         // One line a flip in the always-on ring: how long after the last flip it landed, what its frame cost from the draw to the GPU's finish
         // (the in-fence's signal) and what the pacer made of it, so a long interval is read as a frame that took long or as no frame at all.
         match frame {
             Some((t, gpu)) => crate::ring_note!(
-                "L flip {:.3} +{:.1} ms: frame {:.1} ms ({}), late {} lost {}{}",
+                "L flip {:.3} +{:.1} ms: frame {:.1} ms ({}), late {} lost {}{}{}",
                 presented_ns as f64 / 1e9,
                 since_ns as f64 / 1e6,
                 gpu.filter(|&g| g <= presented_ns).unwrap_or(t.ready_ns).saturating_sub(t.started_ns) as f64 / 1e6,
                 if gpu.is_some_and(|g| g <= presented_ns) { "gpu done" } else { "submitted" },
                 landed.late,
                 landed.lost,
-                if landed.missed { " missed" } else { "" }
+                if landed.missed { " missed" } else { "" },
+                if animating { " anim" } else { "" }
             ),
             None => crate::ring_note!("L flip {:.3} +{:.1} ms: no frame of ours", presented_ns as f64 / 1e9, since_ns as f64 / 1e6),
         }
@@ -839,6 +853,7 @@ impl Kms {
         self.in_flight = Some(InFlight {
             timing: frame.timing,
             fence: kept,
+            animating: frame.animating,
             #[cfg(feature = "ui")]
             ui: frame.ui,
         });
@@ -1637,10 +1652,12 @@ impl Output for Kms {
                 stats.render_us
             );
         }
+        let animating = plan.animating || self.gl.ui_animating();
         self.last_assignment = Some(Frame {
             assignment,
             timing: Timing { slot_ns, started_ns: now, ready_ns: self.now_ns(), content_ns },
             acquire,
+            animating,
             #[cfg(feature = "ui")]
             ui: self.gl.take_ui_frame(),
         });

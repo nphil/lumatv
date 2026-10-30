@@ -15,7 +15,7 @@ The run is traced (capture.sh's kwait mode; tv-gate.sh, "The frame rule"). Missi
 can only fail it. Checks that can be skipped: firmware, homeheld, volume, x1, netflix, hdmi, apps, keys, ime, standby, homekey,
 wd-hang, wd-crash, escape. --video-apps youtube,netflix,plex (or all) runs the video check after the others: each app plays full screen for --video-seconds (default 120) while the gate reads the page
 format (AR24) and fb0's constant alpha, the DISPLAY capture (the video must not be black), the compositor's CPU, composed frames and page flips with nothing over the video, and
-each overlay over it (volume, quick panel, input picker, drawer, toast, alert: first frame, the video around it, no frame interval over 20 ms, idle after the close).
+each overlay over it (volume, quick panel, input picker, drawer, toast, alert: first frame, the video around it, no frame of its motion dropped, idle after the close).
 --only runs just the named ones (in one session, the live check and the evidence included); the
 step-1 test of the remote's keys and the keyboard is `--only keys,ime`. --frames-callbacks landing runs the surface frame gate with
 the shell client's frame callbacks at the flip (`ctl callbacks shell landing`), against the default of a frame
