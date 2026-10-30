@@ -119,6 +119,8 @@ pub const ALLOWED_SERVICES: &[&str] = &[
     "com.webos.service.recent",
     "com.webos.service.systemUIManager",
     "com.webos.surfacemanager",
+    // whether the app in front plays its video (`getMediaSessionId`, `getMediaPlayStatus`): the Cameras full view pauses only a video that plays
+    "com.webos.service.mediacontroller",
     "lg.thinqai.adapter",
     // LG's voice service, for the keyboard's microphone key (maliit's own dictation card calls it the same way)
     "com.webos.service.voiceconductor",

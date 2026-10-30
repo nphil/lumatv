@@ -128,6 +128,12 @@ fn fit(width: u32, height: u32) -> (i32, i32, i32, i32) {
 /// The stream the full view's claim says it needs beside an app's video: the most the sub window takes (`vwin::limits`), which the helper asks the bridge for.
 const BESIDE_NEED: (&str, u32, u32, u32) = ("h264", 1920, 1088, 30);
 
+/// The tags of the two calls that read whether the app's video plays (`com.webos.service.mediacontroller`).
+pub const TAG_SESSIONS: u64 = 0x0CB0_0001;
+pub const TAG_STATUS: u64 = 0x0CB0_0002;
+/// The answer is waited for this long; without one the app's video is taken to play.
+const PAUSE_CHECK_MS: u64 = 700;
+
 /// What the app asks the shell for besides effects.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
@@ -226,8 +232,15 @@ pub struct App {
     beside: bool,
     /// The compositor refused (or took back) the sub window: the view stays over the app with its stills, and no decoder is started.
     beside_refused: bool,
-    /// The app's video was paused for the view (`Intent::PauseApp`): Back plays it again.
+    /// The app's video was paused for the view (`Intent::PauseApp`): Back plays it again. Only a video that played is paused and played again; one the owner had
+    /// paused is left as it is.
     app_paused: bool,
+    /// The app in front, as the `foreground` topic names it.
+    front: String,
+    /// The media controller was asked whether the app's video plays, and answers until this time (it is then taken to play).
+    pause_check: Option<u64>,
+    /// The app's video was found paused when the view opened: nothing was sent to it, nothing is on Back.
+    app_was_paused: bool,
     /// When the full view was opened (this camera's), and how long it took to show live video.
     opened_at: u64,
     first_live_ms: Option<u64>,
@@ -276,6 +289,9 @@ impl App {
             beside: false,
             beside_refused: false,
             app_paused: false,
+            front: String::new(),
+            pause_check: None,
+            app_was_paused: false,
             opened_at: 0,
             first_live_ms: None,
             home_ms: None,
@@ -579,9 +595,10 @@ impl App {
             self.switched = true;
             self.intents.push(Intent::TakeForeground);
         }
-        if self.beside && !self.app_paused {
-            self.app_paused = true;
-            self.intents.push(Intent::PauseApp);
+        if self.beside && !self.app_paused && !self.app_was_paused && self.pause_check.is_none() {
+            // pause only a video that plays: the media controller knows the state of the app's session
+            self.pause_check = Some(self.now + PAUSE_CHECK_MS);
+            fx.push(Effect::Luna { tag: TAG_SESSIONS, uri: "luna://com.webos.service.mediacontroller/getMediaSessionId".into(), payload: json!({"appId": self.front}), subscribe: false });
         }
         self.opened_at = self.now;
         self.first_live_ms = None;
@@ -613,6 +630,8 @@ impl App {
         self.beside = false;
         self.beside_refused = false;
         self.app_paused = false;
+        self.app_was_paused = false;
+        self.pause_check = None;
         self.reset_transient();
         self.planner.quiesce();
         self.dropped.push("bubble:".into());
@@ -735,6 +754,9 @@ impl App {
                     return;
                 }
                 let front = data.get("home").and_then(Value::as_bool).is_some_and(|h| !h);
+                if let Some(app) = data.get("app").and_then(Value::as_str) {
+                    self.front = app.to_string();
+                }
                 if front != self.app_front {
                     self.app_front = front;
                     if !front && self.switched {
@@ -1231,6 +1253,41 @@ impl App {
         self.dirty = true;
     }
 
+    /// The media controller's answers about the app's video: its session, then the session's play state.
+    fn luna(&mut self, tag: u64, payload: &Value, fx: &mut Vec<Effect>) {
+        if self.pause_check.is_none() {
+            return;
+        }
+        match tag {
+            TAG_SESSIONS => {
+                let id = payload.get("mediaId").and_then(Value::as_array).and_then(|l| l.first()).and_then(Value::as_str).filter(|_| payload.get("returnValue").and_then(Value::as_bool) != Some(false));
+                match id {
+                    Some(id) => fx.push(Effect::Luna { tag: TAG_STATUS, uri: "luna://com.webos.service.mediacontroller/getMediaPlayStatus".into(), payload: json!({"mediaId": id}), subscribe: false }),
+                    None => self.resolve_pause(true),
+                }
+            }
+            TAG_STATUS => {
+                let status = payload.get("playStatus").and_then(Value::as_str).filter(|_| payload.get("returnValue").and_then(Value::as_bool) != Some(false));
+                self.resolve_pause(!matches!(status, Some("PLAYSTATE_PAUSED" | "PLAYSTATE_STOPPED" | "PLAYSTATE_NONE")));
+            }
+            _ => {}
+        }
+    }
+
+    /// The check is over: a video that plays (or that nothing said otherwise of) is paused for the view and plays again on Back; one that was paused is left alone.
+    fn resolve_pause(&mut self, plays: bool) {
+        self.pause_check = None;
+        if !self.beside || !self.is_full() {
+            return;
+        }
+        if plays {
+            self.app_paused = true;
+            self.intents.push(Intent::PauseApp);
+        } else {
+            self.app_was_paused = true;
+        }
+    }
+
     fn back(&mut self, now: u64, fx: &mut Vec<Effect>) {
         // Back works while the chrome is hidden
         self.show_chrome(now);
@@ -1561,6 +1618,9 @@ impl App {
     }
 
     fn finish(&mut self, now: u64, fx: &mut Vec<Effect>) {
+        if self.pause_check.is_some_and(|until| now >= until) {
+            self.resolve_pause(true);
+        }
         if self.first_live_ms.is_none() && self.is_full() && self.hole() {
             self.first_live_ms = Some(now.saturating_sub(self.opened_at));
         }
@@ -1820,6 +1880,7 @@ impl App {
             "beside": self.beside,
             "besideRefused": self.beside_refused,
             "appPaused": self.app_paused,
+            "appWasPaused": self.app_was_paused,
             "vwinOn": self.vwin_on,
             "openedAt": self.opened_at,
             "firstLiveMs": self.first_live_ms,
@@ -1852,6 +1913,7 @@ impl Model for App {
             Input::Topic { topic, data } => self.topic(topic, data, now, &mut fx),
             Input::Helper { topic, data } => self.helper(topic, data, now, &mut fx),
             Input::Fetched { tag, status, data } => self.fetched(*tag, *status, data, now, &mut fx),
+            Input::Luna { tag, payload } => self.luna(*tag, payload, &mut fx),
             Input::Key { name, down, repeat } => self.key(name, *down, *repeat, now, &mut fx),
             Input::Tick => {}
             _ => {}
@@ -1869,6 +1931,7 @@ impl Model for App {
             return None;
         }
         let mut due: Vec<u64> = Vec::new();
+        due.extend(self.pause_check);
         if let Some((_, until)) = &self.toast {
             due.push(*until);
         }

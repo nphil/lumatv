@@ -2043,6 +2043,11 @@ mod tests {
         assert!(shell.cameras().app.viewer_up());
         assert!(luna_calls(&acts, "/launchDefaultApp").is_empty(), "the app is not sent to the background");
         let keys = |acts: &[Act]| -> Vec<Value> { acts.iter().filter_map(|a| match a { Act::Channel(o) if o.path == "/v1/appkey" => o.body.clone(), _ => None }).collect() };
+        assert!(keys(&acts).is_empty(), "nothing is paused before the media controller says the video plays");
+        assert_eq!(luna_calls(&acts, "/getMediaSessionId").len(), 1, "it is asked whether the app's video plays");
+        let said = |shell: &mut Shell, tag: u64, payload: Value, at: u64| shell.channel(&Event::Topic { topic: "luna".into(), data: json!({"tag": tag, "payload": payload}) }, at);
+        said(&mut shell, crate::cameras::app::TAG_SESSIONS, json!({"returnValue": true, "mediaId": ["XCFRHKH"]}), 2_850);
+        let acts = said(&mut shell, crate::cameras::app::TAG_STATUS, json!({"returnValue": true, "playStatus": "PLAYSTATE_PLAYING"}), 2_900);
         assert_eq!(keys(&acts), vec![json!({"app": "youtube.leanback.v4", "key": "pause"})]);
         assert_eq!(helper_calls(&acts, "/v1/cameras/live"), 0, "the stream waits for the window");
         let claims = shell.state()["vwin"]["claims"].clone();

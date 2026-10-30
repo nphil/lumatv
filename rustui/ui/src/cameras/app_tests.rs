@@ -158,6 +158,15 @@ fn live_posts(fx: &[Effect]) -> Vec<Value> {
     requests(fx).into_iter().filter(|(_, p, _)| p == "/v1/cameras/live").map(|(_, _, b)| b).collect()
 }
 
+fn luna_calls(fx: &[Effect]) -> Vec<(String, Value)> {
+    fx.iter()
+        .filter_map(|e| match e {
+            Effect::Luna { uri, payload, .. } => Some((uri.rsplit('/').next().unwrap_or("").to_string(), payload.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
 fn has_redraw(fx: &[Effect]) -> bool {
     fx.iter().any(|e| matches!(e, Effect::Redraw))
 }
@@ -1145,8 +1154,13 @@ fn over_an_app_that_plays_a_video_the_view_stays_over_it_pauses_it_asks_for_the_
     r.app.set_app_video(true);
     r.topic("foreground", json!({"app": "youtube.leanback.v4", "home": false}));
     let fx = r.app.open_full("273", T0);
-    assert_eq!(r.app.take_intents(), [Intent::PauseApp], "no Home forward, no main window: the app's pipeline is never taken from it");
+    assert!(r.app.take_intents().is_empty(), "nothing is paused before the media controller says the video plays");
+    assert_eq!(luna_calls(&fx), [("getMediaSessionId".to_string(), json!({"appId": "youtube.leanback.v4"}))]);
     assert!(live_posts(&fx).is_empty(), "the stream waits for the window");
+    let fx = r.app.update(&Input::Luna { tag: TAG_SESSIONS, payload: json!({"returnValue": true, "mediaId": ["XCFRHKH"]}) }, T0 + 50);
+    assert_eq!(luna_calls(&fx), [("getMediaPlayStatus".to_string(), json!({"mediaId": "XCFRHKH"}))]);
+    r.app.update(&Input::Luna { tag: TAG_STATUS, payload: json!({"returnValue": true, "playStatus": "PLAYSTATE_PLAYING"}) }, T0 + 80);
+    assert_eq!(r.app.take_intents(), [Intent::PauseApp], "no Home forward, no main window: the app's pipeline is never taken from it");
     assert_eq!((r.app.debug()["switched"].clone(), r.app.debug()["beside"].clone(), r.app.debug()["appPaused"].clone()), (json!(false), json!(true), json!(true)));
     // the claim is made first, for what the sub window takes, fitted to the camera's own shape
     let claim = r.app.live_claim().expect("asked before the stream is").request();
@@ -1166,12 +1180,51 @@ fn over_an_app_that_plays_a_video_the_view_stays_over_it_pauses_it_asks_for_the_
 }
 
 #[test]
+fn a_video_the_owner_had_paused_is_left_paused_and_one_the_controller_says_nothing_of_is_taken_to_play() {
+    let open = |r: &mut Rig| {
+        r.app.set_vwin_on(true);
+        r.app.set_app_video(true);
+        r.topic("foreground", json!({"app": "youtube.leanback.v4", "home": false}));
+        r.app.open_full("273", T0);
+    };
+    // paused: nothing is sent, nothing is played on Back
+    let mut r = Rig::new(three());
+    open(&mut r);
+    r.app.update(&Input::Luna { tag: TAG_SESSIONS, payload: json!({"returnValue": true, "mediaId": ["XCFRHKH"]}) }, T0 + 50);
+    r.app.update(&Input::Luna { tag: TAG_STATUS, payload: json!({"returnValue": true, "playStatus": "PLAYSTATE_PAUSED"}) }, T0 + 80);
+    assert!(r.app.take_intents().is_empty());
+    assert_eq!((r.app.debug()["appPaused"].clone(), r.app.debug()["appWasPaused"].clone()), (json!(false), json!(true)));
+    r.at(2_000);
+    r.press("back");
+    assert!(r.app.take_intents().is_empty(), "it stays paused");
+    // no session: the video is taken to play and is paused
+    let mut r = Rig::new(three());
+    open(&mut r);
+    r.app.update(&Input::Luna { tag: TAG_SESSIONS, payload: json!({"returnValue": true, "mediaId": []}) }, T0 + 50);
+    assert_eq!(r.app.take_intents(), [Intent::PauseApp]);
+    // no answer in time: the same
+    let mut r = Rig::new(three());
+    open(&mut r);
+    r.at(800);
+    r.app.update(&Input::Tick, T0 + 800);
+    assert_eq!(r.app.take_intents(), [Intent::PauseApp]);
+    // Back before the answer: nothing is paused afterwards
+    let mut r = Rig::new(three());
+    open(&mut r);
+    r.at(100);
+    r.press("back");
+    r.app.update(&Input::Luna { tag: TAG_SESSIONS, payload: json!({"returnValue": true, "mediaId": ["XCFRHKH"]}) }, T0 + 120);
+    assert!(r.app.take_intents().is_empty());
+}
+
+#[test]
 fn a_refused_sub_window_leaves_the_view_over_the_app_with_its_stills_and_no_decoder() {
     let mut r = Rig::new(three());
     r.app.set_vwin_on(true);
     r.app.set_app_video(true);
     r.topic("foreground", json!({"app": "youtube.leanback.v4", "home": false}));
     r.app.open_full("273", T0);
+    r.app.update(&Input::Luna { tag: TAG_SESSIONS, payload: json!({"returnValue": true, "mediaId": []}) }, T0 + 20);
     r.app.take_intents();
     r.at(150);
     r.app.set_window(Window::Refused);
@@ -1192,6 +1245,7 @@ fn the_home_key_leaves_a_paused_app_as_it_is() {
     r.app.set_app_video(true);
     r.topic("foreground", json!({"app": "youtube.leanback.v4", "home": false}));
     r.app.open_full("273", T0);
+    r.app.update(&Input::Luna { tag: TAG_SESSIONS, payload: json!({"returnValue": true, "mediaId": []}) }, T0 + 20);
     r.app.take_intents();
     r.at(400);
     r.topic("homekey", json!({}));
