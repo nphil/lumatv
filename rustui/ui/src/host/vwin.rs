@@ -241,11 +241,13 @@ impl Vwin {
                 continue;
             };
             let (rect_moved, need_changed) = (posted.request.get("rect") != request.get("rect"), posted.request.get("need") != request.get("need"));
-            if !rect_moved && !need_changed {
+            let kind_changed = posted.request.get("texture_only") != request.get("texture_only");
+            if !rect_moved && !need_changed && !kind_changed {
                 continue;
             }
-            if !matches!(posted.grant, Grant::Granted { .. }) {
-                // a claim that was refused or is not answered yet is asked afresh: another rectangle or stream may fit where this one did not
+            if kind_changed || !matches!(posted.grant, Grant::Granted { .. }) {
+                // a claim that was refused or is not answered yet is asked afresh: another rectangle or stream may fit where this one did not; one that
+                // turns into a texture claim (or out of one) is another question, which a move does not ask
                 fx.push(self.post(request, now));
                 continue;
             }
@@ -392,6 +394,21 @@ mod tests {
         assert_eq!(v.grant("cameras-full"), &Grant::Denied { reason: "app-video".into(), text: "an app has a video on the screen".into() });
         assert_eq!(v.grant("cameras-full").refusal(), Some("an app has a video on the screen"));
         assert_eq!(ops(&v.want(&[moved.clone()], 20)), vec!["claim"]);
+    }
+
+    #[test]
+    fn a_claim_that_turns_into_a_texture_claim_or_back_is_asked_afresh_even_when_granted() {
+        let mut v = Vwin::new();
+        let mut want = json!({"id": "camera-popup", "kind": "camera-popup", "rect": {"x": 1316, "y": 200, "w": 520, "h": 292}});
+        v.want(&[want.clone()], 0);
+        v.update(&topic("idle", 1, 0, json!([json!({"id": "camera-popup", "kind": "camera-popup", "state": "granted", "reason": "", "text": "", "slot": "sub", "placed": true})])), 10);
+        assert!(matches!(v.grant("camera-popup"), Grant::Granted { .. }));
+        want["texture_only"] = json!(true);
+        let sent = posts(&v.want(&[want.clone()], 20)).remove(0);
+        assert_eq!((sent["op"].as_str(), sent["texture_only"].clone()), (Some("claim"), json!(true)), "a move would keep the window");
+        assert!(v.want(&[want.clone()], 30).is_empty());
+        want.as_object_mut().unwrap().remove("texture_only");
+        assert_eq!(ops(&v.want(&[want], 40)), vec!["claim"]);
     }
 
     #[test]

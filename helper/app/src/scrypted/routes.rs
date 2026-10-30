@@ -545,7 +545,7 @@ impl Inner {
             }
         }
         let ticket = self.ticket.fetch_add(1, Ordering::SeqCst) + 1;
-        self.live.asking(camera, mode);
+        self.live.asking(camera, mode, &usage.purpose);
         let asked_at = std::time::Instant::now();
         let dial = match ask(&bridge) {
             Ok(dial) => dial,

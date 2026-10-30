@@ -22,7 +22,9 @@
 //! the feeder's end happen on the session's own threads, off the caller's path.
 //!
 //! The topic `cameras.live` ([`View`]) says where it stands: `{camera, mode (live|playback|clip), state (idle|asking|starting|playing|failed|
-//! stopped), reason, codec, width, height, fps, startedAt, positionMs, rate, fed, dropped, lost, delayMs, window, since, paused}`.
+//! stopped), reason, codec, width, height, fps, startedAt, positionMs, rate, fed, dropped, lost, delayMs, window, since, paused, purpose}`. `purpose`
+//! is what the stream was asked for (`pop-up 41`, `full view`), kept by a stopped or failed view too: a screen that asked for its own stream tells it from the
+//! previous one's last words.
 
 pub mod gf;
 
@@ -229,6 +231,8 @@ pub struct View {
     pub window: String,
     pub since: u64,
     pub paused: bool,
+    /// What the stream was asked for, as the plan says it (`Plan::purpose`); empty for a start that is nobody's pop-up.
+    pub purpose: String,
 }
 
 impl Default for View {
@@ -253,6 +257,7 @@ impl Default for View {
             window: String::new(),
             since: 0,
             paused: false,
+            purpose: String::new(),
         }
     }
 }
@@ -286,6 +291,7 @@ impl View {
             "window": text(&self.window),
             "since": self.since,
             "paused": self.paused,
+            "purpose": text(&self.purpose),
         })
     }
 }
@@ -1110,7 +1116,7 @@ impl Live {
     }
 
     /// The bridge is being asked for a stream: said when nothing else is up (a session that plays goes on playing until the answer).
-    pub fn asking(&self, camera: &str, mode: Mode) {
+    pub fn asking(&self, camera: &str, mode: Mode, purpose: &str) {
         if mode != Mode::Live
             && let Some(session) = self.inner.session.lock().clone()
         {
@@ -1130,6 +1136,7 @@ impl Live {
                 mode: mode.word(),
                 state: "asking",
                 since: crate::timeutil::now_ms(),
+                purpose: purpose.to_owned(),
                 ..View::default()
             };
             guard.1.clone()
@@ -1244,6 +1251,7 @@ impl Live {
                 position_ms: (plan.mode != Mode::Live).then_some(plan.started_at),
                 rate: plan.rate.max(1),
                 since: crate::timeutil::now_ms(),
+                purpose: plan.purpose.clone(),
                 ..View::default()
             };
             let snapshot = view.1.clone();
@@ -1323,6 +1331,7 @@ impl Live {
             v.paused = false;
             v.reason = String::new();
             v.state = "starting";
+            v.purpose.clone_from(&plan.purpose);
             v.window = session.window.lock().clone();
             if let Some(shape) = shape {
                 v.codec = codec_word(shape.codec).to_owned();
@@ -2281,6 +2290,7 @@ mod tests {
             "window",
             "since",
             "paused",
+            "purpose",
         ] {
             assert!(v.get(key).is_some(), "{key}");
         }

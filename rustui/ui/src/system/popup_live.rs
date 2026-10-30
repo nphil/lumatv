@@ -56,13 +56,15 @@ pub struct Stream {
     /// What the camera says it runs at, and what the feeder took over the last second.
     pub fps: f32,
     pub fed_fps: f32,
+    /// What the stream was asked for (`pop-up 41`); empty from a helper that does not say.
+    pub purpose: String,
 }
 
 impl Stream {
     pub fn parse(data: &Value) -> Stream {
         let text = |k: &str| data.get(k).and_then(Value::as_str).unwrap_or("").to_string();
         let num = |k: &str| data.get(k).and_then(Value::as_f64).unwrap_or(0.0) as f32;
-        Stream { camera: text("camera"), mode: text("mode"), state: text("state"), fps: num("fps"), fed_fps: num("fedFps") }
+        Stream { camera: text("camera"), mode: text("mode"), state: text("state"), fps: num("fps"), fed_fps: num("fedFps"), purpose: text("purpose") }
     }
 }
 
@@ -101,6 +103,11 @@ impl Live {
             camera: String::new(),
             card: None,
         }
+    }
+
+    /// What the helper's log and topic call this card's stream (`popup` of the ask's body: `pop-up 41`).
+    fn purpose(&self) -> String {
+        self.card.map_or_else(|| "pop-up".to_owned(), |id| format!("pop-up {id}"))
     }
 
     /// Whether `tag` is one of this model's asks.
@@ -181,8 +188,15 @@ impl Live {
     pub fn set_window(&mut self, window: Window, slot: &str, sink: bool, now: u64) -> Vec<Effect> {
         self.window = window;
         self.sink = sink;
+        // the claim was asked again and came back with another kind of window (Home came to the front or went: a texture for a sub window or the reverse):
+        // the stream that plays is the old window's and the new one is asked for
+        let moved = !slot.is_empty() && !self.slot.is_empty() && self.slot != slot && matches!(window, Window::Waiting | Window::Carried);
         if !slot.is_empty() {
             self.slot = slot.to_string();
+        }
+        if moved && matches!(self.phase, Phase::Asked { .. } | Phase::Playing { .. } | Phase::Retry { .. }) {
+            self.phase = Phase::Idle;
+            self.ask_tag = None;
         }
         let mut fx = Vec::new();
         match window {
@@ -221,6 +235,15 @@ impl Live {
     /// `cameras.live`: the stream the helper plays.
     pub fn topic(&mut self, data: &Value, now: u64) -> Vec<Effect> {
         self.stream = Stream::parse(data);
+        // The helper's topic keeps the last words of the stream before this card's: a card that replaces another is asked for while the old one's stop is
+        // being answered, and its `stopped` (or `playing`) is not this card's stream. A stream asked for something else while this one plays took the
+        // session (the full view); while this one is only asked, it is the previous card's and the card waits for its own.
+        if !self.stream.purpose.is_empty() && self.stream.purpose != self.purpose() {
+            if matches!(self.phase, Phase::Playing { .. }) {
+                self.phase = Phase::Given;
+            }
+            return Vec::new();
+        }
         let tries = match self.phase {
             Phase::Asked { tries, .. } | Phase::Playing { tries, .. } => tries,
             _ => return Vec::new(),
@@ -388,6 +411,17 @@ mod tests {
         h.topic(&stream("playing"), T0 + 400);
         h.set_window(Window::Carried, "main", false, T0 + 500);
         assert!(!h.video(T0 + 10_000));
+    }
+
+    #[test]
+    fn a_claim_that_comes_back_with_another_kind_of_window_has_its_stream_asked_for_again() {
+        let mut l = card();
+        asks(&l.set_window(Window::Carried, "sub", true, T0));
+        l.topic(&stream("playing"), T0 + 400);
+        let fx = l.set_window(Window::Carried, "texture", false, T0 + 900);
+        assert_eq!(asks(&fx)[0].1["window"], "texture", "the texture's stream replaces the sub window's");
+        assert!(matches!(l.phase, Phase::Asked { .. }));
+        assert!(asks(&l.set_window(Window::Carried, "texture", false, T0 + 1_000)).is_empty(), "once");
     }
 
     #[test]

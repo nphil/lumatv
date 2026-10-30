@@ -2,6 +2,31 @@
 
 ## Resume here
 
+**Round 25 (host-tested, not yet on the set): a pop-up with Home in front is a texture, and a replaced card keeps its claim.**
+
+- Round 24 showed that the sub window passes over an app and that Home in front, where the helper's fallback played the pop-up on the main window, took
+  the panel to 100 Hz (camera 240, low stream 1280x720 declared 25). With Home in front the shell now claims `texture_only` for the pop-up
+  (`system/popup.rs` `claim`: `!app_front`), so no hardware window is ever opened over Home; over an app the claim is as before and gets `SUB0`. The
+  helper's fallback (a sub window granted while Home turned out to be in front) is unchanged. The full view is unchanged.
+- The release ~100 ms after a grant when a new card replaced the old one (real events on camera 103): the helper's `cameras.live` topic keeps the last
+  words of the previous stream, and the replaced card's own stop made it say `stopped` (or `playing`, then `stopped`) for the same camera right after the
+  new card asked; the new card took that for its stream failing, gave up (`Phase::Given`), and the shell let go of the claim while the helper's new
+  stream went on. The topic now carries `purpose` (`pop-up 41`, `full view`; kept by a stopped view), and a card reads only the states of its own
+  purpose (`popup_live.rs` `topic`; an older helper that says none keeps the old reading).
+
+**TV check (round 25)**, receiver muted, `popups.on` and `cameras.testEvents` on, start from Home at 120 Hz (`osd_irq` about 121):
+
+1. Camera 240 pop-up on Home (`POST $H/v1/cameras/event {"camera":"Cat Feeder","kind":"animal"}`): compositor journal `vwin: claim camera-popup
+   (camera-popup) granted a texture (no window: texture-only)`, `ctl vwin` claim `slot texture`; `osd_irq` stays about 121 during and after, no
+   `the panel refreshes every 20.00 ms now`; the card's picture moves (`ctl shell` popup `live.video` true, `slot texture`).
+2. Cameras 128, 105, 108 and 103 the same way on Home: textures, 120 Hz kept. Note the helper's `ended:` line for each (first picture, pictures a second).
+3. Card replacement: camera 103 events (real, or two test events a few seconds apart on the same camera, and once on two cameras): the second card's claim
+   is granted once and not released (`vwin: claim camera-popup released` only when the card goes), the video plays to the end of the card, the helper log
+   has one `live for pop-up N` for each card and the `cameras.live` topic's `purpose` is `pop-up N` of the card on screen.
+4. Pop-up over YouTube (1080p playing): `SUB0` beside YouTube as in round 24 (`slot sub`, osd_irq 121, YouTube untouched); then Home to the front while the
+   card is up: the claim turns into a texture and back again.
+5. Full view of camera 240 over Home (native, unchanged): note `osd_irq`.
+
 **Pop-ups no longer reach the panel at 25 fps (round 24, host-tested, not yet on the set).** Round 23 measured it: 1080p declared 25 (camera 240) takes
 120 Hz to 100 Hz and nothing written to `fr_rate` brings it back; 640x480 at 10, 1280x720 declared 25 and streams declared 20 keep 120 Hz (a 20 fps
 pop-up even restores it). So the pop-up never plays a stream the panel would follow:

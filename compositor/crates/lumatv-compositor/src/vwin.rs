@@ -1211,7 +1211,15 @@ impl crate::State {
                     let world = self.vwin_world();
                     let id = req.id.clone();
                     let (kind, rect) = (req.kind, req.rect);
+                    let before = self.vwin.alloc.claim(&id).and_then(|c| c.window.map(|w| (w, c.texture, c.slot)));
                     let decision = self.vwin.alloc.request(&world, req);
+                    // a claim asked again for another kind of window (a sub window for a texture, Home having come to the front): the window it was
+                    // bound to is the old stream's and is not drawn for the new one
+                    if let Some((w, texture, slot)) = before
+                        && self.vwin.alloc.claim(&id).is_some_and(|c| (c.texture, c.slot) != (texture, slot))
+                    {
+                        self.vwin_unplace(WindowId(w));
+                    }
                     match decision {
                         Decision::Granted { slot, limits, victims } => {
                             self.vwin.stats.granted += 1;

@@ -1917,6 +1917,40 @@ mod tests {
     }
 
     #[test]
+    fn a_card_that_replaces_the_one_up_keeps_the_claim_the_stream_is_played_in() {
+        let (_h, mut shell) = home_shell("popup,cameras");
+        let record = |id: u64| json!({"id": id, "event": format!("e{id}"), "camera": "275", "name": "Cat Feeder", "kind": "person", "at": 1_000, "untilMs": u64::MAX / 4, "thumbnail": false, "live": true});
+        let line = json!({"id": "camera-popup", "kind": "camera-popup", "state": "granted", "reason": "", "text": "", "slot": "texture", "placed": true, "sink": null});
+        let topic = |claim: Value| Event::Topic { topic: "vwin".into(), data: json!({"mode": "idle", "slots": 2, "free": 1, "apps": 0, "wall": false, "claims": [claim]}) };
+        let mut acts = shell.helper(&Event::Topic { topic: "cameras.popup".into(), data: record(41) }, 2_000);
+        acts.extend(shell.tick(2_050));
+        shell.channel(&topic(line.clone()), 2_100);
+        shell.helper(&Event::Topic { topic: "cameras.live".into(), data: json!({"camera": "275", "mode": "live", "state": "playing", "fps": 15, "fedFps": 14.8}) }, 2_600);
+        shell.tick(3_000);
+        assert_eq!(shell.state()["popup"]["live"]["video"], true, "{}", shell.state()["popup"]);
+
+        // another event of the same camera: the card is replaced, the old stream is stopped and the new one asked for. The helper's topic says the old
+        // stream's last words first (purpose `pop-up 41`), then the new one's: none of the first is the new card's
+        let live = |state: &str, purpose: &str| Event::Topic { topic: "cameras.live".into(), data: json!({"camera": "275", "mode": "live", "state": state, "purpose": purpose, "fps": 15, "fedFps": 14.8}) };
+        shell.helper(&live("playing", "pop-up 41"), 2_700);
+        let mut acts = shell.helper(&Event::Topic { topic: "cameras.popup".into(), data: record(42) }, 4_000);
+        acts.extend(shell.tick(4_050));
+        acts.extend(shell.channel(&topic(line.clone()), 4_100));
+        assert_eq!(helper_calls(&acts, "/v1/cameras/live"), 1, "the new card asks for its stream");
+        acts.extend(shell.helper(&live("playing", "pop-up 41"), 4_120));
+        acts.extend(shell.helper(&live("stopped", "pop-up 41"), 4_150));
+        acts.extend(shell.tick(4_160));
+        assert_eq!(shell.state()["popup"]["live"]["phase"], "asked", "{}", shell.state()["popup"]["live"]);
+        acts.extend(shell.helper(&live("starting", "pop-up 42"), 4_200));
+        acts.extend(shell.helper(&live("playing", "pop-up 42"), 4_300));
+        acts.extend(shell.tick(4_700));
+        let ops: Vec<String> = claims(&acts).iter().map(|b| format!("{} {}", b["op"], b["id"])).collect();
+        assert!(ops.is_empty(), "the claim is neither released nor posted again: {ops:?}");
+        assert_eq!(helper_calls(&acts, "/v1/cameras/live/stop"), 1, "only the old stream's stop: {acts:?}");
+        assert_eq!(shell.state()["popup"]["live"]["video"], true, "{}", shell.state()["popup"]);
+    }
+
+    #[test]
     fn the_camera_pop_ups_video_window_is_where_the_owner_placed_the_card_and_in_its_corner_half_of_homes_safe_margin_in_by_default() {
         let record = json!({"id": 42, "event": "e42", "camera": "275", "name": "Cat Feeder", "kind": "person", "at": 1_000, "untilMs": u64::MAX / 4, "thumbnail": false, "live": true});
         let claim_of = |shell: &mut Shell| {

@@ -312,11 +312,12 @@ impl Popup {
         self.expanded.take()
     }
 
-    /// The claim on a video window for the card's picture box, while a card the record says can play live video is up: the shell posts it. A card whose
-    /// camera has only streams that would re-time the panel claims a texture instead (`texture_only`).
+    /// The claim on a video window for the card's picture box, while a card the record says can play live video is up: the shell posts it. With Home in
+    /// front, or for a camera that has only streams that would re-time the panel, it claims a texture (`texture_only`): Home's decoder is on the main
+    /// window, where a 25 a second stream takes the panel to 100 Hz (round 24), so only an app's video leaves the sub window to the card.
     pub fn claim(&self) -> Option<Value> {
         let capable = self.up && !self.viewer_up && self.current.as_ref().is_some_and(|c| c.live == Some(true));
-        let texture_only = self.current.as_ref().is_some_and(|c| c.texture_only);
+        let texture_only = !self.app_front || self.current.as_ref().is_some_and(|c| c.texture_only);
         self.live.claim(capable, texture_only)
     }
 
@@ -870,6 +871,7 @@ mod tests {
     #[test]
     fn a_card_that_can_play_live_asks_the_compositor_for_a_window_and_only_then_the_helper_for_the_stream() {
         let mut p = Popup::new();
+        p.set_context(false, true, false, T0);
         p.set_picture_rect(Some(BOX));
         let fx = p.update(&live_record(41, true), T0);
         assert!(p.up() && live_asks(&fx).is_empty(), "no stream is asked for before a window is granted: {fx:?}");
@@ -900,6 +902,7 @@ mod tests {
     #[test]
     fn a_record_that_says_texture_only_claims_a_texture_and_the_texture_is_asked_for_the_low_stream() {
         let mut p = Popup::new();
+        p.set_context(false, true, false, T0);
         p.set_picture_rect(Some(BOX));
         let Input::Helper { topic, mut data } = live_record(45, true) else { unreachable!() };
         data["textureOnly"] = json!(true);
@@ -909,9 +912,17 @@ mod tests {
         assert_eq!(live_asks(&fx), vec![json!({"camera": "275", "for": "popup", "window": "texture", "popup": 45})]);
         // a record that does not say it is a window claim, as before
         let mut q = Popup::new();
+        q.set_context(false, true, false, T0);
         q.set_picture_rect(Some(BOX));
         q.update(&live_record(46, true), T0);
         assert!(q.claim().unwrap().get("texture_only").is_none());
+        // with Home in front the same record claims a texture too: Home's decoder would be on the main window
+        let mut h = Popup::new();
+        h.set_picture_rect(Some(BOX));
+        h.update(&live_record(47, true), T0);
+        assert_eq!(h.claim().unwrap()["texture_only"], true);
+        h.set_context(false, true, false, T0 + 10);
+        assert!(h.claim().unwrap().get("texture_only").is_none(), "over an app it is a window claim again");
     }
 
     #[test]
