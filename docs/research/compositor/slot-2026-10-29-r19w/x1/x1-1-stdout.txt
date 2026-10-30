@@ -1,0 +1,30 @@
+start 20:23:20 --only x1
+power state: active
+home stub before the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+avr: left to the agent (True)
+already mounted; 'cutover.sh status' says what runs
+
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 410689 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+GATE x1: FAIL INCONCLUSIVE attribution: missing or incomplete trace (INCONCLUSIVE; trace answered 3614 frames but raw RESULT counted 3597; trace implies 2 gaps but raw log counted 1) | RAW STRICT: FAIL 1 gap(s) over 20 ms in the client's swaps (worst 21.7 ms); the compositor logged 1 loop pass(es), client frame gap(s) or page-flip interval(s) over 20 ms during the run | RAW RESULT: [x1] RESULT frames=3597 in 60.01 s = 59.94 fps; gaps: <=17.5 ms 3555, 17.5-20 40, 20-33.5 1, >33.5 0; worst 21.7 ms; ended at monotonic 12863.436 | RAW STRICT: FAIL 1 gap(s) over 20 ms in the client's swaps (worst 21.7 ms); the compositor logged 1 loop pass(es), client frame gap(s) or page-flip interval(s) over 20 ms during the run | RAW RESULT: [x1] RESULT frames=3597 in 60.01 s = 59.94 fps; gaps: <=17.5 ms 3555, 17.5-20 40, 20-33.5 1, >33.5 0; worst 21.7 ms; ended at monotonic 12863.436 | attribution coverage: INCONCLUSIVE; trace answered 3614 frames but raw RESULT counted 3597; trace implies 2 gaps but raw log counted 1 | pacer before: flips 1705 late 7 lost 23283 after: flips 5308 late 7 lost 23307 | compositor: loop stalls 0, frame gaps 1, clients connected 0, over 20 ms 1 (the loop's and the flips' own: 0); major faults +0, run-queue wait +7.0 ms, loop thread SCHED_FIFO prio -21, mali-cmar-backe run-queue wait +13.2 ms SCHED_FIFO | wake-up latency: tick p50 0.01 p99 0.04 max 0.11 ms (n 3651); flip p50 0.00 p99 0.03 max 0.08 ms (n 3603); input no samples; tick waited on a busy loop p50 0.16 p99 0.26 max 0.26 ms (n 7) | waits: loop: run-queue wait 1 us a wake-up on average, no per-wait statistics; mali-cmar-backe: run-queue wait 0 us a wake-up on average, no per-wait statistics | kernel waits: no late frame | client 26657 reaction after the compositor's draw: p50 1.3 ms, p99.9 7.76, max 8.45; 40 over 3 ms, 2 frame gap(s) over 20 ms implied; answered 3614, flips at most 16.73 ms apart | x1 gaps compositor-attributable 0, client-only 1, unexplained 0 | x1 attribution INCONCLUSIVE
+
+evidence: 2 subscription(s) from SAM, 14 client lines, 11 loop stalls, 4 watchdog lines
+
+umount: /usr/bin/surface-manager: target is busy.
+revert: active; mounted: no; exe: /usr/bin/surface-manager
+recover: surface-manager-daemon.service active after 0s; exe /usr/bin/surface-manager
+recover: compositor answering on the bus after 0s
+recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+recover: WebAppMgr answering after 0s (active)
+recover: Home on the panel after 0s (capture 62024 bytes)
+recover: librdx reports swept; remaining 0
+
+avr: left to the agent (False)
+{"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+
+home stub after the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 410689 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE x1: FAIL INCONCLUSIVE attribution: missing or incomplete trace (INCONCLUSIVE; trace answered 3614 frames but raw RESULT counted 3597; trace implies 2 gaps but raw log counted 1) | RAW STRICT: FAIL 1 gap(s) over 20 ms in the client's swaps (worst 21.7 ms); the compositor logged 1 loop pass(es), client frame gap(s) or page-flip interval(s) over 20 ms during the run | RAW RESULT: [x1] RESULT frames=3597 in 60.01 s = 59.94 fps; gaps: <=17.5 ms 3555, 17.5-20 40, 20-33.5 1, >33.5 0; worst 21.7 ms; ended at monotonic 12863.436 | RAW STRICT: FAIL 1 gap(s) over 20 ms in the client's swaps (worst 21.7 ms); the compositor logged 1 loop pass(es), client frame gap(s) or page-flip interval(s) over 20 ms during the run | RAW RESULT: [x1] RESULT frames=3597 in 60.01 s = 59.94 fps; gaps: <=17.5 ms 3555, 17.5-20 40, 20-33.5 1, >33.5 0; worst 21.7 ms; ended at monotonic 12863.436 | attribution coverage: INCONCLUSIVE; trace answered 3614 frames but raw RESULT counted 3597; trace implies 2 gaps but raw log counted 1 | pacer before: flips 1705 late 7 lost 23283 after: flips 5308 late 7 lost 23307 | compositor: loop stalls 0, frame gaps 1, clients connected 0, over 20 ms 1 (the loop's and the flips' own: 0); major faults +0, run-queue wait +7.0 ms, loop thread SCHED_FIFO prio -21, mali-cmar-backe run-queue wait +13.2 ms SCHED_FIFO | wake-up latency: tick p50 0.01 p99 0.04 max 0.11 ms (n 3651); flip p50 0.00 p99 0.03 max 0.08 ms (n 3603); input no samples; tick waited on a busy loop p50 0.16 p99 0.26 max 0.26 ms (n 7) | waits: loop: run-queue wait 1 us a wake-up on average, no per-wait statistics; mali-cmar-backe: run-queue wait 0 us a wake-up on average, no per-wait statistics | kernel waits: no late frame | client 26657 reaction after the compositor's draw: p50 1.3 ms, p99.9 7.76, max 8.45; 40 over 3 ms, 2 frame gap(s) over 20 ms implied; answered 3614, flips at most 16.73 ms apart | x1 gaps compositor-attributable 0, client-only 1, unexplained 0 | x1 attribution INCONCLUSIVE
+GATE: FAIL
+wrote ../lumatv-r19w/docs/research/compositor/gate-2026-10-29.txt
+EXIT 1 20:25:09
