@@ -18,7 +18,7 @@
 //!   is uploaded; the route answers on loopback only like every other.
 //! - **Cheap.** One capture at a time, not sooner than `previews.minGapMs` after the last, and after three failures in a row none for a
 //!   minute (doubling to ten). A picture taken for the live tile (`live`) is kept in memory and goes to the flash at most every 30 s; the
-//!   others (`open`, `arrive`, `periodic`, `standby`) are written when taken.
+//!   others (`open`, `arrive`, `periodic`, `leaving`, `standby`) are written when taken.
 //!
 //! | Request | Answer |
 //! |---|---|
@@ -92,13 +92,15 @@ pub fn key_ok(key: &str) -> bool {
 }
 
 /// Why the shell asks: `live` is the tile of the input in front while the picker is open (kept in memory, flash at most every 30 s); the
-/// others are the picker coming up, an input coming to the front, the quiet timer and the screen going off (written at once).
+/// others are the picker coming up, an input coming to the front, the quiet timer, an input going from the front and the screen going off
+/// (written at once).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Why {
     Live,
     Open,
     Arrive,
     Periodic,
+    Leaving,
     Standby,
 }
 
@@ -109,6 +111,7 @@ impl Why {
             "open" => Why::Open,
             "arrive" => Why::Arrive,
             "periodic" => Why::Periodic,
+            "leaving" => Why::Leaving,
             "standby" => Why::Standby,
             _ => return None,
         })
@@ -120,6 +123,7 @@ impl Why {
             Why::Open => "open",
             Why::Arrive => "arrive",
             Why::Periodic => "periodic",
+            Why::Leaving => "leaving",
             Why::Standby => "standby",
         }
     }
@@ -670,7 +674,7 @@ impl Previews {
             return error_response(
                 400,
                 "bad_request",
-                "key is livetv or hdmi1 to hdmi9; why is live, open, arrive, periodic or standby",
+                "key is livetv or hdmi1 to hdmi9; why is live, open, arrive, periodic, leaving or standby",
             );
         };
         if !self.enabled() {
@@ -1560,5 +1564,18 @@ mod tests {
             Duration::from_secs(1),
         );
         assert!(matches!(gone, Err(Failure::Run(m)) if m.contains("could not run")));
+    }
+
+    #[test]
+    fn every_reason_but_live_goes_to_the_flash_when_it_is_taken_and_an_input_going_from_the_front_is_one() {
+        let r = rig();
+        for why in ["open", "arrive", "periodic", "leaving", "standby"] {
+            let b = json_of(&shoot(&r, "hdmi3", why));
+            assert_eq!(b["saved"], true, "{why}");
+            let on_flash: Value = serde_json::from_slice(&fs::read(r.dir.path().join("previews/index.json")).unwrap()).unwrap();
+            assert_eq!(on_flash["items"]["hdmi3"]["at"], b["at"], "{why}: the flash has this one");
+        }
+        let stats = &json_of(&call(&r, "GET", &[], ""))["previews"]["stats"];
+        assert_eq!(stats["last"]["why"], "standby");
     }
 }

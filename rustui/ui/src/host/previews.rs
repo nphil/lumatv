@@ -48,6 +48,10 @@ pub const LIVE_GIVE_UP: u32 = 3;
 pub const LIVE_RETRY_MS: u64 = 1_500;
 /// After an input comes to the front, the first picture is taken this long after.
 pub const ARRIVE_MS: u64 = 3_000;
+/// An input that has only just come up may give a black picture until its signal has settled: the first picture is asked for again this
+/// long after, up to this many times.
+pub const ARRIVE_RETRY_MS: u64 = 6_000;
+pub const ARRIVE_TRIES: u32 = 3;
 /// The quiet timer: a picture of the input in front this often.
 pub const KEEP_MS: u64 = 30_000;
 /// A timer that found the shell busy tries again after this long.
@@ -136,6 +140,8 @@ pub struct Previews {
     next_tag: u64,
     inflight: Option<Inflight>,
     arrive_due: Option<u64>,
+    /// How many times the first picture of the input in front has been asked for again.
+    arrive_tries: u32,
     keep_due: Option<u64>,
     live_due: Option<u64>,
     live_fails: u32,
@@ -174,6 +180,7 @@ impl Previews {
             next_tag: tags::PIC_FIRST,
             inflight: None,
             arrive_due: None,
+            arrive_tries: 0,
             keep_due: None,
             live_due: None,
             live_fails: 0,
@@ -257,12 +264,19 @@ impl Previews {
         }
         self.helper_up = f.helper_up;
         if key != self.front {
+            // the input that goes from the front: its last picture, if it can still be had (the helper keeps the one before when it cannot)
+            if let Some(prev) = self.front.clone()
+                && f.screen_on
+            {
+                out.extend(self.ask(&prev, "leaving", now));
+            }
             self.front = key.clone();
             self.live_ok = None;
             self.lapse_due = None;
             self.live_fails = 0;
             self.keep_due = None;
             self.arrive_due = key.as_ref().map(|_| now + ARRIVE_MS);
+            self.arrive_tries = 0;
             if self.open {
                 self.live_due = key.as_ref().map(|_| now + LIVE_MS);
             }
@@ -349,6 +363,7 @@ impl Previews {
                 changed |= c;
             }
             Input::Fetched { tag, status, data } if *tag == tags::INDEX => out.extend(self.indexed(*status, data, now)),
+            Input::Fetched { tag, status, .. } if (tags::PIC_FIRST..=tags::PIC_LAST).contains(tag) => self.missed(*tag, *status),
             Input::Bytes { tag, status, bytes } if (tags::PIC_FIRST..=tags::PIC_LAST).contains(tag) => changed |= self.arrived(*tag, *status, bytes, now),
             Input::Tick => {
                 let (e, c) = self.tick(quiet, now);
@@ -463,6 +478,10 @@ impl Previews {
                         self.lapse_due = Some(now + LIVE_FRESH_MS);
                     }
                 }
+                if asked.why == "arrive" && self.front.as_deref() == Some(asked.key.as_str()) && self.arrive_tries < ARRIVE_TRIES {
+                    self.arrive_tries += 1;
+                    self.arrive_due = Some(now + ARRIVE_RETRY_MS);
+                }
             }
         }
         (out, false)
@@ -517,6 +536,15 @@ impl Previews {
             return false;
         }
         self.store(key, at, bytes)
+    }
+
+    /// A picture's ask was answered with an error (a JSON body, or no answer at all): it is not coming. A 404 says the helper has none.
+    fn missed(&mut self, tag: u64, status: u16) {
+        if let Some((key, _)) = self.wanted.remove(&tag)
+            && status == 404
+        {
+            self.index.remove(&key);
+        }
     }
 
     /// Decodes a picture and keeps it. Returns whether it was one.
@@ -787,20 +815,55 @@ mod tests {
 
     #[test]
     fn nothing_is_asked_over_home_or_an_app_or_with_the_helper_away_or_the_screen_off() {
-        let mut p = up();
-        let home = facts(HOME, true);
-        let fx = p.opened(&home, 1000);
-        assert!(posts(&fx).is_empty(), "Home is in front: nothing is playing on an input");
-        p.closed(1100);
-        let app = facts("netflix", false);
-        assert!(posts(&p.opened(&app, 1200)).is_empty());
-        p.closed(1300);
+        // Home or an app in front: no input is playing
+        for (app, home) in [(HOME, true), ("netflix", false)] {
+            let mut p = Previews::new();
+            p.set_active(true);
+            p.update(&Input::Tick, &facts(app, home), true, 0);
+            assert!(posts(&p.opened(&facts(app, home), 1000)).is_empty(), "{app}");
+        }
+        // the helper away
+        let mut p = Previews::new();
+        p.set_active(true);
         let away = Facts { helper_up: false, ..facts(HDMI2, false) };
-        assert_eq!(requests(&p.opened(&away, 1400)), 0);
-        p.closed(1500);
+        p.update(&Input::Tick, &away, true, 0);
+        assert_eq!(requests(&p.opened(&away, 1000)), 0);
+        // the screen off
+        let mut p = Previews::new();
+        p.set_active(true);
         let dark = Facts { screen_on: false, ..facts(HDMI2, false) };
-        let fx = p.opened(&dark, 1600);
+        p.update(&Input::Tick, &dark, true, 0);
+        let fx = p.opened(&dark, 1000);
         assert!(posts(&fx).is_empty(), "the screen is off: {fx:?}");
+    }
+
+    #[test]
+    fn an_input_going_from_the_front_is_asked_for_once_more_unless_the_screen_is_off_or_nothing_can_be_asked() {
+        // to Home, and to another input
+        for (to, home) in [(HOME, true), ("com.webos.app.hdmi3", false)] {
+            let mut p = up();
+            let fx = p.update(&Input::Topic { topic: "foreground".into(), data: json!({}) }, &facts(to, home), true, 5000).0;
+            assert_eq!(posts(&fx), vec![("hdmi2".to_owned(), "leaving".to_owned())], "leaving for {to}");
+            // the answer is the picture of the input that left: the one in front now is not mistaken for it
+            let fx = p.update(&Input::Fetched { tag: tags::CAPTURE, status: 200, data: ok_at(5050) }, &facts(to, home), true, 5100).0;
+            assert_eq!(fetches(&fx).len(), 1);
+            assert_eq!(p.index.get("hdmi2"), Some(&5050));
+        }
+        // the screen off, the switch off, the helper away or one already on its way: nothing
+        let cases: [(Facts, bool); 3] = [
+            (Facts { screen_on: false, ..facts(HOME, true) }, false),
+            (Facts { on: false, ..facts(HOME, true) }, false),
+            (Facts { helper_up: false, ..facts(HOME, true) }, false),
+        ];
+        for (to, _) in cases {
+            let mut p = up();
+            let fx = p.update(&Input::Topic { topic: "foreground".into(), data: json!({}) }, &to, true, 5000).0;
+            assert!(!posts(&fx).iter().any(|(_, why)| why == "leaving"), "{to:?}: {fx:?}");
+        }
+        let mut p = up();
+        p.opened(&facts(HDMI2, false), 1000);
+        let fx = p.update(&Input::Topic { topic: "foreground".into(), data: json!({}) }, &facts(HOME, true), true, 1100).0;
+        assert!(posts(&fx).is_empty(), "the open ask is still out");
     }
 
     #[test]
@@ -828,8 +891,10 @@ mod tests {
         let fx = tick(&mut p, t + RETRY_MS);
         assert_eq!(posts(&fx), vec![("hdmi2".to_owned(), "periodic".to_owned())]);
         answer(&mut p, 200, ok_at(t + RETRY_MS), t + RETRY_MS + 20);
-        // leaving the input stops the timers
-        p.update(&Input::Tick, &facts(HOME, true), true, t + RETRY_MS + 100);
+        // leaving the input stops the timers (and asks once more for its picture)
+        let fx = p.update(&Input::Tick, &facts(HOME, true), true, t + RETRY_MS + 100).0;
+        assert_eq!(posts(&fx), vec![("hdmi2".to_owned(), "leaving".to_owned())]);
+        answer_with(&mut p, &facts(HOME, true), 409, fail("no_picture"), t + RETRY_MS + 200);
         assert_eq!(p.due_at(), None);
     }
 
@@ -1030,5 +1095,55 @@ mod tests {
         q.opened(&facts(HDMI2, false), 100);
         let fx = answer(&mut q, 200, ok_at(100), 150);
         assert!(deliver(&mut q, &fx, bmp(8, 8, [1, 1, 1]), 1000), "the hold is over");
+    }
+
+    #[test]
+    fn an_input_that_comes_up_black_is_asked_again_shortly_up_to_three_times_and_then_left_to_the_quiet_timer() {
+        let mut p = Previews::new();
+        p.set_active(true);
+        p.update(&Input::Tick, &facts(HOME, true), true, 0);
+        p.update(&Input::Topic { topic: "foreground".into(), data: json!({}) }, &facts(HDMI2, false), true, 10_000);
+        let mut t = 10_000 + ARRIVE_MS;
+        for n in 0..=ARRIVE_TRIES {
+            let fx = tick(&mut p, t);
+            assert_eq!(posts(&fx), vec![("hdmi2".to_owned(), "arrive".to_owned())], "ask {n} at {t}");
+            answer(&mut p, 409, fail("no_picture"), t + 100);
+            if n < ARRIVE_TRIES {
+                assert_eq!(p.due_at(), Some(t + 100 + ARRIVE_RETRY_MS), "asked again shortly");
+                t += 100 + ARRIVE_RETRY_MS;
+            }
+        }
+        // after the third retry the quiet timer is what is left: the 30 s from the last ask
+        assert!(p.arrive_due.is_none());
+        assert_eq!(p.due_at(), Some(t + KEEP_MS));
+        // a good picture ends the retries
+        let mut q = Previews::new();
+        q.set_active(true);
+        q.update(&Input::Tick, &facts(HOME, true), true, 0);
+        q.update(&Input::Topic { topic: "foreground".into(), data: json!({}) }, &facts(HDMI2, false), true, 10_000);
+        tick(&mut q, 13_000);
+        answer(&mut q, 200, ok_at(13_050), 13_100);
+        assert_eq!(q.arrive_due, None);
+    }
+
+    #[test]
+    fn a_picture_ask_the_helper_answers_with_an_error_is_forgotten_and_a_404_drops_the_index_entry() {
+        let mut p = up();
+        let doc = json!({"ok": true, "previews": {"enabled": true, "items": {"hdmi1": {"at": 1000}, "livetv": {"at": 2000}}}});
+        let fx = p.update(&Input::Fetched { tag: tags::INDEX, status: 200, data: doc.clone() }, &facts(HDMI2, false), true, 5000).0;
+        let asked = fetches(&fx);
+        assert_eq!(asked.len(), 2);
+        let gone = json!({"ok": false, "error": {"code": "no_picture", "message": "x"}});
+        p.update(&Input::Fetched { tag: asked[0].0, status: 404, data: gone.clone() }, &facts(HDMI2, false), true, 5100);
+        p.update(&Input::Fetched { tag: asked[1].0, status: 502, data: gone }, &facts(HDMI2, false), true, 5100);
+        assert!(p.wanted.is_empty(), "nothing is waited for any more");
+        assert!(!p.index.contains_key(&asked_key(&asked[0].1)) && p.index.contains_key(&asked_key(&asked[1].1)), "only the 404 drops its entry");
+        // the same index again asks for what was not held (the entry the 404 dropped comes back with the helper's word)
+        let fx = p.update(&Input::Fetched { tag: tags::INDEX, status: 200, data: doc }, &facts(HDMI2, false), true, 6000).0;
+        assert_eq!(fetches(&fx).len(), 2);
+    }
+
+    fn asked_key(path: &str) -> String {
+        path.trim_start_matches("/v1/previews/").to_owned()
     }
 }
