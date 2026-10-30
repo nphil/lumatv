@@ -80,7 +80,7 @@ PageList {
         R.over(R.toggle(Sio, { ds: "other.simplinkAutoPowerOn", tab: 1, icon: "power", label: "Auto power sync",
                               help: "The TV turns on with a device on HDMI-CEC, and the device turns on with the TV." }),
                { enabled: function() { return page.cecOn && Sio.usable("other.simplinkAutoPowerOn") },
-                 detail: function() { return Sio.has("other.simplinkAutoPowerOn") && !page.cecOn ? "Turn HDMI-CEC on" : R.unavailable(Sio, "other.simplinkAutoPowerOn") } }),
+                 detail: function() { return Sio.has("other.simplinkAutoPowerOn") && !page.cecOn ? "Turn HDMI-CEC on" : R.unavailable(Sio, "other.simplinkAutoPowerOn")() } }),
         R.toggle(Sio, { ds: "general.noSignalScreenSaver", tab: 1, icon: "image", label: "No signal image",
                         help: "A picture from LG instead of a plain screen while an input has no signal." }),
         R.toggle(Sio, { ds: "other.qmsVrr", tab: 1, icon: "fast-forward", label: "Quick Media Switching",

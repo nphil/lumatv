@@ -925,7 +925,7 @@ class Coverage(unittest.TestCase):
             ["Software Version", "Update status", "Install updates automatically", "Block LG system updates", "Open apps without updating", "Check for Updates"],
             ["Ask LG not to sell my data", "Limit ad tracking", "AD ID", "Reset AD ID", "Allow Live Plus (recognises what is on screen)", "Allow custom ads while watching (Live Promotion)", "App Permissions", "Delete My Personal Information"],
             ["Screen Self-diagnosis", "Sound Self-diagnosis", "Memory Optimizer"],
-            ["Reset All", "Reset All Except Network Settings"]])
+            ["AV reset", "Reset All", "Reset All Except Network Settings"]])
 
     def test_the_information_is_what_the_tvs_services_answered_in_LGs_forms(self):
         v = self.probe("support_info")["res"]
@@ -1078,7 +1078,7 @@ class Coverage(unittest.TestCase):
     def test_channels_lists_the_settings_the_tv_shows_and_writes_LGs_values(self):
         rows = self.probe("channels_rows")["res"]
         self.assertEqual(rows, [["Channel Scrolling Options", "Primary Channels", "", ""], ["System Color", "Multi", "dim", "Live TV only"], ["Interactive Service", "", "", ""],
-                                ["Interactive Service (HDMI)", "", "", ""], ["Channel Tuning & Settings", "", "", ""]])
+                                ["Interactive Service (HDMI)", "", "", ""], ["Auto Tuning", "", "", ""], ["Channel Tuning & Settings", "", "", ""]])
         d = self.probe("channels_interactive")
         self.assertEqual(d["res"], {"was": [False, True], "now": [True, False]})
         self.assertEqual(self.written("channels_interactive"), [{"interactive-service": "onByUser"}, {"interactive-service-hdmi": "offByUser"}])      # LG's own switch values
