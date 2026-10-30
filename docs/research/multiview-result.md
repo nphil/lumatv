@@ -12,11 +12,11 @@ Evidence tags: `TV:` read on this set (file named), `SRC:` LG's published source
 
 Shipped (SubWindow2): the helper opens a sub-window picture for the app SAM has in front (`scrypted/routes.rs` `start_stream_for`, `Deps::front_app`); with Home in front (the sub window granted while an app's video still held MAIN, the Cameras full view over an app) it plays on the main window's path instead, as it effectively did before. The feeder refuses `sub_video` for Home's pipeline with the reason (`gf_smp.c`). The compositor's second foreground entry (`sub_foreground`, `Vwin::fg`, `ctl vwin fg`) and the helper's 150 ms wait for it are gone. `compositor/tools/tv-subwindow.sh` is M3 (front app, refuses Home).
 
-Next: the pop-up over YouTube through the shell and helper on the set (T3's steps with `window sub`), the full view over an app, then the changelog line below.
+Verified on the set (round 24, forge 4307d7d3, `compositor/slot-2026-10-30-r24/RESULT.md`): camera pop-ups over a full-screen YouTube video play on `SUB0` through the shell and the helper (test events on cameras 105 and 240, real events on 103), YouTube untouched on `MAIN`, the panel at 120 Hz; the full view plays on `MAIN`. Not run: the full view opened while an app's video still holds `MAIN` (the Home-in-front fallback above). `popups.on` stays off for another reason: a 25 a second pop-up stream re-times the panel on Home (the same file).
 
 Open: two camera pictures at once with Home in front (the second has no sub window: Home's pipeline is always MAIN; a texture is the fallback the compositor would have to choose); audio on the sub pipeline (none asked for; cameras carry none).
 
-Artifacts: `docs/research/multiview/tv-2026-10-30/` (Round21's captures: `luna-lgmv-both-playing/` is LG's own Multi View, `e2c-messages.txt` and `m1-messages.txt` the feeder and a plain media pipeline beside YouTube, `mvc-api/` the controller's lists, `strings/`; Round22's `m2/`; `m3-front/` and `m3-listed/`); the binaries read are on the host only (`/tmp/lgbin/`, not kept).
+Artifacts: `docs/research/multiview/tv-2026-10-30/` (Round21's captures: `luna-lgmv-both-playing/` is LG's own Multi View, `e2c-messages.txt` and `m1-messages.txt` the feeder and a plain media pipeline beside YouTube, `mvc-api/` the controller's lists, `strings/`; Round22's `m2/`; `m3-front/` and `m3-listed/`; `r24/`, round 24's camera list and pop-ups on `SUB0`); the binaries read are on the host only (`/tmp/lgbin/`, not kept).
 
 ## Answer in short
 
@@ -105,6 +105,6 @@ An app's video playing on MAIN (YouTube), LumaTV in front, receiver muted: `sh /
 
 ## Changelog line
 
-Camera pictures play over any app: where no video window can carry one (an app's video, a 4K120 game, no window free) the pop-up and the picture-in-picture are granted a texture, decoded by the feeder on the CPU and drawn by the compositor over the claim's rectangle; the foreground list of LG's Multi View is an experiment switch (`ctl vwin fg`).
+Camera pictures play over any app: where no video window can carry one (an app's video, a 4K120 game, no window free) the pop-up and the picture-in-picture are granted a texture, decoded by the feeder on the CPU and drawn by the compositor over the claim's rectangle.
 
 A camera plays in the display's second hardware window beside an app's video: the feeder loads it in LG's own starfish pipeline asking for the sub sink, opened for the app in front (Home's pipeline is always put on the main window by LG's media stack); no CPU decode, the texture stays the fallback.
