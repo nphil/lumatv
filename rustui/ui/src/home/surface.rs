@@ -13,7 +13,7 @@ use super::wallpaper::{self, WallpaperSurface};
 use super::widgets::{Content, PAD_SIDE, PAD_TOP, Pictures};
 use crate::kit::flow::Lifted;
 use crate::kit::pane::{self, PaneKind};
-use crate::kit::picture::{self, Fit};
+use crate::kit::picture::{self, Fit, Picture};
 use crate::kit::text::{Text, role_style, width_of};
 use crate::kit::{Engine, Id, Kit};
 use compositor_protocol::{Backdrop, Glass, GroupPose, Props, Rgba, Shape};
@@ -63,12 +63,20 @@ pub fn glass_of(kit: &Kit, kind: PaneKind, h: f32, lit: bool, over_video: bool) 
     Glass { corner_radius: base.corner_radius, tint: if over_video { base.tint } else { tint }, edge, backdrop, saturation: kit.tokens.saturation, ..pair.rest }
 }
 
-/// The side of the texture a tile's icon is kept at: the picture's own side, held between the box it is drawn in and that box at
-/// full lift (`lift`, the focus tile scale). A store icon (192 px) is shrunk once, to the lifted box, and is read 1:1 when the
-/// tile is focused and at 1/lift at rest; a homebrew icon (130) is kept as it is; a small one (80) is grown once, to the box. The
-/// box-sized copy grown by the lift was the softest picture on Home (`docs/research/ui-sharpness-result.md`).
-pub fn icon_texture_side(picture: u32, box_side: u32, lift: f32) -> u32 {
-    picture.clamp(box_side, (box_side as f32 * lift.max(1.0)).ceil() as u32)
+/// The scale a dock tile lifts to: `scale`, nudged so the lifted tile is an even number of pixels wider than at rest. Its edges, which
+/// grow about the tile's centre, then fall on whole pixels (120 px at 1.12 is 134.4 px, edges at -7.2; 134 px has them at -7).
+pub fn lift_scale(tile: f32, scale: f32) -> f32 {
+    if tile < 1.0 || scale <= 1.0 {
+        return scale.max(1.0);
+    }
+    let grow = (tile * (scale - 1.0) / 2.0).round() * 2.0;
+    (tile + grow) / tile
+}
+
+/// The side of the second picture a tile's icon has for the lift: the box at full lift, an even number of pixels (the lifted icon is
+/// centred on the tile's centre, so an even side puts its edges on whole pixels).
+pub fn lifted_icon_side(box_side: u32, scale: f32) -> u32 {
+    ((box_side as f32 * scale / 2.0).round() as u32 * 2).max(box_side)
 }
 
 /// A focusable glass pane with its lift: the group at its rest pose (the pivot at its centre), the pane and, under a group whose
@@ -149,12 +157,67 @@ struct Card {
     inner_rows: usize,
 }
 
+/// A dock tile's icon, resampled to the pixels it is drawn in: edge to edge when the picture fills its canvas (the plate then is its own
+/// colour), inset on the plate when its edges are clear. Two pictures, each made once from the file by one Lanczos pass: the box's size,
+/// drawn 1:1 at whole pixels while the tile rests, and the lifted box's size, drawn 1:1 when the tile is at full lift and crossfaded in
+/// by the lift. A single picture shown at both sizes was drawn through a second, bilinear resample at one of them
+/// (`docs/research/ui-sharpness-result.md`, `icon-sharpness-result.md`).
+struct IconArt {
+    rest: Picture,
+    lifted: Picture,
+    /// Where the box's corner is on the tile, and the lift's scale (the lifted picture is shown at its inverse, so the group's lift
+    /// draws it 1:1).
+    off: f32,
+    lift: f32,
+}
+
+impl IconArt {
+    fn of(path: &str, data: Option<&Path>, tile: u32, inset: u32, radius: f32, lift: f32) -> Option<Self> {
+        let pic = picture::load_icon(path, data)?;
+        // the edge alpha: the mean alpha of the outer ring of pixels
+        let (mut sum, mut n) = (0u64, 0u64);
+        for y in 0..pic.height {
+            for x in 0..pic.width {
+                if x == 0 || y == 0 || x + 1 == pic.width || y + 1 == pic.height {
+                    sum += u64::from(pic.rgba[((y * pic.width + x) * 4 + 3) as usize]);
+                    n += 1;
+                }
+            }
+        }
+        let full = n > 0 && sum as f32 / n as f32 / 255.0 >= 0.9;
+        let side = if full { tile } else { tile - 2 * inset };
+        let lifted_side = lifted_icon_side(side, lift);
+        let make = |s: u32| {
+            let mut p = pic.fitted_sharp(s, s);
+            if full {
+                p.round_corners(radius * s as f32 / side as f32);
+            }
+            p
+        };
+        Some(Self { rest: make(side), lifted: make(lifted_side), off: if full { 0.0 } else { inset as f32 }, lift })
+    }
+
+    /// The layer of one of the two pictures, in the group it is made under. The lifted one is centred where the rest one is and shown
+    /// at `1 / lift`, so the lifted tile's group scale makes it as large as its pixels.
+    fn layer(&self, kit: &mut Kit, z: i32, lifted: bool) -> std::io::Result<ImageLayer> {
+        let (pic, scale) = if lifted { (&self.lifted, 1.0 / self.lift) } else { (&self.rest, 1.0) };
+        let side = self.rest.width as f32;
+        let at = self.off + (side - pic.width as f32) / 2.0;
+        let mut layer = kit.ui.scene.image(pic.width, pic.height, z, Props { scale, ..Props::at(at, at) })?;
+        pic.paint(&mut layer);
+        layer.damage(None);
+        Ok(layer)
+    }
+}
+
 /// A dock tile (the handles keep the layers).
 #[allow(dead_code)]
 struct Tile {
     id: Id,
     plate: ShapeLayer,
     icon: Option<ImageLayer>,
+    /// The icon again at the size the lifted tile draws it, crossfaded in by the lift (`tile_icon`).
+    lifted_icon: Option<ImageLayer>,
     app: String,
     slot: (i32, i32),
 }
@@ -498,6 +561,7 @@ impl HomeSurface {
         d.cols = home.dock.cols();
         let mut old: Vec<Option<Tile>> = std::mem::take(&mut d.tiles).into_iter().map(Some).collect();
         let tile = home.dock.tile as f32;
+        let lift = lift_scale(tile, kit.tokens.focus.tile_scale);
         let radius = kit.tokens.radius(Radius::Tile);
         let inset = home.theme.pointer("/tiles/inset").and_then(Value::as_f64).unwrap_or(19.0) as f32;
         for (i, p) in home.dock.points.iter().enumerate() {
@@ -521,55 +585,30 @@ impl HomeSurface {
             }
             let other = |e: ui::error::UiError| std::io::Error::other(format!("{e}"));
             let group = kit.ui.scene.group(Some(d.grid.id()), rest).map_err(other)?;
+            let lit_group = kit.ui.scene.group(Some(group.id()), GroupPose { opacity: 0.0, ..GroupPose::IDENTITY }).map_err(other)?;
             let plate_colour = lumatv_tokens::colour(&p.plate).map(|c| c.premultiply(0.0)).unwrap_or(Rgba(42, 40, 51, 255));
             let scene = kit.ui.scene.clone();
+            let art = IconArt::of(&p.icon, self.data.as_deref(), tile as u32, inset as u32, radius, lift);
             let (plate_layer, icon) = scene.adopting(&group, || -> std::io::Result<_> {
                 let shape = Shape { corner_radius: radius, fill: compositor_protocol::Fill::Solid(plate_colour), border_width: 1.0, border: faded(Rgba(255, 255, 255, 255), 0.13) };
                 let plate_layer = kit.ui.scene.shape(tile as u32, tile as u32, Z_DOCK + 3, shape, Props::at(0.0, 0.0));
-                let icon = Self::tile_icon(kit, &p.icon, self.data.as_deref(), tile as u32, inset as u32, radius, Z_DOCK + 4)?;
+                let icon = match &art {
+                    Some(a) => Some(a.layer(kit, Z_DOCK + 4, false)?),
+                    None => None,
+                };
                 Ok((plate_layer, icon))
             })?;
-            engine.flow.lift(id, Lifted { group, rest, scale: kit.tokens.focus.tile_scale, rise: 6.0, lit: None });
-            d.tiles.push(Tile { id, plate: plate_layer, icon, app: p.id.clone(), slot: (sx, sy) });
+            let lifted_icon = match &art {
+                Some(a) => Some(scene.adopting(&lit_group, || a.layer(kit, Z_DOCK + 5, true))?),
+                None => None,
+            };
+            engine.flow.lift(id, Lifted { group, rest, scale: lift, rise: 6.0, lit: Some(lit_group) });
+            d.tiles.push(Tile { id, plate: plate_layer, icon, lifted_icon, app: p.id.clone(), slot: (sx, sy) });
         }
         for t in old.into_iter().flatten() {
             engine.flow.drop_lift(t.id);
         }
         Ok(())
-    }
-
-    /// The icon of a tile: edge to edge when the picture fills its canvas (the plate then is its own colour), inset on the plate when
-    /// its edges are clear. The layer holds the picture at [`icon_texture_side`] and shows it at the box's size, so the focused tile
-    /// (the box at full lift) reads a store icon nearly 1:1 instead of a box-sized copy grown by the lift.
-    fn tile_icon(kit: &mut Kit, path: &str, data: Option<&Path>, tile: u32, inset: u32, radius: f32, z: i32) -> std::io::Result<Option<ImageLayer>> {
-        let Some(pic) = picture::load_icon(path, data) else { return Ok(None) };
-        let s = wallpaper::sample(&pic.rgba);
-        // the edge alpha: the mean alpha of the outer ring of pixels
-        let mut sum = 0u64;
-        let mut n = 0u64;
-        for y in 0..pic.height {
-            for x in 0..pic.width {
-                if x == 0 || y == 0 || x + 1 == pic.width || y + 1 == pic.height {
-                    sum += pic.rgba[((y * pic.width + x) * 4 + 3) as usize] as u64;
-                    n += 1;
-                }
-            }
-        }
-        let full = n > 0 && sum as f32 / n as f32 / 255.0 >= 0.9;
-        let _ = s;
-        let side = if full { tile } else { tile - 2 * inset };
-        let tex = icon_texture_side(pic.width.max(pic.height), side, kit.tokens.focus.tile_scale);
-        let mut fitted = pic.fitted(tex, tex, Fit::Contain);
-        if full {
-            fitted.round_corners(radius * tex as f32 / side as f32);
-        }
-        // the layer is scaled about its centre: placed so the drawn box is the tile's (or the inset one)
-        let off = if full { 0.0 } else { inset as f32 };
-        let at = off + (side as f32 - tex as f32) / 2.0;
-        let mut layer = kit.ui.scene.image(tex, tex, z, Props { scale: side as f32 / tex as f32, ..Props::at(at, at) })?;
-        fitted.paint(&mut layer);
-        layer.damage(None);
-        Ok(Some(layer))
     }
 
     // ---- the status bar
@@ -1145,12 +1184,36 @@ mod tests {
     }
 
     #[test]
-    fn an_icon_is_kept_between_the_box_and_the_lifted_box() {
-        assert_eq!(icon_texture_side(192, 120, 1.12), 135, "a store icon is shrunk to the lifted box");
-        assert_eq!(icon_texture_side(130, 120, 1.12), 130, "a homebrew icon is kept as it is");
-        assert_eq!(icon_texture_side(80, 120, 1.12), 120, "a small icon is grown to the box");
-        assert_eq!(icon_texture_side(192, 82, 1.12), 92, "an inset icon's box is the inset one");
-        assert_eq!(icon_texture_side(192, 120, 1.0), 120, "no lift: the box");
+    fn a_lifted_tile_has_whole_pixel_edges_and_its_icon_is_a_picture_of_the_lifted_size() {
+        let lift = lift_scale(120.0, 1.12);
+        assert!((120.0 * lift - 134.0).abs() < 1e-3, "120 px at 1.12 is 134.4: 134 keeps its edges on whole pixels, got {}", 120.0 * lift);
+        assert_eq!(lift_scale(120.0, 1.0), 1.0, "no lift stays none");
+        assert_eq!(lift_scale(0.0, 1.12), 1.12);
+        assert_eq!(lifted_icon_side(120, lift), 134, "a full-bleed icon is drawn 1:1 at full lift");
+        assert_eq!(lifted_icon_side(82, lift), 92, "an inset icon's side is even, so its edges are whole about the tile's centre");
+        assert_eq!(lifted_icon_side(120, 1.0), 120, "no lift: the box");
+    }
+
+    #[test]
+    fn a_tile_icon_is_made_at_the_box_and_at_the_lifted_box_from_the_files_own_pixels() {
+        let dir = std::env::temp_dir().join(format!("iconart-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let file = dir.join("icon.png");
+        let mut enc = png::Encoder::new(std::fs::File::create(&file).expect("a file"), 192, 192);
+        enc.set_color(png::ColorType::Rgba);
+        enc.set_depth(png::BitDepth::Eight);
+        let pixels: Vec<u8> = (0..192 * 192).flat_map(|i| if (i % 192) < 96 { [255, 255, 255, 255] } else { [0, 0, 0, 255] }).collect();
+        enc.write_header().expect("header").write_image_data(&pixels).expect("pixels");
+        let art = IconArt::of(file.to_str().expect("utf-8"), None, 120, 19, 24.0, lift_scale(120.0, 1.12)).expect("an icon");
+        assert_eq!((art.rest.width, art.lifted.width), (120, 134), "full bleed: the box and the lifted box");
+        assert_eq!(art.off, 0.0);
+        let row = |p: &Picture| (0..p.width).map(|x| p.at(x, p.height / 2)[0]).collect::<Vec<_>>();
+        for (name, p) in [("rest", &art.rest), ("lifted", &art.lifted)] {
+            let r = row(p);
+            let soft = r[10..r.len() - 10].iter().filter(|&&v| v > 20 && v < 235).count();
+            assert!(soft <= 2, "{name}: the edge is a pixel or two wide, not a ramp: {soft}");
+        }
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     fn press(h: &mut Home, name: &str, at: u64) {

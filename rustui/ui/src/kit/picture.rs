@@ -183,6 +183,42 @@ fn decode_png(bytes: &[u8]) -> Result<Picture, String> {
     Ok(Picture { width: info.width, height: info.height, rgba })
 }
 
+/// How much of the edge [`Picture::fitted_sharp`] puts back after the resample (the amount of an unsharp mask over a 3 by 3 blur). Over the
+/// store logos on the dock (192 and 130 px sources at 120) the edge's 10 to 90 % rise goes from 1.8, 2.2, 1.8 and 3.0 px (the area mean)
+/// to 1.5, 1.7, 1.4 and 1.9 (the resample alone: 1.6, 1.8, 1.6 and 2.1); LG's Home draws the same logos at 1.4 to 2.1.
+const ICON_SHARPEN: f32 = 0.45;
+
+/// The Lanczos-3 kernel: a windowed sinc, zero from 3 out.
+fn lanczos(x: f32) -> f32 {
+    let x = x.abs();
+    if x < 1e-6 {
+        1.0
+    } else if x >= 3.0 {
+        0.0
+    } else {
+        let px = std::f32::consts::PI * x;
+        3.0 * px.sin() * (px / 3.0).sin() / (px * px)
+    }
+}
+
+/// For each of `dst` output samples of a line resized from `src` samples: the first source index and the weights from there (summing
+/// to 1; the kernel widens by the shrink so that a reduction is filtered, not skipped). Indices may fall outside the line: the caller clamps.
+fn lanczos_taps(src: usize, dst: usize) -> Vec<(i64, Vec<f32>)> {
+    let ratio = src as f32 / dst as f32;
+    let stretch = ratio.max(1.0);
+    (0..dst)
+        .map(|i| {
+            let centre = (i as f32 + 0.5) * ratio - 0.5;
+            let first = (centre - 3.0 * stretch).ceil() as i64;
+            let last = (centre + 3.0 * stretch).floor() as i64;
+            let mut weights: Vec<f32> = (first..=last).map(|k| lanczos((k as f32 - centre) / stretch)).collect();
+            let sum: f32 = weights.iter().sum();
+            weights.iter_mut().for_each(|w| *w /= sum);
+            (first, weights)
+        })
+        .collect()
+}
+
 impl Picture {
     /// This picture in a box of `w` by `h` (both at least 1): `Cover` fills the box and crops, `Contain` fits inside it and leaves the
     /// rest transparent. Shrinking takes the mean of the source area under each pixel, growing samples bilinearly.
@@ -214,6 +250,104 @@ impl Picture {
             }
         }
         Picture { width: w, height: h, rgba: out }
+    }
+
+    /// This picture in a box of `w` by `h` with its whole shape kept, centred, the rest of the box transparent (`Fit::Contain`), resampled
+    /// with a Lanczos-3 kernel in both directions: edges stay a pixel wide, where [`Picture::fitted`]'s area mean and bilinear growth
+    /// round them off. For app icons and logos, which are drawn at one size and read up close. A picture already of the size is copied.
+    pub fn fitted_sharp(&self, w: u32, h: u32) -> Picture {
+        let (w, h) = (w.max(1), h.max(1));
+        let scale = (w as f32 / self.width as f32).min(h as f32 / self.height as f32);
+        let (dw, dh) = (((self.width as f32 * scale).round() as u32).clamp(1, w), ((self.height as f32 * scale).round() as u32).clamp(1, h));
+        let mut inner = self.resized(dw, dh);
+        if (dw, dh) != (self.width, self.height) {
+            inner.unsharp(ICON_SHARPEN);
+        }
+        if (dw, dh) == (w, h) {
+            return inner;
+        }
+        let (ox, oy) = ((w - dw) / 2, (h - dh) / 2);
+        let mut out = vec![0u8; (w * h * 4) as usize];
+        for y in 0..dh {
+            let from = (y * dw * 4) as usize;
+            let to = (((y + oy) * w + ox) * 4) as usize;
+            out[to..to + (dw * 4) as usize].copy_from_slice(&inner.rgba[from..from + (dw * 4) as usize]);
+        }
+        Picture { width: w, height: h, rgba: out }
+    }
+
+    /// Adds `amount` of what a 3 by 3 binomial blur takes off, to the colour only (the alpha, and so the shape, is kept), held to the
+    /// alpha. The display chip's x2 scaler takes an edge a pixel wide to two or three on the panel; this puts back a part of the edge that
+    /// the resample's own band limit took off, so the logo reads as sharp as the source drawn at this size by LG's Home.
+    fn unsharp(&mut self, amount: f32) {
+        let (w, h) = (self.width as usize, self.height as usize);
+        let at = |x: i64, y: i64, c: usize, px: &[u8]| f32::from(px[(y.clamp(0, h as i64 - 1) as usize * w + x.clamp(0, w as i64 - 1) as usize) * 4 + c]);
+        let src = self.rgba.clone();
+        for y in 0..h as i64 {
+            for x in 0..w as i64 {
+                let o = (y as usize * w + x as usize) * 4;
+                let a = src[o + 3];
+                if a == 0 {
+                    continue;
+                }
+                for c in 0..3 {
+                    let mut blur = 0.0;
+                    for (dy, wy) in [(-1, 1.0), (0, 2.0), (1, 1.0)] {
+                        for (dx, wx) in [(-1, 1.0), (0, 2.0), (1, 1.0)] {
+                            blur += at(x + dx, y + dy, c, &src) * wx * wy;
+                        }
+                    }
+                    let v = f32::from(src[o + c]);
+                    self.rgba[o + c] = (v + amount * (v - blur / 16.0)).round().clamp(0.0, f32::from(a)) as u8;
+                }
+            }
+        }
+    }
+
+    /// The whole picture at `w` by `h` (stretched to it), by Lanczos-3 over the premultiplied channels; the colour is held to the alpha
+    /// so the kernel's overshoot cannot leave a pixel brighter than it is opaque.
+    fn resized(&self, w: u32, h: u32) -> Picture {
+        if (w, h) == (self.width, self.height) {
+            return self.clone();
+        }
+        let (sw, sh, w, h) = (self.width as usize, self.height as usize, w as usize, h as usize);
+        let across = lanczos_taps(sw, w);
+        let down = lanczos_taps(sh, h);
+        // horizontal pass: every source row to `w` pixels
+        let mut rows = vec![0f32; sh * w * 4];
+        for y in 0..sh {
+            let src = &self.rgba[y * sw * 4..(y + 1) * sw * 4];
+            for (x, (first, weights)) in across.iter().enumerate() {
+                let mut acc = [0f32; 4];
+                for (k, wt) in weights.iter().enumerate() {
+                    let i = (first + k as i64).clamp(0, sw as i64 - 1) as usize * 4;
+                    for c in 0..4 {
+                        acc[c] += f32::from(src[i + c]) * wt;
+                    }
+                }
+                rows[(y * w + x) * 4..(y * w + x) * 4 + 4].copy_from_slice(&acc);
+            }
+        }
+        let mut out = vec![0u8; w * h * 4];
+        for (y, (first, weights)) in down.iter().enumerate() {
+            for x in 0..w {
+                let mut acc = [0f32; 4];
+                for (k, wt) in weights.iter().enumerate() {
+                    let r = (first + k as i64).clamp(0, sh as i64 - 1) as usize;
+                    let i = (r * w + x) * 4;
+                    for c in 0..4 {
+                        acc[c] += rows[i + c] * wt;
+                    }
+                }
+                let a = acc[3].round().clamp(0.0, 255.0);
+                let o = (y * w + x) * 4;
+                for c in 0..3 {
+                    out[o + c] = acc[c].round().clamp(0.0, a) as u8;
+                }
+                out[o + 3] = a as u8;
+            }
+        }
+        Picture { width: w as u32, height: h as u32, rgba: out }
     }
 
     /// The mean of the source rectangle (x0, y0)-(x1, y1) when it spans more than a pixel, the bilinear sample at its centre when it does
@@ -451,5 +585,37 @@ mod tests {
         for px in r.rgba.chunks_exact(4) {
             assert!(px[0] <= px[3], "still premultiplied");
         }
+    }
+
+    #[test]
+    fn a_sharp_fit_keeps_an_edge_a_pixel_wide_where_the_area_mean_spreads_it() {
+        // a 192 px picture, left half white, the edge on a whole source pixel, shown at 120: the mean smears the edge over 2 pixels
+        let (w, h) = (192u32, 8u32);
+        let mut rgba = Vec::new();
+        for _y in 0..h {
+            for x in 0..w {
+                let v = if x < 96 { 255 } else { 0 };
+                rgba.extend_from_slice(&[v, v, v, 255]);
+            }
+        }
+        let p = Picture { width: w, height: h, rgba };
+        let sharp = p.fitted_sharp(120, 5);
+        let row: Vec<u8> = (0..120).map(|x| sharp.at(x, 2)[0]).collect();
+        let between = row.iter().filter(|&&v| v > 20 && v < 235).count();
+        assert!(between <= 2, "the edge is at most two pixels wide: {row:?}");
+        assert!(row[10] > 245 && row[110] < 10, "flat parts stay flat");
+        assert!(sharp.rgba.chunks_exact(4).all(|px| px[0] <= px[3]), "still premultiplied");
+    }
+
+    #[test]
+    fn a_sharp_fit_of_the_size_is_a_copy_a_contained_one_centres_and_a_clear_picture_stays_clear() {
+        let p = Picture { width: 4, height: 2, rgba: (0..8).flat_map(|i| [i as u8 * 30, 0, 0, 255]).collect() };
+        assert_eq!(p.fitted_sharp(4, 2), p);
+        let boxed = p.fitted_sharp(8, 8);
+        assert_eq!((boxed.width, boxed.height), (8, 8));
+        assert_eq!(boxed.at(0, 0)[3], 0, "the bars are clear");
+        assert_eq!(boxed.at(4, 4)[3], 255, "the picture is in the middle");
+        let clear = Picture { width: 3, height: 3, rgba: vec![0; 36] };
+        assert!(clear.fitted_sharp(7, 7).rgba.iter().all(|&b| b == 0));
     }
 }

@@ -5,7 +5,7 @@
 //! twice what an edge between whole pixels does. FreeType's automatic hinter at its strong ("mono") target moves every stem and bar to the
 //! grid and the outline is then drawn antialiased, so curves keep their grey edges and do not step. `skrifa` carries a port of that
 //! hinter, in Rust: [`GridFit`] is a [`GlyphSource`] that rasters the hinted outline with an exact-area scan converter and is handed to
-//! `Fonts::set_glyph_source` (the theme's `text.gridFit`, off by default).
+//! `Fonts::set_glyph_source` (the theme's `text.gridFit`, on in the shipped theme).
 //!
 //! Only the bitmap changes. The advance is the built-in rasteriser's and every glyph keeps its place on the line, so layout, measure and
 //! wrapping do not move; a hinted glyph may stand up to half a pixel from where its outline would be, which is what hinting is.
@@ -302,12 +302,11 @@ mod tests {
             c[m.width * (m.height / 2)..][..m.width].iter().any(|&v| v != 0 && v != 255)
         };
         let h = ui::testing::harness();
-        let mut off = Kit::new(h.ui.scene.clone(), Tokens::shipped(), Mode::Dark, MaterialTier::T1, 1.0).unwrap();
-        assert!(stem_is_grey(&mut off), "off by default: the built-in glyphs");
+        let mut off = Kit::new(h.ui.scene.clone(), Tokens::from_json(&json!({"text": {"gridFit": false}})), Mode::Dark, MaterialTier::T1, 1.0).unwrap();
+        assert!(stem_is_grey(&mut off), "off: the built-in glyphs");
         let h = ui::testing::harness();
-        let tokens = Tokens::from_json(&json!({"text": {"gridFit": true}}));
-        let mut on = Kit::new(h.ui.scene.clone(), tokens, Mode::Dark, MaterialTier::T1, 1.0).unwrap();
-        assert!(!stem_is_grey(&mut on), "on: stems of whole pixels");
+        let mut on = Kit::new(h.ui.scene.clone(), Tokens::shipped(), Mode::Dark, MaterialTier::T1, 1.0).unwrap();
+        assert!(!stem_is_grey(&mut on), "on in the shipped theme: stems of whole pixels");
         assert_eq!(on.ui.fonts.measure("Hamburger", ty).width, off.ui.fonts.measure("Hamburger", ty).width, "the layout is the same");
     }
 

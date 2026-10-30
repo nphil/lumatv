@@ -336,7 +336,7 @@ impl Tokens {
         }
     }
 
-    /// Whether the glyphs are grid-fitted (`text.gridFit`, off by default): stems and bars on whole pixels, so an edge is not smeared over two
+    /// Whether the glyphs are grid-fitted (`text.gridFit`, on in the shipped theme): stems and bars on whole pixels, so an edge is not smeared over two
     /// panel pixels by the OSD scaler (`kit/gridfit.rs`, `docs/research/text-render-result.md`). Read when the shell starts.
     pub fn grid_fit(&self) -> bool {
         self.json.get("text").and_then(|t| t.get("gridFit")).and_then(Value::as_bool).unwrap_or(false)
@@ -423,11 +423,11 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn grid_fit_text_is_off_in_the_shipped_theme_and_an_owners_theme_turns_it_on() {
-        assert!(!Tokens::shipped().grid_fit());
-        assert!(Tokens::from_json(&json!({"text": {"gridFit": true}})).grid_fit());
-        assert!(!Tokens::from_json(&json!({"text": {"gridFit": "yes"}})).grid_fit(), "only a boolean turns it on");
-        assert!(!Tokens::from_json(&json!({"clock": {"style": "digital"}})).grid_fit());
+    fn grid_fit_text_is_on_in_the_shipped_theme_and_an_owners_theme_turns_it_off() {
+        assert!(Tokens::shipped().grid_fit());
+        assert!(!Tokens::from_json(&json!({"text": {"gridFit": false}})).grid_fit());
+        assert!(!Tokens::from_json(&json!({"text": {"gridFit": "yes"}})).grid_fit(), "only a boolean turns it on: anything else is off");
+        assert!(Tokens::from_json(&json!({"clock": {"style": "digital"}})).grid_fit(), "a theme that does not say keeps the shipped one");
     }
 
     #[test]

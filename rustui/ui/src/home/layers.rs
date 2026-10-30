@@ -16,7 +16,7 @@ use crate::kit::flow::Lifted;
 use crate::kit::focus::Region;
 use crate::kit::viewport::Reach;
 use crate::kit::pane::PaneKind;
-use crate::kit::picture::{self, Fit};
+use crate::kit::picture::{self};
 use crate::kit::text::{Text, role_style, width_of};
 use crate::kit::{Engine, Id, Kit};
 use compositor_protocol::{Backdrop, Fill, GroupPose, Props, Rgba, Shape};
@@ -309,7 +309,7 @@ impl HomeSurface {
         }
         let full = n > 0 && sum as f32 / n as f32 / 255.0 >= 0.9;
         let s = if full { side } else { side - 2 * inset };
-        let mut fitted = pic.fitted(s, s, Fit::Contain);
+        let mut fitted = pic.fitted_sharp(s, s);
         if full {
             fitted.round_corners(radius);
         }

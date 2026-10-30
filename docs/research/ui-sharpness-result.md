@@ -138,6 +138,8 @@ the 192 px texture is the most faithful at every size the tile uses, because the
 at that scale bilinear still reads every texel. `Tile.qml` now has `mipmap: false`; `kit/LuAppIcon.qml`, which draws one
 app at 96 px and smaller (down to 0.25), keeps its mipmaps. Picture: `ui-sharpness/tile-mipmap-before-after.png`.
 
+(Superseded for the Rust tile by `icon-sharpness-result.md`: Lanczos to the exact size, two pictures, 1:1 at rest and at full lift.)
+
 The Rust tile (`home/surface.rs`) box-filtered the icon to the box (120 or 82 px) on the CPU, which is right at rest, and
 the lift then grew that copy by 1.12 on the GPU when focused: the one tile being looked at was the soft one. The layer now
 holds the icon at `icon_texture_side`: the picture's own side held between the box and the box at full lift (192 shrinks

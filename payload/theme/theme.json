@@ -122,7 +122,7 @@
     "transitions": false
   },
   "text": {
-    "gridFit": false
+    "gridFit": true
   },
   "tiles": {
     "inset": 19,
