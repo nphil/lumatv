@@ -123,13 +123,18 @@ Item {
         }
     }
 
+    // The clip is wider than the list by what a focused plate grows (the row's scale about its centre), so the plate keeps its rounded ends
+    // at the list's edge; the rows keep the list's own width and place
+    readonly property real bleed: Math.ceil(width * (Lu.rowScale - 1) / 2) + 2
     Item {
         anchors.fill: parent
+        anchors.margins: -list.bleed
         clip: true
         Column {
             id: column
-            width: parent.width
-            y: -list.offset
+            width: list.width
+            x: list.bleed
+            y: list.bleed - list.offset
             spacing: Lu.space(1)
             Repeater {
                 id: rep
