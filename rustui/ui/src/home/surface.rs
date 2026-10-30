@@ -382,7 +382,7 @@ impl HomeSurface {
             self.text_scale = kit.text_scale;
             self.backdrop = kit.wall_backdrop;
         }
-        // something over Home stills the warp: its steps would owe the whole screen to every page of the ring (`Home::set_overlay`)
+        // a calm Home (something over it, a key a moment ago) stills the warp: its steps would owe the whole screen to every page of the ring (`Home::set_calm`)
         self.wall.set_held(home.wallpaper_held());
         // the wallpaper: loaded when the theme names it, sampled for the material and the accent
         if let Some(s) = self.wall.load(kit, &home.theme, self.data.as_deref(), self.module.as_deref())? {

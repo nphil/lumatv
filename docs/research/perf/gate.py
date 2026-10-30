@@ -811,6 +811,24 @@ def _worst(values):
     return max(vals) if vals else None
 
 
+PANEL_TOLERANCE = 0.08
+
+
+def panel_check(report, asked_hz):
+    """`panel_refresh`: the panel ran at the refresh that was asked for in every window (analyse.py `panel_hz`, from the vblanks). None for a report
+    without vblanks. A window on another refresh is judged by its own (a refresh and a fifth) so that it does not count thousands of drops, and
+    this check fails it as what it is: not a measurement at that refresh. Round 22: a camera popup, a hardware video window, made the TV re-time the
+    panel from 120 Hz to 100 and it stayed so for the rest of the run."""
+    hz = [w['panel_hz'] for w in report['windows'] if w.get('panel_hz') is not None]
+    if not hz:
+        return None
+    off = [h for h in hz if abs(h - asked_hz) > PANEL_TOLERANCE * asked_hz]
+    worst = max(hz, key=lambda h: abs(h - asked_hz))
+    return check('panel_refresh', not off, worst, f'{asked_hz:g} Hz +-{PANEL_TOLERANCE * 100:g} %',
+                 (f'{len(off)} of {len(hz)} windows on another refresh: the TV re-timed the panel (the compositor log has `the panel refreshes every ... now`); '
+                  'the counts of these windows are by that refresh, and say nothing of the asked one') if off else '')
+
+
 def render_limits(th):
     """The render-time limits under LumaTV's compositor. analyse.py reads the render time off the compositor's own loop thread there (the `loop` marker of the
     trace; the supervisor `pidof surface-manager` names runs 0.5 ms a frame whatever is drawn), and that is one stage of a frame that is two deep: it may take
@@ -836,6 +854,9 @@ def evaluate_windows(s, report, cycles, lg_compositor=False, lumatv=False):
                       '(the ring lost its oldest events, or the call never returned)')
     out = [check('windows', len(keyed) == expected and not dead, f'{len(keyed)}/{expected}', f'== {expected}',
                  dead_note or ('marker lost: trace overflow or key not delivered' if len(keyed) != expected else ''))]
+    panel = panel_check(report, REFRESH_HZ)
+    if panel:
+        out.append(panel)
 
     if th['first_frame_ms'] is not None:
         v = _worst([w['first_frame_ms'] for w in keyed]) if not dead else None
@@ -1050,7 +1071,7 @@ def jsonable(v):
 
 WINDOW_KEYS = ('name', 'dur_s', 'frames', 'fps', 'over20', 'worst_ms', 'anim_frames', 'dropped', 'dropped_in_motion', 'anim_render_ms',
                'first_frame_ms', 'burst_end_ms', 'burst_over20', 'burst_anim_p90_ms', 'sent_ms', 'delivered_ms', 'show_ms', 'osd_wake_ms',
-               'burst_first_render_ms', 'burst_anim_samples', 'burst_app_jobs', 'irq_counts', 'gaps')
+               'burst_first_render_ms', 'burst_anim_samples', 'burst_app_jobs', 'irq_counts', 'gaps', 'panel_hz')
 
 
 def app_drawn(report, name):

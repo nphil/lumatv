@@ -2,33 +2,38 @@
 
 ## Resume here
 
-Done (forge main, own worktree `/tmp/Frames120-wt`, delete it only when finished):
+On forge main (own worktree `/tmp/Frames120-wt2`, delete it only when finished):
 
-- `8642b179` gate measurement: `analyse.py` read the supervisor, not the compositor (and took the compositor's 0.1 ms wakeups for renders, since fixed);
-  render limits follow the refresh; every measured cycle's trace ring is kept (`/tmp/perf/<name>.ring.json`) and summed in the gate's output (`perf/ringsum.py`); the ring holds 768 KiB (25 s at 120 Hz); a long `ctl ring N` is
-  answered from a thread.
-- `9e100ea4` the fix, from Round 22's ring (`compositor/slot-2026-10-30-r22/frames120-settings-ring.json`, build 5afc7e41): Home's GPU wallpaper stands still
-  and its weather sprites rest while Settings or a panel is over Home (`Home::set_overlay`, `WallpaperSurface::set_held`, `Shell::after`; released 450 ms after
-  the overlay goes, past its fade-out); Settings opens and closes without its fade when the compositor's `refresh` topic says 100 Hz or more
-  (`Kit::modal_beat_ms`, `Kit::refresh_hz`).
-- `85ac5a6d` the gate's classification: the compositor thread's 0.1 ms wakeups are no longer read as renders (`analyse.renders`); `perf/frametl.py TRACE MARKER
-  FROM TO` prints a trace's flips one by one with the compositor's and the shell's bursts between them.
-- Checks run: `cargo clippy --release -p lumatv-ui --all-targets` and `-p lumatv-compositor --all-targets` clean; compositor `ring`/`control` tests 18;
-  `cargo test --release -p lumatv-ui` 1194; `tests/test_gate.py` 87 and `test_gate_surfaces.py` 42.
-- Host tests: `cargo test --release -p lumatv-ui` (1194 tests; new: `shell::tests::settings_over_home_stills_...`, `the_refresh_topic_takes_the_modals_fade_away_from_100_hz`,
-  `home::model::tests::a_modal_over_home_...`, `home::wallpaper::tests::a_held_wallpaper_...`);
-  `python3 -m unittest test_gate` in `tests/` (86).
+- `8642b179`, `85ac5a6d` the gate's measurement: `analyse.py` read the supervisor, not the compositor, and took the compositor's 0.1 ms wakeups for renders; render
+  limits follow the refresh; every measured cycle's trace ring is kept (`/tmp/perf/<name>.ring.json`, `perf/ringsum.py`); `perf/frametl.py` prints a trace's flips.
+- `9e100ea4` Home's GPU wallpaper stands still and its weather rests while Settings or a panel is over Home; Settings opens without its fade from 100 Hz.
+- Round 22 on 2138070f (60 and 120 Hz, wallpaper motion off as the gate sets it) and this commit's changes, in order of weight:
+  1. **The 120 Hz run is not a 120 Hz run after 04:42.** A camera popup (a hardware video window) made the TV re-time the panel from 120 to 100 Hz
+     (`the panel refreshes every 10.00 ms now (8.33 before)` in the compositor log, DE2VSYNC 100.8/s at the end of the run) and it stayed there, also after
+     the popup closed; every flip 10.0 ms after the last was a dropped frame against the 10 ms of 120 Hz (idle Home 1205). The gate now judges each window by
+     the refresh the panel ran at (`analyse.panel_drop_ms`), and a new check `panel_refresh` fails a window on another refresh as what it is. At a true 120 Hz
+     (home-dpad's first captures: 120.0 flips/s, worst interval 8.4 ms, 0 dropped, 0 burst_over20 in the first, 2 intervals of 16.7 ms in the next) Home with
+     its weather art drawing every refresh holds 120 fps. The popup is an event (a camera), not the gate's: whoever owns the hardware video windows should
+     find out how the panel is put back (`ctl refresh 60` did not; a compositor restart did).
+  2. **An idle Home redrew 93 % of the screen one to four times a second**, three frames of 87 layers (7.5 ms of GPU each at 60 Hz, 7 at 120), in every ring of
+     both runs, with the wallpaper still: Home's redraw (the clock's second, any key) said the look of the dock's glass and the pose of its cards again, and the
+     engine took each for a change. Each cluster after a cheap stretch was also where the pacer had planned a short lead, so the first heavy frame missed its
+     refresh (`late 1 lost 1`, 33.4 ms at 60 Hz). The engine now leaves a `Restyle` or `Set` that says what is already so (and a wallpaper's fps alone) as it is
+     (`patches/lumatv-scene.patch`); on the host an idle Home draws 31 kpx a second where it drew 1.13 Mpx (`tests/test_home_idle.py`).
+  3. **Home is calm** (`Home::set_calm`, `Shell::after`): its wallpaper stands still and its weather rests while anything is over it, 450 ms after, and for 2 s after
+     a key. The weather's sprites draw a frame every refresh, so that the compositor is in step with the panel when a key arrives and the screens never go
+     quiet (`burst_end_ms` of quick, picker and toast read the whole window, 1.7-2.0 s, at 60 Hz).
 
 Next, in order:
 
-1. TV re-check (Round 22 owns the set): install this build, then `python3 compositor/tools/tv_gate.py --only frames --quick` and the same with
-   `--refresh 120`. Pass: every surface `dropped` 0 and `burst_over20` 0. The gate now prints, per measured cycle, the ring's numbers
-   (`... frames drawn, render p50/p90/max ..., owed p50/p90/max ... px`); the files are `/tmp/perf/gate-c4shell-120-<surface>-m<i>.ring.json`
-   (`python3 docs/research/perf/ringsum.py FILE [NOTE [SECONDS]]`). Expected: `settings-scroll` no longer has frames of `owed 1930240 px ... 157 layers` every
-   100-150 ms; its opening is one frame of that size, not 26.
-2. Whatever still misses at 120 Hz, read from those rings: candidates below.
-3. If a quick/picker/Home-only surface (wallpaper steps with nothing over Home) still misses: the step itself costs 7-9 ms of GPU three times (Home 70 layers,
-   1.93 Mpx); options are fewer layers in Home or a wallpaper that steps less often while keys are pressed.
+1. TV re-check (Round 22 owns the set), install this build: `python3 compositor/tools/tv_gate.py --only frames --quick`, then the same with `--refresh 120`.
+   Read the gate's `panel_refresh` first: a window on another refresh says nothing of the asked one (restart the compositor, run the surface again).
+   Pass: every surface `dropped` 0 and `burst_over20` 0. Rings: `/tmp/perf/gate-c4shell[-120]-<surface>-m<i>.ring.json` (`perf/ringsum.py FILE`).
+2. What is left, from the 60 Hz rings of 2138070f: the first key after a stretch of per-refresh frames (the weather's) answers 33.4 ms after the last flip (the update
+   comes after a vblank, the frame costs a refresh: two refreshes whatever the pacer does), which `burst_over20` counts as a drop in the burst; once the screen
+   is calm before the key (the second cycle on) it does not. If it still fails the gate, the burst should start at the response frame, as `dropped_in_motion` does.
+3. Panels and Settings still redraw Home's 87 layers under a changing alpha: 12.8 ms of GPU for the first frame of quick's open (render 3-4 ms), so a refresh and
+   more at 60 Hz and impossible at 120. Caching Home as one picture while a modal fades over it is the structural fix.
 
 ## What the gate said, and what it measured
 

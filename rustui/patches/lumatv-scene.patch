@@ -1,0 +1,45 @@
+--- a/scene.rs
++++ b/scene.rs
+@@ -218,10 +218,24 @@
+                 let same_kind = |l: &&mut Layer| {
+                     std::mem::discriminant(&l.content) == std::mem::discriminant(content)
+                 };
+-                if let Some(layer) = self.layers.get_mut(id).filter(same_kind) {
++                // The look it already has is no change: a toolkit says the look of every glass again each time it draws, and a
++                // new version is the whole layer drawn again (and, over a glass, its backdrop sampled again). How often a wallpaper
++                // steps says nothing of the picture it shows now, so that is no new version either: the steps that follow are.
++                if let Some(layer) = self
++                    .layers
++                    .get_mut(id)
++                    .filter(same_kind)
++                    .filter(|l| l.content != *content)
++                {
++                    let shows_the_same = matches!(
++                        (layer.content, *content),
++                        (Content::Wallpaper(old), Content::Wallpaper(new)) if Wallpaper { fps: new.fps, ..old } == new
++                    );
+                     layer.content = *content;
+-                    layer.version = version;
+-                    self.next_version = version;
++                    if !shows_the_same {
++                        layer.version = version;
++                        self.next_version = version;
++                    }
+                 }
+             }
+             Op::Damage { id, .. } => {
+@@ -249,7 +263,13 @@
+             }
+             Op::Set { id, props } => {
+                 let version = self.next_version + 1;
+-                if let Some(layer) = self.layers.get_mut(id) {
++                // The props it already has with nothing animating them are no change (the toolkit poses a card or a dock each time it
++                // draws): not a new version, which would be the layer drawn again. A running animation is still ended by it.
++                if let Some(layer) = self
++                    .layers
++                    .get_mut(id)
++                    .filter(|l| l.animation.is_some() || l.props != *props)
++                {
+                     layer.props = *props;
+                     layer.animation = None;
+                     layer.version = version;

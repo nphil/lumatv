@@ -223,10 +223,12 @@ pub struct Home {
     pub wall: WallVideo,
     light: bool,
     saver_up: bool,
-    /// A full-screen modal (Settings, the display lab) is up over Home: what moves under it is not seen, so the weather's sprites rest.
-    covered: bool,
-    /// Something is over Home (a panel, or the modal above): the GPU wallpaper stands still while it is, so that its steps do not owe the whole screen.
-    overlaid: bool,
+    /// Home is to be calm (`Shell::after`): something is over it, or a key was pressed a moment ago. What moves on its own is not looked at then, and
+    /// costs: the GPU wallpaper steps ten times a second and each step owes the whole screen to every page of the ring (round 22's ring at 120 Hz:
+    /// three frames of 157 layers, 13-16 ms of GPU each, under Settings), and the weather's sprites make a frame every refresh, which keeps the
+    /// compositor drawing in step with the panel for the cheapest frame it has seen (round 22, 60 Hz: the heavy frame a key asks for then misses its
+    /// refresh, and the screen is never quiet for the gate to see a burst end).
+    calm: bool,
     pub screen_on: bool,
     pub cursor_visible: bool,
     pub launching: Option<String>,
@@ -319,8 +321,7 @@ impl Home {
             wall: WallVideo::default(),
             light: false,
             saver_up: false,
-            covered: false,
-            overlaid: false,
+            calm: false,
             screen_on: true,
             cursor_visible: false,
             launching: None,
@@ -696,20 +697,16 @@ impl Home {
         out
     }
 
-    /// What is over Home: `covered` for a full-screen modal (Settings, the display lab), `overlaid` for that or a panel. A frame that Home's own
-    /// motion makes under them is a frame of the whole stack for nothing: the GPU wallpaper steps ten times a second and each step owes the
-    /// screen to every page of the ring (round 22's ring at 120 Hz: three frames of 157 layers, 13-16 ms of GPU each, under Settings), and the
-    /// weather's sprites a frame every refresh. Returns whether it changed, so that Home is drawn again.
-    pub fn set_overlay(&mut self, covered: bool, overlaid: bool) -> bool {
-        let changed = covered != self.covered || overlaid != self.overlaid;
-        self.covered = covered;
-        self.overlaid = overlaid;
+    /// Whether Home is to be calm ([`Home`]'s `calm`). Returns whether it changed, so that Home is drawn again.
+    pub fn set_calm(&mut self, calm: bool) -> bool {
+        let changed = calm != self.calm;
+        self.calm = calm;
         changed
     }
 
-    /// Whether the GPU wallpaper stands still: something is over Home.
+    /// Whether the GPU wallpaper stands still.
     pub fn wallpaper_held(&self) -> bool {
-        self.overlaid
+        self.calm
     }
 
     fn camera_stills_visible(&self) -> bool {
@@ -2268,10 +2265,10 @@ impl Home {
         }
     }
 
-    /// Whether the weather card's picture may move: Home in front with the screen on, no screensaver over it, no layer over the cards and no
-    /// full-screen modal over Home.
+    /// Whether the weather card's picture may move: Home in front with the screen on, no screensaver over it, no layer over the cards, and Home
+    /// not calm ([`Home::set_calm`]).
     pub fn weather_art_runs(&self) -> bool {
-        self.active && self.screen_on && !self.saver_up && self.layer == Layer::None && !self.covered
+        self.active && self.screen_on && !self.saver_up && self.layer == Layer::None && !self.calm
     }
 
     /// Whether the full weather view's picture may move: that view is up, Home in front, the screen on and no screensaver.
@@ -2402,16 +2399,14 @@ mod tests {
     }
 
     #[test]
-    fn a_modal_over_home_rests_the_weather_and_a_panel_only_stills_the_wallpaper() {
+    fn a_calm_home_rests_the_weather_and_stills_the_wallpaper() {
         let mut h = home();
         assert!(h.weather_art_runs() && !h.wallpaper_held(), "Home alone: everything moves");
-        assert!(h.set_overlay(false, true), "a panel is up: it changed");
-        assert!(h.weather_art_runs(), "the weather card is beside a panel, in view");
-        assert!(h.wallpaper_held(), "the wallpaper is held under a panel");
-        assert!(!h.set_overlay(false, true), "the same again changes nothing, so no frame is asked for");
-        assert!(h.set_overlay(true, true), "Settings is up");
-        assert!(!h.weather_art_runs() && h.wallpaper_held(), "a modal covers the card: its sprites rest");
-        assert!(h.set_overlay(false, false));
+        assert!(h.set_calm(true), "something is over it, or a key was pressed: it changed");
+        assert!(!h.weather_art_runs(), "the weather's sprites rest");
+        assert!(h.wallpaper_held(), "the wallpaper is held");
+        assert!(!h.set_calm(true), "the same again changes nothing, so no frame is asked for");
+        assert!(h.set_calm(false));
         assert!(h.weather_art_runs() && !h.wallpaper_held(), "back to Home alone");
     }
 

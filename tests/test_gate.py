@@ -827,6 +827,48 @@ class AnalysePid(unittest.TestCase):
         self.assertEqual(analyse.renders(runs, False), runs, "LG's own loop is read as it was")
 
 
+class PanelRefresh(unittest.TestCase):
+    """Round 22 at 120 Hz: a camera popup made the TV re-time the panel to 100 Hz for the rest of the run, and every flip 10.0 ms after the last
+    was a dropped frame against the 10 ms of 120 Hz (a thousand on an idle Home)."""
+
+    def report(self, *hz):
+        return {'windows': [dict(window('quick-open'), panel_hz=h) for h in hz]}
+
+    def test_a_panel_on_the_asked_refresh_passes_and_one_the_tv_re_timed_fails_with_its_own_rate(self):
+        ok = gate.panel_check(self.report(120.1, 119.9, None), 120.0)
+        self.assertTrue(ok['ok'], ok)
+        bad = gate.panel_check(self.report(120.1, 99.9, 100.1), 120.0)
+        self.assertFalse(bad['ok'])
+        self.assertEqual(bad['value'], 99.9)
+        self.assertIn('2 of 3 windows', bad['detail'])
+        self.assertIsNone(gate.panel_check(self.report(None), 60.0), 'no vblanks, no check')
+        self.assertTrue(gate.panel_check(self.report(59.9, 60.1), 60.0)['ok'])
+        self.assertFalse(gate.panel_check(self.report(50.2), 60.0)['ok'], 'a 100 Hz panel with the OSD at half of it')
+
+    def test_the_checks_of_a_surface_lead_with_it_and_fail_it_only_for_a_report_that_says_so(self):
+        s = gate.find(['quick-settings'])[0]
+        r = report('quick-settings', 3)
+        self.assertNotIn('panel_refresh', [c['name'] for c in gate.evaluate_windows(s, r, 3)])
+        for w in r['windows']:
+            w['panel_hz'] = 99.9
+        with patch.object(gate, 'REFRESH_HZ', 120.0):
+            self.assertEqual(failed(gate.evaluate_windows(s, r, 3)), ['panel_refresh'])
+
+
+class AnalysePanel(unittest.TestCase):
+    def test_a_window_on_another_refresh_is_judged_by_it(self):
+        sys.path.insert(0, os.path.join(os.path.dirname(HERE), "docs", "research", "perf"))
+        import analyse
+        with patch.object(analyse, 'ASKED_HZ', 120.0), patch.object(analyse, 'DROP_MS', 10.0):
+            self.assertEqual(analyse.panel_drop_ms([i * 0.01 for i in range(60)], 0.0, 1.0), (12.0, 100.0))
+            self.assertEqual(analyse.panel_drop_ms([i / 120.0 for i in range(120)], 0.0, 1.0), (10.0, 120.0))
+            self.assertEqual(analyse.panel_drop_ms([i / 120.0 for i in range(5)], 0.0, 1.0), (10.0, None), 'too few vblanks to say')
+            idle = [t for k in range(6) for t in (k * 1.5, k * 1.5 + 0.0083)]
+            self.assertEqual(analyse.panel_drop_ms(idle, 0.0, 9.0)[1], None, 'idle gaps are not the refresh')
+        frames = [i * 0.010 for i in range(1, 11)] + [0.13]
+        self.assertEqual(analyse.burst(frames, 0.0, drop_ms=12.0)['over20'], 1, 'the 30 ms interval, not the 10 ms flips')
+
+
 class RingSummary(unittest.TestCase):
     D = '%.3f D frame %d render %d us owed %d px in %d rects, ui %d draws %d layers (tick)'
     L = '%.3f L flip %.3f +%.1f ms: frame %.1f ms (gpu done), late %d lost 0 anim'

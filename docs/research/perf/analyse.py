@@ -88,12 +88,38 @@ BURST_GAP_MS = 50.0
 # A frame interval over this is a dropped frame (the `over20`, `dropped` and `burst_over20` counts): 20 ms is a 60 Hz refresh and a
 # fifth; set_refresh() scales it (10 ms at 120, the compositor's refresh test mode).
 DROP_MS = 20.0
+# The refresh that was asked for, Hz: a window whose vblanks say the panel ran at another rate is judged by that rate (`panel_drop_ms`).
+ASKED_HZ = 60.0
+# How far from the asked refresh the panel's own may be before the window is judged by it.
+PANEL_TOLERANCE = 0.08
 
 
 def set_refresh(hz):
     """The refresh the frames were presented at: the drop threshold becomes a refresh and a fifth."""
-    global DROP_MS
+    global DROP_MS, ASKED_HZ
+    ASKED_HZ = float(hz)
     DROP_MS = round(1.2 * 1000.0 / float(hz), 2)
+
+
+def panel_period_ms(vblanks, a, b):
+    """The panel's refresh period in [a, b] from the vblank events there: the median interval, None with fewer than 12 of them. Round 22: a camera
+    popup (a hardware video window) made the TV re-time the panel from 120 Hz to 100 and it stayed there, so that every flip, 10.0 ms after the
+    last, was a "dropped frame" against the 10 ms of 120 Hz, a thousand of them an idle screen."""
+    i, j = bisect.bisect_left(vblanks, a), bisect.bisect_right(vblanks, b)
+    gaps = sorted((y - x) * 1000.0 for x, y in zip(vblanks[i:j], vblanks[i + 1:j]) if y - x < 0.1)
+    return gaps[len(gaps) // 2] if len(gaps) >= 12 else None
+
+
+def panel_drop_ms(vblanks, a, b):
+    """(the drop threshold, the panel's Hz) of [a, b]: a refresh and a fifth of what the panel ran at when that is not the asked refresh, else
+    [`DROP_MS`], and the Hz measured (None without vblanks)."""
+    period = panel_period_ms(vblanks, a, b)
+    if period is None:
+        return DROP_MS, None
+    hz = 1000.0 / period
+    if abs(hz - ASKED_HZ) > PANEL_TOLERANCE * ASKED_HZ:
+        return round(1.2 * period, 2), round(hz, 1)
+    return DROP_MS, round(hz, 1)
 
 
 # LumaTV's compositor thread wakes for every vblank and every commit: runs of 0.1 ms that draw nothing (apps-grid at 120 Hz: every flip the walk's keys
@@ -112,14 +138,14 @@ COMPOSITION_COMMS = ('surface-manager', 'gal_renderd')
 APP_QUEUE_S = 0.050
 
 
-def burst(times, start, gap_ms=BURST_GAP_MS):
+def burst(times, start, gap_ms=BURST_GAP_MS, drop_ms=None):
     """The frame burst that begins at start (a marker) from sorted presentation times.
 
     Frames chain while each is within gap_ms of the one before, the first measured from start,
     so a first frame later than gap_ms leaves the burst empty. Returns first_frame_ms (None when
     no frame follows start), burst_end_ms and over20 (frame-to-frame intervals over 20 ms inside
     the burst; burst_end_ms is None for an empty burst), plus the burst's frame count and
-    first and last times.
+    first and last times. `drop_ms` is the interval over which a frame is dropped (default `DROP_MS`).
     """
     out = {'first_frame_ms': None, 'burst_end_ms': None, 'over20': 0, 'frames': 0, 'first_t': None, 'last_t': None}
     if not times:
@@ -130,7 +156,7 @@ def burst(times, start, gap_ms=BURST_GAP_MS):
     for t in times:
         if (t - prev) * 1000.0 > gap_ms:
             break
-        if n and (t - prev) * 1000.0 > DROP_MS:
+        if n and (t - prev) * 1000.0 > (DROP_MS if drop_ms is None else drop_ms):
             out['over20'] += 1
         prev = t
         n += 1
@@ -351,12 +377,13 @@ def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
               'cpuhp_events': len(cpuhp), 'gpu_pm_events': len(gpu_pm), 'windows': []}
 
     for a, b, nm in windows:
+        drop_ms, panel_hz = panel_drop_ms(vblanks, a, b)
         fr = in_range(frames, ftimes, a, b)
         ivals = [(fr[i + 1][0] - fr[i][0]) * 1000.0 for i in range(len(fr) - 1)]
         seqd = collections.Counter(fr[i + 1][1] - fr[i][1] for i in range(len(fr) - 1))
         w = {'name': nm, 'start': round(a, 3), 'dur_s': round(b - a, 3), 'frames': len(fr),
              'fps': round(len(fr) / (b - a), 1) if b > a else 0,
-             'over17': sum(1 for x in ivals if x > 17.5), 'over20': sum(1 for x in ivals if x > DROP_MS),
+             'over17': sum(1 for x in ivals if x > 17.5), 'over20': sum(1 for x in ivals if x > drop_ms), 'panel_hz': panel_hz,
              'over33': sum(1 for x in ivals if x > 33.5), 'over50': sum(1 for x in ivals if x > 50),
              'worst_ms': round(max(ivals), 1) if ivals else 0,
              'vblanks_between_presents': dict(sorted(seqd.items())),
@@ -441,22 +468,22 @@ def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
             else:
                 timer.append(rec)
         w['anim_frames'] = len(anim)
-        w['dropped'] = sum(1 for iv, r in anim if iv > DROP_MS)
+        w['dropped'] = sum(1 for iv, r in anim if iv > drop_ms)
         # A frame over 20 ms that follows another animated frame is a miss inside a running
         # animation; the first animated frame after an idle gap is late by construction (the update
         # that starts it fires when the key does) and is not counted here.
-        w['dropped_in_motion'] = sum(1 for (iv, r), late in zip(anim, anim_late) if iv > DROP_MS and late)
+        w['dropped_in_motion'] = sum(1 for (iv, r), late in zip(anim, anim_late) if iv > drop_ms and late)
         w['dropped_pct'] = round(100.0 * w['dropped'] / len(anim), 1) if anim else 0
         w['timer_frames'] = len(timer)
         rends = sorted(r for iv, r in anim)
         w['anim_render_ms'] = {'median': round(rends[len(rends) // 2], 2), 'p90': round(rends[int(0.9 * (len(rends) - 1))], 2), 'max': round(rends[-1], 2)} if rends else None
         w['anim_render_samples'] = [round(r, 2) for iv, r in anim]
-        w['dropped_render_ms'] = sorted(round(r, 1) for iv, r in anim if iv > DROP_MS)[-12:]
+        w['dropped_render_ms'] = sorted(round(r, 1) for iv, r in anim if iv > drop_ms)[-12:]
 
         # The burst that starts at the window's marker: the response to the key
         # injected right after it. Animated frames count when both of their
         # frames lie inside it.
-        bu = burst([f[0] for f in fr], a)
+        bu = burst([f[0] for f in fr], a, drop_ms=drop_ms)
         w['first_frame_ms'] = bu['first_frame_ms']
         w['burst_end_ms'] = bu['burst_end_ms']
         w['burst_over20'] = bu['over20']
@@ -512,7 +539,8 @@ def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
 def fmt(report, top=10):
     out = [f"trace {report['trace']}  sm_pid {report['sm_pid']}  span {report['span_s']} s  frames {report['frames_total']}  vblank {report['vblank_hz']} Hz  cpuhp {report['cpuhp_events']}  gpu_pm {report['gpu_pm_events']}"]
     for w in report['windows']:
-        out.append(f"\n== {w['name']}: {w['dur_s']} s, {w['frames']} frames ({w['fps']} fps), >17 {w['over17']}, >20 {w['over20']}, >33 {w['over33']}, >50 {w['over50']}, worst {w['worst_ms']} ms; vblanks/present {w['vblanks_between_presents']}")
+        out.append(f"\n== {w['name']}: {w['dur_s']} s, {w['frames']} frames ({w['fps']} fps), >17 {w['over17']}, >20 {w['over20']}, >33 {w['over33']}, >50 {w['over50']}, worst {w['worst_ms']} ms; vblanks/present {w['vblanks_between_presents']}"
+                   + (f"; panel {w['panel_hz']} Hz" if w.get('panel_hz') is not None else ''))
         out.append(f"   animation-driven frames {w['anim_frames']}, dropped {w['dropped']} ({w['dropped_pct']} %), render ms {w['anim_render_ms']}, dropped-frame render {w['dropped_render_ms']}; timer-driven frames {w['timer_frames']}")
         out.append(f"   burst from marker: first frame {w['first_frame_ms']} ms, ends {w['burst_end_ms']} ms, intervals >20 ms {w['burst_over20']}, animated render p90 {w['burst_anim_p90_ms']} ms"
                    + (f"; the OSD was off at the marker, on after {w['osd_wake_ms']} ms" if w.get('osd_wake_ms') is not None else ''))
