@@ -2,6 +2,43 @@
 
 ## Resume here
 
+**Round 26 (host-tested, not yet on the set): the full view over a playing app stays over it, on the sub window, and Back finds the video where it was.**
+
+- Cause (round 22 D3, round 25): the full view opened over an app sent Home forward and took the main window with Home's decoder. The media stack gives the
+  app's pipeline up when its main window goes (the policy action seen in round 21's `m1`), so YouTube came back with nothing to play and sat at its start page;
+  `front_app` raising the card was right and could not bring a pipeline back.
+- Now, with an app in front whose video plays (compositor topic `vwin`, `appsPlaying`, a decoder attached) and a camera that plays live, the view takes nothing
+  from the app (`cameras/app.rs`: `beside`). Home does not come forward. The shell pauses the app's video with its transport key (`POST /v1/appkey
+  {app, key: pause}`; the compositor taps `KEY_PAUSE` 119 into the app while it has the keyboard focus, `server/webos_shell.rs` `app_key`), the claim `cameras-full`
+  is made first for what the sub window takes (h264 1920x1088 at 30, the rectangle fitted to the camera's shape), and only when it is granted the helper is asked
+  `POST /v1/cameras/live {for: full, window: sub}`: the best stream inside 1920x1088 at 30 (`bridge.rs` `live_sub`: quality as set, then lower; recordings and
+  clips of the strip ask with the same `window` and the same limits), the feeder's pipeline opened for the app in front (`sub_video`), as the pop-up's. A
+  refused or taken-back window (`idle` mode, `both-scalers`, `too-big`) leaves the view over the app with its stills and starts no decoder.
+- Back closes the view and taps `KEY_PLAY` 207 into the app (`/v1/appkey {key: play}`); nothing is raised or launched, the app never left the front. The Home key
+  and the screen going off leave the app paused where it is. An app that plays no video (YouTube at its home page, Netflix browsing) keeps the old route
+  (Home forward, the main window, Back raises the card).
+- Costs of this route: the full view over a playing app is at most 1080p at 30 (the sub window), not the camera's own 4K; the app's video is paused by a key
+  that was not read off the remote on the set (119 and 207 are Linux's `KEY_PAUSE` and `KEY_PLAY`, in the compositor's keymap), and Back plays a video the
+  owner had paused already.
+
+**TV check (round 26)**, receiver muted, `T ctl vwin apps` (the mode the sub window needs), a camera with a 1080p or smaller stream (103, 105, 108, 128), start
+from Home:
+
+1. YouTube, a video playing full screen. `T ctl vwin` `world.appPlaying` is 1. `T ctl key 119` once by hand: the video pauses (if it does not, try `T ctl key 164`
+   and note which code YouTube takes, then set `KEY_PAUSE` and `KEY_PLAY` in `server/seat.rs`); `T ctl key 207` plays it again. Note the position in between.
+2. A camera event over the video (`POST $H/v1/cameras/event {"camera":"Cat Feeder","kind":"animal"}`, `cameras.testEvents` on), OK on the card after 600 ms.
+   Pass: compositor journal `appkey: pause sent to youtube.leanback.v4`, no `launchDefaultApp`, no `front:` line; the shell journal `cameras: the full view opens
+   beside youtube.leanback.v4's video, which is paused`; `ctl vwin` has the claim `cameras-full` `slot sub`, then `placed`; `videooutput getStatus` has YouTube
+   on `MAIN` unchanged and the feeder on `SUB0`; the camera fills the screen with the chrome over it; `osd_irq` stays about 121 (note it).
+3. The helper log has `cameras: live for full view on camera N: ... decoder opened for youtube.leanback.v4` (the stream's size and rate are on that line, at
+   most 1920x1088 at 30) and no `the sub window was granted with ... in front` line. Up/Up/Up the strip: a recording and a clip play in the same window with no new claim.
+4. Back. Pass: `appkey: play sent`, the view is gone in under 300 ms, `ctl vwin` has no claim, YouTube is playing the same video a moment on from where it
+   stopped (note the time on screen before and after), not at its home page.
+5. The Home key from the view instead of Back: Home, YouTube paused, no `appkey: play`.
+6. `T ctl vwin idle` and repeat 2: the claim is denied `app-video`, the view shows stills over YouTube, YouTube is paused and Back plays it. A 4K60 video
+   (`both-scalers`) the same.
+7. Over an app with no video (YouTube's start page, Netflix browse): the old route, Home forward and the main window, Back raises the card.
+
 **Round 25 (host-tested, not yet on the set): a pop-up with Home in front is a texture, and a replaced card keeps its claim.**
 
 - Round 24 showed that the sub window passes over an app and that Home in front, where the helper's fallback played the pop-up on the main window, took

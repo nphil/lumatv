@@ -355,6 +355,23 @@ pub fn send_key(state: &mut State, seat: SeatId, code: u32, pressed: bool) -> bo
     sent
 }
 
+/// The transport keys the Cameras full view sends to the app it sits over (Linux `KEY_PAUSE` and `KEY_PLAY`, both in [`KEYMAP`]; not yet read
+/// on the set from the remote's own Play and Pause).
+pub const KEY_PAUSE: u32 = 119;
+pub const KEY_PLAY: u32 = 207;
+
+/// Presses and releases `code` for the app `app` when it has the keyboard focus: the Cameras full view pauses the video of the app it is shown
+/// over and plays it again on Back, which the app's own key handling takes as the remote's. The keys the layer takes by name never move the
+/// focus from the app, so it is the app's while the view is up; any other focus gets nothing, and the answer says so.
+pub fn tap_app_key(state: &mut State, app: &str, code: u32) -> bool {
+    let focused = state.seat.focus.and_then(|s| state.scene.window_of(s)).and_then(|w| state.scene.window(w));
+    if !focused.is_some_and(|w| !w.kind.is_shell() && w.app_id() == app) {
+        return false;
+    }
+    let seat = SeatId(0);
+    send_key(state, seat, code, true) && send_key(state, seat, code, false)
+}
+
 /// The Magic Remote's pointer axes reported `(x, y)`: [`pointer_motion`] where the pointer shows; otherwise only where the remote points is kept,
 /// so that a turn of the wheel ([`PointerShow::Wheel`]) or the remote's cursor-on report ([`PointerShow::Movement`]) shows the pointer there. A hidden
 /// pointer is nobody's: no client hears of the motion, and it is no input to the screen's care or to `getLastInputType`.

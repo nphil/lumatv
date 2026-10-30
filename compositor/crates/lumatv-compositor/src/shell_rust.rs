@@ -859,6 +859,10 @@ impl State {
                     return true;
                 }
             }
+            Msg::AppKey { app, key } => {
+                self.shell_rust.note_seen(now);
+                crate::server::webos_shell::app_key(self, &app, &key);
+            }
             Msg::Takes(names) => {
                 self.shell_rust.note_seen(now);
                 let mut takes: Vec<String> = Vec::new();

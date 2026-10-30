@@ -110,6 +110,8 @@ impl Pip {
 struct World {
     mode: String,
     apps: i64,
+    /// Apps with a video playing, as against `apps`, which is what the mode counts (an idle element too, in `idle`).
+    playing: i64,
     wall: bool,
     free: i64,
 }
@@ -172,6 +174,11 @@ impl Vwin {
     /// Whether videooutputd lists the claim's video on a sink (`Some`), or does not yet (`Some(false)`); `None` when the compositor does not say.
     pub fn connected(&self, id: &str) -> Option<bool> {
         self.posted.get(id).filter(|p| p.reports_sink).map(|p| p.sink.is_some())
+    }
+
+    /// Whether an app has a video playing on the screen (a decoder attached), as the topic last said it. A compositor that does not say reads as none.
+    pub fn app_playing(&self) -> bool {
+        self.world.as_ref().is_some_and(|w| w.playing > 0)
     }
 
     /// The compositor's switch as the topic last said it; `off` until it has said.
@@ -283,6 +290,7 @@ impl Vwin {
         let world = World {
             mode: data.get("mode").and_then(Value::as_str).unwrap_or("off").to_string(),
             apps: data.get("apps").and_then(Value::as_i64).unwrap_or(0),
+            playing: data.get("appsPlaying").and_then(Value::as_i64).unwrap_or(0),
             wall: data.get("wall").and_then(Value::as_bool).unwrap_or(false),
             free: data.get("free").and_then(Value::as_i64).unwrap_or(0),
         };
@@ -546,5 +554,16 @@ mod tests {
         assert_eq!(v.state().unwrap(), json!({"mode": "apps", "free": 1, "claims": {"pip-door": {"state": "granted", "slot": "sub", "placed": true}}}));
         v.update(&topic("apps", 1, 1, json!([pip_line("pip-door", "preempted", "higher", "", false)])), 20);
         assert_eq!(v.state().unwrap()["claims"]["pip-door"], json!({"state": "preempted", "reason": "higher"}));
+    }
+
+    #[test]
+    fn an_app_playing_a_video_is_read_from_the_topic_and_an_older_compositor_says_none() {
+        let mut v = Vwin::new();
+        assert!(!v.app_playing(), "no topic yet");
+        v.update(&topic("apps", 1, 1, json!([])), 0);
+        assert!(!v.app_playing(), "an idle element counts for the mode and plays nothing");
+        let playing = Input::Topic { topic: TOPIC.into(), data: json!({"mode": "apps", "slots": 2, "free": 1, "apps": 1, "appsPlaying": 1, "wall": false, "claims": []}) };
+        v.update(&playing, 10);
+        assert!(v.app_playing());
     }
 }

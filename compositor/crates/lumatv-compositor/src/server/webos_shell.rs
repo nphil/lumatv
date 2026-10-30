@@ -256,6 +256,23 @@ pub fn front_app(state: &mut State, app: &str) -> bool {
     true
 }
 
+/// `POST /v1/appkey {app, key}`: the Cameras full view pauses the video of the app it is shown over (`pause`) and plays it again on Back
+/// (`play`), by the transport key the app takes from the remote. The app's pipeline stays where it is, which is the point: the view's picture is on
+/// the sub window beside it and the app is never backgrounded, so its video is there, at the same place, when the view closes.
+pub fn app_key(state: &mut State, app: &str, key: &str) -> bool {
+    let code = match key {
+        "pause" => super::seat::KEY_PAUSE,
+        "play" => super::seat::KEY_PLAY,
+        _ => {
+            state.journal(format!("appkey: {key} is no key of the full view's"));
+            return false;
+        }
+    };
+    let sent = super::seat::tap_app_key(state, app, code);
+    state.journal(if sent { format!("appkey: {key} sent to {app}") } else { format!("appkey: {app} does not have the keyboard focus, {key} not sent") });
+    sent
+}
+
 /// The cards' states as LG's fullscreen container keeps them: the card at the front is fullscreen and every other card
 /// that was at the front is minimized, and each is told when its state changes. A client that restores fullscreen on
 /// a relaunch (WAM, from a minimized window) then has a state to change; without this Home's relaunch over HDMI 2 sent

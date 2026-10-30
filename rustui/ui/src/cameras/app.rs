@@ -125,6 +125,9 @@ fn fit(width: u32, height: u32) -> (i32, i32, i32, i32) {
     ((1920 - w) / 2, (1080 - h) / 2, w, h)
 }
 
+/// The stream the full view's claim says it needs beside an app's video: the most the sub window takes (`vwin::limits`), which the helper asks the bridge for.
+const BESIDE_NEED: (&str, u32, u32, u32) = ("h264", 1920, 1088, 30);
+
 /// What the app asks the shell for besides effects.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
@@ -135,6 +138,11 @@ pub enum Intent {
     TakeForeground,
     /// Back closed a view that had taken the front: the shell brings back the app it took it from.
     ReturnToApp,
+    /// The full view was opened over an app whose video plays and shares the screen with it (see [`App::shares_screen`]): the shell pauses that app's
+    /// video with its own transport key, so that it neither plays on unseen nor loses its place.
+    PauseApp,
+    /// Back closed such a view: the shell plays the app's video again, where it stopped.
+    ResumeApp,
 }
 
 /// Something that can be clicked or focused: the surfaces name what a pointer hit.
@@ -211,6 +219,15 @@ pub struct App {
     vwin_on: bool,
     /// The full view took the front from an app: Back brings the app back.
     switched: bool,
+    /// An app in front has a video playing (the compositor's `vwin` topic, `appsPlaying`): its decoder holds the main window, which the full view never
+    /// takes, so the view is opened over the app and its picture goes to the sub window.
+    app_video: bool,
+    /// The open full view was opened over such an app and shows its picture beside the app's video.
+    beside: bool,
+    /// The compositor refused (or took back) the sub window: the view stays over the app with its stills, and no decoder is started.
+    beside_refused: bool,
+    /// The app's video was paused for the view (`Intent::PauseApp`): Back plays it again.
+    app_paused: bool,
     /// When the full view was opened (this camera's), and how long it took to show live video.
     opened_at: u64,
     first_live_ms: Option<u64>,
@@ -255,6 +272,10 @@ impl App {
             app_front: false,
             vwin_on: false,
             switched: false,
+            app_video: false,
+            beside: false,
+            beside_refused: false,
+            app_paused: false,
             opened_at: 0,
             first_live_ms: None,
             home_ms: None,
@@ -322,7 +343,46 @@ impl App {
 
     /// Live video is offered: the link is ready, and over a playing app only where the theme says so.
     fn live_on(&self) -> bool {
-        self.cams.state == data::LinkState::Ready && (!self.app_front || self.cfg.live_over_apps)
+        self.cams.state == data::LinkState::Ready && (!self.app_front || self.cfg.live_over_apps || self.shares_screen())
+    }
+
+    /// The full view plays beside the video of the app it is over, on the sub window: the app keeps the main window and its pipeline for as long as
+    /// the view is up. Taking the main window (Home forward, the picture on the main window) made the media stack give up the app's pipeline, and
+    /// YouTube came back at its start page; the sub window beside a playing YouTube is what the pop-up already does (docs/research/vwin-refresh-result.md).
+    fn shares_screen(&self) -> bool {
+        self.beside && !self.beside_refused
+    }
+
+    /// The sub window's claim has an answer that carries a picture (or will).
+    fn window_granted(&self) -> bool {
+        matches!(self.window, Window::Waiting | Window::Carried)
+    }
+
+    /// Whether a full view of `camera` opened now goes beside the video of the app in front.
+    fn beside_wanted(&self, camera: &str) -> bool {
+        self.app_front && self.vwin_on && self.app_video && self.cams.state == data::LinkState::Ready && self.cams.get(camera).is_some_and(|c| c.live)
+    }
+
+    /// The shell says whether an app in front has a video playing (the compositor's topic).
+    pub fn set_app_video(&mut self, playing: bool) {
+        self.app_video = playing;
+    }
+
+    /// The compositor answered the claim for the sub window (the shell calls this after `set_window`): the stream is asked for once the window is
+    /// granted, never before (a decoder started ahead of the answer would be one the screen did not allow), and a refusal leaves the view with its
+    /// stills.
+    pub fn window_answered(&mut self, now: u64) -> Vec<Effect> {
+        let mut fx = Vec::new();
+        if !self.is_full() || !self.beside {
+            return fx;
+        }
+        self.now = now;
+        if self.window == Window::Refused && !self.beside_refused {
+            self.beside_refused = true;
+            self.dirty = true;
+        }
+        self.ensure_live(false, &mut fx);
+        fx
     }
 
     fn can_live(&self, camera: &data::Camera) -> bool {
@@ -353,18 +413,19 @@ impl App {
         self.vwin_on = on;
     }
 
-    /// Opening the full view over an app: its picture is a video window's, and the decoder is never started beside an app's video, so the view takes the
-    /// front as an app of its own does (Home comes forward, the app goes to the background, Back brings it back). Only for a camera that plays live, where the
-    /// compositor has a window to give and the owner has not asked for live over apps.
+    /// Opening the full view over an app that plays no video: its picture is a video window's, and the decoder is never started beside an app's video, so
+    /// the view takes the front as an app of its own does (Home comes forward, the app goes to the background, Back brings it back). Only for a camera that
+    /// plays live, where the compositor has a window to give and the owner has not asked for live over apps. Over an app that does play one the view stays
+    /// over it ([`App::shares_screen`]).
     fn takes_foreground(&self, camera: &str) -> bool {
-        self.app_front && self.vwin_on && !self.cfg.live_over_apps && self.cams.state == data::LinkState::Ready && self.cams.get(camera).is_some_and(|c| c.live)
+        self.app_front && self.vwin_on && !self.app_video && !self.cfg.live_over_apps && self.cams.state == data::LinkState::Ready && self.cams.get(camera).is_some_and(|c| c.live)
     }
 
     /// The window the full view's pictures are asked for in when the compositor's video windows carry them: the display's main one, with Home in front (the app
     /// LG's video path knows the video for). None where nothing is claimed (no compositor windows, an app in front without live over apps, a camera that does not
     /// play live): the stream is then as it was before there were any.
     fn window_for(&self, camera: &str) -> Option<&'static str> {
-        (self.vwin_on && self.cams.get(camera).is_some_and(|c| self.can_live(c))).then_some("main")
+        (self.vwin_on && self.cams.get(camera).is_some_and(|c| self.can_live(c))).then_some(if self.shares_screen() { "sub" } else { "main" })
     }
 
     /// The call for the full view's live stream: the camera's own at the owner's quality (native by default), up to 4K at its own rate.
@@ -381,7 +442,16 @@ impl App {
     pub fn live_claim(&self) -> Option<LiveClaim> {
         let Screen::Full(f) = &self.screen else { return None };
         let c = self.cams.get(&f.camera)?;
-        if self.asked.as_deref() != Some(&c.id) || !self.can_live(c) {
+        if !self.can_live(c) {
+            return None;
+        }
+        if self.shares_screen() {
+            // asked before the stream is: the helper is told which window once it is granted. The stream is one the sub window takes whatever the camera's own
+            // is, so the claim says so; the picture is fitted by the stream's shape, the camera's own until the helper says
+            let (w, h) = if self.live.camera == c.id && self.live.width > 0 { (self.live.width, self.live.height) } else { c.native.as_ref().map_or((0, 0), |n| (n.width, n.height)) };
+            return Some(LiveClaim { camera: c.id.clone(), rect: fit(w, h), codec: BESIDE_NEED.0.into(), width: BESIDE_NEED.1, height: BESIDE_NEED.2, fps: BESIDE_NEED.3 });
+        }
+        if self.asked.as_deref() != Some(&c.id) {
             return None;
         }
         let (codec, width, height, fps) = if self.live.camera == c.id && self.live.width > 0 {
@@ -502,10 +572,16 @@ impl App {
         };
         self.reset_transient();
         let takes = self.takes_foreground(&id);
+        self.beside = self.beside_wanted(&id);
+        self.beside_refused = false;
         self.screen = Screen::Full(FullState { camera: id, chrome: true, chrome_until: self.now + CHROME_MS });
         if takes {
             self.switched = true;
             self.intents.push(Intent::TakeForeground);
+        }
+        if self.beside && !self.app_paused {
+            self.app_paused = true;
+            self.intents.push(Intent::PauseApp);
         }
         self.opened_at = self.now;
         self.first_live_ms = None;
@@ -534,6 +610,9 @@ impl App {
         self.stop_live(fx);
         self.screen = Screen::Closed;
         self.switched = false;
+        self.beside = false;
+        self.beside_refused = false;
+        self.app_paused = false;
         self.reset_transient();
         self.planner.quiesce();
         self.dropped.push("bubble:".into());
@@ -549,7 +628,8 @@ impl App {
     /// Asks the helper for the camera shown when live is offered for it and it is not the one asked for (or `force`); stops what was asked
     /// when live is no longer offered.
     fn ensure_live(&mut self, force: bool, fx: &mut Vec<Effect>) {
-        let want = self.current().filter(|c| self.can_live(c)).map(|c| c.id.clone());
+        let granted = !self.shares_screen() || self.window_granted();
+        let want = self.current().filter(|c| self.can_live(c) && granted).map(|c| c.id.clone());
         match (want, self.asked.clone()) {
             (Some(id), asked) if force || asked.as_deref() != Some(&id) => {
                 self.asked = Some(id.clone());
@@ -1180,10 +1260,14 @@ impl App {
             self.dirty = true;
             return;
         }
-        let returns = self.switched;
+        let (returns, resumes) = (self.switched, self.app_paused);
         self.close_inner(fx);
         if returns {
             self.intents.push(Intent::ReturnToApp);
+        }
+        // only Back plays the app's video again: the Home key, the screen going off and the like leave the app where it is
+        if resumes {
+            self.intents.push(Intent::ResumeApp);
         }
     }
 
@@ -1733,6 +1817,9 @@ impl App {
             "inFlight": self.planner.in_flight(),
             "appFront": self.app_front,
             "switched": self.switched,
+            "beside": self.beside,
+            "besideRefused": self.beside_refused,
+            "appPaused": self.app_paused,
             "vwinOn": self.vwin_on,
             "openedAt": self.opened_at,
             "firstLiveMs": self.first_live_ms,

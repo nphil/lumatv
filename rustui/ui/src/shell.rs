@@ -157,6 +157,8 @@ pub struct Shell {
     vwin: crate::host::vwin::Vwin,
     /// The app the Cameras full view took the front from (Home came forward for it): Back brings it back.
     cam_return: Option<String>,
+    /// The app whose video the Cameras full view paused (it is shown beside it): Back plays it again.
+    cam_paused: Option<String>,
     /// Settings, the modal kind over everything but the system layer.
     settings: SettingsHost,
     /// The display lab: over Settings (it is opened from there) and under the editor and the system layer; it has the keys while it is open.
@@ -209,6 +211,7 @@ impl Shell {
             cameras: Cameras::new(system_z + crate::kit::z::CAMERAS, CamerasConfig::from_theme(&kit, theme)),
             vwin: crate::host::vwin::Vwin::new(),
             cam_return: None,
+            cam_paused: None,
             panels: Panels::new(system_z + crate::kit::z::PANELS, theme),
             kit,
             engine,
@@ -855,6 +858,7 @@ impl Shell {
         // what the compositor made of the live picture's claim on a video window: the full view follows it
         if self.kinds.cameras {
             self.cameras.app.set_vwin_on(self.vwin.on());
+            self.cameras.app.set_app_video(self.vwin.app_playing());
             let id = crate::cameras::app::CLAIM_ID;
             let mut window = crate::cameras::app::Window::of(self.vwin.grant(id));
             // a window that draws before videooutputd has the video on a sink is a black box: the view keeps its picture until it has
@@ -863,6 +867,10 @@ impl Shell {
             }
             if self.cameras.app.set_window(window) {
                 self.redraw = true;
+            }
+            // a full view beside an app's video asks the helper for its stream once its window is granted
+            for e in self.cameras.app.window_answered(now) {
+                self.carry(e, now, acts);
             }
         }
         // ... and the camera pop-up's: its stream is asked for once a window is granted, and taken away when the window is
@@ -1250,6 +1258,21 @@ impl Shell {
                     let payload = json!({"category": "home"});
                     self.carry(Effect::Luna { tag: crate::system::layer::LAUNCH_TAG, uri: "luna://com.webos.applicationManager/launchDefaultApp".into(), payload, subscribe: false }, now, acts);
                 }
+                // the full view is shown over an app that plays a video (its picture beside the app's, on the sub window): the app's video is paused for as
+                // long as the view is up and plays again on Back, in the same place, because nothing took its window
+                crate::cameras::app::Intent::PauseApp => {
+                    if let Some(app) = self.sys.foreground_app() {
+                        acts.push(Act::Log(format!("cameras: the full view opens beside {app}'s video, which is paused")));
+                        self.carry(Effect::Channel { path: "/v1/appkey".into(), body: json!({"app": app, "key": "pause"}) }, now, acts);
+                        self.cam_paused = Some(app);
+                    }
+                }
+                crate::cameras::app::Intent::ResumeApp => {
+                    if let Some(app) = self.cam_paused.take() {
+                        acts.push(Act::Log(format!("cameras: Back plays {app}'s video again")));
+                        self.carry(Effect::Channel { path: "/v1/appkey".into(), body: json!({"app": app, "key": "play"}) }, now, acts);
+                    }
+                }
                 crate::cameras::app::Intent::ReturnToApp => {
                     if let Some(app) = self.cam_return.take() {
                         acts.push(Act::Log(format!("cameras: Back brings {app} back")));
@@ -1262,6 +1285,7 @@ impl Shell {
         // a view that is gone by any other way (the Home key, the screen off) takes nothing back
         if !self.cameras.app.viewer_up() {
             self.cam_return = None;
+            self.cam_paused = None;
         }
     }
 
@@ -1999,6 +2023,43 @@ mod tests {
             .collect();
         assert_eq!(fronts, vec![json!({"app": "netflix"})], "the app comes back");
         assert!(luna_calls(&acts, "/launch").is_empty(), "and is not launched");
+        assert_eq!(helper_calls(&acts, "/v1/cameras/live/stop"), 1);
+    }
+
+    #[test]
+    fn ok_on_a_live_card_over_an_app_with_a_video_stays_over_it_pauses_it_asks_for_the_sub_window_then_the_stream_and_back_plays_it_again() {
+        let (_h, mut shell) = home_shell("popup,cameras");
+        let camera = json!({"id": "275", "name": "Cat Feeder", "room": "", "online": true, "live": true, "recordings": true, "events": true, "clips": false, "since": 0,
+                            "native": {"codec": "h264", "width": 3840, "height": 2160, "fps": 15}, "prebuffered": true});
+        shell.helper(&Event::Topic { topic: "cameras".into(), data: json!({"state": "ready", "reason": "", "now_skew_ms": 0, "rev": 1, "cameras": [camera]}) }, 1_100);
+        shell.channel(&Event::Topic { topic: "vwin".into(), data: json!({"mode": "apps", "slots": 2, "free": 1, "apps": 1, "appsPlaying": 1, "wall": false, "claims": []}) }, 1_150);
+        shell.channel(&Event::Topic { topic: "foreground".into(), data: json!({"app": "youtube.leanback.v4", "home": false, "covered": true}) }, 1_200);
+        let record = json!({"id": 41, "event": "e41", "camera": "275", "name": "Cat Feeder", "kind": "person", "at": 1_000, "untilMs": u64::MAX / 4, "thumbnail": false, "live": true});
+        shell.helper(&Event::Topic { topic: "cameras.popup".into(), data: record }, 2_000);
+        shell.tick(2_050);
+
+        // OK: the view opens over the app, which is paused by its own key; Home stays where it is and the helper is not asked yet
+        let acts = key(&mut shell, "ok", 2_800);
+        assert!(shell.cameras().app.viewer_up());
+        assert!(luna_calls(&acts, "/launchDefaultApp").is_empty(), "the app is not sent to the background");
+        let keys = |acts: &[Act]| -> Vec<Value> { acts.iter().filter_map(|a| match a { Act::Channel(o) if o.path == "/v1/appkey" => o.body.clone(), _ => None }).collect() };
+        assert_eq!(keys(&acts), vec![json!({"app": "youtube.leanback.v4", "key": "pause"})]);
+        assert_eq!(helper_calls(&acts, "/v1/cameras/live"), 0, "the stream waits for the window");
+        let claims = shell.state()["vwin"]["claims"].clone();
+        assert!(claims["cameras-full"].is_object(), "the claim for the sub window is made first: {claims}");
+
+        // the compositor grants the sub window: the stream is asked for, in it
+        let line = json!({"id": "cameras-full", "kind": "camera-full", "state": "granted", "reason": "", "text": "", "slot": "sub", "placed": false});
+        let acts = shell.channel(&Event::Topic { topic: "vwin".into(), data: json!({"mode": "apps", "slots": 2, "free": 0, "apps": 1, "appsPlaying": 1, "wall": false, "claims": [line]}) }, 3_000);
+        let asked: Vec<Value> = acts.iter().filter_map(|a| match a { Act::Helper(o) if o.path == "/v1/cameras/live" => o.body.clone(), _ => None }).collect();
+        assert_eq!(asked, vec![json!({"camera": "275", "for": "full", "window": "sub"})]);
+
+        // Back: the app's video plays again, and the app is neither raised nor launched (it never left the front)
+        let acts = key(&mut shell, "back", 5_000);
+        assert!(!shell.cameras().app.viewer_up());
+        assert_eq!(keys(&acts), vec![json!({"app": "youtube.leanback.v4", "key": "play"})]);
+        assert!(acts.iter().all(|a| !matches!(a, Act::Channel(o) if o.path == "/v1/front")));
+        assert!(luna_calls(&acts, "/launch").is_empty());
         assert_eq!(helper_calls(&acts, "/v1/cameras/live/stop"), 1);
     }
 

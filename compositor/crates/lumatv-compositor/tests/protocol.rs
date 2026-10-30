@@ -1382,3 +1382,27 @@ fn front_app_raises_the_covered_card_without_a_launch() {
 
     assert!(!server.eval(|s| lumatv_compositor::server::webos_shell::front_app(s, "org.test.closed")), "no card: nothing raised");
 }
+
+/// The Cameras full view over an app pauses its video and plays it again on Back by the transport keys, which reach the app only while it has the
+/// keyboard focus; an app that does not (or no app at all) is told nothing and the answer says so.
+#[test]
+fn app_key_taps_the_transport_key_into_the_app_that_has_the_focus() {
+    use lumatv_compositor::server::webos_shell::app_key;
+    let mut server = Server::start();
+    let mut client = Client::connect(&mut server);
+    let _keyboard = client.seat.get_keyboard(&client.qh, ());
+    let app = client.card_as("_WEBOS_WINDOW_TYPE_CARD", "YouTube", "youtube.leanback.v4");
+    let blue = client.shm_buffer(64, 64, 0xff00_00ff);
+    client.present(&app.surface, &blue);
+    assert!(client.wait_until(WAIT, |s| s.keyboard_enters >= 1));
+
+    assert!(!server.eval(|s| app_key(s, "com.webos.app.home", "pause")), "another app's key is not this one's");
+    assert!(!server.eval(|s| app_key(s, "youtube.leanback.v4", "stop")), "only pause and play");
+    assert!(client.state.keys.is_empty());
+    assert!(server.eval(|s| app_key(s, "youtube.leanback.v4", "pause")));
+    assert!(client.wait_until(WAIT, |s| s.keys.len() >= 2));
+    assert_eq!(client.state.keys, vec![(119, 1), (119, 0)]);
+    assert!(server.eval(|s| app_key(s, "youtube.leanback.v4", "play")));
+    assert!(client.wait_until(WAIT, |s| s.keys.len() >= 4));
+    assert_eq!(&client.state.keys[2..], &[(207, 1), (207, 0)]);
+}

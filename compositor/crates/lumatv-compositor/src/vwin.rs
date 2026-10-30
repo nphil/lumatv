@@ -1156,6 +1156,8 @@ impl crate::State {
             "slots": self.vwin.alloc.policy.slots,
             "free": occupied.iter().filter(|o| o.is_none()).count(),
             "apps": world.app_slots(self.vwin.alloc.policy.mode),
+            // apps with a video playing (a decoder attached), whatever the mode counts: the Cameras full view shares the screen with one and never takes its window
+            "appsPlaying": world.app_playing,
             "wall": world.wall,
             "claims": claims,
         })

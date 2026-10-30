@@ -1139,6 +1139,68 @@ fn the_full_view_opened_over_an_app_takes_the_front_asks_for_the_main_window_onc
 }
 
 #[test]
+fn over_an_app_that_plays_a_video_the_view_stays_over_it_pauses_it_asks_for_the_sub_window_first_and_back_plays_it_again() {
+    let mut r = Rig::new(three());
+    r.app.set_vwin_on(true);
+    r.app.set_app_video(true);
+    r.topic("foreground", json!({"app": "youtube.leanback.v4", "home": false}));
+    let fx = r.app.open_full("273", T0);
+    assert_eq!(r.app.take_intents(), [Intent::PauseApp], "no Home forward, no main window: the app's pipeline is never taken from it");
+    assert!(live_posts(&fx).is_empty(), "the stream waits for the window");
+    assert_eq!((r.app.debug()["switched"].clone(), r.app.debug()["beside"].clone(), r.app.debug()["appPaused"].clone()), (json!(false), json!(true), json!(true)));
+    // the claim is made first, for what the sub window takes, fitted to the camera's own shape
+    let claim = r.app.live_claim().expect("asked before the stream is").request();
+    assert_eq!(claim["need"], json!({"codec": "h264", "w": 1920, "h": 1088, "fps": 30}));
+    assert_eq!(claim["rect"], json!({"x": 0, "y": 0, "w": 1920, "h": 1080}));
+    // the window is granted, not drawing yet: the stream is asked for, in the sub window
+    r.at(200);
+    r.app.set_window(Window::Waiting);
+    let fx = r.app.window_answered(T0 + 200);
+    assert_eq!(live_posts(&fx), [json!({"camera": "273", "for": "full", "window": "sub"})]);
+    assert!(r.app.window_answered(T0 + 210).is_empty(), "asked once");
+    // Back plays the app's video again and nothing is brought back
+    r.at(2_000);
+    r.press("back");
+    assert!(!r.app.viewer_up());
+    assert_eq!(r.app.take_intents(), [Intent::ResumeApp]);
+}
+
+#[test]
+fn a_refused_sub_window_leaves_the_view_over_the_app_with_its_stills_and_no_decoder() {
+    let mut r = Rig::new(three());
+    r.app.set_vwin_on(true);
+    r.app.set_app_video(true);
+    r.topic("foreground", json!({"app": "youtube.leanback.v4", "home": false}));
+    r.app.open_full("273", T0);
+    r.app.take_intents();
+    r.at(150);
+    r.app.set_window(Window::Refused);
+    let fx = r.app.window_answered(T0 + 150);
+    assert!(live_posts(&fx).is_empty(), "no window, no decoder beside the app's video");
+    assert!(r.app.live_claim().is_none(), "the claim is let go, and not made again");
+    assert!(r.app.window_answered(T0 + 300).is_empty());
+    assert_eq!(r.app.debug()["besideRefused"], true);
+    r.at(2_000);
+    r.press("back");
+    assert_eq!(r.app.take_intents(), [Intent::ResumeApp], "the app's video was paused for the view all the same");
+}
+
+#[test]
+fn the_home_key_leaves_a_paused_app_as_it_is() {
+    let mut r = Rig::new(three());
+    r.app.set_vwin_on(true);
+    r.app.set_app_video(true);
+    r.topic("foreground", json!({"app": "youtube.leanback.v4", "home": false}));
+    r.app.open_full("273", T0);
+    r.app.take_intents();
+    r.at(400);
+    r.topic("homekey", json!({}));
+    assert!(!r.app.viewer_up());
+    assert!(r.app.take_intents().is_empty(), "Home was asked for: nothing plays on behind it");
+    assert_eq!(r.app.debug()["appPaused"], false);
+}
+
+#[test]
 fn over_home_the_full_view_switches_nothing_and_asks_at_once_and_back_returns_to_nothing() {
     let mut r = Rig::new(three());
     r.app.set_vwin_on(true);

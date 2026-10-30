@@ -170,6 +170,8 @@ pub enum Msg {
     Vwin(Value),
     /// `POST /v1/front {app}`: the app that is running comes back to the front without a launch (`server::webos_shell::front_app`).
     Front(String),
+    /// `POST /v1/appkey {app, key}`: a transport key for the app in front (`server::webos_shell::app_key`).
+    AppKey { app: String, key: String },
     /// `POST /v1/ui` with a `takes` list: the keys, by name (`ok`, `back`), the system layer wants as `syskey` events while an app keeps
     /// the keyboard focus (the overlay cards' OK and Back). A list that is empty is the layer letting them go.
     Takes(Vec<String>),
@@ -791,6 +793,10 @@ impl State {
                     return true;
                 }
             }
+            Msg::AppKey { app, key } => {
+                self.shell.note_seen(now);
+                crate::server::webos_shell::app_key(self, &app, &key);
+            }
             Msg::Takes(names) => {
                 self.shell.note_seen(now);
                 // only the names the keyboard's key table knows (`own_key_name`), each once
@@ -1404,6 +1410,15 @@ fn handle_request(req: &Request, token: &str, outbox: &Arc<Mutex<Outbox>>, inbox
                 return Handled::Answer(400, json!({"ok": false, "error": "app"}));
             };
             inbox.send(Msg::Front(app.to_string()));
+            Handled::Answer(200, json!({"ok": true}))
+        }
+        ("POST", "/v1/appkey") => {
+            let app = body.get("app").and_then(Value::as_str).filter(|a| !a.is_empty());
+            let key = body.get("key").and_then(Value::as_str).filter(|k| ["pause", "play"].contains(k));
+            let (Some(app), Some(key)) = (app, key) else {
+                return Handled::Answer(400, json!({"ok": false, "error": "app and key (pause or play)"}));
+            };
+            inbox.send(Msg::AppKey { app: app.to_string(), key: key.to_string() });
             Handled::Answer(200, json!({"ok": true}))
         }
         _ => Handled::Answer(404, json!({"ok": false, "error": "no such route"})),

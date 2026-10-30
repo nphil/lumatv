@@ -32,6 +32,12 @@ pub fn accept() -> Value {
     json!({"codecs": ["h264", "h265"], "max_width": 4096, "max_height": 2304, "max_fps": 60})
 }
 
+/// What the display's sub window takes (`vwin.rs` `limits`: 1920x1088 at 30 for H.264 and H.265): the Cameras full view shown beside an app's video
+/// plays inside it, the camera's best stream that fits.
+pub fn accept_sub() -> Value {
+    json!({"codecs": ["h264", "h265"], "max_width": 1920, "max_height": 1088, "max_fps": 30})
+}
+
 /// What the CPU path takes (a software decode into a texture): the camera's low stream, H.264 up to 720p at 30.
 pub fn accept_low() -> Value {
     json!({"codecs": ["h264"], "max_width": 1280, "max_height": 720, "max_fps": 30})
@@ -160,16 +166,26 @@ pub fn live_within(camera: &str, quality: &str, accept: Value) -> Request {
 }
 
 pub fn playback(camera: &str, start: i64, rate: u8) -> Request {
+    playback_within(camera, start, rate, accept())
+}
+
+/// `POST /v1/playback` for a stream inside `accept`.
+pub fn playback_within(camera: &str, start: i64, rate: u8, accept: Value) -> Request {
     Request::post(
         "/v1/playback",
-        json!({"camera": camera, "start": start, "rate": rate, "wait_ms": PLAYBACK_WAIT_MS, "accept": accept()}).to_string(),
+        json!({"camera": camera, "start": start, "rate": rate, "wait_ms": PLAYBACK_WAIT_MS, "accept": accept}).to_string(),
     )
 }
 
 pub fn clip_playback(camera: &str, clip: &str) -> Request {
+    clip_playback_within(camera, clip, accept())
+}
+
+/// `POST /v1/clip-playback` for a stream inside `accept`.
+pub fn clip_playback_within(camera: &str, clip: &str, accept: Value) -> Request {
     Request::post(
         "/v1/clip-playback",
-        json!({"camera": camera, "id": clip, "wait_ms": PLAYBACK_WAIT_MS, "accept": accept()})
+        json!({"camera": camera, "id": clip, "wait_ms": PLAYBACK_WAIT_MS, "accept": accept})
             .to_string(),
     )
 }
@@ -555,12 +571,33 @@ impl Bridge {
         dial_of(&self.json(&live_within(camera, quality, accept_low()))?)
     }
 
-    pub fn playback(&self, camera: &str, start: i64, rate: u8) -> Result<Dial, Trouble> {
-        dial_of(&self.json(&playback(camera, start, rate))?)
+    /// A live stream for the display's sub window: the best the camera has inside [`accept_sub`], `quality` first and the lower ones when the camera has
+    /// no stream that small at that quality (the bridge's `501`).
+    pub fn live_sub(&self, camera: &str, quality: &str) -> Result<Dial, Trouble> {
+        let ladder: &[&str] = match quality {
+            "native" => &["native", "balanced", "light"],
+            "balanced" => &["balanced", "light"],
+            _ => &["light"],
+        };
+        let mut last = Trouble::Bridge { status: 501, code: String::new() };
+        for q in ladder {
+            match self.live_within(camera, q, accept_sub()) {
+                Err(t @ Trouble::Bridge { status: 501, .. }) => last = t,
+                other => return other,
+            }
+        }
+        Err(last)
     }
 
-    pub fn clip_playback(&self, camera: &str, clip: &str) -> Result<Dial, Trouble> {
-        dial_of(&self.json(&clip_playback(camera, clip))?)
+    /// A recording for the main window (`sub` false: up to what the decoder takes) or for the sub window (inside [`accept_sub`]).
+    pub fn playback(&self, camera: &str, start: i64, rate: u8, sub: bool) -> Result<Dial, Trouble> {
+        let accept = if sub { accept_sub() } else { accept() };
+        dial_of(&self.json(&playback_within(camera, start, rate, accept))?)
+    }
+
+    pub fn clip_playback(&self, camera: &str, clip: &str, sub: bool) -> Result<Dial, Trouble> {
+        let accept = if sub { accept_sub() } else { accept() };
+        dial_of(&self.json(&clip_playback_within(camera, clip, accept))?)
     }
 
     pub fn stop_playback(&self, session: &str) -> Result<(), Trouble> {
@@ -641,6 +678,14 @@ mod tests {
         );
         // a window's pop-up is limited by `popup_stream::Step`, the full view by what the decoder takes
         assert_eq!(accept()["max_width"], 4096, "the full view is up to what the decoder takes");
+        // beside an app's video the full view is on the sub window, whose limits a live stream, a recording and a clip all keep to
+        let sub = accept_sub();
+        assert_eq!((sub["max_width"].clone(), sub["max_height"].clone(), sub["max_fps"].clone()), (json!(1920), json!(1088), json!(30)));
+        for request in [live_within("273", "native", sub.clone()), playback_within("273", 5, 1, sub.clone()), clip_playback_within("273", "c1", sub.clone())] {
+            let body: Value = serde_json::from_str(request.json.as_deref().unwrap()).unwrap();
+            assert_eq!(body["accept"], sub, "{}", request.path);
+        }
+        assert_eq!(serde_json::from_str::<Value>(playback("273", 5, 1).json.as_deref().unwrap()).unwrap()["accept"], accept(), "the main window's are as they were");
         let body: Value = serde_json::from_str(live_within("273", "light", accept_low()).json.as_deref().unwrap()).unwrap();
         assert_eq!((body["camera"].as_str(), body["quality"].as_str(), body["accept"]["max_height"].clone()), (Some("273"), Some("light"), json!(720)));
     }
