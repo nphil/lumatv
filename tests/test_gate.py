@@ -594,11 +594,11 @@ class Edges(unittest.TestCase):
         def push_tools(self):
             pass
 
-        def motion_enabled(self):
-            return self.motion
+        def motion_state(self):
+            return dict(self.motion) if isinstance(self.motion, dict) else {path: self.motion for path in gate.MOTION_SWITCHES}
 
-        def set_motion(self, enabled):
-            self.calls.append(enabled)
+        def set_motion(self, changes):
+            self.calls.append(dict(changes))
 
     def run_gate(self, motion, names):
         rig = self.FakeRig(motion)
@@ -610,22 +610,33 @@ class Edges(unittest.TestCase):
             gate.run_surface = orig
         return rig
 
-    def test_the_tick_is_off_while_a_still_surface_runs_and_back_as_the_owner_had_it(self):
-        # idle Home first (the tick as it is), then two still surfaces: off once, back on at the end
-        rig = self.run_gate(True, ['home-idle', 'quick-settings', 'kit-gallery'])
-        self.assertEqual(rig.calls, [False, True])
-        rig = self.run_gate(True, ['quick-settings'])
-        self.assertEqual(rig.calls, [False, True])
+    OFF = {'wallpaperMotion.enabled': False, 'weather.animated': False}
+    ON = {'wallpaperMotion.enabled': True, 'weather.animated': True}
 
-    def test_idle_home_is_measured_with_the_tick_the_owner_has(self):
+    def test_the_motion_is_off_while_a_still_surface_runs_and_back_as_the_owner_had_it(self):
+        # idle Home first (the motion as it is), then two still surfaces: off once, back on at the end
+        rig = self.run_gate(True, ['home-idle', 'quick-settings', 'kit-gallery'])
+        self.assertEqual(rig.calls, [self.OFF, self.ON])
+        rig = self.run_gate(True, ['quick-settings'])
+        self.assertEqual(rig.calls, [self.OFF, self.ON])
+
+    def test_idle_home_is_measured_with_the_motion_the_owner_has(self):
         rig = self.run_gate(True, ['home-idle'])
         self.assertEqual(rig.calls, [])
-        rig = self.run_gate(False, ['quick-settings', 'home-idle'])      # the owner has motion off: nothing to change for them
+        rig = self.run_gate(False, ['quick-settings', 'home-idle'])      # the owner has all motion off: nothing to change for them
         self.assertEqual(rig.calls, [])
         rig = self.run_gate(None, ['quick-settings'])                    # the file says nothing: on, the shipped default
-        self.assertEqual(rig.calls, [False, True])
+        self.assertEqual(rig.calls, [self.OFF, self.ON])
 
-    def test_a_failed_surface_still_gives_the_tick_back(self):
+    def test_each_switch_is_judged_on_its_own_a_wallpaper_the_owner_stilled_does_not_keep_the_weather_card_drawing(self):
+        # round 23: the owner's file had the wallpaper off and said nothing of the weather card, whose sprites drew every refresh through the whole run
+        rig = self.run_gate({'wallpaperMotion.enabled': False, 'weather.animated': None}, ['home-idle', 'quick-settings', 'kit-gallery'])
+        self.assertEqual(rig.calls, [{'weather.animated': False}, {'weather.animated': True}], 'the weather card off once and back as the shipped default has it')
+        self.assertTrue(all('wallpaperMotion.enabled' not in c for c in rig.calls), 'the wallpaper is left as the owner had it')
+        rig = self.run_gate({'wallpaperMotion.enabled': True, 'weather.animated': False}, ['quick-settings'])
+        self.assertEqual(rig.calls, [{'wallpaperMotion.enabled': False}, {'wallpaperMotion.enabled': True}])
+
+    def test_a_failed_surface_still_gives_the_motion_back(self):
         rig = self.FakeRig(True)
         orig = gate.run_surface
         def boom(*a):
@@ -636,7 +647,7 @@ class Edges(unittest.TestCase):
                 gate.run_gate(rig, gate.find(['quick-settings']), 3, 't', log=object())
         finally:
             gate.run_surface = orig
-        self.assertEqual(rig.calls, [False, True])
+        self.assertEqual(rig.calls, [self.OFF, self.ON])
 
     def test_the_gate_waits_for_a_freshly_started_compositor(self):
         orig = gate.run_surface

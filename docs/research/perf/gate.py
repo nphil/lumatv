@@ -65,6 +65,9 @@ import ringsum
 HERE = os.path.dirname(os.path.abspath(__file__))
 # The tool is not on the set's PATH.
 TOOL = '/media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv'
+# Home's own motion, by theme path: the wallpaper's tick and the weather card's sprites. The gate's `still` surfaces switch each off that is on, and put each back
+# as the owner had it (one that is already off is left alone, whatever the other is: a Home with its wallpaper off still draws the weather every refresh).
+MOTION_SWITCHES = ('wallpaperMotion.enabled', 'weather.animated')
 
 # What puts a film or an input in front of the surfaces over playback. The set's commands: luna-send on the set, kb.py as the gate copied it.
 SAM = 'luna://com.webos.applicationManager'
@@ -1129,15 +1132,16 @@ class Rig:
         rc, out, err = self.sh(f'tail -n 1 {LOAD_LOG}')
         return out.strip() if rc == 0 else ''
 
-    def motion_enabled(self):
-        """The wallpaper motion switch as the owner's theme.json has it: True, False, or None when the file does not say. `theme get` answers
-        {"ok": true, "theme": {...}}."""
+    def motion_state(self):
+        """Home's own motion switches as the owner's theme.json has them, by theme path (MOTION_SWITCHES): True, False, or None when the file does not
+        say (the shipped default, on). `theme get` answers {"ok": true, "theme": {...}}."""
         rc, out, _ = self.sh(f'{TOOL} theme get')
         try:
             doc = json.loads(out)
-            return (doc.get('theme', doc).get('wallpaperMotion') or {}).get('enabled')
+            theme = doc.get('theme', doc)
+            return {path: (theme.get(path.split('.')[0]) or {}).get(path.split('.')[1]) for path in MOTION_SWITCHES}
         except (ValueError, AttributeError):
-            return None
+            return {path: None for path in MOTION_SWITCHES}
 
     def transitions_stats(self):
         """The compositor's transition counters now (parse_transitions)."""
@@ -1163,10 +1167,13 @@ class Rig:
             f.write(out)
         return path
 
-    def set_motion(self, enabled):
-        """Switch Home's own motion, the wallpaper's 10 Hz tick (`wallpaperMotion.enabled`) and the weather card's sprites (`weather.animated`); Home
-        reads the file every 2 s, so wait 3."""
-        self.sh(TOOL + ' theme set ' + shlex.quote(json.dumps({'wallpaperMotion': {'enabled': bool(enabled)}, 'weather': {'animated': bool(enabled)}})))
+    def set_motion(self, changes):
+        """Switches Home's own motion by theme path ({'weather.animated': False}); Home reads the file every 2 s, so wait 3."""
+        patch = {}
+        for path, on in changes.items():
+            group, key = path.split('.')
+            patch.setdefault(group, {})[key] = bool(on)
+        self.sh(TOOL + ' theme set ' + shlex.quote(json.dumps(patch)))
         time.sleep(3)
 
     def remember_compositor(self, pid):
@@ -1475,14 +1482,16 @@ def run_gate(rig, surfaces, soak_cycles, tag, log=None, load=None, load_seconds=
     if load:
         loaded = rig.load_start(load, load_seconds)
         print(f"background load {','.join(load)}: {'started' if loaded else 'DID NOT START (the bundle has no bin/lumatv-loadgen?); measuring without it'}", flush=True)
-    original = rig.motion_enabled()       # None: the file says nothing, the shipped default (on) applies
-    now = original is not False
+    original = rig.motion_state()         # per switch; None: the file says nothing, the shipped default (on) applies
+    owner = {path: value is not False for path, value in original.items()}
+    now = dict(owner)
     try:
         for s in surfaces:
-            want = (original is not False) if not s['still'] else False
-            if want != now:
-                rig.set_motion(want)
-                now = want
+            want = owner if not s['still'] else {path: False for path in owner}
+            changes = {path: on for path, on in want.items() if on != now[path]}
+            if changes:
+                rig.set_motion(changes)
+                now.update(changes)
             r = run_surface(rig, s, tag, soak_cycles, log)
             print(format_lines([r]), flush=True)
             for ring_line in r.get('rings', []):
@@ -1494,8 +1503,9 @@ def run_gate(rig, surfaces, soak_cycles, tag, log=None, load=None, load_seconds=
     finally:
         if loaded:
             print(f'background load ended: {rig.load_stop() or "no summary"}', flush=True)
-        if now != (original is not False):
-            rig.set_motion(original is not False)
+        back = {path: on for path, on in owner.items() if on != now[path]}
+        if back:
+            rig.set_motion(back)
     return results
 
 

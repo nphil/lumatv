@@ -37,6 +37,14 @@ On forge main:
      before it, so a step in cost lands one refresh late (`late 1 lost 1`, 33.4 ms), and the frames after it are on time.
 
 - `807b87e8` the gate as above (ring count, `still` covers the weather card, no input calm), then the cover below.
+- Round 23 at 60 Hz on 89507fcb (panel 59.9, pop-ups off), the compositor's own count: home-dpad, home-widgets, toast 0; quick 3, picker 3, settings-scroll 4, apps-grid 4,
+  every one the first heavy frame of an open (a whole-screen frame of 45-180 layers, 8-15 ms of GPU, after cheap ones: `late 1 lost 1`, 33.4 ms). Idle Home drew a frame
+  every refresh (13 layers, 78-83 kpx, `anim`) all through the run, the size of the weather card's sprites on the host (77 kpx), which stopped while a panel was up (the
+  calm): the gate's `weather.animated=false` had not reached the card. The cause is in the gate: it judged the wallpaper's switch alone, and a file with the wallpaper
+  off (the owner's, or an earlier run's left over) made it change nothing. It now reads and sets each switch (`MOTION_SWITCHES`: `wallpaperMotion.enabled`,
+  `weather.animated`) on its own and puts back only what it changed. With the card drawing, the frame before every first heavy frame is "a frame with a motion running
+  after it", so that frame is judged and counted, and the pacer, sized by cheap frames, has no time for it; with the card at rest the first frame of an open follows
+  a still screen and is not judged, the next ones are on time (the pacer sizes them by the slowest recent frame).
 - Round 22 at 120 Hz on 888dc431 (panel 119.9 Hz in every window, pop-ups off), the compositor's own count per window (art on): home-dpad 2 of 803 flips judged,
   apps-grid 2 of 1303, home-widgets 4 of 1683, toast 0 of 2528, picker 7 of 38, quick 9 of 91, **settings-scroll 192 of 2063** (the trace said 6). The panels' drops are
   the first two frames of an open (12-13 ms of GPU, cold layers), the rest of a panel's frames take 5-7 ms. Settings' are the page changes: the rail's steps

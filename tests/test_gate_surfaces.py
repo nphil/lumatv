@@ -446,13 +446,25 @@ class Setups(unittest.TestCase):
         self.assertEqual(key_names(surface("transitions-netflix")["close"].split()), ["HOME"])
         self.assertEqual(key_names(surface("transitions-settings")["close"].split()), ["BACK"])
 
-    def test_the_owners_motion_switch_is_read_from_the_theme_get_answer(self):
+    def test_the_owners_motion_switches_are_read_from_the_theme_get_answer(self):
         rig = gate.Rig.__new__(gate.Rig)
-        for theme, want in (({"wallpaperMotion": {"enabled": False}}, False), ({"wallpaperMotion": {"enabled": True}}, True), ({}, None)):
+        for theme, want in (({"wallpaperMotion": {"enabled": False}}, (False, None)), ({"wallpaperMotion": {"enabled": True}, "weather": {"animated": False}}, (True, False)),
+                            ({}, (None, None))):
             rig.sh = lambda cmd, timeout=120, theme=theme: (0, json.dumps({"ok": True, "theme": theme}), "")
-            self.assertIs(rig.motion_enabled(), want)
+            state = rig.motion_state()
+            self.assertEqual((state["wallpaperMotion.enabled"], state["weather.animated"]), want)
         rig.sh = lambda cmd, timeout=120: (1, "", "no tool")
-        self.assertIsNone(rig.motion_enabled())
+        self.assertEqual(set(rig.motion_state().values()), {None})
+
+    def test_a_motion_change_is_one_theme_set_with_the_paths_nested(self):
+        rig = gate.Rig.__new__(gate.Rig)
+        sent = []
+        rig.sh = lambda cmd, timeout=120: (sent.append(cmd), (0, "{}", ""))[1]
+        with mock.patch.object(gate.time, "sleep"):
+            rig.set_motion({"wallpaperMotion.enabled": False, "weather.animated": False})
+        self.assertEqual(len(sent), 1)
+        self.assertIn("theme set", sent[0])
+        self.assertEqual(json.loads(sent[0].split("theme set ", 1)[1].strip("'")), {"wallpaperMotion": {"enabled": False}, "weather": {"animated": False}})
 
 
 # ------------------------------------------------------------------------------------------------------------ the host

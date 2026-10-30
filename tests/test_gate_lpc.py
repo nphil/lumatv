@@ -220,7 +220,7 @@ class FrameGate(unittest.TestCase):
     def rig(self, started=True, summary="summary: decode 100 frames, ws 40 messages, ble 20 wake-ups, download 48 MiB"):
         rig = mock.Mock()
         rig.compositor_age_s.return_value = 1000
-        rig.motion_enabled.return_value = None
+        rig.motion_state.return_value = {path: None for path in gate.MOTION_SWITCHES}
         rig.load_start.return_value = started
         rig.load_stop.return_value = summary
         return rig
