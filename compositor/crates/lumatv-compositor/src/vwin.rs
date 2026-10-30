@@ -1230,7 +1230,9 @@ impl crate::State {
     /// is made again, a few times for a claim, `REPLACE_GAP_NS` apart. A claim whose video is where it says is let go of.
     fn vwin_replace_parked(&mut self) {
         let now = crate::output::monotonic_ns();
-        let mut again: Vec<(String, crate::surface::SurfaceId, Rect, (i64, i64, i64, i64))> = Vec::new();
+        // a claim's id, its surface, the rectangle it is to be at and the destination its video is held at
+        type Held = (String, crate::surface::SurfaceId, Rect, (i64, i64, i64, i64));
+        let mut again: Vec<Held> = Vec::new();
         let mut settled: Vec<String> = Vec::new();
         for c in self.vwin.alloc.granted() {
             let Some(wid) = c.window.map(WindowId) else { continue };
