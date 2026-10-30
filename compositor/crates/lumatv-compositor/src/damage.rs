@@ -79,6 +79,15 @@ impl Tiles {
         }
     }
 
+    /// Takes `other`'s tiles out.
+    pub fn subtract(&mut self, other: &Tiles) {
+        for (a, b) in self.bits.iter_mut().zip(other.bits.iter()).take(self.rows) {
+            for (x, y) in a.iter_mut().zip(b.iter()) {
+                *x &= !*y;
+            }
+        }
+    }
+
     pub fn count(&self) -> usize {
         self.bits.iter().take(self.rows).map(|r| r.iter().map(|w| w.count_ones() as usize).sum::<usize>()).sum()
     }

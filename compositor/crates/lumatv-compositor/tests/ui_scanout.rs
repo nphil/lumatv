@@ -382,3 +382,24 @@ fn a_picture_redrawn_whole_in_place_every_frame_leaves_nothing_of_the_last_one_o
     }
     assert_eq!(rig.gl_errors(), 0);
 }
+
+#[test]
+fn a_page_that_copies_what_it_owes_from_the_last_page_holds_the_frame_whole() {
+    let Some(rig) = Rig::start("copy", false) else { return };
+    rig.commit();
+    // Steps of 160 px: each frame's change is two squares apart from the last one's, so a page copies the places the layer was two
+    // and three frames before from the page drawn last and draws only where it is and where it just was.
+    let place = |step: u32| (100 + step * 160, 500u32);
+    for step in 0..10u32 {
+        let (x, y) = place(step);
+        rig.under.set(Props::at(x as f32, y as f32));
+        rig.commit();
+        let image = rig.capture();
+        assert_eq!(image.pixel(x + 50, y + 50), [90, 200, 90, 255], "step {step}: the layer where it is");
+        for back in 1..=3u32.min(step) {
+            let (bx, by) = place(step - back);
+            assert_eq!(image.pixel(bx + 50, by + 50), [18, 20, 32, 255], "step {step}: nothing left where it was {back} frames before");
+        }
+    }
+    assert_eq!(rig.gl_errors(), 0);
+}

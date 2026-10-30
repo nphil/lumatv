@@ -119,6 +119,8 @@ pub struct Gl {
     path: BufferPath,
     import_failures: u64,
     gl_errors: u64,
+    /// A page copy raised a GL error: the pages draw all they owe from then on (`copy_from_page`).
+    page_copy_failed: bool,
     /// The pointer's sprite, uploaded once (RGBA, premultiplied) the first time the cursor shows.
     cursor_tex: Option<GLuint>,
     rects: Vec<Rect>,
@@ -301,6 +303,7 @@ impl Gl {
             path,
             import_failures: 0,
             gl_errors: 0,
+            page_copy_failed: false,
             cursor_tex: None,
             rects: Vec::new(),
             redraw_all: false,
@@ -508,6 +511,43 @@ impl Gl {
         {
             ui.merge(_rects);
         }
+    }
+
+    /// Copies `rects` of page `source` into the current target as they are (a framebuffer blit, no filter): what a page owes from
+    /// the frames before the one being drawn is what the page drawn last holds there, so the frame draws only what it changes
+    /// (`kms::frames`). `false` when nothing was copied: the driver has no blit, the pages are not alike, or a copy raised a GL error
+    /// (once is enough: no page copies after it).
+    pub fn copy_from_page(&mut self, source: TargetId, rects: &[Rect]) -> bool {
+        let Some(blit) = self.egl.opt.glBlitFramebuffer.filter(|_| !self.page_copy_failed) else { return false };
+        let (Some(from), Some(to)) = (self.targets.get(source.0), self.targets.get(self.current.0)) else { return false };
+        if source == self.current || from.top_down != to.top_down {
+            return false;
+        }
+        let (from, to, top_down) = (from.fbo, to.fbo, to.top_down);
+        // An error left from before the copy is the frame's, counted as `render_rects` counts its own.
+        if self.egl.gl_error() != egl::GL_NO_ERROR {
+            self.gl_errors += 1;
+        }
+        // SAFETY: GL state calls and blits between two framebuffers this renderer made, on the current context.
+        unsafe {
+            let a = &self.egl.api;
+            (a.glDisable)(egl::GL_SCISSOR_TEST);
+            (a.glBindFramebuffer)(egl::GL_READ_FRAMEBUFFER, from);
+            (a.glBindFramebuffer)(egl::GL_DRAW_FRAMEBUFFER, to);
+            for r in rects.iter().filter(|r| !r.is_empty()) {
+                // GL counts rows from row 0: the bottom offscreen, the top on a scan-out page (as `scissor` does).
+                let y = if top_down { r.y } else { self.height as i32 - r.bottom() };
+                blit(r.x, y, r.right(), y + r.h, r.x, y, r.right(), y + r.h, egl::GL_COLOR_BUFFER_BIT, egl::GL_NEAREST as egl::GLenum);
+            }
+            (a.glBindFramebuffer)(egl::GL_FRAMEBUFFER, to);
+        }
+        let err = self.egl.gl_error();
+        if err != egl::GL_NO_ERROR {
+            log::warn!("page copy: GL error {err:#x}; pages draw all they owe from now on");
+            self.page_copy_failed = true;
+            return false;
+        }
+        true
     }
 
     /// Ends the planned UI frame without drawing it (the window below is scanned out directly, and nothing of the UI

@@ -31,8 +31,10 @@
 //! stands costs the page its own layers and the copy, not Home's 70 to 90 layers in every pass: on the set a frame's GPU time is
 //! about 1.5 ms and 0.085 ms for each layer a pass draws, so a refresh of 120 Hz holds about 80 (round 23,
 //! `docs/research/frames-120-result.md`). The floor is current whenever Home is shown, so the first frame of an opening only
-//! copies it. With a `system_z` below `i32::MAX` and no `external`, the host draws its own pages that way too: its ring keeps the
-//! account a compositor keeps, so what the host measures is what the set draws.
+//! copies it. With a `system_z` below `i32::MAX` and no `external`, the host draws its own pages that way too, and as the
+//! compositor does (`kms::frames`): its ring keeps the account a compositor keeps, a page copies from the page drawn last what it
+//! owes from the frames before, and the frame draws only what it changes, so what the host measures is what the set draws.
+//! `LUMATV_FLOOR=0` and `LUMATV_PAGE_COPY=0` switch either off, to compare.
 
 use crate::backdrop::Area;
 use crate::clock::now_ns;
@@ -182,6 +184,9 @@ struct External {
     ring: Option<Ring>,
     /// The host's page the last frame was drawn into, which holds that frame whole.
     last_page: Option<usize>,
+    /// The host's pages copy from the last one what they owe from the frames before, as the compositor's do (`LUMATV_PAGE_COPY=0`:
+    /// they draw it, as before).
+    page_copy: bool,
     /// Scratch for [`Engine::merge_areas`].
     merging: TileSet,
     system_z: i32,
@@ -533,6 +538,7 @@ impl Engine {
                     compositor: config.external,
                     ring: (!config.external).then(|| Ring::new(config.pages.max(1), config.width, config.height)),
                     last_page: None,
+                    page_copy: std::env::var("LUMATV_PAGE_COPY").as_deref() != Ok("0"),
                     merging: TileSet::new(config.width, config.height),
                     system_z: config.system_z,
                     z: HashMap::new(),
@@ -864,7 +870,7 @@ impl Engine {
             if let Some(ring) = external.ring.as_mut() {
                 ring.frame(page, &changed, &mut owed);
             }
-            last = external.last_page.filter(|&p| p != page);
+            last = external.last_page.filter(|&p| p != page && external.page_copy);
         }
         let mut areas = Vec::new();
         if let (Some(last), Some(copier)) = (last, self.copier.as_ref()) {

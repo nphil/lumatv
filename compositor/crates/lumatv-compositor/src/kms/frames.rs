@@ -10,6 +10,11 @@
 //! the window still direct under it; without a UI ring (no overlay plane, or one that takes no alpha format) the frame is
 //! composed as any other. The pages of a ring miss every frame it is not drawn into, so the first frame back into it is drawn
 //! whole: the ring forgets its pages.
+//!
+//! A composed frame draws only what it changes. What its page owes from the frames before (a ring of three pages owes each
+//! change three times) is what the page the last frame went into holds there, and it is copied from that page first
+//! (`Gl::copy_from_page`): a whole-screen change costs one frame of drawing and two copies, not three frames.
+//! `LUMATV_PAGE_COPY=0` draws all a page owes, as before.
 
 use std::io;
 
@@ -33,6 +38,12 @@ pub struct Frames {
     /// What the last frame did: a frame into a ring the last one skipped redraws the ring whole.
     last_direct: bool,
     last_split: bool,
+    /// The page the last composed frame went into, which holds that frame whole: the next page copies from it what it owes from
+    /// the frames before its own. None after a frame that composed nothing, or a ring or a page forgotten.
+    composed: Option<usize>,
+    page_copy: bool,
+    copied: Tiles,
+    copy_rects: Vec<Rect>,
     width: u32,
     height: u32,
 }
@@ -51,6 +62,10 @@ impl Frames {
             rects: Vec::with_capacity(16),
             last_direct: false,
             last_split: false,
+            composed: None,
+            page_copy: std::env::var("LUMATV_PAGE_COPY").as_deref() != Ok("0"),
+            copied: Tiles::new(width, height),
+            copy_rects: Vec::with_capacity(16),
             width,
             height,
         }
@@ -73,6 +88,9 @@ impl Frames {
     /// Page `page` is another buffer now (`Kms::set_page_kind`): the ring draws into `target` and owes the page whole. Returns the target it had.
     pub fn replace_target(&mut self, page: usize, target: TargetId) -> TargetId {
         self.ring.forget_page(page);
+        if self.composed == Some(page) {
+            self.composed = None;
+        }
         std::mem::replace(&mut self.targets[page], target)
     }
 
@@ -107,6 +125,7 @@ impl Frames {
         if gl.take_redraw_all() {
             self.ring.forget();
             self.ui_ring.forget();
+            self.composed = None;
             // The pages hold layers that are gone: nothing to stand in from until this frame is composed.
             gl.set_standin_source(None);
         }
@@ -129,6 +148,7 @@ impl Frames {
                 gl.set_standin_source(None);
                 self.last_direct = true;
                 self.last_split = false;
+                self.composed = None;
                 RenderStats { items: plan.items.len(), ..Default::default() }
             }
             Assignment { primary: Source::Direct(_), overlay: Some((Source::UiPage(page), _)), .. } => {
@@ -137,6 +157,7 @@ impl Frames {
                 }
                 gl.set_standin_source(None);
                 self.last_direct = true;
+                self.composed = None;
                 let owed = self.ui_ring.frame(page, &tiles);
                 owed.rects(&mut self.rects);
                 gl.merge_ui_rects(&mut self.rects);
@@ -148,18 +169,29 @@ impl Frames {
             _ => {
                 if std::mem::take(&mut self.last_direct) {
                     self.ring.forget();
+                    self.composed = None;
                 }
                 self.last_split = false;
                 let page = self.next;
                 let owed = self.ring.frame(page, &tiles);
-                owed.rects(&mut self.rects);
-                gl.merge_ui_rects(&mut self.rects);
                 gl.set_target(self.targets[page]);
+                // What the page owes from the frames before this one is in the page the last frame went into.
+                let mut copied = false;
+                if let Some(last) = self.composed.filter(|&p| p != page && self.page_copy) {
+                    self.copied.clear();
+                    self.copied.union(owed);
+                    self.copied.subtract(&tiles);
+                    self.copied.rects(&mut self.copy_rects);
+                    copied = gl.copy_from_page(self.targets[last], &self.copy_rects);
+                }
+                if copied { tiles.rects(&mut self.rects) } else { owed.rects(&mut self.rects) }
+                gl.merge_ui_rects(&mut self.rects);
                 let stats = gl.render_rects(plan, surfaces, &self.rects)?;
                 // What the page only copied from the last one it owes again; the page is the next frame's stand-in.
                 self.ring.owe(page, gl.standin_tiles());
                 gl.set_standin_source(Some(self.targets[page]));
                 self.next = (page + 1) % self.targets.len();
+                self.composed = Some(page);
                 stats
             }
         };
