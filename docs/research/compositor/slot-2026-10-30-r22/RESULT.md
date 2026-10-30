@@ -2,7 +2,7 @@
 
 ## Resume here
 
-- Installed now: forge 2138070f (second install, 04:14; 5afc7e41 was the first). Weather redesign 740048bf is NOT installed yet: rebuild from HEAD, install, run docs/research/weather-redesign-result.md 'TV check (round 22)'.
+- Installed now: forge 4bc7a078 = 740048bf (third install, 05:15); b421f486 (frames fix) is being built and installed next, then both frames gates re-run (60 Hz and 120 Hz, `--only frames --frames-quick [--refresh 120]`; read `panel_refresh` per surface first). Weather redesign 740048bf is NOT installed yet: rebuild from HEAD, install, run docs/research/weather-redesign-result.md 'TV check (round 22)'.
 - First install: forge 5afc7e41 (worktree `/tmp/lumatv-r22`, staged as `/data/home/tmp/lumatv-next`; build script `/tmp/r22-build/build22.sh`). LumaTV compositor persistent and live, helper running, Smart home listener on (6054, HA's LumaShow entry connected).
 - Newer commits (21a560e3 video windows in UI px, e81474d6 sub window) are not installed yet; rebuild and reinstall when Frames120 pushes or at 05:00, then run CameraPopup's A2/A3 and D1, SubWindow's M2, and the frames gate at 60 and 120 Hz.
 - Marquee 0.9.3: done (below). The receiver stays muted until the end of the night; unmute to 0.52 at the end.
@@ -52,3 +52,20 @@ Remote keys: `kb.py` presses did not reach Marquee under LumaTV's compositor (th
 | D1 full view over Home | pass: claim cameras-full 0,0 1920x1080, sink displayOutput 0,0,3840,2160, fullScreen true, `replaced` empty, no `placed again`; first picture 152 ms; Back returns to Home with no claim (`full-home.png`) |
 | Dock with the Marquee icon | `dock-marquee.png` |
 | M2 sub window (SubWindow's script) | the sub sink was asked for once (`current [2:MainVideo], new [4:SubVideo]`) and videooutputd put the connect back on MAIN (`videoSinkType main_video`); SUB0 never connected; files in `docs/research/multiview/tv-2026-10-30/m2/` |
+
+## Round 3 on forge 4bc7a078 (740048bf weather redesign, installed 05:15)
+
+| Check | Result |
+|---|---|
+| A1 room on Home (clear night) | layers 121 of 256, groups 38 (`wx2-home2.png`) |
+| A3 card cost | 1 rect of 103,680 to 121,856 px per frame, 44 draws; covered Home (Browser in front): 0 card draws, 10 frames in 10 s, all `ui 0 draws` |
+| B1 view | OK on the card opens it in 0.21 s; layers 83, groups 38; ring 590 k px, 1 rect, GPU mean 3.2 ms max 3.7 ms (`wx2-now.png`, 10-day list) |
+| B2 radar | full-screen map, FORECAST chip, loop steps every 0.5 s, layers 64; GPU mean 6.1 ms max 7.0 ms per frame at 60 Hz, full-screen damage (`wx2-radar.png`) |
+| B3 details | layers 91 (`wx2-details.png`) |
+| Not run | rain reading (the sky is clear), A4 gate with rain, A5 OLED drift, A6 and B4 at 200 % text |
+| D2 over YouTube | OK on the card: homeMs 728, askedMs 728, firstLiveMs 728 ms; helper bridge answered in 1 ms; first picture after 419 ms, 30.4 a second; `cameras: the full view takes the front from youtube.leanback.v4` is in `shell-rust.log`, not in compositor.log |
+| D3 Back | `cameras: Back brings youtube.leanback.v4 back`; YouTube is in front again at its home page (restarted, the video did not resume), claims empty, `cameras.switched` false |
+| A6 Back on a live card | card gone in 0.18 s (ctl poll), claims empty, `free` 2, `ended:` line written; a second event within 30 s is held by the cooldown, one after it works |
+| A8 untouched card | claim granted and released 11.99 s later |
+| D4 probe | Up shows the chrome, the third Up opens the strip (timeline with Live, -10 s, Pause, +10 s, Event buttons; `d4-up3.png`); Left x4 then OK closes the strip and stays on live, no playback line in the helper log; DOWN, RIGHT, OK from the strip went to the camera grid |
+| Panel refresh | the compositor log shows `kms: the panel refreshes every 20.00 ms` as the base after the 120 Hz run (16.68 ms only while a video window is up); `ctl refresh 60` did not restore 16.68 ms. Frames120 found the same and fixed the gate and the idle redraws in b421f486 |
