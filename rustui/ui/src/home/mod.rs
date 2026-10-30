@@ -21,6 +21,9 @@ pub mod surface;
 pub mod wallpaper;
 pub mod wallvideo;
 pub mod weather_art;
+pub mod weather_card;
+pub mod weather_gfx;
+pub mod weather_sprites;
 pub mod weather_view;
 pub mod widgets;
 

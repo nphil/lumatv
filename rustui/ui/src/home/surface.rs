@@ -817,10 +817,14 @@ impl HomeSurface {
             match &mut c.content {
                 Content::Clock(cl) => cl.tick(kit, &t),
                 Content::Weather(w) => {
-                    w.set(kit, &mut self.pictures, &home.weather);
-                    // the picture's sprites are made inside the card's group, which a lift of its own owns
+                    // the words and the picture of the card, and the sky's sprites, are made inside the card's group, which a lift of its own owns
+                    let twelve = home.theme.pointer("/clock/twelveHour").and_then(Value::as_bool) != Some(false);
                     let scene = kit.ui.scene.clone();
-                    let _ = c.lift.adopting(engine, &scene, || w.set_art(kit, &home.weather));
+                    let pictures = &mut self.pictures;
+                    let _ = c.lift.adopting(engine, &scene, || {
+                        w.set(kit, pictures, &home.weather, &home.weather_more, twelve);
+                        w.set_art(kit, &home.weather);
+                    });
                 }
                 Content::News(n) => n.set(kit, &home.news, if mine { inner_index.unwrap_or(0) } else { self.news_index }, now),
                 Content::AtHome(a) => a.set(kit, &home.ha_items(), &home.ha_lane(), row, &mut self.pictures),
@@ -1292,11 +1296,25 @@ mod tests {
     }
 
     fn lint_home(mode: Mode, scale: f32, layout: Value) -> (Vec<crate::kit::lint::Finding>, usize) {
+        lint_home_with(mode, scale, layout, false)
+    }
+
+    /// The reading of the weather with its hours (the card then has the next thing and the hours, not the week).
+    fn weather_hours(h: &mut Home, alert: bool) {
+        let hours: Vec<Value> = (0..12).map(|i| json!({"time": format!("2026-10-30T{:02}:00", (15 + i) % 24), "temp": 61.0 - f64::from(i), "rainPct": if i > 2 { 80.0 } else { 10.0 }, "code": if i > 2 { 61 } else { 3 }, "isDay": true})).collect();
+        let alerts = if alert { json!([{"event": "Flood Watch", "severity": "Moderate", "headline": "Flood Watch", "ends": "2026-10-31T08:00:00-04:00"}]) } else { json!([]) };
+        h.update(&Input::Helper { topic: "weather.more".into(), data: json!({"doc": {"fetchedAt": 6, "hourly": hours, "daily": [], "alerts": alerts}}) }, 1002);
+    }
+
+    fn lint_home_with(mode: Mode, scale: f32, layout: Value, hours: bool) -> (Vec<crate::kit::lint::Finding>, usize) {
         let (h, mut kit) = testkit::kit_in(mode, scale);
         let mut engine = Engine::new(&kit).expect("an engine");
         let theme = lumatv_tokens::Tokens::shipped().json().clone();
         let mut home = Home::new(theme, super::super::grid::shipped(), layout);
         fixtures(&mut home);
+        if hours {
+            weather_hours(&mut home, scale < 1.5);
+        }
         press(&mut home, "down", 2000);
         press(&mut home, "down", 2100);
         press(&mut home, "down", 2200);
@@ -1308,6 +1326,23 @@ mod tests {
         let words = lint.words().len();
         std::mem::forget(h);
         (findings, words)
+    }
+
+    #[test]
+    fn the_weather_card_with_its_hours_and_its_next_thing_overlaps_nothing_at_either_text_size_in_either_look() {
+        let halves = json!({"grid": {"rows": 16}, "widgets": [
+            {"id": "clock", "type": "clock", "col": 0, "row": 0, "span": 6, "rows": 4}, {"id": "home", "type": "homeassistant", "col": 0, "row": 4, "span": 6, "rows": 5, "title": "At home"},
+            {"id": "weather", "type": "weather", "col": 6, "row": 0, "span": 6, "rows": 9}, {"id": "dock", "type": "dock", "col": 0, "row": 9, "span": 12, "rows": 7, "tile": 120, "gap": 16, "padY": 40, "fade": 110}]});
+        for mode in [Mode::Dark, Mode::Light] {
+            for scale in [1.0, 2.0] {
+                for layout in [json!({}), halves.clone()] {
+                    let (findings, words) = lint_home_with(mode, scale, layout, true);
+                    let bad: Vec<String> = findings.iter().filter(|f| format!("{f:?}").contains("weather")).map(|f| format!("{f:?}")).collect();
+                    assert!(bad.is_empty(), "{mode:?} at {scale}: {bad:?}");
+                    assert!(words > 0);
+                }
+            }
+        }
     }
 
     #[test]

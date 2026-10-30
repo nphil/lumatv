@@ -1,6 +1,6 @@
 //! What the full weather view shows beyond the card: the next 36 hours, the details of now (UV, gusts, wind direction, pressure, cloud,
-//! visibility, rain so far), each day's sunrise, sunset, UV and chance of rain, and the National Weather Service's active alerts for
-//! the place (the United States only; nothing for a place it does not cover).
+//! visibility, rain so far), the next ten days (their condition, high and low, sunrise, sunset, UV and chance of rain), and the National
+//! Weather Service's active alerts for the place (the United States only; nothing for a place it does not cover).
 //!
 //! It is a document of its own (`cache/weather-more.json`, topic `weather.more`) so that `weather.json`, which the card and the QML read
 //! byte for byte, does not change. The Open-Meteo request and the alerts request are made side by side, and the alerts are no part of
@@ -13,8 +13,9 @@ use serde_json::Value;
 use crate::weather::{self, Geo, Units, WeatherConfig};
 use crate::{EXPIRE_MS, FeedError, REFRESH_MS, SCHEMA};
 
-/// The hours the document holds.
+/// The hours the document holds, and the days.
 pub const HOURS: usize = 36;
+pub const DAYS: usize = 10;
 /// The most alerts kept.
 pub const MAX_ALERTS: usize = 6;
 
@@ -54,10 +55,17 @@ pub struct Hour {
     pub wind_mph: Option<f64>,
 }
 
-/// What one day adds to the card's row.
+/// One day of the ten: what the card's row has (the condition, the high and low, there in the card's own units) and what it adds.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DayMore {
     pub date: String,
+    /// WMO weather code, and the day's high and low in the unit of the document. Absent from documents kept before the ten days.
+    #[serde(default)]
+    pub code: Option<i64>,
+    #[serde(default)]
+    pub hi: Option<f64>,
+    #[serde(default)]
+    pub lo: Option<f64>,
     /// Local `YYYY-MM-DDTHH:MM`.
     pub sunrise: Option<String>,
     pub sunset: Option<String>,
@@ -126,8 +134,8 @@ pub fn url(geo: &Geo, units: Units) -> String {
         "https://api.open-meteo.com/v1/forecast?latitude={}&longitude={}\
          &current=uv_index,precipitation,cloud_cover,surface_pressure,wind_gusts_10m,wind_direction_10m,visibility\
          &hourly=temperature_2m,precipitation_probability,weather_code,is_day,wind_speed_10m\
-         &daily=sunrise,sunset,uv_index_max,precipitation_probability_max,precipitation_sum\
-         &temperature_unit={}&wind_speed_unit=mph&precipitation_unit=inch&timezone=auto&forecast_days=7&forecast_hours={HOURS}",
+         &daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_probability_max,precipitation_sum\
+         &temperature_unit={}&wind_speed_unit=mph&precipitation_unit=inch&timezone=auto&forecast_days={DAYS}&forecast_hours={HOURS}",
         crate::jsnum::fmt_num(geo.lat),
         crate::jsnum::fmt_num(geo.lon),
         units.as_str()
@@ -190,6 +198,9 @@ pub fn parse(body: &[u8], alerts: Option<&[u8]>, geo: &Geo, cfg: &WeatherConfig,
         .filter_map(|(i, t)| {
             Some(DayMore {
                 date: t.as_str()?.to_owned(),
+                code: num("weather_code", i).map(|c| c as i64),
+                hi: num("temperature_2m_max", i),
+                lo: num("temperature_2m_min", i),
                 sunrise: text("sunrise", i),
                 sunset: text("sunset", i),
                 uv_max: num("uv_index_max", i),
@@ -286,8 +297,8 @@ mod tests {
         let u = url(&geo(), Units::Fahrenheit);
         assert!(u.starts_with("https://api.open-meteo.com/v1/forecast?latitude=33.723&longitude=-84.4702&current=uv_index,"));
         assert!(u.contains("&hourly=temperature_2m,precipitation_probability,weather_code,is_day,wind_speed_10m"));
-        assert!(u.contains("&daily=sunrise,sunset,uv_index_max,precipitation_probability_max,precipitation_sum"));
-        assert!(u.ends_with("&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=auto&forecast_days=7&forecast_hours=36"));
+        assert!(u.contains("&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_probability_max,precipitation_sum"));
+        assert!(u.ends_with("&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=auto&forecast_days=10&forecast_hours=36"));
         assert_eq!(alerts_url(&geo()), "https://api.weather.gov/alerts/active?point=33.7230,-84.4702");
     }
 
@@ -296,7 +307,7 @@ mod tests {
         let body = json!({
             "current": {"uv_index": 3.5, "wind_gusts_10m": 18.2, "wind_direction_10m": 225.0, "surface_pressure": 1015.2, "cloud_cover": 40.0, "visibility": 24140.0, "precipitation": 0.0},
             "hourly": {"time": ["2026-10-29T22:00", "2026-10-29T23:00"], "temperature_2m": [61.0, 59.5], "precipitation_probability": [10.0, 40.0], "weather_code": [0.0, 61.0], "is_day": [0.0, 0.0], "wind_speed_10m": [6.0, 7.5]},
-            "daily": {"time": ["2026-10-29", "2026-10-30"], "sunrise": ["2026-10-29T07:41", "2026-10-30T07:42"], "sunset": ["2026-10-29T18:25", "2026-10-30T18:24"], "uv_index_max": [4.1, 3.0], "precipitation_probability_max": [20.0, 70.0], "precipitation_sum": [0.0, 0.3]}
+            "daily": {"time": ["2026-10-29", "2026-10-30"], "weather_code": [3.0, 61.0], "temperature_2m_max": [71.0, 62.5], "temperature_2m_min": [51.0, 48.2], "sunrise": ["2026-10-29T07:41", "2026-10-30T07:42"], "sunset": ["2026-10-29T18:25", "2026-10-30T18:24"], "uv_index_max": [4.1, 3.0], "precipitation_probability_max": [20.0, 70.0], "precipitation_sum": [0.0, 0.3]}
         });
         let alerts = json!({"features": [
             {"properties": {"event": "Wind Advisory", "severity": "Minor", "headline": "Wind Advisory until 6 PM", "ends": "2026-10-30T22:00:00-04:00"}},
@@ -307,6 +318,7 @@ mod tests {
         assert_eq!(doc.hourly.len(), 2);
         assert_eq!((doc.hourly[1].code, doc.hourly[1].rain_pct, doc.hourly[1].is_day), (61, Some(40.0), false));
         assert_eq!(doc.daily[1].sunset.as_deref(), Some("2026-10-30T18:24"));
+        assert_eq!((doc.daily[1].code, doc.daily[1].hi, doc.daily[1].lo), (Some(61), Some(62.5), Some(48.2)), "the day's condition, high and low");
         assert_eq!(doc.daily[1].rain_pct, Some(70.0));
         assert_eq!(doc.alerts.iter().map(|a| a.event.as_str()).collect::<Vec<_>>(), ["Flood Warning", "Wind Advisory"], "the most severe first");
         assert_eq!(doc.alerts[0].ends.as_deref(), Some("2026-10-31T01:00:00-04:00"), "`expires` when there is no `ends`");
@@ -320,6 +332,7 @@ mod tests {
         assert_eq!(doc.now, Now::default());
         assert_eq!(doc.hourly[0].rain_pct, None);
         assert_eq!(doc.daily[0].sunrise, None);
+        assert_eq!((doc.daily[0].code, doc.daily[0].hi, doc.daily[0].lo), (None, None, None));
         assert!(doc.alerts.is_empty());
         assert!(parse(b"nope", None, &geo(), &cfg(), 5).is_err());
         assert_eq!(parse_alerts(b"nope"), Vec::new());

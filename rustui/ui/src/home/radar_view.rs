@@ -32,9 +32,11 @@ const END_HOLD_MS: u64 = 1_400;
 /// What of the helper's frames the page shows: this far back and ahead of the clock (seconds).
 pub const BACK_S: i64 = 2 * 3_600;
 pub const AHEAD_S: i64 = 6 * 3_600;
-/// The map the page asks for (the card's inside, in pixels) and its zoom for the two levels.
-pub const MAP_W: u32 = 1792;
-pub const MAP_H: u32 = 744;
+/// The map the page asks for: the whole screen, in pixels (its zoom is for the two levels below).
+pub const MAP_W: u32 = 1920;
+pub const MAP_H: u32 = 1080;
+/// The globe's picture is a square this many pixels on a side (the helper's most is 1024), in the middle of the screen.
+pub const GLOBE_PX: u32 = 900;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -331,7 +333,7 @@ impl Radar {
             let wanted = self.globe_asked.is_none() && (self.globe_have.is_none_or(|(k, complete)| k != key || (!complete && now >= self.globe_retry_at())));
             if wanted {
                 self.globe_asked = Some((key, self.dark, now));
-                out.push(Effect::Fetch { tag: TAG_GLOBE, path: format!("/v1/wx/globe?lon={:.1}&lat={:.1}&size={MAP_H}&zoom={:.1}&dark={}", self.globe_at.0, self.globe_at.1, self.globe_zoom, u8::from(self.dark)) });
+                out.push(Effect::Fetch { tag: TAG_GLOBE, path: format!("/v1/wx/globe?lon={:.1}&lat={:.1}&size={GLOBE_PX}&zoom={:.1}&dark={}", self.globe_at.0, self.globe_at.1, self.globe_zoom, u8::from(self.dark)) });
             }
             return out;
         }
@@ -497,7 +499,7 @@ mod tests {
             _ => unreachable!(),
         };
         assert!(first.contains("t=10000") || first.contains("t=10300") || first.contains("t=9700") || first.contains("t=10400") || first.contains("t=10200"), "the nearest the clock first: {first}");
-        assert!(out.iter().any(|e| matches!(e, Effect::Fetch { path, .. } if path.starts_with("/v1/wx/map?w=1792&h=744&zoom=8&dark=1"))), "and the base map, once");
+        assert!(out.iter().any(|e| matches!(e, Effect::Fetch { path, .. } if path.starts_with("/v1/wx/map?w=1920&h=1080&zoom=8&dark=1"))), "and the base map, once");
         assert!(r.window().iter().all(|f| f.t >= 10_000 - BACK_S && f.t <= 10_000 + AHEAD_S && f.kind != Kind::Outlook), "the window: two hours back, six ahead, no outlook");
     }
 

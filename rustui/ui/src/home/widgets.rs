@@ -164,7 +164,7 @@ impl Canvas<'_> {
 
 /// Rasters the characters of these types into the atlas now, so a card's words (and the digits and degrees they change to) never
 /// wait for a chunk on a frame.
-fn warm(kit: &mut Kit, mut types: Vec<ui::text::Type>) {
+pub(super) fn warm(kit: &mut Kit, mut types: Vec<ui::text::Type>) {
     types.sort_by_key(|t| (t.px, t.weight as u8));
     types.dedup();
     if !types.is_empty() {
@@ -176,7 +176,7 @@ fn warm(kit: &mut Kit, mut types: Vec<ui::text::Type>) {
 
 use crate::kit::button::faded;
 
-fn art(kit: &mut Kit, f: Frame, z: i32) -> std::io::Result<ImageLayer> {
+pub(super) fn art(kit: &mut Kit, f: Frame, z: i32) -> std::io::Result<ImageLayer> {
     let mut l = kit.ui.scene.image(f.w.max(1.0).round() as u32, f.h.max(1.0).round() as u32, z, HIDDEN)?;
     l.clear();
     l.damage(None);
@@ -186,7 +186,7 @@ fn art(kit: &mut Kit, f: Frame, z: i32) -> std::io::Result<ImageLayer> {
 /// The kind of content a card has.
 pub enum Content {
     Clock(Clock),
-    Weather(Weather),
+    Weather(super::weather_card::Weather),
     News(News),
     AtHome(AtHome),
     Cameras(Cameras),
@@ -199,7 +199,7 @@ impl Content {
     pub fn new(kit: &mut Kit, kind: &str, w: f32, h: f32, z: i32, theme: &Value, entry: &Value) -> std::io::Result<Self> {
         Ok(match kind {
             "clock" => Content::Clock(Clock::new(kit, w, h, z, theme, entry)?),
-            "weather" => Content::Weather(Weather::new(kit, w, h, z, theme)?),
+            "weather" => Content::Weather(super::weather_card::Weather::new(kit, w, h, z, theme)?),
             "news" => Content::News(News::new(kit, w, h, z)?),
             "homeassistant" => Content::AtHome(AtHome::new(kit, w, h, z, entry)?),
             "cameras" => Content::Cameras(Cameras::new(kit, w, h, z)?),
@@ -616,349 +616,6 @@ impl Clock {
 
     pub fn second_hand(&self) -> bool {
         self.analog && self.second.is_some()
-    }
-}
-
-// ---- the weather
-pub struct Weather {
-    pub block: Words,
-    rows_art: ImageLayer,
-    w: f32,
-    h: f32,
-    mode: &'static str,
-    lines: WeatherLines,
-    at: Props,
-    shown: Option<String>,
-    rows_at: (f32, f32),
-    /// The picture of the condition (the sprites in the card's group) and the box it has, in the content box (x, y, side).
-    art: Option<super::weather_art::Live>,
-    art_box: (f32, f32, f32),
-    /// The picture is waiting for the atlas to settle: the surface asks to be drawn again soon.
-    art_waits: bool,
-    z: i32,
-}
-
-#[derive(Default)]
-struct WeatherLines {
-    place: usize,
-    place_style: Option<Style>,
-    place_w: f32,
-    temp: usize,
-    cond: usize,
-    stats: usize,
-    stats_shown: bool,
-    stats_style: Option<Style>,
-    stats_w: f32,
-    /// Per day: day, lo, hi (rows) or day, hi, lo (columns).
-    days: Vec<(usize, usize, usize)>,
-    row_top: f32,
-    row_h: f32,
-    day_w: f32,
-    num_w: f32,
-    icon: f32,
-    col_w: f32,
-    col_x: f32,
-}
-
-impl Weather {
-    fn new(kit: &mut Kit, w: f32, h: f32, z: i32, theme: &Value) -> std::io::Result<Self> {
-        // planned at the text size's reduction and scaled up with the type, as the clock is
-        let scale = kit.text_scale.max(1.0);
-        let (w, h) = (w / scale, h / scale);
-        let ink = kit.ui.look.ink();
-        let ink2 = kit.ui.look.ink2();
-        let types: std::cell::RefCell<Vec<ui::text::Type>> = std::cell::RefCell::new(Vec::new());
-        let sized = |kit: &Kit, px: f32, weight: Weight, colour: Rgba, align: Align| -> Style {
-            let mut ty = kit.ty(TypeRole::Label);
-            ty.px = (px * scale).round().max(8.0) as u32;
-            ty.weight = weight;
-            types.borrow_mut().push(ty);
-            ui::components::style(ty, colour, align)
-        };
-        let token = theme.pointer("/type/temp").and_then(Value::as_f64).unwrap_or(84.0) as f32;
-        let wide = w >= 620.0;
-        let mode = if !wide {
-            "stack"
-        } else if w < 1100.0 && h >= 240.0 {
-            "list"
-        } else {
-            "columns"
-        };
-        let compact = h < 130.0;
-        let now_icon = if compact {
-            (h - 8.0).clamp(40.0, 64.0)
-        } else if mode == "stack" {
-            96.0
-        } else if h >= 300.0 {
-            112.0
-        } else if h >= 200.0 {
-            96.0
-        } else {
-            72.0
-        };
-        let now_w = match mode {
-            "stack" => w,
-            "list" => (w * 0.4).round().clamp(300.0, 400.0),
-            _ => (w * 0.3).round().clamp(300.0, 440.0),
-        };
-        let show_place = !(compact || h < 110.0);
-        let cond_h = if now_icon >= 96.0 { 36.0 } else { 30.0 };
-        // the picture of the condition takes the right of the reading, the temperature and the condition the left (a "-12°" is 2 em)
-        let art_want = if compact { now_icon } else { (now_icon * 1.7).round() };
-        let temp_room = ((now_w - art_want - 12.0 - 4.0) / 2.0).floor();
-        let now_temp = if compact {
-            (now_icon * 0.875).round()
-        } else if mode == "stack" {
-            token.min(temp_room).max(40.0)
-        } else {
-            (now_icon * token / 96.0).round().min(temp_room).min(h - if show_place { 40.0 } else { 0.0 } - cond_h - 4.0).max(40.0)
-        };
-        let core_h = if compact { now_icon } else { now_icon.max(now_temp + 4.0 + cond_h) };
-        let place_h: f32 = if show_place { 40.0 } else { 0.0 };
-        let now_top = if mode == "stack" && !compact { 47.0 } else { place_h + ((h - place_h - core_h) / 2.0).round().max(0.0) };
-        let temp_top = now_top + if compact { ((now_icon - now_temp) / 2.0).round() } else { 0.0 };
-        let stats_y = now_top + core_h + 8.0;
-        // the picture stays above the stats line (which runs the card's width) and inside the room the reading's column leaves it; at a large
-        // text size the words need the room (the place, the temperature, a long condition under it), so it is smaller and ends above the condition
-        let big_text = scale > 1.25;
-        let mut art_side = if compact { art_want } else { art_want.min((stats_y - 6.0).max(48.0)) }.min((now_w * if big_text { 0.42 } else { 0.55 }).floor());
-        if big_text && !compact {
-            art_side = art_side.min(now_top + now_temp - 8.0).max(48.0);
-        }
-        let art_side = art_side.floor();
-        let art_x = now_w - art_side;
-        let art_y = if compact { ((h - art_side) / 2.0).round().max(0.0) } else if big_text { 4.0 } else { ((stats_y - 6.0 - art_side) / 2.0).round().max(0.0) };
-        let reading_w = now_w - art_side - 8.0;
-        let mut lines: Vec<Line> = Vec::new();
-        let mut map = WeatherLines { place: 0, ..WeatherLines::default() };
-        let place_style = sized(kit, 24.0, Weight::SemiBold, ink, Align::Left);
-        map.place_style = Some(place_style);
-        map.place_w = reading_w;
-        lines.push((Frame::new(0.0, 0.0, reading_w, 34.0), place_style, String::new()));
-        let temp_x = 0.0;
-        map.temp = lines.len();
-        lines.push((Frame::new(temp_x, temp_top, reading_w, now_temp), sized(kit, now_temp, Weight::SemiBold, ink, Align::Left), String::new()));
-        map.cond = lines.len();
-        lines.push((Frame::new(temp_x, now_top + now_temp + 4.0, reading_w, cond_h), sized(kit, if now_icon >= 96.0 { 26.0 } else { 22.0 }, Weight::Medium, ink, Align::Left), String::new()));
-        map.stats = lines.len();
-        // the stats line only where it fits under the reading
-        let stats_room = if stats_y + 30.0 <= h { w } else { 0.0 };
-        let stats_style = sized(kit, 20.0, Weight::Medium, ink2, Align::Left);
-        lines.push((Frame::new(0.0, stats_y, stats_room, 30.0), stats_style, String::new()));
-        map.stats_shown = stats_room > 0.0;
-        map.stats_style = Some(stats_style);
-        map.stats_w = stats_room;
-        // the week
-        map.icon = if mode == "stack" { 26.0 } else { 34.0 };
-        map.day_w = 70.0;
-        map.num_w = 52.0;
-        if mode == "columns" {
-            map.col_x = now_w + 48.0;
-            map.col_w = ((w - map.col_x) / 7.0).floor();
-            for i in 0..7 {
-                let x = map.col_x + i as f32 * map.col_w;
-                let d = lines.len();
-                lines.push((Frame::new(x, 0.0, map.col_w, 30.0), sized(kit, 22.0, Weight::Medium, ink2, Align::Centre), String::new()));
-                let hi = lines.len();
-                lines.push((Frame::new(x, 34.0 + 64.0 + 4.0, map.col_w, 34.0), sized(kit, 26.0, Weight::SemiBold, ink, Align::Centre), String::new()));
-                let lo = lines.len();
-                lines.push((Frame::new(x, 34.0 + 64.0 + 4.0 + 34.0, map.col_w, 30.0), sized(kit, 24.0, Weight::Medium, ink2, Align::Centre), String::new()));
-                map.days.push((d, hi, lo));
-            }
-        } else {
-            let (top, row_h, x0, rows) = if mode == "stack" {
-                let top = stats_y + 46.0;
-                (top, 46.0, 0.0, ((h - top) / 46.0).floor().clamp(0.0, 7.0) as usize)
-            } else {
-                let row_h = 64.0f32.min(h / 5.0).max(40.0);
-                let rows = (h / row_h).floor().clamp(1.0, 7.0) as usize;
-                (((h - rows as f32 * row_h) / 2.0).round(), row_h, now_w + 48.0, rows)
-            };
-            map.row_top = top;
-            map.row_h = row_h;
-            for i in 0..rows {
-                let y = top + i as f32 * row_h;
-                let d = lines.len();
-                lines.push((Frame::new(x0, y, map.day_w, row_h), sized(kit, 23.0, Weight::Medium, ink, Align::Left), String::new()));
-                let lo = lines.len();
-                lines.push((Frame::new(x0 + map.day_w + map.icon + 10.0, y, map.num_w, row_h), sized(kit, 23.0, Weight::Medium, ink2, Align::Right), String::new()));
-                let hi = lines.len();
-                lines.push((Frame::new(w - map.num_w, y, map.num_w, row_h), sized(kit, 23.0, Weight::Medium, ink, Align::Right), String::new()));
-                map.days.push((d, lo, hi));
-            }
-            map.col_x = x0;
-        }
-        warm(kit, types.into_inner());
-        let k = scale;
-        for l in &mut lines {
-            l.0 = Frame::new(l.0.x * k, l.0.y * k, l.0.w * k, l.0.h * k);
-        }
-        let (w, h) = (w * k, h * k);
-        map.row_top *= k;
-        map.row_h *= k;
-        map.day_w *= k;
-        map.num_w *= k;
-        map.icon *= k;
-        map.col_w *= k;
-        map.col_x *= k;
-        map.stats_w *= k;
-        map.place_w *= k;
-        let block = Words::new(kit, Frame::new(0.0, 0.0, w, h), z + 2, lines)?;
-        let rows_art = art(kit, Frame::new(0.0, 0.0, w, h), z + 1)?;
-        let art_box = (art_x * k, art_y * k, (art_side * k).round());
-        Ok(Self { block, rows_art, w, h, mode, lines: map, at: HIDDEN, shown: None, rows_at: (0.0, 0.0), art: None, art_box, art_waits: false, z })
-    }
-
-    fn show(&mut self, at: Props) {
-        self.at = at;
-        self.block.set_props(at);
-        self.rows_art.set(Props { x: at.x + self.rows_at.0, y: at.y + self.rows_at.1, ..at });
-        if let Some(a) = &mut self.art {
-            a.place((at.x + self.art_box.0, at.y + self.art_box.1));
-        }
-    }
-
-    pub fn art_waits(&self) -> bool {
-        self.art_waits
-    }
-
-    /// Keeps the picture's motion going (`run`) or at rest, for the tick `now`; the tick the next paths are due at, while it moves.
-    pub fn animate(&mut self, now: u64, run: bool) -> Option<u64> {
-        let a = self.art.as_mut()?;
-        if !run {
-            if a.running() {
-                a.rest();
-            }
-            return None;
-        }
-        Some(a.step(now))
-    }
-
-    /// The picture of the condition: its sprites are made when the condition (or the look) changes. The caller is inside the card's `adopting`, so
-    /// that the layers hang under the card's group.
-    pub fn set_art(&mut self, kit: &mut Kit, topic: &Value) {
-        // the words first: the sprites' pixels are a few hundred KiB the engine takes in a frame of their own, and the card's glyphs are
-        // not to wait behind them (the picture comes on the first apply after the atlas has settled)
-        if kit.ui.text_atlas().is_some_and(|a| !a.is_settled()) {
-            self.art_waits = true;
-            return;
-        }
-        self.art_waits = false;
-        let light = kit.mode == ui::lucent::palette::Mode::Light;
-        match super::weather_art::Cond::from_doc(topic.pointer("/doc").unwrap_or(&Value::Null)) {
-            Some(cond) if !self.art.as_ref().is_some_and(|a| a.is(cond, light)) => {
-                let origin = (self.at.x + self.art_box.0, self.at.y + self.art_box.1);
-                self.art = super::weather_art::Live::new(kit, cond, self.art_box.2, light, origin, self.z + 1).ok();
-            }
-            None => self.art = None,
-            Some(_) => {}
-        }
-    }
-
-    /// The helper's reading (`topic.doc.display`), drawn when it changed.
-    pub fn set(&mut self, kit: &mut Kit, pictures: &mut Pictures, topic: &Value) {
-        let key = topic.pointer("/doc/fetchedAt").map(Value::to_string).unwrap_or_default();
-        if self.shown.as_deref() == Some(key.as_str()) {
-            return;
-        }
-        self.shown = Some(key);
-        let d = topic.pointer("/doc/display").cloned().unwrap_or(Value::Null);
-        let s = |k: &str| d.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
-        let ink = kit.ui.look.ink();
-        let ink2 = kit.ui.look.ink2();
-        // no reading yet: the helper is starting again or not up, which the card says instead of staying empty
-        let place = if d.is_null() { "Reconnecting\u{2026}".to_owned() } else { s("place") };
-        let place = self.lines.place_style.map_or_else(|| place.clone(), |st| ellipsise(&mut kit.ui.fonts, &place, st.ty, self.lines.place_w));
-        let mut changes: Vec<(usize, String, Rgba)> = vec![
-            (self.lines.place, place, ink),
-            (self.lines.temp, s("temp"), ink),
-            (self.lines.cond, s("cond"), ink),
-            (self.lines.stats, String::new(), ink2),
-        ];
-        if self.lines.stats_shown
-            && let Some(st) = self.lines.stats_style
-        {
-            let stats = if self.mode == "stack" { s("stats") } else { s("stats").replace(" \u{b7} ", "\n").lines().take(1).collect() };
-            changes[3].1 = ellipsise(&mut kit.ui.fonts, &stats, st.ty, self.lines.stats_w);
-        }
-        let days: Vec<Value> = d.get("days").and_then(Value::as_array).cloned().unwrap_or_default();
-        let deg = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).and_then(|t| t.trim_end_matches('°').parse::<f32>().ok());
-        let (mut lo_min, mut hi_max) = (f32::MAX, f32::MIN);
-        for dv in &days {
-            if let (Some(lo), Some(hi)) = (deg(dv, "lo"), deg(dv, "hi")) {
-                lo_min = lo_min.min(lo);
-                hi_max = hi_max.max(hi);
-            }
-        }
-        for (i, (di, a, b)) in self.lines.days.iter().enumerate() {
-            match days.get(i) {
-                Some(dv) => {
-                    let ds = |k: &str| dv.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
-                    changes.push((*di, ds("day"), if self.mode == "columns" { ink2 } else { ink }));
-                    if self.mode == "columns" {
-                        changes.push((*a, ds("hi"), ink));
-                        changes.push((*b, ds("lo"), ink2));
-                    } else {
-                        changes.push((*a, ds("lo"), ink2));
-                        changes.push((*b, ds("hi"), ink));
-                    }
-                }
-                None => {
-                    changes.push((*di, String::new(), ink));
-                    changes.push((*a, String::new(), ink));
-                    changes.push((*b, String::new(), ink));
-                }
-            }
-        }
-        let refs: Vec<(usize, &str, Rgba)> = changes.iter().map(|(i, s, c)| (*i, s.as_str(), *c)).collect();
-        self.block.set_many(kit, &refs);
-        let (w, h) = (self.w as u32, self.h as u32);
-        self.rows_art.clear();
-        {
-            let light = kit.mode == ui::lucent::palette::Mode::Light;
-            let accent = kit.ui.look.accent();
-            let track = faded(ink, 0.12);
-            let mut canvas = Canvas { px: self.rows_art.pixels_mut(), w, h };
-            if self.mode == "stack" && !days.is_empty() {
-                canvas.rounded(Frame::new(0.0, self.lines.row_top - 5.0, self.w, 1.0), 0.0, faded(ink, 0.16));
-            }
-            for (i, dv) in days.iter().enumerate() {
-                let k = dv.get("kind").and_then(Value::as_str).unwrap_or("");
-                if self.mode == "columns" {
-                    if i >= 7 {
-                        break;
-                    }
-                    let x = self.lines.col_x + i as f32 * self.lines.col_w;
-                    let side = (64.0 * kit.text_scale.max(1.0)) as u32;
-                    if let Some(p) = pictures.get(&format!("wxbig-{k}")) {
-                        canvas.picture(p, (x + (self.lines.col_w - side as f32) / 2.0).round() as i32, (34.0 * kit.text_scale.max(1.0)) as i32, side, side);
-                    }
-                } else {
-                    if i >= self.lines.days.len() {
-                        break;
-                    }
-                    let y = self.lines.row_top + i as f32 * self.lines.row_h;
-                    let icon = self.lines.icon as u32;
-                    let name = if self.mode == "stack" { format!("wx-{k}_{}", if light { "l" } else { "d" }) } else { format!("wxbig-{k}") };
-                    if let Some(p) = pictures.get(&name) {
-                        canvas.picture(p, (self.lines.col_x + self.lines.day_w) as i32, (y + (self.lines.row_h - icon as f32) / 2.0).round() as i32, icon, icon);
-                    }
-                    // the range bar: the day's span of the week's
-                    let bx = self.lines.col_x + self.lines.day_w + self.lines.icon + 10.0 + self.lines.num_w + 14.0;
-                    let bw = (self.w - bx - self.lines.num_w - 14.0).max(0.0);
-                    let by = y + (self.lines.row_h - 8.0) / 2.0;
-                    canvas.rounded(Frame::new(bx, by, bw, 8.0), 4.0, track);
-                    if let (Some(lo), Some(hi)) = (deg(dv, "lo"), deg(dv, "hi"))
-                        && hi_max > lo_min
-                    {
-                        let f0 = (lo - lo_min) / (hi_max - lo_min);
-                        let f1 = (hi - lo_min) / (hi_max - lo_min);
-                        canvas.rounded(Frame::new(bx + bw * f0, by, (bw * (f1 - f0)).max(8.0), 8.0), 4.0, accent);
-                    }
-                }
-            }
-        }
-        self.rows_art.damage(None);
     }
 }
 

@@ -140,8 +140,12 @@ pub fn documents(snap: &Value, cfg: &WeatherConfig, now_ms: u64) -> Option<(Weat
     let more_daily: Vec<DayMore> = daily_in
         .iter()
         .filter_map(|d| {
+            let hi = number(d, "temperature").map(want);
             Some(DayMore {
                 date: d.get("datetime")?.as_str()?.get(..10)?.to_owned(),
+                code: Some(wmo_of(d.get("condition").and_then(Value::as_str).unwrap_or(""))),
+                hi,
+                lo: number(d, "templow").map(want).or(hi),
                 sunrise: None,
                 sunset: None,
                 uv_max: number(d, "uv_index"),
@@ -214,6 +218,7 @@ mod tests {
         assert_eq!(more.hourly[0].time, "2026-10-30T02:00");
         assert!(!more.hourly[0].is_day && more.hourly[0].rain_pct == Some(70.0));
         assert_eq!(more.daily[0].rain_pct, Some(80.0));
+        assert_eq!((more.daily[0].code, more.daily[0].hi, more.daily[0].lo), (Some(63), Some(64.4), Some(51.8)), "the entity's days, as the card has them");
         assert!(more.daily[0].sunrise.is_none(), "an entity does not say when the sun rises");
         assert!(more.alerts.is_empty());
     }

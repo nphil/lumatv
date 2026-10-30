@@ -2331,7 +2331,6 @@ mod tests {
         assert_eq!(h.wview.page, super::super::weather_view::Page::Radar);
         assert!(h.radar.open || h.weather.pointer("/doc/lat").is_none(), "the helper's radar is asked for when the page comes (with a place to ask for)");
         press(&mut h, "down", 2250);
-        press(&mut h, "down", 2300);
         assert_eq!(h.wview.page, super::super::weather_view::Page::Details);
         assert!(!h.radar.open, "and let go when the page goes");
         press(&mut h, "down", 2400);

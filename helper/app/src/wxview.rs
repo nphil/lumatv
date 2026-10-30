@@ -105,7 +105,7 @@ impl WxView {
                 last = Instant::now();
                 let open = Request { method: "POST".into(), path: "/v1/wx/open".into(), query: Vec::new(), headers: Vec::new(), body: json!({"lat": lat, "lon": lon}).to_string().into_bytes(), peer: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST) };
                 me.open(&open);
-                let map = Request { method: "GET".into(), path: "/v1/wx/map".into(), query: vec![("w".into(), "1792".into()), ("h".into(), "744".into()), ("zoom".into(), "8".into())], headers: Vec::new(), body: Vec::new(), peer: open.peer };
+                let map = Request { method: "GET".into(), path: "/v1/wx/map".into(), query: vec![("w".into(), "1920".into()), ("h".into(), "1080".into()), ("zoom".into(), "8".into())], headers: Vec::new(), body: Vec::new(), peer: open.peer };
                 me.map(&map);
             }
         })
@@ -146,7 +146,7 @@ impl WxView {
         radar_cfg.max_held = 40;
         let radar = RadarEngine::new(radar_cfg, Arc::new(|| {}));
         let meta = DiskCache::open(self.root.join("map-meta"), 64 << 10).ok();
-        let mut map_cfg = MapConfig::new(Arc::new(OpenFreeMap::new(Arc::clone(&tls), meta))).for_screen(1792.0, 720.0);
+        let mut map_cfg = MapConfig::new(Arc::new(OpenFreeMap::new(Arc::clone(&tls), meta))).for_screen(1920.0, 1080.0);
         map_cfg.cache_dir = Some(self.root.join("map"));
         map_cfg.disk_budget = 24 << 20;
         map_cfg.min_zoom = f64::from(MAP_ZOOM_MIN);

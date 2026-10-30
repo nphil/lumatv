@@ -1,21 +1,26 @@
-//! The full weather view: OK on the weather card opens it over Home (`Layer::Weather`). Up and Down walk its pages (now with the hours,
-//! the week, the details with the alerts), Back closes it. It is drawn from the helper's `weather` document (the card's) and `weather.more`
-//! (the hours, the details of now, each day's sun and UV, the alerts), both kept fresh in the background by the helper, so the page is
-//! made from what is already there, with nothing fetched when it opens.
+//! The full weather view: OK on the weather card opens it over Home (`Layer::Weather`). Up and Down walk its pages (now, the radar, the details),
+//! Back closes it. It is drawn from the helper's `weather` document (the card's) and `weather.more` (the hours, the ten days, the details of
+//! now, the alerts), both kept fresh in the background by the helper, so the page is made from what is already there, with nothing fetched when
+//! it opens.
 //!
-//! The model is pure ([`WeatherView`]: the page, the keys); [`WeatherSurface`] draws it: one scrim and bar, and the page's glass cards,
+//! Each page is one picture across the whole screen, not a window with cards in it: the sky of the day (a tint and the moving picture of
+//! [`super::weather_art`], behind everything) with the reading large on the left, the next hours under it and the ten days beside it, as glass
+//! on the sky; the radar is the map itself with its few controls floating over it; the details are a grid of tiles that each draw their number.
+//!
+//! The model is pure ([`WeatherView`]: the page, the keys); [`WeatherSurface`] draws it: one scrim and bar, and the page's sky, glass,
 //! words and pictures, made when the page (or the reading, or the text size) changes and dropped with it.
 
 use super::clock;
 use super::model::Home;
+use super::radar_surface::{RadarPage, control};
 use super::surface::{HIDDEN, faded, glass_of};
-use super::radar_surface::RadarPage;
-use super::weather_art;
+use super::weather_art::{self, Cond, Live, Stage};
+use super::weather_gfx as gfx;
 use super::widgets::{Canvas, Pictures, Words};
+use crate::kit::Kit;
 use crate::kit::pane::PaneKind;
 use crate::kit::text::{Text, role_style};
-use crate::kit::Kit;
-use compositor_protocol::{Props, Rgba};
+use compositor_protocol::{Fill, Props, Rgba, Shape};
 use lumatv_tokens::TypeRole;
 use serde_json::Value;
 use ui::components::{Align, Style, plate, style};
@@ -29,30 +34,36 @@ use ui::text::Weight;
 pub enum Page {
     Now,
     Radar,
-    Week,
     Details,
 }
 
-pub const PAGES: [Page; 4] = [Page::Now, Page::Radar, Page::Week, Page::Details];
+pub const PAGES: [Page; 3] = [Page::Now, Page::Radar, Page::Details];
 
 impl Page {
     pub fn name(self) -> &'static str {
         match self {
             Page::Now => "now",
             Page::Radar => "radar",
-            Page::Week => "week",
             Page::Details => "details",
         }
     }
 
     pub fn title(self) -> &'static str {
         match self {
-            Page::Now => "Now and next hours",
+            Page::Now => "Now",
             Page::Radar => "Radar",
-            Page::Week => "This week",
             Page::Details => "Details",
         }
     }
+}
+
+/// An accent colour (opaque) for words: as it is on the dark look, and darkened towards the ink on the light one, where the accents are too pale to read as words.
+pub fn legible(c: Rgba, ink: Rgba, light: bool) -> Rgba {
+    if !light {
+        return c;
+    }
+    let m = |a: u8, b: u8| (f32::from(a) * 0.52 + f32::from(b) * 0.48).round() as u8;
+    Rgba(m(c.0, ink.0), m(c.1, ink.1), m(c.2, ink.2), 255)
 }
 
 /// What a key did.
@@ -126,8 +137,15 @@ pub fn kind_of(code: i64, is_day: bool) -> &'static str {
     }
 }
 
-fn is_rain(code: i64) -> bool {
-    (51..=67).contains(&code) || (80..=82).contains(&code) || code >= 95
+/// What falls in a WMO code, in a word, if anything.
+pub fn wet_kind(code: i64) -> Option<&'static str> {
+    match code {
+        51..=57 => Some("Drizzle"),
+        61..=67 | 80..=82 => Some("Rain"),
+        71..=77 | 85 | 86 => Some("Snow"),
+        c if c >= 95 => Some("Thunderstorms"),
+        _ => None,
+    }
 }
 
 /// `10 PM` (or `22` on the 24-hour clock) of a local `YYYY-MM-DDTHH:MM`.
@@ -158,26 +176,141 @@ pub fn uv_word(uv: f64) -> &'static str {
     }
 }
 
-/// One sentence for the hours ahead: when the rain starts or stops, or that there is none.
-pub fn sentence(hours: &[Value], now_code: i64, twelve: bool) -> String {
+/// `8 AM`, or `8:30 AM` when it is not on the hour (`08:00` and `08:30` on the 24-hour clock), of a local `YYYY-MM-DDTHH:MM`.
+pub fn when_label(time: &str, twelve: bool) -> String {
+    if time.get(14..16).and_then(|m| m.parse::<u32>().ok()).unwrap_or(0) == 0 { hour_label(time, twelve) } else { clock_label(time, twelve) }
+}
+
+/// What falls over the hours ahead and when it starts or stops: `None` when nothing does (and no chance worth a word).
+pub fn precip_line(hours: &[Value], now_code: i64, twelve: bool) -> Option<String> {
     let code = |h: &Value| h.get("code").and_then(Value::as_i64).unwrap_or(0);
-    let rain = |h: &Value| is_rain(code(h)) || h.get("rainPct").and_then(Value::as_f64).is_some_and(|p| p >= 60.0);
+    let chance = |h: &Value| h.get("rainPct").and_then(Value::as_f64).unwrap_or(0.0);
+    let wet = |h: &Value| wet_kind(code(h)).is_some() || chance(h) >= 60.0;
+    let kind = |h: &Value| wet_kind(code(h)).unwrap_or("Rain");
     let time = |h: &Value| hour_label(h.get("time").and_then(Value::as_str).unwrap_or(""), twelve);
-    let upcoming = hours.iter().skip(1).take(24);
-    if is_rain(now_code) {
-        match upcoming.clone().find(|h| !rain(h)) {
-            Some(h) => format!("Rain until {}", time(h)),
-            None => "Rain for the next day".to_owned(),
-        }
-    } else {
-        match upcoming.clone().find(|h| rain(h)) {
-            Some(h) => format!("Rain from {}", time(h)),
-            None => {
-                let peak = hours.iter().take(24).filter_map(|h| h.get("rainPct").and_then(Value::as_f64)).fold(0.0, f64::max);
-                if peak >= 30.0 { "A chance of rain today".to_owned() } else { "No rain for the next day".to_owned() }
-            }
+    let upcoming = || hours.iter().skip(1).take(24);
+    if let Some(now) = wet_kind(now_code) {
+        return Some(match upcoming().find(|h| !wet(h)) {
+            Some(h) => format!("{now} until {}", time(h)),
+            None => format!("{now} for the next day"),
+        });
+    }
+    match upcoming().find(|h| wet(h)) {
+        Some(h) => Some(format!("{} from {}", kind(h), time(h))),
+        None => {
+            let peak = hours.iter().take(24).map(chance).fold(0.0, f64::max);
+            (peak >= 30.0).then(|| "A chance of rain today".to_owned())
         }
     }
+}
+
+/// One sentence for the hours ahead: when the rain starts or stops, or that there is none.
+pub fn sentence(hours: &[Value], now_code: i64, twelve: bool) -> String {
+    precip_line(hours, now_code, twelve).unwrap_or_else(|| "No rain for the next day".to_owned())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SmartTone {
+    Info,
+    Warning,
+}
+
+/// The one line that says what is next, in full and in a shorter way for a card with less room: a weather alert in force, else what falls and
+/// when, else the sun's next turn, else that it is dry; with only the reading and no hours, how humid and windy it is.
+pub fn smart_line(doc: &Value, more: &Value, twelve: bool) -> (String, String, SmartTone) {
+    if let Some(a) = more.get("alerts").and_then(Value::as_array).and_then(|a| a.first()) {
+        let event = a.get("event").and_then(Value::as_str).unwrap_or("Alert");
+        let until = a.get("ends").and_then(Value::as_str).filter(|e| e.len() >= 16).map(|e| format!(" until {}", when_label(e, twelve))).unwrap_or_default();
+        return (format!("{event}{until}"), event.to_owned(), SmartTone::Warning);
+    }
+    let hours: Vec<Value> = more.get("hourly").and_then(Value::as_array).cloned().unwrap_or_default();
+    if hours.is_empty() {
+        let p = |k: &str| doc.pointer(&format!("/current/{k}")).and_then(Value::as_f64);
+        return match (p("humidity"), p("windMph")) {
+            (Some(h), Some(w)) => (format!("{}% humidity  \u{b7}  {} mph wind", h.round() as i64, w.round() as i64), format!("{}%  \u{b7}  {} mph", h.round() as i64, w.round() as i64), SmartTone::Info),
+            _ => (String::new(), String::new(), SmartTone::Info),
+        };
+    }
+    let now_code = doc.pointer("/current/code").and_then(Value::as_i64).unwrap_or(0);
+    if let Some(line) = precip_line(&hours, now_code, twelve) {
+        let short = if line.starts_with("A chance") { "Rain possible".to_owned() } else { line.replace("Thunderstorms", "Storms").replace(" until ", " till ") };
+        return (line, short, SmartTone::Info);
+    }
+    // dry: the sun's next turn, when it is soon
+    let now = doc.pointer("/current/time").and_then(Value::as_str).unwrap_or("");
+    let day = |i: usize, k: &str| more.pointer(&format!("/daily/{i}/{k}")).and_then(Value::as_str).filter(|t| t.len() >= 16);
+    if !now.is_empty() {
+        let is_day = doc.pointer("/current/isDay").and_then(Value::as_bool).unwrap_or(true);
+        if is_day && let Some(set) = day(0, "sunset").filter(|s| *s > now) {
+            let t = clock_label(set, twelve);
+            return (format!("Sunset at {t}"), format!("Sunset {t}"), SmartTone::Info);
+        }
+        if !is_day && let Some(rise) = [day(0, "sunrise"), day(1, "sunrise")].into_iter().flatten().find(|r| *r > now) {
+            let t = clock_label(rise, twelve);
+            return (format!("Sunrise at {t}"), format!("Sunrise {t}"), SmartTone::Info);
+        }
+    }
+    ("No rain for the next day".to_owned(), "No rain today".to_owned(), SmartTone::Info)
+}
+
+// ---- the days
+
+/// A day of the list of the week.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DayRow {
+    pub name: String,
+    pub kind: String,
+    pub hi: f32,
+    pub lo: f32,
+    /// The chance of rain, percent.
+    pub rain: Option<f32>,
+}
+
+/// `Fri` of a local `YYYY-MM-DD`.
+pub fn weekday(date: &str) -> &'static str {
+    let num = |r: std::ops::Range<usize>| date.get(r).and_then(|t| t.parse::<i32>().ok());
+    let (Some(y), Some(m), Some(d)) = (num(0..4), num(5..7), num(8..10)) else { return "" };
+    if !(1..=12).contains(&m) {
+        return "";
+    }
+    // Sakamoto's: 0 is a Sunday
+    const T: [i32; 12] = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
+    let y = if m < 3 { y - 1 } else { y };
+    let w = (y + y / 4 - y / 100 + y / 400 + T[(m - 1) as usize] + d).rem_euclid(7);
+    ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][w as usize]
+}
+
+/// The days to list: the helper's ten (`weather.more`) when it has them, else the card's own (up to seven).
+pub fn week_days(doc: &Value, more: &Value) -> Vec<DayRow> {
+    let daily: Vec<Value> = more.get("daily").and_then(Value::as_array).cloned().unwrap_or_default();
+    let rain = |i: usize| daily.get(i).and_then(|m| m.get("rainPct")).and_then(Value::as_f64).map(|p| p as f32);
+    let ten: Vec<DayRow> = daily
+        .iter()
+        .enumerate()
+        .filter_map(|(i, d)| {
+            let (hi, lo) = (d.get("hi")?.as_f64()?, d.get("lo")?.as_f64()?);
+            let name = if i == 0 { "Today".to_owned() } else { weekday(d.get("date")?.as_str()?).to_owned() };
+            Some(DayRow { name, kind: kind_of(d.get("code").and_then(Value::as_i64).unwrap_or(3), true).to_owned(), hi: hi as f32, lo: lo as f32, rain: rain(i) })
+        })
+        .collect();
+    if !ten.is_empty() {
+        return ten;
+    }
+    let deg = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).and_then(|t| t.trim_end_matches('\u{b0}').parse::<f32>().ok());
+    doc.pointer("/display/days")
+        .and_then(Value::as_array)
+        .map(|days| {
+            days.iter()
+                .enumerate()
+                .filter_map(|(i, d)| Some(DayRow { name: d.get("day")?.as_str()?.to_owned(), kind: d.get("kind")?.as_str()?.to_owned(), hi: deg(d, "hi")?, lo: deg(d, "lo")?, rain: rain(i) }))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Minutes into the day of a local `YYYY-MM-DDTHH:MM`.
+fn minutes(time: &str) -> Option<i32> {
+    Some(time.get(11..13)?.parse::<i32>().ok()? * 60 + time.get(14..16)?.parse::<i32>().ok()?)
 }
 
 struct Data<'a> {
@@ -230,8 +363,10 @@ struct Card {
 
 struct Made {
     cards: Vec<Card>,
+    words: Vec<Words>,
     pictures: Vec<ImageLayer>,
-    art: Option<weather_art::Live>,
+    sky: Option<ShapeLayer>,
+    art: Option<Live>,
     key: String,
     page: Page,
     scale: f32,
@@ -241,6 +376,8 @@ struct Made {
 pub struct WeatherSurface {
     _scrim: ShapeLayer,
     _bar: GlassLayer,
+    /// Over the bar's glass on the radar page, where the map is under it and the glass (which samples the wallpaper's blur) would not do.
+    radar_bar: ShapeLayer,
     title: Text,
     clock: Text,
     dots: Vec<ShapeLayer>,
@@ -249,30 +386,74 @@ pub struct WeatherSurface {
     z: i32,
     /// The bar's words are for this page and clock.
     bar_key: String,
-    /// The art waits for the glyph atlas to settle, as the card's does.
-    art_wait: Option<(weather_art::Cond, f32, (f32, f32))>,
 }
 
 const MARGIN: f32 = 64.0;
 const TOP: f32 = 140.0;
 const BOTTOM: f32 = 1016.0;
+const WIDTH: f32 = 1792.0;
+
+/// A style of `px` pixels in the Label role's face.
+fn sty(kit: &Kit, px: f32, weight: Weight, colour: Rgba, align: Align) -> Style {
+    let mut ty = kit.ty(TypeRole::Label);
+    ty.px = px.round().max(8.0) as u32;
+    ty.weight = weight;
+    style(ty, colour, align)
+}
+
+/// A picture layer at `rect`, painted by `paint`.
+fn picture(kit: &mut Kit, rect: Frame, z: i32, paint: impl FnOnce(&mut Canvas)) -> std::io::Result<ImageLayer> {
+    let mut img = kit.ui.scene.image(rect.w as u32, rect.h as u32, z, HIDDEN)?;
+    img.clear();
+    {
+        let (w, h) = (img.width(), img.height());
+        let mut canvas = Canvas { px: img.pixels_mut(), w, h };
+        paint(&mut canvas);
+    }
+    img.damage(None);
+    img.set(Props::at(rect.x, rect.y));
+    Ok(img)
+}
+
+/// The rows of the hero's words: the place, the reading, the condition, how it feels, what is next, and the facts of now, flowed from the top at the
+/// text size's reduction `s`; the facts go when the rest leaves no room for them, and then the reading shrinks.
+struct Hero {
+    temp_px: f32,
+    facts: bool,
+}
+
+fn hero_flow(s: f32, avail: f32) -> Hero {
+    let height = |tp: f32, facts: bool| -> f32 {
+        let base = 40.0 * s * 1.3 - 6.0 + tp * 0.92 + 6.0 + 48.0 * s * 1.3 + 28.0 * s * 1.35 + 10.0 + 36.0 * s * 1.35;
+        base + if facts { 26.0 + 22.0 * s * 1.3 + 36.0 * s * 1.3 + 4.0 } else { 0.0 }
+    };
+    let mut tp = (236.0 * s).round();
+    if height(tp, true) <= avail {
+        return Hero { temp_px: tp, facts: true };
+    }
+    while height(tp, false) > avail && tp > 96.0 {
+        tp -= 8.0;
+    }
+    Hero { temp_px: tp, facts: false }
+}
 
 impl WeatherSurface {
     pub fn new(kit: &mut Kit, home: &Home, z: i32) -> std::io::Result<Self> {
         let scrim = kit.ui.scene.shape(1920, 1080, z, plate::solid(kit.tokens.extra(kit.mode).scrim_hide, 0.0), Props::at(0.0, 0.0));
-        let bar_f = Frame::new(MARGIN, 56.0, 1792.0, 56.0);
-        let bar = kit.ui.scene.glass(1792, 56, z + 1, glass_of(kit, PaneKind::Pill, 56.0, false, false), Props::at(bar_f.x, bar_f.y));
+        let bar_f = Frame::new(MARGIN, 56.0, WIDTH, 56.0);
+        // the bar is above the page, whatever the page draws (the radar's map is over the whole screen)
+        let bar = kit.ui.scene.glass(WIDTH as u32, 56, z + 20, glass_of(kit, PaneKind::Pill, 56.0, false, false), Props::at(bar_f.x, bar_f.y));
+        let radar_bar = kit.ui.scene.shape(WIDTH as u32, 56, z + 21, control(kit, 28.0, 0.9), HIDDEN);
         let ink = kit.ui.look.ink();
         let ink2 = kit.ui.look.ink2();
         let title_f = Frame::new(bar_f.x + kit.space(5) + 12.0, bar_f.y, 900.0, 56.0);
-        let clock_f = Frame::new(bar_f.x + 1792.0 - 400.0 - kit.space(6), bar_f.y, 400.0, 56.0);
-        let title = Text::new(kit, title_f, z + 2, role_style(kit, TypeRole::Body, Some(Weight::SemiBold), ink, Align::Left), "Weather")?;
-        let clock = Text::new(kit, clock_f, z + 2, role_style(kit, TypeRole::Label, None, ink2, Align::Right), "")?;
-        let mut me = Self { _scrim: scrim, _bar: bar, title, clock, dots: Vec::new(), made: None, radar: None, z, bar_key: String::new(), art_wait: None };
-        let accent = kit.ui.look.accent();
-        let _ = (home, accent);
+        let clock_f = Frame::new(bar_f.x + WIDTH - 400.0 - kit.space(6), bar_f.y, 400.0, 56.0);
+        let title = Text::new(kit, title_f, z + 22, role_style(kit, TypeRole::Body, Some(Weight::SemiBold), ink, Align::Left), "Weather")?;
+        let clock = Text::new(kit, clock_f, z + 22, role_style(kit, TypeRole::Label, None, ink2, Align::Right), "")?;
+        let mut me = Self { _scrim: scrim, _bar: bar, radar_bar, title, clock, dots: Vec::new(), made: None, radar: None, z, bar_key: String::new() };
+        let _ = home;
         for _ in PAGES {
-            me.dots.push(kit.ui.scene.shape(14, 14, z + 3, plate::solid(faded(ink2, 0.5), 7.0), HIDDEN));
+            me.dots.push(kit.ui.scene.shape(14, 14, z + 23, plate::solid(faded(ink2, 0.5), 7.0), HIDDEN));
         }
         Ok(me)
     }
@@ -284,7 +465,7 @@ impl WeatherSurface {
         if page == Page::Radar {
             self.made = None;
             if self.radar.is_none() {
-                self.radar = Some(RadarPage::new(kit, self.z + 4)?);
+                self.radar = Some(RadarPage::new(kit, self.z + 1)?);
             }
             if let Some(r) = &mut self.radar {
                 r.update(kit, home, now, kit.ui.look.reduced_motion)?;
@@ -307,13 +488,14 @@ impl WeatherSurface {
         }
         let accent = kit.ui.look.accent();
         let ink2 = kit.ui.look.ink2();
-        let bar_right = MARGIN + 1792.0 - 28.0;
+        let bar_right = MARGIN + WIDTH - 28.0;
         for (i, d) in self.dots.iter().enumerate() {
             let x = bar_right - (PAGES.len() - i) as f32 * 24.0 - 330.0;
             let on = PAGES[i] == page;
             d.reshape(plate::solid(if on { accent } else { faded(ink2, 0.5) }, 7.0));
             d.set(Props::at(x, 56.0 + 21.0));
         }
+        self.radar_bar.set(if page == Page::Radar { Props::at(MARGIN, 56.0) } else { HIDDEN });
         let key = data.key();
         if page == Page::Radar {
             return Ok(());
@@ -323,15 +505,14 @@ impl WeatherSurface {
             self.made = None;
             self.made = Some(self.build(kit, &data, page, pictures, key)?);
         }
-        if let Some(m) = &mut self.made {
-            if let Some(a) = m.art.as_mut() {
-                if run_art {
-                    a.step(now);
-                } else if a.running() {
-                    a.rest();
-                }
+        if let Some(m) = &mut self.made
+            && let Some(a) = m.art.as_mut()
+        {
+            if run_art {
+                a.step(now);
+            } else if a.running() {
+                a.rest();
             }
-            self.art_wait = None;
         }
         Ok(())
     }
@@ -349,294 +530,438 @@ impl WeatherSurface {
     }
 
     fn build(&mut self, kit: &mut Kit, d: &Data, page: Page, pictures: &mut Pictures, key: String) -> std::io::Result<Made> {
-        let mut made = Made { cards: Vec::new(), pictures: Vec::new(), art: None, key, page, scale: kit.text_scale, mode: kit.mode };
+        let mut made = Made { cards: Vec::new(), words: Vec::new(), pictures: Vec::new(), sky: None, art: None, key, page, scale: kit.text_scale, mode: kit.mode };
         match page {
             Page::Now => self.page_now(kit, d, pictures, &mut made)?,
-            Page::Week => self.page_week(kit, d, pictures, &mut made)?,
             Page::Details => self.page_details(kit, d, &mut made)?,
             Page::Radar => {}
         }
         Ok(made)
     }
 
-    // ---- now: the reading with its picture, and the next hours
-    fn page_now(&self, kit: &mut Kit, d: &Data, pictures: &mut Pictures, made: &mut Made) -> std::io::Result<()> {
-        let z = self.z + 4;
-        let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
-        let k = kit.text_scale.max(1.0);
-        let left = Frame::new(MARGIN, TOP, 700.0, BOTTOM - TOP);
-        let hero = (210.0 * k.min(1.4)).round();
-        let temp_ty = |kit: &Kit, px: f32| {
-            let mut ty = kit.ty(TypeRole::Display);
-            ty.px = (px * k.min(1.4)).round() as u32;
-            ty.weight = Weight::SemiBold;
-            ty
-        };
-        let temp_h = temp_ty(kit, 200.0).px as f32 * 1.1;
-        let title_h = kit.line(TypeRole::Title);
-        let body_h = kit.line(TypeRole::Body);
-        let mut lines: Vec<Line> = vec![
-            (Frame::new(40.0, 32.0, 560.0, title_h), role_style(kit, TypeRole::Title, Some(Weight::SemiBold), ink, Align::Left), d.display("place")),
-            (Frame::new(40.0, 32.0 + title_h + 10.0, 440.0, temp_h), style(temp_ty(kit, 200.0), ink, Align::Left), d.display("temp")),
-            (Frame::new(40.0, 32.0 + title_h + 10.0 + temp_h + 4.0, 620.0, title_h), role_style(kit, TypeRole::Title, None, ink, Align::Left), d.display("cond")),
-        ];
-        let mut y = 32.0 + title_h + 10.0 + temp_h + 4.0 + title_h + 22.0;
-        if let (Some(feels), Some(hi), Some(lo)) = (d.num("/current/feelsLike"), d.doc.pointer("/display/days/0/hi").and_then(Value::as_str), d.doc.pointer("/display/days/0/lo").and_then(Value::as_str)) {
-            lines.push((Frame::new(40.0, y, 620.0, body_h), role_style(kit, TypeRole::Body, None, ink2, Align::Left), format!("Feels like {} \u{b7} High {hi} \u{b7} Low {lo}", d.deg(feels))));
-            y += body_h + 6.0;
-        }
-        let hours = d.hours();
-        let now_code = d.num("/current/code").map(|c| c as i64).unwrap_or(0);
-        if !hours.is_empty() {
-            lines.push((Frame::new(40.0, y, 620.0, body_h), role_style(kit, TypeRole::Body, Some(Weight::SemiBold), kit.ui.look.accent(), Align::Left), sentence(&hours, now_code, d.twelve)));
-        }
-        // the facts of now, two by two, at the card's foot
-        let (label_h0, body_h0) = (kit.line(TypeRole::Caption), kit.line(TypeRole::Body));
-        let fact_w = (left.w - 80.0) / 2.0;
-        let wind = d.num("/current/windMph").map(|v| format!("{} mph{}", v.round() as i64, d.more_num("/now/windDeg").map(|dg| format!(" {}", compass(dg))).unwrap_or_default())).unwrap_or_default();
-        let hum = d.num("/current/humidity").map(|v| format!("{}%", v.round() as i64)).unwrap_or_default();
-        let uv = d.more_num("/now/uvIndex").map(|u| format!("{} {}", u.round() as i64, uv_word(u))).unwrap_or_default();
-        let rain = d.more.pointer("/daily/0/rainPct").and_then(Value::as_f64).map(|p| format!("{}%", p.round() as i64)).unwrap_or_default();
-        let facts = [("WIND", wind), ("HUMIDITY", hum), ("UV INDEX", uv), ("RAIN TODAY", rain)];
-        let cell_h = label_h0 + body_h0 + 18.0;
-        for (i, (label, value)) in facts.into_iter().enumerate() {
-            let (col, row) = (i % 2, i / 2);
-            let x = 40.0 + col as f32 * fact_w;
-            let fy = left.h - 40.0 - 2.0 * cell_h + row as f32 * (cell_h + 6.0);
-            lines.push((Frame::new(x, fy, fact_w - 12.0, label_h0), role_style(kit, TypeRole::Caption, Some(Weight::SemiBold), ink2, Align::Left), label.to_owned()));
-            lines.push((Frame::new(x, fy + label_h0 + 2.0, fact_w - 12.0, body_h0), role_style(kit, TypeRole::Body, None, ink, Align::Left), value));
-        }
-        made.cards.push(self.card(kit, left, z, lines)?);
-        // the picture of the condition, on the card's right
-        let origin = (left.x + left.w - hero - 36.0, left.y + 36.0);
-        if let Some(cond) = weather_art::Cond::from_doc(d.doc) {
-            made.art = weather_art::Live::new(kit, cond, hero, kit.mode == Mode::Light, origin, z + 2).ok();
-        }
-        // the hours
-        let right = Frame::new(MARGIN + 700.0 + 24.0, TOP, 1792.0 - 700.0 - 24.0, BOTTOM - TOP);
-        let cols = 12usize;
-        let col_w = ((right.w - 64.0) / cols as f32).floor();
-        let (label_h, num_h, cap_h) = (kit.line(TypeRole::Label), kit.line(TypeRole::Body), kit.line(TypeRole::Caption));
-        let ink3 = faded(ink2, 0.8);
-        let mut lines: Vec<Line> = vec![(Frame::new(40.0, 28.0, 600.0, title_h), role_style(kit, TypeRole::Title, Some(Weight::SemiBold), ink, Align::Left), "Next hours".to_owned())];
-        let strip_y = 28.0 + title_h + 30.0;
-        let shown: Vec<&Value> = hours.iter().take(cols).collect();
-        for (i, h) in shown.iter().enumerate() {
-            let x = 32.0 + i as f32 * col_w;
-            let time = if i == 0 { "Now".to_owned() } else { hour_label(h.get("time").and_then(Value::as_str).unwrap_or(""), d.twelve) };
-            lines.push((Frame::new(x, strip_y, col_w, label_h), role_style(kit, TypeRole::Label, None, ink2, Align::Centre), time));
-            lines.push((Frame::new(x, strip_y + label_h + 60.0, col_w, num_h), role_style(kit, TypeRole::Body, Some(Weight::SemiBold), ink, Align::Centre), d.deg(h.get("temp").and_then(Value::as_f64).unwrap_or(0.0))));
-            let rain = h.get("rainPct").and_then(Value::as_f64).filter(|p| *p >= 10.0).map(|p| format!("{}%", p.round() as i64)).unwrap_or_default();
-            lines.push((Frame::new(x, strip_y + label_h + 60.0 + num_h, col_w, cap_h), role_style(kit, TypeRole::Caption, None, ink3, Align::Centre), rain));
-        }
-        // the curve of the temperature and the bars of the rain, over the whole of the hours held
-        let chart = Frame::new(32.0, strip_y + label_h + 60.0 + num_h + cap_h + 40.0, right.w - 64.0, right.h - (strip_y + label_h + 60.0 + num_h + cap_h + 40.0) - 100.0);
-        lines.push((Frame::new(32.0, chart.y + chart.h + cap_h + 24.0, right.w - 64.0, cap_h), role_style(kit, TypeRole::Caption, None, ink2, Align::Left), "Temperature and the chance of rain, the next 36 hours".to_owned()));
-        // the axis: the hours a third of the way and two thirds of the way along, and the ends
-        let n = hours.len().max(2);
-        for i in [0usize, 11, 23, n - 1] {
-            if let Some(h) = hours.get(i) {
-                let x = chart.x + chart.w * i as f32 / (n - 1) as f32;
-                let (align, fx) = if i == 0 { (Align::Left, x) } else if i == n - 1 { (Align::Right, x - 160.0) } else { (Align::Centre, x - 80.0) };
-                let text = if i == 0 { "Now".to_owned() } else { hour_label(h.get("time").and_then(Value::as_str).unwrap_or(""), d.twelve) };
-                lines.push((Frame::new(fx, chart.y + chart.h + 10.0, 160.0, cap_h), role_style(kit, TypeRole::Caption, None, ink3, align), text));
-            }
-        }
-        made.cards.push(self.card(kit, right, z, lines)?);
-        // pictures: each hour's icon and the chart
+    /// The sky behind a page: its tint from the top of the screen, and (on the first page) the moving picture of the condition across the top of it,
+    /// both under the bar and the glass.
+    fn sky(&self, kit: &mut Kit, d: &Data, made: &mut Made, art: bool) -> std::io::Result<()> {
+        let Some(cond) = Cond::from_doc(d.doc) else { return Ok(()) };
         let light = kit.mode == Mode::Light;
-        let mut img = kit.ui.scene.image(right.w as u32, right.h as u32, z + 2, HIDDEN)?;
-        img.clear();
-        {
-            let (w, h) = (img.width(), img.height());
-            let mut canvas = Canvas { px: img.pixels_mut(), w, h };
-            let side = 40u32;
-            for (i, hh) in shown.iter().enumerate() {
-                let code = hh.get("code").and_then(Value::as_i64).unwrap_or(0);
-                let day = hh.get("isDay").and_then(Value::as_bool).unwrap_or(true);
-                if let Some(p) = pictures.get(&format!("wxbig-{}", kind_of(code, day))) {
-                    let x = 32.0 + i as f32 * col_w + (col_w - side as f32) / 2.0;
-                    canvas.picture(p, x.round() as i32, (strip_y + label_h + 10.0).round() as i32, side, side);
-                }
-            }
-            chart_paint(&mut canvas, chart, &hours, kit.ui.look.accent(), ink2, if light { 0.35 } else { 0.5 });
+        let (rgb, a) = cond.wash(light);
+        let a = (a * 1.2).min(0.6);
+        let top = Rgba((f32::from(rgb[0]) * a).round() as u8, (f32::from(rgb[1]) * a).round() as u8, (f32::from(rgb[2]) * a).round() as u8, (a * 255.0).round() as u8);
+        let shape = Shape { corner_radius: 0.0, fill: Fill::Linear { from: top, to: Rgba(0, 0, 0, 0), angle_deg: 90.0 }, border_width: 0.0, border: Rgba(0, 0, 0, 0) };
+        made.sky = Some(kit.ui.scene.shape(1920, 860, self.z, shape, Props::at(0.0, 0.0)));
+        if art {
+            // what moves is the open sky between the reading and the ten days (and under both): a box of a bit over a thousand pixels across, fading
+            // out at its edges, so that the compositor's frames are no more than that (the tint behind it is the whole screen's and still)
+            let (ox, oy) = (500.0, 96.0);
+            let st = Stage { w: 1160.0, h: 620.0, hero: (1060.0 - ox, 372.0 - oy), size: 470.0, ground: 600.0, fade: [150.0, 150.0, 50.0, 150.0], shy: 0.2 };
+            made.art = Live::new(kit, cond, st, light, (ox, oy), self.z).ok();
         }
-        img.damage(None);
-        img.set(Props::at(right.x, right.y));
-        made.pictures.push(img);
         Ok(())
     }
 
-    // ---- the week
-    fn page_week(&self, kit: &mut Kit, d: &Data, pictures: &mut Pictures, made: &mut Made) -> std::io::Result<()> {
+    // ---- now: the reading over the sky, the next hours and the ten days
+    fn page_now(&self, kit: &mut Kit, d: &Data, pictures: &mut Pictures, made: &mut Made) -> std::io::Result<()> {
         let z = self.z + 4;
-        let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
-        let card = Frame::new(MARGIN, TOP, 1792.0, BOTTOM - TOP);
-        let days: Vec<Value> = d.doc.pointer("/display/days").and_then(Value::as_array).cloned().unwrap_or_default();
-        let more: Vec<Value> = d.more.get("daily").and_then(Value::as_array).cloned().unwrap_or_default();
-        let rows = days.len().clamp(1, 7);
-        let row_h = ((card.h - 40.0) / rows as f32).floor().min(120.0);
-        let (title_h, body_h) = (kit.line(TypeRole::Title), kit.line(TypeRole::Body));
-        let num = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).and_then(|t| t.trim_end_matches('°').parse::<f32>().ok());
-        let (mut lo_min, mut hi_max) = (f32::MAX, f32::MIN);
-        for dv in &days {
-            if let (Some(lo), Some(hi)) = (num(dv, "lo"), num(dv, "hi")) {
-                lo_min = lo_min.min(lo);
-                hi_max = hi_max.max(hi);
-            }
-        }
-        let (bar_x, bar_w) = (820.0, 560.0);
+        let (ink, ink2, accent, warn) = (kit.ui.look.ink(), kit.ui.look.ink2(), kit.ui.look.accent(), kit.ui.look.warning());
+        let light = kit.mode == Mode::Light;
+        let s = kit.text_scale.max(1.0).min(1.35);
+        self.sky(kit, d, made, true)?;
+        let hours = d.hours();
+        let now_code = d.num("/current/code").map(|c| c as i64).unwrap_or(0);
+        let _ = now_code;
+
+        // the reading
+        let flow = hero_flow(s, 550.0);
+        let (pp, tp, cp, fp, sp) = (40.0 * s, flow.temp_px, 48.0 * s, 28.0 * s, 36.0 * s);
         let mut lines: Vec<Line> = Vec::new();
-        for (i, dv) in days.iter().enumerate().take(rows) {
-            let y = 20.0 + i as f32 * row_h;
-            let text = |k: &str| dv.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
-            lines.push((Frame::new(48.0, y, 240.0, row_h), role_style(kit, TypeRole::Title, if i == 0 { Some(Weight::SemiBold) } else { None }, ink, Align::Left), text("day")));
-            let rain = more.get(i).and_then(|m| m.get("rainPct")).and_then(Value::as_f64).filter(|p| *p >= 10.0).map(|p| format!("{}%", p.round() as i64)).unwrap_or_default();
-            lines.push((Frame::new(430.0, y, 100.0, row_h), role_style(kit, TypeRole::Body, None, ink2, Align::Right), rain));
-            lines.push((Frame::new(bar_x - 110.0, y, 90.0, row_h), role_style(kit, TypeRole::Title, None, ink2, Align::Right), text("lo")));
-            lines.push((Frame::new(bar_x + bar_w + 20.0, y, 100.0, row_h), role_style(kit, TypeRole::Title, Some(Weight::SemiBold), ink, Align::Left), text("hi")));
-            if let Some(m) = more.get(i) {
-                let rise = m.get("sunrise").and_then(Value::as_str).map(|t| clock_label(t, d.twelve)).unwrap_or_default();
-                let set = m.get("sunset").and_then(Value::as_str).map(|t| clock_label(t, d.twelve)).unwrap_or_default();
-                if !rise.is_empty() {
-                    lines.push((Frame::new(1500.0, y, 240.0, row_h), role_style(kit, TypeRole::Body, None, ink2, Align::Left), format!("{rise}  {set}")));
-                }
+        let mut y = 0.0;
+        lines.push((Frame::new(8.0, y, 760.0, pp * 1.3), sty(kit, pp, Weight::SemiBold, ink, Align::Left), d.display("place")));
+        y += pp * 1.3 - 6.0;
+        lines.push((Frame::new(4.0, y, 760.0, tp), sty(kit, tp, Weight::SemiBold, ink, Align::Left), d.display("temp")));
+        y += tp * 0.92 + 6.0;
+        lines.push((Frame::new(8.0, y, 760.0, cp * 1.3), sty(kit, cp, Weight::Medium, ink, Align::Left), d.display("cond")));
+        y += cp * 1.3;
+        let hilo = d.doc.pointer("/display/days/0").map(|d0| format!("H {}  L {}", d0.get("hi").and_then(Value::as_str).unwrap_or(""), d0.get("lo").and_then(Value::as_str).unwrap_or(""))).unwrap_or_default();
+        let feels = d.num("/current/feelsLike").map(|f| format!("Feels like {}", d.deg(f))).unwrap_or_default();
+        let sub = [feels, hilo].into_iter().filter(|t| !t.is_empty()).collect::<Vec<_>>().join("  \u{b7}  ");
+        lines.push((Frame::new(8.0, y, 760.0, fp * 1.35), sty(kit, fp, Weight::Medium, ink2, Align::Left), sub));
+        y += fp * 1.35 + 10.0;
+        let (smart, _, tone) = smart_line(d.doc, d.more, d.twelve);
+        lines.push((Frame::new(8.0, y, 780.0, sp * 1.35), sty(kit, sp, Weight::SemiBold, legible(if tone == SmartTone::Warning { warn } else { accent }, ink, light), Align::Left), smart));
+        y += sp * 1.35 + 26.0;
+        if flow.facts {
+            let wind = d.num("/current/windMph").map(|v| format!("{} mph{}", v.round() as i64, d.more_num("/now/windDeg").map(|dg| format!(" {}", compass(dg))).unwrap_or_default())).unwrap_or_default();
+            let hum = d.num("/current/humidity").map(|v| format!("{}%", v.round() as i64)).unwrap_or_default();
+            let uv = d.more_num("/now/uvIndex").map(|u| format!("{} {}", u.round() as i64, uv_word(u))).unwrap_or_default();
+            let rain = d.more.pointer("/daily/0/rainPct").and_then(Value::as_f64).map(|p| format!("{}%", p.round() as i64)).unwrap_or_default();
+            let (lp, vp) = (22.0 * s, 34.0 * s);
+            for (i, (label, value)) in [("WIND", wind), ("HUMIDITY", hum), ("UV INDEX", uv), ("RAIN TODAY", rain)].into_iter().enumerate() {
+                let x = 8.0 + i as f32 * 222.0;
+                lines.push((Frame::new(x, y, 216.0, lp * 1.3), sty(kit, lp, Weight::SemiBold, ink2, Align::Left), label.to_owned()));
+                lines.push((Frame::new(x, y + lp * 1.3 + 2.0, 216.0, vp * 1.3), sty(kit, vp, Weight::Medium, ink, Align::Left), value));
             }
         }
-        let _ = (title_h, body_h);
-        made.cards.push(self.card(kit, card, z, lines)?);
-        let mut img = kit.ui.scene.image(card.w as u32, card.h as u32, z + 2, HIDDEN)?;
-        img.clear();
-        {
-            let (w, h) = (img.width(), img.height());
-            let accent = kit.ui.look.accent();
-            let track = faded(ink, 0.12);
-            let mut canvas = Canvas { px: img.pixels_mut(), w, h };
-            for (i, dv) in days.iter().enumerate().take(rows) {
-                let y = 20.0 + i as f32 * row_h;
-                let k = dv.get("kind").and_then(Value::as_str).unwrap_or("");
-                if let Some(p) = pictures.get(&format!("wxbig-{k}")) {
-                    canvas.picture(p, 300, (y + (row_h - 64.0) / 2.0).round() as i32, 64, 64);
-                }
-                let by = y + (row_h - 12.0) / 2.0;
-                canvas.rounded(Frame::new(bar_x, by, bar_w, 12.0), 6.0, track);
-                if let (Some(lo), Some(hi)) = (num(dv, "lo"), num(dv, "hi"))
-                    && hi_max > lo_min
-                {
-                    let (f0, f1) = ((lo - lo_min) / (hi_max - lo_min), (hi - lo_min) / (hi_max - lo_min));
-                    canvas.rounded(Frame::new(bar_x + bar_w * f0, by, (bar_w * (f1 - f0)).max(12.0), 12.0), 6.0, accent);
-                }
-                if i + 1 < rows {
-                    canvas.rounded(Frame::new(48.0, y + row_h - 1.0, card.w - 96.0, 1.0), 0.0, faded(ink, 0.10));
-                }
+        let mut hero = Words::new(kit, Frame::new(0.0, 0.0, 920.0, 560.0), z + 2, lines)?;
+        hero.set_props(Props::at(MARGIN, TOP));
+        made.words.push(hero);
+
+        // the next hours: a glass band under the reading
+        if !hours.is_empty() {
+            let band = Frame::new(MARGIN, 704.0, 1240.0, BOTTOM - 704.0);
+            let n = ((band.w - 48.0) / (99.0 * s.max(1.0))).floor().clamp(4.0, 12.0) as usize;
+            let col_w = ((band.w - 48.0) / n as f32).floor();
+            let (tp, vp, pp) = (24.0 * s, 34.0 * s, 22.0 * s);
+            let ic = (52.0 * s.min(1.15)).round();
+            let mut y = 16.0;
+            let time_y = y;
+            y += tp * 1.3 + 2.0;
+            let icon_y = y;
+            y += ic + 2.0;
+            let temp_y = y;
+            y += vp * 1.25 + 6.0;
+            let bar_top = y;
+            let bar_h = (band.h - 16.0 - pp * 1.3 - 4.0 - bar_top).max(0.0);
+            let pct_y = bar_top + bar_h + 4.0;
+            let mut lines: Vec<Line> = Vec::new();
+            let shown: Vec<&Value> = hours.iter().take(n).collect();
+            for (i, h) in shown.iter().enumerate() {
+                let x = 24.0 + i as f32 * col_w;
+                let time = if i == 0 { "Now".to_owned() } else { hour_label(h.get("time").and_then(Value::as_str).unwrap_or(""), d.twelve) };
+                let temp = if i == 0 { d.display("temp") } else { d.deg(h.get("temp").and_then(Value::as_f64).unwrap_or(0.0)) };
+                lines.push((Frame::new(x, time_y, col_w, tp * 1.3), sty(kit, tp, Weight::Medium, ink2, Align::Centre), time));
+                lines.push((Frame::new(x, temp_y, col_w, vp * 1.25), sty(kit, vp, Weight::SemiBold, ink, Align::Centre), temp));
+                let pct = h.get("rainPct").and_then(Value::as_f64).filter(|p| *p >= 10.0).map(|p| format!("{}%", p.round() as i64)).unwrap_or_default();
+                lines.push((Frame::new(x, pct_y, col_w, pp * 1.3), sty(kit, pp, Weight::Medium, ink2, Align::Centre), pct));
             }
+            made.cards.push(self.card(kit, band, z, lines)?);
+            let now_kind = d.num("/current/code").map(|c| c as i64).zip(d.doc.pointer("/current/isDay").and_then(Value::as_bool)).map(|(c, day)| kind_of(c, day));
+            // rain to show: its bars; none: the curve of the temperature, so that the room is not empty and the day's turn is seen
+            let any_rain = shown.iter().any(|h| h.get("rainPct").and_then(Value::as_f64).is_some_and(|p| p >= 10.0));
+            let temps: Vec<f32> = shown.iter().enumerate().map(|(i, h)| if i == 0 { d.num("/current/temp").unwrap_or(0.0) as f32 } else { h.get("temp").and_then(Value::as_f64).unwrap_or(0.0) as f32 }).collect();
+            let img = picture(kit, band, z + 3, |canvas| {
+                for (i, h) in shown.iter().enumerate() {
+                    let cx = 24.0 + (i as f32 + 0.5) * col_w;
+                    let code = h.get("code").and_then(Value::as_i64).unwrap_or(0);
+                    let day = h.get("isDay").and_then(Value::as_bool).unwrap_or(true);
+                    let kind = if i == 0 { now_kind } else { None }.unwrap_or_else(|| kind_of(code, day));
+                    if let Some(p) = pictures.get(&format!("wxbig-{kind}")) {
+                        canvas.picture(p, (cx - ic / 2.0).round() as i32, icon_y.round() as i32, ic as u32, ic as u32);
+                    }
+                    if any_rain && bar_h >= 20.0 {
+                        let bw = 22.0 * s.min(1.15);
+                        let prob = (h.get("rainPct").and_then(Value::as_f64).unwrap_or(0.0) / 100.0).clamp(0.0, 1.0) as f32;
+                        canvas.rounded(Frame::new(cx - bw / 2.0, bar_top, bw, bar_h), bw / 2.0, faded(ink, 0.08));
+                        if prob >= 0.03 {
+                            let fh = (bar_h * prob).max(bw * 0.6);
+                            canvas.rounded(Frame::new(cx - bw / 2.0, bar_top + bar_h - fh, bw, fh), bw / 2.0, accent);
+                        }
+                    }
+                }
+                if !any_rain && bar_h >= 50.0 && temps.len() >= 2 {
+                    let (lo, hi) = temps.iter().fold((f32::MAX, f32::MIN), |(l, h), t| (l.min(*t), h.max(*t)));
+                    let span = (hi - lo).max(6.0);
+                    let (top, bottom) = (bar_top + 14.0, bar_top + bar_h + pp * 1.3);
+                    let pts: Vec<(f32, f32)> = temps.iter().enumerate().map(|(i, t)| (24.0 + (i as f32 + 0.5) * col_w, bottom - 12.0 - (bottom - top - 24.0) * (t - lo) / span)).collect();
+                    gfx::area(canvas, &pts, bottom, faded(accent, 0.30));
+                    gfx::curve(canvas, &pts, 4.0, accent);
+                    for p in &pts {
+                        canvas.disc(p.0, p.1, 7.5, accent);
+                        canvas.disc(p.0, p.1, 3.5, if light { Rgba(255, 255, 255, 255) } else { Rgba(30, 27, 44, 255) });
+                    }
+                }
+            })?;
+            made.pictures.push(img);
         }
-        img.damage(None);
-        img.set(Props::at(card.x, card.y));
-        made.pictures.push(img);
+
+        // the days, with the span of each on the span of them all
+        let days = week_days(d.doc, d.more);
+        if !days.is_empty() {
+            let panel = Frame::new(MARGIN + 1264.0, TOP, WIDTH - 1264.0, BOTTOM - TOP);
+            let (cap_px, dp, np) = (22.0 * s, 30.0 * s, 28.0 * s);
+            let head_h = 22.0 + cap_px * 1.3 + 14.0;
+            let row_h = (79.0 * s.min(1.2)).round();
+            let rows = (((panel.h - head_h - 14.0) / row_h).floor() as usize).min(days.len()).max(1);
+            let lo_min = days.iter().take(rows).map(|r| r.lo).fold(f32::MAX, f32::min);
+            let hi_max = days.iter().take(rows).map(|r| r.hi).fold(f32::MIN, f32::max);
+            let (name_w, ic, num_w) = (130.0 * s, 44.0 * s.min(1.2), 58.0 * s);
+            let ix = 28.0 + name_w + 4.0;
+            let lo_x = ix + ic + 6.0;
+            let bar_x = lo_x + num_w + 12.0;
+            let bar_w = (panel.w - 28.0 - num_w - 10.0 - bar_x).max(40.0);
+            let hi_x = bar_x + bar_w + 10.0;
+            let mut lines: Vec<Line> = vec![(Frame::new(28.0, 22.0, panel.w - 56.0, cap_px * 1.3), sty(kit, cap_px, Weight::SemiBold, ink2, Align::Left), format!("{}-DAY FORECAST", days.len()))];
+            for (i, r) in days.iter().take(rows).enumerate() {
+                let y = head_h + i as f32 * row_h;
+                let has_rain = r.rain.is_some_and(|p| p >= 20.0);
+                let name_y = if has_rain { y + row_h * 0.12 } else { y + (row_h - dp * 1.3) / 2.0 };
+                lines.push((Frame::new(28.0, name_y, name_w, dp * 1.3), sty(kit, dp, if i == 0 { Weight::SemiBold } else { Weight::Medium }, ink, Align::Left), r.name.clone()));
+                let rain = r.rain.filter(|p| *p >= 20.0).map(|p| format!("{}%", p.round() as i64)).unwrap_or_default();
+                lines.push((Frame::new(28.0, y + row_h * 0.12 + dp * 1.3 - 4.0, name_w, 22.0 * s * 1.3), sty(kit, 20.0 * s, Weight::Medium, legible(accent, ink, light), Align::Left), rain));
+                lines.push((Frame::new(lo_x, y, num_w, row_h), sty(kit, np, Weight::Medium, ink2, Align::Right), format!("{}\u{b0}", r.lo.round() as i64)));
+                lines.push((Frame::new(hi_x, y, num_w, row_h), sty(kit, np, Weight::SemiBold, ink, Align::Right), format!("{}\u{b0}", r.hi.round() as i64)));
+            }
+            made.cards.push(self.card(kit, panel, z, lines)?);
+            let now_temp = d.num("/current/temp").map(|t| t as f32);
+            let img = picture(kit, panel, z + 3, |canvas| {
+                for (i, r) in days.iter().take(rows).enumerate() {
+                    let y = head_h + i as f32 * row_h;
+                    if let Some(p) = pictures.get(&format!("wxbig-{}", r.kind)) {
+                        canvas.picture(p, ix.round() as i32, (y + (row_h - ic) / 2.0).round() as i32, ic as u32, ic as u32);
+                    }
+                    let by = y + (row_h - 10.0) / 2.0;
+                    canvas.rounded(Frame::new(bar_x, by, bar_w, 10.0), 5.0, faded(ink, 0.12));
+                    if hi_max > lo_min {
+                        let (f0, f1) = ((r.lo - lo_min) / (hi_max - lo_min), (r.hi - lo_min) / (hi_max - lo_min));
+                        canvas.rounded(Frame::new(bar_x + bar_w * f0, by, (bar_w * (f1 - f0)).max(10.0), 10.0), 5.0, accent);
+                        // where it is now, on today's bar
+                        if i == 0
+                            && let Some(t) = now_temp
+                        {
+                            let f = ((t - lo_min) / (hi_max - lo_min)).clamp(0.0, 1.0);
+                            canvas.disc(bar_x + bar_w * f, by + 5.0, 8.0, if light { faded(Rgba(0, 0, 0, 255), 0.7) } else { Rgba(255, 255, 255, 255) });
+                            canvas.disc(bar_x + bar_w * f, by + 5.0, 4.5, accent);
+                        }
+                    }
+                    if i + 1 < rows {
+                        canvas.rounded(Frame::new(28.0, y + row_h - 0.5, panel.w - 56.0, 1.0), 0.0, faded(ink, 0.08));
+                    }
+                }
+            })?;
+            made.pictures.push(img);
+        }
         Ok(())
     }
 
     // ---- the details and the alerts
     fn page_details(&self, kit: &mut Kit, d: &Data, made: &mut Made) -> std::io::Result<()> {
         let z = self.z + 4;
-        let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
-        let warn = kit.ui.look.warning();
+        let (ink, ink2, accent, warn) = (kit.ui.look.ink(), kit.ui.look.ink2(), kit.ui.look.accent(), kit.ui.look.warning());
+        let (good, bad) = (kit.ui.look.positive(), kit.ui.look.danger());
+        let s = kit.text_scale.max(1.0).min(1.35);
+        self.sky(kit, d, made, false)?;
         let alerts: Vec<Value> = d.more.get("alerts").and_then(Value::as_array).cloned().unwrap_or_default();
-        let (cap_h, body_h, title_h) = (kit.line(TypeRole::Caption), kit.line(TypeRole::Body), kit.line(TypeRole::Title));
-        let k = kit.text_scale.max(1.0);
         let mut top = TOP;
         if !alerts.is_empty() {
             let shown = alerts.len().min(2);
-            let h = 28.0 + shown as f32 * (body_h + cap_h + 14.0) + 14.0;
+            let (ep, hp) = (30.0 * s, 22.0 * s);
+            let row = ep * 1.3 + hp * 1.3 + 12.0;
+            let h = 24.0 + shown as f32 * row + 8.0;
             let mut lines: Vec<Line> = Vec::new();
             for (i, a) in alerts.iter().take(shown).enumerate() {
-                let y = 22.0 + i as f32 * (body_h + cap_h + 14.0);
+                let y = 20.0 + i as f32 * row;
                 let text = |k: &str| a.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
-                lines.push((Frame::new(40.0, y, 1700.0, body_h), role_style(kit, TypeRole::Body, Some(Weight::SemiBold), warn, Align::Left), text("event")));
-                let ends = a.get("ends").and_then(Value::as_str).map(|e| format!("  \u{b7}  until {}", clock_label(e, d.twelve))).unwrap_or_default();
-                lines.push((Frame::new(40.0, y + body_h, 1700.0, cap_h), role_style(kit, TypeRole::Caption, None, ink2, Align::Left), format!("{}{ends}", text("headline"))));
+                lines.push((Frame::new(40.0, y, 1700.0, ep * 1.3), sty(kit, ep, Weight::SemiBold, legible(warn, ink, kit.mode == Mode::Light), Align::Left), text("event")));
+                let ends = a.get("ends").and_then(Value::as_str).map(|e| format!("  \u{b7}  until {}", when_label(e, d.twelve))).unwrap_or_default();
+                lines.push((Frame::new(40.0, y + ep * 1.3, 1700.0, hp * 1.3), sty(kit, hp, Weight::Medium, ink2, Align::Left), format!("{}{ends}", text("headline"))));
             }
             if alerts.len() > shown {
-                lines.push((Frame::new(1200.0, 22.0, 540.0, cap_h), role_style(kit, TypeRole::Caption, None, ink2, Align::Right), format!("and {} more", alerts.len() - shown)));
+                lines.push((Frame::new(1200.0, 20.0, 540.0, hp * 1.3), sty(kit, hp, Weight::Medium, ink2, Align::Right), format!("and {} more", alerts.len() - shown)));
             }
-            made.cards.push(self.card(kit, Frame::new(MARGIN, top, 1792.0, h), z, lines)?);
+            made.cards.push(self.card(kit, Frame::new(MARGIN, top, WIDTH, h), z, lines)?);
             top += h + 20.0;
         }
-        // the tiles: two rows of four
-        let tile_h = ((BOTTOM - top - 20.0) / 2.0).floor();
-        let tile_w = ((1792.0f32 - 3.0 * 20.0) / 4.0).floor();
+        let gap = 20.0;
+        let tile_w = ((WIDTH - 3.0 * gap) / 4.0).floor();
+        let tile_h = ((BOTTOM - top - gap) / 2.0).floor();
         let metric = d.fahrenheit;
-        let w_in = |v: f64| if metric { format!("{:.2} in", v) } else { format!("{:.0} mm", v * 25.4) };
-        let mut tiles: Vec<(String, String, String)> = Vec::new();
-        let feels = d.num("/current/feelsLike").map(|v| d.deg(v)).unwrap_or_default();
-        tiles.push(("FEELS LIKE".into(), feels, format!("Humidity {}%", d.num("/current/humidity").map(|v| v.round() as i64).unwrap_or(0))));
-        let wind = d.num("/current/windMph").map(|v| format!("{} mph", v.round() as i64)).unwrap_or_default();
+        let w_in = |v: f64| if metric { format!("{v:.2} in") } else { format!("{:.0} mm", v * 25.4) };
+        let (lp, vp, sp) = (22.0 * s, 64.0 * s.min(1.2), 26.0 * s);
+        let (lh, vh, sh) = (lp * 1.3, vp * 1.1, sp * 1.35);
+
+        // (column, row, columns spanned, label, value, sub-line, what it draws)
+        #[derive(Clone)]
+        enum Draw {
+            Feels(f32, f32, f32, f32),
+            Wind(f32),
+            Uv(f32),
+            Rain(Vec<f32>),
+            Sun(Option<f32>, i32),
+            Humidity(f32),
+            Pressure(f32),
+        }
+        let temp = d.num("/current/temp").unwrap_or(0.0);
+        let feels = d.num("/current/feelsLike");
+        let wind_mph = d.num("/current/windMph");
+        let feels_note = match (feels, wind_mph) {
+            (Some(f), Some(w)) if (f - temp).abs() < 2.0 => {
+                let _ = w;
+                "Similar to the actual temperature".to_owned()
+            }
+            (Some(f), Some(w)) if f < temp => if w >= 8.0 { "The wind makes it feel colder".to_owned() } else { "Feels colder than it is".to_owned() },
+            (Some(_), _) => "Feels warmer than it is".to_owned(),
+            _ => String::new(),
+        };
+        // the day's low and high, which the actual and the felt temperature are set against
+        let day_deg = |k: &str| d.doc.pointer(&format!("/display/days/0/{k}")).and_then(Value::as_str).and_then(|t| t.trim_end_matches('\u{b0}').parse::<f32>().ok());
+        let (day_lo, day_hi) = (day_deg("lo").unwrap_or(temp as f32 - 8.0).min(temp as f32).min(feels.unwrap_or(temp) as f32), day_deg("hi").unwrap_or(temp as f32 + 8.0).max(temp as f32).max(feels.unwrap_or(temp) as f32));
+        let mut tiles: Vec<(usize, usize, usize, &str, String, String, Draw)> = Vec::new();
+        tiles.push((0, 0, 1, "FEELS LIKE", feels.map(|v| d.deg(v)).unwrap_or_default(), feels_note, Draw::Feels(temp as f32, feels.unwrap_or(temp) as f32, day_lo, day_hi)));
+        let wind = wind_mph.map(|v| format!("{} mph", v.round() as i64)).unwrap_or_default();
         let gust = d.more_num("/now/gustMph").map(|g| format!("Gusts {} mph", g.round() as i64)).unwrap_or_default();
         let from = d.more_num("/now/windDeg").map(|dg| format!(" \u{b7} from the {}", compass(dg))).unwrap_or_default();
-        tiles.push(("WIND".into(), wind, format!("{gust}{from}").trim_start_matches(" \u{b7} ").to_owned()));
+        tiles.push((1, 0, 1, "WIND", wind, format!("{gust}{from}").trim_start_matches(" \u{b7} ").to_owned(), Draw::Wind(d.more_num("/now/windDeg").unwrap_or(0.0) as f32)));
         let uv = d.more_num("/now/uvIndex");
-        tiles.push(("UV INDEX".into(), uv.map(|u| format!("{}", u.round() as i64)).unwrap_or_else(|| "\u{2013}".into()), uv.map(|u| uv_word(u).to_owned()).unwrap_or_default()));
+        tiles.push((2, 0, 1, "UV INDEX", uv.map(|u| format!("{}", u.round() as i64)).unwrap_or_else(|| "\u{2013}".into()), uv.map(|u| uv_word(u).to_owned()).unwrap_or_default(), Draw::Uv(uv.unwrap_or(0.0) as f32)));
         let rain = d.more.pointer("/daily/0/rainPct").and_then(Value::as_f64);
         let amount = d.more.pointer("/daily/0/rainIn").and_then(Value::as_f64).map(&w_in).unwrap_or_default();
-        tiles.push(("RAIN TODAY".into(), rain.map(|p| format!("{}%", p.round() as i64)).unwrap_or_else(|| "\u{2013}".into()), if amount.is_empty() { String::new() } else { format!("{amount} expected") }));
-        let rise = d.more.pointer("/daily/0/sunrise").and_then(Value::as_str).map(|t| clock_label(t, d.twelve)).unwrap_or_else(|| "\u{2013}".into());
-        let set = d.more.pointer("/daily/0/sunset").and_then(Value::as_str).map(|t| clock_label(t, d.twelve)).unwrap_or_default();
-        tiles.push(("SUNRISE".into(), rise, String::new()));
-        tiles.push(("SUNSET".into(), set, String::new()));
-        let pressure = d.more_num("/now/pressureHpa").map(|p| if metric { format!("{:.2} inHg", p * 0.029_53) } else { format!("{} hPa", p.round() as i64) }).unwrap_or_else(|| "\u{2013}".into());
-        tiles.push(("PRESSURE".into(), pressure, String::new()));
-        let vis = d.more_num("/now/visibilityM").map(|m| if metric { format!("{} mi", (m / 1609.34).round() as i64) } else { format!("{} km", (m / 1000.0).round() as i64) }).unwrap_or_else(|| "\u{2013}".into());
+        let chances: Vec<f32> = d.hours().iter().take(24).map(|h| h.get("rainPct").and_then(Value::as_f64).unwrap_or(0.0) as f32).collect();
+        tiles.push((3, 0, 1, "RAIN TODAY", rain.map(|p| format!("{}%", p.round() as i64)).unwrap_or_else(|| "\u{2013}".into()), if amount.is_empty() { String::new() } else { format!("{amount} expected") }, Draw::Rain(chances)));
+        let rise = d.more.pointer("/daily/0/sunrise").and_then(Value::as_str).filter(|t| t.len() >= 16);
+        let set = d.more.pointer("/daily/0/sunset").and_then(Value::as_str).filter(|t| t.len() >= 16);
+        let now_t = d.doc.pointer("/current/time").and_then(Value::as_str).and_then(minutes);
+        let (dayfrac, daylen) = match (rise.and_then(minutes), set.and_then(minutes), now_t) {
+            (Some(r), Some(sn), Some(n)) if sn > r => (Some(((n - r) as f32 / (sn - r) as f32).clamp(-0.1, 1.1)), sn - r),
+            (Some(r), Some(sn), None) if sn > r => (None, sn - r),
+            _ => (None, 0),
+        };
+        let daylight = if daylen > 0 { format!("{} h {} min of daylight", daylen / 60, daylen % 60) } else { String::new() };
+        tiles.push((0, 1, 2, "SUNRISE AND SUNSET", String::new(), daylight, Draw::Sun(dayfrac, daylen)));
+        let hum = d.num("/current/humidity");
         let cloud = d.more_num("/now/cloudPct").map(|c| format!("Cloud cover {}%", c.round() as i64)).unwrap_or_default();
-        tiles.push(("VISIBILITY".into(), vis, cloud));
-        let mut big = kit.ty(TypeRole::Display);
-        big.px = (64.0 * k.min(1.3)).round() as u32;
-        big.weight = Weight::SemiBold;
-        let big_h = ui::components::line_height(big);
-        for (i, (label, value, sub)) in tiles.into_iter().enumerate() {
-            let (col, row) = (i % 4, i / 4);
-            let rect = Frame::new(MARGIN + col as f32 * (tile_w + 20.0), top + row as f32 * (tile_h + 20.0), tile_w, tile_h);
-            let lines = vec![
-                (Frame::new(32.0, 26.0, tile_w - 64.0, cap_h), role_style(kit, TypeRole::Caption, Some(Weight::SemiBold), ink2, Align::Left), label),
-                (Frame::new(32.0, 26.0 + cap_h + 12.0, tile_w - 64.0, big_h), style(big, ink, Align::Left), value),
-                (Frame::new(32.0, tile_h - 24.0 - body_h.max(title_h * 0.8), tile_w - 64.0, body_h), role_style(kit, TypeRole::Body, None, ink2, Align::Left), sub),
-            ];
+        tiles.push((2, 1, 1, "HUMIDITY", hum.map(|v| format!("{}%", v.round() as i64)).unwrap_or_else(|| "\u{2013}".into()), cloud, Draw::Humidity(hum.unwrap_or(0.0) as f32)));
+        let pressure = d.more_num("/now/pressureHpa");
+        let vis = d.more_num("/now/visibilityM").map(|m| if metric { format!("Visibility {} mi", (m / 1609.34).round() as i64) } else { format!("Visibility {} km", (m / 1000.0).round() as i64) }).unwrap_or_default();
+        let p_text = pressure.map(|p| if metric { format!("{:.2} inHg", p * 0.029_53) } else { format!("{} hPa", p.round() as i64) }).unwrap_or_else(|| "\u{2013}".into());
+        tiles.push((3, 1, 1, "PRESSURE", p_text, vis, Draw::Pressure(pressure.unwrap_or(1013.0) as f32)));
+
+        for (col, row, span, label, value, sub, draw) in tiles {
+            let w = tile_w * span as f32 + gap * (span as f32 - 1.0);
+            let rect = Frame::new(MARGIN + col as f32 * (tile_w + gap), top + row as f32 * (tile_h + gap), w, tile_h);
+            let vpx = if value.chars().count() > 6 { vp * 0.78 } else { vp };
+            let mut lines: Vec<Line> = vec![(Frame::new(28.0, 24.0, w - 56.0, lh), sty(kit, lp, Weight::SemiBold, ink2, Align::Left), label.to_owned())];
+            let mut y = 24.0 + lh + 4.0;
+            if !value.is_empty() {
+                lines.push((Frame::new(28.0, y, w - 56.0, vh), sty(kit, vpx, Weight::SemiBold, ink, Align::Left), value));
+                y += vh + 2.0;
+            }
+            lines.push((Frame::new(28.0, y, w - 56.0, sh), sty(kit, sp, Weight::Medium, ink2, Align::Left), sub));
+            y += sh + 14.0;
+            // the graphic's room: under the words to the tile's foot
+            let g = Frame::new(28.0, y, w - 56.0, (tile_h - y - 26.0).max(0.0));
+            // the words that go with a graphic (the ends of a scale, the times under an arc)
+            let mut extra: Vec<Line> = Vec::new();
+            if g.h >= 60.0 {
+                match &draw {
+                    Draw::Pressure(_) => {
+                        extra.push((Frame::new(g.x, g.bottom() - sh, 120.0, sh), sty(kit, 22.0 * s, Weight::Medium, ink2, Align::Left), "Low".to_owned()));
+                        extra.push((Frame::new(g.right() - 120.0, g.bottom() - sh, 120.0, sh), sty(kit, 22.0 * s, Weight::Medium, ink2, Align::Right), "High".to_owned()));
+                    }
+                    Draw::Uv(_) => {
+                        extra.push((Frame::new(g.x, g.bottom() - sh, 120.0, sh), sty(kit, 22.0 * s, Weight::Medium, ink2, Align::Left), "0".to_owned()));
+                        extra.push((Frame::new(g.right() - 120.0, g.bottom() - sh, 120.0, sh), sty(kit, 22.0 * s, Weight::Medium, ink2, Align::Right), "11+".to_owned()));
+                    }
+                    Draw::Sun(_, _) => {
+                        let (r, sn) = (rise.map(|t| clock_label(t, d.twelve)).unwrap_or_default(), set.map(|t| clock_label(t, d.twelve)).unwrap_or_default());
+                        extra.push((Frame::new(g.x, g.bottom() - sh, 300.0, sh), sty(kit, sp, Weight::SemiBold, ink, Align::Left), r));
+                        extra.push((Frame::new(g.right() - 300.0, g.bottom() - sh, 300.0, sh), sty(kit, sp, Weight::SemiBold, ink, Align::Right), sn));
+                    }
+                    Draw::Feels(a, f, lo, hi) => {
+                        let x_of = |v: f32| g.x + 24.0 + (g.w - 48.0) * (v - lo) / (hi - lo).max(1.0);
+                        let (xa, xf) = (x_of(*a), x_of(*f));
+                        let mid = g.y + g.h / 2.0;
+                        extra.push((Frame::new(xa - 90.0, mid - 20.0 - sh, 180.0, sh), sty(kit, 22.0 * s, Weight::Medium, ink2, Align::Centre), format!("Actual {}", d.deg(f64::from(*a)))));
+                        extra.push((Frame::new(xf - 90.0, mid + 22.0, 180.0, sh), sty(kit, 22.0 * s, Weight::SemiBold, ink, Align::Centre), format!("Feels {}", d.deg(f64::from(*f)))));
+                        extra.push((Frame::new(g.x, g.bottom() - sh, 120.0, sh), sty(kit, 22.0 * s, Weight::Medium, ink2, Align::Left), d.deg(f64::from(*lo))));
+                        extra.push((Frame::new(g.right() - 120.0, g.bottom() - sh, 120.0, sh), sty(kit, 22.0 * s, Weight::Medium, ink2, Align::Right), d.deg(f64::from(*hi))));
+                    }
+                    Draw::Rain(_) => {
+                        extra.push((Frame::new(g.x, g.bottom() - sh, 120.0, sh), sty(kit, 22.0 * s, Weight::Medium, ink2, Align::Left), "Now".to_owned()));
+                        extra.push((Frame::new(g.right() - 120.0, g.bottom() - sh, 120.0, sh), sty(kit, 22.0 * s, Weight::Medium, ink2, Align::Right), "24 h".to_owned()));
+                    }
+                    _ => {}
+                }
+            }
+            lines.extend(extra);
             made.cards.push(self.card(kit, rect, z, lines)?);
+            if g.h < 60.0 {
+                continue;
+            }
+            let img = picture(kit, rect, z + 3, |c| match draw {
+                Draw::Wind(from) => {
+                    let (cx, cy, r) = (g.x + g.w / 2.0, g.y + g.h / 2.0, (g.w.min(g.h) / 2.0 - 4.0).max(20.0));
+                    gfx::arc(c, cx, cy, r, 3.0, 0.0, std::f32::consts::TAU, faded(ink, 0.16));
+                    for q in 0..4 {
+                        let a = q as f32 * std::f32::consts::FRAC_PI_2;
+                        let (sa, ca) = (a.sin(), -a.cos());
+                        let len = if q == 0 { 14.0 } else { 8.0 };
+                        gfx::line(c, (cx + sa * (r - len), cy + ca * (r - len)), (cx + sa * r, cy + ca * r), 3.0, if q == 0 { ink } else { faded(ink, 0.5) });
+                    }
+                    // the arrow points where the wind goes
+                    let a = (from + 180.0).to_radians();
+                    let (sa, ca) = (a.sin(), -a.cos());
+                    gfx::line(c, (cx - sa * r * 0.5, cy - ca * r * 0.5), (cx + sa * r * 0.58, cy + ca * r * 0.58), 5.0, accent);
+                    gfx::head(c, (cx + sa * r * 0.8, cy + ca * r * 0.8), a, 26.0, 26.0, accent);
+                    c.disc(cx, cy, 5.0, accent);
+                }
+                Draw::Uv(v) => {
+                    let by = g.y + g.h / 2.0 - 8.0;
+                    let stops = [(0.0, faded(good, 1.0)), (0.27, faded(good, 1.0)), (0.5, faded(warn, 1.0)), (0.72, faded(bad, 0.95)), (1.0, faded(accent, 1.0))];
+                    gfx::gradient_bar(c, Frame::new(g.x, by, g.w, 16.0), 8.0, &stops);
+                    let x = g.x + g.w * (v / 11.0).clamp(0.0, 1.0);
+                    c.disc(x, by + 8.0, 17.0, faded(Rgba(0, 0, 0, 255), 0.55));
+                    c.disc(x, by + 8.0, 13.0, ink);
+                }
+                Draw::Rain(chances) => {
+                    let n = chances.len().max(1);
+                    let gap_b = 4.0;
+                    let bw = ((g.w - gap_b * (n as f32 - 1.0)) / n as f32).max(3.0);
+                    let base = g.bottom() - sh - 6.0;
+                    let max_h = (g.h - sh - 14.0).max(10.0);
+                    for (i, p) in chances.iter().enumerate() {
+                        let x = g.x + i as f32 * (bw + gap_b);
+                        c.rounded(Frame::new(x, base - max_h, bw, max_h), bw.min(6.0) / 1.5, faded(ink, 0.07));
+                        let hh = (max_h * p / 100.0).max(if *p >= 5.0 { 4.0 } else { 0.0 });
+                        if hh > 0.0 {
+                            c.rounded(Frame::new(x, base - hh, bw, hh), bw.min(6.0) / 1.5, accent);
+                        }
+                    }
+                }
+                Draw::Sun(frac, len) => {
+                    let r = ((g.w - 80.0) / 2.0).min(g.h - sh - 24.0).max(40.0);
+                    let (cx, cy) = (g.x + g.w / 2.0, g.bottom() - sh - 12.0);
+                    gfx::arc(c, cx, cy, r, 4.0, -std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2, faded(ink, 0.16));
+                    gfx::line(c, (g.x + 12.0, cy), (g.right() - 12.0, cy), 2.0, faded(ink, 0.22));
+                    if let Some(f) = frac.filter(|_| len > 0) {
+                        let f = f.clamp(0.0, 1.0);
+                        gfx::arc(c, cx, cy, r, 4.0, -std::f32::consts::FRAC_PI_2, -std::f32::consts::FRAC_PI_2 + std::f32::consts::PI * f, accent);
+                        let a = -std::f32::consts::FRAC_PI_2 + std::f32::consts::PI * f;
+                        let (sx, sy) = (cx + r * a.sin(), cy - r * a.cos());
+                        c.disc(sx, sy, 20.0, faded(accent, 0.28));
+                        c.disc(sx, sy, 11.0, Rgba(246, 193, 119, 255));
+                    }
+                }
+                Draw::Humidity(v) => {
+                    let (cx, cy, r) = (g.x + g.w / 2.0, g.y + g.h / 2.0, (g.w.min(g.h) / 2.0 - 8.0).max(24.0));
+                    let (a0, sweep) = (-0.75 * std::f32::consts::PI, 1.5 * std::f32::consts::PI);
+                    gfx::arc(c, cx, cy, r, 12.0, a0, a0 + sweep, faded(ink, 0.12));
+                    let f = (v / 100.0).clamp(0.0, 1.0);
+                    if f > 0.0 {
+                        gfx::arc(c, cx, cy, r, 12.0, a0, a0 + sweep * f, accent);
+                    }
+                }
+                Draw::Pressure(p) => {
+                    let by = g.y + g.h / 2.0 - 5.0;
+                    c.rounded(Frame::new(g.x, by, g.w, 10.0), 5.0, faded(ink, 0.14));
+                    let f = ((p - 980.0) / 60.0).clamp(0.0, 1.0);
+                    c.rounded(Frame::new(g.x, by, (g.w * f).max(10.0), 10.0), 5.0, faded(accent, 0.55));
+                    c.disc(g.x + g.w * f, by + 5.0, 14.0, faded(Rgba(0, 0, 0, 255), 0.5));
+                    c.disc(g.x + g.w * f, by + 5.0, 10.0, ink);
+                }
+                Draw::Feels(a, f, lo, hi) => {
+                    let x_of = |v: f32| g.x + 24.0 + (g.w - 48.0) * (v - lo) / (hi - lo).max(1.0);
+                    let by = g.y + g.h / 2.0 - 6.0;
+                    // the day's span, and where the actual and the felt temperature are in it
+                    c.rounded(Frame::new(g.x + 24.0, by, g.w - 48.0, 12.0), 6.0, faded(ink, 0.14));
+                    let (x0, x1) = (x_of(a).min(x_of(f)), x_of(a).max(x_of(f)));
+                    c.rounded(Frame::new(x0, by, (x1 - x0).max(12.0), 12.0), 6.0, faded(accent, 0.6));
+                    c.disc(x_of(a), by + 6.0, 14.0, faded(ink, 0.7));
+                    c.disc(x_of(a), by + 6.0, 9.0, faded(Rgba(0, 0, 0, 255), 0.55));
+                    c.disc(x_of(f), by + 6.0, 15.0, accent);
+                }
+            })?;
+            made.pictures.push(img);
         }
         Ok(())
-    }
-}
-
-/// The curve of the temperature (a thick line of discs along the hours) and the bars of the chance of rain, in `chart` of the card's picture.
-fn chart_paint(canvas: &mut Canvas, chart: Frame, hours: &[Value], accent: Rgba, ink: Rgba, bar_alpha: f32) {
-    if hours.len() < 2 {
-        return;
-    }
-    let temps: Vec<f32> = hours.iter().map(|h| h.get("temp").and_then(Value::as_f64).unwrap_or(0.0) as f32).collect();
-    let (lo, hi) = temps.iter().fold((f32::MAX, f32::MIN), |(l, h), t| (l.min(*t), h.max(*t)));
-    let span = (hi - lo).max(4.0);
-    let n = hours.len();
-    let x_of = |i: f32| chart.x + chart.w * i / (n - 1) as f32;
-    let y_of = |t: f32| chart.y + chart.h * 0.08 + (chart.h * 0.62) * (1.0 - (t - lo) / span);
-    // the chance of rain: bars from the chart's floor
-    for (i, h) in hours.iter().enumerate() {
-        let p = h.get("rainPct").and_then(Value::as_f64).unwrap_or(0.0) as f32 / 100.0;
-        if p >= 0.1 {
-            let bh = (chart.h * 0.28 * p).max(3.0);
-            let w = (chart.w / n as f32 * 0.55).max(3.0);
-            canvas.rounded(Frame::new(x_of(i as f32) - w / 2.0, chart.y + chart.h - bh, w, bh), (w / 2.0).min(4.0), faded(accent, bar_alpha));
-        }
-    }
-    canvas.rounded(Frame::new(chart.x, chart.y + chart.h + 1.0, chart.w, 1.0), 0.0, faded(ink, 0.18));
-    // the curve, smooth between the hours (a cosine ease), one disc a pixel and a half
-    let steps = (chart.w * 1.4) as usize;
-    for s in 0..=steps {
-        let f = s as f32 / steps as f32 * (n - 1) as f32;
-        let i = (f.floor() as usize).min(n - 2);
-        let u = f - i as f32;
-        let e = (1.0 - (std::f32::consts::PI * u).cos()) / 2.0;
-        let t = temps[i] + (temps[i + 1] - temps[i]) * e;
-        canvas.disc(x_of(f), y_of(t), 3.0, accent);
     }
 }
 
@@ -652,11 +977,10 @@ mod tests {
         assert_eq!(v.key("down", false, true), Done::Redraw);
         assert_eq!(v.page, Page::Radar);
         assert_eq!(v.key("down", false, true), Done::Redraw);
-        assert_eq!(v.page, Page::Week);
-        assert_eq!(v.key("down", false, true), Done::Redraw);
         assert_eq!(v.page, Page::Details);
         assert_eq!(v.key("down", false, true), Done::Nothing, "nor the last below");
         assert_eq!(v.key("up", true, false), Done::Redraw);
+        assert_eq!(v.page, Page::Radar);
         assert_eq!(v.key("back", false, false), Done::Close);
         v.open();
         assert_eq!(v.page, Page::Now);
@@ -671,6 +995,8 @@ mod tests {
         assert_eq!(clock_label("2026-10-30T07:42", true), "7:42 AM");
         assert_eq!(clock_label("2026-10-30T18:24", true), "6:24 PM");
         assert_eq!(clock_label("2026-10-30T18:24", false), "18:24");
+        assert_eq!(when_label("2026-10-31T08:00:00-04:00", true), "8 AM", "on the hour: the hour");
+        assert_eq!(when_label("2026-10-31T08:30:00-04:00", true), "8:30 AM");
         assert_eq!((compass(0.0), compass(225.0), compass(359.0), compass(90.0)), ("N", "SW", "N", "E"));
         assert_eq!((uv_word(1.0), uv_word(4.0), uv_word(7.0), uv_word(9.0), uv_word(12.0)), ("Low", "Moderate", "High", "Very high", "Extreme"));
     }
@@ -686,6 +1012,51 @@ mod tests {
         assert_eq!(sentence(&dry, 0, true), "No rain for the next day");
         let maybe = [hour("21", 0, 0.0), hour("22", 3, 40.0)];
         assert_eq!(sentence(&maybe, 3, true), "A chance of rain today");
+        // what falls is named: snow is snow, a storm is a storm
+        let snow = [hour("21", 73, 90.0), hour("22", 73, 80.0), hour("23", 3, 10.0)];
+        assert_eq!(sentence(&snow, 73, true), "Snow until 11 PM");
+        let storms_later = [hour("21", 0, 0.0), hour("22", 0, 0.0), hour("23", 95, 80.0)];
+        assert_eq!(sentence(&storms_later, 0, true), "Thunderstorms from 11 PM");
+    }
+
+    #[test]
+    fn the_smart_line_is_an_alert_first_then_what_falls_then_the_suns_next_turn() {
+        let doc = |code: i64, day: bool| json!({"current": {"code": code, "isDay": day, "time": "2026-10-30T15:00", "humidity": 53.0, "windMph": 6.0}});
+        let hours = |rain: bool| (0..6).map(|i| json!({"time": format!("2026-10-30T{:02}:00", 15 + i), "code": if rain && i >= 2 { 61 } else { 0 }, "rainPct": if rain && i >= 2 { 80.0 } else { 0.0 }})).collect::<Vec<_>>();
+        let more = |rain: bool, alerts: Value| json!({"hourly": hours(rain), "daily": [{"sunrise": "2026-10-30T07:41", "sunset": "2026-10-30T18:25"}, {"sunrise": "2026-10-31T07:42"}], "alerts": alerts});
+        let (full, short, tone) = smart_line(&doc(0, true), &more(false, json!([{"event": "Flood Watch", "ends": "2026-10-31T08:00:00-04:00"}])), true);
+        assert_eq!((full.as_str(), short.as_str(), tone), ("Flood Watch until 8 AM", "Flood Watch", SmartTone::Warning));
+        let (full, _, tone) = smart_line(&doc(0, true), &more(true, json!([])), true);
+        assert_eq!((full.as_str(), tone), ("Rain from 5 PM", SmartTone::Info));
+        let (full, short, _) = smart_line(&doc(0, true), &more(false, json!([])), true);
+        assert_eq!((full.as_str(), short.as_str()), ("Sunset at 6:25 PM", "Sunset 6:25 PM"));
+        let (full, _, _) = smart_line(&doc(0, false), &more(false, json!([])), true);
+        assert_eq!(full, "Sunrise at 7:42 AM", "after dark: tomorrow's sunrise");
+        // no hours: how it is out
+        let (full, short, _) = smart_line(&doc(0, true), &json!({}), true);
+        assert_eq!((full.as_str(), short.as_str()), ("53% humidity  \u{b7}  6 mph wind", "53%  \u{b7}  6 mph"));
+    }
+
+    #[test]
+    fn the_week_is_the_helpers_ten_days_or_the_cards_seven() {
+        assert_eq!((weekday("2026-10-30"), weekday("2026-11-01"), weekday("2026-03-01"), weekday("2024-02-29"), weekday("nope")), ("Fri", "Sun", "Sun", "Thu", ""));
+        let doc = json!({"display": {"days": [{"day": "Today", "kind": "sun", "hi": "71\u{b0}", "lo": "51\u{b0}"}, {"day": "Mon", "kind": "cloud", "hi": "73\u{b0}", "lo": "51\u{b0}"}]}});
+        let more = json!({"daily": [{"date": "2026-10-30", "code": 0, "hi": 71.4, "lo": 51.0, "rainPct": 20.0}, {"date": "2026-10-31", "code": 61, "hi": 62.0, "lo": 48.0, "rainPct": 70.0}, {"date": "2026-11-01", "code": 3, "hi": 60.0, "lo": 45.0}]});
+        let ten = week_days(&doc, &more);
+        assert_eq!(ten.iter().map(|d| d.name.as_str()).collect::<Vec<_>>(), ["Today", "Sat", "Sun"]);
+        assert_eq!((ten[1].kind.as_str(), ten[1].hi, ten[1].lo, ten[1].rain), ("rain", 62.0, 48.0, Some(70.0)));
+        // documents kept before the ten days have no highs and lows: the card's days are the list
+        let old = json!({"daily": [{"date": "2026-10-30", "rainPct": 20.0}]});
+        let seven = week_days(&doc, &old);
+        assert_eq!((seven.len(), seven[0].name.as_str(), seven[0].hi, seven[0].rain, seven[1].rain), (2, "Today", 71.0, Some(20.0), None));
+        assert!(week_days(&json!({}), &json!({})).is_empty());
+    }
+
+    #[test]
+    fn the_hero_gives_up_the_facts_and_then_the_size_before_it_runs_into_what_is_under_it() {
+        assert!(hero_flow(1.0, 550.0).facts, "at the size it is made for, everything fits");
+        let big = hero_flow(1.35, 550.0);
+        assert!(!big.facts && big.temp_px >= 96.0, "at the largest text size the facts go");
     }
 
     #[test]
