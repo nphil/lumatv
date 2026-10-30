@@ -113,6 +113,8 @@ pub struct Radar {
     map_have: bool,
     /// The globe: where it is seen from (longitude, latitude), its picture, and what was asked.
     pub globe_at: (f64, f64),
+    /// How much of the earth is shown: 1, 1.7 or 2.8 times its size.
+    pub globe_zoom: f64,
     pub globe: Option<Picture>,
     globe_asked: Option<((i64, i64), bool, u64)>,
     globe_have: Option<((i64, i64), bool)>,
@@ -137,7 +139,7 @@ impl Radar {
 
     /// The page is opened for a place: the helper starts its engines.
     pub fn open(&mut self, lat: f64, lon: f64, level: Level, dark: bool, now: u64) -> Vec<Effect> {
-        *self = Radar { open: true, level: Some(level), globe_at: (lon, lat.clamp(-70.0, 70.0)), lat, lon, dark, playing: true, next_tag: TAG_FRAME_FIRST, next_poll: now + POLL_LOADING_MS, status: "loading".into(), ..Radar::default() };
+        *self = Radar { open: true, level: Some(level), globe_at: (lon, lat.clamp(-70.0, 70.0)), globe_zoom: 1.0, lat, lon, dark, playing: true, next_tag: TAG_FRAME_FIRST, next_poll: now + POLL_LOADING_MS, status: "loading".into(), ..Radar::default() };
         vec![self.open_request()]
     }
 
@@ -167,6 +169,7 @@ impl Radar {
             self.globe_have = None;
             self.globe_asked = None;
             self.globe_at = (lon, lat.clamp(-70.0, 70.0));
+            self.globe_zoom = 1.0;
             return self.ask(now);
         }
         let playing = self.playing;
@@ -324,11 +327,11 @@ impl Radar {
             out.push(Effect::Fetch { tag: TAG_MAP, path: format!("/v1/wx/map?w={MAP_W}&h={MAP_H}&zoom={}&dark={}", level.map_zoom(), u8::from(self.dark)) });
         }
         if level == Level::Globe && self.reached {
-            let key = ((self.globe_at.0 * 10.0).round() as i64, (self.globe_at.1 * 10.0).round() as i64);
+            let key = ((self.globe_at.0 * 10.0).round() as i64, (self.globe_at.1 * 10.0).round() as i64 + (self.globe_zoom * 1000.0) as i64 * 100_000);
             let wanted = self.globe_asked.is_none() && (self.globe_have.is_none_or(|(k, complete)| k != key || (!complete && now >= self.globe_retry_at())));
             if wanted {
                 self.globe_asked = Some((key, self.dark, now));
-                out.push(Effect::Fetch { tag: TAG_GLOBE, path: format!("/v1/wx/globe?lon={:.1}&lat={:.1}&size={MAP_H}&dark={}", self.globe_at.0, self.globe_at.1, u8::from(self.dark)) });
+                out.push(Effect::Fetch { tag: TAG_GLOBE, path: format!("/v1/wx/globe?lon={:.1}&lat={:.1}&size={MAP_H}&zoom={:.1}&dark={}", self.globe_at.0, self.globe_at.1, self.globe_zoom, u8::from(self.dark)) });
             }
             return out;
         }
@@ -414,8 +417,13 @@ impl Radar {
             "up" => (self.turn(0.0, 12.0, now), true),
             "down" => (self.turn(0.0, -12.0, now), true),
             _ => {
-                let (lon, lat) = (self.lon, self.lat);
-                self.globe_at = (lon, lat.clamp(-70.0, 70.0));
+                // OK steps the zoom 1, 1.7, 2.8 and then back to the whole earth turned to home
+                if self.globe_zoom < 2.0 {
+                    self.globe_zoom = if self.globe_zoom < 1.2 { 1.7 } else { 2.8 };
+                } else {
+                    self.globe_zoom = 1.0;
+                    self.globe_at = (self.lon, self.lat.clamp(-70.0, 70.0));
+                }
                 (self.ask(now), true)
             }
         }

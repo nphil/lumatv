@@ -178,6 +178,28 @@ impl Service {
             }
         };
         let wx = crate::wxview::WxView::new(Arc::clone(&fetcher), &paths.cache_dir());
+        {
+            let (hub, stop) = (ctx.hub.clone(), ctx.stop.clone());
+            let (hub2, stop2) = (ctx.hub.clone(), ctx.stop.clone());
+            let _ = (&stop2, &hub2);
+            threads.push((
+                "wx-prefetch",
+                wx.prefetch(
+                    {
+                        let hub = hub.clone();
+                        move || {
+                            let w = hub.get(homefeeds::WEATHER_TOPIC)?;
+                            Some((w.pointer("/doc/lat")?.as_f64()?, w.pointer("/doc/lon")?.as_f64()?))
+                        }
+                    },
+                    {
+                        let hub = hub.clone();
+                        move || screen::is_on(&hub)
+                    },
+                    move || stop.is_set(),
+                )?,
+            ));
+        }
         threads.push(("feeds", homefeeds::spawn(&ctx, feeds_rx, fetcher)?));
 
         // AI access: loads its state (off and unpaired when there is none) and binds nothing; the LAN listener exists only while

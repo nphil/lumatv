@@ -339,7 +339,7 @@ impl RadarPage {
             (String::new(), String::new())
         };
         let place = home.weather.pointer("/doc/display/place").and_then(serde_json::Value::as_str).unwrap_or("").to_owned();
-        let hint = if globe { "1  Home    2  Region    Arrows: turn    OK: back to home".to_owned() } else { format!("1  Home    2  Region    3  Globe    Left, Right: scrub    OK: {}", if r.playing { "pause" } else { "play" }) };
+        let hint = if globe { "1  Home    2  Region    Arrows: turn    OK: zoom".to_owned() } else { format!("1  Home    2  Region    3  Globe    Left, Right: scrub    OK: {}", if r.playing { "pause" } else { "play" }) };
         let _ = &hint;
         let attribution = "Radar: NEXRAD and HRRR via Iowa Environmental Mesonet  \u{b7}  Map: OpenStreetMap, OpenFreeMap".to_owned();
         let key = format!("{mode}|{line}|{sub}|{}|{hint}|{attribution}|{place}|{}", status.0, r.level() as u8);

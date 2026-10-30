@@ -8,7 +8,7 @@
 //! | `GET /v1/wx/state` | `{status, have, want, frames: [[time, kind, ready]], extent, framePx, attribution, map}`: kind is 0 observed, 1 forecast, 2 outlook; time is unix seconds |
 //! | `GET /v1/wx/frame?t=&dark=` | the frame at time `t` as a PNG of the rain's colours (`framePx` square, the extent of the state), 202 while it is coming |
 //! | `GET /v1/wx/map?w=&h=&zoom=&dark=` | the base map as a PNG of the size asked, centred on the place (206 while tiles are still coming, with what there is) |
-//! | `GET /v1/wx/globe?lon=&lat=&size=&dark=` | the globe seen from (lon, lat) as a PNG of `size` px square: NASA's rain (IMERG, about 6 h late) and satellite cloud over the earth, the night side shaded (206 while the textures are still coming) |
+//! | `GET /v1/wx/globe?lon=&lat=&size=&zoom=&dark=` | the globe seen from (lon, lat) as a PNG of `size` px square: NASA's rain (IMERG, about 6 h late) and satellite cloud over the earth, the night side shaded (206 while the textures are still coming) |
 //! | `POST /v1/wx/close` | lets the engines go (their workers end when idle; the pictures kept on disk stay) |
 //!
 //! The engines keep what they fetched on disk (`<cache>/wx/`): the radar's tiles by address (a layer's address names its time or run, so a
@@ -41,8 +41,9 @@ const KEPT_FRAMES: usize = 48;
 /// The map's tiles are 256 px; the base map is drawn at this zoom (a grid zoom counts half levels: zoom 8 is `GridZoom(16)`).
 const MAP_ZOOM_MIN: u8 = 5;
 const MAP_ZOOM_MAX: u8 = 9;
-/// How long the engines stay up with nobody asking.
+/// How long the engines stay up with nobody asking (the prefetch asks every five minutes while the screen is on, so they stay up then).
 const IDLE_CLOSE: Duration = Duration::from_secs(600);
+const PREFETCH_EVERY: Duration = Duration::from_secs(300);
 /// How long a request waits for what it asks for.
 const WAIT_FRAME: Duration = Duration::from_millis(350);
 const WAIT_MAP: Duration = Duration::from_millis(1_500);
@@ -87,6 +88,27 @@ fn level_for(zoom: Option<u64>) -> RadarLevel {
 impl WxView {
     pub fn new(fetch: Arc<dyn Fetch>, root: &Path) -> Arc<Self> {
         Arc::new(Self { fetch, root: root.join("wx"), live: Mutex::new(None) })
+    }
+
+    /// Keeps the radar's window warm while the screen is on: every five minutes the engines are asked for the place's frames and the base map is drawn
+    /// once, so that opening the view finds them. `place` gives the weather's place (none until there is one) and `screen_on` the screen.
+    pub fn prefetch(self: &Arc<Self>, place: impl Fn() -> Option<(f64, f64)> + Send + 'static, screen_on: impl Fn() -> bool + Send + 'static, stop: impl Fn() -> bool + Send + 'static) -> std::io::Result<std::thread::JoinHandle<()>> {
+        let me = Arc::clone(self);
+        std::thread::Builder::new().name("wx-prefetch".into()).stack_size(512 * 1024).spawn(move || {
+            let mut last = Instant::now().checked_sub(PREFETCH_EVERY).unwrap_or_else(Instant::now);
+            while !stop() {
+                std::thread::sleep(Duration::from_secs(5));
+                if last.elapsed() < PREFETCH_EVERY || !screen_on() {
+                    continue;
+                }
+                let Some((lat, lon)) = place() else { continue };
+                last = Instant::now();
+                let open = Request { method: "POST".into(), path: "/v1/wx/open".into(), query: Vec::new(), headers: Vec::new(), body: json!({"lat": lat, "lon": lon}).to_string().into_bytes(), peer: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST) };
+                me.open(&open);
+                let map = Request { method: "GET".into(), path: "/v1/wx/map".into(), query: vec![("w".into(), "1792".into()), ("h".into(), "744".into()), ("zoom".into(), "8".into())], headers: Vec::new(), body: Vec::new(), peer: open.peer };
+                me.map(&map);
+            }
+        })
     }
 
     pub fn handle(&self, request: &Request, rest: &[&str]) -> Response {
@@ -232,6 +254,7 @@ impl WxView {
         let num = |k: &str, d: f64| request.param(k).and_then(|v| v.parse::<f64>().ok()).unwrap_or(d);
         let (lon, lat) = (num("lon", 0.0), num("lat", 20.0).clamp(-85.0, 85.0));
         let size = num("size", 744.0).clamp(64.0, 1024.0) as usize;
+        let zoom = num("zoom", 1.0).clamp(1.0, 4.0);
         let dark = request.param("dark") != Some("0");
         let tls = Arc::clone(&self.fetch);
         let root = self.root.clone();
@@ -257,7 +280,7 @@ impl WxView {
                 g.cloud = Some(c.data);
             }
             let complete = g.rain.is_some() && g.cloud.is_some();
-            (render_globe(&g.surface, g.rain.as_deref(), g.cloud.as_deref(), sun_at(now), (lon, lat), size, dark), complete)
+            (render_globe(&g.surface, g.rain.as_deref(), g.cloud.as_deref(), sun_at(now), (lon, lat), (size, zoom), dark), complete)
         });
         match got {
             None => error_response(409, "not_open", "the radar has not been opened"),
@@ -395,7 +418,7 @@ fn compose(view: &View, keys: &[map::webmerc::RasterKey], tiles: &HashMap<map::w
 
 /// The globe as seen from (`lon`, `lat`) degrees, orthographic, `size` px square, straight RGBA: the surface's classes in the map's colours, the
 /// rain through the radar's ramp, the cloud as a lilac veil, the night side shaded from the sun's place and a thin glow at the limb.
-fn render_globe(surface: &Surface, rain: Option<&[u8]>, cloud: Option<&[u8]>, sun: LonLat, (lon0, lat0): (f64, f64), size: usize, dark: bool) -> Vec<u8> {
+fn render_globe(surface: &Surface, rain: Option<&[u8]>, cloud: Option<&[u8]>, sun: LonLat, (lon0, lat0): (f64, f64), (size, zoom): (usize, f64), dark: bool) -> Vec<u8> {
     let palette = if dark { MapPalette::calm_dark() } else { MapPalette::calm_light() };
     let ramp = Ramp::new(if dark { RampTheme::Dark } else { RampTheme::Light });
     let mut lut = [[0u8; 4]; 256];
@@ -406,7 +429,8 @@ fn render_globe(surface: &Surface, rain: Option<&[u8]>, cloud: Option<&[u8]>, su
     let (l0, p0) = (lon0.to_radians(), lat0.to_radians());
     let (sl, sp) = (sun.lon.to_radians(), sun.lat.to_radians());
     let sunv = (sp.cos() * sl.cos(), sp.cos() * sl.sin(), sp.sin());
-    let r = size as f64 / 2.0 - 3.0;
+    // a zoom over 1 is a larger earth cut by the picture's square: the middle of it
+    let r = (size as f64 / 2.0 - 3.0) * zoom;
     let c = size as f64 / 2.0;
     let mut out = vec![0u8; size * size * 4];
     let night = if dark { 0.55 } else { 0.7 };
@@ -509,8 +533,8 @@ mod tests {
         let surface = Surface::bundled();
         // the sun over Africa: Europe is in the light, the far side of the earth is not
         let sun = LonLat::new(0.0, 0.0);
-        let lit = render_globe(&surface, None, None, sun, (10.0, 40.0), 120, true);
-        let dark_side = render_globe(&surface, None, None, sun, (180.0, 0.0), 120, true);
+        let lit = render_globe(&surface, None, None, sun, (10.0, 40.0), (120, 1.0), true);
+        let dark_side = render_globe(&surface, None, None, sun, (180.0, 0.0), (120, 1.0), true);
         assert_eq!(lit.len(), 120 * 120 * 4);
         assert_eq!(lit[3], 0, "the corner is outside the disc");
         let mid = (60 * 120 + 60) * 4;
@@ -519,7 +543,7 @@ mod tests {
         assert!(lum(&lit) > lum(&dark_side), "day is lighter than night: {} {}", lum(&lit), lum(&dark_side));
         // rain over the middle shows
         let wet = vec![200u8; RAIN_W * RAIN_H];
-        let rainy = render_globe(&surface, Some(&wet), None, sun, (10.0, 40.0), 120, true);
+        let rainy = render_globe(&surface, Some(&wet), None, sun, (10.0, 40.0), (120, 1.0), true);
         assert_ne!(rainy[mid..mid + 3], lit[mid..mid + 3]);
     }
 
