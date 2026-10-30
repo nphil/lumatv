@@ -319,6 +319,8 @@ pub struct Row {
     pub value: String,
     /// The number a slider is at, `None` when it has none yet.
     pub num: Option<f64>,
+    /// An answer that cannot be taken back (unlocking): drawn in the danger colour.
+    pub danger: bool,
 }
 
 /// A control to send: the helper's `POST /v1/onhome/act` body.
@@ -361,7 +363,7 @@ pub fn rows_of(tile: &Value) -> Vec<Row> {
     let f = |k: &str| ctl.get(k).and_then(Value::as_f64);
     let on = ctl.get("on").and_then(Value::as_bool).unwrap_or(false);
     let mut rows: Vec<Row> = Vec::new();
-    let row = |id: &'static str, label: &str, kind: Kind, value: String, num: Option<f64>| Row { id, label: label.to_owned(), kind, value, num };
+    let row = |id: &'static str, label: &str, kind: Kind, value: String, num: Option<f64>| Row { id, label: label.to_owned(), kind, value, num, danger: false };
     let domain = id.split('.').next().unwrap_or("");
     let toggle = can.contains(&"toggle");
     if available {
@@ -444,6 +446,21 @@ pub fn rows_of(tile: &Value) -> Vec<Row> {
                     rows.push(row("position", "Position", Kind::Slider { min: 0.0, max: 100.0, step: 10.0, unit: "%".into() }, format!("{}%", num_text(p)), Some(p)));
                 }
             }
+            "locks" => {
+                let state = ctl.get("state").and_then(Value::as_str).unwrap_or("");
+                let sensitive: Vec<&str> = tile.get("sensitive").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+                if has(&verbs, "lock") && state != "locked" && state != "locking" {
+                    rows.push(row("lock", "Lock", Kind::Action, String::new(), None));
+                }
+                // Unlocking asks first, and is the person's alone: a row only for a lock Home Assistant offers it for
+                if state == "locked" && sensitive.contains(&"unlock") {
+                    let mut r = row("unlock", "Unlock", Kind::Action, String::new(), None);
+                    r.danger = true;
+                    rows.push(r);
+                } else if state == "locked" && has(&verbs, "lock") {
+                    rows.push(row("unlockinfo", "Unlock", Kind::Info, "Not offered by Home Assistant".into(), None));
+                }
+            }
             "media" => {
                 for (k, label) in [("artist", "Artist"), ("app", "App"), ("source", "Source")] {
                     if let Some(v) = ctl.get(k).and_then(Value::as_str).filter(|v| !v.is_empty()) {
@@ -491,6 +508,8 @@ pub struct Sheet {
     /// What the person set, by row id: the text, the number, until when.
     shown: HashMap<&'static str, (String, f64, u64)>,
     pub notice: Option<(String, u64)>,
+    /// The question "Unlock <name>?" is up: its two answers are the rows, Cancel in front.
+    pub asking: bool,
 }
 
 /// What a key did.
@@ -500,11 +519,24 @@ pub enum Done {
     Close,
     /// Send this now.
     Send(Act),
+    /// The person pressed Unlock in the question, with the remote: unlock this lock. Only [`Sheet::key`] makes this, from the key `ok` on that
+    /// answer, and the model sends it to the route only the shell may call; it is never an [`Act`].
+    Unlock(String),
 }
 
 impl Sheet {
     pub fn new(id: &str) -> Self {
-        Self { id: id.to_owned(), index: 0, pending: None, shown: HashMap::new(), notice: None }
+        Self { id: id.to_owned(), index: 0, pending: None, shown: HashMap::new(), notice: None, asking: false }
+    }
+
+    /// A sheet that opens on the question "Unlock <name>?" (OK on a locked lock's tile).
+    pub fn asking(id: &str) -> Self {
+        Self { asking: true, ..Self::new(id) }
+    }
+
+    /// The question, while it is up.
+    pub fn ask(&self, tile: &Value) -> Option<String> {
+        self.asking.then(|| format!("Unlock {}?", tile.get("name").and_then(Value::as_str).unwrap_or("this lock")))
     }
 
     fn focusable(rows: &[Row]) -> Vec<usize> {
@@ -513,6 +545,12 @@ impl Sheet {
 
     /// The rows with what the person set put over what the tile says, while it is shown.
     pub fn rows(&self, tile: &Value, now: u64) -> Vec<Row> {
+        if self.asking {
+            // the safe answer first and in front
+            let mut yes = Row { id: "unlock_yes", label: "Unlock".into(), kind: Kind::Action, value: String::new(), num: None, danger: true };
+            yes.danger = true;
+            return vec![Row { id: "cancel", label: "Cancel".into(), kind: Kind::Action, value: String::new(), num: None, danger: false }, yes];
+        }
         let mut rows = rows_of(tile);
         for r in &mut rows {
             if let Some((text, num, until)) = self.shown.get(r.id)
@@ -538,6 +576,12 @@ impl Sheet {
         let rows = self.rows(tile, now);
         let focusable = Self::focusable(&rows);
         match name {
+            // Back takes the question away before it takes the sheet away
+            "back" if self.asking => {
+                self.asking = false;
+                self.index = 0;
+                return Done::Nothing;
+            }
             "back" => return Done::Close,
             "up" | "down" => {
                 let n = focusable.len();
@@ -556,8 +600,23 @@ impl Sheet {
         let act = |verb: &'static str, value: Value| Act { id: self.id.clone(), verb, value };
         match (&row.kind, name) {
             (Kind::Toggle, "ok" | "left" | "right") => Done::Send(act("toggle", Value::Null)),
+            (Kind::Action, "ok") if row.id == "cancel" => {
+                self.asking = false;
+                self.index = 0;
+                Done::Nothing
+            }
+            (Kind::Action, "ok") if row.id == "unlock" => {
+                self.asking = true;
+                self.index = 0;
+                Done::Nothing
+            }
+            (Kind::Action, "ok") if row.id == "unlock_yes" => {
+                self.asking = false;
+                Done::Unlock(self.id.clone())
+            }
             (Kind::Action, "ok") => {
                 let verb = match row.id {
+                    "lock" => "lock",
                     "open" => "open",
                     "close" => "close",
                     "stop" => "stop",
@@ -714,6 +773,7 @@ impl SheetSurface {
         }
         self.key = key;
         let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
+        let danger = kit.ui.look.colour(ui::lucent::palette::PaletteRole::Danger);
         let text = |k: &str| tile.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
         let mut changes: Vec<(usize, String, Rgba)> = vec![(0, text("name"), ink)];
         let sub = match notice {
@@ -728,7 +788,7 @@ impl SheetSurface {
                 (Kind::Action, _) => "\u{203a}".into(),
                 _ => r.value.clone(),
             };
-            changes.push((2 + 2 * i, r.label.clone(), if on { ink } else { ink2 }));
+            changes.push((2 + 2 * i, r.label.clone(), if r.danger { danger } else if on { ink } else { ink2 }));
             changes.push((3 + 2 * i, value, ink));
         }
         let refs: Vec<(usize, &str, Rgba)> = changes.iter().map(|(i, s, c)| (*i, s.as_str(), *c)).collect();
@@ -893,6 +953,74 @@ mod tests {
         assert_eq!(s.key("ok", &lock, 0), Done::Close);
         let gone = json!({"id": "light.x", "name": "X", "group": "lights", "can": [], "available": false, "ctl": {}});
         assert!(rows_of(&gone).is_empty(), "an unavailable thing offers nothing");
+    }
+
+    fn lock(state: &str, sensitive: &[&str]) -> Value {
+        json!({"id": "lock.front", "name": "Front door", "area": "Hall", "group": "locks", "words": "Locked", "can": [], "available": true, "verbs": ["lock"], "sensitive": sensitive, "ctl": {"state": state}})
+    }
+
+    #[test]
+    fn a_locked_lock_has_an_unlock_row_that_asks_first_and_an_open_one_has_a_lock_row() {
+        let rows = rows_of(&lock("locked", &["unlock"]));
+        assert_eq!(rows.iter().map(|r| (r.id, r.danger)).collect::<Vec<_>>(), [("unlock", true), ("room", false)]);
+        assert_eq!(rows_of(&lock("unlocked", &["unlock"])).iter().map(|r| r.id).collect::<Vec<_>>(), ["lock", "room"], "an open lock is locked, not unlocked");
+        // Home Assistant does not offer unlocking: the sheet says so and has no row to press
+        let rows = rows_of(&lock("locked", &[]));
+        assert_eq!(rows.iter().map(|r| (r.id, r.kind.clone())).collect::<Vec<_>>(), [("unlockinfo", Kind::Info), ("room", Kind::Info)]);
+        // a lock that is only shown has no controls at all
+        let mut shown = lock("locked", &["unlock"]);
+        shown["verbs"] = json!([]);
+        shown["sensitive"] = json!([]);
+        assert_eq!(rows_of(&shown).iter().map(|r| r.id).collect::<Vec<_>>(), ["room"]);
+    }
+
+    #[test]
+    fn the_unlock_question_has_cancel_in_front_and_only_the_second_answer_unlocks() {
+        let tile = lock("locked", &["unlock"]);
+        let mut s = Sheet::new("lock.front");
+        assert_eq!(s.key("ok", &tile, 0), Done::Nothing, "OK on the Unlock row asks, it does not unlock");
+        assert_eq!(s.ask(&tile).as_deref(), Some("Unlock Front door?"));
+        let rows = s.rows(&tile, 0);
+        assert_eq!(rows.iter().map(|r| (r.id, r.danger)).collect::<Vec<_>>(), [("cancel", false), ("unlock_yes", true)]);
+        assert_eq!(s.front(&rows), Some(0), "the safe answer is in front");
+        // left and right do nothing here, Back and Cancel take the question away and keep the sheet
+        for k in ["left", "right"] {
+            assert_eq!(s.key(k, &tile, 0), Done::Nothing);
+        }
+        assert_eq!(s.key("back", &tile, 0), Done::Nothing);
+        assert!(!s.asking);
+        s.key("ok", &tile, 0);
+        assert_eq!(s.key("ok", &tile, 0), Done::Nothing, "OK on Cancel");
+        assert!(!s.asking);
+        // down and OK: the one way to Unlock
+        s.key("ok", &tile, 0);
+        s.key("down", &tile, 0);
+        assert_eq!(s.key("ok", &tile, 0), Done::Unlock("lock.front".into()));
+        assert!(!s.asking, "asked once, answered once");
+        assert_eq!(s.key("back", &tile, 0), Done::Close);
+        // a sheet that opens on the question (OK on a locked lock's tile)
+        let q = Sheet::asking("lock.front");
+        assert_eq!(q.rows(&tile, 0).len(), 2);
+    }
+
+    #[test]
+    fn no_key_on_any_sheet_makes_an_act_that_unlocks_or_unlatches() {
+        let tiles = [lock("locked", &["unlock"]), lock("unlocked", &["unlock"]), lock("locked", &[]), light(true, Some(50)), thermostat()];
+        for tile in tiles {
+            let id = tile["id"].as_str().unwrap().to_owned();
+            for asking in [false, true] {
+                let mut s = if asking { Sheet::asking(&id) } else { Sheet::new(&id) };
+                for step in 0..12 {
+                    let key = ["ok", "down", "left", "right", "ok", "up", "ok"][step % 7];
+                    if let Done::Send(act) = s.key(key, &tile, step as u64) {
+                        assert!(!matches!(act.verb, "unlock" | "open") || id.starts_with("cover"), "{id} {key}: {act:?}");
+                    }
+                    if let Some(act) = s.due(10_000) {
+                        assert!(!matches!(act.verb, "unlock" | "open"));
+                    }
+                }
+            }
+        }
     }
 
     #[test]

@@ -38,7 +38,8 @@ TILES = [
     {"id": "sensor.hall", "name": "Hall temperature", "area": "Hall", "group": "sensors", "words": "21.4\u00b0C", "tone": "info", "icon": "thermometer", "available": True, "can": [], "verbs": [], "ctl": {}},
     {"id": "binary_sensor.door", "name": "Front door", "group": "sensors", "words": "Closed", "tone": "off", "icon": "door-closed", "available": True, "can": [], "verbs": [], "ctl": {}},
     {"id": "sensor.pm", "name": "Air quality", "group": "sensors", "words": "12 \u00b5g/m\u00b3", "tone": "info", "icon": "wind", "available": True, "can": [], "verbs": [], "ctl": {}},
-    {"id": "lock.front", "name": "Front door lock", "group": "locks", "words": "Locked", "tone": "ok", "icon": "lock", "available": True, "can": [], "verbs": [], "ctl": {}},
+    {"id": "lock.front", "name": "Front door lock", "group": "locks", "words": "Locked", "tone": "ok", "icon": "lock", "available": True, "can": ["unlock"], "verbs": ["lock"], "sensitive": ["unlock"], "ctl": {"state": "locked"}},
+    {"id": "lock.back", "name": "Back door lock", "group": "locks", "words": "Unlocked", "tone": "warn", "icon": "lock-open", "available": True, "can": ["lock"], "verbs": ["lock"], "sensitive": ["unlock"], "ctl": {"state": "unlocked"}},
     {"id": "light.garage", "name": "Garage lights", "group": "lights", "words": "Unavailable", "tone": "muted", "icon": "lightbulb", "available": False, "can": [], "verbs": [], "ctl": {}},
 ]
 
@@ -121,11 +122,13 @@ class RustOnHome(unittest.TestCase):
                 self.assertEqual(len(lints), 1)
                 self.assertEqual([f for f in lints[0] if "onhome" in str(f)], [], "the sheet at %s %s" % (mode, size))
                 self.host(SNAP + 600, [self.k(600, "down"), self.k(1800, "ok"), self.hold(2600, "ok", 900), self.snap(SNAP, "sheet-light" + size + suffix)], mode=mode, scale=scale)
+            # OK on the locked lock asks first: the sheet opens on "Unlock Front door lock?" with Cancel in front
+            self.host(SNAP + 600, [self.k(600, "down"), self.k(1800, "ok"), self.k(2100, "down", "down", "down", "down"), self.k(3000, "ok"), self.snap(SNAP, "sheet-unlock" + suffix)], mode=mode)
             for state, name in (("unpaired", "card-unpaired"), ("waiting", "card-waiting"), ("empty", "card-empty")):
                 self.host(SNAP + 600, [self.k(600, "down"), self.snap(SNAP, name + suffix)], doc=topic(state, [], shared=0, detail="x"), mode=mode)
             away = [dict(t, words="Not reachable", tone="muted", available=False, can=[], verbs=[]) for t in TILES[:6]]
             self.host(SNAP + 600, [self.k(600, "down"), self.snap(SNAP, "card-not-reachable" + suffix)], doc=topic("waiting", away), mode=mode)
-        for name in ("card", "card-light", "card-text200", "card-focus", "sheet-climate", "sheet-light", "card-unpaired", "card-not-reachable"):
+        for name in ("card", "card-light", "card-text200", "card-focus", "sheet-climate", "sheet-light", "sheet-unlock", "card-unpaired", "card-not-reachable"):
             self.assertTrue(os.path.exists(os.path.join(OUT, name + ".jpg")), name)
 
 

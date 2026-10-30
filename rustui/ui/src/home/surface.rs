@@ -1085,7 +1085,8 @@ impl HomeSurface {
                     self.onhome_sheet = Some(super::onhome::SheetSurface::new(kit, &id, &rows, Z_LAYERS + 40)?);
                 }
                 if let Some(s) = &mut self.onhome_sheet {
-                    let notice = sheet.notice.as_ref().map(|(w, _)| w.as_str());
+                    let ask = sheet.ask(&tile);
+                    let notice = sheet.notice.as_ref().map(|(w, _)| w.as_str()).or(ask.as_deref());
                     s.update(kit, &tile, &rows, sheet.front(&rows), notice);
                 }
             }
@@ -1522,6 +1523,40 @@ mod tests {
                 press(&mut home, "back", 2600);
                 s.apply(&mut kit, &mut engine, &mut home, 2700).expect("Home drawn");
                 assert!(s.onhome_sheet.is_none(), "Back takes the sheet away");
+                std::mem::forget(h);
+            }
+        }
+    }
+
+    #[test]
+    fn the_unlock_question_is_drawn_with_its_answers_in_the_sheet_and_reads_clean_at_both_sizes_and_looks() {
+        for mode in [Mode::Dark, Mode::Light] {
+            for scale in [1.0, 2.0] {
+                let (h, mut kit) = testkit::kit_in(mode, scale);
+                let mut engine = Engine::new(&kit).expect("an engine");
+                let lock = json!({"id": "lock.front", "name": "Front door", "area": "Hall", "group": "locks", "words": "Locked", "tone": "ok", "icon": "lock", "available": true, "can": ["unlock"], "verbs": ["lock"], "sensitive": ["unlock"], "ctl": {"state": "locked"}});
+                let mut home = smart_home(json!({"state": "connected", "words": "1 thing", "tiles": [lock]}));
+                press(&mut home, "down", 1100);
+                for i in 0..8 {
+                    if home.focus.current().and_then(|id| home.widget_of(id)) == Some("smart") {
+                        break;
+                    }
+                    press(&mut home, "down", 1200 + i * 100);
+                }
+                press(&mut home, "ok", 1900);
+                press(&mut home, "ok", 2000);
+                assert_eq!((home.layer, home.sheet.as_ref().map(|s| s.asking)), (Layer::OnHome, Some(true)), "{mode:?} {scale}");
+                let mut s = HomeSurface::new(1000);
+                s.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
+                s.apply(&mut kit, &mut engine, &mut home, 2300).expect("the question drawn");
+                let sheet = s.onhome_sheet.as_ref().expect("the sheet");
+                let pane = sheet.layout().pane;
+                assert_eq!(sheet.layout().rows.len(), 2, "Cancel and Unlock");
+                assert!(pane.x >= 0.0 && pane.right() <= 1920.0 && pane.bottom() <= 1080.0, "{mode:?} {scale}: {pane:?}");
+                let lint = s.lint(&mut kit, &home);
+                let bad: Vec<String> = lint.findings().iter().filter(|f| f.subject.starts_with("onhome sheet")).map(|f| format!("{f:?}")).collect();
+                assert!(bad.is_empty(), "{mode:?} at {scale}: {}", bad.join("\n"));
+                assert!(lint.words().iter().any(|w| w.name.starts_with("onhome sheet")));
                 std::mem::forget(h);
             }
         }

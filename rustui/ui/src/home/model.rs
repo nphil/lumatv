@@ -54,6 +54,8 @@ pub const TINT_TAG: u64 = 312;
 pub const SWITCH_TAG: u64 = 320;
 /// The answer of a control of a smart-home tile (`POST /v1/onhome/act`).
 pub const ONHOME_TAG: u64 = 330;
+/// The read of the token the helper keeps for the shell to unlock with (`onhome/shell.json`), asked only after the person pressed Unlock.
+pub const UNLOCK_TAG: u64 = 331;
 /// The read of the profile kept from the last time the helper answered (`last-profile.json`).
 pub const KEPT_PROFILE_TAG: u64 = 322;
 /// The write of Quick Access's choice (`remote.quickAccess`).
@@ -174,6 +176,8 @@ pub struct Home {
     onhome_said: Option<(String, u64)>,
     /// The controls of the tile that is open, while its sheet is.
     pub sheet: Option<super::onhome::Sheet>,
+    /// The lock the person said to unlock, while the token to do it with is being read.
+    unlock_of: Option<String>,
     pub stills: super::stills::Stills,
     /// What the bell's badge counts (the panels' log and the plugins' notes since the drawer was last open).
     pub unread: usize,
@@ -279,6 +283,7 @@ impl Home {
             onhome: Value::Null,
             onhome_said: None,
             sheet: None,
+            unlock_of: None,
             stills: super::stills::Stills::default(),
             unread: 0,
             profiles: Value::Null,
@@ -978,6 +983,18 @@ impl Home {
                 self.redraw(out);
             }
             SWITCH_TAG if self.picker.answered(status, data, self.now) => self.redraw(out),
+            UNLOCK_TAG => {
+                // the helper's token for the shell, read now that the person said Unlock: the one request that unlocks
+                let id = self.unlock_of.take();
+                match (id, data.get("token").and_then(Value::as_str).filter(|_| status == 200)) {
+                    (Some(id), Some(token)) => out.push(Effect::Request { tag: ONHOME_TAG, method: "POST".into(), path: "/v1/onhome/unlock".into(), body: Some(json!({"id": id, "token": token})) }),
+                    (Some(_), None) => {
+                        self.onhome_said = Some(("The TV cannot unlock from here".into(), self.now + 4000));
+                        self.redraw(out);
+                    }
+                    _ => {}
+                }
+            }
             ONHOME_TAG => {
                 if status != 200 {
                     let words = data.pointer("/error/message").and_then(Value::as_str).filter(|w| !w.is_empty()).unwrap_or("Home Assistant did not do that").to_owned();
@@ -1482,6 +1499,15 @@ impl Home {
         self.redraw(out);
     }
 
+    /// OK on a locked lock's tile: the sheet opens on "Unlock <name>?" with Cancel in front.
+    fn open_unlock_question(&mut self, out: &mut Vec<Effect>) {
+        let Some(tile) = self.onhome_tiles().get(self.inner_index.unwrap_or(0)).cloned() else { return };
+        let Some(id) = tile.get("id").and_then(Value::as_str) else { return };
+        self.sheet = Some(super::onhome::Sheet::asking(id));
+        self.open_layer(Layer::OnHome, SCOPE_ONHOME);
+        self.redraw(out);
+    }
+
     fn sheet_key(&mut self, name: &str, out: &mut Vec<Effect>) {
         let Some(tile) = self.sheet_tile() else {
             self.close_layer();
@@ -1492,6 +1518,12 @@ impl Home {
         match done {
             super::onhome::Done::Close => self.close_layer(),
             super::onhome::Done::Send(act) => self.send_act(&act, out),
+            super::onhome::Done::Unlock(id) => {
+                // the key was the person's OK on the answer; the token is read now and only then is the unlock asked
+                self.unlock_of = Some(id);
+                out.push(Effect::Read { tag: UNLOCK_TAG, path: "onhome/shell.json".into() });
+                self.close_layer();
+            }
             super::onhome::Done::Nothing => {}
         }
     }
@@ -1526,6 +1558,9 @@ impl Home {
                     match can.as_slice() {
                         ["toggle"] => self.send_act(&super::onhome::Act { id, verb: "toggle", value: Value::Null }, out),
                         ["run"] => self.send_act(&super::onhome::Act { id, verb: "run", value: Value::Null }, out),
+                        // an open lock is locked at once; a locked one asks before it unlocks
+                        ["lock"] => self.send_act(&super::onhome::Act { id, verb: "lock", value: Value::Null }, out),
+                        ["unlock"] => self.open_unlock_question(out),
                         _ => self.open_sheet(out),
                     }
                 }
@@ -2452,6 +2487,78 @@ mod tests {
         assert!(h.inner.is_some());
         press(&mut h, "menu", 5100);
         assert_eq!(h.layer, Layer::OnHome);
+    }
+
+    fn lock_tile(state: &str, can: &str) -> Value {
+        json!({"id": "lock.front", "name": "Front door", "group": "locks", "words": state, "tone": "ok", "icon": "lock", "available": true, "can": [can], "verbs": ["lock"], "sensitive": ["unlock"], "ctl": {"state": state}})
+    }
+
+    fn requests_to(out: &[Effect], path: &str) -> Vec<Value> {
+        out.iter().filter_map(|e| match e {
+            Effect::Request { path: p, body, .. } if p == path => body.clone(),
+            _ => None,
+        }).collect()
+    }
+
+    #[test]
+    fn an_open_lock_is_locked_by_one_ok_and_a_locked_one_asks_first_and_unlocks_only_after_the_answer() {
+        // open: OK locks at once, through the ordinary route
+        let mut h = smart_home(json!([lock_tile("unlocked", "lock")]));
+        into_smart_card(&mut h);
+        let out = press(&mut h, "ok", 2100);
+        assert_eq!(act_of(&out), Some(json!({"id": "lock.front", "verb": "lock", "value": null})));
+        assert_eq!(h.layer, Layer::None);
+        // locked: OK opens the question, nothing is sent
+        let mut h = smart_home(json!([lock_tile("locked", "unlock")]));
+        into_smart_card(&mut h);
+        let out = press(&mut h, "ok", 2100);
+        assert!(act_of(&out).is_none() && requests_to(&out, "/v1/onhome/unlock").is_empty());
+        assert_eq!((h.layer, h.sheet.as_ref().map(|s| s.asking)), (Layer::OnHome, Some(true)));
+        // Cancel in front: OK on it does nothing and shows the sheet's rows; the question can be asked again
+        let out = press(&mut h, "ok", 2200);
+        assert!(out.iter().all(|e| !matches!(e, Effect::Read { .. } | Effect::Request { .. })));
+        assert_eq!(h.sheet.as_ref().map(|s| s.asking), Some(false));
+        press(&mut h, "ok", 2300);
+        assert_eq!(h.sheet.as_ref().map(|s| s.asking), Some(true));
+        // Back leaves the question, and the sheet
+        press(&mut h, "back", 2400);
+        assert_eq!((h.layer, h.sheet.as_ref().map(|s| s.asking)), (Layer::OnHome, Some(false)));
+        press(&mut h, "ok", 2500);
+        // down to Unlock, OK: the token is read, and only then is the unlock asked, once, with that token
+        press(&mut h, "down", 2600);
+        let out = press(&mut h, "ok", 2700);
+        assert!(out.iter().any(|e| matches!(e, Effect::Read { tag, path } if *tag == UNLOCK_TAG && path == "onhome/shell.json")));
+        assert!(requests_to(&out, "/v1/onhome/unlock").is_empty(), "nothing is asked before the token is read");
+        assert!(act_of(&out).is_none(), "an unlock is never an ordinary act");
+        assert_eq!(h.layer, Layer::None);
+        let out = h.update(&Input::Fetched { tag: UNLOCK_TAG, status: 200, data: json!({"token": "abc"}) }, 2800);
+        assert_eq!(requests_to(&out, "/v1/onhome/unlock"), vec![json!({"id": "lock.front", "token": "abc"})]);
+        // a token that cannot be read: said, nothing asked
+        let mut h = smart_home(json!([lock_tile("locked", "unlock")]));
+        into_smart_card(&mut h);
+        press(&mut h, "ok", 2100);
+        press(&mut h, "down", 2200);
+        press(&mut h, "ok", 2300);
+        let out = h.update(&Input::Fetched { tag: UNLOCK_TAG, status: 404, data: Value::Null }, 2400);
+        assert!(requests_to(&out, "/v1/onhome/unlock").is_empty());
+        assert_eq!(h.onhome_notice(), Some("The TV cannot unlock from here"));
+        // a token that arrives with nothing asked for is nothing
+        let out = h.update(&Input::Fetched { tag: UNLOCK_TAG, status: 200, data: json!({"token": "abc"}) }, 2500);
+        assert!(requests_to(&out, "/v1/onhome/unlock").is_empty());
+    }
+
+    #[test]
+    fn no_sequence_of_keys_on_the_card_or_a_sheet_sends_an_unlock_through_the_ordinary_route() {
+        for state in ["locked", "unlocked"] {
+            let mut h = smart_home(json!([lock_tile(state, if state == "locked" { "unlock" } else { "lock" }), lamp()]));
+            into_smart_card(&mut h);
+            for (i, k) in ["ok", "down", "ok", "up", "left", "right", "ok", "down", "down", "ok", "back", "menu", "ok", "ok", "back", "back"].iter().enumerate() {
+                let out = press(&mut h, k, 2100 + i as u64 * 100);
+                if let Some(body) = act_of(&out) {
+                    assert!(!matches!(body["verb"].as_str(), Some("unlock" | "open")), "{state} {k}: {body}");
+                }
+            }
+        }
     }
 
     #[test]

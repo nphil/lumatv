@@ -55,7 +55,8 @@ pub const ROUTES: &[(&str, &str, &str)] = &[
     ("GET", "/v1/onhome", "On Home: where the link to Home Assistant stands and the tiles, as the topic says"),
     ("GET", "/v1/onhome/shared?q=&area=&group=&offset=&limit=", "what Home Assistant shares with the TV, for the picker"),
     ("POST", "/v1/onhome/picks", "which of the shared entities Home shows: show, hide, up, down or all (the owner's profile only)"),
-    ("POST", "/v1/onhome/act", "one control of one tile: {id, verb, value?}; 409 says why not in words"),
+    ("POST", "/v1/onhome/act", "one control of one tile: {id, verb, value?}; 409 says why not in words; a lock only locks here, never unlocks"),
+    ("POST", "/v1/onhome/unlock", "unlock one lock: the TV's own shell only ({id, token}: the token is in a file only the shell reads, and the peer must be the loopback)"),
 ];
 
 /// How often the looker looks at the switch, the key and the address when nothing happens.
@@ -206,6 +207,9 @@ struct Inner {
     config: OnHomeConfig,
     deps: Deps,
     data_dir: PathBuf,
+    /// What the shell shows to unlock (`<data dir>/onhome/shell.json`, root-only, new at every start of the helper). A route, an assistant
+    /// or a plugin has no way to read it, so none can unlock.
+    unlock_token: String,
     state: Mutex<State>,
 }
 
@@ -218,10 +222,16 @@ pub struct OnHome {
 impl OnHome {
     pub fn new(ctx: &Ctx, deps: Deps) -> Self {
         let data_dir = ctx.paths.data_dir.clone();
+        let unlock_token = new_token();
+        if let Err(e) = write_shell_file(&data_dir, &unlock_token) {
+            // without the file the shell cannot unlock: locks are shown and locked, and not unlocked
+            crate::log_warn!("onhome: the shell's unlock token could not be written: {e}");
+        }
         let inner = Arc::new(Inner {
             hub: ctx.hub.clone(),
             config: ctx.config.onhome.clone(),
             deps,
+            unlock_token,
             state: Mutex::new(State { bridge: None, announced: None, problem: None, picks: Picks::load(&data_dir), known: BTreeMap::new() }),
             data_dir,
         });
@@ -408,8 +418,34 @@ impl OnHome {
         Ok(self.status())
     }
 
-    /// One control of one tile.
+    /// One control of one tile. Never an unlock: a lock only locks here (`tile::plan`), and a try to unlock or unlatch is refused and written down.
     pub fn act(&self, id: &str, verb: &str, value: &Value) -> Result<(), Failure> {
+        let unit = |m: &Mirror| m.temp_unit();
+        let result = self.carry_out(id, false, |item, mirror| tile::plan(id, &item.ent, &item.ctl, unit(mirror), verb, value));
+        if id.starts_with("lock.") && matches!(verb, "unlock" | "open") {
+            self.journal("refused", id, "the API asked for it; only the TV's own screen unlocks", false);
+        }
+        result
+    }
+
+    /// Unlocks one lock, for the TV's own shell: the person pressed Unlock in the shell's question with the remote, and the shell shows the
+    /// token that only it can read. Every try is written down, done or refused. Home Assistant decides last (its own PIN and confirmation rules).
+    pub fn unlock(&self, id: &str, token: &str) -> Result<(), Failure> {
+        if !same(token.as_bytes(), self.inner.unlock_token.as_bytes()) {
+            self.journal("refused", id, "not from the TV's shell (wrong token)", true);
+            return Err(Failure::from(Refused::NeedsShell));
+        }
+        let result = self.carry_out(id, true, |item, _| tile::plan_unlock(id, &item.ent, &item.ctl, &item.ctl_pin));
+        match &result {
+            Ok(()) => self.journal("done", id, "unlocked from the TV's remote", true),
+            Err(f) => self.journal("failed", id, &f.words, true),
+        }
+        // Home Assistant's own words about its PIN say where the setting is
+        result.map_err(|f| if f.words.contains("PIN") { Failure { code: f.code, words: "Home Assistant wants its PIN for this. Allow unlocking from the TV with a confirmation in its LumaTV entry".into() } } else { f })
+    }
+
+    /// The common path of a control: the thing must be shared and on Home, Home Assistant connected, and the plan the table makes.
+    fn carry_out(&self, id: &str, touch: bool, plan: impl FnOnce(&mirror::Item, &Mirror) -> Result<tile::Call, Refused>) -> Result<(), Failure> {
         let inner = &self.inner;
         let (bridge, picks) = {
             let state = inner.state.lock();
@@ -423,12 +459,12 @@ impl OnHome {
             let Some(item) = sh.mirror.get(id).filter(|_| picks.is_shown(&sh.mirror, id)) else {
                 return Err(Refused::NotShown);
             };
-            tile::plan(id, &item.ent, &item.ctl, sh.mirror.temp_unit(), verb, value)
+            plan(item, &sh.mirror)
         });
         let call = planned.map_err(Failure::from)?;
         let (tx, rx) = channel();
         bridge.call(
-            Call { entity_ids: vec![id.to_owned()], verb: call.service.to_owned(), args: call.data },
+            Call { entity_ids: vec![id.to_owned()], verb: call.service.to_owned(), args: call.data, touch },
             Box::new(move |result| {
                 let _ = tx.send(result);
             }),
@@ -439,6 +475,56 @@ impl OnHome {
             Err(_) => Err(Failure { code: "timeout", words: "Home Assistant did not answer".into() }),
         }
     }
+
+    /// A line of the unlock journal (`<data dir>/onhome/journal.jsonl`, and the helper's log): when, which lock, how it ended and who asked.
+    /// The file keeps its last 256 KiB.
+    fn journal(&self, result: &str, id: &str, why: &str, from_shell: bool) {
+        let name = {
+            let state = self.inner.state.lock();
+            state.known.get(id).map(|k| k.0.clone())
+        };
+        let line = json!({"at": now_ms(), "what": "unlock", "id": id, "name": name, "result": result, "why": why, "viaShell": from_shell});
+        crate::log_info!("onhome: unlock {result}: {id} ({why})");
+        let dir = self.inner.data_dir.join("onhome");
+        let file = dir.join("journal.jsonl");
+        let _ = std::fs::create_dir_all(&dir);
+        let mut text = std::fs::read_to_string(&file).unwrap_or_default();
+        text.push_str(&line.to_string());
+        text.push('\n');
+        if text.len() > JOURNAL_KEEPS {
+            let from = text.len() - JOURNAL_KEEPS / 2;
+            text = text[from..].split_once('\n').map_or_else(String::new, |(_, rest)| rest.to_owned());
+        }
+        let _ = std::fs::write(&file, text);
+    }
+}
+
+/// How much of the journal is kept.
+const JOURNAL_KEEPS: usize = 256 * 1024;
+
+/// A new random token, as hex.
+fn new_token() -> String {
+    let mut bytes = [0u8; 32];
+    if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
+        let _ = std::io::Read::read_exact(&mut f, &mut bytes);
+    }
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// `<data dir>/onhome/shell.json` for the shell to read (`Effect::Read`), mode 0600 in a directory of 0700.
+fn write_shell_file(data_dir: &std::path::Path, token: &str) -> io::Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+    let dir = data_dir.join("onhome");
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;
+    let tmp = dir.join("shell.json.tmp");
+    let mut file = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&tmp)?;
+    io::Write::write_all(&mut file, json!({"token": token}).to_string().as_bytes())?;
+    std::fs::rename(tmp, dir.join("shell.json"))
+}
+
+/// Equal, without stopping at the first difference.
+fn same(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |d, (x, y)| d | (x ^ y)) == 0
 }
 
 /// A refusal with its code and its words.
@@ -533,7 +619,7 @@ fn view(config: &OnHomeConfig, paired: bool, bridge: Option<&Bridge>, picks: &Pi
             let tiles: Vec<Value> = ids
                 .into_iter()
                 .take(MAX_PICKS)
-                .filter_map(|(_, _, id)| known.get(id).map(|(name, area)| tile::tile(id, Some(name), area.as_deref(), None, &[], "", reach)))
+                .filter_map(|(_, _, id)| known.get(id).map(|(name, area)| tile::tile(id, Some(name), area.as_deref(), None, &[], &[], "", reach)))
                 .collect();
             let d = doc("waiting", "Waiting for Home Assistant", "Home Assistant's LumaShow integration has not connected", json!({"tiles": tiles, "picked": picked}));
             return (d, None);
@@ -550,7 +636,8 @@ fn view(config: &OnHomeConfig, paired: bool, bridge: Option<&Bridge>, picks: &Pi
                 remember.insert(id.clone(), (n.clone(), area.clone()));
             }
             let ctl: &[String] = if mirror.paused() { &[] } else { item.map_or(&[], |i| &i.ctl) };
-            tiles.push(tile::tile(id, name.as_deref().or_else(|| known.get(id).map(|k| k.0.as_str())), area.as_deref(), item.map(|i| &i.ent), ctl, unit, Reach::Live));
+            let ctl_pin: &[String] = if mirror.paused() { &[] } else { item.map_or(&[], |i| &i.ctl_pin) };
+            tiles.push(tile::tile(id, name.as_deref().or_else(|| known.get(id).map(|k| k.0.as_str())), area.as_deref(), item.map(|i| &i.ent), ctl, ctl_pin, unit, Reach::Live));
         }
         let shared = mirror.len();
         let (state, words) = match (shared, tiles.len()) {
@@ -670,8 +757,23 @@ pub fn handle(onhome: &OnHome, request: &Request, rest: &[&str]) -> Response {
                 Err(r) => error_response(409, r.code, &r.words),
             }
         }
+        ["unlock"] if post => {
+            // Only the TV's own shell, on the loopback, with the token it alone can read. A request from another machine never gets as far as the token.
+            if !request.peer.is_loopback() {
+                return error_response(403, "needs_shell", &Refused::NeedsShell.words());
+            }
+            let Some(b) = body() else { return error_response(400, "bad_request", "the body is not a JSON object") };
+            let (Some(id), Some(token)) = (b.get("id").and_then(Value::as_str), b.get("token").and_then(Value::as_str)) else {
+                return error_response(400, "bad_request", "id and token are needed");
+            };
+            match onhome.unlock(id, token) {
+                Ok(()) => ok(json!({"done": true})),
+                Err(r) if r.code == "needs_shell" => error_response(403, r.code, &r.words),
+                Err(r) => error_response(409, r.code, &r.words),
+            }
+        }
         [] | ["shared"] => error_response(405, "method_not_allowed", "that method is not served here").with_header("Allow", "GET"),
-        ["picks" | "act"] => error_response(405, "method_not_allowed", "that method is not served here").with_header("Allow", "POST"),
+        ["picks" | "act" | "unlock"] => error_response(405, "method_not_allowed", "that method is not served here").with_header("Allow", "POST"),
         _ => error_response(404, "not_found", "no such endpoint"),
     }
 }
@@ -689,6 +791,13 @@ pub mod testing {
         let query = query.split('&').filter_map(|p| p.split_once('=')).map(|(k, v)| (k.to_owned(), v.to_owned())).collect();
         let request = Request { method: "GET".into(), path: "/v1/onhome/shared".into(), query, headers: vec![], body: vec![], peer: std::net::Ipv4Addr::LOCALHOST.into() };
         onhome.shared(&request)
+    }
+
+    /// A route as the router would hand it: `(status, document)`.
+    pub fn route(onhome: &OnHome, method: &str, rest: &str, body: Value, peer: &str) -> (u16, Value) {
+        let request = Request { method: method.into(), path: format!("/v1/onhome/{rest}"), query: vec![], headers: vec![], body: body.to_string().into_bytes(), peer: peer.parse().expect("an address") };
+        let response = handle(onhome, &request, &[rest]);
+        (response.status, serde_json::from_slice(&response.body).unwrap_or(Value::Null))
     }
 
     pub fn keyed_deps(key: Option<[u8; 32]>) -> Deps {

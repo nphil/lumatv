@@ -8,7 +8,7 @@
 //!
 //! **Only what Home can show is kept.** An entity of a domain the TV does not carry (a camera, an alarm panel, a siren, a valve, a
 //! button) is dropped on arrival; the TV has no tile for it and no way to ask anything of it. A service the integration offers only with
-//! a PIN (`ctl_pin`) is never kept: the TV cannot ask for a PIN, and nothing it does reaches for one.
+//! a confirmation (`ctl_pin`) is dropped too, but for a lock's `unlock`, which only the TV's own screen asks for, after a question.
 
 use super::tile::{self, Ent};
 use ha_bridge::wire::{AreaRec, EntityRec, MAX_ENTITIES, Snapshot, StateRec, Update};
@@ -29,6 +29,9 @@ pub struct Item {
     pub ent: Ent,
     /// The services the integration lets the TV call now.
     pub ctl: Vec<String>,
+    /// The services it lets a person at the TV do after a confirmation (`ctl_pin`), kept for a lock's `unlock` and nothing else: the only
+    /// sensitive verb the TV ever uses, and only from its own screen (`OnHome::unlock`).
+    pub ctl_pin: Vec<String>,
     /// Hidden, configuration or diagnostic: a picker leaves it out.
     pub minor: bool,
     pub changed: Option<f64>,
@@ -66,11 +69,14 @@ fn cut(text: &str, chars: usize) -> String {
 }
 
 fn item_of(rec: EntityRec) -> Item {
+    let lock = tile::domain_of(&rec.id) == Some("lock");
     Item {
         name: cut(&rec.name, MAX_NAME_CHARS),
         area: rec.area.filter(|a| !a.is_empty()),
         ent: Ent { state: cut(&rec.state, MAX_NAME_CHARS), attrs: tile::kept(&rec.attrs) },
-        ctl: rec.ctl.into_iter().filter(|v| v.len() <= 48).take(32).collect(),
+        // a lock's `unlock` and `open` are not ordinary services whatever the integration lists them under: the TV keeps `lock` only
+        ctl: rec.ctl.into_iter().filter(|v| v.len() <= 48 && (!lock || v == "lock")).take(32).collect(),
+        ctl_pin: if lock { rec.ctl_pin.into_iter().filter(|v| v == "unlock").collect() } else { Vec::new() },
         minor: rec.minor,
         changed: rec.changed.filter(|c| c.is_finite()),
     }
@@ -299,9 +305,15 @@ mod tests {
     }
 
     #[test]
-    fn a_pin_service_is_never_kept() {
+    fn a_locks_unlock_and_open_are_never_among_its_ordinary_services_and_only_unlock_is_kept_apart() {
         let mut m = Mirror::default();
-        m.snapshot(part(0, false, vec![rec("lock.front", "locked", json!({}), &["lock"])]), Instant::now());
-        assert_eq!(m.get("lock.front").unwrap().ctl, ["lock"], "ctl_pin (unlock) is not among them");
+        let mut front = rec("lock.front", "locked", json!({}), &["lock", "unlock", "open"]);
+        front.ctl_pin = vec!["unlock".into(), "open".into()];
+        let mut light = rec("light.a", "on", json!({}), &["turn_on"]);
+        light.ctl_pin = vec!["turn_off".into()];
+        m.snapshot(part(0, false, vec![front, light]), Instant::now());
+        let lock = m.get("lock.front").unwrap();
+        assert_eq!((lock.ctl.clone(), lock.ctl_pin.clone()), (vec!["lock".to_owned()], vec!["unlock".to_owned()]), "unlock is kept apart, open is not kept at all");
+        assert!(m.get("light.a").unwrap().ctl_pin.is_empty(), "no other domain has a sensitive service here");
     }
 }

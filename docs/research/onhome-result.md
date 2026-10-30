@@ -4,6 +4,16 @@ The Smart home card of Home in the Rust shell, fed by Home Assistant's LumaShow 
 
 ## Resume here
 
+**Locks (2026-10-30, Nitin's rules).** Done on the host, pushed with the commit that carries this note; nothing has run on the TV.
+
+- **Lock:** one OK on an open lock's tile (or Lock on its sheet) calls `lock.lock` through `/v1/onhome/act`, from anywhere, with the status on the tile.
+- **Unlock is a person at the TV's remote, and nothing else.** OK on a locked lock's tile opens the sheet on the question "Unlock <name>?" with Cancel in front and Unlock (danger colour) second; only the key `ok` on Unlock asks. The shell then reads `onhome/shell.json` (a token the helper writes at every start, 0600 in a 0700 directory, never in a topic or an answer) and posts `{id, token}` to `POST /v1/onhome/unlock`. That route answers only a loopback peer that shows the token. `POST /v1/onhome/act` refuses `unlock` and `open` for every lock, state and list of services (`needs_shell`), the planner has no row for them, the mirror strips them from a lock's ordinary services, and the listener sends them only for a confirmed touch from `OnHome::unlock`. The plugins' lease (`NEVER_CALLED`), the AI access module, luna and voice have no way to call a lock.
+- **Journal:** every try is a line of `<data dir>/onhome/journal.jsonl` (and the helper's log): when, which lock, done, failed or refused, and whether the shell asked. Refused tries from the API are written too.
+- **Home Assistant has the last word,** and today it asks for its PIN: a lock's `unlock` is a sensitive service (`lumashow-ha` `policy.py`, `hub.py` `_precheck_pin`), allowed only with the entity's sensitive switch on, a PIN set, `origin: touch`, `confirmed: true` and the PIN. The TV sends the touch and the confirmation and holds no PIN, so Home Assistant answers `pin_required` and the TV says "Home Assistant wants its PIN for this. Allow unlocking from the TV with a confirmation in its LumaTV entry". Unlock by confirmation alone needs a change in `lumashow-ha` (below).
+- **AI and automation paths:** `docs/research/onhome-ai-unlock-gate.md` (what HomeLabber must expose; until it exists they simply refuse).
+
+Next, in order: (1) `lumashow-ha`: the confirm-only unlock option and a release (Main's call); (2) Nitin: allow the lock entities for control and sensitive in the LumaTV entry, add the unlock notification automation (the YAML is in the gate note); (3) TV check list items 9 to 12 below; (4) HomeLabber's gated unlock tool, which is the only AI path.
+
 State before this work (read on 2026-10-30): the Home Assistant plugin was not installed on the TV, no link file existed, nothing listened on 6054, and Home Assistant's *LumaTV* entry of the LumaShow integration was loaded but not connected, with no entity shared. The camera path through `ha-bridge` had been removed from the helper with the Scrypted cameras, so the TV had no end for the integration to dial.
 
 Done:
@@ -18,7 +28,7 @@ Done:
 
 ## Safety (Principle 0)
 
-- The TV never asks for a lock, an alarm panel, a siren, a camera, a valve, a garage door, a gate or a door cover: `tile::plan` is a table of (domain, verb) to one service and the few plain values it takes, and nothing else builds a call. A switch, script or scene whose name says it unlocks, disarms or silences a camera or an alarm is refused whatever its domain. A lock is shown, never operated.
+- The TV never asks for an alarm panel, a siren, a camera, a valve, a garage door, a gate or a door cover, and a lock is only ever locked by a route: `tile::plan` is a table of (domain, verb) to one service and the few plain values it takes, and nothing else builds a call. A switch, script or scene whose name says it unlocks, disarms or silences a camera or an alarm is refused whatever its domain. A lock is locked from anywhere and unlocked only by a person at the TV (see the top).
 - Home Assistant decides first: a service the integration did not list for the entity (`ctl`) is not called, and one that needs the PIN (`ctl_pin`) is not even kept. Control paused in Home Assistant shows tiles and calls nothing.
 - Which entities the TV sees is the owner's choice in Home Assistant; the TV cannot widen it. The TV has no Home Assistant address or token, and the listener lets in only the holder of the TV's pairing key.
 
@@ -35,10 +45,14 @@ Done:
 2. Home Assistant's LumaTV entry connects by itself; `GET /v1/onhome` says `connected` with the shared count; the log says the integration connected.
 3. A light, a switch and a scene shared and controllable: OK on the tile does it, the tile follows, a change made in Home Assistant moves the tile.
 4. A dimmable light and a thermostat: a held OK opens the sheet, Left and Right change brightness and the set point, the lamp and the thermostat follow.
-5. A lock and a garage door shared: shown, OK opens a sheet of words, nothing is sent (`log-helper` has no `actions.call` for them).
+5. A garage door shared: shown, OK opens a sheet of words, nothing is sent (`log-helper` has no `actions.call` for it).
 6. Stop Home Assistant: the tiles say Not reachable; start it: they come back by themselves.
 7. Unpair (`ble-unlink`): the listener ends and Home says Not paired.
 8. Idle cost: resident size and CPU of the helper before and after.
+9. A lock shared and allowed for control: an open lock locks with one OK and the tile follows; a locked one opens the question, Cancel does nothing, Unlock asks Home Assistant (expect the PIN words until `lumashow-ha` has the option).
+10. `/var/lib/lumatv/onhome/shell.json` exists, mode 0600, and the shell (`lumatv-ui`) can read it: Unlock says "The TV cannot unlock from here" when it cannot.
+11. From the TV's loopback without the token, `curl -XPOST -H 'X-Luma-Client: x' -d '{"id":"lock.front_door","verb":"unlock"}' http://127.0.0.1:18731/v1/onhome/act` answers 409 `needs_shell` and Home Assistant's log shows no call; `POST /v1/onhome/unlock` with a wrong token answers 403. Both are lines of the journal.
+12. After an unlock from the remote: the journal line, Home Assistant's logbook entry (`lumashow_action`, `lock.unlock`, `touch`) and the phone notification.
 
 ## Not built, and why
 

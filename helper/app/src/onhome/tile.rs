@@ -290,7 +290,7 @@ fn say(domain: &str, e: &Ent, unit: &str) -> Said {
                 "jammed" => ("Jammed", "alert", "lock"),
                 _ => ("Unknown", "muted", "lock"),
             };
-            said(words, tone, icon, vec![], json!({}))
+            said(words, tone, icon, vec![], json!({"state": e.state}))
         }
         "media_player" => media(e),
         _ => said(title_case(&e.state), "muted", "activity", vec![], json!({})),
@@ -500,7 +500,7 @@ fn offered(verb: &str, ctl: &[String]) -> bool {
 
 /// The tile of one shared entity: `ent` is what is known of it (`None`: Home Assistant no longer shares it), `ctl` the services Home
 /// Assistant lets the TV call on it now (empty: shown, not controlled).
-pub fn tile(id: &str, name: Option<&str>, area: Option<&str>, ent: Option<&Ent>, ctl: &[String], unit: &str, reach: Reach) -> Value {
+pub fn tile(id: &str, name: Option<&str>, area: Option<&str>, ent: Option<&Ent>, ctl: &[String], ctl_pin: &[String], unit: &str, reach: Reach) -> Value {
     let domain = domain_of(id).unwrap_or("");
     let group = Group::of_domain(domain);
     let name = name.map(str::to_owned).or_else(|| ent.and_then(|e| e.name().map(str::to_owned))).unwrap_or_else(|| id.to_owned());
@@ -519,13 +519,23 @@ pub fn tile(id: &str, name: Option<&str>, area: Option<&str>, ent: Option<&Ent>,
             (s.words, s.tone, s.icon, can, s.ctl, available)
         }
     };
+    // A lock: locking is one press when it is open; when it is locked a press asks whether to unlock (the sheet, with its question first).
+    let unlockable = domain == "lock" && ctl.iter().chain(ctl_pin).any(|v| v == "unlock");
+    let lockable = domain == "lock" && ctl.iter().any(|v| v == "lock");
+    let can: Vec<&'static str> = match (domain, available, ent.map(|e| e.state.as_str())) {
+        ("lock", true, Some("locked")) if unlockable => vec!["unlock"],
+        ("lock", true, Some("unlocked" | "open" | "jammed")) if lockable => vec!["lock"],
+        ("lock", ..) => Vec::new(),
+        _ => can,
+    };
     let map = tile.as_object_mut().expect("an object");
     map.insert("words".into(), json!(words));
     map.insert("tone".into(), json!(tone));
     map.insert("icon".into(), json!(icon));
     map.insert("available".into(), json!(available));
     map.insert("can".into(), json!(can));
-    map.insert("verbs".into(), json!(if can.is_empty() { &[][..] } else { ctl }));
+    map.insert("verbs".into(), json!(if domain == "lock" && available { ctl.iter().filter(|v| *v == "lock").cloned().collect::<Vec<_>>() } else if can.is_empty() { Vec::new() } else { ctl.to_vec() }));
+    map.insert("sensitive".into(), json!(if unlockable && available { vec!["unlock"] } else { Vec::new() }));
     map.insert("ctl".into(), ctl_doc);
     tile
 }
@@ -560,6 +570,9 @@ pub enum Refused {
     NotAllowed(&'static str),
     /// The value is not one this control takes.
     Invalid(&'static str),
+    /// Unlocking is done only by a person at the TV: the TV's own screen asks for it, with a question first (`OnHome::unlock`). Asked
+    /// any other way (the API, an assistant, a script) it is refused here, whoever asks.
+    NeedsShell,
 }
 
 impl Refused {
@@ -569,6 +582,7 @@ impl Refused {
             Self::Unavailable => "unavailable",
             Self::NotAllowed(_) => "not_allowed",
             Self::Invalid(_) => "invalid",
+            Self::NeedsShell => "needs_shell",
         }
     }
 
@@ -577,6 +591,7 @@ impl Refused {
             Self::NotShown => "That is not on Home".into(),
             Self::Unavailable => "Home Assistant cannot reach it right now".into(),
             Self::NotAllowed(why) | Self::Invalid(why) => (*why).into(),
+            Self::NeedsShell => "Unlocking is done from the TV itself, with its remote".into(),
         }
     }
 }
@@ -636,13 +651,36 @@ pub fn plan(id: &str, e: &Ent, ctl: &[String], unit: &str, verb: &str, value: &V
     }
 }
 
-fn planned(id: &str, e: &Ent, unit: &str, verb: &str, value: &Value) -> Result<Call, Refused> {
-    let domain = domain_of(id).ok_or(Refused::NotShown)?;
-    if matches!(domain, "lock" | "sensor" | "binary_sensor" | "media_player") {
-        return Err(Refused::NotAllowed(if domain == "lock" { NOT_FROM_THE_TV } else { "That is shown, not controlled" }));
+/// The one call that unlocks: `lock.unlock` on a lock the integration offers it for (its `ctl_pin` or `ctl`). Only [`OnHome::unlock`] calls this,
+/// after the TV's own screen has asked the person "Unlock <name>?" and the person has pressed Unlock with the remote.
+pub fn plan_unlock(id: &str, e: &Ent, ctl: &[String], ctl_pin: &[String]) -> Result<Call, Refused> {
+    if domain_of(id) != Some("lock") {
+        return Err(Refused::NotAllowed("Only a lock is unlocked"));
     }
     if e.gone() {
         return Err(Refused::Unavailable);
+    }
+    if !ctl.iter().chain(ctl_pin).any(|v| v == "unlock") {
+        return Err(Refused::NotAllowed("Home Assistant does not let the TV unlock this"));
+    }
+    call("lock", "unlock", &[])
+}
+
+fn planned(id: &str, e: &Ent, unit: &str, verb: &str, value: &Value) -> Result<Call, Refused> {
+    let domain = domain_of(id).ok_or(Refused::NotShown)?;
+    if matches!(domain, "sensor" | "binary_sensor" | "media_player") {
+        return Err(Refused::NotAllowed("That is shown, not controlled"));
+    }
+    if e.gone() {
+        return Err(Refused::Unavailable);
+    }
+    // Locking is everyday and allowed from anywhere; unlocking and unlatching are not, from any route that is not the TV's own screen.
+    if domain == "lock" {
+        return match verb {
+            "lock" => call("lock", "lock", &[]),
+            "unlock" | "open" => Err(Refused::NeedsShell),
+            _ => Err(Refused::NotAllowed("That thing has no such control")),
+        };
     }
     if barred(domain, id, e) {
         return Err(Refused::NotAllowed(NOT_FROM_THE_TV));
@@ -712,11 +750,11 @@ mod tests {
 
     /// Every service a thing of the domain has: what a Home Assistant that shares and controls it says.
     fn all_ctl() -> Vec<String> {
-        ["turn_on", "turn_off", "toggle", "set_percentage", "set_temperature", "set_hvac_mode", "open_cover", "close_cover", "stop_cover", "set_cover_position"].map(String::from).to_vec()
+        ["turn_on", "turn_off", "toggle", "set_percentage", "set_temperature", "set_hvac_mode", "open_cover", "close_cover", "stop_cover", "set_cover_position", "lock"].map(String::from).to_vec()
     }
 
     fn live(id: &str, e: &Ent) -> Value {
-        tile(id, None, Some("Kitchen"), Some(e), &all_ctl(), "\u{b0}F", Reach::Live)
+        tile(id, None, Some("Kitchen"), Some(e), &all_ctl(), &[], "\u{b0}F", Reach::Live)
     }
 
     #[test]
@@ -757,9 +795,9 @@ mod tests {
         assert_eq!((t["words"].as_str(), t["available"].as_bool(), t["can"].clone()), (Some("Unavailable"), Some(false), json!([])));
         let s = live("sensor.t", &ent("unknown", json!({"device_class": "temperature"})));
         assert_eq!((s["words"].as_str(), s["icon"].as_str()), (Some("Unavailable"), Some("thermometer")));
-        let gone = tile("light.old", None, None, None, &[], "", Reach::Live);
+        let gone = tile("light.old", None, None, None, &[], &[], "", Reach::Live);
         assert_eq!((gone["words"].as_str(), gone["available"].as_bool()), (Some("Not shared any more"), Some(false)));
-        let off = tile("light.lamp", Some("Lamp"), None, Some(&ent("on", json!({}))), &all_ctl(), "", Reach::Waiting("Not reachable"));
+        let off = tile("light.lamp", Some("Lamp"), None, Some(&ent("on", json!({}))), &all_ctl(), &[], "", Reach::Waiting("Not reachable"));
         assert_eq!((off["words"].as_str(), off["can"].clone(), off["name"].as_str()), (Some("Not reachable"), json!([]), Some("Lamp")));
     }
 
@@ -798,7 +836,7 @@ mod tests {
         assert_eq!((c["words"].as_str(), c["can"].clone()), (Some("Open \u{b7} 60%"), json!(["sheet"])));
         assert_eq!(live("cover.blind", &ent("closed", json!({"current_position": 0})))["words"], json!("Closed"));
         let l = live("lock.front", &ent("unlocked", json!({})));
-        assert_eq!((l["words"].as_str(), l["tone"].as_str(), l["can"].clone()), (Some("Unlocked"), Some("warn"), json!([])));
+        assert_eq!((l["words"].as_str(), l["tone"].as_str(), l["can"].clone()), (Some("Unlocked"), Some("warn"), json!(["lock"])));
         assert_eq!(live("lock.front", &ent("jammed", json!({})))["tone"], json!("alert"));
         let m = live("media_player.tv", &ent("playing", json!({"media_title": "The Expanse", "device_class": "tv"})));
         assert_eq!((m["words"].as_str(), m["icon"].as_str(), m["can"].clone()), (Some("Playing \u{b7} The Expanse"), Some("tv"), json!([])));
@@ -863,16 +901,63 @@ mod tests {
     }
 
     #[test]
-    fn nothing_is_ever_asked_of_a_lock_an_alarm_a_siren_a_camera_or_a_valve() {
-        for verb in ["lock", "unlock", "open", "toggle", "run", "on", "off"] {
-            assert_eq!(plan_of("lock.front_door", "locked", json!({}), verb, json!(null)), Err(Refused::NotAllowed(NOT_FROM_THE_TV)));
+    fn a_lock_is_locked_from_anywhere_and_never_unlocked_or_unlatched_by_a_route() {
+        let ctl = vec!["lock".to_owned()];
+        let locked = ent("locked", json!({}));
+        let c = plan("lock.front", &locked, &ctl, "", "lock", &json!(null)).unwrap();
+        assert_eq!((c.domain, c.service), ("lock", "lock"));
+        for verb in ["unlock", "open"] {
+            // not with any list of services, not for any state, not for any value
+            for list in [vec!["lock".to_owned()], all_ctl(), vec!["unlock".to_owned(), "open".to_owned(), "lock".to_owned()]] {
+                for state in ["locked", "unlocked", "jammed"] {
+                    assert_eq!(plan("lock.front", &ent(state, json!({})), &list, "", verb, &json!(true)), Err(Refused::NeedsShell), "{verb} {state} {list:?}");
+                }
+            }
         }
+        assert!(plan("lock.front", &locked, &ctl, "", "toggle", &json!(null)).is_err(), "a lock has no toggle");
+        assert!(plan("lock.front", &locked, &[], "", "lock", &json!(null)).is_err(), "not shared for control: not asked");
+        assert_eq!(plan("lock.front", &ent("unavailable", json!({})), &ctl, "", "lock", &json!(null)), Err(Refused::Unavailable));
+    }
+
+    #[test]
+    fn the_unlock_plan_is_a_lock_the_integration_offers_it_for_and_nothing_else() {
+        let pin = vec!["unlock".to_owned()];
+        let c = plan_unlock("lock.front", &ent("locked", json!({})), &["lock".to_owned()], &pin).unwrap();
+        assert_eq!((c.domain, c.service), ("lock", "unlock"));
+        assert!(plan_unlock("lock.front", &ent("locked", json!({})), &["lock".to_owned()], &[]).is_err(), "not offered: not asked");
+        for id in ["switch.s", "cover.garage", "light.l", "alarm_control_panel.house", "camera.porch", "valve.water"] {
+            assert!(plan_unlock(id, &ent("on", json!({})), &all_ctl(), &pin).is_err(), "{id}");
+        }
+        assert_eq!(plan_unlock("lock.front", &ent("unavailable", json!({})), &[], &pin), Err(Refused::Unavailable));
+    }
+
+    #[test]
+    fn nothing_is_ever_asked_of_an_alarm_a_siren_a_camera_or_a_valve() {
         for id in ["alarm_control_panel.house", "siren.hall", "camera.porch", "valve.water", "button.press", "automation.x", "vacuum.v"] {
             assert_eq!(plan_of(id, "on", json!({}), "toggle", json!(null)), Err(Refused::NotShown), "{id}");
         }
         // sensors and players are shown, not controlled
         assert!(plan_of("sensor.t", "1", json!({}), "toggle", json!(null)).is_err());
         assert!(plan_of("media_player.tv", "on", json!({}), "on", json!(null)).is_err());
+    }
+
+    #[test]
+    fn a_lock_tile_locks_in_one_press_when_open_and_asks_before_it_unlocks_when_locked() {
+        let lock_ctl = vec!["lock".to_owned()];
+        let pin = vec!["unlock".to_owned()];
+        let t = |state: &str, ctl: &[String], pin: &[String]| tile("lock.front", None, None, Some(&ent(state, json!({}))), ctl, pin, "", Reach::Live);
+        let open = t("unlocked", &lock_ctl, &pin);
+        assert_eq!((open["can"].clone(), open["verbs"].clone(), open["sensitive"].clone(), open["tone"].clone()), (json!(["lock"]), json!(["lock"]), json!(["unlock"]), json!("warn")));
+        let locked = t("locked", &lock_ctl, &pin);
+        assert_eq!((locked["can"].clone(), locked["words"].clone()), (json!(["unlock"]), json!("Locked")));
+        // unlock not offered by Home Assistant: a locked door is only shown, and an open one can still be locked
+        assert_eq!(t("locked", &lock_ctl, &[])["can"], json!([]));
+        assert_eq!(t("unlocked", &lock_ctl, &[])["can"], json!(["lock"]));
+        // shown only
+        let looked = t("unlocked", &[], &[]);
+        assert_eq!((looked["can"].clone(), looked["sensitive"].clone()), (json!([]), json!([])));
+        assert_eq!(t("unavailable", &lock_ctl, &pin)["can"], json!([]));
+        assert_eq!(t("jammed", &lock_ctl, &pin)["can"], json!(["lock"]));
     }
 
     #[test]
@@ -918,15 +1003,15 @@ mod tests {
     fn what_home_assistant_does_not_let_the_tv_do_is_not_done_or_offered() {
         let e = ent("on", json!({"supported_color_modes": ["brightness"]}));
         // shared to look at: nothing is offered and nothing is planned
-        let t = tile("light.l", None, None, Some(&e), &[], "", Reach::Live);
+        let t = tile("light.l", None, None, Some(&e), &[], &[], "", Reach::Live);
         assert_eq!((t["can"].clone(), t["verbs"].clone()), (json!([]), json!([])));
         assert_eq!(plan("light.l", &e, &[], "", "toggle", &json!(null)), Err(Refused::NotAllowed("Home Assistant does not let the TV do that")));
         // a service it did not list is not called: turn_on only, so a toggle is not made
         let only_on: Vec<String> = vec!["turn_on".into()];
         assert!(plan("light.l", &e, &only_on, "", "toggle", &json!(null)).is_err());
         assert_eq!(plan("light.l", &e, &only_on, "", "on", &json!(null)).unwrap().service, "turn_on");
-        assert_eq!(tile("light.l", None, None, Some(&e), &only_on, "", Reach::Live)["can"], json!([]), "a light that can only be turned on has no toggle");
-        let t = tile("scene.s", None, None, Some(&ent("x", json!({}))), &only_on, "", Reach::Live);
+        assert_eq!(tile("light.l", None, None, Some(&e), &only_on, &[], "", Reach::Live)["can"], json!([]), "a light that can only be turned on has no toggle");
+        let t = tile("scene.s", None, None, Some(&ent("x", json!({}))), &only_on, &[], "", Reach::Live);
         assert_eq!(t["can"], json!(["run"]));
     }
 
@@ -934,8 +1019,8 @@ mod tests {
     fn a_thermostat_without_a_unit_is_read_in_the_one_its_numbers_are_in() {
         let f = ent("heat", json!({"current_temperature": 68.0, "temperature": 70.0}));
         let c = ent("heat", json!({"current_temperature": 21.0, "temperature": 22.5}));
-        assert_eq!(tile("climate.t", None, None, Some(&f), &all_ctl(), "", Reach::Live)["ctl"]["unit"], json!("\u{b0}F"));
-        let t = tile("climate.t", None, None, Some(&c), &all_ctl(), "", Reach::Live);
+        assert_eq!(tile("climate.t", None, None, Some(&f), &all_ctl(), &[], "", Reach::Live)["ctl"]["unit"], json!("\u{b0}F"));
+        let t = tile("climate.t", None, None, Some(&c), &all_ctl(), &[], "", Reach::Live);
         assert_eq!((t["ctl"]["unit"].clone(), t["ctl"]["step"].clone()), (json!("\u{b0}C"), json!(0.5)));
         assert_eq!(plan("climate.t", &c, &all_ctl(), "", "temperature", &json!(22)).unwrap().data["temperature"], json!(22.0));
         assert!(plan("climate.t", &c, &all_ctl(), "", "temperature", &json!(70)).is_err(), "70 is not a room in Celsius");

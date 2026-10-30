@@ -57,6 +57,19 @@ pub struct Call {
     pub entity_ids: Vec<String>,
     pub verb: String,
     pub args: Map<String, Value>,
+    /// A person at the TV's own screen confirmed this (`origin: touch`, `confirmed: true`): the one way a sensitive service is asked for.
+    /// Only `OnHome::unlock` sets it, after the shell's own question.
+    pub touch: bool,
+}
+
+/// Whether `verb` on `entity` moves a door, a gate or an alarm, or switches a camera or a siren: never asked for unless a person at the TV
+/// confirmed ([`Call::touch`]), whatever the mirror says the integration listed. (The mirror holds no entity of these domains but locks.)
+fn sensitive(entity: &str, verb: &str) -> bool {
+    match entity.split('.').next().unwrap_or("") {
+        "lock" => matches!(verb, "unlock" | "open"),
+        "alarm_control_panel" | "siren" | "camera" | "valve" => true,
+        _ => false,
+    }
 }
 
 /// What the readers see.
@@ -426,10 +439,23 @@ impl Machine {
             return done(Err(wire::words("too_many").into()));
         }
         {
-            // what the integration said the TV may do is the only thing the TV does; a verb that needs the PIN is not one
+            // what the integration said the TV may do is the only thing the TV does; a sensitive service only for a confirmed touch, and only
+            // the lock's own `unlock`
             let shared = self.shared.lock();
             for entity in &call.entity_ids {
+                let sensitive = sensitive(entity, &call.verb);
                 match shared.mirror.get(entity) {
+                    _ if sensitive && !call.touch => {
+                        drop(shared);
+                        return done(Err(wire::words("needs_touch").into()));
+                    }
+                    Some(item) if call.touch => {
+                        let ok = entity.starts_with("lock.") && call.verb == "unlock" && (item.ctl_pin.iter().any(|v| *v == call.verb) || item.ctl.iter().any(|v| *v == call.verb));
+                        if !ok {
+                            drop(shared);
+                            return done(Err(wire::words("not_allowed").into()));
+                        }
+                    }
                     Some(item) if item.ctl.iter().any(|v| *v == call.verb) => {}
                     Some(_) => {
                         drop(shared);
@@ -444,7 +470,7 @@ impl Machine {
         }
         let op = self.next_op;
         self.next_op += 1;
-        let message = Message::Call(wire::Call { op, entity_ids: call.entity_ids, verb: call.verb, args: call.args, origin: "plugin".into(), confirmed: None, pin: None });
+        let message = Message::Call(wire::Call { op, entity_ids: call.entity_ids, verb: call.verb, args: call.args, origin: if call.touch { "touch" } else { "plugin" }.into(), confirmed: call.touch.then_some(true), pin: None });
         if !self.send_active(&message, wire::module::ACTIONS) {
             return done(Err("the action could not be sent".into()));
         }
