@@ -26,6 +26,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/prctl.h>
+#include <sys/resource.h>
 #include <sys/un.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -120,7 +121,7 @@ struct feeder {
      * are decoded here (gf_opus.c) and fed as PCM; pcm_sticky keeps a refusal in mind for the loads after it. */
     /* The texture path (GF_TEXTURE, --texture): the video is decoded here and painted into the window's buffers at tex_w x tex_h; `swdec_dir` is where
      * the decoder's libraries are (the `lib/` beside this program, or --swdec-lib). */
-    int tex_w, tex_h, tex_on;
+    int tex_w, tex_h, tex_on, tex_nice_was;
     const char *swdec_dir;
     char swdec_dir_buf[512];
     gf_swdec *swdec;
@@ -429,8 +430,12 @@ static int tex_set_size(struct feeder *f, int w, int h, char *err, size_t cap) {
     return vpl_wl_resize(f->wl, w, h, err, cap);
 }
 
+/* A texture is decoded on the CPU beside the compositor, which has a 120 Hz frame to make: the process runs a little behind it while one plays. */
+#define TEX_NICE 5
+
 static void stop_texture(struct feeder *f) {
     if (!f->tex_on) return;
+    if (setpriority(PRIO_PROCESS, 0, f->tex_nice_was) != 0) { /* not allowed to take the priority back: the next session of this process keeps its niceness */ }
     gf_swdec_close(f->swdec);
     f->swdec = NULL;
     free(f->tex_work);
@@ -453,6 +458,11 @@ static int start_texture(struct feeder *f, const gf_load *l, char *err, size_t c
         snprintf(err, cap, "the texture path paints the feeder's own window (not --window-id, --window-id-file or --no-window)");
         return -1;
     }
+    /* the CPU is the cost of this path: a stream larger or faster than a camera's second stream is the hardware window's, not this */
+    if ((uint64_t)l->width * l->height > 1920u * 1088u || l->fps > 60) {
+        snprintf(err, cap, "a texture is decoded on the CPU: %ux%u at %u a second is more than it takes (1920x1088 at 60)", l->width, l->height, l->fps);
+        return -1;
+    }
     tex_default_dir(f);
     if (gf_swdec_open(&f->swdec, f->swdec_dir, l->codec, l->width, l->height, err, cap) != 0) return -1;
     if (tex_set_size(f, f->tex_w, f->tex_h, err, cap) != 0) {
@@ -464,6 +474,13 @@ static int start_texture(struct feeder *f, const gf_load *l, char *err, size_t c
     f->tex.cpu_us_prev = cpu_us();
     f->tex.wall_prev_ns = gf_ns();
     f->audio_route = "none";
+    errno = 0;
+    f->tex_nice_was = getpriority(PRIO_PROCESS, 0);
+    if (errno == 0 && f->tex_nice_was < TEX_NICE) {
+        if (setpriority(PRIO_PROCESS, 0, TEX_NICE) != 0) gf_say("texture: could not lower the priority: %s", strerror(errno));
+    } else {
+        f->tex_nice_was = TEX_NICE;
+    }
     f->tex_on = 1;
     f->loaded = f->playing = 1;
     f->error = 0;
