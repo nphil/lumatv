@@ -20,6 +20,15 @@ Every screen has a Rust kind; Home, the panels and Settings ran on the set in ro
 LumaTV's compositor is live persistently since round 18c (2026-10-29), LG's as the fallback.
 Current recovery points and ownership are in `docs/HANDOFF.md` and the dated worker notes.
 
+Done since round 18 (recorded in `CHANGELOG.md`): the second video window (SUB0) for
+camera pop-ups and the Cameras full view over apps, camera pop-ups (SUB0 over apps, CPU
+texture over Home), the weather redesign (moving sky, ten days, full-screen radar), On Home
+smart home tiles (locks unlock only at the remote), and Marquee 0.9.3 subtitles.
+
+Open: an unexplained reboot during the camera full view over YouTube (round 26; pop-ups
+are off until it is understood); HDMI picture-in-picture on SUB0; the focus-dim cost of
+Home's widgets at 120 Hz.
+
 Display hardware work follows `docs/research/display-chip-direct.md`: use measured
 driver-exposed paths before raw-register experiments. The OSD0_1 AFBC probe showed no
 extra layer; the linear rerun needs Nitin present. Strongest-role investigation resumes

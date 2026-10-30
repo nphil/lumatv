@@ -6,12 +6,16 @@ how to measure again. Facts here were observed on one set unless marked
 [INFERENCE]. Credentials and the set's address are deliberately absent; they
 live with the owner.
 
-## Resume here (LumaTV, 2026-10-29 EDT)
+## Resume here (LumaTV, 2026-10-30 EDT)
 
-- LumaTV's compositor is live persistently since round 18c (2026-10-29 14:49 EDT, build
-  `f2e4b5d`), LG's as the automatic fallback. PlxNative's close crash is fixed by answering
-  card frame callbacks at commit (15/15 on the set; 4/5 crash with `early`). Frame lines are
-  the known minor class. Rust kinds are off by default.
+- The TV runs forge main (round 27 in progress); LumaTV's compositor is live persistently,
+  LG's as the automatic fallback. Rust kinds are off by default.
+- Camera pop-ups use SUB0 (the second video window) over apps and the CPU texture over
+  Home. `popups.on` is OFF after an unexplained reboot during the camera full view over
+  YouTube (round 26); turn it on only once that is explained.
+- 120 Hz frame work: Frames120b, `docs/research/frames-120-result.md`.
+- lumashow-ha 0.3.0 and LumaShow v1-20261030a are released; HA's LumaShow 0.3.0 runs with
+  48 entities shared to LumaTV.
 - All screens move to the 64-bit Rust shell; no new QML. Home, quick panel, picker, drawer,
   Cameras and part of Settings are opt-in. Remaining Settings and system surfaces are in
   progress. QML retires per kind only after two device parity passes. Recovery points are
