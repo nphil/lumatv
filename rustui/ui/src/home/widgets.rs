@@ -93,8 +93,12 @@ impl Pictures {
     /// `<module>/icons/<name>.png`, or an absolute path.
     pub fn get(&mut self, name: &str) -> Option<&Picture> {
         if !self.kept.contains_key(name) {
-            let path = if name.starts_with('/') { PathBuf::from(name) } else { self.module.as_ref()?.join("icons").join(format!("{name}.png")) };
-            let pic = std::fs::read(&path).ok().and_then(|b| picture::decode(&b).ok());
+            let file = if name.starts_with('/') { Some(PathBuf::from(name)) } else { self.module.as_ref().map(|m| m.join("icons").join(format!("{name}.png"))) };
+            let mut pic = file.and_then(|path| std::fs::read(path).ok()).and_then(|b| picture::decode(&b).ok());
+            // the program's own copy of the module's pictures, when the directory is gone
+            if pic.is_none() && !name.starts_with('/') {
+                pic = crate::embedded::icon(&format!("{name}.png")).and_then(|b| picture::decode(b).ok());
+            }
             self.kept.insert(name.to_owned(), pic);
         }
         self.kept.get(name).and_then(Option::as_ref)
@@ -798,7 +802,8 @@ impl Weather {
         let ink = kit.ui.look.ink();
         let ink2 = kit.ui.look.ink2();
         let mut changes: Vec<(usize, String, Rgba)> = vec![
-            (self.lines.place, s("place"), ink),
+            // no reading yet: the helper is starting again or not up, which the card says instead of staying empty
+            (self.lines.place, if d.is_null() { "Reconnecting\u{2026}".to_owned() } else { s("place") }, ink),
             (self.lines.temp, s("temp"), ink),
             (self.lines.cond, s("cond"), ink),
             (self.lines.stats, String::new(), ink2),

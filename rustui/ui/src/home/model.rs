@@ -50,6 +50,8 @@ pub const POPOVER_TAG: u64 = 314;
 pub const LAYOUT_TAG: u64 = 311;
 pub const TINT_TAG: u64 = 312;
 pub const SWITCH_TAG: u64 = 320;
+/// The read of the profile kept from the last time the helper answered (`last-profile.json`).
+pub const KEPT_PROFILE_TAG: u64 = 322;
 /// The write of Quick Access's choice (`remote.quickAccess`).
 pub const ACCESS_TAG: u64 = 313;
 
@@ -153,6 +155,9 @@ pub struct Home {
     /// What the bell's badge counts (the panels' log and the plugins' notes since the drawer was last open).
     pub unread: usize,
     pub profiles: Value,
+    /// The active profile as the helper last reported it, kept in `last-profile.json`: the chip keeps the person's letter, colour and
+    /// name while the helper is stopped or starting again.
+    kept_profile: Option<Value>,
     pub voice_ready: bool,
     pub helper_up: bool,
     pub dock: Dock,
@@ -246,6 +251,7 @@ impl Home {
             stills: super::stills::Stills::default(),
             unread: 0,
             profiles: Value::Null,
+            kept_profile: None,
             inner: None,
             inner_index: None,
             pointer_down: false,
@@ -497,6 +503,10 @@ impl Home {
 
     // ---- profiles
     pub fn profile(&self) -> Option<&Value> {
+        self.live_profile().or(self.kept_profile.as_ref())
+    }
+
+    fn live_profile(&self) -> Option<&Value> {
         if self.profiles.get("ready").and_then(Value::as_bool) != Some(true) {
             return None;
         }
@@ -569,6 +579,7 @@ impl Home {
             Effect::Luna { tag: LP_TAG, uri: format!("{HLP}/listLaunchPoints"), payload: json!({"subscribe": true}), subscribe: true },
             Effect::Luna { tag: LP_FALLBACK_TAG, uri: format!("{APP_MGR}/listLaunchPoints"), payload: json!({}), subscribe: false },
             Effect::Read { tag: TINT_TAG, path: "theme/tint.json".into() },
+            Effect::Read { tag: KEPT_PROFILE_TAG, path: "last-profile.json".into() },
         ];
         self.focus.ensure();
         out.push(Effect::Redraw);
@@ -832,6 +843,12 @@ impl Home {
                 let before = self.switched_at;
                 let was = self.profiles.get("active").cloned();
                 self.profiles = data.clone();
+                if let Some(live) = self.live_profile().cloned()
+                    && self.kept_profile.as_ref() != Some(&live)
+                {
+                    out.push(Effect::Write { path: "last-profile.json".into(), text: live.to_string() });
+                    self.kept_profile = Some(live);
+                }
                 self.switched_at = data.get("switchedAt").and_then(Value::as_u64);
                 self.picker.set_profiles(data);
                 // a change of person: the working copy is the new person's, read at once; what was open closes
@@ -868,6 +885,14 @@ impl Home {
                 if self.editor.is_none() && text != self.layout_text {
                     self.layout_text = text;
                     self.apply_layout(if status == 200 { data.clone() } else { json!({}) });
+                    self.redraw(out);
+                }
+            }
+            KEPT_PROFILE_TAG if status == 200 => {
+                // only what the helper has not said yet: a live profile is newer than the file
+                if self.kept_profile.is_none() && data.get("id").is_some() {
+                    self.kept_profile = Some(data.clone());
+                    self.register();
                     self.redraw(out);
                 }
             }
@@ -2348,6 +2373,27 @@ mod tests {
         assert_eq!(widths[0], Chip::new(48.0, Some(50.0)).width, "the chip is the first button, as wide as its parts");
         h.set_text_scale(2.0);
         assert_eq!(h.name_to_measure().as_deref(), Some("Nitin"), "a text size has its own width");
+    }
+
+    #[test]
+    fn the_chip_keeps_the_last_person_the_helper_named_while_it_does_not_answer() {
+        let mut h = home();
+        let topic = json!({"ready": true, "active": "nitin", "owner": "nitin", "canAdmin": true, "switchedAt": 1,
+            "profiles": [{"id": "nitin", "name": "Nitin", "initial": "N", "color": "#A79BF5", "active": true, "locked": false}]});
+        let out = h.update(&Input::Helper { topic: "profiles".into(), data: topic }, 1500);
+        let written = out.iter().find_map(|e| if let Effect::Write { path, text } = e { (path == "last-profile.json").then(|| text.clone()) } else { None });
+        let written = written.expect("the person is kept in a file");
+        // the helper stops: its topic is not ready, and the letter and name stay
+        h.update(&Input::Helper { topic: "profiles".into(), data: json!({"ready": false}) }, 1600);
+        assert_eq!(h.profile_name(), "Nitin");
+        assert_eq!(h.profile().and_then(|p| p.get("initial")).and_then(Value::as_str), Some("N"));
+        // a fresh start with the helper down reads the file
+        let mut cold = home();
+        let out = cold.start(1000);
+        assert!(out.iter().any(|e| matches!(e, Effect::Read { tag, path } if *tag == KEPT_PROFILE_TAG && path == "last-profile.json")));
+        assert_eq!(cold.profile_name(), "");
+        cold.update(&Input::Fetched { tag: KEPT_PROFILE_TAG, status: 200, data: serde_json::from_str(&written).unwrap() }, 1010);
+        assert_eq!(cold.profile_name(), "Nitin");
     }
 
     #[test]

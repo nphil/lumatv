@@ -26,8 +26,11 @@ pub struct Icons {
 }
 
 fn read_mask(path: &Path) -> Option<Mask> {
-    let file = std::fs::File::open(path).ok()?;
-    let mut reader = png::Decoder::new(std::io::BufReader::new(file)).read_info().ok()?;
+    decode_mask(std::fs::read(path).ok()?.as_slice())
+}
+
+fn decode_mask(png_bytes: &[u8]) -> Option<Mask> {
+    let mut reader = png::Decoder::new(png_bytes).read_info().ok()?;
     let mut buf = vec![0; reader.output_buffer_size()];
     let info = reader.next_frame(&mut buf).ok()?;
     let bytes = &buf[..info.buffer_size()];
@@ -81,7 +84,7 @@ impl Mask {
 }
 
 impl Icons {
-    /// The icons of `module_dir` (`<module>/icons/lucide`); masks are read when first asked for.
+    /// The icons of `module_dir` (`<module>/icons/lucide`, else the program's copy); masks are read when first asked for.
     pub fn new(module_dir: &Path) -> Self {
         Self { dir: Some(module_dir.join("icons/lucide")), ..Self::default() }
     }
@@ -95,7 +98,11 @@ impl Icons {
         if !self.masks.contains_key(name) {
             // a name is a file's stem: nothing that could leave the folder
             let ok = !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
-            let mask = self.dir.as_ref().filter(|_| ok).and_then(|d| read_mask(&d.join(format!("{name}.png"))));
+            // The module's file first; the program's own copy when the directory is gone, so the glyphs never depend on it.
+            let mask = ok
+                .then(|| self.dir.as_ref().and_then(|d| read_mask(&d.join(format!("{name}.png")))))
+                .flatten()
+                .or_else(|| ok.then(|| crate::embedded::icon(&format!("lucide/{name}.png")).and_then(decode_mask)).flatten());
             self.masks.insert(name.to_string(), mask);
         }
         self.masks.get(name).and_then(Option::as_ref)
@@ -159,6 +166,14 @@ mod tests {
 
     fn module() -> PathBuf {
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../payload/compositor/lumatv"))
+    }
+
+    #[test]
+    fn the_glyphs_draw_with_no_module_directory() {
+        let mut icons = Icons::new(Path::new("/nonexistent"));
+        assert!(icons.has("bell-ring"));
+        assert!(icons.draw("bell-ring", 32, Rgba(255, 255, 255, 255)).is_some());
+        assert!(!icons.has("no-such-icon"));
     }
 
     #[test]

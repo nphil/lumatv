@@ -6,6 +6,7 @@
 //! set.
 
 pub mod cameras;
+pub mod embedded;
 pub mod home;
 pub mod host;
 pub mod kit;
