@@ -215,10 +215,6 @@ impl External {
 /// The most rectangles a compositor's page is drawn in (`damage::MAX_RECTS` of the compositor): past it the page owes their bounds.
 const COMPOSITOR_RECTS: usize = 12;
 
-/// The most passes the floor is drawn in. A pass draws every layer of Home that meets it, and a frame's changes to Home are few
-/// and close together (a tile's lift, the clock), so a few covers draw fewer layers than many rectangles would.
-const FLOOR_PASSES: usize = 4;
-
 /// Frames planned with stack 0 not drawn (Home under an app's picture) before the floor's memory is given back.
 const FLOOR_UNUSED_FRAMES: u32 = 240;
 
@@ -998,12 +994,12 @@ impl Engine {
     /// page draws its stacks and its windows over all of them in turn, and an overlap would be drawn over twice. Left as they are
     /// with no frame planned.
     pub fn merge_areas(&mut self, areas: &mut Vec<Area>) {
-        let floor = self.floor.is_some();
+        let (floor, layers) = (self.floor.is_some(), self.drawn.len());
         let Some(external) = self.external.as_mut() else { return };
         let Some(planned) = external.planned.as_ref() else { return };
         let Some(region) = Region::exact(areas) else { return };
         // With the floor, stack 0 is one copy in each pass, whatever it holds.
-        let merged = planned.merged(region, if floor { external.split } else { 0 });
+        let merged = planned.merged(region, if floor { external.split..layers } else { 0..layers });
         if merged == region {
             return;
         }
@@ -1061,7 +1057,9 @@ impl Engine {
                 }
                 if let Some(picture) = floor.target {
                     if !floor.owed.is_empty() {
-                        let owed = floor.owed.region().limited(FLOOR_PASSES);
+                        // The floor's passes are merged as the renderer merges its own pages' (a pass draws every layer of Home that
+                        // meets it); they may overlap, which a picture of one stack, cleared and drawn whole in each, does not mind.
+                        let owed = planned.merged(floor.owed.region(), 0..surface.to);
                         let draw = Draw { surface, slot: None, target: picture.framebuffer, areas: Some(owed), clear: true };
                         let report = engine.renderer.draw_planned(planned, &draw);
                         external.report.add(&report);
