@@ -32,6 +32,12 @@ pub fn accept() -> Value {
     json!({"codecs": ["h264", "h265"], "max_width": 4096, "max_height": 2304, "max_fps": 60})
 }
 
+/// What the display's sub window takes (the codec file's `multiview_sub`: 1920x1088 at 30): a camera pop-up's stream is chosen inside it, so that it
+/// plays in either window whichever the compositor gives.
+pub fn accept_popup() -> Value {
+    json!({"codecs": ["h264", "h265"], "max_width": 1920, "max_height": 1088, "max_fps": 30})
+}
+
 /// Percent-encodes a value for a query (ids are opaque: never parsed, always encoded).
 pub fn encode(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
@@ -143,9 +149,14 @@ pub fn events_stream(motion: bool) -> Request {
 }
 
 pub fn live(camera: &str, quality: &str) -> Request {
+    live_within(camera, quality, accept())
+}
+
+/// `POST /v1/live` for a stream inside `accept`.
+pub fn live_within(camera: &str, quality: &str, accept: Value) -> Request {
     Request::post(
         "/v1/live",
-        json!({"camera": camera, "quality": quality, "accept": accept()}).to_string(),
+        json!({"camera": camera, "quality": quality, "accept": accept}).to_string(),
     )
 }
 
@@ -532,6 +543,11 @@ impl Bridge {
 
     pub fn live(&self, camera: &str, quality: &str) -> Result<Dial, Trouble> {
         dial_of(&self.json(&live(camera, quality))?)
+    }
+
+    /// A stream for a camera pop-up: the highest of the camera's inside the sub window's limits.
+    pub fn live_popup(&self, camera: &str, quality: &str) -> Result<Dial, Trouble> {
+        dial_of(&self.json(&live_within(camera, quality, accept_popup()))?)
     }
 
     pub fn playback(&self, camera: &str, start: i64, rate: u8) -> Result<Dial, Trouble> {

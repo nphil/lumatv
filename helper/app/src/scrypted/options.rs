@@ -75,6 +75,20 @@ pub fn notify_key(camera: &str) -> Option<String> {
     ok.then_some(key)
 }
 
+/// The kinds a camera notifies for until the owner picks: a person and a doorbell press, and an animal as well for a camera named for a pet (the cat feeder:
+/// that is what it is there to see, and Nitin asked for its pop-ups). Nitin's other cameras see birds and cats all day, so an animal is no default for them.
+pub fn default_kinds_for(name: &str) -> Vec<&'static str> {
+    let pet = name
+        .split(|c: char| !c.is_alphanumeric())
+        .map(str::to_lowercase)
+        .any(|w| matches!(w.as_str(), "cat" | "cats" | "kitten" | "pet" | "pets" | "dog" | "dogs" | "puppy"));
+    let mut kinds = DEFAULT_KINDS.to_vec();
+    if pet {
+        kinds.push("animal");
+    }
+    kinds
+}
+
 /// The page, as the schema format writes it. `cameras` are the ones the TV shows (id and name), in the order it shows them.
 pub fn schema_json(cameras: &[(String, String)], revision: u32) -> Value {
     let notify: Vec<Value> = cameras
@@ -86,7 +100,7 @@ pub fn schema_json(cameras: &[(String, String)], revision: u32) -> Value {
                 "key": key,
                 "label": if name.is_empty() { id } else { name },
                 "kind": {"type": "ordered-set", "options": {"provider": PROVIDER_KINDS}, "max_items": 8},
-                "default": {"type": "ordered", "value": DEFAULT_KINDS},
+                "default": {"type": "ordered", "value": default_kinds_for(name)},
                 "apply": "on-commit"
             }))
         })
@@ -469,6 +483,26 @@ mod tests {
             ),
             (None, None, None)
         );
+    }
+
+    #[test]
+    fn a_camera_named_for_a_pet_notifies_for_an_animal_too_and_no_other_does() {
+        for (name, kinds) in [
+            ("Cat Feeder", vec!["person", "doorbell", "animal"]),
+            ("cat feeder", vec!["person", "doorbell", "animal"]),
+            ("Pet Cam", vec!["person", "doorbell", "animal"]),
+            ("Front Door", vec!["person", "doorbell"]),
+            ("Bird", vec!["person", "doorbell"]),
+            ("Backyard", vec!["person", "doorbell"]),
+            ("Category 5", vec!["person", "doorbell"]),
+            ("", vec!["person", "doorbell"]),
+        ] {
+            assert_eq!(default_kinds_for(name), kinds, "{name}");
+        }
+        let schema = schema(&[("275".to_owned(), "Cat Feeder".to_owned()), ("273".to_owned(), "Front Door".to_owned())], 1).unwrap();
+        let options = Options::read(&schema.defaults());
+        assert_eq!(options.notify_for("275"), ["person", "doorbell", "animal"], "the page's default is what the policy reads");
+        assert_eq!(options.notify_for("273"), ["person", "doorbell"]);
     }
 
     #[test]

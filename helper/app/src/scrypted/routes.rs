@@ -4,11 +4,11 @@
 //! | Request | Answer |
 //! |---|---|
 //! | `GET /v1/cameras` | the `cameras` topic's value |
-//! | `GET /v1/cameras/{id}/frame?w=&h=` | the camera's newest still, never older than 10 s (else `404 no_picture`, or `503 not_connected`); `X-Luma-Camera-Age-Ms` |
+//! | `GET /v1/cameras/{id}/frame?w=&h=&fps=` | the camera's newest still, never older than 10 s (else `404 no_picture`, or `503 not_connected`); `X-Luma-Camera-Age-Ms`; `fps` (at most 10) asks the bridge's stream for more pictures a second than a tile's pace |
 //! | `GET /v1/cameras/{id}/recordings?from=&to=`, `/events?from=&to=&count=`, `/clips?from=&to=&count=` | the bridge's own JSON for the span |
 //! | `GET /v1/cameras/{id}/thumbnail?at=&w=&h=`, `/clip-thumbnail?clip=&w=&h=` | a picture of a recorded moment or a clip |
 //! | `GET /v1/cameras/events/{event}/thumbnail?w=&h=` | the picture of a pushed event |
-//! | `POST /v1/cameras/live {camera, quality?}` | starts live; the state is the `cameras.live` topic; a new camera ends the old session |
+//! | `POST /v1/cameras/live {camera, quality?, for?, popup?, window?}` | starts live; the state is the `cameras.live` topic; a new camera ends the old session. `for: "popup"` is a camera pop-up's picture: a stream inside the sub window's limits, in the feeder's `cameras.popupWindow` window, the decoder opened for the app the compositor's `window` (`main` or `sub`) says; `popup` is the card's id, for the log |
 //! | `POST /v1/cameras/playback {camera, at, rate?}` or `{camera, clip}` | starts a recording or a clip |
 //! | `POST /v1/cameras/live/stop` | stops live or playback (the pipeline unloads off this path) |
 //! | `POST /v1/cameras/live/pause {paused}` | holds the picture of a recording (Play dials it again where it stopped) |
@@ -31,6 +31,39 @@ use serde_json::{Map, Value, json};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
+
+/// Home's app id: the app LG's video path knows as in front while Home is, and so one whose video it connects to its sink.
+const HOME_APP: &str = "com.webos.app.home";
+
+/// What a stream is for beyond its camera and its mode: set for a camera pop-up's picture, empty for the full view, a recording and a clip.
+#[derive(Default)]
+struct Usage {
+    /// The words the log says it in (`pop-up 41`).
+    purpose: String,
+    /// The app the feeder's decoder is opened for (empty: the video window's own).
+    ndl_app: String,
+    /// The window type of the feeder it plays in (empty: the configured one).
+    window: String,
+}
+
+/// The app the decoder is opened for (`cameras.ndlApp`) where the compositor gave the picture `window` (`main` or `sub`): the video window is no app on
+/// SAM's foreground list, so over the display's main window it plays for Home, which is in front; `own` is the window's own id.
+fn ndl_app_for(setting: &str, window: &str) -> String {
+    let plain = |id: &str| !id.is_empty() && id.len() <= 100 && id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'));
+    match setting {
+        "own" => String::new(),
+        "home" => HOME_APP.to_owned(),
+        "auto" | "" => {
+            if window == "sub" {
+                String::new()
+            } else {
+                HOME_APP.to_owned()
+            }
+        }
+        id if plain(id) => id.to_owned(),
+        _ => HOME_APP.to_owned(),
+    }
+}
 
 pub const ROUTES: &[(&str, &str, &str)] = &[
     (
@@ -76,7 +109,7 @@ pub const ROUTES: &[(&str, &str, &str)] = &[
     (
         "POST",
         "/v1/cameras/live",
-        "plays a camera on the video plane: {\"camera\", \"quality\"?}",
+        "plays a camera on the video plane: {\"camera\", \"quality\"?} or, for a camera pop-up's picture, {\"camera\", \"for\": \"popup\", \"popup\"?, \"window\"?: \"main\"|\"sub\"}",
     ),
     (
         "POST",
@@ -240,6 +273,11 @@ impl Inner {
             Ok(size) => size,
             Err(r) => return r,
         };
+        // a pop-up with no video asks for a quicker stream than a tile does (`fps`, at most 10, the bridge's own limit)
+        let fps = match int(request, "fps") {
+            Ok(n) => u32::try_from(n.unwrap_or(0).clamp(0, 10)).unwrap_or(0),
+            Err(r) => return r,
+        };
         if !plain_id(id) {
             return error_response(400, "bad_request", "a camera is the id Scrypted gave it");
         }
@@ -255,7 +293,7 @@ impl Inner {
         }
         let picture = match self
             .stills
-            .ask(id, if w == 0 { 480 } else { w }, FIRST_STILL)
+            .ask(id, if w == 0 { 480 } else { w }, fps, FIRST_STILL)
         {
             Ok(Some(picture)) => picture,
             Ok(None) => {
@@ -422,12 +460,23 @@ impl Inner {
         Ok(id.to_owned())
     }
 
-    /// What every start has in common: the live path is on, the link is good, and the call to the bridge is made before anything is changed, so
-    /// that a refusal leaves the session that plays as it was. The last of two quick calls is the one that plays.
+    /// A start that is nobody's pop-up: the full view's live, a recording, a clip.
     fn start_stream(
         self: &Arc<Self>,
         camera: &str,
         mode: Mode,
+        ask: impl FnOnce(&bridge::Bridge) -> Result<bridge::Dial, Trouble>,
+    ) -> Response {
+        self.start_stream_for(camera, mode, Usage::default(), ask)
+    }
+
+    /// What every start has in common: the live path is on, the link is good, and the call to the bridge is made before anything is changed, so
+    /// that a refusal leaves the session that plays as it was. The last of two quick calls is the one that plays.
+    fn start_stream_for(
+        self: &Arc<Self>,
+        camera: &str,
+        mode: Mode,
+        usage: Usage,
         ask: impl FnOnce(&bridge::Bridge) -> Result<bridge::Dial, Trouble>,
     ) -> Response {
         if !self.live.available() {
@@ -445,6 +494,13 @@ impl Inner {
             Ok(dial) => dial,
             Err(t) => {
                 self.live.asked_in_vain(camera, &t.words());
+                if !usage.purpose.is_empty() {
+                    crate::log_info!(
+                        "cameras: live for {} on camera {camera} refused: {}",
+                        usage.purpose,
+                        t.words()
+                    );
+                }
                 return refused(&t.code(), &t.words());
             }
         };
@@ -463,6 +519,20 @@ impl Inner {
             }
             return refused("superseded", "Another stream was asked for meanwhile");
         }
+        if !usage.purpose.is_empty() {
+            // the stream's address is a capability and is not here: what the bridge says it is, and where it will play
+            crate::log_info!(
+                "cameras: live for {} on camera {camera}: {} {}x{} at {} a second declared{}, window {}, decoder opened for {}",
+                usage.purpose,
+                dial.codec,
+                dial.width,
+                dial.height,
+                dial.fps,
+                if dial.prebuffered { ", prebuffered" } else { ", not prebuffered" },
+                if usage.window.is_empty() { "as configured" } else { &usage.window },
+                if usage.ndl_app.is_empty() { "the window's own app" } else { &usage.ndl_app },
+            );
+        }
         let plan = Plan {
             camera: camera.to_owned(),
             mode,
@@ -473,6 +543,9 @@ impl Inner {
             fps: dial.fps,
             started_at: dial.started_at,
             rate: dial.rate,
+            ndl_app: usage.ndl_app,
+            purpose: usage.purpose,
+            window: usage.window,
             on_end: end_session(&dial),
         };
         self.set_held(None);
@@ -499,7 +572,34 @@ impl Inner {
         if !["native", "balanced", "light"].contains(&quality.as_str()) {
             return error_response(400, "bad_request", "quality is native, balanced or light");
         }
-        self.start_stream(&camera, Mode::Live, |bridge| bridge.live(&camera, &quality))
+        match body.get("for").and_then(Value::as_str) {
+            None => self.start_stream(&camera, Mode::Live, |bridge| bridge.live(&camera, &quality)),
+            Some("popup") => {
+                if !self.config.popup_live {
+                    return refused(
+                        "live_off",
+                        "Live video in the camera pop-up is switched off on this TV (cameras.popupLive)",
+                    );
+                }
+                let window = body.get("window").and_then(Value::as_str).unwrap_or("main");
+                if !["main", "sub"].contains(&window) {
+                    return error_response(400, "bad_request", "window is main or sub");
+                }
+                let purpose = match body.get("popup").and_then(Value::as_u64) {
+                    Some(id) => format!("pop-up {id}"),
+                    None => "pop-up".to_owned(),
+                };
+                let usage = Usage {
+                    purpose,
+                    ndl_app: ndl_app_for(&self.config.ndl_app, window),
+                    window: self.config.popup_window.clone(),
+                };
+                self.start_stream_for(&camera, Mode::Live, usage, |bridge| {
+                    bridge.live_popup(&camera, &quality)
+                })
+            }
+            Some(_) => error_response(400, "bad_request", "for is popup"),
+        }
     }
 
     fn playback_route(self: &Arc<Self>, request: &Request) -> Response {

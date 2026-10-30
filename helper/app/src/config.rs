@@ -277,6 +277,14 @@ pub struct CamerasConfig {
     pub feeder_library: String,
     /// How long the feeder process is kept after the last stream, so that the next open skips its start (0: it ends with the stream).
     pub feeder_idle_seconds: u32,
+    /// The window type the feeder owns for a camera pop-up: `video`, the compositor's own video window (`--vwin`), played on once a claim is granted for the
+    /// card's picture; the full view's is `feeder_window`.
+    pub popup_window: String,
+    /// The app the feeder's decoder is opened for. LG's video path connects a video to its sink only for an app on SAM's foreground list, which the
+    /// video window's own id is not: `auto` (Home's id while the window is the display's main one, its own in the sub one), `home`, `own`, or an app id.
+    pub ndl_app: String,
+    /// Whether a camera pop-up plays live video where the compositor gives it a window. Off: it shows stills only.
+    pub popup_live: bool,
     /// `POST /v1/cameras/event` makes a pop-up as a detector would, for the TV check and the tests. Off: the route refuses.
     pub test_events: bool,
 }
@@ -291,6 +299,9 @@ impl Default for CamerasConfig {
             feeder_window: "card".to_owned(),
             feeder_library: String::new(),
             feeder_idle_seconds: 120,
+            popup_window: "video".to_owned(),
+            ndl_app: "auto".to_owned(),
+            popup_live: true,
             test_events: false,
         }
     }

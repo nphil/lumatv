@@ -51,6 +51,8 @@ struct Slot {
     changed: Condvar,
     last_ask: Mutex<Instant>,
     width: AtomicU32,
+    /// The most pictures a second anybody asked of this camera (0: the grid's pace): a camera pop-up that has no video asks for more than a tile does.
+    fps: AtomicU32,
     running: AtomicBool,
 }
 
@@ -127,9 +129,10 @@ impl Stills {
         slot.latest.lock().clone()
     }
 
-    /// Asks for a camera's picture at about `width` pixels wide: opens its stream if none is open, and answers the newest picture that is
-    /// fresh, waiting up to `wait` for the first one. `Err(busy)` when eight other cameras are being served already.
-    pub fn ask(&self, camera: &str, width: u32, wait: Duration) -> Result<Option<Picture>, Busy> {
+    /// Asks for a camera's picture at about `width` pixels wide, `fps` a second at least where that is more than the grid's pace (0: the grid's): opens
+    /// its stream if none is open, and answers the newest picture that is fresh, waiting up to `wait` for the first one. `Err(busy)` when eight other
+    /// cameras are being served already.
+    pub fn ask(&self, camera: &str, width: u32, fps: u32, wait: Duration) -> Result<Option<Picture>, Busy> {
         let slot = {
             let mut slots = self.inner.slots.lock();
             slots
@@ -140,6 +143,7 @@ impl Stills {
                         changed: Condvar::new(),
                         last_ask: Mutex::new(Instant::now()),
                         width: AtomicU32::new(0),
+                        fps: AtomicU32::new(0),
                         running: AtomicBool::new(false),
                     })
                 })
@@ -147,6 +151,7 @@ impl Stills {
         };
         *slot.last_ask.lock() = Instant::now();
         slot.width.fetch_max(bucket(width), Ordering::SeqCst);
+        slot.fps.fetch_max(fps.min(10), Ordering::SeqCst);
         if !slot.running.swap(true, Ordering::SeqCst) {
             if self.inner.running.load(Ordering::SeqCst) as usize >= MAX_STREAMS {
                 slot.running.store(false, Ordering::SeqCst);
@@ -163,6 +168,7 @@ impl Stills {
                     read_stills(&inner, &name, &s, generation);
                     s.running.store(false, Ordering::SeqCst);
                     s.width.store(0, Ordering::SeqCst);
+                    s.fps.store(0, Ordering::SeqCst);
                     inner.running.fetch_sub(1, Ordering::SeqCst);
                 });
             if spawned.is_err() {
@@ -207,7 +213,8 @@ fn read_stills(inner: &Arc<Inner>, camera: &str, slot: &Arc<Slot>, generation: u
             return;
         };
         let width = slot.width.load(Ordering::SeqCst).max(WIDTHS[0]);
-        let opened = bridge.open_stills(camera, width, inner.fps.load(Ordering::Relaxed));
+        let fps = inner.fps.load(Ordering::Relaxed).max(slot.fps.load(Ordering::SeqCst)).clamp(1, 10);
+        let opened = bridge.open_stills(camera, width, fps);
         let (head, body) = match opened {
             Ok(opened) => opened,
             // too many streams at the bridge, or the camera is off: asked again in a moment, while somebody wants it
@@ -252,8 +259,8 @@ fn read_stills(inner: &Arc<Inner>, camera: &str, slot: &Arc<Slot>, generation: u
                 // the stream ended or failed: opened again below if somebody still wants the camera
                 Ok(None) | Err(_) => break,
             }
-            // a wider picture was asked for: the stream is opened again at that width
-            if !current() || idle(slot) || slot.width.load(Ordering::SeqCst) > width {
+            // a wider picture, or a faster pace, was asked for: the stream is opened again at that
+            if !current() || idle(slot) || slot.width.load(Ordering::SeqCst) > width || slot.fps.load(Ordering::SeqCst) > fps {
                 break;
             }
         }
@@ -290,7 +297,7 @@ mod tests {
     fn with_no_bridge_an_ask_is_nothing_and_leaves_no_stream_open() {
         let stills = Stills::new(Duration::from_secs(10), 500 * 1024);
         assert!(matches!(
-            stills.ask("273", 480, Duration::from_millis(30)),
+            stills.ask("273", 480, 0, Duration::from_millis(30)),
             Ok(None)
         ));
         // the reader had no bridge to ask and ended

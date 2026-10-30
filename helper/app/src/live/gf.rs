@@ -17,6 +17,7 @@ pub const FLUSH: u8 = 4;
 pub const UNLOAD: u8 = 5;
 pub const STATE: u8 = 6;
 pub const PING: u8 = 8;
+pub const APP: u8 = 9;
 pub const LOADED: u8 = 16;
 pub const EVENT: u8 = 17;
 pub const ACCEPT: u8 = 18;
@@ -379,6 +380,11 @@ impl Client {
 
     pub fn send_unload(&mut self) -> io::Result<()> {
         self.send(UNLOAD, &[])
+    }
+
+    /// The app id NDL is opened for from the next load on; empty is the window's own (`GF_APP`).
+    pub fn send_app(&mut self, app: &str) -> io::Result<()> {
+        self.send(APP, app.as_bytes())
     }
 
     pub fn send_ping(&mut self, echo: i64) -> io::Result<()> {

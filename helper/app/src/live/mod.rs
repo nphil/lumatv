@@ -77,12 +77,19 @@ pub struct FeederSpec {
 
 /// The default feeder on the set: the GFN feeder staged beside the helper.
 pub fn default_spec(data_dir: &Path, window: &str, library: &str, idle: Duration) -> FeederSpec {
+    // LG's AV connector opens a Wayland connection of its own to register the window id and reads these two to find the compositor; the helper's
+    // service has neither (without them the pipeline says "fail to create AVProxy": `vplane.sh` sets the same two)
+    let env = [("XDG_RUNTIME_DIR", "/tmp/xdg"), ("WAYLAND_DISPLAY", "wayland-0")]
+        .into_iter()
+        .filter(|(k, _)| std::env::var_os(k).is_none_or(|v| v.is_empty()))
+        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        .collect();
     FeederSpec {
         program: data_dir.join("bin/lumatv-gfn-feeder"),
         window: window.to_owned(),
         library: library.to_owned(),
         extra_args: Vec::new(),
-        env: Vec::new(),
+        env,
         run_dir: std::env::temp_dir().join("lumatv-cameras"),
         idle,
     }
@@ -168,6 +175,14 @@ pub struct Plan {
     /// A recording: the moment (epoch milliseconds) the stream's first picture belongs to, and the pace it runs at.
     pub started_at: i64,
     pub rate: u8,
+    /// The app id the decoder is opened for (`GF_APP`): empty is the video window's own. LG's video path connects a video to its sink only for an
+    /// app on SAM's foreground list, which the window's own id is not (docs/research/camera-popup-result.md).
+    pub ndl_app: String,
+    /// What the stream is for, in words for the log (`popup 41`); empty for the full view.
+    pub purpose: String,
+    /// The window type of the feeder this stream plays in (`video`: the compositor's own video window, played on once a claim is granted to it); empty:
+    /// the configured one.
+    pub window: String,
     /// Called once, off the caller's path, when this stream is over for any reason (the bridge is told to end its playback session).
     pub on_end: Option<Box<dyn FnOnce() + Send>>,
 }
@@ -200,6 +215,8 @@ pub struct View {
     pub position_ms: Option<i64>,
     pub rate: u8,
     pub fed: u64,
+    /// Pictures a second the feeder took over the last second or so (the measured rate, not the stream's declared one).
+    pub fed_fps: f32,
     pub dropped: u64,
     pub lost: u64,
     pub delay_ms: u64,
@@ -223,6 +240,7 @@ impl Default for View {
             position_ms: None,
             rate: 1,
             fed: 0,
+            fed_fps: 0.0,
             dropped: 0,
             lost: 0,
             delay_ms: 0,
@@ -255,6 +273,7 @@ impl View {
             "positionMs": self.position_ms,
             "rate": self.rate,
             "fed": self.fed,
+            "fedFps": (f64::from(self.fed_fps) * 10.0).round() / 10.0,
             "dropped": self.dropped,
             "lost": self.lost,
             "delayMs": self.delay_ms,
@@ -643,10 +662,12 @@ struct Feeder {
     socket: PathBuf,
     client: gf::Client,
     window: String,
+    /// The window type it was started with (`-w`): a session that wants another starts another feeder.
+    kind: String,
 }
 
 impl Feeder {
-    fn start(spec: &FeederSpec) -> Result<Self, String> {
+    fn start(spec: &FeederSpec, kind: &str) -> Result<Self, String> {
         std::fs::create_dir_all(&spec.run_dir)
             .map_err(|e| format!("{}: {e}", spec.run_dir.display()))?;
         let socket = spec
@@ -658,7 +679,7 @@ impl Feeder {
             .arg("--serve")
             .arg(&socket)
             .arg("-w")
-            .arg(&spec.window)
+            .arg(kind)
             // the feeder ends when the helper's connection does, whatever happens to the helper
             .arg("--once")
             .arg("--stats")
@@ -670,10 +691,9 @@ impl Feeder {
         for (k, v) in &spec.env {
             command.env(k, v);
         }
-        command
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+        // the feeder's own words (its window, the app its decoder is opened for, what NDL answered) go to a file: a stream that shows nothing is read from it
+        let log = std::fs::File::create(spec.run_dir.join("feeder.log")).map_or_else(|_| Stdio::null(), Stdio::from);
+        command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(log);
         let child = command
             .spawn()
             .map_err(|e| format!("cannot start the feeder {}: {e}", spec.program.display()))?;
@@ -703,6 +723,7 @@ impl Feeder {
             socket,
             client,
             window,
+            kind: kind.to_owned(),
         })
     }
 
@@ -757,14 +778,16 @@ impl Pool {
         })
     }
 
-    /// The feeder, started if there is none; waits up to `FEEDER_WAIT` for a session that is going to give it up.
-    fn lease(self: &Arc<Self>) -> Result<Lease, String> {
+    /// The feeder with a window of type `window` (empty: the spec's), started if there is none; waits up to `FEEDER_WAIT` for a session that is going to
+    /// give it up.
+    fn lease(self: &Arc<Self>, window: &str) -> Result<Lease, String> {
+        let window = if window.is_empty() { self.spec.window.as_str() } else { window };
         let deadline = Instant::now() + FEEDER_WAIT;
         let mut slot = self.slot.lock();
         loop {
             match std::mem::replace(&mut *slot, Slot::Leased) {
                 Slot::Idle(mut feeder, _, loaded) => {
-                    if feeder.alive() {
+                    if feeder.alive() && feeder.kind == window {
                         drop(slot);
                         return Ok(Lease {
                             pool: self.clone(),
@@ -772,14 +795,14 @@ impl Pool {
                             loaded,
                         });
                     }
-                    // it died while it idled: another is started
-                    drop(feeder);
+                    // it died while it idled, or its window is not the kind wanted: another is started
                     drop(slot);
-                    return self.start_new();
+                    drop(feeder);
+                    return self.start_new(window);
                 }
                 Slot::Empty => {
                     drop(slot);
-                    return self.start_new();
+                    return self.start_new(window);
                 }
                 Slot::Leased => {
                     if self.changed.wait_until(&mut slot, deadline).timed_out() {
@@ -791,8 +814,8 @@ impl Pool {
     }
 
     /// Starts a feeder; the slot is already `Leased`, so nobody else starts one meanwhile.
-    fn start_new(self: &Arc<Self>) -> Result<Lease, String> {
-        match Feeder::start(&self.spec) {
+    fn start_new(self: &Arc<Self>, window: &str) -> Result<Lease, String> {
+        match Feeder::start(&self.spec, window) {
             Ok(feeder) => Ok(Lease {
                 pool: self.clone(),
                 feeder: Some(Box::new(feeder)),
@@ -935,6 +958,9 @@ struct Playing {
     started_at: i64,
     rate: u8,
     expect: Option<StreamInfo>,
+    ndl_app: String,
+    purpose: String,
+    window: String,
 }
 
 /// The bridge keeps one playback session for each camera and ends the old one (its stream is closed) as soon as it takes a call for another, so
@@ -970,6 +996,9 @@ struct Session {
     awaiting: AtomicBool,
     /// The video window the feeder owns (what the view says), kept here for a view that was reset while the session lived on.
     window: Mutex<String>,
+    /// When the session began, and when the feeder took its first picture (for the log: the time to the first picture and the rate it ran at).
+    began: Instant,
+    first_at: Mutex<Option<Instant>>,
     /// Where a recording stands with the bridge's one-playback-session-per-camera rule.
     replaced: Mutex<Replaced>,
     writer: Mutex<Option<JoinHandle<()>>>,
@@ -1179,10 +1208,15 @@ impl Live {
                 started_at: plan.started_at,
                 rate: plan.rate.max(1),
                 expect: want,
+                ndl_app: plan.ndl_app.clone(),
+                purpose: plan.purpose.clone(),
+                window: plan.window.clone(),
             }),
             epoch: AtomicU64::new(0),
             awaiting: AtomicBool::new(true),
             window: Mutex::new(String::new()),
+            began: Instant::now(),
+            first_at: Mutex::new(None),
             replaced: Mutex::new(Replaced::No),
             writer: Mutex::new(None),
         });
@@ -1236,6 +1270,8 @@ impl Live {
     fn compatible(session: &Session, plan: &Plan, want: Option<StreamInfo>) -> bool {
         let playing = session.playing.lock();
         playing.camera == plan.camera
+            && playing.ndl_app == plan.ndl_app
+            && playing.window == plan.window
             && match (playing.expect, want) {
                 (Some(loaded), Some(want)) => loaded.same_pipeline(&want),
                 _ => true,
@@ -1254,6 +1290,9 @@ impl Live {
             playing.mode = plan.mode;
             playing.started_at = plan.started_at;
             playing.rate = plan.rate.max(1);
+            playing.ndl_app.clone_from(&plan.ndl_app);
+            playing.purpose.clone_from(&plan.purpose);
+            playing.window.clone_from(&plan.window);
             if let Some(want) = stream_of(&plan) {
                 playing.expect = Some(want);
             }
@@ -1408,6 +1447,7 @@ impl Answers {
                             if session.awaiting.swap(false, Ordering::SeqCst)
                                 && let Some(inner) = session.inner.upgrade()
                             {
+                                session.first_at.lock().get_or_insert_with(Instant::now);
                                 inner.update(session.id, |v| {
                                     if v.state == "starting" {
                                         v.state = "playing";
@@ -1447,19 +1487,45 @@ impl Drop for Answers {
     }
 }
 
-/// Loads the pipeline with `info` in the leased feeder.
-fn load(lease: &mut Lease, info: StreamInfo) -> Result<(), String> {
+/// Loads the pipeline with `info` in the leased feeder, for the app named (empty: the video window's own).
+fn load(lease: &mut Lease, info: StreamInfo, ndl_app: &str) -> Result<(), String> {
     let codec = match info.codec {
         Codec::H264 => gf::CODEC_H264,
         Codec::H265 => gf::CODEC_H265,
     };
     let client = &mut lease.feeder().client;
+    client.send_app(ndl_app).map_err(|e| e.to_string())?;
     client
         .send_load(codec, info.width, info.height, info.fps)
         .map_err(|e| e.to_string())?;
     client.send_state(true).map_err(|e| e.to_string())?;
     lease.loaded = true;
     Ok(())
+}
+
+/// One line of the log when a stream's session is over: what it was for, how long the first picture took and how many a second the feeder took.
+fn log_end(session: &Session) {
+    let (camera, purpose) = {
+        let playing = session.playing.lock();
+        (playing.camera.clone(), playing.purpose.clone())
+    };
+    let (fed, dropped) = (
+        session.counters.fed.load(Ordering::Relaxed),
+        session.counters.dropped.load(Ordering::Relaxed),
+    );
+    let lost = session.counters.lost.load(Ordering::Relaxed) + session.queue.dropped();
+    let for_ = if purpose.is_empty() { String::new() } else { format!(" for {purpose}") };
+    match *session.first_at.lock() {
+        Some(first) => {
+            let secs = first.elapsed().as_secs_f64();
+            crate::log_info!(
+                "cameras: live{for_} on camera {camera} ended: first picture after {} ms, {fed} pictures in {secs:.1} s = {:.1} a second, {dropped} refused, {lost} lost",
+                first.duration_since(session.began).as_millis(),
+                if secs > 0.0 { fed as f64 / secs } else { 0.0 },
+            );
+        }
+        None => crate::log_info!("cameras: live{for_} on camera {camera} ended with no picture shown"),
+    }
 }
 
 fn fail(inner: &Inner, session: &Session, why: &str) {
@@ -1472,7 +1538,8 @@ fn fail(inner: &Inner, session: &Session, why: &str) {
 
 /// The session's thread: leases the feeder, loads it, and feeds it what the readers queue until the session ends.
 fn write_session(inner: &Arc<Inner>, pool: &Arc<Pool>, session: &Arc<Session>) {
-    let mut lease = match pool.lease() {
+    let window_kind = session.playing.lock().window.clone();
+    let mut lease = match pool.lease(&window_kind) {
         Ok(lease) => lease,
         Err(why) => {
             fail(inner, session, &why);
@@ -1498,6 +1565,7 @@ fn write_session(inner: &Arc<Inner>, pool: &Arc<Pool>, session: &Arc<Session>) {
     // what the feeder said before this session began is read past: its answer to this ping is the line
     let _ = lease.feeder().client.send_ping(session.id as i64);
     let healthy = feed(inner, session, &mut lease);
+    log_end(session);
     // the answers' thread goes first, so that the feeder is not given back with a reader still on its socket
     drop(answers);
     lease.release(session.unload.load(Ordering::SeqCst), healthy);
@@ -1513,9 +1581,12 @@ fn write_session(inner: &Arc<Inner>, pool: &Arc<Pool>, session: &Arc<Session>) {
 fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease) -> bool {
     let mut loaded: Option<StreamInfo> = None;
     // the load the bridge's description allows is started before the stream is dialled
-    let expect = session.playing.lock().expect;
+    let (expect, ndl_app) = {
+        let playing = session.playing.lock();
+        (playing.expect, playing.ndl_app.clone())
+    };
     if let Some(info) = expect {
-        if let Err(why) = load(lease, info) {
+        if let Err(why) = load(lease, info, &ndl_app) {
             fail(inner, session, &why);
             return false;
         }
@@ -1527,6 +1598,7 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease) -> bool {
     let mut delay_max = Duration::ZERO;
     let mut last_publish = Instant::now();
     let mut last_second = Instant::now();
+    let mut rate_mark = (Instant::now(), 0u64);
     let mut sent: u64 = 0;
     loop {
         if session.ended() {
@@ -1544,6 +1616,7 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease) -> bool {
                 last_second.elapsed() >= Duration::from_secs(1).saturating_sub(PUBLISH_EVERY),
                 &mut delay_max,
                 &mut last_second,
+                &mut rate_mark,
             );
         }
         let item = match session.queue.take(PUBLISH_EVERY) {
@@ -1559,7 +1632,7 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease) -> bool {
                     if lease.loaded {
                         let _ = lease.feeder().client.send_unload();
                     }
-                    if let Err(why) = load(lease, info) {
+                    if let Err(why) = load(lease, info, &ndl_app) {
                         fail(inner, session, &why);
                         return false;
                     }
@@ -1593,7 +1666,7 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease) -> bool {
                         ..info
                     };
                     let _ = lease.feeder().client.send_unload();
-                    if let Err(why) = load(lease, changed) {
+                    if let Err(why) = load(lease, changed, &ndl_app) {
                         fail(inner, session, &why);
                         return false;
                     }
@@ -1635,6 +1708,7 @@ fn publish_counts(
     second: bool,
     delay_max: &mut Duration,
     last_second: &mut Instant,
+    rate_mark: &mut (Instant, u64),
 ) {
     let (fed, dropped) = (
         session.counters.fed.load(Ordering::Relaxed),
@@ -1649,12 +1723,24 @@ fn publish_counts(
             .then(|| playing.started_at + pts_ms * i64::from(playing.rate));
         (position, delay_max.as_millis() as u64)
     };
+    // the rate the feeder takes pictures at, over the second that has passed (the declared one is the camera's own claim)
+    let fed_fps = if second {
+        let secs = rate_mark.0.elapsed().as_secs_f32();
+        let fps = (secs > 0.2).then(|| fed.saturating_sub(rate_mark.1) as f32 / secs);
+        *rate_mark = (Instant::now(), fed);
+        fps
+    } else {
+        None
+    };
     inner.update(session.id, |v| {
         v.fed = fed;
         v.dropped = dropped;
         v.lost = lost;
         if second {
             v.delay_ms = delay;
+        }
+        if let Some(fps) = fed_fps {
+            v.fed_fps = fps;
         }
         if position.is_some() && !v.paused && v.state != "stopped" {
             v.position_ms = position;
@@ -2096,6 +2182,9 @@ mod tests {
             fps: 15,
             started_at: 0,
             rate: 1,
+            ndl_app: String::new(),
+            purpose: String::new(),
+            window: String::new(),
             on_end: None,
         };
         assert_eq!(

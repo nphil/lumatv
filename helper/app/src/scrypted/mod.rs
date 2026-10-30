@@ -1017,6 +1017,7 @@ impl Inner {
                 if !route.popup {
                     return Some(decision);
                 }
+                let live_ok = self.config.popup_live && self.live.available();
                 let value = json!({
                     "id": id,
                     "event": event.id,
@@ -1032,7 +1033,19 @@ impl Inner {
                     "overApps": options.rules.over_apps,
                     "overSaver": route.over_saver,
                     "test": test,
+                    "source": "scrypted",
+                    "live": live_ok,
                 });
+                crate::log_info!(
+                    "cameras: pop-up {id} for {} {} on {name} (camera {}, event {}, source scrypted, {} s{}{})",
+                    event.kind,
+                    if label == event.kind { String::new() } else { format!("({label})") },
+                    event.camera,
+                    event.id,
+                    lasts_ms / 1000,
+                    if test { ", a test" } else { "" },
+                    if live_ok { ", live video where a window is free" } else { ", stills only" },
+                );
                 state.popup = Some(Popup {
                     id,
                     camera: event.camera.clone(),
@@ -1061,7 +1074,21 @@ impl Inner {
                     self.hub.set(POPUP_TOPIC, value);
                 }
             }
-            Decision::Held(_) => {}
+            Decision::Held(why) => {
+                crate::log_info!(
+                    "cameras: {} on {name} (camera {}, event {}) makes no pop-up: {}",
+                    event.kind,
+                    event.camera,
+                    event.id,
+                    match why {
+                        policy::Held::Off => "pop-ups are off",
+                        policy::Held::Kind => "its kind is not one this camera notifies for",
+                        policy::Held::End => "the object left",
+                        policy::Held::Cooldown => "the same kind popped up a moment ago",
+                        policy::Held::Old => "it happened too long ago",
+                    }
+                );
+            }
         }
         Some(decision)
     }
