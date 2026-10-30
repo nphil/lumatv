@@ -3,14 +3,22 @@
 //! sound goes out of has a mark, and the sound output is named on the right of the head. The sheet rises from the bottom edge; the tile
 //! in front is marked, the one the focus is on lifts on the flowing focus.
 //!
+//! With the previews on (`inputs.previews`) a tile whose input has a picture is the picture: the live one for the input in front while
+//! the picker is up, the last one for the others, dimmed, with its age in the state line (`shot_tile.rs`). The tiles are then the shape of
+//! a picture (about 16:10, so the cut is a twentieth of its width each side) and the sheet is as tall as they need; a tile with no picture
+//! (nothing connected, nothing taken yet, a picture that came back black) keeps its icon in the same shape.
+//!
 //! The model decides which tile has the focus; this follows it. The tiles are made again when the inputs say something else (a device
-//! connected, a name); the focus alone moves in place.
+//! connected, a name, a tile that has its first picture or is not live any more); the focus alone moves in place, and the next live
+//! picture of a tile is painted into its layer.
 
 use super::life::Phase;
 use super::picker::View;
+use super::shot_tile::{CHIP, CHIP_GROUND, ON_PICTURE, ON_PICTURE_2, ShotTile, WORST_GROUND, dress};
 use super::stage::{Stage, Touch};
 use super::ui::{Arrive, WordLine, Words};
 use crate::host::inputs::Tile;
+use crate::host::previews::{Previews, Shot};
 use crate::kit::focus::{Id, Region, Scope};
 use crate::kit::icon;
 use crate::kit::lint::Lint;
@@ -38,6 +46,12 @@ const SHEET_W: f32 = 1792.0;
 /// The mock's sheet and tile, as tall as that unless the words need more.
 const SHEET_MIN_H: f32 = 404.0;
 const TILE_MIN_H: f32 = 264.0;
+/// A picture's tile is this wide for each unit of its height: a 16:9 picture loses a twentieth of its width at each side.
+const PICTURE_ASPECT: f32 = 1.6;
+/// How far above the words the scrim of a picture begins: long enough that a picture fades into it and is not cut by a band.
+const SCRIM_RAMP: f32 = 40.0;
+/// The corner of the chip behind a port's name: a pill for one line, no rounder than this for two.
+const CHIP_RADIUS: f32 = 20.0;
 const MARK: f32 = 26.0;
 
 /// What the pointer can land on.
@@ -68,9 +82,13 @@ impl Target {
 #[derive(Clone, Debug, PartialEq)]
 struct TileLay {
     frame: Frame,
+    /// The tile is a picture: its words are on the picture, the port's name on a chip, the sound mark on a round one.
+    pic: bool,
     port: Vec<String>,
     port_at: (f32, f32, f32),
+    pill: Option<Frame>,
     mark: Option<(f32, f32)>,
+    chip: Option<Frame>,
     icon_side: u32,
     icon_at: (f32, f32),
     name: Vec<String>,
@@ -79,6 +97,8 @@ struct TileLay {
     dot_at: (f32, f32),
     state: Vec<String>,
     state_at: (f32, f32, f32),
+    /// Where the words begin in the tile: the scrim of a picture is as dense as the words need from here.
+    text_top: f32,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -89,7 +109,29 @@ struct Layout {
     tiles: Vec<TileLay>,
 }
 
-fn layout(kit: &mut Kit, v: &View) -> Layout {
+/// The state line of a tile: what it said, and for a picture whether it is live or how old it is.
+fn state_line(t: &Tile, shot: Option<&Shot>) -> String {
+    match shot {
+        Some(s) if s.live => format!("{} \u{b7} Live", t.state),
+        Some(s) => format!("{} \u{b7} {}", t.state, s.age),
+        None => t.state.clone(),
+    }
+}
+
+/// What a tile's words take, measured before the tiles are given their common height.
+struct Measured {
+    port: Vec<String>,
+    port_w: f32,
+    pill_text_w: f32,
+    icon_side: u32,
+    name: Vec<String>,
+    state: Vec<String>,
+    name_h: f32,
+    row_h: f32,
+    need: f32,
+}
+
+fn layout(kit: &mut Kit, v: &View, shots: &[Option<&Shot>]) -> Layout {
     let (s1, s2, s3, s4, s5, s6, s7) = (kit.space(1), kit.space(2), kit.space(3), kit.space(4), kit.space(5), kit.space(6), kit.space(7));
     let ink = kit.ui.look.ink();
     let ink2 = kit.ui.look.ink2();
@@ -98,58 +140,95 @@ fn layout(kit: &mut Kit, v: &View) -> Layout {
     let (label_line, caption_line, title_line) = (kit.line(TypeRole::Label), kit.line(TypeRole::Caption), kit.line(TypeRole::Title));
     let n = v.tiles.len().max(5) as f32;
     let tile_w = ((SHEET_W - 2.0 * s7 - (n - 1.0) * s4) / n).floor();
+    let chip_d = MARK + s2;
     let head_y = s5;
     let row_y = head_y + title_line + s5;
-    let mut tiles = Vec::new();
-    let mut tallest = 0.0f32;
-    for t in &v.tiles {
-        let sound = t.sound;
-        let port_w = tile_w - 2.0 * s5 - if sound { MARK + s2 } else { 0.0 };
+    // the row of the port's name above an icon: the mock's 48, or as short as the name and the mark allow when the tiles are a picture's shape
+    let top_row = |port_h: f32| if v.pictures { (port_h + s1).max(36.0) } else { 48.0f32.max(port_h + s1) };
+    let mut measured = Vec::new();
+    for (t, shot) in v.tiles.iter().zip(shots) {
+        let pic = shot.is_some();
+        // the sound mark: bare at the corner of a plain tile, on its own round chip on a picture
+        let mark_room = if !t.sound {
+            0.0
+        } else if pic {
+            chip_d + s3
+        } else {
+            MARK + s2
+        };
+        let port_w = tile_w - 2.0 * s5 - mark_room;
         let port = wrap::lines(kit, caption_style, &t.port, port_w, 2);
         let port_h = port.len() as f32 * caption_line;
+        let pill_text_w = port.iter().map(|l| width_of(kit, caption_style, l)).fold(0.0f32, f32::max).ceil();
         let icon_side = if port.len() > 1 { 44 } else { 56 };
-        let icon_y = s4 + 48.0f32.max(port_h + s1);
         let name = wrap::lines(kit, label_style, &t.name, tile_w - 2.0 * s5, 12);
         let dot = s2;
-        let state = wrap::lines(kit, caption_style, &t.state, tile_w - 2.0 * s5 - dot - s2, 12);
+        let state = wrap::lines(kit, caption_style, &state_line(t, *shot), tile_w - 2.0 * s5 - dot - s2, 12);
         let name_h = name.len() as f32 * label_line;
         let state_h = state.len() as f32 * caption_line;
         let row_h = dot.max(state_h);
         let words_h = name_h + row_h;
-        let need = s4 + 48.0f32.max(port_h + s1) + f32::from(icon_side as u16) + s3 + words_h + s4;
-        let h = TILE_MIN_H.max(need.ceil());
-        tallest = tallest.max(h);
-        let words_y = h - words_h - s4;
+        let need = if pic {
+            // the chip of the port's name, then the words, with room between
+            s3 + port_h + 2.0 * s1 + s3 + words_h + s4
+        } else {
+            s4 + top_row(port_h) + f32::from(icon_side as u16) + s3 + words_h + s4
+        };
+        // the height the tile would have with its icon: the row keeps one height whether a picture has come yet or not
+        let with_icon = if pic {
+            let port_i = wrap::lines(kit, caption_style, &t.port, tile_w - 2.0 * s5 - if t.sound { MARK + s2 } else { 0.0 }, 2);
+            let state_i = wrap::lines(kit, caption_style, &t.state, tile_w - 2.0 * s5 - dot - s2, 12);
+            let icon_i = if port_i.len() > 1 { 44u16 } else { 56 };
+            s4 + top_row(port_i.len() as f32 * caption_line) + f32::from(icon_i) + s3 + name_h + dot.max(state_i.len() as f32 * caption_line) + s4
+        } else {
+            need
+        };
+        measured.push(Measured { port, port_w, pill_text_w, icon_side, name, state, name_h, row_h, need: need.max(with_icon).ceil() });
+    }
+    let min_h = if v.pictures { (tile_w / PICTURE_ASPECT).ceil() } else { TILE_MIN_H };
+    let tallest = measured.iter().fold(min_h, |a, m| a.max(m.need));
+    let mut tiles = Vec::new();
+    for ((t, shot), m) in v.tiles.iter().zip(shots).zip(measured) {
+        let pic = shot.is_some();
+        let dot = s2;
+        let words_h = m.name_h + m.row_h;
+        let words_y = tallest - words_h - s4;
+        let port_h = m.port.len() as f32 * caption_line;
+        let (port_at, pill, chip, mark) = if pic {
+            // the chip is cut to the text and sits so that its text starts where the name's does
+            let pill = Frame::new(s5 - s2, s3, m.pill_text_w + 2.0 * s2, port_h + 2.0 * s1);
+            let chip = t.sound.then(|| Frame::new(tile_w - chip_d - s3, s3, chip_d, chip_d));
+            ((s5, s3 + s1, m.port_w), Some(pill), chip, chip.map(|c| (c.x + (chip_d - MARK) / 2.0, c.y + (chip_d - MARK) / 2.0)))
+        } else {
+            ((s5, s4, m.port_w), None, None, t.sound.then_some((tile_w - MARK - s4, s4)))
+        };
+        let icon_y = s4 + top_row(port_h);
         tiles.push(TileLay {
-            frame: Frame::new(0.0, 0.0, tile_w, h),
-            port,
-            port_at: (s5, s4, port_w),
-            mark: sound.then_some((tile_w - MARK - s4, s4)),
-            icon_side,
+            frame: Frame::new(0.0, 0.0, tile_w, tallest),
+            pic,
+            port: m.port,
+            port_at,
+            pill,
+            mark,
+            chip,
+            icon_side: m.icon_side,
             icon_at: (s5, icon_y),
-            name,
+            name: m.name,
             name_at: (s5, words_y, tile_w - 2.0 * s5),
             dot,
-            dot_at: (s5, words_y + name_h + ((row_h - dot) / 2.0).round()),
-            state,
-            state_at: (s5 + dot + s2, words_y + name_h, tile_w - 2.0 * s5 - dot - s2),
+            dot_at: (s5, words_y + m.name_h + ((m.row_h - dot) / 2.0).round()),
+            state: m.state,
+            state_at: (s5 + dot + s2, words_y + m.name_h, tile_w - 2.0 * s5 - dot - s2),
+            text_top: words_y,
         });
     }
     // One row: every tile is as tall as the tallest (a port whose name wraps, as "HDMI 2 · eARC" does at large text), its words kept to the
-    // foot, so the focus plates and the washes of neighbours line up
-    for t in &mut tiles {
-        let d = tallest - t.frame.h;
-        if d > 0.0 {
-            t.name_at.1 += d;
-            t.dot_at.1 += d;
-            t.state_at.1 += d;
-            t.frame.h = tallest;
-        }
-    }
-    let sheet_h = SHEET_MIN_H.max(row_y + tallest + s6);
+    // foot, so the focus plates and the washes of neighbours line up. A picture's tiles are as tall as they need; the mock's sheet has the room
+    // of its taller tile.
+    let sheet_h = if v.pictures { row_y + tallest + s7 } else { SHEET_MIN_H.max(row_y + tallest + s6) };
     let sheet = Frame::new(SHEET_X, 1080.0 - 64.0 - sheet_h, SHEET_W, sheet_h);
     for (i, t) in tiles.iter_mut().enumerate() {
-        t.frame = Frame::new(sheet.x + s7 + i as f32 * (tile_w + s4), sheet.y + row_y, tile_w, t.frame.h);
+        t.frame = Frame::new(sheet.x + s7 + i as f32 * (tile_w + s4), sheet.y + row_y, tile_w, tallest);
     }
     let title_w = width_of(kit, role_style(kit, TypeRole::Title, Some(Weight::SemiBold), ink, Align::Left), "Inputs").ceil();
     let title = Frame::new(sheet.x + s7, sheet.y + head_y, title_w, title_line);
@@ -164,10 +243,18 @@ fn other(e: std::io::Error) -> std::io::Error {
     e
 }
 
+/// What a focusable tile is on the screen: the plate behind a plain tile's words, or the lifted picture.
+enum TilePlate {
+    Plain(Plate),
+    Shot(Box<ShotTile>),
+}
+
 struct TileParts {
     id: Id,
-    plate: Plate,
-    _base: ShapeLayer,
+    plate: TilePlate,
+    _base: Option<ShapeLayer>,
+    _pill: Option<ShapeLayer>,
+    _chip: Option<ShapeLayer>,
     _port: Words,
     _mark: Option<ImageLayer>,
     _icon: Option<ImageLayer>,
@@ -176,6 +263,26 @@ struct TileParts {
     _state: Words,
     lay: TileLay,
     tile: Tile,
+    shot: Option<Shot>,
+}
+
+impl TileParts {
+    fn layers(&self) -> usize {
+        let plate = match &self.plate {
+            TilePlate::Plain(p) => p.layers(),
+            TilePlate::Shot(s) => s.layers(),
+        };
+        plate
+            + usize::from(self._base.is_some())
+            + usize::from(self._pill.is_some())
+            + usize::from(self._chip.is_some())
+            + self._port.layers()
+            + usize::from(self._mark.is_some())
+            + usize::from(self._icon.is_some())
+            + self._name.layers()
+            + 1
+            + self._state.layers()
+    }
 }
 
 struct Built {
@@ -193,8 +300,25 @@ pub struct PickerSurface {
     built: Option<Built>,
 }
 
-fn tile_signature(t: &Tile) -> String {
-    format!("{}|{}|{}|{}|{}|{}|{}|{}|{}", t.app_id, t.port, t.icon, t.name, t.state, t.on, t.connected, t.front, t.sound)
+fn tile_signature(t: &Tile, shot: Option<&Shot>) -> String {
+    format!("{}|{}|{}|{}|{}|{}|{}|{}|{}|{}", t.app_id, t.port, t.icon, t.name, t.state, t.on, t.connected, t.front, t.sound, shot.map_or_else(String::new, |s| format!("{}|{}", s.live, s.age)))
+}
+
+/// The shot of each tile that is drawn as a picture: the previews are on, something is connected, and the picture has come.
+fn shots_drawn<'a>(v: &'a View, store: &Previews) -> Vec<Option<&'a Shot>> {
+    v.tiles
+        .iter()
+        .enumerate()
+        .map(|(i, t)| v.shots.get(i).and_then(Option::as_ref).filter(|_| v.pictures && t.connected && store.picture(&t.key).is_some()))
+        .collect()
+}
+
+/// What a drawing of the picker is made from: the view, the pictures the previews hold, and the shot of each tile that is a picture.
+#[derive(Clone, Copy)]
+struct Draw<'a> {
+    v: &'a View,
+    store: &'a Previews,
+    shots: &'a [Option<&'a Shot>],
 }
 
 impl PickerSurface {
@@ -212,8 +336,9 @@ impl PickerSurface {
         self.built.as_ref().map(|b| b.lay.sheet)
     }
 
-    fn signature(kit: &Kit, v: &View, lay: &Layout) -> String {
-        format!("{}|{}|{}|{}|{:?}", kit.generation(), kit.text_scale, v.sound, v.tiles.iter().map(tile_signature).collect::<Vec<_>>().join("/"), lay.sheet)
+    fn signature(kit: &Kit, v: &View, lay: &Layout, shots: &[Option<&Shot>]) -> String {
+        let tiles: Vec<String> = v.tiles.iter().zip(shots).map(|(t, s)| tile_signature(t, *s)).collect();
+        format!("{}|{}|{}|{}|{}|{:?}", kit.generation(), kit.text_scale, v.sound, v.pictures, tiles.join("/"), lay.sheet)
     }
 
     fn fill(kit: &Kit, front: bool) -> Shape {
@@ -221,7 +346,8 @@ impl PickerSurface {
         Shape { corner_radius: radius, fill: Fill::Solid(if front { selected_wash(kit) } else { hover_wash(kit) }), border_width: 1.0, border: wash_edge(kit) }
     }
 
-    fn build(kit: &mut Kit, engine: &mut Engine, root: &Group, z: i32, v: &View, lay: Layout, sig: String) -> std::io::Result<Built> {
+    fn build(kit: &mut Kit, engine: &mut Engine, root: &Group, z: i32, draw: Draw, lay: Layout, sig: String) -> std::io::Result<Built> {
+        let Draw { v, store, shots } = draw;
         let scene = kit.ui.scene.clone();
         let (ink, ink2, positive, ink3) = (kit.ui.look.ink(), kit.ui.look.ink2(), kit.ui.look.positive(), kit.ui.look.ink3());
         let radius = kit.tokens.radius(Radius::Card);
@@ -243,21 +369,49 @@ impl PickerSurface {
             for (i, (t, tl)) in v.tiles.iter().zip(lay.tiles.iter()).enumerate() {
                 let id = Target::Tile(i).id();
                 let f = tl.frame;
-                let plate_parts = Plate::new(kit, engine, root, Spot { id, screen: f, local: f, region: REGION, scope: SCOPE, z: z + 3 }, Lift::Card, radius)?;
-                let base = plate::shape(&kit.ui, f, z + 2, Self::fill(kit, t.front));
-                let port_lines: Vec<WordLine> = tl.port.iter().map(|s| WordLine::new(s, TypeRole::Caption, ink2)).collect();
-                let port = Words::new(kit, f.x + tl.port_at.0, f.y + tl.port_at.1, tl.port_at.2, z + 4, &port_lines)?;
+                let shot = shots[i];
+                let spot = Spot { id, screen: f, local: f, region: REGION, scope: SCOPE, z: z + 3 };
+                let (plate_parts, base, pill, chip, words_z) = match (tl.pic, shot, store.picture(&t.key)) {
+                    (true, Some(s), Some(pic)) => {
+                        let dressed = dress(pic, f.w.round() as u32, f.h.round() as u32, radius, tl.text_top, SCRIM_RAMP, s.live);
+                        let tile = ShotTile::new(kit, engine, root, spot, radius, &dressed, (s.rev, s.live))?;
+                        let chip_shape = |c: Frame| plate::shape(&kit.ui, Frame::new(f.x + c.x, f.y + c.y, c.w, c.h), z + 5, plate::solid(CHIP, (c.h / 2.0).min(CHIP_RADIUS)));
+                        (TilePlate::Shot(Box::new(tile)), None, tl.pill.map(chip_shape), tl.chip.map(chip_shape), z + 6)
+                    }
+                    _ => {
+                        let plate_parts = Plate::new(kit, engine, root, spot, Lift::Card, radius)?;
+                        (TilePlate::Plain(plate_parts), Some(plate::shape(&kit.ui, f, z + 2, Self::fill(kit, t.front))), None, None, z + 4)
+                    }
+                };
+                let (ink_main, ink_quiet, mark_ink) = if tl.pic { (ON_PICTURE, ON_PICTURE_2, ON_PICTURE) } else { (ink, ink2, positive) };
+                let port_lines: Vec<WordLine> = tl.port.iter().map(|s| WordLine::new(s, TypeRole::Caption, if tl.pic { ON_PICTURE } else { ink2 })).collect();
+                let port = Words::new(kit, f.x + tl.port_at.0, f.y + tl.port_at.1, tl.port_at.2, words_z, &port_lines)?;
                 let mark = match tl.mark {
-                    Some((x, y)) => icon::layer(kit, "volume-2", MARK as u32, positive, z + 4, Props::at(f.x + x, f.y + y))?,
+                    Some((x, y)) => icon::layer(kit, "volume-2", MARK as u32, mark_ink, words_z, Props::at(f.x + x, f.y + y))?,
                     None => None,
                 };
-                let icon_layer = icon::layer(kit, &t.icon, tl.icon_side, if t.on { ink } else { ink2 }, z + 4, Props::at(f.x + tl.icon_at.0, f.y + tl.icon_at.1))?;
-                let name_lines: Vec<WordLine> = tl.name.iter().map(|s| WordLine::new(s, TypeRole::Label, ink)).collect();
-                let name = Words::new(kit, f.x + tl.name_at.0, f.y + tl.name_at.1, tl.name_at.2, z + 4, &name_lines)?;
-                let dot = plate::shape(&kit.ui, Frame::new(f.x + tl.dot_at.0, f.y + tl.dot_at.1, tl.dot, tl.dot), z + 4, plate::solid(if t.connected { positive } else { ink3 }, tl.dot / 2.0));
-                let state_lines: Vec<WordLine> = tl.state.iter().map(|s| WordLine::new(s, TypeRole::Caption, ink2)).collect();
-                let state = Words::new(kit, f.x + tl.state_at.0, f.y + tl.state_at.1, tl.state_at.2, z + 4, &state_lines)?;
-                tiles.push(TileParts { id, plate: plate_parts, _base: base, _port: port, _mark: mark, _icon: icon_layer, _name: name, _dot: dot, _state: state, lay: tl.clone(), tile: t.clone() });
+                let icon_layer = if tl.pic { None } else { icon::layer(kit, &t.icon, tl.icon_side, if t.on { ink } else { ink2 }, words_z, Props::at(f.x + tl.icon_at.0, f.y + tl.icon_at.1))? };
+                let name_lines: Vec<WordLine> = tl.name.iter().map(|s| WordLine::new(s, TypeRole::Label, ink_main)).collect();
+                let name = Words::new(kit, f.x + tl.name_at.0, f.y + tl.name_at.1, tl.name_at.2, words_z, &name_lines)?;
+                let dot = plate::shape(&kit.ui, Frame::new(f.x + tl.dot_at.0, f.y + tl.dot_at.1, tl.dot, tl.dot), words_z, plate::solid(if t.connected { positive } else { ink3 }, tl.dot / 2.0));
+                let state_lines: Vec<WordLine> = tl.state.iter().map(|s| WordLine::new(s, TypeRole::Caption, ink_quiet)).collect();
+                let state = Words::new(kit, f.x + tl.state_at.0, f.y + tl.state_at.1, tl.state_at.2, words_z, &state_lines)?;
+                tiles.push(TileParts {
+                    id,
+                    plate: plate_parts,
+                    _base: base,
+                    _pill: pill,
+                    _chip: chip,
+                    _port: port,
+                    _mark: mark,
+                    _icon: icon_layer,
+                    _name: name,
+                    _dot: dot,
+                    _state: state,
+                    lay: tl.clone(),
+                    tile: t.clone(),
+                    shot: shot.cloned(),
+                });
             }
             Ok(Built { sig, pane, _title: title, sound, tiles, over_video: v.over_video, lay: lay.clone() })
         })
@@ -267,33 +421,56 @@ impl PickerSurface {
     fn drop_built(&mut self, engine: &mut Engine) {
         if let Some(b) = self.built.take() {
             for t in b.tiles {
-                t.plate.destroy(engine);
+                match t.plate {
+                    TilePlate::Plain(p) => p.destroy(engine),
+                    TilePlate::Shot(s) => s.destroy(engine),
+                }
+            }
+        }
+    }
+
+    /// The next live picture of a tile (or a newer last one) goes into its layer, the words and the layers staying as they are.
+    fn sync_pictures(&mut self, kit: &Kit, v: &View, store: &Previews) {
+        let Some(b) = self.built.as_mut() else { return };
+        let radius = kit.tokens.radius(Radius::Card);
+        for (i, t) in b.tiles.iter_mut().enumerate() {
+            let (TilePlate::Shot(tile), Some(Some(shot))) = (&mut t.plate, v.shots.get(i)) else { continue };
+            if tile.shown == (shot.rev, shot.live) {
+                continue;
+            }
+            if let Some(pic) = store.picture(&t.tile.key) {
+                let f = t.lay.frame;
+                tile.repaint(&dress(pic, f.w.round() as u32, f.h.round() as u32, radius, t.lay.text_top, SCRIM_RAMP, shot.live), (shot.rev, shot.live));
+                t.shot = Some(shot.clone());
             }
         }
     }
 
     /// Fits the picker to the view and to the phase of its life. Returns whether anything of it is on the screen.
-    pub fn apply(&mut self, kit: &mut Kit, engine: &mut Engine, v: &View, phase: Phase, now_ns: u64) -> std::io::Result<bool> {
+    pub fn apply(&mut self, kit: &mut Kit, engine: &mut Engine, v: &View, store: &Previews, phase: Phase, now_ns: u64) -> std::io::Result<bool> {
         if phase == Phase::Gone {
             self.drop_all(engine);
             return Ok(false);
         }
-        let lay = layout(kit, v);
+        let shots = shots_drawn(v, store);
+        let lay = layout(kit, v, &shots);
         let arrive = Arrive::Bottom(lay.sheet.h + 64.0);
         if self.stage.needs_root(arrive) {
             self.drop_built(engine);
         }
         self.stage.ensure(kit, phase, arrive, true)?;
-        let sig = Self::signature(kit, v, &lay);
+        let sig = Self::signature(kit, v, &lay, &shots);
         if self.built.as_ref().is_none_or(|b| b.sig != sig) {
             self.drop_built(engine);
             self.stage.backdrop(engine, Target::Backdrop.id(), REGION);
-            let built = Self::build(kit, engine, self.stage.group(), self.stage.z(), v, lay, sig)?;
+            let built = Self::build(kit, engine, self.stage.group(), self.stage.z(), Draw { v, store, shots: &shots }, lay, sig)?;
             if kit.ui.scene.take_overflow() {
                 return Err(std::io::Error::other("the scene is full: the input picker could not be drawn whole"));
             }
             self.built = Some(built);
             self.stage.refocus();
+        } else {
+            self.sync_pictures(kit, v, store);
         }
         if self.stage.phase(kit, engine, phase) {
             if let Some(b) = self.built.as_mut()
@@ -333,17 +510,38 @@ impl PickerSurface {
     /// How many layers the picker holds.
     pub fn layers(&self) -> usize {
         let Some(b) = &self.built else { return 0 };
-        2 + 1 + b.sound.as_ref().map_or(0, |_| 2) + b.tiles.iter().map(|t| 1 + 1 + t._port.layers() + usize::from(t._mark.is_some()) + usize::from(t._icon.is_some()) + t._name.layers() + 1 + t._state.layers()).sum::<usize>()
+        2 + 1 + b.sound.as_ref().map_or(0, |_| 2) + b.tiles.iter().map(TileParts::layers).sum::<usize>()
     }
 
     pub fn geometry(&self, engine: &Engine) -> Value {
         let Some(b) = &self.built else { return Value::Null };
         let f = |fr: Frame| json!({"x": fr.x, "y": fr.y, "w": fr.w, "h": fr.h});
-        let tiles: Vec<Value> = b.tiles.iter().map(|t| json!({"frame": f(engine.focus.frame(t.id).unwrap_or(t.lay.frame)), "name": t.tile.name, "port": t.tile.port, "front": t.tile.front, "sound": t.tile.sound})).collect();
+        let tiles: Vec<Value> = b
+            .tiles
+            .iter()
+            .map(|t| {
+                json!({
+                    "frame": f(engine.focus.frame(t.id).unwrap_or(t.lay.frame)),
+                    "name": t.tile.name,
+                    "port": t.tile.port,
+                    "front": t.tile.front,
+                    "sound": t.tile.sound,
+                    "picture": t.lay.pic,
+                    "rev": match &t.plate {
+                        TilePlate::Shot(s) => s.shown.0,
+                        TilePlate::Plain(_) => 0,
+                    },
+                    "live": t.shot.as_ref().is_some_and(|s| s.live),
+                    "age": t.shot.as_ref().map(|s| s.age.clone()),
+                    "state": t.lay.state.join(" "),
+                })
+            })
+            .collect();
         json!({"sheet": f(b.lay.sheet), "tiles": tiles, "focus": engine.focus.current().and_then(Target::from_id).and_then(|t| if let Target::Tile(i) = t { Some(i) } else { None }), "layers": self.layers(), "scope": SCOPE.0})
     }
 
-    /// Describes what is on the screen to a lint: the sheet, each tile over it, and the words on them.
+    /// Describes what is on the screen to a lint: the sheet, each tile over it, and the words on them. The ground of the words on a picture
+    /// is the picture's scrim over the brightest picture there is, and a chip's black over it.
     pub fn feed_lint(&self, kit: &mut Kit, lint: &mut Lint) {
         let Some(b) = &self.built else { return };
         let sheet = lint.panel("input sheet", b.lay.sheet, kit.ui.look.colour(PaletteRole::Sheet), false);
@@ -352,9 +550,19 @@ impl PickerSurface {
             words.feed_lint(kit, lint, "inputs sound", Some(sheet), (0.0, 0.0));
         }
         for (i, t) in b.tiles.iter().enumerate() {
-            let paint = if t.tile.front { selected_wash(kit) } else { hover_wash(kit) };
+            let paint = if t.lay.pic {
+                WORST_GROUND
+            } else if t.tile.front {
+                selected_wash(kit)
+            } else {
+                hover_wash(kit)
+            };
             let card = lint.panel_on(&format!("tile {i}"), t.lay.frame, paint, false, sheet);
-            t._port.feed_lint(kit, lint, &format!("tile {i} port"), Some(card), (0.0, 0.0));
+            let port_ground = match t.lay.pill {
+                Some(p) => lint.panel_on(&format!("tile {i} chip"), Frame::new(t.lay.frame.x + p.x, t.lay.frame.y + p.y, p.w, p.h), CHIP_GROUND, false, card),
+                None => card,
+            };
+            t._port.feed_lint(kit, lint, &format!("tile {i} port"), Some(port_ground), (0.0, 0.0));
             t._name.feed_lint(kit, lint, &format!("tile {i} name"), Some(card), (0.0, 0.0));
             t._state.feed_lint(kit, lint, &format!("tile {i} state"), Some(card), (0.0, 0.0));
         }
@@ -410,8 +618,8 @@ mod tests {
         }
 
         fn apply(&mut self) {
-            let v = self.p.view(&self.env);
-            self.s.apply(&mut self.kit, &mut self.engine, &v, self.p.life.phase(), self.t * 1_000_000).expect("the picker is drawn");
+            let v = self.p.view(&self.env, self.t);
+            self.s.apply(&mut self.kit, &mut self.engine, &v, &self.env.previews, self.p.life.phase(), self.t * 1_000_000).expect("the picker is drawn");
         }
 
         fn key(&mut self, k: K) {
@@ -586,5 +794,252 @@ mod tests {
         u.p.open(&mut u.env, u.t);
         u.apply();
         assert_eq!(lit(&u), vec![2], "no ghost ring on the other tiles");
+    }
+
+    // ---- the pictures of the inputs
+
+    /// A 24-bit BMP of `w` by `h` with the colour `f` gives at each pixel (BGR, as the helper's stills come on the set).
+    fn bmp(w: u32, h: u32, f: impl Fn(u32, u32) -> [u8; 3]) -> Vec<u8> {
+        let stride = (w * 3).div_ceil(4) * 4;
+        let mut b = vec![0u8; 54];
+        b[0..2].copy_from_slice(b"BM");
+        b[2..6].copy_from_slice(&(54 + stride * h).to_le_bytes());
+        b[10..14].copy_from_slice(&54u32.to_le_bytes());
+        b[14..18].copy_from_slice(&40u32.to_le_bytes());
+        b[18..22].copy_from_slice(&w.to_le_bytes());
+        b[22..26].copy_from_slice(&h.to_le_bytes());
+        b[26..28].copy_from_slice(&1u16.to_le_bytes());
+        b[28..30].copy_from_slice(&24u16.to_le_bytes());
+        // bottom row first
+        for y in (0..h).rev() {
+            for x in 0..w {
+                let [r, g, bl] = f(x, y);
+                b.extend_from_slice(&[bl, g, r]);
+            }
+            b.extend(std::iter::repeat_n(0u8, (stride - w * 3) as usize));
+        }
+        b
+    }
+
+    /// A picture that is not flat: a gradient across, so a cut or a shift shows.
+    fn scene_of(w: u32, h: u32, base: u8) -> Vec<u8> {
+        bmp(w, h, |x, y| [base.saturating_add((x * 120 / w) as u8), 90, base.saturating_add((y * 100 / h) as u8)])
+    }
+
+    use crate::host::previews::tags as ptags;
+
+    /// The tests' wall clock when the picker opens: a day and some, so that a picture can be days old.
+    const T0: u64 = 100_000_000;
+    /// A second after it opened: the sheet is in and the pictures are decoded as they come.
+    const NOW: u64 = T0 + 1_000;
+
+    impl Up {
+        /// The previews on, the helper up, and the pictures the helper keeps: `keys` with when each was taken (epoch ms).
+        fn with_previews(mode: Mode, scale: f32, n: usize, keys: &[(&str, u64)]) -> Self {
+            let (h, kit) = testkit::kit_in(mode, scale);
+            let engine = Engine::new(&kit).expect("an engine");
+            let mut env = tv(devices(n));
+            env.sio.write("sound.soundOutput", &json!("external_arc"), None);
+            env.previews.set_active(true);
+            env.update(&Input::Helper { topic: "up".into(), data: json!(true) }, 0);
+            let mut p = Picker::new();
+            p.life.show(0);
+            let mut me = Self { _h: h, kit, engine, s: PickerSurface::new(crate::kit::z::PANELS), p, env, t: T0 };
+            me.pictures(keys);
+            me.p.open(&mut me.env, me.t);
+            me.t = NOW;
+            me.env.update(&Input::Tick, me.t);
+            me.apply();
+            me
+        }
+
+        /// The helper's index names `keys` and each one's picture comes back.
+        fn pictures(&mut self, keys: &[(&str, u64)]) {
+            let items: serde_json::Map<String, Value> = keys.iter().map(|(k, at)| ((*k).to_owned(), json!({"at": at}))).collect();
+            let doc = json!({"ok": true, "previews": {"enabled": true, "items": items}});
+            let fx = self.env.update(&Input::Fetched { tag: ptags::INDEX, status: 200, data: doc }, self.t).0;
+            for e in fx {
+                if let crate::kit::screen::Effect::Fetch { tag, path } = e
+                    && path.starts_with("/v1/previews/")
+                {
+                    let key = path.trim_start_matches("/v1/previews/");
+                    let base = if key == "hdmi2" { 30 } else { 120 };
+                    self.env.update(&Input::Bytes { tag, status: 200, bytes: scene_of(96, 54, base) }, self.t);
+                }
+            }
+        }
+
+        /// A live picture of the input in front, taken at `at`: the next live ask is made when it is due (nothing when the one the picker
+        /// opened with is still out), the helper answers it and the picture's bytes arrive.
+        fn live(&mut self, at: u64, base: u8) {
+            self.t = self.t.max(at);
+            self.env.update(&Input::Tick, at);
+            let fx = self.env.update(&Input::Fetched { tag: ptags::CAPTURE, status: 200, data: json!({"ok": true, "key": "hdmi2", "at": at}) }, at).0;
+            for e in fx {
+                if let crate::kit::screen::Effect::Fetch { tag, .. } = e {
+                    self.env.update(&Input::Bytes { tag, status: 200, bytes: scene_of(96, 54, base) }, at);
+                }
+            }
+        }
+    }
+
+    fn tile(g: &Value, i: usize) -> &Value {
+        &g["tiles"][i]
+    }
+
+    #[test]
+    fn with_the_previews_on_the_tiles_are_the_shape_of_a_picture_and_the_sheet_is_as_tall_as_they_need() {
+        let u = Up::with_previews(Mode::Dark, 1.0, 4, &[]);
+        let g = u.s.geometry(&u.engine);
+        let tiles = g["tiles"].as_array().unwrap();
+        assert_eq!(tiles.len(), 5);
+        let heights: Vec<f64> = tiles.iter().map(|t| t["frame"]["h"].as_f64().unwrap()).collect();
+        assert!(heights.iter().all(|h| *h == heights[0]), "one height for the row: {heights:?}");
+        assert!((208.0..=212.0).contains(&heights[0]), "a picture's shape, not the mock's 264: {heights:?}");
+        let sheet = &g["sheet"];
+        assert!(sheet["h"].as_f64().unwrap() < 404.0, "the sheet is as tall as its tiles need: {sheet}");
+        assert_eq!(sheet["y"].as_f64().unwrap() + sheet["h"].as_f64().unwrap(), 1080.0 - 64.0, "and still rests 64 from the bottom");
+        assert!(tiles.iter().all(|t| t["picture"] == false), "no picture has come yet: every tile keeps its icon");
+    }
+
+    #[test]
+    fn with_the_previews_off_the_picker_is_as_the_mock_has_it() {
+        let (h, kit) = testkit::kit_in(Mode::Dark, 1.0);
+        let engine = Engine::new(&kit).expect("an engine");
+        let mut env = Env::new(json!({"inputs": {"hdmi1": "always", "hdmi2": "always", "previews": false}}));
+        env.inputs.parse(&json!({"devices": devices(2)}));
+        env.previews.set_active(true);
+        let mut p = Picker::new();
+        p.life.show(0);
+        p.open(&mut env, 0);
+        let mut u = Up { _h: h, kit, engine, s: PickerSurface::new(crate::kit::z::PANELS), p, env, t: 1000 };
+        u.apply();
+        let g = u.s.geometry(&u.engine);
+        assert!(g["sheet"]["h"].as_f64().unwrap() >= 404.0);
+        assert!(g["tiles"].as_array().unwrap().iter().all(|t| t["frame"]["h"].as_f64().unwrap() >= 264.0 && t["picture"] == false));
+    }
+
+    #[test]
+    fn a_tile_with_its_picture_is_the_picture_and_says_live_or_how_old_it_is() {
+        let now = NOW;
+        let mut u = Up::with_previews(Mode::Dark, 1.0, 4, &[("hdmi1", now - 7 * 60_000), ("hdmi2", now - 5000)]);
+        u.live(now, 30);
+        u.apply();
+        let g = u.s.geometry(&u.engine);
+        // Live TV has none; HDMI 1 has its last picture; HDMI 2 (in front) is live
+        assert_eq!(tile(&g, 0)["picture"], false);
+        assert_eq!((tile(&g, 1)["picture"].as_bool(), tile(&g, 1)["live"].as_bool(), tile(&g, 1)["age"].as_str()), (Some(true), Some(false), Some("7 min ago")));
+        assert!(tile(&g, 1)["state"].as_str().unwrap().ends_with("Connected \u{b7} 7 min ago"), "{}", tile(&g, 1)["state"]);
+        assert_eq!((tile(&g, 2)["picture"].as_bool(), tile(&g, 2)["live"].as_bool(), tile(&g, 2)["age"].as_str()), (Some(true), Some(true), Some("live")));
+        assert_eq!(tile(&g, 2)["state"], "In front \u{b7} Live");
+        // the ports have the shape of a picture and every tile is as tall as the others
+        let h0 = tile(&g, 0)["frame"]["h"].as_f64().unwrap();
+        assert!((0..5).all(|i| tile(&g, i)["frame"]["h"].as_f64().unwrap() == h0));
+    }
+
+    #[test]
+    fn a_tile_whose_input_has_nothing_connected_keeps_its_icon_whatever_picture_is_held() {
+        let now = NOW;
+        // the third port has nothing on it (`devices` leaves it unplugged)
+        let u = Up::with_previews(Mode::Dark, 1.0, 4, &[("hdmi3", now - 60_000), ("hdmi2", now - 1000)]);
+        let g = u.s.geometry(&u.engine);
+        assert_eq!(tile(&g, 3)["name"], "Nothing connected");
+        assert_eq!(tile(&g, 3)["picture"], false);
+        assert_eq!(tile(&g, 2)["picture"], true);
+    }
+
+    #[test]
+    fn the_next_live_picture_is_painted_into_the_layer_and_the_tile_is_not_made_again() {
+        let now = NOW;
+        let mut u = Up::with_previews(Mode::Dark, 1.0, 4, &[("hdmi2", now - 5000)]);
+        u.live(now, 30);
+        u.apply();
+        let layers = u.kit.room().layers;
+        let g0 = u.s.geometry(&u.engine);
+        let rev0 = tile(&g0, 2)["rev"].as_u64().unwrap();
+        for n in 1..=3u64 {
+            u.t = now + n * 500;
+            u.live(u.t, 30 + n as u8 * 20);
+            u.apply();
+            let g = u.s.geometry(&u.engine);
+            assert_eq!(tile(&g, 2)["rev"].as_u64().unwrap(), rev0 + n, "the layer holds the newest picture");
+            assert_eq!(u.kit.room().layers, layers, "a live picture makes no layer");
+            assert_eq!(tile(&g, 2)["live"], true);
+        }
+    }
+
+    #[test]
+    fn a_picture_that_arrives_makes_its_tile_once_and_one_that_stops_being_live_says_its_age() {
+        let now = NOW;
+        let mut u = Up::with_previews(Mode::Dark, 1.0, 4, &[]);
+        let plain = u.s.layers();
+        let row_h = tile(&u.s.geometry(&u.engine), 0)["frame"]["h"].clone();
+        assert_eq!(tile(&u.s.geometry(&u.engine), 1)["picture"], false);
+        u.pictures(&[("hdmi1", now - 120_000)]);
+        u.p.sync(&u.env);
+        u.apply();
+        let g = u.s.geometry(&u.engine);
+        assert_eq!(tile(&g, 1)["picture"], true, "the first picture of a tile is the tile");
+        assert_eq!(tile(&g, 0)["frame"]["h"], row_h, "the row keeps its height when a picture comes");
+        let with_one = u.s.layers();
+        assert_ne!(with_one, plain);
+        u.apply();
+        assert_eq!(u.s.layers(), with_one, "and it is not made again");
+        // the live word goes after the live pictures stop
+        u.live(now, 30);
+        u.apply();
+        assert_eq!(tile(&u.s.geometry(&u.engine), 2)["state"], "In front \u{b7} Live");
+        u.t = now + 4000;
+        u.apply();
+        let g = u.s.geometry(&u.engine);
+        assert_eq!(tile(&g, 2)["live"], false);
+        assert_eq!(tile(&g, 2)["state"], "In front \u{b7} just now");
+    }
+
+    #[test]
+    fn pictures_read_clean_in_both_materials_at_100_and_200_percent() {
+        let now = NOW;
+        for mode in [Mode::Dark, Mode::Light] {
+            for scale in [1.0, 2.0] {
+                for n in [2, 4] {
+                    let mut u = Up::with_previews(mode, scale, n, &[("hdmi1", now - 3 * 3_600_000), ("hdmi2", now - 2000), ("hdmi4", now - 90 * 60_000)]);
+                    u.live(now, 200);
+                    u.apply();
+                    let f = u.lint();
+                    assert!(f.is_empty(), "{mode:?} {scale} {n} ports: {f:#?}");
+                    let g = u.s.geometry(&u.engine);
+                    assert!(g["tiles"].as_array().unwrap().iter().any(|t| t["picture"] == true));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_picture_tiles_stay_inside_the_scene_with_every_input_pictured() {
+        let now = NOW;
+        let mut u = Up::with_previews(Mode::Dark, 1.0, 4, &[("hdmi1", now - 1000), ("hdmi2", now - 1000), ("hdmi4", now - 1000), ("livetv", now - 1000)]);
+        u.live(now, 90);
+        u.apply();
+        let g = u.s.geometry(&u.engine);
+        assert!(g["layers"].as_u64().unwrap() < 100, "{}", g["layers"]);
+        assert!(u.kit.room().layers > 100, "room left: {}", u.kit.room().layers);
+    }
+
+    #[test]
+    fn the_focus_lifts_a_picture_tile_about_its_own_centre_like_any_tile() {
+        let now = NOW;
+        let mut u = Up::with_previews(Mode::Dark, 1.0, 4, &[("hdmi1", now - 1000), ("hdmi2", now - 1000)]);
+        u.live(now, 60);
+        u.apply();
+        assert_eq!(lit(&u), vec![2], "the tile in front is lifted at once");
+        u.key(K::Left);
+        assert_eq!(lit(&u), vec![1], "and the ring moves to the picture the keys chose");
+        for i in [1usize, 2] {
+            let id = Target::Tile(i).id();
+            let tile = u.engine.focus.frame(id).expect("a tile");
+            let (lifted, _) = u.engine.flow.lifted_plate(id, u.kit.ui.scene.now_ns() + 5_000_000_000).expect("a lifted tile");
+            let (a, b) = (centre(tile), centre(lifted));
+            assert!((a.0 - b.0).abs() < 0.01 && (a.1 - b.1).abs() < 0.01, "tile {i}: the picture grows about its own centre");
+        }
     }
 }

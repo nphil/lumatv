@@ -10,6 +10,7 @@ use super::env::Env;
 use super::life::Life;
 use super::{K, Out};
 use crate::host::inputs::Tile;
+use crate::host::previews::Shot;
 use crate::kit::screen::Effect;
 use serde_json::{Value, json};
 
@@ -24,6 +25,10 @@ pub struct View {
     pub tiles: Vec<Tile>,
     pub index: usize,
     pub over_video: bool,
+    /// The previews are on: the tiles are the shape of a picture, whether a tile has its picture yet or not.
+    pub pictures: bool,
+    /// What each tile shows of its picture (tile by tile); none when it has none.
+    pub shots: Vec<Option<Shot>>,
 }
 
 pub struct Picker {
@@ -100,12 +105,15 @@ impl Picker {
         self.pick_front(&tiles);
         self.read_due = Some(now + u64::from(self.life.enter_ms) + READ_AFTER_MS);
         env.inputs.watch(true, now);
-        Out::default()
+        // the pictures: the index, and one of the input in front at once (the live tile follows); they are decoded once the sheet is in
+        env.previews.hold_until(now + u64::from(self.life.enter_ms) + 100);
+        Out::effects(env.previews_opened(now))
     }
 
     pub fn close(&mut self, env: &mut Env, now: u64) -> Out {
         self.read_due = None;
         env.inputs.watch(false, now);
+        env.previews_closed(now);
         Out::default()
     }
 
@@ -176,9 +184,20 @@ impl Picker {
         self.index
     }
 
-    pub fn view(&self, env: &Env) -> View {
+    /// The picker as it is drawn at `now` (the wall clock: the age of a tile's picture).
+    pub fn view(&self, env: &Env, now: u64) -> View {
         let tiles = Self::tiles(env);
-        View { up: self.life.presented(), title: "Inputs", sound: sound_line(env), index: self.index.min(tiles.len().saturating_sub(1)), tiles, over_video: !env.fg.home }
+        let shots = tiles.iter().map(|t| env.previews.shot(&t.key, now)).collect();
+        View {
+            up: self.life.presented(),
+            title: "Inputs",
+            sound: sound_line(env),
+            index: self.index.min(tiles.len().saturating_sub(1)),
+            tiles,
+            over_video: !env.fg.home,
+            pictures: env.previews.is_on(),
+            shots,
+        }
     }
 }
 
@@ -329,7 +348,7 @@ mod tests {
     fn the_owners_choices_decide_the_tiles_and_a_click_launches_that_one() {
         let mut env = tv(json!({"hdmi4": "always", "hdmi3": "hidden", "livetv": "hidden"}));
         let mut p = opened(&mut env);
-        let v = p.view(&env);
+        let v = p.view(&env, 0);
         assert_eq!(v.tiles.iter().map(|t| t.port.as_str()).collect::<Vec<_>>(), vec!["HDMI 1", "HDMI 2", "HDMI 4"]);
         assert_eq!(v.tiles[2].icon, "unplug");
         let out = p.click(0, &env);

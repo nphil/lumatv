@@ -8,6 +8,7 @@ use super::hub::Topics;
 use crate::host::inputs::Inputs;
 use crate::host::net::Net;
 use crate::host::power::Power;
+use crate::host::previews::{Facts, Previews};
 use crate::host::receiver::Gate;
 use crate::host::sio::Sio;
 use crate::kit::screen::{Effect, Input};
@@ -79,6 +80,10 @@ pub struct Env {
     /// Where the sound is going out now, as the audio service pushes it with each volume state (`volumeStatus.soundOutput`: the way out in
     /// effect, which the setting `sound.soundOutput` can lag behind or name otherwise); "" until the compositor has said.
     pub audio_output: String,
+    /// The pictures of the inputs the picker shows (`host/previews.rs`): fed every input, asked for only while the picker is ours.
+    pub previews: Previews,
+    /// Nothing else of the shell is on the screen (the shell says so before a tick): the previews' quiet timers wait for it.
+    pub quiet: bool,
 }
 
 impl Env {
@@ -96,6 +101,8 @@ impl Env {
             capture: Capture::default(),
             screen_on: true,
             audio_output: String::new(),
+            previews: Previews::new(),
+            quiet: true,
         }
     }
 
@@ -192,6 +199,14 @@ impl Env {
         {
             changed = true;
         }
+        // the pictures of the inputs: what they ask for, and whether a tile's picture is another now
+        let (e, c) = {
+            let Self { previews, fg, theme, helper_up, screen_on, quiet, .. } = self;
+            let on = theme.pointer("/inputs/previews").and_then(Value::as_bool) != Some(false);
+            previews.update(input, &Facts { on, helper_up: *helper_up, screen_on: *screen_on, app: &fg.app, home: fg.home, known: fg.known }, *quiet, now)
+        };
+        out.extend(e);
+        changed |= c;
         if let Input::Helper { topic, .. } = input
             && topic == "up"
         {
@@ -200,8 +215,20 @@ impl Env {
         (out, changed)
     }
 
+    /// The picker came up: the pictures of the inputs are asked for (the index, and one of the input in front at once).
+    pub fn previews_opened(&mut self, now: u64) -> Vec<Effect> {
+        let Self { previews, fg, theme, helper_up, screen_on, .. } = self;
+        let on = theme.pointer("/inputs/previews").and_then(Value::as_bool) != Some(false);
+        previews.opened(&Facts { on, helper_up: *helper_up, screen_on: *screen_on, app: &fg.app, home: fg.home, known: fg.known }, now)
+    }
+
+    /// The picker went away.
+    pub fn previews_closed(&mut self, now: u64) {
+        self.previews.closed(now);
+    }
+
     pub fn due_at(&self) -> Option<u64> {
-        [self.sio.due_at(), self.inputs.due_at(), self.power.due_at(), self.gate.due_at()].into_iter().flatten().min()
+        [self.sio.due_at(), self.inputs.due_at(), self.power.due_at(), self.gate.due_at(), self.previews.due_at()].into_iter().flatten().min()
     }
 }
 

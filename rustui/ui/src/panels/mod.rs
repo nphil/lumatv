@@ -29,6 +29,7 @@ pub mod pin;
 pub mod quick;
 pub mod quick_layout;
 pub mod quick_surface;
+pub mod shot_tile;
 pub mod stage;
 pub mod switcher;
 pub mod switcher_surface;

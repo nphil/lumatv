@@ -9,6 +9,7 @@ pub mod inputs;
 pub mod keys;
 pub mod net;
 pub mod power;
+pub mod previews;
 pub mod receiver;
 pub mod sio;
 pub mod theme;

@@ -45,6 +45,9 @@ use serde_json::{Value, json};
 pub const IDLE_MS: u64 = 45_000;
 /// How long OK is held on a tile of the quick panel before it is picked up for editing.
 pub const HOLD_MS: u64 = 700;
+/// After a key in the input picker the pictures of its tiles are not decoded for this long: the focus's lift is on the screen, and a decode of
+/// some milliseconds inside it is a dropped frame.
+pub const FOCUS_HOLD_MS: u64 = 450;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Which {
@@ -215,6 +218,8 @@ impl Panels {
     /// The subscriptions the panels ask for at the start.
     pub fn start(&mut self, kinds: &Kinds) -> Vec<Effect> {
         let mut out = Vec::new();
+        // the pictures of the inputs are for the picker: asked for only by a process that answers it
+        self.env.previews.set_active(kinds.picker);
         if kinds.quick || kinds.picker || kinds.drawer || kinds.menu || kinds.confirm || kinds.switcher || kinds.entry {
             out.extend(self.env.start());
         }
@@ -228,6 +233,24 @@ impl Panels {
             out.extend(self.ime.start());
         }
         out
+    }
+
+    /// Nothing else of the shell is on the screen (a panel, Settings, the saver, the Cameras viewer): the previews' quiet timers go while it is so.
+    pub fn set_quiet(&mut self, quiet: bool) {
+        self.env.quiet = quiet;
+    }
+
+    /// The owner's theme changed (Settings wrote it): the panels read the owner's choices of inputs and previews from the new one. What the
+    /// previews ask for because of it (the pictures deleted after the switch went off) is returned.
+    pub fn set_theme(&mut self, theme: &Value, now: u64) -> Vec<Effect> {
+        if self.env.theme == *theme {
+            return Vec::new();
+        }
+        self.env.theme = theme.clone();
+        self.redraw = true;
+        self.picker.sync(&self.env);
+        // any input brings the previews up to date with the theme: the clock's is the lightest
+        self.env.update(&Input::Tick, now).0
     }
 
     /// An input of the host to every panel: the compositor's `show`, the owners' `menu.open` and `confirm.ask`, the topics, the helper's,
@@ -370,6 +393,7 @@ impl Panels {
             // the picker goes on to the next input; the others close
             if w == Which::Picker {
                 self.picker.next(&self.env);
+                self.env.previews.hold_until(now + FOCUS_HOLD_MS);
             } else {
                 self.hide(w, now, kinds, out);
             }
@@ -523,7 +547,11 @@ impl Panels {
             _ if !down => return out,
             (_, K::Ok | K::Back) if repeat => return out,
             (Which::Quick, k) => self.quick.key(k, &mut self.env, now),
-            (Which::Picker, k) => self.picker.key(k, &self.env),
+            (Which::Picker, k) => {
+                // the focus is about to move: a picture decoded now would be a frame dropped in the lift
+                self.env.previews.hold_until(now + FOCUS_HOLD_MS);
+                self.picker.key(k, &self.env)
+            }
             (Which::Drawer, k) => self.drawer.key(k, &self.env),
             (Which::Menu, k) => self.menu.key(k),
             (Which::Confirm, k) => self.confirm.key(k),
@@ -711,8 +739,8 @@ impl Panels {
             }
         }
         if kinds.picker {
-            let view = self.picker.view(&self.env);
-            match self.picker_s.apply(kit, engine, &view, self.picker.life.phase(), now_ns) {
+            let view = self.picker.view(&self.env, now_ms);
+            match self.picker_s.apply(kit, engine, &view, &self.env.previews, self.picker.life.phase(), now_ns) {
                 Ok(on) => live |= on && self.picker.life.visible(),
                 Err(e) => return Err(format!("input picker: {e}")),
             }
@@ -856,6 +884,10 @@ impl Panels {
         }
         if kinds.keyboard {
             s["keyboard"] = self.ime.state();
+        }
+        if kinds.picker {
+            // the pictures of the inputs: what is held, what is asked
+            s["previews"] = self.env.previews.report();
         }
         s
     }

@@ -112,6 +112,18 @@ fn rows(c: &Ctx) -> Vec<Row> {
                 _ => Vec::new(),
             }),
     );
+    rows.push(
+        Row::toggle("previews")
+            .tab(0)
+            .icon("image")
+            .label("Show input previews")
+            .help("The picker shows what is on each input: live for the one in front, the last picture for the others. Pictures stay on this TV, and turning this off deletes them.")
+            .on(c.theme_flag("inputs.previews", true))
+            .act(|a| match a {
+                Arg::Toggle(v) => vec![Op::Patch(patch_of("inputs.previews", json!(v)))],
+                _ => Vec::new(),
+            }),
+    );
 
     rows.push(
         c.toggle(
@@ -319,6 +331,22 @@ mod tests {
         assert_eq!(r.iter().filter(|x| x.tab == 1).count(), 10, "LG's eight and the two that were in its hidden menu");
         let ops = (by_id(&r, "other.qmsVrr").act.as_ref().unwrap())(Arg::Toggle(true));
         assert!(matches!(&ops[..], [Op::Lg { ds, value, .. }] if ds == "other.qmsVrr" && value == "on"));
+    }
+
+    #[test]
+    fn the_previews_switch_is_on_until_the_owner_turns_it_off_and_says_what_on_means() {
+        let mut w = world();
+        let r = rows(&w.ctx());
+        let row = by_id(&r, "previews");
+        assert!(row.on, "on by default");
+        assert_eq!((row.tab, row.label.as_str()), (0, "Show input previews"));
+        assert!(row.help.contains("stay on this TV") && row.help.contains("deletes"), "{}", row.help);
+        let off = (row.act.as_ref().unwrap())(Arg::Toggle(false));
+        assert!(matches!(&off[..], [Op::Patch(p)] if p == &json!({"inputs": {"previews": false}})));
+        w.theme = json!({"inputs": {"previews": false}});
+        assert!(!by_id(&rows(&w.ctx()), "previews").on);
+        w.theme = json!({"inputs": {"hdmi1": "always"}});
+        assert!(by_id(&rows(&w.ctx()), "previews").on, "a theme that says nothing of it is on");
     }
 
     #[test]

@@ -749,6 +749,13 @@ impl Shell {
     /// Time passed: the models' timers and the surfaces' own.
     pub fn tick(&mut self, now: u64) -> Vec<Act> {
         let mut acts = Vec::new();
+        // the pictures of the inputs are taken in the quiet: nothing of the shell is up
+        let quiet = !(self.panels.wants(&self.kinds)
+            || (self.kinds.settings && self.settings.is_open())
+            || (self.kinds.displaylab && self.lab.is_open())
+            || (self.kinds.cameras && self.cameras.wants())
+            || self.sys.saver_up(&self.kinds));
+        self.panels.set_quiet(quiet);
         self.feed(&Input::Tick, now, &mut acts);
         if self.volume_surface.tick(&mut self.kit, now) {
             self.redraw = true;
@@ -1233,6 +1240,10 @@ impl Shell {
         }
         if let Some(file) = self.settings.take_theme_file() {
             let theme = self.reload_theme(&file);
+            // the owner's choices of inputs and of their previews are the panels' too
+            for e in self.panels.set_theme(&theme, now) {
+                self.carry(e, now, acts);
+            }
             // the saver's own numbers (clockLevel, dim, style, own) and the placements are in it
             for e in self.sys.set_theme(&theme, now) {
                 self.carry(e, now, acts);
