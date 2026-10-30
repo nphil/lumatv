@@ -109,7 +109,9 @@ def run(scene, mode='dark', scale=1.0, evals=('geometry', 'state', 'lint', 'repo
         start.append((OPEN, 'show', scene.show))
     for ms, topic, doc in start:
         extra += ['--push', '%d:%s:%s' % (ms, topic, json.dumps(doc, separators=(',', ':')))]
-    helper = host.FakeHelper({'topics': dict(scene.helper.get('topics', {}))})
+    helper = host.FakeHelper({'topics': dict(scene.helper.get('topics', {})), **scene.helper.get('routes', {})})
+    if scene.helper.get('clock'):
+        extra += ['--clock', scene.helper['clock']]
     lg = scene.lg() if callable(scene.lg) else scene.lg or lgsettings.LgService(answers=rs.ONLINE)
     rc, out, chan, lg, helper = host.run(wait=scene.end + 500, extra=extra, lg=lg, helper=helper, kinds=scene.kinds, text_scale=scale, mode=mode, theme=scene.theme)
     ev = host.evals(out)
@@ -123,7 +125,7 @@ def run(scene, mode='dark', scale=1.0, evals=('geometry', 'state', 'lint', 'repo
             by['report'] = e
         elif isinstance(e, dict):
             by['geometry'] = e
-    return {'rc': rc, 'out': out, 'chan': chan, 'ev': by}
+    return {'rc': rc, 'out': out, 'chan': chan, 'ev': by, 'helper': helper}
 
 
 def jpeg(png, path):
@@ -158,6 +160,75 @@ def drawer(name, keys=()):
     return Scene(name, 'drawer', keys=keys, helper={'topics': topics}, show={'kind': 'drawer', 'warm': False, 'n': 1})
 
 
+# ---- the picker with the pictures of the inputs: the helper keeps one per input, the shell shows it
+CLOCK = '2026-10-29T21:50:00'
+NOW_MS = int(time.mktime(time.strptime(CLOCK, '%Y-%m-%dT%H:%M:%S')) * 1000)
+INPUTS = {'returnValue': True, 'devices': [
+    {'appId': 'com.webos.app.hdmi1', 'label': 'Apple TV 4K', 'connected': True},
+    {'appId': 'com.webos.app.hdmi2', 'label': 'Denon AVR-S760H', 'connected': True},
+    {'appId': 'com.webos.app.hdmi3', 'label': 'PlayStation 5', 'connected': True},
+    {'appId': 'com.webos.app.hdmi4', 'label': '', 'connected': False}]}
+# how long ago each input's last picture was taken, in seconds
+AGES = {'livetv': 3 * 3600, 'hdmi1': 7 * 60, 'hdmi2': 41 * 60, 'hdmi3': 26 * 3600}
+
+
+def shot(kind):
+    """A 480x270 picture like the capture service gives, as JPEG bytes: a streaming box's home, a bright film frame, a game with a white
+    sky (the hardest ground for white words), the news."""
+    import io
+    from PIL import Image, ImageDraw
+    w, h = 480, 270
+    im = Image.new('RGB', (w, h))
+    d = ImageDraw.Draw(im)
+    if kind == 'home':
+        for y in range(h):
+            d.line([(0, y), (w, y)], fill=(18 + y // 12, 20 + y // 14, 40 + y // 7))
+        colours = [(220, 80, 90), (240, 170, 70), (90, 170, 200), (140, 110, 220), (90, 200, 140)]
+        for row, y0 in enumerate((70, 164)):
+            for i in range(5):
+                x0 = 18 + i * 92
+                d.rounded_rectangle([x0, y0, x0 + 82, y0 + 78], 8, fill=colours[(i + row) % 5])
+        d.rectangle([18, 22, 130, 34], fill=(235, 235, 240))
+    elif kind == 'film':
+        for y in range(h):
+            t = y / h
+            d.line([(0, y), (w, y)], fill=(int(250 - 90 * t), int(150 - 70 * t + 30 * (1 - t)), int(90 + 70 * t)))
+        d.ellipse([300, 60, 380, 140], fill=(255, 236, 170))
+        d.polygon([(0, h), (0, 190), (120, 150), (230, 200), (340, 160), (w, 205), (w, h)], fill=(40, 34, 60))
+    elif kind == 'game':
+        d.rectangle([0, 0, w, h], fill=(190, 225, 255))
+        d.rectangle([0, 190, w, h], fill=(80, 150, 70))
+        d.ellipse([60, 30, 190, 100], fill=(255, 255, 255))
+        d.ellipse([260, 50, 400, 120], fill=(255, 255, 255))
+        d.rectangle([200, 120, 250, 190], fill=(200, 60, 50))
+    else:
+        d.rectangle([0, 0, w, h], fill=(30, 60, 140))
+        d.ellipse([160, 40, 320, 200], fill=(222, 184, 160))
+        d.rectangle([0, 200, w, 245], fill=(240, 240, 245))
+        d.rectangle([0, 245, w, h], fill=(190, 30, 40))
+    buf = io.BytesIO()
+    im.save(buf, 'JPEG', quality=82)
+    return buf.getvalue()
+
+
+SHOTS = {'livetv': shot('news'), 'hdmi1': shot('home'), 'hdmi2': shot('film'), 'hdmi3': shot('game')}
+
+
+def picker(name, keys=(), previews=True, pictures=('livetv', 'hdmi1', 'hdmi2', 'hdmi3'), theme=None, end=None):
+    """The picker over HDMI 2 (in front, with the Denon receiver on it), the helper keeping `pictures`; `previews` is the owner's switch."""
+    theme = dict(theme or {}, inputs={'hdmi1': 'always', 'hdmi2': 'always', 'hdmi3': 'always', 'hdmi4': 'always', 'previews': previews})
+    items = {k: {'at': NOW_MS - AGES[k] * 1000, 'w': 480, 'h': 270, 'bytes': len(SHOTS[k])} for k in pictures}
+    routes = {
+        'GET /v1/previews': {'ok': True, 'previews': {'enabled': previews, 'items': items}},
+        'POST /v1/previews/capture': lambda body: {'ok': True, 'key': body.get('key'), 'at': NOW_MS + 1000},
+        'DELETE /v1/previews': {'ok': True, 'cleared': 0},
+    }
+    for k in pictures:
+        routes['GET /v1/previews/' + k] = SHOTS[k]
+    return Scene(name, 'picker', keys=keys, theme=theme, end=end, lg=lambda: lgsettings.LgService(answers=dict(rs.ONLINE, **{'/getAllInputStatus': INPUTS})),
+                 helper={'foreground': {'app': 'com.webos.app.hdmi2', 'home': False}, 'routes': routes, 'clock': CLOCK}, show={'kind': 'picker', 'warm': False, 'n': 1})
+
+
 # the screens the renders show, each by its name: (scene, the looks it is rendered in)
 def scenes():
     return [
@@ -176,6 +247,9 @@ def scenes():
         drawer('drawer'),
         drawer('drawer-open', [(OPEN + 600, 'ok', 0), (OPEN + 1100, 'down', 0), (OPEN + 1600, 'down', 0)]),
         drawer('drawer-clear', [(OPEN + 600, 'right', 0)]),
+        picker('picker-previews'),
+        picker('picker-previews-none', pictures=()),
+        picker('picker-previews-off', previews=False),
     ]
 
 
@@ -423,6 +497,43 @@ class RustPanels(unittest.TestCase):
         ev = self.ok(r)
         self.assertIn(ev['state']['panels']['keyboard']['up'], (False,))
         self.assertEqual([d['op'] for d in r['chan'].ime], ['shown'])
+
+    # ---- the pictures of the inputs
+    def test_the_picker_shows_the_live_picture_of_the_input_in_front_and_the_last_pictures_of_the_others_and_asks_nothing_it_should_not(self):
+        r = run(picker('picker-previews', end=OPEN + 3200), evals=('geometry', 'state', 'lint'))
+        ev = self.ok(r)
+        self.assertEqual(ev.get('lint', []), [])
+        tiles = ev['geometry']['picker']['tiles']
+        self.assertEqual([t['picture'] for t in tiles], [True, True, True, True, False], 'Live TV and three ports have pictures; the port with nothing on it keeps its icon')
+        self.assertEqual((tiles[1]['live'], tiles[1]['age']), (False, '7 min ago'))
+        self.assertEqual((tiles[3]['live'], tiles[3]['age']), (False, 'yesterday'))
+        self.assertEqual((tiles[2]['live'], tiles[2]['state']), (True, 'In front \u00b7 Live'), 'the input in front is live')
+        self.assertEqual(tiles[0]['age'], '3 h ago')
+        asked = [b for m, p, b in r['helper'].requests if m == 'POST' and p == '/v1/previews/capture']
+        self.assertEqual(asked[0], {'key': 'hdmi2', 'why': 'open'}, 'one at once as the picker comes up')
+        live = [b for b in asked[1:] if b == {'key': 'hdmi2', 'why': 'live'}]
+        self.assertGreaterEqual(len(live), 2, 'and then the live tile goes on: %s' % asked)
+        self.assertTrue(all(b['key'] == 'hdmi2' for b in asked), 'only the input in front is ever asked for: %s' % asked)
+        heights = {t['frame']['h'] for t in tiles}
+        self.assertEqual(len(heights), 1)
+        self.assertLess(r['ev']['geometry']['picker']['sheet']['h'], 404)
+
+    def test_a_fresh_tv_with_no_pictures_yet_keeps_the_icons_in_the_tiles_new_shape(self):
+        r = run(picker('picker-previews-none', pictures=()), evals=('geometry', 'lint'))
+        ev = self.ok(r)
+        self.assertEqual(ev.get('lint', []), [])
+        self.assertEqual([t['picture'] for t in ev['geometry']['picker']['tiles']], [False] * 5)
+
+    def test_with_the_previews_off_nothing_is_taken_and_the_helper_is_told_to_keep_nothing(self):
+        r = run(picker('picker-previews-off', previews=False), evals=('geometry', 'state', 'lint'))
+        ev = self.ok(r)
+        asked = [(m, p) for m, p, b in r['helper'].requests if p.startswith('/v1/previews')]
+        self.assertNotIn(('POST', '/v1/previews/capture'), asked, 'no picture is asked for')
+        self.assertNotIn(('GET', '/v1/previews'), asked, 'not even the index')
+        self.assertIn(('DELETE', '/v1/previews'), asked, 'the helper is told to hold nothing')
+        tiles = ev['geometry']['picker']['tiles']
+        self.assertTrue(all(not t['picture'] and t['frame']['h'] >= 264 for t in tiles), 'the picker is as the mock has it')
+        self.assertGreaterEqual(ev['geometry']['picker']['sheet']['h'], 404)
 
     # ---- every screen reads clean and the renders
     def test_every_panel_screen_reads_clean_at_both_text_sizes_in_both_looks_and_the_renders_are_written_when_asked(self):

@@ -68,6 +68,14 @@ class FakeHelper:
                     answer = answer(body)
                 if answer is None:
                     return self.send(404, {'ok': False, 'error': {'code': 'not_found', 'message': 'no such route in the fake'}})
+                if isinstance(answer, (bytes, bytearray)):
+                    # a picture: the helper's stills and previews come back as image bytes, not JSON
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'image/jpeg')
+                    self.send_header('Content-Length', str(len(answer)))
+                    self.end_headers()
+                    self.wfile.write(bytes(answer))
+                    return
                 status = answer.pop('_status', 200) if isinstance(answer, dict) else 200
                 self.send(status, answer)
 
