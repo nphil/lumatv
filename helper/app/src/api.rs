@@ -149,6 +149,8 @@ pub struct Api {
     pub privacy: Arc<lumatv_privacy::Privacy>,
     pub receiver_tx: Sender<receiver::Cmd>,
     pub feeds_tx: Sender<homefeeds::Cmd>,
+    /// The full weather view's radar and base map (`/v1/wx/...`).
+    pub wx: Arc<crate::wxview::WxView>,
 }
 
 /// A topic name as it may appear in a path or a filter.
@@ -555,6 +557,7 @@ impl Handler for Api {
                 crate::plugins::routes::handle(&self.plugins, request, rest)
             }
             ["v1", "voice", rest @ ..] => crate::voice::handle(&self.voice, request, rest),
+            ["v1", "wx", rest @ ..] => self.wx.handle(request, rest),
             ["v1", "gfn", rest @ ..] => crate::gfn_boost::handle(request, rest),
             ["v1", "crash", rest @ ..] => crate::crash::handle(request, rest),
             ["v1", "openapps"] => {
@@ -643,6 +646,14 @@ mod tests {
         feeds_rx: mpsc::Receiver<homefeeds::Cmd>,
     }
 
+    struct NoFetch;
+
+    impl fetch::Fetch for NoFetch {
+        fn get(&self, _url: &str, _limits: fetch::FetchLimits) -> Result<Vec<u8>, fetch::FetchError> {
+            Err(fetch::FetchError::Offline)
+        }
+    }
+
     fn rig() -> Rig {
         let dir = tempfile::tempdir().unwrap();
         let hub = Arc::new(Hub::new(777));
@@ -686,6 +697,7 @@ mod tests {
                 fetch_backend: json!({"backend": "test"}),
                 receiver_tx,
                 feeds_tx,
+                wx: crate::wxview::WxView::new(Arc::new(NoFetch), dir.path()),
             },
             _dir: dir,
             receiver_rx,

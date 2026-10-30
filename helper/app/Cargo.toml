@@ -17,6 +17,7 @@ path = "src/main.rs"
 
 [dependencies]
 fetch.workspace = true
+map.workspace = true
 settings-schema.workspace = true
 plugin-api.workspace = true
 service-api.workspace = true

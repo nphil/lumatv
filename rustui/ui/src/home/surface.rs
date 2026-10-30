@@ -433,6 +433,7 @@ impl HomeSurface {
         self.drive_weather(kit, home, now);
         self.update_dock(kit, engine, home, now_ns);
         self.update_focus(kit, engine, home, now_ns);
+        home.set_motion_reduced(kit.ui.look.reduced_motion);
         self.update_layers(kit, engine, home, now)?;
         // the question's answers are focusables of Home's model once it is drawn
         if let Some(c) = self.confirm.as_mut().filter(|c| !c.reported) {
@@ -975,7 +976,7 @@ impl HomeSurface {
     }
 
     // ---- the layers over Home
-    fn update_layers(&mut self, kit: &mut Kit, engine: &mut Engine, home: &Home, now: u64) -> std::io::Result<()> {
+    fn update_layers(&mut self, kit: &mut Kit, engine: &mut Engine, home: &mut Home, now: u64) -> std::io::Result<()> {
         let now_ns = Self::now_ns();
         // the library
         let apps_up = home.layer == Layer::Apps || (home.layer == Layer::Search && home.search_over_apps());

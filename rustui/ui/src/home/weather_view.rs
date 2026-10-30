@@ -9,6 +9,7 @@
 use super::clock;
 use super::model::Home;
 use super::surface::{HIDDEN, faded, glass_of};
+use super::radar_surface::RadarPage;
 use super::weather_art;
 use super::widgets::{Canvas, Pictures, Words};
 use crate::kit::pane::PaneKind;
@@ -27,16 +28,18 @@ use ui::text::Weight;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Page {
     Now,
+    Radar,
     Week,
     Details,
 }
 
-pub const PAGES: [Page; 3] = [Page::Now, Page::Week, Page::Details];
+pub const PAGES: [Page; 4] = [Page::Now, Page::Radar, Page::Week, Page::Details];
 
 impl Page {
     pub fn name(self) -> &'static str {
         match self {
             Page::Now => "now",
+            Page::Radar => "radar",
             Page::Week => "week",
             Page::Details => "details",
         }
@@ -45,6 +48,7 @@ impl Page {
     pub fn title(self) -> &'static str {
         match self {
             Page::Now => "Now and next hours",
+            Page::Radar => "Radar",
             Page::Week => "This week",
             Page::Details => "Details",
         }
@@ -241,6 +245,7 @@ pub struct WeatherSurface {
     clock: Text,
     dots: Vec<ShapeLayer>,
     made: Option<Made>,
+    radar: Option<RadarPage>,
     z: i32,
     /// The bar's words are for this page and clock.
     bar_key: String,
@@ -263,7 +268,7 @@ impl WeatherSurface {
         let clock_f = Frame::new(bar_f.x + 1792.0 - 400.0 - kit.space(6), bar_f.y, 400.0, 56.0);
         let title = Text::new(kit, title_f, z + 2, role_style(kit, TypeRole::Body, Some(Weight::SemiBold), ink, Align::Left), "Weather")?;
         let clock = Text::new(kit, clock_f, z + 2, role_style(kit, TypeRole::Label, None, ink2, Align::Right), "")?;
-        let mut me = Self { _scrim: scrim, _bar: bar, title, clock, dots: Vec::new(), made: None, z, bar_key: String::new(), art_wait: None };
+        let mut me = Self { _scrim: scrim, _bar: bar, title, clock, dots: Vec::new(), made: None, radar: None, z, bar_key: String::new(), art_wait: None };
         let accent = kit.ui.look.accent();
         let _ = (home, accent);
         for _ in PAGES {
@@ -273,9 +278,22 @@ impl WeatherSurface {
     }
 
     /// Whether the picture of the page moves: the same rule as the card's.
-    pub fn update(&mut self, kit: &mut Kit, home: &Home, pictures: &mut Pictures, now: u64, run_art: bool) -> std::io::Result<()> {
-        let data = Data::new(home);
+    pub fn update(&mut self, kit: &mut Kit, home: &mut Home, pictures: &mut Pictures, now: u64, run_art: bool) -> std::io::Result<()> {
         let page = home.wview.page;
+        // the radar page has layers of its own (a map, a layer for every frame of the loop), made when it is the page and dropped when it is not
+        if page == Page::Radar {
+            self.made = None;
+            if self.radar.is_none() {
+                self.radar = Some(RadarPage::new(kit, self.z + 4)?);
+            }
+            if let Some(r) = &mut self.radar {
+                r.update(kit, home, now, kit.ui.look.reduced_motion)?;
+            }
+        } else {
+            self.radar = None;
+        }
+        let home: &Home = home;
+        let data = Data::new(home);
         // the bar: where this is, and the place and the time
         let t = clock::civil(home.now);
         let (time, ampm) = t.time_words(data.twelve);
@@ -297,6 +315,9 @@ impl WeatherSurface {
             d.set(Props::at(x, 56.0 + 21.0));
         }
         let key = data.key();
+        if page == Page::Radar {
+            return Ok(());
+        }
         let need = self.made.as_ref().is_none_or(|m| m.key != key || m.page != page || m.scale != kit.text_scale || m.mode != kit.mode);
         if need {
             self.made = None;
@@ -333,6 +354,7 @@ impl WeatherSurface {
             Page::Now => self.page_now(kit, d, pictures, &mut made)?,
             Page::Week => self.page_week(kit, d, pictures, &mut made)?,
             Page::Details => self.page_details(kit, d, &mut made)?,
+            Page::Radar => {}
         }
         Ok(made)
     }
@@ -627,6 +649,8 @@ mod tests {
     fn the_keys_walk_the_pages_and_back_closes() {
         let mut v = WeatherView::default();
         assert_eq!(v.key("up", true, false), Done::Nothing, "the first page has nothing above");
+        assert_eq!(v.key("down", false, true), Done::Redraw);
+        assert_eq!(v.page, Page::Radar);
         assert_eq!(v.key("down", false, true), Done::Redraw);
         assert_eq!(v.page, Page::Week);
         assert_eq!(v.key("down", false, true), Done::Redraw);

@@ -177,6 +177,7 @@ impl Service {
                 )
             }
         };
+        let wx = crate::wxview::WxView::new(Arc::clone(&fetcher), &paths.cache_dir());
         threads.push(("feeds", homefeeds::spawn(&ctx, feeds_rx, fetcher)?));
 
         // AI access: loads its state (off and unpaired when there is none) and binds nothing; the LAN listener exists only while
@@ -262,6 +263,7 @@ impl Service {
             fetch_backend,
             receiver_tx,
             feeds_tx,
+            wx,
         };
         let server = Server::start(
             SocketAddr::new(ip, config.listen.port),

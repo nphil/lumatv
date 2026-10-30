@@ -153,6 +153,12 @@ pub struct Home {
     /// The helper's `weather.more`: the hours, the details of now and the alerts of the full weather view.
     pub weather_more: Value,
     pub wview: super::weather_view::WeatherView,
+    /// The weather view's radar page: the helper's frames, the loop, the scrub.
+    pub radar: super::radar_view::Radar,
+    /// Whether motion is reduced (the surface says): the radar loop then does not play by itself.
+    pub motion_reduced: bool,
+    /// What a layer's close asked of the helper, sent with the next update.
+    deferred: Vec<Effect>,
     pub news: Value,
     /// The helper's `plugins` roster, its `ha.link` and the plugins' `plugin.<id>.cards`: what the At-home card is drawn from.
     pub plugins: hub::Topics,
@@ -252,6 +258,9 @@ impl Home {
             weather: Value::Null,
             weather_more: Value::Null,
             wview: super::weather_view::WeatherView::default(),
+            radar: super::radar_view::Radar::default(),
+            motion_reduced: false,
+            deferred: Vec::new(),
             news: Value::Null,
             plugins: Default::default(),
             voice_ready: false,
@@ -613,6 +622,19 @@ impl Home {
             Input::Pointer { x, y, buttons, visible } => self.pointer(*x, *y, *buttons, *visible, &mut out),
             Input::Tick | Input::Bytes { .. } => {}
         }
+        // the radar page's answers (the state, the frames, the map) and its loop
+        if self.radar.open {
+            let loops = self.radar_loops();
+            let (fx, changed) = match input {
+                Input::Fetched { .. } | Input::Bytes { .. } => self.radar.input(input, now),
+                _ => self.radar.tick(now, loops),
+            };
+            out.extend(fx);
+            if changed {
+                self.redraw(&mut out);
+            }
+        }
+        out.append(&mut self.deferred);
         self.tick(&mut out);
         let visible = self.camera_stills_visible();
         out.extend(self.stills.update(input, visible, now));
@@ -722,6 +744,7 @@ impl Home {
         take(self.search.due_at());
         take(self.stills.due_at(self.camera_stills_visible()));
         take(self.wall.due_at());
+        take(self.radar.due_at(self.radar_loops()));
         // the clock's minute, and its second hand when the analogue face shows one: only while Home is in front (behind an app nothing shows it)
         if self.active {
             let step = if self.theme.pointer("/clock/style").and_then(Value::as_str) == Some("analog") { 1000 } else { 60_000 };
@@ -1056,7 +1079,7 @@ impl Home {
             Layer::Menu => self.menu_key(name, dir, out),
             Layer::Confirm => self.confirm_key(name, dir, out),
             Layer::Popover => self.popover_key(name, dir, out),
-            Layer::Weather => self.weather_key(name, dir),
+            Layer::Weather => self.weather_key(name, dir, out),
             Layer::None => self.home_key(name, dir, out),
         }
         self.redraw(out);
@@ -1466,6 +1489,10 @@ impl Home {
                 self.focus.unregister(Id(popover::ROW_ID + i));
             }
         }
+        if self.layer == Layer::Weather && self.radar.open {
+            let fx = self.radar.close();
+            self.deferred.extend(fx);
+        }
         self.focus.close_modal();
         self.layer = self.stack.pop().unwrap_or(Layer::None);
     }
@@ -1701,10 +1728,38 @@ impl Home {
         }
     }
 
-    fn weather_key(&mut self, name: &str, dir: Option<Dir>) {
+    /// Whether the radar's loop plays by itself: its page is up and seen, and motion is not reduced.
+    pub fn radar_loops(&self) -> bool {
+        self.weather_view_runs() && self.wview.page == super::weather_view::Page::Radar && !self.motion_reduced
+    }
+
+    fn weather_key(&mut self, name: &str, dir: Option<Dir>, out: &mut Vec<Effect>) {
+        if self.wview.page == super::weather_view::Page::Radar && matches!(name, "left" | "right" | "ok" | "1" | "2") {
+            let (fx, _) = self.radar.key(name, self.now);
+            out.extend(fx);
+            return;
+        }
         if self.wview.key(name, dir == Some(Dir::Up), dir == Some(Dir::Down)) == super::weather_view::Done::Close {
             self.close_layer();
         }
+        self.sync_radar(out);
+    }
+
+    /// The helper's radar runs while the radar page is the one shown, and not otherwise.
+    fn sync_radar(&mut self, out: &mut Vec<Effect>) {
+        let on = self.layer == Layer::Weather && self.wview.page == super::weather_view::Page::Radar;
+        if on && !self.radar.open {
+            let (lat, lon) = (self.weather.pointer("/doc/lat").and_then(Value::as_f64), self.weather.pointer("/doc/lon").and_then(Value::as_f64));
+            if let (Some(lat), Some(lon)) = (lat, lon) {
+                out.extend(self.radar.open(lat, lon, super::radar_view::Level::Home, !self.light, self.now));
+            }
+        } else if !on && self.radar.open {
+            out.extend(self.radar.close());
+        }
+    }
+
+    pub fn set_motion_reduced(&mut self, reduced: bool) {
+        self.motion_reduced = reduced;
     }
 
     fn popover_key(&mut self, name: &str, dir: Option<Dir>, out: &mut Vec<Effect>) {
@@ -2133,8 +2188,12 @@ mod tests {
         press(&mut h, "up", 2100);
         assert_eq!(h.wview.page, super::super::weather_view::Page::Now, "nothing above the first page");
         press(&mut h, "down", 2200);
+        assert_eq!(h.wview.page, super::super::weather_view::Page::Radar);
+        assert!(h.radar.open || h.weather.pointer("/doc/lat").is_none(), "the helper's radar is asked for when the page comes (with a place to ask for)");
+        press(&mut h, "down", 2250);
         press(&mut h, "down", 2300);
         assert_eq!(h.wview.page, super::super::weather_view::Page::Details);
+        assert!(!h.radar.open, "and let go when the page goes");
         press(&mut h, "down", 2400);
         assert_eq!(h.wview.page, super::super::weather_view::Page::Details);
         press(&mut h, "back", 2500);

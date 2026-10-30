@@ -13,6 +13,8 @@ license = "MIT"
 # LumaShow OS crates, shared and never forked: a path dependency on the sibling checkout
 # (/data/home/LumaShow/wt/lumatv, the worktree the TV builds against). helper/build.sh checks that it is there.
 fetch = { path = "../../LumaShow/wt/lumatv/crates/fetch" }
+# The weather view's radar and map engines (IEM NEXRAD and HRRR, RainViewer, Open-Meteo, OpenFreeMap): LumaShow's own, shared and never forked.
+map = { path = "../../LumaShow/wt/lumatv/crates/map" }
 settings-schema = { path = "../../LumaShow/wt/lumatv/crates/settings-schema" }
 plugin-api = { path = "../../LumaShow/wt/lumatv/crates/plugin-api" }
 service-api = { path = "../../LumaShow/wt/lumatv/crates/service-api" }

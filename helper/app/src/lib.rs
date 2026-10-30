@@ -90,6 +90,7 @@ pub mod settings;
 pub mod sys;
 pub mod timeutil;
 pub mod voice;
+pub mod wxview;
 pub mod openapps;
 pub mod updateblock;
 pub mod voice_store;
