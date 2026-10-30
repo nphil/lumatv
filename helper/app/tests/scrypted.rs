@@ -1610,6 +1610,43 @@ fn a_recording_plays_from_the_asked_moment_pauses_where_it_is_and_plays_on_from_
     );
 }
 
+#[test]
+fn the_full_views_recording_plays_where_its_live_does_and_play_goes_on_there_on_the_same_pipeline() {
+    let Some(v) = video(30, false) else { return };
+    let cam = camera(30, gop(600), |_| {});
+    v.world.bridge.set_rtsp("273", &cam.url());
+    // live, as the full view asks for it on a video window of the display
+    let reply = v.world.post("/v1/cameras/live", json!({"camera": "273", "for": "full", "window": "main"}));
+    assert_eq!(reply.status, 200, "{}", String::from_utf8_lossy(&reply.body));
+    v.world.rig.wait_topic("cameras.live", WAIT, |t| t["mode"] == "live" && t["state"] == "playing").expect("live plays");
+    let loads = ndl_lines(&v.log, "Load");
+    assert!(loads >= 1);
+    // a recording from the strip names the same window: the same feeder, the same pipeline, the picture on the plane never dropped
+    let at = v.world.bridge.now() - 600_000;
+    let reply = v.world.post("/v1/cameras/playback", json!({"camera": "273", "at": at, "window": "main"}));
+    assert_eq!(reply.status, 200, "{}", String::from_utf8_lossy(&reply.body));
+    v.world.rig.wait_topic("cameras.live", WAIT, |t| t["mode"] == "playback" && t["state"] == "playing").expect("the recording plays");
+    assert_eq!(ndl_lines(&v.log, "Load"), loads, "the seek reused the pipeline");
+    // Pause, then Play: dialled again where it stopped, in the window it was in
+    assert_eq!(v.world.post("/v1/cameras/live/pause", json!({"paused": true})).status, 200);
+    assert!(wait_until(WAIT, || v.world.bridge.requests_matching("POST /v1/playback/stop") >= 1), "the bridge's session is given back");
+    assert_eq!(v.world.post("/v1/cameras/live/pause", json!({"paused": false})).status, 200);
+    v.world.rig.wait_topic("cameras.live", WAIT, |t| t["paused"] == false && t["mode"] == "playback" && t["state"] == "playing").expect("plays on");
+    assert_eq!(ndl_lines(&v.log, "Load"), loads, "Play went on in the same window and pipeline");
+    // the decoder was opened for Home, the app LG's video path connects a window's video for
+    let feeder_log = std::fs::read_to_string(v._dir.path().join("feeder.log")).unwrap_or_default();
+    assert!(feeder_log.contains("ndl app com.webos.app.home"), "{feeder_log}");
+    // a window the shell was not granted is refused, not guessed
+    let reply = v.world.post("/v1/cameras/playback", json!({"camera": "273", "at": at, "window": "top"}));
+    assert_eq!(reply.status, 400, "{}", String::from_utf8_lossy(&reply.body));
+    // without the word (the compositor has no video windows) a recording plays as it did before: in the configured window, with another feeder and its own load
+    let reply = v.world.post("/v1/cameras/playback", json!({"camera": "273", "at": at}));
+    assert_eq!(reply.status, 200, "{}", String::from_utf8_lossy(&reply.body));
+    assert!(wait_until(WAIT, || ndl_lines(&v.log, "Load") > loads), "another window kind: another feeder loads its own pipeline");
+    v.world.post("/v1/cameras/live/stop", json!({}));
+    assert_eq!(ndl_lines(&v.log, "VIOLATION"), 0, "{}", std::fs::read_to_string(&v.log).unwrap_or_default());
+}
+
 fn wait_position(v: &Video, check: impl Fn(i64) -> bool) -> Option<i64> {
     let mut seen = None;
     wait_until(WAIT, || {

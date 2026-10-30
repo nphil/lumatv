@@ -360,10 +360,19 @@ impl App {
         self.app_front && self.vwin_on && !self.cfg.live_over_apps && self.cams.state == data::LinkState::Ready && self.cams.get(camera).is_some_and(|c| c.live)
     }
 
-    /// The call for the full view's live stream. Where a video window carries the picture it is for the display's main window, with Home in front (the app
-    /// LG's video path knows the video for), and the stream is the camera's own at the owner's quality (native by default), up to 4K at its own rate.
+    /// The window the full view's pictures are asked for in when the compositor's video windows carry them: the display's main one, with Home in front (the app
+    /// LG's video path knows the video for). None where nothing is claimed (no compositor windows, an app in front without live over apps, a camera that does not
+    /// play live): the stream is then as it was before there were any.
+    fn window_for(&self, camera: &str) -> Option<&'static str> {
+        (self.vwin_on && self.cams.get(camera).is_some_and(|c| self.can_live(c))).then_some("main")
+    }
+
+    /// The call for the full view's live stream: the camera's own at the owner's quality (native by default), up to 4K at its own rate.
     fn live_body(&self, camera: &str) -> Value {
-        if self.vwin_on { json!({"camera": camera, "for": "full", "window": "main"}) } else { json!({"camera": camera}) }
+        match self.window_for(camera) {
+            Some(window) => json!({"camera": camera, "for": "full", "window": window}),
+            None => json!({"camera": camera}),
+        }
     }
 
     /// What the full view's live video asks of the display while it is wanted: the stream the helper was asked for and the rectangle it is
@@ -592,6 +601,10 @@ impl App {
         let Some(camera) = self.current().map(|c| c.id.clone()) else { return };
         let rate = rate.unwrap_or_else(|| self.strip.as_ref().map_or(1.0, Strip::rate_value));
         let mut body = json!({"camera": camera, "at": at});
+        if let Some(window) = self.window_for(&camera) {
+            // a recording plays in the claim's window too: a seek reuses the pipeline and the picture on the plane
+            body["window"] = json!(window);
+        }
         if (rate - 1.0).abs() > 0.01 {
             body["rate"] = json!(rate);
         }
@@ -608,7 +621,11 @@ impl App {
 
     fn play_clip(&mut self, camera: &str, clip: &str, fx: &mut Vec<Effect>) {
         let restore = self.expect;
-        self.ask(Ask::Playback { restore }, "POST", "/v1/cameras/playback".into(), Some(json!({"camera": camera, "clip": clip})), fx);
+        let mut body = json!({"camera": camera, "clip": clip});
+        if let Some(window) = self.window_for(camera) {
+            body["window"] = json!(window);
+        }
+        self.ask(Ask::Playback { restore }, "POST", "/v1/cameras/playback".into(), Some(body), fx);
         self.expect = Expect::Recording;
         self.asked = Some(camera.to_string());
         self.commit_hint = None;

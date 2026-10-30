@@ -184,6 +184,8 @@ pub(crate) struct Held {
     pub mode: Mode,
     pub at: i64,
     pub rate: u8,
+    /// The window the shell was granted for the picture (`main`, `sub`), when it is a video window's: Play dials the recording again in the same one.
+    pub side: String,
 }
 
 struct State {
@@ -207,6 +209,8 @@ struct State {
     /// The push channel's last sequence number: a reconnect resumes after it.
     last_seq: Option<String>,
     held: Option<Held>,
+    /// The window of the stream that plays (`main`, `sub`), when the Cameras full view asked for it on a video window; empty for any other stream.
+    side: String,
 }
 
 pub(crate) struct Inner {
@@ -298,6 +302,7 @@ impl Scrypted {
                 cooldowns: Cooldowns::default(),
                 last_seq: None,
                 held: None,
+                side: String::new(),
             }),
             wake: (Mutex::new(()), Condvar::new()),
             generation: AtomicU64::new(0),

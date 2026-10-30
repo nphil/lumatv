@@ -1217,3 +1217,58 @@ fn the_grids_tiles_over_an_app_are_asked_for_no_more_than_twice_a_second_and_ove
     assert_eq!(asked_at(json!({"app": "netflix", "home": false}), 350), 0, "over an app: not yet");
     assert!(asked_at(json!({"app": "netflix", "home": false}), 650) > 0, "over an app: after 500 ms");
 }
+
+#[test]
+fn a_recording_and_a_clip_are_asked_for_in_the_window_the_live_view_has_and_in_none_where_there_is_no_claim() {
+    let events = |r: &mut Rig| {
+        r.app.open_full("273", T0);
+        r.helper("cameras.live", live_topic("273", "live", "playing"));
+        r.at(100);
+        let fx = r.press("down");
+        let at = T0 as i64 - 6 * MIN;
+        r.answer(tag_of(&fx, "/events?"), 200, json!({"events": [{"at": at, "kind": "person", "label": "person"}]}));
+        r.at(300);
+        r.press("ok")
+    };
+    // the compositor has video windows: the live view is claimed, and so is what the strip plays (one claim, one window, a seek that reuses the pipeline)
+    let mut r = Rig::new(three());
+    r.app.set_vwin_on(true);
+    let fx = events(&mut r);
+    let posts: Vec<_> = requests(&fx).into_iter().filter(|(_, p, _)| p == "/v1/cameras/playback").collect();
+    assert_eq!(posts.len(), 1, "{posts:?}");
+    assert_eq!(posts[0].2["window"], "main", "{:?}", posts[0]);
+    // ... a clip too
+    let mut r = Rig::new(three());
+    r.app.set_vwin_on(true);
+    r.app.open_full("273", T0);
+    r.helper("cameras.live", live_topic("273", "live", "playing"));
+    r.at(100);
+    let fx = r.press("down");
+    r.answer(tag_of(&fx, "/events?"), 200, json!({"events": []}));
+    r.at(200);
+    r.press("up");
+    let fx = r.press("right");
+    let clips = tag_of(&fx, "/clips?");
+    r.answer(clips, 200, json!({"clips": [{"id": "c1.Wy", "at": T0 as i64 - 6 * MIN, "duration": 30000, "kind": "person", "label": "person", "description": "Person at the front door",
+                                           "has_thumbnail": true, "has_video": true}]}));
+    r.at(300);
+    r.press("down");
+    r.at(400);
+    let fx = r.press("ok");
+    let posts: Vec<_> = requests(&fx).into_iter().filter(|(_, p, _)| p == "/v1/cameras/playback").collect();
+    assert_eq!(posts.len(), 1, "{posts:?}");
+    assert_eq!(posts[0].2, json!({"camera": "273", "clip": "c1.Wy", "window": "main"}));
+    // no compositor windows: as before, no window word
+    let mut r = Rig::new(three());
+    let fx = events(&mut r);
+    let posts: Vec<_> = requests(&fx).into_iter().filter(|(_, p, _)| p == "/v1/cameras/playback").collect();
+    assert!(posts[0].2.get("window").is_none(), "{:?}", posts[0]);
+    // a camera that does not play live is claimed for nothing: its recordings are asked for as before
+    let mut list = three();
+    list["cameras"][1]["live"] = json!(false);
+    let mut r = Rig::new(list);
+    r.app.set_vwin_on(true);
+    let fx = events(&mut r);
+    let posts: Vec<_> = requests(&fx).into_iter().filter(|(_, p, _)| p == "/v1/cameras/playback").collect();
+    assert!(posts.iter().all(|p| p.2.get("window").is_none()), "{posts:?}");
+}

@@ -50,6 +50,8 @@ struct Usage {
     sub: bool,
     /// The quality asked for (`native`, `balanced`, `light`), for the log.
     quality: String,
+    /// The window the shell was granted for the full view's picture (`main`, `sub`): kept so that Play dials a paused recording again in the same one. Empty: none.
+    side: String,
 }
 
 /// The app the decoder is opened for (`cameras.ndlApp`): the video window is no app on SAM's foreground list, so over the display's main window it plays
@@ -73,6 +75,15 @@ fn quality_of(word: &str) -> Option<&'static str> {
         "balanced" | "medium" => Some("balanced"),
         "light" | "low" => Some("light"),
         _ => None,
+    }
+}
+
+/// The window the body names for the Cameras full view's picture on a video window (`main`, `sub`); empty when it names none.
+fn side_of(body: &Map<String, Value>) -> Result<String, Response> {
+    match body.get("window").and_then(Value::as_str) {
+        None => Ok(String::new()),
+        Some(side @ ("main" | "sub")) => Ok(side.to_owned()),
+        Some(_) => Err(error_response(400, "bad_request", "window is main or sub")),
     }
 }
 
@@ -452,6 +463,24 @@ impl Inner {
 
     // ---- the streams -----------------------------------------------------------------------------------------------------------------
 
+    /// A stream of the Cameras full view on a video window of the display (`side`: the window the shell was granted, `main` or `sub`; empty: the picture is not a
+    /// video window's, and the stream is as it was before there were any): the decoder opened for Home, in the feeder's video window. Live, a recording and a clip
+    /// all play there, so that a seek reuses the pipeline and the picture stays in the one claim.
+    fn full_usage(&self, side: &str, purpose: &str, quality: &str) -> Usage {
+        if side.is_empty() {
+            return Usage::default();
+        }
+        Usage {
+            purpose: purpose.to_owned(),
+            ndl_app: ndl_app_for(&self.config.ndl_app),
+            window: self.config.popup_window.clone(),
+            texture: false,
+            sub: side == "sub",
+            quality: quality.to_owned(),
+            side: side.to_owned(),
+        }
+    }
+
     fn camera_for(&self, body: &Map<String, Value>) -> Result<String, Response> {
         let id = body.get("camera").and_then(Value::as_str).unwrap_or("");
         if !plain_id(id) {
@@ -564,6 +593,7 @@ impl Inner {
             window: usage.window,
             on_end: end_session(&dial),
         };
+        self.state.lock().side.clone_from(&usage.side);
         self.set_held(None);
         match self.live.start(plan) {
             Ok(()) => ok(object(json!({"live": self.live.view().json()}))),
@@ -614,6 +644,7 @@ impl Inner {
                     texture,
                     sub: window == "sub",
                     quality: quality.clone(),
+                    side: String::new(),
                 };
                 self.start_stream_for(&camera, Mode::Live, usage, |bridge| {
                     if texture {
@@ -624,18 +655,12 @@ impl Inner {
                 })
             }
             Some("full") => {
-                let window = body.get("window").and_then(Value::as_str).unwrap_or("main");
-                if !["main", "sub"].contains(&window) {
-                    return error_response(400, "bad_request", "window is main or sub");
-                }
-                let usage = Usage {
-                    purpose: "full view".to_owned(),
-                    ndl_app: ndl_app_for(&self.config.ndl_app),
-                    window: self.config.popup_window.clone(),
-                    texture: false,
-                    sub: window == "sub",
-                    quality: quality.clone(),
+                let window = match side_of(&body) {
+                    Ok(side) if side.is_empty() => "main".to_owned(),
+                    Ok(side) => side,
+                    Err(r) => return r,
                 };
+                let usage = self.full_usage(&window, "full view", &quality);
                 self.start_stream_for(&camera, Mode::Live, usage, |bridge| {
                     bridge.live(&camera, &quality)
                 })
@@ -659,11 +684,17 @@ impl Inner {
         let Some(rate) = rate.filter(|r| matches!(r, 1 | 2 | 4)) else {
             return error_response(400, "bad_request", "rate is 1, 2 or 4");
         };
+        // the full view on a video window of the display asks for its recordings and clips there too (`window`), so that a seek reuses the pipeline and the picture
+        // stays in the one claim; without it they play as they did before there were any
+        let side = match side_of(&body) {
+            Ok(side) => side,
+            Err(r) => return r,
+        };
         if let Some(clip) = body.get("clip").and_then(Value::as_str) {
             if clip.is_empty() || clip.len() > 400 {
                 return error_response(400, "bad_request", "clip is the clip's id");
             }
-            return self.start_stream(&camera, Mode::Clip, |bridge| {
+            return self.start_stream_for(&camera, Mode::Clip, self.full_usage(&side, "full view clip", ""), |bridge| {
                 bridge.clip_playback(&camera, clip)
             });
         }
@@ -674,7 +705,7 @@ impl Inner {
                 "at is the moment, in epoch milliseconds, or give a clip",
             );
         };
-        self.start_stream(&camera, Mode::Playback, |bridge| {
+        self.start_stream_for(&camera, Mode::Playback, self.full_usage(&side, "full view recording", ""), |bridge| {
             bridge.playback(&camera, at, rate)
         })
     }
@@ -705,11 +736,13 @@ impl Inner {
             if let Err(why) = self.live.pause() {
                 return refused("not_playback", &why);
             }
+            let side = self.state.lock().side.clone();
             self.set_held(Some(Held {
                 camera,
                 mode,
                 at: view.position_ms.unwrap_or(0),
                 rate: view.rate,
+                side,
             }));
             return ok(object(json!({"live": self.live.view().json()})));
         }
@@ -718,7 +751,7 @@ impl Inner {
             return refused("not_paused", "Nothing is paused");
         };
         let camera = held.camera.clone();
-        let response = self.start_stream(&camera, held.mode, |bridge| {
+        let response = self.start_stream_for(&camera, held.mode, self.full_usage(&held.side, "full view recording", ""), |bridge| {
             bridge.playback(&held.camera, held.at, held.rate)
         });
         if response.status == 200 {
