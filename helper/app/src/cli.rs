@@ -497,6 +497,7 @@ fn serve(
         ai: None,
         voice_policy: None,
         cameras: None,
+        onhome: None,
     }) {
         Ok(service) => service,
         Err(e) => {

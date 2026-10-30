@@ -443,6 +443,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ha-bridge"
+version = "0.1.0"
+dependencies = [
+ "esphome-api",
+ "ha-link",
+ "libc",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "ha-link"
 version = "0.1.0"
 dependencies = [
@@ -564,6 +577,7 @@ version = "0.1.0"
 dependencies = [
  "esphome-api",
  "fetch",
+ "ha-bridge",
  "ha-link",
  "jpeg-decoder",
  "jpeg-encoder",

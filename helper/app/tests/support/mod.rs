@@ -741,6 +741,7 @@ impl Rig {
             ai,
             voice_policy,
             cameras,
+            onhome: None,
         })
         .unwrap();
         self.addr = service.addr();

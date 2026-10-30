@@ -138,6 +138,8 @@ pub struct Api {
     pub images: Arc<crate::images::Images>,
     /// Cameras through Scrypted's LumaShow bridge: stills, live video, the timeline, events and the pop-ups (`/v1/cameras/...`).
     pub cameras: crate::scrypted::Scrypted,
+    /// On Home: Home Assistant's shared entities, live, and the controls of their tiles (`/v1/onhome/...`, the `onhome` topic).
+    pub onhome: crate::onhome::OnHome,
     /// Screenshots and screen recordings: the way in to the compositor's capture, behind `capture.enabled` (`/v1/capture/...`).
     pub capture: crate::capture::Capture,
     /// The picker's pictures of the inputs, behind the owner's `inputs.previews` switch (`/v1/previews/...`).
@@ -357,6 +359,7 @@ impl Api {
             .chain(crate::profiles::ROUTES.iter())
             .chain(crate::privacy::ROUTES.iter())
             .chain(crate::scrypted::routes::ROUTES.iter())
+            .chain(crate::onhome::ROUTES.iter())
             .map(|(method, path, what)| json!({"method": method, "path": path, "what": what}))
             .collect();
         let now = now_ms();
@@ -558,6 +561,15 @@ impl Handler for Api {
             }
             ["v1", "voice", rest @ ..] => crate::voice::handle(&self.voice, request, rest),
             ["v1", "wx", rest @ ..] => self.wx.handle(request, rest),
+            ["v1", "onhome", rest @ ..] => {
+                // which of the shared things Home shows is the owner's, as the rest of Home's layout is
+                if post && rest == ["picks"] {
+                    if let Err(resp) = self.profiles.require_owner() {
+                        return resp;
+                    }
+                }
+                crate::onhome::handle(&self.onhome, request, rest)
+            }
             ["v1", "gfn", rest @ ..] => crate::gfn_boost::handle(request, rest),
             ["v1", "crash", rest @ ..] => crate::crash::handle(request, rest),
             ["v1", "openapps"] => {
@@ -685,6 +697,7 @@ mod tests {
                     images.clone(),
                     plugins.shared(),
                 ),
+                onhome: crate::onhome::OnHome::new(&ctx, crate::onhome::testing::deps()),
                 images,
                 plugins,
                 capture: crate::capture::Capture::new(&ctx.config.capture),
@@ -783,6 +796,7 @@ mod tests {
                 + crate::profiles::ROUTES.len()
                 + crate::privacy::ROUTES.len()
                 + crate::scrypted::routes::ROUTES.len()
+                + crate::onhome::ROUTES.len()
         );
         assert_eq!(b["helper"]["version"], crate::VERSION);
         assert_eq!(b["boot"], 777);

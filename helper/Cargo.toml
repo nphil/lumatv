@@ -20,6 +20,7 @@ plugin-api = { path = "../../LumaShow/wt/lumatv/crates/plugin-api" }
 service-api = { path = "../../LumaShow/wt/lumatv/crates/service-api" }
 lumashow-sdk = { path = "../../LumaShow/wt/lumatv/crates/lumashow-sdk" }
 ha-link = { path = "../../LumaShow/wt/lumatv/crates/ha-link" }
+ha-bridge = { path = "../../LumaShow/wt/lumatv/crates/ha-bridge" }
 rtsp-client = { path = "../../LumaShow/wt/lumatv/crates/rtsp-client" }
 esphome-api = { path = "../../LumaShow/wt/lumatv/crates/esphome-api" }
 mdns = { path = "../../LumaShow/wt/lumatv/crates/mdns" }

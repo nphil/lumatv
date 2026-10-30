@@ -122,6 +122,9 @@ pub struct Config {
     /// Cameras and their event pop-ups through Scrypted's LumaShow bridge (`scrypted/`). Off until the TV is linked (`scrypted-link`):
     /// with no link nothing connects and no picture is ever fetched; these are only tuning.
     pub cameras: CamerasConfig,
+    /// On Home (`onhome/`): Home Assistant's shared entities on Home, through the LumaShow integration that dials the TV. Off until
+    /// switched on here, and a pairing key (`ble-link`) must exist; with either missing nothing listens.
+    pub onhome: OnHomeConfig,
     /// Screenshots and screen recordings of the picture LumaTV's compositor composes (`capture.rs`, `compositor/.../screencap`). Off by
     /// default: with `enabled` false the routes refuse and the compositor does nothing; both read this one switch.
     pub capture: CaptureConfig,
@@ -165,6 +168,7 @@ impl Default for Config {
             voice: VoiceConfig::default(),
             images: ImagesConfig::default(),
             cameras: CamerasConfig::default(),
+            onhome: OnHomeConfig::default(),
             capture: CaptureConfig::default(),
             previews: PreviewsConfig::default(),
             display_lab: DisplayLabConfig::default(),
@@ -173,6 +177,21 @@ impl Default for Config {
             brand_app_id: None,
             brand_qml_module: None,
         }
+    }
+}
+
+/// On Home's switch and port. The listener is a network entrance, so it is the owner's: it exists only with `enabled` and a pairing key.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+pub struct OnHomeConfig {
+    pub enabled: bool,
+    /// The TCP port the integration dials (the protocol's 6054; 0 takes a free one, for tests).
+    pub port: u16,
+}
+
+impl Default for OnHomeConfig {
+    fn default() -> Self {
+        Self { enabled: false, port: 6054 }
     }
 }
 

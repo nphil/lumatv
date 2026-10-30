@@ -47,6 +47,9 @@ pub struct StartOptions {
     /// What the cameras act through. `None` builds the real ones (the home network only, RTSP over TCP, the staged feeder); a test names
     /// the loopback, its own feeder and dial, and quick timing.
     pub cameras: Option<crate::scrypted::Deps>,
+    /// What On Home acts through. `None` builds the real ones (the pairing key of the Bluetooth proxy, the TV's LAN address, mDNS); a test
+    /// names its own key and the loopback.
+    pub onhome: Option<crate::onhome::Deps>,
 }
 
 /// A running helper.
@@ -72,6 +75,7 @@ impl Service {
             ai: ai_deps,
             voice_policy,
             cameras: camera_deps,
+            onhome: onhome_deps,
         } = options;
         let config = Arc::new(config);
         let stop = Stop::new();
@@ -260,6 +264,9 @@ impl Service {
             plugins.shared(),
         );
         threads.push(("scrypted", cameras.spawn(&ctx)?));
+        // On Home: Home Assistant's shared entities, through the integration that dials the TV. Nothing listens until it is switched on and paired.
+        let onhome = crate::onhome::OnHome::new(&ctx, onhome_deps.unwrap_or_else(|| crate::onhome::Deps::real(&ctx)));
+        threads.push(("onhome", onhome.spawn(&ctx)?));
 
         let privacy = crate::privacy::new(&ctx);
         threads.push(("privacy", crate::privacy::spawn(&ctx, privacy.clone())?));
@@ -275,6 +282,7 @@ impl Service {
             voice,
             images,
             cameras,
+            onhome,
             privacy,
             capture: crate::capture::Capture::new(&config.capture),
             previews: crate::previews::Previews::new(&config, &paths, ctx.hub.clone()),
