@@ -72,6 +72,8 @@ pub const GL_TEXTURE_2D: GLenum = 0x0DE1;
 pub const GL_TEXTURE0: GLenum = 0x84C0;
 pub const GL_TEXTURE1: GLenum = 0x84C1;
 pub const GL_FRAMEBUFFER: GLenum = 0x8D40;
+pub const GL_READ_FRAMEBUFFER: GLenum = 0x8CA8;
+pub const GL_DRAW_FRAMEBUFFER: GLenum = 0x8CA9;
 pub const GL_COLOR_ATTACHMENT0: GLenum = 0x8CE0;
 pub const GL_FRAMEBUFFER_COMPLETE: GLenum = 0x8CD5;
 pub const GL_RGBA: GLenum = 0x1908;
@@ -212,6 +214,8 @@ pub struct Optional {
     pub eglDupNativeFenceFDANDROID: Option<unsafe extern "C" fn(EGLDisplay, EGLSync) -> EGLint>,
     /// `EGL_EXT_image_dma_buf_import_modifiers`: the modifiers the driver takes for a format (`display, format, max, modifiers, external_only, count`).
     pub eglQueryDmaBufModifiersEXT: Option<unsafe extern "C" fn(EGLDisplay, EGLint, EGLint, *mut u64, *mut EGLBoolean, *mut EGLint) -> EGLBoolean>,
+    /// GLES 3's framebuffer blit (`src x0 y0 x1 y1, dst x0 y0 x1 y1, mask, filter`): a page copies from the page drawn last.
+    pub glBlitFramebuffer: Option<unsafe extern "C" fn(GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLenum, GLenum)>,
 }
 
 /// How the EGL display is made.
@@ -287,6 +291,7 @@ impl Egl {
             eglClientWaitSyncKHR: opt!(c"eglClientWaitSyncKHR"),
             eglDupNativeFenceFDANDROID: opt!(c"eglDupNativeFenceFDANDROID"),
             eglQueryDmaBufModifiersEXT: opt!(c"eglQueryDmaBufModifiersEXT"),
+            glBlitFramebuffer: opt!(c"glBlitFramebuffer"),
         };
 
         // SAFETY: EGL calls in the documented order; every handle is checked.

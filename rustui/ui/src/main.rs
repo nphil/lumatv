@@ -8,7 +8,12 @@
 //!   lumatv-ui --host [--port N --token-file F] [--helper-port N] [--wait MS] [--push MS:topic:JSON] [--luna MS:TAG:JSON]
 //!             [--helper MS:topic:JSON] [--key MS:name[:up|:repeat]] [--pointer MS:x:y[:buttons[:hidden]]]
 //!             [--eval MS:state|geometry|report] [--snap MS:FILE.png] [--frames MS:LABEL] [--backdrop FILE.png]
-//!             [--theme JSON] [--log FILE] [--reference]
+//!             [--theme JSON] [--log FILE] [--reference] [--refresh HZ] [--virtual]
+//!
+//! The host's engine draws its pages the way the compositor on the set does: two stacks split at `--system-z` (Home under it,
+//! the system layer over it), stack 0 from its floor, each page only where it owes, at the panel's refresh (`--refresh`, 60). With
+//! `--virtual` the harness keeps its own time, one refresh a frame however long a frame takes to draw here: each frame is then what one
+//! refresh of the set draws, which is what a measurement of a frame's layers needs (`tests/host_frames.py`).
 //!
 //! Host output lines: `[report] <json>` (what went to `POST /v1/ui`), `[luna] <json>`, `[helper] <json>`, `[eval] <json>`,
 //! `[frames] LABEL N`, `shot FILE`, `[frame] ...` per frame with `--log`, and `RESULT frames N gpu mean/max us ...` at the end.
@@ -64,6 +69,10 @@ struct Options {
     clock: Option<u64>,
     /// Every frame drawn whole as well and compared with the one drawn into the ring (`--reference`).
     reference: bool,
+    /// The panel's refresh the engine announces and the host paces its frames to (`--refresh`).
+    refresh_hz: f32,
+    /// The harness keeps its own time, one refresh a turn of the loop (`--virtual`).
+    virtual_clock: bool,
 }
 
 fn env_path(name: &str) -> Option<PathBuf> {
@@ -96,6 +105,8 @@ fn parse() -> Result<Options, String> {
         log: None,
         clock: None,
         reference: false,
+        refresh_hz: 60.0,
+        virtual_clock: false,
     };
     let mut args = std::env::args().skip(1);
     let value = |args: &mut std::iter::Skip<std::env::Args>, flag: &str| args.next().ok_or_else(|| format!("{flag} needs a value"));
@@ -169,6 +180,8 @@ fn parse() -> Result<Options, String> {
             "--backdrop" => o.backdrop = Some(PathBuf::from(value(&mut args, "--backdrop")?)),
             "--theme" => o.theme = Some(serde_json::from_str(&value(&mut args, "--theme")?).map_err(|e| format!("--theme: {e}"))?),
             "--log" => o.log = Some(PathBuf::from(value(&mut args, "--log")?)),
+            "--refresh" => o.refresh_hz = value(&mut args, "--refresh")?.parse::<f32>().ok().filter(|hz| (24.0..=240.0).contains(hz)).ok_or("--refresh HZ (24 to 240)")?,
+            "--virtual" => o.virtual_clock = true,
             "--clock" => {
                 let text = value(&mut args, "--clock")?;
                 o.clock = Some(lumatv_ui::host::clock::parse_local(&text).ok_or("--clock YYYY-MM-DDTHH:MM[:SS]")?);
@@ -390,7 +403,7 @@ fn run_host(o: Options) -> io::Result<()> {
         HostConfig {
             width,
             height,
-            refresh_hz: 60.0,
+            refresh_hz: o.refresh_hz,
             shm_dir: o.shm.clone(),
             direct: false,
             gpu_sync: false,
@@ -399,7 +412,7 @@ fn run_host(o: Options) -> io::Result<()> {
             reference: o.reference,
             blit: true,
             external: false,
-            system_z: i32::MAX,
+            system_z: o.system_z,
         },
     )?;
     let (scene, _welcome, scene_events) = Scene::over_with(app_end, SceneOptions { shm_dir: Some(o.shm.clone()), ..SceneOptions::default() })?;
@@ -443,6 +456,18 @@ fn run_host(o: Options) -> io::Result<()> {
         None => None,
     };
     carry(shell.start(), channel.as_ref(), helper.as_ref(), &mut log);
+
+    // The harness's own time (`--virtual`): a turn of the loop is one refresh, whatever the host's speed. A loaded host (or Mesa at 120 Hz)
+    // otherwise folds several refreshes' motion into one frame, which draws more than any frame of the set does.
+    let refresh_ns = (1e9 / f64::from(o.refresh_hz)) as u64;
+    let virtual_ns = o.virtual_clock.then(|| std::rc::Rc::new(std::cell::Cell::new(lumatv_render::now_ns())));
+    let epoch = (now_ms(), virtual_ns.as_ref().map_or(0, |v| v.get()));
+    if let Some(vt) = &virtual_ns {
+        lumatv_ui::host::set_virtual_ms(epoch.0);
+        let vt = std::rc::Rc::clone(vt);
+        shell.kit.ui.scene.set_clock(move || vt.get(), 0);
+    }
+    let clock_ns = || virtual_ns.as_ref().map_or_else(lumatv_render::now_ns, |v| v.get());
 
     let started = Instant::now();
     // A scripted step is given its own time (`t0 + ms`), not the clock's: on a loaded host a long frame lets several steps pile up and
@@ -523,13 +548,33 @@ fn run_host(o: Options) -> io::Result<()> {
         let demand = engine.demand();
         let animating = matches!(demand, Demand::EveryRefresh) || pending_frame || engine.has_commits() || engine.redraw_wanted();
         let timeout = if animating { Duration::from_millis(1) } else { Duration::from_millis(deadline.saturating_sub(now).clamp(1, 50)) };
-        match rx.recv_timeout(timeout) {
-            Ok(Msg::Scene(ev)) => shell.kit.ui.scene.observe(&ev),
-            Ok(Msg::Channel(ev)) => carry(shell.channel(&ev, now_ms()), channel.as_ref(), helper.as_ref(), &mut log),
-            Ok(Msg::Helper(ev)) => carry(shell.helper(&ev, now_ms()), channel.as_ref(), helper.as_ref(), &mut log),
-            Ok(Msg::Key(ev)) => carry(shell.key(&ev, now_ms()), channel.as_ref(), helper.as_ref(), &mut log),
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+        // On the harness's own time the loop does not wait: it takes what the engine and the feeds sent in the turn before.
+        let mut inbox = Vec::new();
+        let wait = if virtual_ns.is_some() { Duration::from_micros(300) } else { timeout };
+        let mut closed = false;
+        loop {
+            match rx.recv_timeout(wait) {
+                Ok(msg) => inbox.push(msg),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    closed = true;
+                    break;
+                }
+            }
+            if virtual_ns.is_none() {
+                break;
+            }
+        }
+        for msg in inbox {
+            match msg {
+                Msg::Scene(ev) => shell.kit.ui.scene.observe(&ev),
+                Msg::Channel(ev) => carry(shell.channel(&ev, now_ms()), channel.as_ref(), helper.as_ref(), &mut log),
+                Msg::Helper(ev) => carry(shell.helper(&ev, now_ms()), channel.as_ref(), helper.as_ref(), &mut log),
+                Msg::Key(ev) => carry(shell.key(&ev, now_ms()), channel.as_ref(), helper.as_ref(), &mut log),
+            }
+        }
+        if closed {
+            break;
         }
         while script.first().is_some_and(|(ms, _)| elapsed(t0) >= *ms) {
             let (_, step) = script.remove(0);
@@ -552,7 +597,7 @@ fn run_host(o: Options) -> io::Result<()> {
         if engine.pump()?.closed {
             return Err(io::Error::other("the scene closed"));
         }
-        let now_ns = lumatv_render::now_ns();
+        let now_ns = clock_ns();
         let due = match engine.demand() {
             Demand::EveryRefresh => true,
             Demand::At(at) => now_ns >= at,
@@ -562,12 +607,14 @@ fn run_host(o: Options) -> io::Result<()> {
             pending_frame = false;
             let cost = engine.draw(now_ns);
             engine.gles().finish();
-            // a window's swap waits for the next refresh: so does this, to the 60 Hz grid
-            let next = last_present_ns + 16_666_667;
-            if next > lumatv_render::now_ns() {
-                std::thread::sleep(Duration::from_nanos(next - lumatv_render::now_ns()));
+            // a window's swap waits for the next refresh: so does this, to the panel's grid (on the harness's own time it is the turn's)
+            if virtual_ns.is_none() {
+                let next = last_present_ns + refresh_ns;
+                if next > lumatv_render::now_ns() {
+                    std::thread::sleep(Duration::from_nanos(next - lumatv_render::now_ns()));
+                }
             }
-            let presented = lumatv_render::now_ns();
+            let presented = clock_ns();
             last_present_ns = presented;
             engine.frame_done(presented, &cost);
             drawn += 1;
@@ -584,7 +631,7 @@ fn run_host(o: Options) -> io::Result<()> {
             }
             if o.log.is_some() {
                 log.line(&format!(
-                    "[frame] {drawn} at {} ms: damage {} px, drew {} px in {} rects ({:.1} %), layers {} culled {} cpu {} us gpu {} us{}",
+                    "[frame] {drawn} at {} ms: damage {} px, drew {} px in {} rects ({:.1} %), layers {} culled {} cpu {} us gpu {} us backdrops {} ({} us) floor {} px{}",
                     elapsed(t0),
                     cost.damage_px,
                     cost.region_px,
@@ -594,6 +641,9 @@ fn run_host(o: Options) -> io::Result<()> {
                     cost.culled,
                     cost.cpu_us,
                     cost.gpu_us,
+                    cost.backdrops,
+                    cost.backdrop_us,
+                    cost.floor_px,
                     cost.gl_error.map_or(String::new(), |e| format!(" GL error {e:#x}"))
                 ));
             }
@@ -607,6 +657,10 @@ fn run_host(o: Options) -> io::Result<()> {
             if had || engine.tidy_more() {
                 engine.tidy();
             }
+        }
+        if let Some(vt) = &virtual_ns {
+            vt.set(vt.get() + refresh_ns);
+            lumatv_ui::host::set_virtual_ms(epoch.0 + (vt.get() - epoch.1) / 1_000_000);
         }
     }
     log.line(&format!(

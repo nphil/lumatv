@@ -139,6 +139,7 @@ impl Frames {
                 self.last_direct = true;
                 let owed = self.ui_ring.frame(page, &tiles);
                 owed.rects(&mut self.rects);
+                gl.merge_ui_rects(&mut self.rects);
                 gl.set_target(self.ui_targets[page]);
                 let stats = gl.render_ui_layer(&self.rects)?;
                 self.ui_next = (page + 1) % self.ui_targets.len();
@@ -152,6 +153,7 @@ impl Frames {
                 let page = self.next;
                 let owed = self.ring.frame(page, &tiles);
                 owed.rects(&mut self.rects);
+                gl.merge_ui_rects(&mut self.rects);
                 gl.set_target(self.targets[page]);
                 let stats = gl.render_rects(plan, surfaces, &self.rects)?;
                 // What the page only copied from the last one it owes again; the page is the next frame's stand-in.

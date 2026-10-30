@@ -498,6 +498,18 @@ impl Gl {
         }
     }
 
+    /// The rectangles a page owes as the planned UI frame is cheapest drawn in ([`crate::ui::Ui::merge`]): covers of some of them,
+    /// holding all they did and apart from one another, where one pass over the engine's layers costs less than a pass each.
+    /// Without an engine they stay as they are. Meaningful after `plan_ui`.
+    pub fn merge_ui_rects(&mut self, _rects: &mut Vec<Rect>) {
+        #[cfg(feature = "ui")]
+        if let Some(ui) = &mut self.ui
+            && !self.home_hidden
+        {
+            ui.merge(_rects);
+        }
+    }
+
     /// Ends the planned UI frame without drawing it (the window below is scanned out directly, and nothing of the UI
     /// shows): the app still gets its receipt when that frame reaches the panel.
     pub fn skip_ui_frame(&mut self) -> io::Result<()> {

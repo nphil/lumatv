@@ -4,7 +4,8 @@
 //!
 //! The test is a small compositor: a context of its own (the host's), three pages in it, a ring that accounts for what each owes
 //! (windows' damage and the engine's), and a window that is a solid rectangle drawn between the stacks. Every frame is also drawn
-//! whole into another target, and the page must be the same picture.
+//! whole into another target, stack 0 straight from its layers where the page has it from the engine's floor, and the page must
+//! be the same picture.
 
 use compositor_protocol::{Backdrop, Fill, Glass, Props, Rgba, Shadow, Shape, Sheen};
 use lumatv_render::host::{Engine, HostConfig};
@@ -188,9 +189,11 @@ fn the_engine_draws_into_a_compositors_pages_between_its_windows_and_leaves_its_
 
         let draw_all = |engine: &mut Engine, target: &RenderTarget, areas: &[[i32; 4]], check: bool| {
             let state = snapshot(&host);
-            engine.draw_stack(0, target.framebuffer, areas).expect("stack 0");
             if check {
+                engine.draw_stack(0, target.framebuffer, areas).expect("stack 0");
                 assert_eq!(snapshot(&host), state, "frame {k}: draw_stack(0) left the context's state changed");
+            } else {
+                engine.draw_stack_direct(0, target.framebuffer, areas).expect("stack 0");
             }
             windows.draw(&host, target.framebuffer, window, [0.9, 0.3, 0.2, 1.0], areas);
             let state = snapshot(&host);
@@ -201,7 +204,7 @@ fn the_engine_draws_into_a_compositors_pages_between_its_windows_and_leaves_its_
         };
         draw_all(&mut engine, &pages[page], &areas, true);
         checked_state += 1;
-        // the same frame drawn whole into the reference
+        // the same frame drawn whole into the reference, stack 0 straight from its layers (the page has it from the floor)
         draw_all(&mut engine, &reference, &[[0, 0, W as i32, H as i32]], false);
         let state = snapshot(&host);
         let cost = engine.finish().expect("finish");

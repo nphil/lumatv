@@ -94,7 +94,7 @@
      panel_area: Area,
      /// The job of each layer, and everything each draws on the panel (seen or not).
      job_of: Vec<Option<usize>>,
-@@ -566,6 +584,26 @@
+@@ -566,6 +584,34 @@
      looked: Vec<bool>,
  }
  
@@ -116,12 +116,20 @@
 +    pub fn changed(&self, stack: usize) -> Option<&TileSet> {
 +        self.changed.get(stack)?.as_ref()
 +    }
++
++    /// `region` as the passes the frame is cheapest drawn in, the way the renderer merges the passes of the pages it keeps the
++    /// account of: two rectangles are one pass over their cover where that costs less than a pass each, a pass being worth its
++    /// pixels and every layer it draws. For a compositor that draws its own pages in the rectangles they owe; the layers below
++    /// `floor` are one picture it copies into each pass (0: none is).
++    pub fn merged(&self, region: Region, floor: usize) -> Region {
++        Renderer::merge_passes(region, &self.frame, &self.frame.sights, floor)
++    }
 +}
 +
  /// How long refraction takes to come back once a glass surface has stopped moving (`ideas::ADAPTIVE`): at once. Nitin
  /// compared 200 ms, 100 ms and none on the Show (10-01) and could not tell them apart; with no fade a surface that stops
  /// is the same in every frame after, so still glass can hold it three frames later instead of after the fade. The
-@@ -746,13 +784,23 @@
+@@ -746,13 +792,23 @@
  /// Where a layer is drawn in a frame, and what the picture of the prepared backdrop on it is a picture of: what the frame is
  /// compared with the one before by (`Frozen`).
  #[derive(Clone, Copy)]
@@ -148,7 +156,7 @@
  /// The bytes of `pixels` RGBA pixels, for the count of bytes uploaded.
  fn picture_bytes(pixels: u64) -> u32 {
      u32::try_from(pixels * 4).unwrap_or(u32::MAX)
-@@ -772,8 +820,8 @@
+@@ -772,8 +828,8 @@
      /// its glass blurs. A layer that moves from one plane to another is drawn where it was not, and no longer where it was,
      /// though it is what it was in every other way.
      member: bool,
@@ -159,7 +167,7 @@
      /// Everything it draws, seen or not: what the pictures behind the glass above it are made of.
      extent: Option<Area>,
  }
-@@ -1256,6 +1304,8 @@
+@@ -1256,6 +1312,8 @@
              },
              slot: None,
              target: target.framebuffer,
@@ -168,7 +176,7 @@
          };
          let planes = [
              plane(&target, 0, walls, false),
-@@ -2113,6 +2163,8 @@
+@@ -2113,6 +2171,8 @@
              surface: Surface::whole(layers.len()),
              slot: None,
              target,
@@ -177,7 +185,7 @@
          };
          self.draw_frame(layers, &[draw], source).remove(0)
      }
-@@ -2133,6 +2185,8 @@
+@@ -2133,6 +2193,8 @@
              surface: Surface::whole(layers.len()),
              slot: Some(slot),
              target,
@@ -186,7 +194,7 @@
          };
          self.draw_frame(layers, &[draw], source).remove(0)
      }
-@@ -2234,22 +2288,22 @@
+@@ -2234,22 +2296,22 @@
          damage::intersect(&grown, &panel_area_of(&self.panel))
      }
  
@@ -218,7 +226,7 @@
          let Facts {
              members,
              layers,
-@@ -2258,8 +2312,9 @@
+@@ -2258,8 +2320,9 @@
              asks,
              revisions,
          } = facts;
@@ -229,7 +237,7 @@
          };
          let before: HashMap<LayerId, &Frozen> = prev.iter().map(|f| (f.layer.id, f)).collect();
          // Layers that were there and are still are stacked as they were (a layer that is made again is a new one, and
-@@ -2273,44 +2328,46 @@
+@@ -2273,44 +2336,46 @@
                  .filter(|l| before.contains_key(&l.id))
                  .map(|l| l.id));
          if !same_order {
@@ -296,7 +304,7 @@
          let panel = panel_area_of(&self.panel);
          let mut forced = vec![false; count];
          loop {
-@@ -2330,13 +2387,13 @@
+@@ -2330,13 +2395,13 @@
                          grew = true;
                      }
                  }
@@ -313,7 +321,7 @@
                  {
                      for &u in *users {
                          grew |= !std::mem::replace(&mut forced[u], true);
-@@ -2347,13 +2404,22 @@
+@@ -2347,13 +2412,22 @@
                  break;
              }
          }
@@ -342,7 +350,7 @@
              }
          }
          total
-@@ -2361,31 +2427,30 @@
+@@ -2361,31 +2435,30 @@
  
      /// What a layer changes from the frame before: in the frame (where it was seen and where it is seen now) and in the
      /// pictures behind the glass above it (everywhere it was drawn and is). `now` is where it is drawn now, and what the
@@ -388,7 +396,7 @@
          }
          // A picture the app changed in places, on a layer that is what it was in every other way: only those places.
          let unversioned = Drawn {
-@@ -2404,34 +2469,46 @@
+@@ -2404,34 +2477,46 @@
                  places = damage::union(places, self.image_area(layer, *rect));
              }
              if any {
@@ -445,7 +453,7 @@
                      layer: *layer,
                      revision: revisions[i],
                      member: members.contains(&i),
-@@ -2440,22 +2517,36 @@
+@@ -2440,22 +2525,36 @@
                  })
                  .collect(),
          );
@@ -489,7 +497,7 @@
          let mut first = DrawReport::default();
          // The count of what the GL is asked is the frame's: what the housekeeping between frames asked is not in it.
          self.gl.take_calls();
-@@ -2632,8 +2723,10 @@
+@@ -2632,8 +2731,10 @@
          first.shadow_ns += mesh_ns;
          first.plan_ns += nanos(planning);
  
@@ -501,7 +509,7 @@
              panel_area,
              job_of,
              extents,
-@@ -2646,30 +2739,62 @@
+@@ -2646,30 +2747,62 @@
              sights,
              looked,
          };
@@ -584,7 +592,49 @@
      }
  
      /// What of the layers of the jobs `members` can be seen: a layer that an opaque one of them covers is not drawn, and one
-@@ -2736,6 +2861,70 @@
+@@ -2700,11 +2833,12 @@
+     /// `region` with the rectangles merged that are cheaper drawn in one pass over their cover than in a pass each ([`Region::merged`]).
+     /// A pass over a rectangle draws every layer that meets it, so the pass costs the rectangle's pixels and [`damage::DRAW_WORTH`]
+     /// for each of them: the rows of a page that scrolls are a band each, with a few percent of the page between them, and under
+-    /// them are the page's card, its shadows and the wallpaper, drawn in all of the passes where the cover draws each once.
++    /// them are the page's card, its shadows and the wallpaper, drawn in all of the passes where the cover draws each once. The layers
++    /// below `floor` are a picture of them that every pass copies once (a host's floor), and count as one layer; 0 is none.
+     ///
+     /// A cover that would bring the surfaces of a backdrop into the frame that no rectangle brings is not taken, whatever it saves:
+     /// a live backdrop is a blur made for the frame (once, however the passes are cut) for every group that is drawn.
+-    fn merge_passes(region: Region, frame: &Frame, sights: &[Sight]) -> Region {
++    fn merge_passes(region: Region, frame: &Frame, sights: &[Sight], floor: usize) -> Region {
+         // One bit for each backdrop of the plan; a plan of more than that leaves the region as it is.
+         if region.rects().len() < 2 || frame.plan.len() > u64::BITS as usize {
+             return region;
+@@ -2714,15 +2848,24 @@
+                 .and_then(|job| sights[job].area())
+                 .is_some_and(|seen| backdrop::overlaps(&seen, area))
+         };
++        // The jobs are in the layers' order: the ones before the first job of a layer at `floor` or above are the floor's.
++        let first = frame.job_of[floor.min(frame.job_of.len())..]
++            .iter()
++            .flatten()
++            .next()
++            .copied()
++            .unwrap_or(sights.len())
++            .min(sights.len());
+         let cost = |area: &Area| {
+-            let drawn = sights
++            let drawn = sights[first..]
+                 .iter()
+                 .filter(|sight| {
+                     sight
+                         .area()
+                         .is_some_and(|seen| backdrop::overlaps(&seen, area))
+                 })
+-                .count() as u64;
++                .count() as u64
++                + u64::from(first > 0);
+             damage::RECT_WORTH + damage::pixels(area) + damage::DRAW_WORTH * drawn
+         };
+         let groups = |area: &Area| {
+@@ -2736,6 +2879,70 @@
          region.merged(cost, |a, b, one| groups(one) == groups(a) | groups(b))
      }
  
@@ -655,7 +705,7 @@
      /// One render target of a frame: what of its layers can be seen, what of it is owed, the pictures behind its glass, and
      /// the layers themselves.
      fn draw_surface(
-@@ -2743,6 +2932,7 @@
+@@ -2743,6 +2950,7 @@
          frame: &Frame,
          draw: &Draw,
          done: &mut Done,
@@ -663,7 +713,7 @@
          report: &mut DrawReport,
      ) {
          let Surface {
-@@ -2751,7 +2941,7 @@
+@@ -2751,7 +2959,7 @@
              to,
              transparent,
          } = draw.surface;
@@ -672,7 +722,7 @@
  
          // What of the frame can be seen: a layer that an opaque layer above it covers is not drawn, and one that it covers
          // in part is drawn where it is not. (The pictures the glass surfaces are made of below still draw everything below
-@@ -2771,58 +2961,32 @@
+@@ -2771,58 +2979,32 @@
              .iter()
              .filter(|&&k| sights[k] == Sight::Hidden)
              .count() as u32;
@@ -755,7 +805,7 @@
                  region
              }
          };
-@@ -2834,10 +2998,17 @@
+@@ -2834,10 +3016,17 @@
          // A region that is nearly all of the panel is drawn as all of it: a scissor would save nothing. Otherwise each of
          // its rectangles is drawn in whole tiles (drawing more of what the frame shows is never wrong), on its own, as far
          // as the account keeps them apart (`LUMASHOW_DRAW_OFF=rects` draws their one cover, to measure what that costs) and
@@ -769,7 +819,7 @@
 +            region
 +        } else {
 +            let region = region.tiled(GPU_TILE, panel_area).limited(self.rects);
-+            Self::merge_passes(region, frame, sights)
++            Self::merge_passes(region, frame, sights, 0)
 +        };
 +        let exact = draw.slot.is_none() && draw.areas.is_some();
 +        let partial =
@@ -777,7 +827,7 @@
          let drawn_region = partial.unwrap_or(Region::of(panel_area));
          report.region_px = drawn_region.pixels();
          report.rects = drawn_region.rects().len() as u16;
-@@ -3139,14 +3310,18 @@
+@@ -3139,14 +3328,18 @@
          match partial {
              None => {
                  gl.disable(GL_SCISSOR_TEST);

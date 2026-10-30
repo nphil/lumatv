@@ -29,8 +29,6 @@ use std::path::{Path, PathBuf};
 const CAMERAS_SETTINGS_PAGE: &str = "cameras";
 /// How long Home stays calm after an overlay is gone (the longest fade-out or slide-out is 220 ms).
 const OVERLAY_RELEASE_MS: u64 = 450;
-/// How long after Settings' fade-in has ended Home's cards, dock and status bar step back behind its sheets.
-const COVER_AFTER_FADE_MS: u64 = 40;
 
 /// What the shell asks the host to do.
 #[derive(Clone, Debug, PartialEq)]
@@ -178,9 +176,7 @@ pub struct Shell {
     /// release in the middle of would make a frame of the whole stack at.
     overlay_up: bool,
     overlay_until: u64,
-    /// When Settings opened, while it is open: its sheets cover Home from the end of their fade-in (at once from 100 Hz, where they have none).
-    settings_since: Option<u64>,
-    /// When Home is next let go or covered, a tick of its own.
+    /// When Home is next let go, a tick of its own.
     release_at: Option<u64>,
     helper_up: bool,
     started: bool,
@@ -224,7 +220,6 @@ impl Shell {
             redraw: false,
             overlay_up: false,
             overlay_until: 0,
-            settings_since: None,
             release_at: None,
             helper_up: false,
             started: false,
@@ -838,16 +833,8 @@ impl Shell {
         if self.kinds.home && self.home.set_calm(now < self.overlay_until) {
             self.redraw = true;
         }
-        // Settings' sheets cover Home once they have faded in: its widgets step back, and are back the moment it closes (under the fade-out)
-        let settings_up = self.kinds.settings && self.settings.is_open();
-        self.settings_since = if settings_up { self.settings_since.or(Some(now)) } else { None };
-        let fade = self.kit.modal_beat_ms();
-        let covered_at = self.settings_since.map(|t| t + if fade > 0 { u64::from(fade) + COVER_AFTER_FADE_MS } else { 0 });
-        if self.kinds.home && self.home.set_under_modal(covered_at.is_some_and(|t| now >= t)) {
-            self.redraw = true;
-        }
-        // a tick of its own when either ends
-        self.release_at = [(self.overlay_until > now && self.overlay_until != u64::MAX).then_some(self.overlay_until), covered_at.filter(|&t| t > now)].into_iter().flatten().min();
+        // a tick of its own when it ends
+        self.release_at = (self.overlay_until > now && self.overlay_until != u64::MAX).then_some(self.overlay_until);
         let viewer = self.kinds.cameras && self.cameras.wants();
         for e in self.sys.set_host(&self.kinds, host_busy, viewer, now) {
             self.carry(e, now, acts);
@@ -2302,37 +2289,6 @@ mod tests {
         shell.tick(due);
         assert!(!shell.home.wallpaper_held() && shell.home.weather_art_runs(), "the overlay has been gone for a while: Home moves again");
         assert_eq!(shell.release_at, None);
-    }
-
-    /// Round 22's rings: a frame costs about 85 us of GPU a layer it draws and Home is 70-odd of the 150-190 layers of a Settings frame, under sheets that
-    /// leave it the margins: they step Home's cards, dock and status bar back once they have faded in, and are back as Settings closes.
-    #[test]
-    fn settings_steps_homes_widgets_back_once_its_sheets_have_faded_in_and_brings_them_back_as_it_closes() {
-        let (_h, mut shell) = home_shell("home,quick,settings");
-        shell.tick(1_500);
-        assert!(!shell.home.hidden_under_modal());
-        shell.open_settings(Some("inputs"), 2_000);
-        shell.tick(2_050);
-        assert!(!shell.home.hidden_under_modal(), "the sheets are still fading in: Home is seen through them");
-        let at = shell.release_at.expect("a tick of its own for when they have");
-        assert!(shell.due_at().is_some_and(|d| d <= at));
-        shell.tick(at - 1);
-        assert!(!shell.home.hidden_under_modal());
-        shell.tick(at);
-        assert!(shell.home.hidden_under_modal());
-        let _ = shell.settings.close(5_000);
-        shell.tick(5_010);
-        assert!(!shell.home.hidden_under_modal(), "back at the first moment of the close, under the fade-out");
-    }
-
-    #[test]
-    fn from_100_hz_settings_covers_home_in_the_frame_it_opens() {
-        let (_h, mut shell) = home_shell("home,quick,settings");
-        shell.channel(&Event::Topic { topic: "refresh".into(), data: json!({"hz": 120}) }, 1_400);
-        shell.tick(1_500);
-        shell.open_settings(Some("inputs"), 2_000);
-        shell.tick(2_001);
-        assert!(shell.home.hidden_under_modal(), "no fade-in to wait for");
     }
 
     /// A full-screen modal's fade redraws 157 layers a frame, 15-32 ms of GPU at the set: a refresh and a half at 60 Hz, and at 120 a fade of 30

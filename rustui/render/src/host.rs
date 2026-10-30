@@ -25,6 +25,14 @@
 //! layers over them (stack 1, the system layer: the layers whose z is at least [`HostConfig::system_z`]), and [`Engine::finish`]
 //! ends the frame. Every call that touches GL saves the compositor's GL state, makes the context the toolkit's, and puts the
 //! state back ([`Gles::enter`], [`Gles::leave`]).
+//!
+//! Stack 0 from a picture. Stack 0 is kept whole in a render target of its own, the floor: a frame draws into it what stack 0
+//! changed, and a page gets stack 0 as one copy of the floor in each area it owes. A panel or a sheet that moves over a Home that
+//! stands costs the page its own layers and the copy, not Home's 70 to 90 layers in every pass: on the set a frame's GPU time is
+//! about 1.5 ms and 0.085 ms for each layer a pass draws, so a refresh of 120 Hz holds about 80 (round 23,
+//! `docs/research/frames-120-result.md`). The floor is current whenever Home is shown, so the first frame of an opening only
+//! copies it. With a `system_z` below `i32::MAX` and no `external`, the host draws its own pages that way too: its ring keeps the
+//! account a compositor keeps, so what the host measures is what the set draws.
 
 use crate::backdrop::Area;
 use crate::clock::now_ns;
@@ -38,7 +46,7 @@ use crate::renderer::{Draw, DrawReport, Planned, Renderer, Surface};
 use crate::scene::{Demand, Drawn, Scene};
 use crate::session::{Config, Limits, Session};
 use crate::stats::SharedStats;
-use crate::tiles::TileSet;
+use crate::tiles::{Ring, TileSet};
 use compositor_protocol::{Event, LayerId, PROTOCOL_VERSION, Request, read_frame, write_frame};
 use device_profile::Rotation;
 use std::collections::HashMap;
@@ -76,8 +84,9 @@ pub struct HostConfig {
     /// The engine is inside a compositor's frame ([`Engine::plan`], [`Engine::draw_stack`], [`Engine::finish`]) and makes no pages,
     /// copy or reference of its own: `pages`, `direct`, `reference` and `blit` do nothing.
     pub external: bool,
-    /// With `external`: the layers whose z is at least this are the system layer, drawn over the compositor's windows (stack 1).
-    /// `i32::MAX`: there is no such layer.
+    /// The layers whose z is at least this are the system layer, drawn over the compositor's windows (stack 1), and the ones below
+    /// it stack 0, drawn from the floor. Without `external` the host draws its pages the way a compositor does (`pages` of them,
+    /// at least one; not `direct`). `i32::MAX`: there is no such layer, and a host draws every layer into its page as one stack.
     pub system_z: i32,
 }
 
@@ -110,6 +119,8 @@ pub struct FrameCost {
     pub damage_px: u64,
     /// How many pixels differ between the frame as it was drawn and the same frame drawn whole (`HostConfig::reference`).
     pub mismatch_px: u64,
+    /// The panel pixels of the floor drawn again: what stack 0 changed since the floor was last drawn into.
+    pub floor_px: u64,
 }
 
 /// What reading the app's requests did.
@@ -152,12 +163,27 @@ pub struct Engine {
     idle: Option<Idle>,
     tidy_more: bool,
     uploaded_bytes: u32,
-    /// The state of a frame drawn into a compositor's pages, when the engine is inside one ([`HostConfig::external`]).
+    /// A frame drawn in two stacks, between [`Engine::plan`] and [`Engine::finish`]: into a compositor's pages when the engine is
+    /// inside one ([`HostConfig::external`]), or into the host's own ([`HostConfig::system_z`]).
     external: Option<External>,
+    /// Stack 0 kept whole (the module's notes), when the layers are drawn in two stacks and the floor is not switched off
+    /// (`LUMATV_FLOOR=0`).
+    floor: Option<Floor>,
+    /// Copies a picture of the panel's size into a target: the floor into a page, and on the host's pages what a page owes from
+    /// the frames before from the page drawn last.
+    copier: Option<PictureCopy>,
 }
 
-/// A frame inside a compositor, between [`Engine::plan`] and [`Engine::finish`].
+/// A frame drawn in two stacks, between [`Engine::plan`] and [`Engine::finish`].
 struct External {
+    /// Inside a compositor's frame, in its context. Otherwise the host's own pages are drawn the way a compositor draws them.
+    compositor: bool,
+    /// What each of the host's pages owes, kept as a compositor keeps its own account (none inside a compositor).
+    ring: Option<Ring>,
+    /// The host's page the last frame was drawn into, which holds that frame whole.
+    last_page: Option<usize>,
+    /// Scratch for [`Engine::merge_areas`].
+    merging: TileSet,
     system_z: i32,
     /// The z of each layer, from the commits: the scene lists layers in z order, and where the system layer begins is the first
     /// whose z is `system_z` or more.
@@ -178,6 +204,88 @@ impl External {
         } else {
             Surface { stack: 1, from: self.split, to: layers, transparent: true }
         }
+    }
+}
+
+/// The most rectangles a compositor's page is drawn in (`damage::MAX_RECTS` of the compositor): past it the page owes their bounds.
+const COMPOSITOR_RECTS: usize = 12;
+
+/// The most passes the floor is drawn in. A pass draws every layer of Home that meets it, and a frame's changes to Home are few
+/// and close together (a tile's lift, the clock), so a few covers draw fewer layers than many rectangles would.
+const FLOOR_PASSES: usize = 4;
+
+/// Frames planned with stack 0 not drawn (Home under an app's picture) before the floor's memory is given back.
+const FLOOR_UNUSED_FRAMES: u32 = 240;
+
+/// Stack 0 kept whole in a render target of its own (the module's notes).
+struct Floor {
+    /// Made by the first frame that draws stack 0, and given back when stack 0 has not been drawn for a while.
+    target: Option<RenderTarget>,
+    /// What of the floor is out of date: what stack 0 changed in the frames since it was last drawn into.
+    owed: TileSet,
+    /// Frames planned since stack 0 was last drawn.
+    unused: u32,
+    /// The pixels drawn into the floor in the frame being drawn.
+    drawn_px: u64,
+}
+
+/// Copies a picture of the panel's size into a target: each pixel of the target is the picture's at the same place, read as it
+/// is (`texelFetch`, no filter), inside the scissor of each area.
+struct PictureCopy {
+    program: u32,
+    buffer: u32,
+}
+
+const COPY_VERTEX: &CStr = c"#version 300 es
+layout(location = 0) in vec2 a_panel;
+layout(location = 1) in vec2 a_local;
+uniform vec2 u_ndc;
+void main() {
+    gl_Position = vec4(a_panel * u_ndc - 1.0, 0.0, 1.0);
+}";
+
+const COPY_FRAGMENT: &CStr = c"#version 300 es
+precision highp float;
+uniform highp sampler2D u_picture;
+out highp vec4 o_color;
+void main() {
+    o_color = texelFetch(u_picture, ivec2(gl_FragCoord.xy), 0);
+}";
+
+impl PictureCopy {
+    fn new(gl: &Gles, width: u32, height: u32) -> io::Result<Self> {
+        let program = gl.program(COPY_VERTEX, COPY_FRAGMENT)?;
+        gl.use_program(program);
+        let ndc = gl.uniform_location(program, c"u_ndc");
+        let picture = gl.uniform_location(program, c"u_picture");
+        gl.uniform2f(ndc, 2.0 / width as f32, 2.0 / height as f32);
+        gl.uniform1i(picture, 0);
+        let buffer = gl.new_vertex_buffer();
+        let (w, h) = (width as f32, height as f32);
+        gl.static_vertices(buffer, &[[0.0, 0.0, 0.0, 0.0], [w, 0.0, w, 0.0], [0.0, h, 0.0, h], [w, h, w, h]]);
+        Ok(Self { program, buffer })
+    }
+
+    /// Copies `picture` into the framebuffer `target` inside each of `areas`, blending off; blending is on after it, as a pass
+    /// leaves it.
+    fn run(&self, gl: &Gles, picture: &RenderTarget, target: u32, areas: &[Area]) {
+        if areas.is_empty() {
+            return;
+        }
+        gl.bind_framebuffer(target);
+        gl.viewport(0, 0, picture.width as i32, picture.height as i32);
+        gl.disable(crate::gl::GL_BLEND);
+        gl.enable(crate::gl::GL_SCISSOR_TEST);
+        gl.use_program(self.program);
+        gl.use_vertex_buffer(self.buffer);
+        gl.active_texture(0);
+        gl.bind_texture(picture.texture);
+        for area in areas {
+            gl.scissor(area[0], area[1], area[2] - area[0], area[3] - area[1]);
+            gl.draw_triangle_strip(0, 4);
+        }
+        gl.disable(crate::gl::GL_SCISSOR_TEST);
+        gl.enable(crate::gl::GL_BLEND);
     }
 }
 
@@ -262,10 +370,22 @@ pub fn precompile(mut gles: Gles, cache: &Arc<Cache>, width: u32, height: u32) -
     let panel = Panel { rotation: Rotation::R0, logical_width: width as f32, logical_height: height as f32, width, height };
     let began = Instant::now();
     let mut renderer = Renderer::new(gles, panel)?;
+    // The picture copy is the host's own program, not the renderer's: it goes to the cache with them.
+    let copy = PictureCopy::new(renderer.gles(), width, height)?;
     let link_ms = began.elapsed().as_millis() as u64;
     let programs = renderer.gles().programs_linked();
     let began = Instant::now();
-    let gl_error = if std::env::var("LUMASHOW_WARMUP").as_deref() == Ok("off") { None } else { renderer.warm_up() };
+    let gl_error = if std::env::var("LUMASHOW_WARMUP").as_deref() == Ok("off") {
+        None
+    } else {
+        let error = renderer.warm_up();
+        let (floor, page) = (renderer.gles().new_render_target(width, height)?, renderer.gles().new_render_target(width, height)?);
+        copy.run(renderer.gles(), &floor, page.framebuffer, &[[0, 0, width as i32, height as i32]]);
+        renderer.gles().finish();
+        renderer.gles().delete_render_target(floor);
+        renderer.gles().delete_render_target(page);
+        error.or(renderer.gles().take_error())
+    };
     renderer.gles().finish();
     // The pictures the draws made go back (textures are the share group's, and outlive the renderer and the thread's context).
     renderer.trim();
@@ -305,9 +425,11 @@ impl Engine {
         let built = Instant::now();
         let mut renderer = Renderer::new(gles, panel)?;
         renderer.set_importer(None);
-        if config.external {
-            // One account for each stack. They have no ring of their own (the compositor keeps it) but are asked to note what
-            // the app damaged of its pictures, which only an account with targets does.
+        // Two stacks: inside a compositor, or the host's pages drawn the way a compositor draws them.
+        let stacks = config.external || (config.system_z < i32::MAX && !config.direct);
+        if stacks {
+            // One account for each stack. They have no ring of their own (the compositor keeps it, or the host as a compositor
+            // does) but are asked to note what the app damaged of its pictures, which only an account with targets does.
             renderer.set_targets(0, 1);
             renderer.set_targets(1, 1);
         } else if config.pages > 1 {
@@ -327,6 +449,20 @@ impl Engine {
                 error.map_or(String::new(), |e| format!(" (GL error {e:#x})"))
             ));
         }
+        let copy = if stacks {
+            match PictureCopy::new(renderer.gles(), config.width, config.height) {
+                Ok(copy) => Some(copy),
+                Err(e) => {
+                    crate::log::log(format!("stack 0 is drawn into each page, not from a floor: {e}"));
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        // `LUMATV_FLOOR=0` draws stack 0 straight into each page, as before the floor: for comparing the two on the set.
+        let floor = (copy.is_some() && std::env::var("LUMATV_FLOOR").as_deref() != Ok("0"))
+            .then(|| Floor { target: None, owed: TileSet::full(config.width, config.height), unused: 0, drawn_px: 0 });
         if let Some(saved) = &entered {
             renderer.gles().leave(saved);
         }
@@ -393,7 +529,11 @@ impl Engine {
                 idle: config.idle_trim.then(|| Idle::from_env(now)),
                 tidy_more: false,
                 uploaded_bytes: 0,
-                external: config.external.then(|| External {
+                external: stacks.then(|| External {
+                    compositor: config.external,
+                    ring: (!config.external).then(|| Ring::new(config.pages.max(1), config.width, config.height)),
+                    last_page: None,
+                    merging: TileSet::new(config.width, config.height),
                     system_z: config.system_z,
                     z: HashMap::new(),
                     planned: None,
@@ -401,6 +541,8 @@ impl Engine {
                     report: DrawReport::default(),
                     busy: Duration::ZERO,
                 }),
+                floor,
+                copier: copy,
             },
             app,
         ))
@@ -436,7 +578,7 @@ impl Engine {
     /// Runs `f`, which draws or makes GL objects, in the compositor's context as the toolkit's: the context's state is saved and
     /// put back round it (an engine that is not inside a compositor owns its context, and `f` just runs).
     fn scoped<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
-        if self.external.is_none() {
+        if !self.external.as_ref().is_some_and(|external| external.compositor) {
             return f(self);
         }
         let began = Instant::now();
@@ -656,6 +798,9 @@ impl Engine {
     /// Takes in the waiting commits, draws the scene as it is at `now_ns` and leaves it in the window's framebuffer, ready for
     /// the swap.
     pub fn draw(&mut self, now_ns: u64) -> FrameCost {
+        if self.external.as_ref().is_some_and(|external| !external.compositor) {
+            return self.draw_stacks(now_ns);
+        }
         let began = Instant::now();
         self.apply_waiting(now_ns);
         self.scene.advance(now_ns);
@@ -694,6 +839,83 @@ impl Engine {
         self.cost(&report, cpu_us, gpu_us)
     }
 
+    /// [`Engine::draw`] for a host that draws its pages the way the compositor on the set does ([`HostConfig::system_z`]): the frame
+    /// is planned; the page owes what the two stacks changed over the frames since it was drawn into (as the compositor's ring keeps
+    /// it); what it owes from the frames before this one is copied from the page drawn last, which holds that frame whole; and stack
+    /// 0 then stack 1 are drawn where this frame changed (in at most [`COMPOSITOR_RECTS`] rectangles, merged where one pass costs less).
+    /// The reference is the same frame drawn whole, every layer straight into it, the floor left out.
+    fn draw_stacks(&mut self, now_ns: u64) -> FrameCost {
+        let began = Instant::now();
+        if self.plan(now_ns).is_err() {
+            return FrameCost::default();
+        }
+        let page = self.next_page;
+        self.next_page = (page + 1) % self.pages.len();
+        let (width, height) = self.window;
+        let mut changed = TileSet::new(width, height);
+        for stack in 0..2 {
+            if let Some(set) = self.changed(stack) {
+                changed.union(set);
+            }
+        }
+        let mut owed = TileSet::new(width, height);
+        let mut last = None;
+        if let Some(external) = self.external.as_mut() {
+            if let Some(ring) = external.ring.as_mut() {
+                ring.frame(page, &changed, &mut owed);
+            }
+            last = external.last_page.filter(|&p| p != page);
+        }
+        let mut areas = Vec::new();
+        if let (Some(last), Some(copier)) = (last, self.copier.as_ref()) {
+            owed.subtract(&changed);
+            owed.rects(&mut areas);
+            if areas.len() > COMPOSITOR_RECTS {
+                areas.clear();
+                areas.extend(owed.bounds());
+            }
+            copier.run(self.renderer.gles(), &self.pages[last], self.pages[page].framebuffer, &areas);
+            owed.clone_from(&changed);
+        }
+        owed.rects(&mut areas);
+        if areas.len() > COMPOSITOR_RECTS {
+            areas.clear();
+            areas.extend(owed.bounds());
+        }
+        self.merge_areas(&mut areas);
+        let target = self.pages[page].framebuffer;
+        if !areas.is_empty() {
+            let _ = self.draw_stack(0, target, &areas);
+            let _ = self.draw_stack(1, target, &areas);
+        }
+        if let (Some(reference), Some(external)) = (self.reference, self.external.as_mut())
+            && let Some(planned) = external.planned.as_mut()
+        {
+            let surface = Surface { stack: 0, from: 0, to: self.drawn.len(), transparent: false };
+            self.renderer.draw_planned(planned, &Draw { surface, slot: None, target: reference.framebuffer, areas: None, clear: true });
+        }
+        let mut cost = self.finish().unwrap_or_default();
+        if let Some(external) = self.external.as_mut() {
+            external.last_page = Some(page);
+        }
+        if let Some(reference) = self.reference {
+            self.mismatch = self.compare(&self.pages[page], &reference);
+            cost.mismatch_px = self.mismatch.map_or(0, |m| m.pixels);
+        }
+        if let (Some(blit), true) = (&self.blit, self.copy) {
+            blit.run(self.renderer.gles(), self.pages[page].texture, self.window.0, self.window.1);
+        }
+        cost.region_px = areas.iter().map(crate::damage::pixels).sum();
+        cost.rects = areas.len() as u16;
+        cost.damage_px = changed.pixels();
+        cost.cpu_us = began.elapsed().as_micros() as u32;
+        if self.gpu_sync {
+            self.renderer.gles().finish();
+            cost.gpu_us = began.elapsed().as_micros() as u32;
+        }
+        cost
+    }
+
     fn cost(&mut self, report: &DrawReport, cpu_us: u32, gpu_us: u32) -> FrameCost {
         let (_captures, uploaded) = self.renderer.take_frame_counts();
         FrameCost {
@@ -715,6 +937,7 @@ impl Engine {
             rects: report.rects,
             damage_px: report.damage_px,
             mismatch_px: self.mismatch.map_or(0, |m| m.pixels),
+            floor_px: self.floor.as_ref().map_or(0, |floor| floor.drawn_px),
         }
     }
 
@@ -737,6 +960,14 @@ impl Engine {
                 let surface = external.surface(stack, engine.drawn.len());
                 engine.renderer.damage(&mut planned, surface);
             }
+            // What stack 0 changed is owed by the floor until it is drawn into, in whichever frame that is.
+            if let Some(floor) = engine.floor.as_mut() {
+                if let Some(changed) = planned.changed(0) {
+                    floor.owed.union(changed);
+                }
+                floor.unused = floor.unused.saturating_add(1);
+                floor.drawn_px = 0;
+            }
             external.planned = Some(planned);
             external.report = DrawReport::default();
         });
@@ -755,10 +986,48 @@ impl Engine {
         if stack == 0 { external.split > 0 } else { external.split < self.drawn.len() }
     }
 
+    /// `areas`, what a page owes, as the rectangles the planned frame is cheapest drawn in ([`Planned::merged`]): a pass draws every
+    /// layer that meets its rectangle, so the rows of a list that scrolls (a dozen bands, each with the sheet and the copy of the
+    /// floor under it) are cheaper as one cover. The rectangles that come back hold all that `areas` did and do not overlap: the
+    /// page draws its stacks and its windows over all of them in turn, and an overlap would be drawn over twice. Left as they are
+    /// with no frame planned.
+    pub fn merge_areas(&mut self, areas: &mut Vec<Area>) {
+        let floor = self.floor.is_some();
+        let Some(external) = self.external.as_mut() else { return };
+        let Some(planned) = external.planned.as_ref() else { return };
+        let Some(region) = Region::exact(areas) else { return };
+        // With the floor, stack 0 is one copy in each pass, whatever it holds.
+        let merged = planned.merged(region, if floor { external.split } else { 0 });
+        if merged == region {
+            return;
+        }
+        let tiles = &mut external.merging;
+        tiles.clear();
+        for &area in merged.rects() {
+            tiles.add(area);
+        }
+        tiles.rects(areas);
+        if areas.len() > COMPOSITOR_RECTS {
+            areas.clear();
+            areas.extend(tiles.bounds());
+        }
+    }
+
     /// Draws stack 0 or 1 of the planned frame into the framebuffer `target` (a page of the compositor's), inside `areas` and
     /// nowhere else: stack 0 clears them first, and stack 1 is drawn over what the compositor has drawn there. The areas are
-    /// what the page owes, so that no pixel of the windows around them is touched.
+    /// what the page owes, so that no pixel of the windows around them is touched. Stack 0 comes from the floor: what the floor
+    /// owes is drawn into it first, and each area is then one copy of it.
     pub fn draw_stack(&mut self, stack: usize, target: u32, areas: &[Area]) -> io::Result<()> {
+        self.draw_stack_from(stack, target, areas, true)
+    }
+
+    /// [`Engine::draw_stack`] with every layer of the stack drawn straight into `target`, the floor left out and left as it is:
+    /// what a check compares a page drawn from the floor with.
+    pub fn draw_stack_direct(&mut self, stack: usize, target: u32, areas: &[Area]) -> io::Result<()> {
+        self.draw_stack_from(stack, target, areas, false)
+    }
+
+    fn draw_stack_from(&mut self, stack: usize, target: u32, areas: &[Area], from_floor: bool) -> io::Result<()> {
         let Some(region) = Region::exact(areas) else {
             return Err(io::Error::other("draw_stack: more areas than a region keeps apart"));
         };
@@ -769,6 +1038,36 @@ impl Engine {
             let Some(external) = engine.external.as_mut() else { return };
             let surface = external.surface(stack, engine.drawn.len());
             let Some(planned) = external.planned.as_mut() else { return };
+            if stack == 0
+                && from_floor
+                && surface.to > 0
+                && let (Some(floor), Some(copier)) = (engine.floor.as_mut(), engine.copier.as_ref())
+            {
+                floor.unused = 0;
+                if floor.target.is_none() {
+                    match engine.renderer.gles().new_render_target(engine.window.0, engine.window.1) {
+                        Ok(made) => {
+                            floor.target = Some(made);
+                            floor.owed.fill();
+                        }
+                        Err(e) => crate::log::log(format!("no floor for stack 0 this frame: {e}")),
+                    }
+                }
+                if let Some(picture) = floor.target {
+                    if !floor.owed.is_empty() {
+                        let owed = floor.owed.region().limited(FLOOR_PASSES);
+                        let draw = Draw { surface, slot: None, target: picture.framebuffer, areas: Some(owed), clear: true };
+                        let report = engine.renderer.draw_planned(planned, &draw);
+                        external.report.add(&report);
+                        floor.drawn_px += owed.pixels();
+                        floor.owed.clear();
+                    }
+                    copier.run(engine.renderer.gles(), &picture, target, region.rects());
+                    // A copy is a layer drawn in each area, as the frame's cost counts layers.
+                    external.report.drawn += region.rects().len() as u32;
+                    return;
+                }
+            }
             let draw = Draw { surface, slot: None, target, areas: Some(region), clear: stack == 0 };
             let report = engine.renderer.draw_planned(planned, &draw);
             external.report.add(&report);
@@ -793,6 +1092,15 @@ impl Engine {
             engine.renderer.set_shown(&engine.shown);
             engine.scene.observe(engine.renderer.unseen());
             engine.scene.fade(report.fading, true);
+            // A floor that has not been drawn from for a while (Home under an app's picture) gives its memory back; the next frame
+            // that draws stack 0 makes it again, whole.
+            if let Some(floor) = engine.floor.as_mut()
+                && floor.unused >= FLOOR_UNUSED_FRAMES
+                && let Some(picture) = floor.target.take()
+            {
+                engine.renderer.gles().delete_render_target(picture);
+                floor.owed.fill();
+            }
         });
         let busy = self.external.as_mut().map_or(Duration::ZERO, |external| std::mem::take(&mut external.busy));
         let gpu_us = if self.gpu_sync {
@@ -809,6 +1117,15 @@ impl Engine {
     /// stack that was not drawn for a while (covered by a window), or a page that may not have been drawn whole.
     pub fn forget(&mut self) {
         self.renderer.forget_targets();
+        if let Some(floor) = self.floor.as_mut() {
+            floor.owed.fill();
+        }
+        if let Some(external) = self.external.as_mut() {
+            if let Some(ring) = external.ring.as_mut() {
+                ring.forget();
+            }
+            external.last_page = None;
+        }
     }
 
     /// The frame drawn last reached the screen at `presented_ns`: tells the app (which retires what the commit replaced).

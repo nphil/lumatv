@@ -15,14 +15,19 @@
 //!     let mut tiles = <the windows' damage this frame>;              // Plan::tiles
 //!     ui.plan(now_ns, &mut tiles, home_hidden)?;                     // adds what the two stacks changed (stack 0 not while Home is hidden)
 //!     let owed = ring.frame(page, &tiles);                           // damage::Ring, as for the windows alone
+//!     ui.merge(&mut owed_rects);                                     // covers where one pass over the layers costs less than several
 //!     gl.bind(page) ...
-//!     ui.draw_under(fbo, owed)?;                                     // clears the owed rectangles and draws stack 0 into them
+//!     ui.draw_under(fbo, owed)?;                                     // clears the owed rectangles and copies stack 0 there from its floor
 //!     <the windows, inside the owed rectangles>
 //!     ui.draw_over(fbo, owed)?;                                      // stack 1 over the windows, under the pointer
 //!     let cost = ui.finish()?;                                       // the frame's receipt, kept with the page
 //!     ... ui.presented(presented_ns, &cost);                         // once the page's flip has landed: the app is told
 //! }
 //! ```
+//!
+//! Stack 0 is kept whole in a picture of the engine's own, the floor (`lumatv_render::host`): a frame draws into it what Home
+//! changed, and `draw_under` copies it into each owed rectangle, so a panel or Settings moving over a Home that stands draws its own
+//! layers and one copy, not Home's 70 to 90.
 //!
 //! The context is the compositor's: every call saves its GL state, makes the context the toolkit's and puts the state back
 //! ([`lumatv_render::Gles::enter`]), so `Gl` need not know. The toolkit's shaders are GLSL ES 3.00: the compositor's context has
@@ -183,6 +188,17 @@ impl Ui {
     /// under a full-screen opaque window, so this alone says whether that window can go to the panel directly.
     pub fn over_windows(&self) -> bool {
         self.engine.has_layers(1)
+    }
+
+    /// `owed`, the rectangles a page owes, as the planned frame is cheapest drawn in ([`Engine::merge_areas`]): a pass draws every
+    /// layer that meets its rectangle, so a dozen bands of a list that scrolls are cheaper as one cover. The covers hold all that the
+    /// rectangles did and do not overlap, so the windows and both stacks are drawn in them as they would be in the rectangles.
+    pub fn merge(&mut self, owed: &mut Vec<Rect>) {
+        self.scratch.clear();
+        self.scratch.extend(owed.iter().map(|r| [r.x, r.y, r.right(), r.bottom()]));
+        self.engine.merge_areas(&mut self.scratch);
+        owed.clear();
+        owed.extend(self.scratch.iter().map(|a| Rect::new(a[0], a[1], a[2] - a[0], a[3] - a[1])));
     }
 
     /// Clears the owed rectangles and draws the layer stack under application windows.

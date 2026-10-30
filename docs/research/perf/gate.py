@@ -409,8 +409,11 @@ SURFACES = [
     # expected to pass. A cycle of the toast is 7.8 s. With 8 s on each side of the close it was 16.3 s, longer than a full capture's ring
     # holds: LG's toast on 2026-10-25 and LumaTV's on 2026-10-27 each found 2 windows of 3, the two of LumaTV's without any `Q:` marker
     # and with the display's OSD interrupt "back" 281 and 582 ms into them (the oldest events of CPU 0's ring were gone).
+    # The toast slides in on the layer beat (220 ms): that slide is the burst, not a drop, so its end is held to 300 ms rather than the
+    # 180 ms of an opening (rounds 21 to 23 measured 241-255 ms).
     {'name': 'toast', 'default': False, 'delivery': True,
-     'open': '@toast-open !toast', 'close': '@toast-close', 'settle_s': 7, 'close_settle_s': 0.5, 'transition': False},
+     'open': '@toast-open !toast', 'close': '@toast-close', 'settle_s': 7, 'close_settle_s': 0.5, 'transition': False,
+     'thresholds': {'burst_end_ms': 300.0}},
     {'name': 'alert', 'default': False, 'delivery': True,
      'open': '@alert-open !alert', 'close': '@alert-close OK', 'settle_s': 2.5},
     # The overlay cards over a film and over an input (`--surfaces overlay-netflix,overlay-hdmi`, docs/research/overlays-result.md): `overlays.enabled`

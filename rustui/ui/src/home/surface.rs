@@ -955,16 +955,15 @@ impl HomeSurface {
             let _ = engine.flow.go(self.last_focus, shown, now_ns);
             self.last_focus = shown;
         }
-        // the cards not focused dim while one is; they and the dock are not shown under a popover or Settings' sheets
-        let visible = home.layer != Layer::Popover && !home.hidden_under_modal();
+        // the cards not focused dim while one is
         let on_cards = current.is_some_and(|id| home.widget_of(id).is_some());
         for c in &self.cards {
             let dim = on_cards && Some(c.focus_id) != current;
-            c.lift.pose(engine, if dim { 0.86 } else { 1.0 }, visible);
+            c.lift.pose(engine, if dim { 0.86 } else { 1.0 }, home.layer != Layer::Popover);
         }
         if let Some(d) = &self.dock {
             let on_dock = current.is_some_and(|id| id.0 >= model::DOCK_ID && id.0 < model::DOCK_ID + model::DOCK_MAX);
-            d.lift.pose(engine, if on_cards && !on_dock { 0.92 } else { 1.0 }, visible);
+            d.lift.pose(engine, if on_cards && !on_dock { 0.92 } else { 1.0 }, home.layer != Layer::Popover);
             d.lift.pane.restyle(glass_of(kit, PaneKind::Card, d.frame.h, on_dock, self.over_video));
         }
         // the hover cue: a ring on what the pointer is over
@@ -1105,8 +1104,8 @@ impl HomeSurface {
         if let Some(p) = &mut self.popover {
             p.update(kit, home)?;
         }
-        // while a layer that hides the page is up, or Settings' sheets cover it, the cards and the dock step back
-        let page_hidden = matches!(home.layer, Layer::Apps | Layer::Picker | Layer::Popover | Layer::OnHome) || (home.layer == Layer::Search && home.search_over_apps()) || home.hidden_under_modal();
+        // while a layer that hides the page is up, the cards and the dock step back
+        let page_hidden = matches!(home.layer, Layer::Apps | Layer::Picker | Layer::Popover | Layer::OnHome) || (home.layer == Layer::Search && home.search_over_apps());
         if page_hidden != self.page_hidden {
             self.page_hidden = page_hidden;
             for c in &self.cards {

@@ -602,6 +602,14 @@ impl Planned {
     pub fn changed(&self, stack: usize) -> Option<&TileSet> {
         self.changed.get(stack)?.as_ref()
     }
+
+    /// `region` as the passes the frame is cheapest drawn in, the way the renderer merges the passes of the pages it keeps the
+    /// account of: two rectangles are one pass over their cover where that costs less than a pass each, a pass being worth its
+    /// pixels and every layer it draws. For a compositor that draws its own pages in the rectangles they owe; the layers below
+    /// `floor` are one picture it copies into each pass (0: none is).
+    pub fn merged(&self, region: Region, floor: usize) -> Region {
+        Renderer::merge_passes(region, &self.frame, &self.frame.sights, floor)
+    }
 }
 
 /// How long refraction takes to come back once a glass surface has stopped moving (`ideas::ADAPTIVE`): at once. Nitin
@@ -2825,11 +2833,12 @@ impl Renderer {
     /// `region` with the rectangles merged that are cheaper drawn in one pass over their cover than in a pass each ([`Region::merged`]).
     /// A pass over a rectangle draws every layer that meets it, so the pass costs the rectangle's pixels and [`damage::DRAW_WORTH`]
     /// for each of them: the rows of a page that scrolls are a band each, with a few percent of the page between them, and under
-    /// them are the page's card, its shadows and the wallpaper, drawn in all of the passes where the cover draws each once.
+    /// them are the page's card, its shadows and the wallpaper, drawn in all of the passes where the cover draws each once. The layers
+    /// below `floor` are a picture of them that every pass copies once (a host's floor), and count as one layer; 0 is none.
     ///
     /// A cover that would bring the surfaces of a backdrop into the frame that no rectangle brings is not taken, whatever it saves:
     /// a live backdrop is a blur made for the frame (once, however the passes are cut) for every group that is drawn.
-    fn merge_passes(region: Region, frame: &Frame, sights: &[Sight]) -> Region {
+    fn merge_passes(region: Region, frame: &Frame, sights: &[Sight], floor: usize) -> Region {
         // One bit for each backdrop of the plan; a plan of more than that leaves the region as it is.
         if region.rects().len() < 2 || frame.plan.len() > u64::BITS as usize {
             return region;
@@ -2839,15 +2848,24 @@ impl Renderer {
                 .and_then(|job| sights[job].area())
                 .is_some_and(|seen| backdrop::overlaps(&seen, area))
         };
+        // The jobs are in the layers' order: the ones before the first job of a layer at `floor` or above are the floor's.
+        let first = frame.job_of[floor.min(frame.job_of.len())..]
+            .iter()
+            .flatten()
+            .next()
+            .copied()
+            .unwrap_or(sights.len())
+            .min(sights.len());
         let cost = |area: &Area| {
-            let drawn = sights
+            let drawn = sights[first..]
                 .iter()
                 .filter(|sight| {
                     sight
                         .area()
                         .is_some_and(|seen| backdrop::overlaps(&seen, area))
                 })
-                .count() as u64;
+                .count() as u64
+                + u64::from(first > 0);
             damage::RECT_WORTH + damage::pixels(area) + damage::DRAW_WORTH * drawn
         };
         let groups = |area: &Area| {
@@ -3004,7 +3022,7 @@ impl Renderer {
             region
         } else {
             let region = region.tiled(GPU_TILE, panel_area).limited(self.rects);
-            Self::merge_passes(region, frame, sights)
+            Self::merge_passes(region, frame, sights, 0)
         };
         let exact = draw.slot.is_none() && draw.areas.is_some();
         let partial =
