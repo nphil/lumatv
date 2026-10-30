@@ -222,7 +222,7 @@ impl RadarPage {
         chip_words.set_props(Props::at(cf.x, cf.y));
         // the time bar, along the foot
         let bar_img = control_picture(kit, BAR, z + 4, |k, c, f| paint_plate(k, c, f, 30.0, 0.9, None))?;
-        let thumb = kit.ui.scene.shape(8, 36, z + 8, plate::solid(accent, 4.0), HIDDEN);
+        let thumb = kit.ui.scene.shape(8, 30, z + 8, plate::solid(accent, 4.0), HIDDEN);
         let now_x = TRACK_X + TRACK_W * BACK_S as f32 / (BACK_S + AHEAD_S) as f32;
         let mut bar_words = Words::new(
             kit,
@@ -405,7 +405,8 @@ impl RadarPage {
         let twelve = home.theme.pointer("/clock/twelveHour").and_then(serde_json::Value::as_bool) != Some(false);
         let (t0, t1) = (r.now_s - BACK_S, r.now_s + AHEAD_S);
         let x_of = |t: i64| TRACK_X + TRACK_W * ((t - t0) as f32 / (t1 - t0).max(1) as f32).clamp(0.0, 1.0);
-        let track_y = BAR.h / 2.0 - 6.0 - 4.0;
+        // the track sits in the upper half of the bar, its words in the lower, and the thumb (30 px) is as tall as the ticks and the clock's mark are together
+        let track_y = 28.0;
         let globe = r.level() == Level::Globe;
         // the bar's picture: its plate, the play and pause button (on the globe the pad that turns it), and the track: a tick for every frame of the
         // window (held ones strong), the radar's in the ink, the forecast's in the accent on a tint of it, and the clock
@@ -422,7 +423,7 @@ impl RadarPage {
                     let nowx = x_of(r.now_s);
                     // what is ahead of the clock is the model's: tinted, so that it reads apart from what the radar saw
                     let (tx, ty) = at(nowx, track_y - 12.0);
-                    c.rounded(Frame::new(tx, ty, TRACK_X + TRACK_W - nowx + 10.0, 40.0), 12.0, faded(accent, 0.13));
+                    c.rounded(Frame::new(tx, ty, TRACK_X + TRACK_W - nowx + 10.0, 34.0), 12.0, faded(accent, 0.13));
                     let (lx, ly) = at(TRACK_X, track_y + 5.0);
                     c.rounded(Frame::new(lx, ly, TRACK_W, 2.0), 1.0, faded(ink, 0.18));
                     for (f, on) in win.iter().zip(&held) {
@@ -431,7 +432,7 @@ impl RadarPage {
                         c.rounded(Frame::new(x, y, 3.0, 12.0), 1.5, colour);
                     }
                     let (x, y) = at(nowx - 1.0, track_y - 10.0);
-                    c.rounded(Frame::new(x, y, 2.0, 32.0), 1.0, faded(ink, 0.9));
+                    c.rounded(Frame::new(x, y, 2.0, 28.0), 1.0, faded(ink, 0.9));
                 }
                 let (bx, by) = at(50.0, BAR.h / 2.0);
                 if !globe {
@@ -456,7 +457,7 @@ impl RadarPage {
         }
         // the thumb
         match r.current().filter(|_| !globe) {
-            Some(f) => self.thumb.set(Props::at(BAR.x + x_of(f.t) - 4.0, BAR.y + track_y - 12.0)),
+            Some(f) => self.thumb.set(Props::at(BAR.x + x_of(f.t) - 4.0, BAR.y + track_y - 9.0)),
             None => self.thumb.set(HIDDEN),
         }
         // the legend is for the radar's colours: not on the globe

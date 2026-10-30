@@ -131,6 +131,12 @@ def render_card(run, case, mode, scale, tmp):
     return names, box
 
 
+def jpeg(src, dst):
+    """A page of the view as a JPEG: a few hundred KiB each, not two MiB."""
+    from PIL import Image
+    Image.open(src).convert('RGB').save(dst, quality=88, optimize=True)
+
+
 def has_text(src, box, mode):
     """Whether the card's picture has its words (a render that was taken before they were drawn has glass only)."""
     from PIL import Image
@@ -173,13 +179,17 @@ class Helper:
         with open(os.path.join(self.dir, 'settings', 'base.receiver.json'), 'w') as f:
             json.dump({'owner': 'base.receiver', 'schema_revision': 1, 'version': 1, 'values': {'enabled': False}}, f)
         self.p = subprocess.Popen([binary, 'run', '--data-dir', self.dir, '--stderr'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # up, and with a reading of the weather: a helper that has none when the shell asks publishes an empty one over the shell's, and the radar is
+        # opened only for a place (a person opens the view long after the helper has its reading)
         import urllib.request
-        for _ in range(60):
+        for _ in range(90):
             try:
-                urllib.request.urlopen('http://127.0.0.1:%d/v1/state' % port, timeout=2).read()
-                break
+                topics = json.loads(urllib.request.urlopen('http://127.0.0.1:%d/v1/state' % port, timeout=2).read()).get('topics', {})
+                if (topics.get('weather') or {}).get('doc'):
+                    break
             except Exception:
-                time.sleep(1)
+                pass
+            time.sleep(1)
 
     def start(self):
         return self
@@ -202,7 +212,8 @@ def render_radar(binary, helper, case, mode, scale, tmp, level='1', at=26000):
     name = os.path.join(tmp, 'radar-%s-%s-%s-%s.png' % (case, mode, scale or 1, level))
     now_ms = int(time.time() * 1000)
     feeds = {"weather": reading(case, now_ms), "weather.more": more(case, now_ms)}
-    extra = ['--clock', CLOCK, '--push', '50:foreground:' + json.dumps(H.HOME)]
+    # the shell's clock is the real one here, as the helper's is
+    extra = ['--push', '50:foreground:' + json.dumps(H.HOME)]
     for topic, doc in feeds.items():
         extra += ['--helper', '100:%s:%s' % (topic, json.dumps(doc))]
     for step in (keys_to_card(), H.RustHome.k(5000, 'down')):
@@ -277,9 +288,9 @@ def before_after(out, tmp, base='fd0c9687'):
     rows.append(strip(old_cards, 'BEFORE  the card (clear, rain, storm, snow)', 640))
     rows.append(strip(new_cards, 'AFTER   the card', 640))
     pair = lambda a, b, la, lb: strip([a, b], la + '   |   ' + lb, 650)
-    rows.append(pair(old('weather-view-now.png'), new('weather-view-now-rain-dark-text100.png'), 'BEFORE  the view, first page', 'AFTER   the view, Now (ten days, hours, sky)'))
-    rows.append(pair(old('weather-view-details.png'), new('weather-view-details-rain-dark-text100.png'), 'BEFORE  Details', 'AFTER   Details'))
-    rows.append(pair(old('weather-view-radar-forecast.png'), new('weather-radar-rain-local-dark-text100.png'), 'BEFORE  the radar', 'AFTER   the radar'))
+    rows.append(pair(old('weather-view-now.png'), new('weather-view-now-rain-dark-text100.jpg'), 'BEFORE  the view, first page', 'AFTER   the view, Now (ten days, hours, sky)'))
+    rows.append(pair(old('weather-view-details.png'), new('weather-view-details-rain-dark-text100.jpg'), 'BEFORE  Details', 'AFTER   Details'))
+    rows.append(pair(old('weather-view-radar-forecast.png'), new('weather-radar-rain-local-dark-text100.jpg'), 'BEFORE  the radar', 'AFTER   the radar'))
     height = sum(r.height for r in rows)
     sheet_img = Image.new('RGB', (W, height), (14, 12, 24))
     y = 0
@@ -337,7 +348,7 @@ def main():
                 for c, names in zip(view_cases, results):
                     for page, src in names.items():
                         if os.path.exists(src):
-                            shutil.copy(src, os.path.join(args.out, 'weather-view-%s-%s-%s-text%d.png' % (page, c, mode, int(scale * 100))))
+                            jpeg(src, os.path.join(args.out, 'weather-view-%s-%s-%s-text%d.jpg' % (page, c, mode, int(scale * 100))))
                             print('wrote', page, c, mode, scale)
     if 'radar' in only:
         helper = Helper(args.helper_bin, args.helper_port)
@@ -350,7 +361,7 @@ def main():
                             src = render_radar(args.bin, helper, case, mode, sc, tmp, level=level, at=args.radar_at)
                             if os.path.exists(src):
                                 lvl = {'1': 'local', '2': 'region', '3': 'globe'}[level]
-                                shutil.copy(src, os.path.join(args.out, 'weather-radar-%s-%s-%s-text%d.png' % (case, lvl, mode, int(scale * 100))))
+                                jpeg(src, os.path.join(args.out, 'weather-radar-%s-%s-%s-text%d.jpg' % (case, lvl, mode, int(scale * 100))))
                                 print('wrote radar', case, lvl, mode, scale)
         finally:
             helper.close()

@@ -36,7 +36,7 @@ pub const AHEAD_S: i64 = 6 * 3_600;
 pub const MAP_W: u32 = 1920;
 pub const MAP_H: u32 = 1080;
 /// The globe's picture is a square this many pixels on a side (the helper's most is 1024), in the middle of the screen.
-pub const GLOBE_PX: u32 = 900;
+pub const GLOBE_PX: u32 = 800;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
