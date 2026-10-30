@@ -205,6 +205,7 @@ class Switches(unittest.TestCase):
         rig.set = self.Set(**kw)
         rig.sh = rig.set.sh
         rig.compositor_pid.return_value = 17
+        rig.save_ring.return_value = None
         return rig
 
     def during_and_after(self, rig, wanted):
@@ -337,6 +338,7 @@ class Transitions(unittest.TestCase):
         s = dict(surface("transitions-netflix"), switches={}, soak=False)
         rig = Mock()
         rig.compositor_pid.return_value = 17
+        rig.save_ring.return_value = None
         rig.lg_compositor.return_value = False
         rig.sh.side_effect = lambda cmd, timeout=120: (0, json.dumps({"launchPoints": [{"id": "netflix"}]}), "")
         rig.stop.return_value = ("/dev/null", "/dev/null")

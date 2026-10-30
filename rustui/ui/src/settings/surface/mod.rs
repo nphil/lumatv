@@ -24,7 +24,6 @@ use super::row::Kind;
 use super::view::{PageView, SheetView, StopView, View, Zone};
 use crate::kit::focus::{Id, Region, Scope};
 use crate::kit::hint::glyph_side;
-use crate::kit::motion::Beat;
 use crate::kit::pane::{Pane, PaneKind};
 use crate::kit::pointer::{Gesture, Pointer};
 use crate::kit::{Engine, Kit, z};
@@ -189,7 +188,7 @@ impl SettingsSurface {
             if let Some(b) = &self.built
                 && self.closing_at.is_none()
             {
-                let ms = kit.beat_ms(Beat::Layer);
+                let ms = kit.modal_beat_ms();
                 let _ = b.fade.settle(Some(0.0), None, Settle::Timed(MotionToken { duration_ms: ms, ease: Ease::In }));
                 self.closing_at = Some(now + u64::from(ms) + 40);
                 if ms == 0 {
@@ -205,7 +204,7 @@ impl SettingsSurface {
             self.drop_all(engine);
             let b = self.build(kit, engine, over_video)?;
             self.built = Some(b);
-            let ms = kit.beat_ms(Beat::Layer);
+            let ms = kit.modal_beat_ms();
             if let Some(b) = &self.built {
                 let _ = b.fade.settle(Some(1.0), if ms == 0 { Some(0.0) } else { None }, Settle::Timed(MotionToken { duration_ms: ms, ease: Ease::Out }));
             }

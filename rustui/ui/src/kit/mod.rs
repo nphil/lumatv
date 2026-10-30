@@ -66,6 +66,9 @@ pub struct Kit {
     /// The blurred wallpaper picture alone, as a prepared set Home has made (the `clear` card glass): the glass of Home's panes shows it, not the page below
     /// them, which has the scrim on it. The QML Home's glass samples the graded picture and not the scrim over it.
     pub wall_backdrop: Option<compositor_protocol::BackdropId>,
+    /// The Hz the output runs at, from the compositor's `refresh` topic (60 until it says): at 100 or more a full screen under a changing alpha costs
+    /// more than a refresh ([`Kit::modal_beat_ms`]).
+    pub refresh_hz: f32,
 }
 
 impl Kit {
@@ -78,7 +81,7 @@ impl Kit {
             ui.fonts.set_glyph_source(Some(Box::new(gridfit::GridFit::new())));
         }
         ui.enable_glyph_text().map_err(|e| std::io::Error::other(format!("{e}")))?;
-        let mut kit = Self { ui, tokens, mode, tier, text_scale, icons: icon::Icons::default(), generation: 1, wall_backdrop: None };
+        let mut kit = Self { ui, tokens, mode, tier, text_scale, icons: icon::Icons::default(), generation: 1, wall_backdrop: None, refresh_hz: 60.0 };
         kit.warm();
         Ok(kit)
     }

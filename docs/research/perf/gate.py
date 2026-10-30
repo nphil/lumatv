@@ -819,10 +819,10 @@ def render_limits(th):
     return {k: None if th[k] is None else max(th[k], half * (4.0 / 3.0 if k == 'p90_window_ms' else 1.0)) for k in ('p90_render_ms', 'p90_window_ms')}
 
 
-def evaluate_windows(s, report, cycles, lg_compositor=False):
+def evaluate_windows(s, report, cycles, lg_compositor=False, lumatv=False):
     """Checks for one surface from an analyse.py report that holds `cycles` cycles (windows of
     several captures concatenated)."""
-    th = s['thresholds'] if lg_compositor else dict(s['thresholds'], **render_limits(s['thresholds']))
+    th = dict(s['thresholds'], **render_limits(s['thresholds'])) if lumatv else s['thresholds']
     opens = [w for w in report['windows'] if w['name'] == f"{s['name']}-open"]
     closes = [w for w in report['windows'] if w['name'] == f"{s['name']}-close"]
     keyed = opens + (closes if s['transition'] else [])
@@ -1325,7 +1325,10 @@ def run_surface(rig, s, tag, soak_cycles, log):
                 finally:
                     trace, _sysfile = rig.stop(name)
                 if ring:
-                    res['rings'].append(ringsum.line(name, ringsum.summarize(ringsum.load(ring))))
+                    try:
+                        res['rings'].append(ringsum.line(name, ringsum.summarize(ringsum.load(ring))))
+                    except (OSError, ValueError, KeyError, TypeError) as e:
+                        res['rings'].append(f'{name}: the ring could not be read ({e})')
                 if rc != 0:
                     checks.append(check('keys', False, rc, '== 0', f'kb.py exited {rc}: {err.strip()}'))
                 one = rig.analyse(name)
@@ -1339,7 +1342,8 @@ def run_surface(rig, s, tag, soak_cycles, log):
                 res['discarded'].append({'trace': name, 'windows': drawn})
             reports.append(one)
         report = merge_reports(reports)
-        checks += evaluate_windows(s, report, MEASURE_CYCLES, rig.lg_compositor())
+        lg = rig.lg_compositor()
+        checks += evaluate_windows(s, report, MEASURE_CYCLES, lg, lumatv=lg is False)
         if before is not None:
             res['transitions'] = {'before': before, 'after': rig.transitions_stats()}
             checks += transitions_checks(before, res['transitions']['after'], MEASURE_CYCLES)

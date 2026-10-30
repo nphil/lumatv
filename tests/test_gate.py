@@ -786,5 +786,67 @@ class QuickAndPicker(unittest.TestCase):
         self.assertEqual(r.stdout, '')
 
 
+class LumaTvCompositor(unittest.TestCase):
+    """analyse.py reads the compositor's own thread under LumaTV's compositor, whose render burst is a stage of a two-deep frame: half a refresh."""
+
+    def test_the_render_limits_follow_the_refresh(self):
+        th = {'p90_render_ms': 3.0, 'p90_window_ms': 4.0}
+        with patch.object(gate, 'REFRESH_HZ', 60.0):
+            lim = gate.render_limits(th)
+        self.assertAlmostEqual(lim['p90_render_ms'], 500.0 / 60.0, places=3)
+        self.assertAlmostEqual(lim['p90_window_ms'], 500.0 / 60.0 * 4 / 3, places=3)
+        with patch.object(gate, 'REFRESH_HZ', 120.0):
+            lim = gate.render_limits(th)
+        self.assertAlmostEqual(lim['p90_render_ms'], 500.0 / 120.0, places=3)
+        self.assertIsNone(gate.render_limits({'p90_render_ms': None, 'p90_window_ms': None})['p90_render_ms'], 'a surface that turns the check off keeps it off')
+
+    def test_a_render_of_3_4_ms_fails_the_qt_limit_and_passes_the_compositors(self):
+        s = gate.find(['quick-settings'])[0]
+        r = report('quick-settings', 3, p90=3.4)
+        self.assertEqual(failed(gate.evaluate_windows(s, r, 3)), ['p90_render_ms'], 'the Qt clients: 3 ms')
+        with patch.object(gate, 'REFRESH_HZ', 120.0):
+            self.assertEqual(failed(gate.evaluate_windows(s, r, 3, lumatv=True)), [], 'the compositor at 120 Hz: 4.2 ms')
+            r = report('quick-settings', 3, p90=4.3)
+            self.assertEqual(failed(gate.evaluate_windows(s, r, 3, lumatv=True)), ['p90_render_ms'])
+
+
+class AnalysePid(unittest.TestCase):
+    def test_the_loop_marker_names_the_compositor_and_a_trace_without_one_names_nobody(self):
+        sys.path.insert(0, os.path.join(os.path.dirname(HERE), "docs", "research", "perf"))
+        import analyse
+        ev = [(1.0, 0, 'drm_vblank_event_delivered', 1, 'x', 'seq=1'), (2.0, 1, 'tracing_mark_write', 5, 'capture.sh', 'start gate-x 12.3'),
+              (2.1, 1, 'tracing_mark_write', 5, 'capture.sh', 'loop 8969')]
+        self.assertEqual(analyse.loop_pid(ev), 8969)
+        self.assertIsNone(analyse.loop_pid(ev[:2]))
+
+
+class RingSummary(unittest.TestCase):
+    D = '%.3f D frame %d render %d us owed %d px in %d rects, ui %d draws %d layers (tick)'
+    L = '%.3f L flip %.3f +%.1f ms: frame %.1f ms (gpu done), late %d lost 0 anim'
+
+    def lines(self):
+        out = ['10.000 info note: open']
+        for i in range(10):
+            owed = 1930240 if i % 5 == 4 else 43264
+            out.append(self.D % (10.0 + i * 0.0083, i, 1000 + 100 * i, owed, 1, 200 if owed > 1000000 else 18, 157 if owed > 1000000 else 11))
+            out.append(self.L % (10.0 + i * 0.0083, 10.0 + i * 0.0083, 16.7 if owed > 1000000 else 8.3, 14.8 if owed > 1000000 else 4.1, 1 if owed > 1000000 else 0))
+        return out
+
+    def test_the_numbers_of_a_window(self):
+        import ringsum
+        s = ringsum.summarize(ringsum.window(self.lines(), 'open', 8.0))
+        self.assertEqual((s['drawn'], s['flips'], s['late'], s['over']), (10, 10, 2, 2))
+        self.assertEqual(s['owed_px'][2], 1930240)
+        self.assertEqual(s['ui_layers'][1], 157)
+        self.assertAlmostEqual(s['frame_ms'][2], 14.8)
+        self.assertIn('2 flips over 10 ms', ringsum.line('w', s))
+
+    def test_no_note_is_an_empty_window_and_no_frame_is_none(self):
+        import ringsum
+        self.assertEqual(ringsum.window(self.lines(), 'nope', 8.0), [])
+        self.assertIsNone(ringsum.summarize([]))
+        self.assertIn('no frame', ringsum.line('w', None))
+
+
 if __name__ == '__main__':
     unittest.main()

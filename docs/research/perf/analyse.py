@@ -129,6 +129,16 @@ def burst(times, start, gap_ms=BURST_GAP_MS):
     return out
 
 
+def loop_pid(ev):
+    """The compositor's own process id from the trace's `loop N` marker (`capture.sh start`), None when the trace has none."""
+    for e in ev:
+        if e[2] == 'tracing_mark_write':
+            m = re.match(r'loop (\d+)\s*$', e[5].strip())
+            if m:
+                return int(m.group(1))
+    return None
+
+
 def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
     ev = parse(path)
     if not ev:
@@ -150,12 +160,7 @@ def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
     # LumaTV's compositor is a child of the supervisor that `pidof surface-manager` names, run under its private loader (its threads are called
     # `ld-linux-aarch6`); the supervisor's few runs say nothing of frames. `capture.sh start` writes the compositor's own process id, its loop
     # thread's, into the trace as `loop N` (LG's surface-manager is its own loop: the same pid as --sm): that is the thread whose renders are read.
-    for e in ev:
-        if e[2] == 'tracing_mark_write':
-            m = re.match(r'loop (\d+)\s*$', e[5].strip())
-            if m:
-                sm_pid = int(m.group(1))
-                break
+    sm_pid = loop_pid(ev) or sm_pid
 
     # The kernel waits behind each late frame (kwait.py): the D-state intervals of the compositor's thread and of the threads it waited
     # for, labelled from the kernel stacks the capture's trigger left. A trace without scheduler events (a basic capture) has none.

@@ -1,45 +1,62 @@
-# Settings at 120 Hz: why frames miss (round 21 data)
+# Settings at 120 Hz: why frames miss (round 21 gate, round 22 ring)
 
 ## Resume here
 
-Done (branch: forge main, own worktree `/tmp/Frames120-wt`, delete it only when finished):
+Done (forge main, own worktree `/tmp/Frames120-wt`, delete it only when finished):
 
-- Read the round 21 frame gates (`compositor/slot-2026-10-29-r21/frames60q.out`, `frames120q.out`; the saved traces and `frames-120.json` stayed on the
-  workstation in `/tmp/perf/gate-c4shell-120-*.trace` and `/tmp/lumatv-tv-out/`, so the numbers below are copied here).
-- `perf/frametl.py` + `perf/frametl_parse.py`: per-flip timeline of an ftrace dump (compositor thread, shell process, GPU jobs).
+- Gate measurement fixed (`8642b179`): `analyse.py` read the supervisor, not the compositor; render limits follow the refresh; every measured cycle's
+  trace ring is kept (`/tmp/perf/<name>.ring.json`) and summed in the gate's output (`perf/ringsum.py`); the ring holds 768 KiB (25 s at 120 Hz); a long
+  `ctl ring N` is answered from a thread.
+- The cause found in Round 22's ring (`compositor/slot-2026-10-30-r22/frames120-settings-ring.json`, build 5afc7e41): below.
+- Fix in this branch: Home's GPU wallpaper stands still and its weather sprites rest while Settings (or a panel) is over Home
+  (`Home::set_overlay`, `WallpaperSurface::set_held`, `Shell::after`), released 450 ms after the overlay goes.
 
 Next, in order:
 
-1. Build `lumatv-ui` (release) in the worktree, run the Settings walk on the host harness (`tests/rust_settings_host.py`, `--log`) and read the
-   `[frame]` lines around a focus step: layers, drawn px, cpu, gpu. Compare HEAD with `6b4add12^` (focus plates made up front).
-2. Fix what step 1 shows (candidates below), host tests, clippy, push.
-3. Give the TV re-check: `python3 compositor/tools/tv_gate.py --only frames --quick` and `... --quick --refresh 120` (pass: every surface 0 dropped,
-   0 `burst_over20`).
+1. If cut off here: `cargo test -p lumatv-ui --lib home::` and `shell::`, `cargo clippy -p lumatv-ui`, push (what is not pushed is in the worktree).
+2. TV re-check (Round 22 owns the set): install this build, then
+   `python3 compositor/tools/tv_gate.py --only frames --quick` and the same with `--refresh 120`. Pass: every surface `dropped` 0 and `burst_over20` 0.
+   Each cycle's ring is in `/tmp/perf/gate-c4shell-120-<surface>-m<i>.ring.json`; `python3 docs/research/perf/ringsum.py FILE` prints it, and the gate prints
+   one line per cycle (`... frames drawn, render p50/p90/max ..., owed ...`). The expected change: `settings-scroll` frames owing about 1.93 Mpx (`owed
+   1930240 px in 1 rects, ui 203 draws 157 layers`) vanish, three at a time, every 100-150 ms.
+3. What is left (not fixed here, needs a decision): the opening fade itself (below), and `quick`/`picker` at 120 Hz.
 
-Open questions: what the 12 ms compositor frames after a focus step contain (needs the ring's `D` lines from the set, or the host's layer counts);
-whether the gate's `sm_pid` should follow the compositor (below).
+Open: whether Settings may open without its 220 ms fade at 120 Hz (the shell does not know the refresh: `welcome.refresh_hz` is read at start and the
+compositor's `refresh` topic is not consumed by the Rust shell).
 
-## What the round 21 traces say (120 Hz, `settings-scroll`, first cycle)
+## What the gate said, and what it measured
 
-The gate's analysis reads the wrong process. `perf/gate.py` passes `pidof surface-manager` (the supervisor, `lumatv-sm`, pid 8856) as `--sm`;
-LumaTV's compositor is its child (`ld-linux-aarch6`, pid 8969, the `loop 8969` marker `capture.sh` writes into the trace). So `p90_render_ms`
-(0.1-0.6 ms in every LumaTV gate), `anim_frames` and `dropped` are read off the supervisor's few runs. The same trace with `--sm 8969`: 163 animated
-frames (gate: 52), 82 dropped (gate: 35, 15 in motion), render p90 3.4 ms (gate: 0.5). `burst_over20` comes from the flips alone and stands.
+`perf/gate.py` passed `pidof surface-manager` (the supervisor, `lumatv-sm`) as `--sm`; LumaTV's compositor is its child (`ld-linux-aarch6`, the `loop N`
+marker `capture.sh` writes into the trace). So `p90_render_ms` (0.1-0.6 ms in every LumaTV gate), `anim_frames` and `dropped` were read off the
+supervisor's few runs. Same trace read with the compositor's pid (round 21, 120 Hz, first cycle): settings-scroll 163 animated frames (gate: 52), 82
+dropped (gate 35), 60 of them in motion (gate 15), render p90 3.4 ms. At 60 Hz the corrected `dropped_in_motion` is 1, as the gate said. `burst_over20`
+comes from the flips alone and was right.
 
-Per frame, from `sched_switch` and `mali_job_slots_event` (compositor thread 8969, shell process 9478):
+## The cause (Round 22's ring at 120 Hz, Settings open, then six Down steps)
 
-| phase | what a frame costs | result at 120 Hz |
-|---|---|---|
-| Settings opening, first 0.2 s | compositor render 3.3-5.2 ms, GPU busy 11-35 ms in 4-10 jobs per interval, shell up to 8-15 ms | intervals 16.7-33.4 ms |
-| 0.2-0.7 s | render 3.5-4.2 ms from 4.7 ms after the flip, GPU 2.5 ms | mix of 8.3 and 16.7 ms |
-| a held key on the System page, steady frames | one render burst 2.9-3.3 ms, GPU 1.1 ms | 8.3 ms, fits |
-| the frame(s) after each focus step (every 100 ms key repeat) | renders 4.8 + 3.6 ms, GPU busy 13-19 ms in 6-9 jobs | one 16.7 ms interval each, about 25 per walk |
-| rail steps (page switches) | GPU busy 8-17 ms a frame | 16.7 ms |
+Steady frames are cheap: `owed 43-100 k px in 3-4 rects, ui 39-58 layers, render 1.0-1.7 ms`, GPU done 3-4 ms, every 8.3 ms.
 
-At 60 Hz the same phases cost the same CPU per frame (2.4-5 ms) with no 12 ms step, and nothing misses (round 21: 1 dropped in 3 cycles).
+Every 100-150 ms, three frames in a row (one per page of the ring) owe the whole Settings area, `owed 1930240 px in 1 rects, ui 203-205 draws
+157-158 layers`, render 1.7-2.7 ms, GPU done 13-16 ms each: 133 of the ring's 874 frames, in clusters of three. At idle Home the same cluster comes once a
+second (`owed 1930240 px, ui 101 draws 70 layers`, GPU 7-9 ms): it is the GPU wallpaper's step (Silk, `wallpaperMotion.fps`, 10 a second in the shipped
+theme), which changes every pixel it shows. Under Settings the wallpaper is under panes that are 96 % opaque (`sheet` alpha 0xF5, so the engine counts no
+cover), so each step is drawn again with Home's 70 layers and Settings' 87 above them, three times. At 60 Hz the same frames (about 14 ms) fit a 16.7 ms
+refresh; at 120 Hz they take two or three refreshes each, which is the 16.7-25 ms intervals the gate counts. The weather card's sprites (43 k px, a frame
+every refresh, `weather_art_runs` ignored Settings) add a frame under the panes every 8.3 ms.
 
-Not the harness alone: the process storm in the first 0.7 s of each open (`sh`, `grep`, `systemctl`, LG's SettingsService, kb.py's python3 at 70-80 ms
-CPU per key) uses 70 % of the four cores for 0.2 s, but the 12 ms frames recur every key step for seconds with the CPUs idle.
+The gate's trace agrees: at 120 Hz the walk's drops sit in the opening, the rail steps (pages switched about 60 ms apart, a wallpaper cluster every
+100 ms) and the long page, and the held-key phases between them are clean.
 
-Candidates for the step cost: a focus plate made on the focus step and dropped when the lift rests (`6b4add12`: two groups and a layer per move, the
-first draw of a new layer), the pacer's `reshaped` rule, glyph/atlas uploads for rows entering the view.
+The opening fade is separate and not fixed here: the first 0.3 s are 26 frames that owe the whole screen with 157 layers (Home 70, Settings 87), GPU done
+15-32 ms each (`L flip ... frame 14.8, 19.8, 30.0, 25.8, 32.3 ms`). At 60 Hz that fits; at 120 Hz a fade over a full screen of 157 layers cannot (the
+engine redraws every layer under a changing alpha; Home alone costs 7 ms a frame). Options: open without the fade when the refresh is 100 Hz or more
+(needs the refresh in the shell), cache Home as one picture while a modal fades over it, or hide Home's cards and dock for the fade and keep the wallpaper.
+
+## Notes on the engine, for whoever goes on
+
+- A frame costs about 70 us of CPU for each layer drawn in each pass (render 1.0-1.7 ms for 39-58 layers), and the cost model (`damage::DRAW_WORTH`, from
+  LumaShow's Show: 63 us a layer, 10 ns a pixel) merges a frame's rectangles into one cover when the scene has many layers: that is why a wallpaper step
+  under Settings is one rectangle of 1.93 Mpx and not ten small ones.
+- A sheet drawn opaque (alpha 255) would be a cover and the tiles under it would not count as changed; not done, the theme's 96 % is the owner's.
+- The pacer's `SLACK_NS` (5.5 ms) and the idle tick's `IDLE_LEAD_NS` (6 ms) were set for 16.7 ms refreshes: at 120 Hz the idle tick plans two refreshes
+  ahead (its latch is 4.67 ms after a flip), so an isolated frame lands 16.7 ms after the last flip. Not touched.

@@ -25,6 +25,9 @@ pub enum Beat {
     Rest,
 }
 
+/// From this refresh a full-screen modal opens and closes without its fade ([`Kit::modal_beat_ms`]).
+pub const INSTANT_MODAL_HZ: f32 = 100.0;
+
 impl Kit {
     /// The duration of `beat` with reduced motion applied.
     pub fn beat_ms(&self, beat: Beat) -> u32 {
@@ -39,6 +42,13 @@ impl Kit {
             Beat::Rest => m.rest_ms,
         };
         self.ui.look.duration_ms(ms)
+    }
+
+    /// How long a full-screen modal (Settings) fades in and out: the layer beat, none from [`INSTANT_MODAL_HZ`]. Its fade redraws every layer of the screen
+    /// under a changing alpha, Home's 70 and its own 87 (round 22's ring: 15-32 ms of GPU a frame), which is a refresh and a half at 60 Hz and two or
+    /// four at 120: a fade that runs at 30 frames a second on a 120 Hz screen is worse than none.
+    pub fn modal_beat_ms(&self) -> u32 {
+        if self.refresh_hz >= INSTANT_MODAL_HZ { 0 } else { self.beat_ms(Beat::Layer) }
     }
 
     /// Shows `layer` at `to`: at once when `at_once` (a volume key's bar appears on its own frame), else fading in over `beat`.

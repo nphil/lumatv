@@ -67,9 +67,10 @@ def main(argv=None):
     ap.add_argument("--gap", type=int, default=100)
     ap.add_argument("--bin", default=os.environ.get("LUMATV_UI_BIN"))
     ap.add_argument("--all", action="store_true", help="print every frame")
+    ap.add_argument("--kinds", default="settings", help="the kinds the shell answers (home,settings draws Home under Settings)")
     ap.add_argument("--backdrop", help="a 1920x1080 PNG drawn behind everything (a still of Home)")
     a = ap.parse_args(argv)
-    fr, keys, text = walk(a.page, a.steps, a.gap, a.bin, backdrop=a.backdrop)
+    fr, keys, text = walk(a.page, a.steps, a.gap, a.bin, kinds=a.kinds, backdrop=a.backdrop)
     if not fr:
         print(text[-2000:])
         return 1

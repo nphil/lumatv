@@ -27,6 +27,8 @@ use std::path::{Path, PathBuf};
 
 /// The Settings page the Cameras grid's `Settings` button opens (a page of Home & look).
 const CAMERAS_SETTINGS_PAGE: &str = "cameras";
+/// How long Home keeps its wallpaper still and its weather at rest after an overlay is gone (the longest fade-out or slide-out is 220 ms).
+const OVERLAY_RELEASE_MS: u64 = 450;
 
 /// What the shell asks the host to do.
 #[derive(Clone, Debug, PartialEq)]
@@ -169,6 +171,15 @@ pub struct Shell {
     reported: Option<Value>,
     live: bool,
     redraw: bool,
+    /// Whether a modal (Settings, the display lab) or any overlay (that or a panel) was up at the last look, and until when Home counts it as over
+    /// it, in ms (`u64::MAX` while it is up): the hold of Home's wallpaper and weather is let go [`OVERLAY_RELEASE_MS`] after the event that finds the
+    /// overlay gone, past its fade-out or slide-out, which a release in the middle of would make a frame of the whole stack at.
+    modal_up: bool,
+    overlay_up: bool,
+    modal_until: u64,
+    overlay_until: u64,
+    /// When the hold is next let go, a tick of its own.
+    release_at: Option<u64>,
     helper_up: bool,
     started: bool,
     /// The data directory (`theme/theme.json` is written under it) and the module's (`icons/`, `art/`).
@@ -209,6 +220,11 @@ impl Shell {
             reported: None,
             live: false,
             redraw: false,
+            modal_up: false,
+            overlay_up: false,
+            modal_until: 0,
+            overlay_until: 0,
+            release_at: None,
             helper_up: false,
             started: false,
             data_dir: None,
@@ -341,6 +357,13 @@ impl Shell {
     }
 
     fn feed(&mut self, input: &Input, now: u64, acts: &mut Vec<Act>) {
+        // the compositor's `refresh` topic: the Hz the output runs at (`ctl refresh 120`)
+        if let Input::Topic { topic, data } = input
+            && topic == "refresh"
+            && let Some(hz) = data.get("hz").and_then(Value::as_f64)
+        {
+            self.kit.refresh_hz = hz as f32;
+        }
         // Who had the keys when this input arrived: a key that answers an alert or wakes the saver was theirs, and the screens under them
         // never see it (the key that wakes the TV does nothing else).
         let key_like = matches!(input, Input::Key { .. } | Input::Pointer { .. });
@@ -803,7 +826,23 @@ impl Shell {
             }
         }
         // what the panels, Settings and the Cameras viewer have up is what the cards and the pop-up wait for
-        let host_busy = self.panels.wants(&self.kinds) || (self.kinds.settings && self.settings.is_open()) || (self.kinds.displaylab && self.lab.is_open());
+        let modal = (self.kinds.settings && self.settings.is_open()) || (self.kinds.displaylab && self.lab.is_open());
+        let host_busy = self.panels.wants(&self.kinds) || modal;
+        // what moves under them is not seen: the weather's sprites rest under a modal, the wallpaper stands still under a modal or a panel; both
+        // go on once the overlay has been gone for a while, not at the start of its fade-out
+        if modal != self.modal_up {
+            self.modal_up = modal;
+            self.modal_until = if modal { u64::MAX } else { now + OVERLAY_RELEASE_MS };
+        }
+        if host_busy != self.overlay_up {
+            self.overlay_up = host_busy;
+            self.overlay_until = if host_busy { u64::MAX } else { now + OVERLAY_RELEASE_MS };
+        }
+        if self.kinds.home && self.home.set_overlay(now < self.modal_until, now < self.overlay_until) {
+            self.redraw = true;
+        }
+        // a tick of its own at the release, once nothing is up
+        self.release_at = if host_busy { None } else { [self.modal_until, self.overlay_until].into_iter().filter(|&t| t > now && t != u64::MAX).max() };
         let viewer = self.kinds.cameras && self.cameras.wants();
         for e in self.sys.set_host(&self.kinds, host_busy, viewer, now) {
             self.carry(e, now, acts);
@@ -1097,7 +1136,7 @@ impl Shell {
         let cameras = if self.kinds.cameras { self.cameras.due_at() } else { None };
         let settings = if self.kinds.settings { self.settings.due_at() } else { None };
         let lab = if self.kinds.displaylab { self.lab.due_at() } else { None };
-        [due, self.sys.due_at(&self.kinds), self.panels.due_at(&self.kinds), cameras, settings, lab, self.vwin.due_at()].into_iter().flatten().min()
+        [due, self.sys.due_at(&self.kinds), self.panels.due_at(&self.kinds), cameras, settings, lab, self.vwin.due_at(), self.release_at].into_iter().flatten().min()
     }
 
     pub fn is_live(&self) -> bool {
@@ -2191,5 +2230,45 @@ mod tests {
         assert!(!logs.iter().any(|l| l.contains("groups") || l.contains("scene is full")), "{logs:?}");
         assert_eq!(shell.state()["settings"]["built"], 7, "every row of the page is drawn");
         assert!(shell.kit.room().groups >= 4, "{:?}", shell.kit.room());
+    }
+
+    /// Round 22's ring at 120 Hz: under Settings Home's GPU wallpaper kept stepping ten times a second and each step owed the whole screen, three
+    /// frames of 157 layers; the weather's sprites drew a frame every refresh under the panes.
+    #[test]
+    fn settings_over_home_stills_the_wallpaper_and_rests_the_weather_and_both_go_on_after_it_has_closed() {
+        let (_h, mut shell) = home_shell("home,quick,settings");
+        shell.tick(1_500);
+        assert!(!shell.home.wallpaper_held() && shell.home.weather_art_runs(), "Home alone moves");
+        shell.open_settings(Some("inputs"), 2_000);
+        shell.tick(2_050);
+        assert!(shell.home.wallpaper_held() && !shell.home.weather_art_runs(), "Settings is up: the wallpaper stands and the weather rests");
+        shell.tick(4_000);
+        assert!(shell.home.wallpaper_held(), "however long it stays up");
+        assert_eq!(shell.release_at, None, "and nothing is due for a release while it is");
+        let _ = shell.settings.close(5_000);
+        shell.tick(5_050);
+        assert!(shell.home.wallpaper_held(), "its fade-out is still running: the hold stays");
+        let due = shell.release_at.expect("the release is a tick of its own");
+        assert_eq!(due, 5_050 + OVERLAY_RELEASE_MS);
+        assert!(shell.due_at().is_some_and(|d| d <= due));
+        shell.tick(due - 1);
+        assert!(shell.home.wallpaper_held());
+        shell.tick(due);
+        assert!(!shell.home.wallpaper_held() && shell.home.weather_art_runs(), "the overlay has been gone for a while: Home moves again");
+        assert_eq!(shell.release_at, None);
+    }
+
+    /// A full-screen modal's fade redraws 157 layers a frame, 15-32 ms of GPU at the set: a refresh and a half at 60 Hz, and at 120 a fade of 30
+    /// frames a second. From 100 Hz (the compositor's `refresh` topic) Settings opens and closes without it.
+    #[test]
+    fn the_refresh_topic_takes_the_modals_fade_away_from_100_hz() {
+        let (_h, mut shell) = home_shell("settings");
+        assert!(shell.kit.modal_beat_ms() > 0, "60 Hz until the compositor says: the layer beat, {} ms", shell.kit.modal_beat_ms());
+        shell.channel(&Event::Topic { topic: "refresh".into(), data: json!({"hz": 120}) }, 1_500);
+        assert_eq!(shell.kit.modal_beat_ms(), 0, "120 Hz: no fade");
+        shell.channel(&Event::Topic { topic: "refresh".into(), data: json!({"hz": 60}) }, 1_600);
+        assert!(shell.kit.modal_beat_ms() > 0, "back at 60 Hz: the fade is back");
+        shell.channel(&Event::State([("refresh".to_string(), json!({"hz": 120}))].into_iter().collect()), 1_700);
+        assert_eq!(shell.kit.modal_beat_ms(), 0, "a session that starts at 120 Hz knows it from the state");
     }
 }

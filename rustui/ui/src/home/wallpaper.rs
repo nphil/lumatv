@@ -166,28 +166,36 @@ pub struct WallpaperSurface {
     spec: Option<WallSpec>,
     /// Whether the picture is up: the hole took it down.
     shown: bool,
+    /// Something is over Home: the warp stands where it is (fps 0, the rest of the look kept, so nothing jumps), the steps owe the screen.
+    held: bool,
 }
 
 impl WallpaperSurface {
     pub fn new(z: i32) -> Self {
-        Self { backdrop: None, plain: None, plain_hidden: false, layer: None, scrim_top: None, scrim_bottom: None, z, source: String::new(), sample: None, hole: false, generation: 0, spec: None, shown: false }
+        Self { backdrop: None, plain: None, plain_hidden: false, layer: None, scrim_top: None, scrim_bottom: None, z, source: String::new(), sample: None, hole: false, generation: 0, spec: None, shown: false, held: false }
     }
 
-    /// The motion the theme asks for: Silk at the theme's fps and amplitude, still when the motion is off or reduced.
-    fn spec_of(theme: &Value, reduced: bool) -> WallSpec {
+    /// Holds the warp still while something is over Home, and lets it go on when nothing is: the spec is restyled by the next `load`.
+    pub fn set_held(&mut self, held: bool) {
+        self.held = held;
+    }
+
+    /// The motion the theme asks for: Silk at the theme's fps and amplitude, still when the motion is off or reduced, and stopped (the same look, no steps)
+    /// while `held`.
+    fn spec_of(theme: &Value, reduced: bool, held: bool) -> WallSpec {
         let wm = theme.get("wallpaperMotion").cloned().unwrap_or(Value::Null);
         let on = wm.get("enabled").and_then(Value::as_bool) != Some(false) && !reduced;
         let amp = wm.get("amplitude").and_then(Value::as_f64).unwrap_or(4.0) as f32;
         let speed = wm.get("speed").and_then(Value::as_f64).unwrap_or(1.0) as f32;
         let fps = wm.get("fps").and_then(Value::as_u64).unwrap_or(10).clamp(1, 60) as u8;
-        WallSpec { kind: WallpaperKind::Silk, speed: if on { speed } else { 0.0 }, intensity: if on { (amp / 16.0).clamp(0.0, 1.0) } else { 0.0 }, fps: if on { fps } else { 0 } }
+        WallSpec { kind: WallpaperKind::Silk, speed: if on { speed } else { 0.0 }, intensity: if on { (amp / 16.0).clamp(0.0, 1.0) } else { 0.0 }, fps: if on && !held { fps } else { 0 } }
     }
 
     /// Loads the picture when the theme names another one (or none is up yet); the sample of a new picture is returned.
     pub fn load(&mut self, kit: &mut Kit, theme: &Value, data_dir: Option<&Path>, module_dir: Option<&Path>) -> std::io::Result<Option<Sample>> {
         let path = path_of(theme, data_dir, module_dir);
         let source = path.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
-        let spec = Self::spec_of(theme, kit.ui.look.reduced_motion);
+        let spec = Self::spec_of(theme, kit.ui.look.reduced_motion, self.held);
         if source == self.source && self.layer.is_some() {
             if self.spec != Some(spec)
                 && let Some(l) = &self.layer
@@ -327,6 +335,19 @@ impl WallpaperSurface {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_held_wallpaper_keeps_its_look_and_takes_no_steps() {
+        let theme = json!({"wallpaperMotion": {"enabled": true, "amplitude": 8.0, "speed": 2.0, "fps": 10}});
+        let moving = WallpaperSurface::spec_of(&theme, false, false);
+        let held = WallpaperSurface::spec_of(&theme, false, true);
+        assert_eq!(moving.fps, 10);
+        assert_eq!(held.fps, 0, "no step while something is over Home");
+        assert_eq!((held.speed, held.intensity), (moving.speed, moving.intensity), "the look is kept, so that nothing jumps when it goes on");
+        let off = json!({"wallpaperMotion": {"enabled": false}});
+        assert_eq!(WallpaperSurface::spec_of(&off, false, false), WallpaperSurface::spec_of(&off, false, true), "a still wallpaper is the same held or not");
+        assert_eq!(WallpaperSurface::spec_of(&theme, true, false).fps, 0, "reduced motion stills it as it did");
+    }
 
     #[test]
     fn the_sample_skips_black_and_finds_the_dominant_colour_and_the_accent_reads_on_glass() {
