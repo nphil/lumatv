@@ -70,6 +70,8 @@ pub struct Stage {
     hide: bool,
     /// The first focus after the panel comes up (or its content is made again) is lifted at once; the next ones fly.
     first: bool,
+    /// The focusable this stage last lifted: a parked panel keeps it lifted, and the first focus of its next showing is another.
+    lit: Option<Id>,
     /// The root moves on the shared spring (retargeted from wherever it is) and not over a fixed time.
     spring: bool,
 }
@@ -91,6 +93,7 @@ impl Stage {
             modal: false,
             hide: false,
             first: true,
+            lit: None,
             spring: false,
         }
     }
@@ -242,16 +245,26 @@ impl Stage {
         self.first = true;
     }
 
-    /// The focus follows the model's `want`; the first one after the panel comes up is lifted at once.
+    /// The focus follows the model's `want`; the first one after the panel comes up is lifted at once, and the one this stage had lifted
+    /// before (the focus a parked panel was left on) is put at rest at once: left to its spring it would stay lit beside the new one.
     pub fn focus(&mut self, engine: &mut Engine, want: Option<Id>, now_ns: u64) {
         match want {
             Some(id) if self.first => {
-                if engine.focus.focus(id) {
+                if engine.focus.current() == Some(id) || engine.focus.focus(id) {
+                    if let Some(old) = self.lit.filter(|o| *o != id) {
+                        let _ = engine.flow.snap(old, false, now_ns);
+                    }
                     let _ = engine.flow.snap(id, true, now_ns);
+                    self.lit = Some(id);
                     self.first = false;
                 }
             }
-            w => follow(engine, w, now_ns),
+            w => {
+                follow(engine, w, now_ns);
+                if w.is_some() {
+                    self.lit = w;
+                }
+            }
         }
     }
 
@@ -299,6 +312,7 @@ impl Stage {
         self.arrive = None;
         self.hover = Hover::new(self.z + 8);
         self.first = true;
+        self.lit = None;
     }
 }
 

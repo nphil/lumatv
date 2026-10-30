@@ -356,6 +356,7 @@ mod tests {
     use crate::kit::screen::Input;
     use crate::kit::testkit;
     use crate::panels::K;
+    use crate::panels::life::Phase;
     use crate::panels::env::Env;
     use crate::panels::picker::Picker;
     use ui::lucent::palette::Mode;
@@ -513,5 +514,53 @@ mod tests {
         u.p.life.tick(7000);
         u.apply();
         assert!(u.kit.room().layers > with + 20 && !u.s.is_up());
+    }
+
+    fn centre(f: Frame) -> (f32, f32) {
+        (f.x + f.w / 2.0, f.y + f.h / 2.0)
+    }
+
+    /// The tiles whose lit plate is up by more than half, once the springs have settled (the scene's own clock runs them).
+    fn lit(u: &Up) -> Vec<usize> {
+        let at = u.kit.ui.scene.now_ns() + 3_000_000_000;
+        (0..8).filter(|i| u.engine.flow.lift_at(Target::Tile(*i).id(), at) > 0.5).collect()
+    }
+
+    #[test]
+    fn the_lifted_plate_is_concentric_with_its_tile_on_every_tile_and_at_both_sizes() {
+        for scale in [1.0, 2.0] {
+            let u = Up::new(Mode::Dark, scale, 3);
+            for i in 0..4 {
+                let id = Target::Tile(i).id();
+                let tile = u.engine.focus.frame(id).expect("a tile");
+                let (plate, _) = u.engine.flow.lifted_plate(id, u.kit.ui.scene.now_ns() + 5_000_000_000).expect("a plate");
+                let (a, b) = (centre(tile), centre(plate));
+                assert!((a.0 - b.0).abs() < 0.01 && (a.1 - b.1).abs() < 0.01, "tile {i} at {scale}: plate {plate:?} is off its tile {tile:?}");
+                assert!(plate.w >= tile.w && plate.h >= tile.h, "the plate is the tile grown, never smaller");
+            }
+        }
+    }
+
+    #[test]
+    fn the_ring_is_on_the_tile_the_keys_chose_and_on_it_alone_also_after_the_picker_is_opened_again() {
+        let mut u = Up::new(Mode::Dark, 1.0, 3);
+        assert_eq!(lit(&u), vec![2], "opened on the input in front");
+        u.key(K::Left);
+        assert_eq!(lit(&u), vec![1]);
+        u.key(K::Left);
+        u.key(K::Left);
+        assert_eq!(lit(&u), vec![0], "on Live TV");
+        // closed and gone, then opened again with no key: the ring is on the tile in front and nowhere else
+        u.p.close(&mut u.env, 2000);
+        u.p.life.hide(2000);
+        u.apply();
+        u.p.life.tick(2200);
+        u.apply();
+        assert_eq!(u.p.life.phase(), Phase::Parked, "its layers are kept for a while");
+        u.t = 2500;
+        u.p.life.show(u.t);
+        u.p.open(&mut u.env, u.t);
+        u.apply();
+        assert_eq!(lit(&u), vec![2], "no ghost ring on the other tiles");
     }
 }

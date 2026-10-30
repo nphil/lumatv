@@ -260,7 +260,9 @@ impl Plate {
         let shape = Shape { corner_radius: radius, fill: Fill::Solid(lit_fill(kit)), border_width: 1.0, border: lit_edge(kit) };
         let layer = scene.adopting(&lit, || kit.ui.scene.shape(w.round() as u32, h.round() as u32, spot.z, shape, Props::at(0.0, 0.0)));
         engine.focus.register(spot.id, spot.screen, spot.region, spot.scope);
-        engine.flow.lift(spot.id, Lifted { group, rest, scale: lift.scale(kit), rise: lift.rise(kit), lit: Some(lit) });
+        // The plate grows about its own centre and does not rise: what is on it does not move, so a rise would take the plate off the
+        // tile it is behind (4 px higher at the top, level at the bottom).
+        engine.flow.lift(spot.id, Lifted { group, rest, scale: lift.scale(kit), rise: 0.0, lit: Some(lit) });
         Ok(Self { id: spot.id, shape: layer, radius })
     }
 
