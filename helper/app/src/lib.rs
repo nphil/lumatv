@@ -19,6 +19,7 @@
 //! | [`ambient_z2m`], [`ambient_z2m_frame`], [`ambient_z2m_mqtt`], [`ambient_z2m_store`] | ambient light's Zigbee2MQTT output: Hue entertainment frames over MQTT, no bridge |
 //! | [`ha_store`] | the saved address and token of a Home Assistant link, one private file (voice search's and the plugin lease's) |
 //! | [`scrypted`], [`live`] | cameras through Scrypted's LumaShow bridge: the link (`scrypted-link`), pinned HTTPS, stills, push events and pop-ups, the Cameras page, the timeline routes; the full view's RTSP stream on the video plane through the GFN feeder |
+//! | [`onhome`] | On Home: what Home Assistant's LumaShow integration shares with the TV (it dials the TV, which holds no token) as tiles on Home, and the controls of those tiles, narrowed to what the TV may do |
 //! | [`voice`] | voice search: the mic key's words as text for the search box, through Home Assistant's Assist pipeline |
 //! | [`profiles`] | local profiles (Nitin, Isabel): each person's Home kept apart from the household's settings, the switch, the PINs, the `profiles` topic; the working copy `theme/` stays what the Home layer reads |
 //! | [`preload`] | keeps the apps the owner switched off from preloading, at each switch-on (webOS forgets the policy) |

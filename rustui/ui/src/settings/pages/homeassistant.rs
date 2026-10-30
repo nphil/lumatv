@@ -87,6 +87,7 @@ fn link<'a>(c: &'a Ctx, key: &str) -> Option<&'a Value> {
 fn rows(c: &Ctx) -> Vec<Row> {
     let token = link(c, "token").is_some_and(|t| t.as_bool() != Some(false));
     let mut own = vec![
+        Row::link("onhome").tab(0).icon("house-wifi").label("On Home").help("The lights, sensors and devices Home Assistant shares with this TV, on Home's Smart home card. Shared and controlled from Home Assistant's LumaShow integration").value(&super::onhome::words(c)).does(vec![Op::Open { page: "onhome".into(), arg: crate::settings::row::PageArg::None }]),
         {
             let mut r = Row::info("address").tab(0).icon("globe").label("Address").help("Set with lumatv-helper ha-link, in a shell on the TV");
             r.value = link(c, "address").map(crate::host::sio::js::string).filter(|a| !a.is_empty()).unwrap_or_else(|| "Not set".into());
@@ -238,7 +239,7 @@ mod tests {
         let mut w = world("connected");
         w.owners.clear();
         let r = rows(&w.ctx());
-        assert!(r.iter().filter(|r| r.tab == 0).all(|r| matches!(r.id.as_str(), "address" | "token" | "forget")));
+        assert!(r.iter().filter(|r| r.tab == 0).all(|r| matches!(r.id.as_str(), "address" | "token" | "forget" | "onhome")));
         assert_eq!(r.iter().filter(|r| r.kind == crate::settings::row::Kind::Empty).count(), 4);
     }
 

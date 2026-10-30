@@ -40,10 +40,11 @@ pub const TYPES: &[Type] = &[
     Type { id: "weather", title: "Weather", icon: "sun", min: (2, 3), want: &[(4, 6), (3, 6), (3, 4), (2, 4), (2, 3)], first_id: "weather", fixed: false, default_title: None },
     Type { id: "news", title: "News", icon: "file-text", min: (3, 4), want: &[(5, 7), (4, 6), (4, 5), (3, 5), (3, 4)], first_id: "news", fixed: false, default_title: None },
     Type { id: "cameras", title: "Cameras", icon: "camera", min: (3, 3), want: &[(6, 5), (4, 5), (4, 4), (3, 4), (3, 3)], first_id: "cameras", fixed: false, default_title: None },
+    Type { id: "onhome", title: "Smart home", icon: "house-wifi", min: (3, 3), want: &[(6, 9), (6, 7), (6, 5), (4, 9), (4, 5), (4, 4), (3, 4), (3, 3)], first_id: "onhome", fixed: false, default_title: Some("Smart home") },
     Type { id: "dock", title: "Apps", icon: "layout-grid", min: (3, 3), want: &[(12, 4), (6, 4), (6, 3), (4, 3), (3, 3)], first_id: "dock", fixed: true, default_title: None },
 ];
 /// The types the add list offers, in its order. The dock is moved and resized, never added or removed.
-pub const ADDABLE: &[&str] = &["clock", "homeassistant", "weather", "news", "cameras"];
+pub const ADDABLE: &[&str] = &["clock", "homeassistant", "weather", "news", "cameras", "onhome"];
 /// The widths Settings offers, in columns of the twelve.
 pub const SIZES: &[(&str, &str, i64)] = &[("small", "Small", 4), ("half", "Half", 6), ("wide", "Wide", 8)];
 

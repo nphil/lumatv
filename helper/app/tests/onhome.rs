@@ -227,6 +227,16 @@ fn the_owners_list_narrows_what_home_shows_and_is_kept() {
 }
 
 #[test]
+fn a_change_of_the_list_while_nothing_is_shared_is_refused_not_taken_as_hide_everything() {
+    let r = rig(true, Some(KEY));
+    r.onhome.look();
+    let why = r.onhome.pick(&json!({"hide": "light.kitchen_main"})).unwrap_err();
+    assert!(why.contains("not connected"), "{why}");
+    assert!(!r.ctx.paths.data_dir.join("onhome").join("picks.json").exists());
+    assert!(r.onhome.pick(&json!({"all": true})).is_ok(), "putting everything back is always possible");
+}
+
+#[test]
 fn when_home_assistant_goes_the_tiles_say_so_in_their_own_names() {
     let r = rig(true, Some(KEY));
     let mut it = connect(&r);
@@ -269,4 +279,22 @@ fn the_topic_never_carries_a_key_an_address_or_a_picture_address() {
     for forbidden in ["token", "access_token", "127.0.0.1", "entity_picture", "http"] {
         assert!(!text.contains(forbidden), "{forbidden} in {text}");
     }
+}
+
+#[test]
+fn stopping_the_listener_ends_the_session_and_does_not_wait_on_itself() {
+    let r = rig(true, Some(KEY));
+    let mut it = connect(&r);
+    it.send(&Message::Snapshot(snapshot())).unwrap();
+    wait_for(&r, "shared", |d| d["shared"] == 6);
+    let onhome = r.onhome.clone();
+    let stopper = std::thread::spawn(move || onhome.shut_down());
+    let until = Instant::now() + WITHIN;
+    while !stopper.is_finished() {
+        assert!(Instant::now() < until, "the listener did not stop");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    stopper.join().unwrap();
+    assert!(it.closed_within(WITHIN), "the integration is told it is over");
+    assert!(r.onhome.local_addr().is_none());
 }

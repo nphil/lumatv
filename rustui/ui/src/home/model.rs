@@ -39,6 +39,7 @@ pub const SCOPE_PICKER: Scope = Scope(4);
 pub const SCOPE_MENU: Scope = Scope(6);
 pub const SCOPE_CONFIRM: Scope = Scope(7);
 pub const SCOPE_WEATHER: Scope = Scope(8);
+pub const SCOPE_ONHOME: Scope = Scope(9);
 
 /// The luna tags Home calls with.
 pub const LP_TAG: u64 = 300;
@@ -51,6 +52,8 @@ pub const POPOVER_TAG: u64 = 314;
 pub const LAYOUT_TAG: u64 = 311;
 pub const TINT_TAG: u64 = 312;
 pub const SWITCH_TAG: u64 = 320;
+/// The answer of a control of a smart-home tile (`POST /v1/onhome/act`).
+pub const ONHOME_TAG: u64 = 330;
 /// The read of the profile kept from the last time the helper answered (`last-profile.json`).
 pub const KEPT_PROFILE_TAG: u64 = 322;
 /// The write of Quick Access's choice (`remote.quickAccess`).
@@ -76,6 +79,8 @@ pub enum Layer {
     Popover,
     /// The full weather view ([`super::weather_view`]): OK on the weather card.
     Weather,
+    /// One smart-home tile's controls ([`super::onhome::Sheet`]): a held OK on the tile.
+    OnHome,
 }
 
 /// A row of the tile menu.
@@ -163,6 +168,12 @@ pub struct Home {
     /// The helper's `plugins` roster, its `ha.link` and the plugins' `plugin.<id>.cards`: what the At-home card is drawn from.
     pub plugins: hub::Topics,
     pub cameras: Value,
+    /// The helper's `onhome` topic: what Home Assistant shares with the TV, as tiles in words.
+    pub onhome: Value,
+    /// What the last refused control said, and until when the card shows it.
+    onhome_said: Option<(String, u64)>,
+    /// The controls of the tile that is open, while its sheet is.
+    pub sheet: Option<super::onhome::Sheet>,
     pub stills: super::stills::Stills,
     /// What the bell's badge counts (the panels' log and the plugins' notes since the drawer was last open).
     pub unread: usize,
@@ -265,6 +276,9 @@ impl Home {
             plugins: Default::default(),
             voice_ready: false,
             cameras: Value::Null,
+            onhome: Value::Null,
+            onhome_said: None,
+            sheet: None,
             stills: super::stills::Stills::default(),
             unread: 0,
             profiles: Value::Null,
@@ -718,6 +732,19 @@ impl Home {
         if self.search.tick(now) {
             self.redraw(out);
         }
+        if self.onhome_said.as_ref().is_some_and(|(_, until)| now >= *until) {
+            self.onhome_said = None;
+            self.redraw(out);
+        }
+        if let Some(sheet) = self.sheet.as_mut() {
+            let due = sheet.due(now);
+            if sheet.tick(now) || due.is_some() {
+                self.redraw(out);
+            }
+            if let Some(act) = due {
+                self.send_act(&act, out);
+            }
+        }
     }
 
     pub fn due_at(&self) -> Option<u64> {
@@ -745,6 +772,11 @@ impl Home {
         take(self.stills.due_at(self.camera_stills_visible()));
         take(self.wall.due_at());
         take(self.radar.due_at(self.radar_loops()));
+        take(self.onhome_said.as_ref().map(|(_, until)| *until));
+        if let Some(sheet) = &self.sheet {
+            take(sheet.waiting());
+            take(sheet.notice.as_ref().map(|(_, until)| *until));
+        }
         // the clock's minute, and its second hand when the analogue face shows one: only while Home is in front (behind an app nothing shows it)
         if self.active {
             let step = if self.theme.pointer("/clock/style").and_then(Value::as_str) == Some("analog") { 1000 } else { 60_000 };
@@ -859,6 +891,14 @@ impl Home {
                 self.plugins.insert(topic.to_owned(), data.clone());
             }
             "cameras" => self.cameras = data.clone(),
+            "onhome" => {
+                self.onhome = data.clone();
+                // the thing whose sheet is open is gone from Home: the sheet goes with it
+                if self.layer == Layer::OnHome && self.sheet_tile().is_none() {
+                    self.close_layer();
+                }
+                self.redraw(out);
+            }
             "voice" => {
                 self.voice_ready = data.get("ready").and_then(Value::as_bool) == Some(true);
                 // words heard open the search with them (`voiceFill`), or fill the sheet that is up
@@ -938,6 +978,16 @@ impl Home {
                 self.redraw(out);
             }
             SWITCH_TAG if self.picker.answered(status, data, self.now) => self.redraw(out),
+            ONHOME_TAG => {
+                if status != 200 {
+                    let words = data.pointer("/error/message").and_then(Value::as_str).filter(|w| !w.is_empty()).unwrap_or("Home Assistant did not do that").to_owned();
+                    self.onhome_said = Some((words.clone(), self.now + 4000));
+                    if let Some(sheet) = self.sheet.as_mut() {
+                        sheet.say(&words, self.now);
+                    }
+                    self.redraw(out);
+                }
+            }
             _ => {}
         }
     }
@@ -1055,6 +1105,7 @@ impl Home {
                     self.open_menu(app, "library", out);
                 }
             }
+            Layer::None if self.inner.as_deref().is_some_and(|w| self.kind_of(w) == "onhome") => self.open_sheet(out),
             Layer::None => match self.focus.current() {
                 Some(id) if Self::dock_index_of(id).is_some() => {
                     if !self.dock.moving {
@@ -1084,12 +1135,18 @@ impl Home {
             Layer::Confirm => self.confirm_key(name, dir, out),
             Layer::Popover => self.popover_key(name, dir, out),
             Layer::Weather => self.weather_key(name, dir, out),
+            Layer::OnHome => self.sheet_key(name, out),
             Layer::None => self.home_key(name, dir, out),
         }
         self.redraw(out);
     }
 
     fn home_key(&mut self, name: &str, dir: Option<Dir>, out: &mut Vec<Effect>) {
+        // the Menu key on a smart-home tile is its controls, as a held OK is
+        if name == "menu" && self.inner.as_deref().is_some_and(|w| self.kind_of(w) == "onhome") {
+            self.open_sheet(out);
+            return;
+        }
         if name == "menu" {
             if self.focus.current().is_some_and(|id| Self::dock_index_of(id).is_some()) {
                 self.open_tile_menu(out);
@@ -1380,7 +1437,62 @@ impl Home {
             // the plugins' chips take the keys only while there are some; with none the card opens Home Assistant's page
             Some("homeassistant") => !self.ha_items().is_empty(),
             Some("cameras" | "news") => true,
+            Some("onhome") => !self.onhome_tiles().is_empty(),
             _ => false,
+        }
+    }
+
+    /// The type of the card `wid`.
+    fn kind_of(&self, wid: &str) -> String {
+        self.cards().iter().find(|e| e.id == wid).map(|e| e.kind.clone()).unwrap_or_default()
+    }
+
+    /// The smart-home tiles, as the helper lists them.
+    pub fn onhome_tiles(&self) -> Vec<Value> {
+        super::onhome::tiles(&self.onhome)
+    }
+
+    /// What the card says of the last control that was refused, while it is said.
+    pub fn onhome_notice(&self) -> Option<&str> {
+        self.onhome_said.as_ref().map(|(w, _)| w.as_str())
+    }
+
+    /// The tile the open sheet is for, as the topic has it now.
+    pub fn sheet_tile(&self) -> Option<Value> {
+        let id = &self.sheet.as_ref()?.id;
+        self.onhome_tiles().into_iter().find(|t| t.get("id").and_then(Value::as_str) == Some(id.as_str()))
+    }
+
+    /// Tiles to a row on the card `wid` (what the widget draws, so the keys move as the eye does).
+    fn onhome_cols(&self, wid: &str) -> usize {
+        let Some(entry) = self.cards().into_iter().find(|e| e.id == wid) else { return 1 };
+        super::onhome::cols(self.rect(&entry).w as f32 - 2.0 * super::widgets::PAD_SIDE)
+    }
+
+    fn send_act(&mut self, act: &super::onhome::Act, out: &mut Vec<Effect>) {
+        out.push(Effect::Request { tag: ONHOME_TAG, method: "POST".into(), path: "/v1/onhome/act".into(), body: Some(json!({"id": act.id, "verb": act.verb, "value": act.value})) });
+    }
+
+    /// The controls of the tile in front on the card with the inner focus.
+    fn open_sheet(&mut self, out: &mut Vec<Effect>) {
+        let Some(tile) = self.onhome_tiles().get(self.inner_index.unwrap_or(0)).cloned() else { return };
+        let Some(id) = tile.get("id").and_then(Value::as_str) else { return };
+        self.sheet = Some(super::onhome::Sheet::new(id));
+        self.open_layer(Layer::OnHome, SCOPE_ONHOME);
+        self.redraw(out);
+    }
+
+    fn sheet_key(&mut self, name: &str, out: &mut Vec<Effect>) {
+        let Some(tile) = self.sheet_tile() else {
+            self.close_layer();
+            return;
+        };
+        let now = self.now;
+        let done = self.sheet.as_mut().map_or(super::onhome::Done::Close, |s| s.key(name, &tile, now));
+        match done {
+            super::onhome::Done::Close => self.close_layer(),
+            super::onhome::Done::Send(act) => self.send_act(&act, out),
+            super::onhome::Done::Nothing => {}
         }
     }
 
@@ -1388,6 +1500,7 @@ impl Home {
     fn inner_key(&mut self, wid: &str, name: &str, out: &mut Vec<Effect>) -> bool {
         let kind = self.cards().iter().find(|e| e.id == wid).map(|e| e.kind.clone()).unwrap_or_default();
         let n = match kind.as_str() {
+            "onhome" => self.onhome_tiles().len(),
             "homeassistant" => self.ha_items().len(),
             "cameras" => self.camera_items().len(),
             "news" => self.news_items().len(),
@@ -1397,10 +1510,25 @@ impl Home {
             return false;
         }
         let i = self.inner_index.unwrap_or(0);
+        let cols = if kind == "onhome" { self.onhome_cols(wid) } else { 1 };
         match name {
-            "up" | "left" => self.inner_index = Some(i.saturating_sub(1)),
-            "down" | "right" => self.inner_index = Some((i + 1).min(n - 1)),
+            "left" => self.inner_index = Some(i.saturating_sub(1)),
+            "right" => self.inner_index = Some((i + 1).min(n - 1)),
+            "up" => self.inner_index = Some(if i >= cols { i - cols } else { i }),
+            "down" => self.inner_index = Some(if i + cols < n { i + cols } else { i }),
             "ok" => {
+                if kind == "onhome"
+                    && let Some(tile) = self.onhome_tiles().get(i).cloned()
+                {
+                    // OK does the tile's one action; a tile with finer controls, or only shown, opens its sheet
+                    let can: Vec<&str> = tile.get("can").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+                    let id = tile.get("id").and_then(Value::as_str).unwrap_or("").to_owned();
+                    match can.as_slice() {
+                        ["toggle"] => self.send_act(&super::onhome::Act { id, verb: "toggle", value: Value::Null }, out),
+                        ["run"] => self.send_act(&super::onhome::Act { id, verb: "run", value: Value::Null }, out),
+                        _ => self.open_sheet(out),
+                    }
+                }
                 if kind == "homeassistant"
                     && let Some(card) = self.ha_items().get(i)
                     && let Some(a) = card.pointer("/card/actions/0/action").and_then(Value::as_str)
@@ -1445,6 +1573,9 @@ impl Home {
         if kind == "homeassistant" {
             self.requests.push(Request::SettingsPage("homeassistant".into()));
         }
+        if kind == "onhome" {
+            self.requests.push(Request::SettingsPage("onhome".into()));
+        }
         if kind == "weather" {
             self.wview.open();
             self.open_layer(Layer::Weather, SCOPE_WEATHER);
@@ -1483,6 +1614,9 @@ impl Home {
     fn close_layer(&mut self) {
         if self.layer == Layer::None {
             return;
+        }
+        if self.layer == Layer::OnHome {
+            self.sheet = None;
         }
         if self.layer == Layer::Popover
             && let Some(p) = self.popover.take()
@@ -2118,7 +2252,7 @@ impl Home {
     pub fn state(&self) -> Value {
         json!({
             "home": self.active,
-            "layer": match self.layer { Layer::None => "", Layer::Apps => "apps", Layer::Search => "search", Layer::Edit => "edit", Layer::Picker => "picker", Layer::Menu => "menu", Layer::Confirm => "confirm", Layer::Popover => "popover", Layer::Weather => "weather" },
+            "layer": match self.layer { Layer::None => "", Layer::Apps => "apps", Layer::Search => "search", Layer::Edit => "edit", Layer::Picker => "picker", Layer::Menu => "menu", Layer::Confirm => "confirm", Layer::Popover => "popover", Layer::Weather => "weather", Layer::OnHome => "onhome" },
             "focus": self.focus.current().map(|i| i.0),
             "focusLayer": self.focus.current().map(|id| if Self::dock_index_of(id).is_some() { "dock" } else if self.widget_of(id).is_some() { if self.inner.is_some() { "widget" } else { "widgets" } } else { "statusbar" }),
             "widgetFocusId": self.focus.current().and_then(|id| self.widget_of(id)),
@@ -2136,6 +2270,7 @@ impl Home {
             "profile": self.profile_name(),
             "unread": self.unread,
             "cameraFrames": self.stills.revision,
+            "onhome": json!({"tiles": self.onhome_tiles().len(), "index": self.inner_index, "sheet": self.sheet.as_ref().map(|s| s.id.clone()), "notice": self.onhome_notice()}),
             "apps": self.apps.state(),
             "picker": self.picker.state(),
             "launching": self.launching,
@@ -2209,6 +2344,153 @@ mod tests {
         assert_eq!(h.wview.page, super::super::weather_view::Page::Now);
         let out = h.update(&Input::Helper { topic: "weather.more".into(), data: json!({"doc": {"hourly": []}}) }, 3100);
         assert!(out.contains(&Effect::Redraw));
+    }
+
+    /// A Home whose layout has a smart-home card on it, fed the helper's `onhome` topic.
+    fn smart_home(tiles: Value) -> Home {
+        let theme = lumatv_tokens::Tokens::shipped().json().clone();
+        let shipped: Value = serde_json::from_str(include_str!("../../../../payload/theme/layout.json")).unwrap();
+        let layout = json!({"grid": {"rows": 16}, "widgets": [{"id": "clock", "type": "clock", "col": 0, "row": 0, "span": 6, "rows": 4}, {"id": "smart", "type": "onhome", "col": 0, "row": 4, "span": 6, "rows": 5, "title": "Smart home"},
+                                         {"id": "weather", "type": "weather", "col": 6, "row": 0, "span": 6, "rows": 9},
+                                         {"id": "dock", "type": "dock", "col": 0, "row": 9, "span": 12, "rows": 7, "tile": 120, "gap": 16, "padY": 40, "fade": 110}]});
+        let mut h = Home::new(theme, shipped, layout);
+        h.start(1000);
+        h.update(&Input::Topic { topic: "foreground".into(), data: json!({"app": "com.webos.app.home", "home": true, "covered": false}) }, 1000);
+        h.update(&Input::Luna { tag: LP_TAG, payload: json!({"launchPoints": [json!({"id": APPS_TILE, "title": "Apps", "unmovable": true, "icon": "/a.png"})]}) }, 1001);
+        h.update(&Input::Helper { topic: "onhome".into(), data: json!({"state": "connected", "words": "3 things", "tiles": tiles}) }, 1002);
+        h
+    }
+
+    fn lamp() -> Value {
+        json!({"id": "light.lamp", "name": "Lamp", "group": "lights", "words": "On \u{b7} 50%", "tone": "on", "icon": "lightbulb", "available": true, "can": ["toggle"], "verbs": ["turn_on", "turn_off", "toggle"],
+               "ctl": {"on": true, "dimmable": true, "brightness": 50, "kelvin": null}})
+    }
+
+    fn thermostat() -> Value {
+        json!({"id": "climate.t", "name": "Thermostat", "group": "climate", "words": "68\u{b0}", "tone": "off", "icon": "thermometer", "available": true, "can": ["sheet"], "verbs": ["set_temperature", "set_hvac_mode"],
+               "ctl": {"mode": "heat", "modes": ["off", "heat"], "current": 68.0, "target": 70.0, "min": 50.0, "max": 90.0, "step": 1.0, "unit": "\u{b0}F", "action": ""}})
+    }
+
+    fn sensor() -> Value {
+        json!({"id": "sensor.t", "name": "Hall", "group": "sensors", "words": "21\u{b0}C", "tone": "info", "icon": "thermometer", "available": true, "can": [], "verbs": [], "ctl": {}})
+    }
+
+    fn into_smart_card(h: &mut Home) {
+        press(h, "down", 1100);
+        for i in 0..8 {
+            if h.focus.current().and_then(|id| h.widget_of(id)) == Some("smart") {
+                break;
+            }
+            press(h, "down", 1200 + i * 100);
+        }
+        assert_eq!(h.focus.current().and_then(|id| h.widget_of(id)), Some("smart"), "the focus reached the smart-home card");
+        press(h, "ok", 2000);
+        assert_eq!(h.inner.as_deref(), Some("smart"), "OK on the card enters it");
+    }
+
+    fn act_of(out: &[Effect]) -> Option<Value> {
+        out.iter().find_map(|e| match e {
+            Effect::Request { tag, method, path, body } if *tag == ONHOME_TAG && method == "POST" && path == "/v1/onhome/act" => body.clone(),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn the_smart_home_card_is_entered_with_ok_and_ok_on_a_tile_does_its_one_action() {
+        let mut h = smart_home(json!([lamp(), thermostat(), sensor()]));
+        into_smart_card(&mut h);
+        assert_eq!(h.inner_index, None);
+        // OK on a light turns it
+        let out = press(&mut h, "ok", 2100);
+        assert_eq!(act_of(&out), Some(json!({"id": "light.lamp", "verb": "toggle", "value": null})));
+        assert_eq!(h.layer, Layer::None);
+        // the keys move over the tiles two to a row on a card this wide
+        press(&mut h, "right", 2200);
+        assert_eq!(h.inner_index, Some(1));
+        press(&mut h, "down", 2300);
+        assert_eq!(h.inner_index, Some(1), "a second row has only one more tile: down from the right column stays");
+        press(&mut h, "left", 2400);
+        press(&mut h, "down", 2500);
+        assert_eq!(h.inner_index, Some(2), "down is a row on");
+        press(&mut h, "up", 2600);
+        assert_eq!(h.inner_index, Some(0));
+        // a thermostat opens its sheet on OK; a thing that is only shown opens a sheet of words
+        press(&mut h, "right", 2700);
+        let out = press(&mut h, "ok", 2800);
+        assert!(act_of(&out).is_none());
+        assert_eq!((h.layer, h.sheet.as_ref().map(|s| s.id.as_str())), (Layer::OnHome, Some("climate.t")));
+        assert_eq!(h.state()["layer"], "onhome");
+        press(&mut h, "back", 2900);
+        assert_eq!((h.layer, h.sheet.is_none()), (Layer::None, true));
+        assert_eq!(h.inner.as_deref(), Some("smart"), "Back from the sheet returns to the tiles");
+        press(&mut h, "back", 3000);
+        assert!(h.inner.is_none());
+    }
+
+    #[test]
+    fn a_held_ok_or_the_menu_key_on_a_tile_opens_its_controls_and_left_and_right_set_a_value_that_is_sent_once_it_rests() {
+        let mut h = smart_home(json!([lamp(), thermostat(), sensor()]));
+        into_smart_card(&mut h);
+        press(&mut h, "right", 2100);
+        press(&mut h, "left", 2150);
+        h.update(&Input::Key { name: "ok".into(), down: true, repeat: false }, 3000);
+        let out = h.update(&Input::Tick, 3800);
+        assert!(act_of(&out).is_none(), "a hold is not an OK");
+        assert_eq!((h.layer, h.sheet.as_ref().map(|s| s.id.as_str())), (Layer::OnHome, Some("light.lamp")));
+        h.update(&Input::Key { name: "ok".into(), down: false, repeat: false }, 3850);
+        assert_eq!(h.layer, Layer::OnHome, "the release of the hold does not press a row");
+        // down to Brightness, two steps right
+        press(&mut h, "down", 4000);
+        let a = act_of(&press(&mut h, "right", 4100));
+        let b = act_of(&press(&mut h, "right", 4200));
+        assert_eq!((a, b), (None, None), "a slider is not sent while the key moves");
+        let out = h.update(&Input::Tick, 4700);
+        assert_eq!(act_of(&out), Some(json!({"id": "light.lamp", "verb": "brightness", "value": 70.0})));
+        press(&mut h, "back", 4800);
+        press(&mut h, "back", 4900);
+        // the Menu key is the same as the hold
+        press(&mut h, "ok", 5000);
+        assert!(h.inner.is_some());
+        press(&mut h, "menu", 5100);
+        assert_eq!(h.layer, Layer::OnHome);
+    }
+
+    #[test]
+    fn a_refusal_comes_back_in_words_on_the_card_and_the_sheet_and_goes_by_itself() {
+        let mut h = smart_home(json!([lamp()]));
+        into_smart_card(&mut h);
+        press(&mut h, "ok", 2100);
+        let refused = json!({"ok": false, "error": {"code": "unavailable", "message": "Home Assistant cannot reach it right now"}});
+        h.update(&Input::Fetched { tag: ONHOME_TAG, status: 409, data: refused }, 2200);
+        assert_eq!(h.onhome_notice(), Some("Home Assistant cannot reach it right now"));
+        h.update(&Input::Tick, 6300);
+        assert_eq!(h.onhome_notice(), None);
+        // a 200 says nothing
+        h.update(&Input::Fetched { tag: ONHOME_TAG, status: 200, data: json!({"ok": true}) }, 6400);
+        assert_eq!(h.onhome_notice(), None);
+    }
+
+    #[test]
+    fn a_sheet_closes_when_its_thing_leaves_home_and_a_card_with_no_tile_opens_the_settings_page() {
+        let mut h = smart_home(json!([thermostat()]));
+        into_smart_card(&mut h);
+        press(&mut h, "ok", 2100);
+        assert_eq!(h.layer, Layer::OnHome);
+        h.update(&Input::Helper { topic: "onhome".into(), data: json!({"state": "connected", "tiles": []}) }, 2200);
+        assert_eq!(h.layer, Layer::None, "the thing is gone from Home: so is its sheet");
+        // with no tile the card has no inner layer: OK opens the page
+        let mut h = smart_home(json!([]));
+        h.update(&Input::Helper { topic: "onhome".into(), data: json!({"state": "unpaired", "tiles": []}) }, 1100);
+        press(&mut h, "down", 1200);
+        for i in 0..8 {
+            if h.focus.current().and_then(|id| h.widget_of(id)) == Some("smart") {
+                break;
+            }
+            press(&mut h, "down", 1300 + i * 100);
+        }
+        press(&mut h, "ok", 2100);
+        assert!(h.inner.is_none());
+        assert_eq!(h.take_requests(), vec![Request::SettingsPage("onhome".into())]);
     }
 
     fn lane(h: &Home) -> (&'static str, &'static str, &'static str) {

@@ -1,7 +1,7 @@
 //! The cards' contents (`widgets/*.qml`), each in its card's content box (`padSide` 32, `padTop` 28): the clock (digital or analogue,
 //! `ClockWidget.qml`'s plan for the room it has: tiny, column, month, zoned or regular), the weather (the place, the reading, the week as
 //! rows with the range bars, or columns on a wide card), the news (one story at a time, slid every `news.slideMs`), at home (the Home
-//! Assistant plugin's cards as rows) and the cameras (the Scrypted topic's cameras as rows with the link's state in words). Every card's
+//! Assistant plugin's cards as rows) the smart home (Home Assistant's shared things as tiles, `onhome.rs`) and the cameras (the Scrypted topic's cameras as rows with the link's state in words). Every card's
 //! words are one [`Block`] (one layer, glyph quads) and its pictures one or two image layers painted on the CPU, so a card costs the
 //! compositor three or four layers; the pane and its lit glass are the surface's.
 
@@ -190,6 +190,7 @@ pub enum Content {
     News(News),
     AtHome(AtHome),
     Cameras(Cameras),
+    OnHome(super::onhome::OnHome),
     Unknown(Words),
 }
 
@@ -202,6 +203,7 @@ impl Content {
             "news" => Content::News(News::new(kit, w, h, z)?),
             "homeassistant" => Content::AtHome(AtHome::new(kit, w, h, z, entry)?),
             "cameras" => Content::Cameras(Cameras::new(kit, w, h, z)?),
+            "onhome" => Content::OnHome(super::onhome::OnHome::new(kit, w, h, z, entry)?),
             other => {
                 let ink2 = kit.ui.look.ink2();
                 let s = role_style(kit, TypeRole::Caption, None, ink2, Align::Left);
@@ -218,6 +220,7 @@ impl Content {
             Content::News(c) => c.show(at),
             Content::AtHome(c) => c.show(at),
             Content::Cameras(c) => c.show(at),
+            Content::OnHome(c) => c.show(at),
             Content::Unknown(b) => b.set_props(at),
         }
     }
@@ -229,6 +232,7 @@ impl Content {
             Content::News(c) => c.block.is_glyph_run(),
             Content::AtHome(c) => c.block.is_glyph_run(),
             Content::Cameras(c) => c.block.is_glyph_run(),
+            Content::OnHome(c) => c.block.is_glyph_run(),
             Content::Unknown(b) => b.is_glyph_run(),
         }
     }
@@ -240,6 +244,7 @@ impl Content {
             Content::News(c) => &c.block,
             Content::AtHome(c) => &c.block,
             Content::Cameras(c) => &c.block,
+            Content::OnHome(c) => &c.block,
             Content::Unknown(b) => b,
         }
     }

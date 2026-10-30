@@ -249,13 +249,15 @@ impl OnHome {
         let inner = &self.inner;
         let key = (inner.deps.key)();
         let want = inner.config.enabled && key.is_some();
+        // a listener that stops is told so after the lock is let go: its last word is a change of the topic, which reads the state
+        let mut stopped = None;
         {
             let mut state = inner.state.lock();
             if !want {
                 if state.bridge.is_some() || state.announced.is_some() {
                     crate::log_info!("onhome: the listener stops");
                 }
-                self.stop_bridge(&mut state);
+                stopped = self.stop_bridge(&mut state);
                 state.problem = None;
             } else if state.bridge.is_none() {
                 match self.start_bridge() {
@@ -277,6 +279,9 @@ impl OnHome {
                 bridge.recheck_key();
             }
             self.keep_announced(&mut state);
+        }
+        if let Some(bridge) = stopped {
+            bridge.stop_and_wait();
         }
         self.publish();
     }
@@ -302,11 +307,10 @@ impl OnHome {
         Bridge::start(config).map(Arc::new).map_err(|e| e.to_string())
     }
 
-    fn stop_bridge(&self, state: &mut State) {
-        if let Some(bridge) = state.bridge.take() {
-            bridge.stop_and_wait();
-        }
+    /// Takes the listener out of the state; the caller stops it with the lock let go.
+    fn stop_bridge(&self, state: &mut State) -> Option<Arc<Bridge>> {
         state.announced = None;
+        state.bridge.take()
     }
 
     /// Announces the listener at the TV's address while it listens (the address can move: a changed one is announced anew).
@@ -341,9 +345,11 @@ impl OnHome {
         }
     }
 
-    fn shut_down(&self) {
-        let mut state = self.inner.state.lock();
-        self.stop_bridge(&mut state);
+    pub fn shut_down(&self) {
+        let stopped = self.stop_bridge(&mut self.inner.state.lock());
+        if let Some(bridge) = stopped {
+            bridge.stop_and_wait();
+        }
     }
 
     /// The listener's address, while it listens.
@@ -460,6 +466,10 @@ fn apply_pick(picks: &Picks, mirror: &Mirror, body: &Value) -> Result<Picks, Str
     if body.get("all").and_then(Value::as_bool) == Some(true) {
         return Ok(Picks(None));
     }
+    // with nothing shared (Home Assistant away) there is no "all of it" to take a thing out of: the list would come out empty
+    if picks.0.is_none() && mirror.is_empty() {
+        return Err("Home Assistant is not connected, so there is nothing to choose from".into());
+    }
     let mut list = picks.explicit(mirror);
     if let Some(id) = id_of("show") {
         if tile::domain_of(id).is_none() {
@@ -512,14 +522,18 @@ fn view(config: &OnHomeConfig, paired: bool, bridge: Option<&Bridge>, picks: &Pi
         let mirror = &sh.mirror;
         let picked = picks.0.clone().map(|l| json!(l));
         if sh.client.is_none() {
-            // Home Assistant is not connected: the tiles that were there say so, in their own names
+            // Home Assistant is not connected: the tiles that were there say so, in their own names (the owner's list, else all that was shared)
             let reach = Reach::Waiting("Not reachable");
-            let tiles: Vec<Value> = picks
-                .0
-                .iter()
-                .flatten()
+            let group_of = |id: &str| tile::domain_of(id).and_then(Group::of_domain).unwrap_or(Group::Sensors);
+            let mut ids: Vec<(Group, usize, &String)> = match &picks.0 {
+                Some(list) => list.iter().enumerate().map(|(i, id)| (group_of(id), i, id)).collect(),
+                None => known.keys().map(|id| (group_of(id), 0, id)).collect(),
+            };
+            ids.sort();
+            let tiles: Vec<Value> = ids
+                .into_iter()
                 .take(MAX_PICKS)
-                .filter_map(|id| known.get(id).map(|(name, area)| tile::tile(id, Some(name), area.as_deref(), None, &[], "", reach)))
+                .filter_map(|(_, _, id)| known.get(id).map(|(name, area)| tile::tile(id, Some(name), area.as_deref(), None, &[], "", reach)))
                 .collect();
             let d = doc("waiting", "Waiting for Home Assistant", "Home Assistant's LumaShow integration has not connected", json!({"tiles": tiles, "picked": picked}));
             return (d, None);

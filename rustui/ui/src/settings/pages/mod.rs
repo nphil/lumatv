@@ -16,6 +16,7 @@ pub mod homeassistant;
 pub mod inputs;
 pub mod language;
 pub mod network;
+pub mod onhome;
 pub mod owner;
 pub mod picture;
 pub mod plugin_rows;
@@ -50,6 +51,7 @@ pub fn all() -> Vec<Page> {
         home::popups(),
         widgets::page(),
         homeassistant::page(),
+        onhome::page(),
         cameras::page(),
         cameras::notify(),
         saver::page(),

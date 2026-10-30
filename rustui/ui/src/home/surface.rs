@@ -258,6 +258,7 @@ pub struct HomeSurface {
     confirm: Option<ConfirmSurface>,
     popover: Option<PopoverSurface>,
     weather_view: Option<super::weather_view::WeatherSurface>,
+    onhome_sheet: Option<super::onhome::SheetSurface>,
     veil: Option<ShapeLayer>,
     generation: u64,
     text_scale: f32,
@@ -300,6 +301,7 @@ impl HomeSurface {
             confirm: None,
             popover: None,
             weather_view: None,
+            onhome_sheet: None,
             veil: None,
             generation: 0,
             text_scale: 0.0,
@@ -478,6 +480,7 @@ impl HomeSurface {
         }
         self.popover = None;
         self.weather_view = None;
+        self.onhome_sheet = None;
         self.hover = None;
         self.veil = None;
         self.last_focus = None;
@@ -514,6 +517,7 @@ impl HomeSurface {
             let inner_rows = match &content {
                 Content::AtHome(a) => a.rows(),
                 Content::Cameras(c) => c.rows(),
+                Content::OnHome(c) => c.visible(),
                 Content::News(_) => 1,
                 _ => 0,
             };
@@ -821,6 +825,7 @@ impl HomeSurface {
                 Content::News(n) => n.set(kit, &home.news, if mine { inner_index.unwrap_or(0) } else { self.news_index }, now),
                 Content::AtHome(a) => a.set(kit, &home.ha_items(), &home.ha_lane(), row, &mut self.pictures),
                 Content::Cameras(cm) => cm.set(kit, &home.cameras, &home.stills, row, now),
+                Content::OnHome(oh) => oh.set(kit, &home.onhome, row, home.onhome_notice(), &mut self.pictures),
                 Content::Unknown(_) => {}
             }
         }
@@ -1067,6 +1072,21 @@ impl HomeSurface {
         } else {
             self.view_art_at = None;
         }
+        // one smart-home tile's controls: made when it opens and again when its rows change shape (a light that goes off loses its level)
+        match (home.layer == Layer::OnHome, home.sheet.as_ref().zip(home.sheet_tile())) {
+            (true, Some((sheet, tile))) => {
+                let rows = sheet.rows(&tile, now);
+                let id = sheet.id.clone();
+                if self.onhome_sheet.as_ref().is_none_or(|s| !s.is_for(&id, &rows)) {
+                    self.onhome_sheet = Some(super::onhome::SheetSurface::new(kit, &id, &rows, Z_LAYERS + 40)?);
+                }
+                if let Some(s) = &mut self.onhome_sheet {
+                    let notice = sheet.notice.as_ref().map(|(w, _)| w.as_str());
+                    s.update(kit, &tile, &rows, sheet.front(&rows), notice);
+                }
+            }
+            _ => self.onhome_sheet = None,
+        }
         let popover_up = home.layer == Layer::Popover && home.popover_lay.is_some();
         if self.popover.as_ref().is_some_and(|p| !popover_up || !p.is_for(home)) {
             self.popover = None;
@@ -1078,7 +1098,7 @@ impl HomeSurface {
             p.update(kit, home)?;
         }
         // while a layer that hides the page is up, the cards and the dock step back
-        let page_hidden = matches!(home.layer, Layer::Apps | Layer::Picker | Layer::Popover) || (home.layer == Layer::Search && home.search_over_apps());
+        let page_hidden = matches!(home.layer, Layer::Apps | Layer::Picker | Layer::Popover | Layer::OnHome) || (home.layer == Layer::Search && home.search_over_apps());
         if page_hidden != self.page_hidden {
             self.page_hidden = page_hidden;
             for c in &self.cards {
@@ -1157,11 +1177,11 @@ impl HomeSurface {
             }
         }
         // the page is stepped back behind the popover: its words are not on the screen
-        for c in self.cards.iter().filter(|_| home.layer != Layer::Popover) {
+        for c in self.cards.iter().filter(|_| !matches!(home.layer, Layer::Popover | Layer::OnHome)) {
             let p = lint.panel(&c.id, c.frame, paint, true);
             c.content.words().lint(kit, &mut lint, &c.id, (c.frame.x, c.frame.y), Some(p));
         }
-        if let Some(d) = self.dock.as_ref().filter(|_| home.layer != Layer::Popover) {
+        if let Some(d) = self.dock.as_ref().filter(|_| !matches!(home.layer, Layer::Popover | Layer::OnHome)) {
             let p = lint.panel("dock", d.frame, paint, true);
             if d.pill_for.is_some() {
                 let f = d.pill_text.frame();
@@ -1174,6 +1194,9 @@ impl HomeSurface {
         }
         if let Some(apps) = &self.apps {
             apps.lint(kit, &mut lint);
+        }
+        if let Some(s) = &self.onhome_sheet {
+            s.lint(kit, &mut lint, paint);
         }
         if let Some(p) = &self.popover {
             p.lint(kit, &mut lint, paint, home);
@@ -1364,6 +1387,106 @@ mod tests {
                 press(&mut home, "back", 2800);
                 s.apply(&mut kit, &mut engine, &mut home, 2900).expect("Home drawn");
                 assert!(s.confirm.is_none());
+                std::mem::forget(h);
+            }
+        }
+    }
+
+    fn smart_tiles(n: usize) -> Value {
+        let kinds = [
+            json!({"id": "light.lamp", "name": "Kitchen main light", "area": "Kitchen", "group": "lights", "words": "On \u{b7} 50%", "tone": "on", "icon": "lightbulb", "available": true, "can": ["toggle"], "verbs": ["turn_on", "turn_off", "toggle"],
+                   "ctl": {"on": true, "dimmable": true, "brightness": 50, "kelvin": {"now": 3000, "min": 2000, "max": 6500}}}),
+            json!({"id": "light.desk", "name": "Desk", "area": "Office", "group": "lights", "words": "Off", "tone": "off", "icon": "lightbulb", "available": true, "can": ["toggle"], "verbs": ["toggle"], "ctl": {"on": false, "dimmable": false}}),
+            json!({"id": "scene.movie", "name": "Movie night", "group": "scenes", "words": "Scene", "tone": "muted", "icon": "sparkles", "available": true, "can": ["run"], "verbs": ["turn_on"], "ctl": {}}),
+            json!({"id": "climate.t", "name": "Living room thermostat", "area": "Living room", "group": "climate", "words": "68\u{b0} \u{b7} Heating to 70\u{b0}", "tone": "warn", "icon": "thermometer", "available": true, "can": ["sheet"],
+                   "verbs": ["set_temperature", "set_hvac_mode"], "ctl": {"mode": "heat", "modes": ["off", "heat", "cool"], "current": 68.0, "target": 70.0, "min": 50.0, "max": 90.0, "step": 1.0, "unit": "\u{b0}F", "action": "heating"}}),
+            json!({"id": "cover.b", "name": "Master bedroom blinds", "group": "covers", "words": "Open \u{b7} 60%", "tone": "on", "icon": "blinds", "available": true, "can": ["sheet"], "verbs": ["open_cover", "close_cover", "stop_cover", "set_cover_position"], "ctl": {"state": "open", "position": 60}}),
+            json!({"id": "sensor.t", "name": "Hall temperature", "area": "Hall", "group": "sensors", "words": "21.4\u{b0}C", "tone": "info", "icon": "thermometer", "available": true, "can": [], "verbs": [], "ctl": {}}),
+            json!({"id": "binary_sensor.d", "name": "Front door", "group": "sensors", "words": "Closed", "tone": "off", "icon": "door-closed", "available": true, "can": [], "verbs": [], "ctl": {}}),
+            json!({"id": "lock.f", "name": "Front door lock", "group": "locks", "words": "Locked", "tone": "ok", "icon": "lock", "available": true, "can": [], "verbs": [], "ctl": {}}),
+            json!({"id": "light.gone", "name": "Garage lights", "group": "lights", "words": "Unavailable", "tone": "muted", "icon": "lightbulb", "available": false, "can": [], "verbs": [], "ctl": {}}),
+        ];
+        Value::Array((0..n).map(|i| kinds[i % kinds.len()].clone()).collect())
+    }
+
+    /// Home with a smart-home card beside the clock, fed `topic` (the helper's `onhome` document).
+    fn smart_home(topic: Value) -> Home {
+        let theme = lumatv_tokens::Tokens::shipped().json().clone();
+        let layout = json!({"grid": {"rows": 16}, "widgets": [{"id": "clock", "type": "clock", "col": 0, "row": 0, "span": 6, "rows": 4}, {"id": "smart", "type": "onhome", "col": 0, "row": 4, "span": 6, "rows": 5, "title": "Smart home"},
+                                         {"id": "weather", "type": "weather", "col": 6, "row": 0, "span": 6, "rows": 9},
+                                         {"id": "dock", "type": "dock", "col": 0, "row": 9, "span": 12, "rows": 7, "tile": 120, "gap": 16, "padY": 40, "fade": 110}]});
+        let mut home = Home::new(theme, super::super::grid::shipped(), layout);
+        fixtures(&mut home);
+        home.update(&Input::Helper { topic: "onhome".into(), data: topic }, 1010);
+        home
+    }
+
+    fn smart_findings(mode: Mode, scale: f32, topic: Value) -> (Vec<String>, usize) {
+        let (h, mut kit) = testkit::kit_in(mode, scale);
+        let mut engine = Engine::new(&kit).expect("an engine");
+        let mut home = smart_home(topic);
+        let mut s = HomeSurface::new(1000);
+        s.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
+        s.apply(&mut kit, &mut engine, &mut home, 2300).expect("Home drawn");
+        let lint = s.lint(&mut kit, &home);
+        let words = lint.words().iter().filter(|w| w.name.starts_with("smart")).count();
+        let bad = lint.findings().iter().filter(|f| f.subject.starts_with("smart")).map(|f| format!("{f:?}")).collect();
+        std::mem::forget(h);
+        (bad, words)
+    }
+
+    #[test]
+    fn the_smart_home_card_reads_clean_with_tiles_and_with_each_reason_for_none_at_both_text_sizes_and_looks() {
+        for mode in [Mode::Dark, Mode::Light] {
+            for scale in [1.0, 2.0] {
+                let with = json!({"state": "connected", "words": "9 things", "tiles": smart_tiles(9)});
+                let (bad, words) = smart_findings(mode, scale, with);
+                assert!(bad.is_empty(), "{mode:?} at {scale}: {}", bad.join("\n"));
+                assert!(words >= 3, "{mode:?} {scale}: the title, the heading and some tiles are drawn, not {words}");
+                for state in ["off", "unpaired", "waiting", "empty"] {
+                    let (bad, words) = smart_findings(mode, scale, json!({"state": state, "shared": 0, "detail": "why", "tiles": []}));
+                    assert!(bad.is_empty(), "{state} {mode:?} at {scale}: {}", bad.join("\n"));
+                    assert!(words >= 2, "{state}: the title and the reason");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_sheet_is_drawn_over_a_stepped_back_page_inside_the_screen_and_goes_with_back_at_both_sizes_and_looks() {
+        for mode in [Mode::Dark, Mode::Light] {
+            for scale in [1.0, 2.0] {
+                let (h, mut kit) = testkit::kit_in(mode, scale);
+                let mut engine = Engine::new(&kit).expect("an engine");
+                let mut home = smart_home(json!({"state": "connected", "words": "9 things", "tiles": smart_tiles(9)}));
+                press(&mut home, "down", 1100);
+                for i in 0..8 {
+                    if home.focus.current().and_then(|id| home.widget_of(id)) == Some("smart") {
+                        break;
+                    }
+                    press(&mut home, "down", 1200 + i * 100);
+                }
+                press(&mut home, "ok", 1900);
+                // the thermostat is the fourth tile: two to a row, so right then down
+                for (i, k) in ["right", "down"].into_iter().enumerate() {
+                    press(&mut home, k, 2000 + i as u64 * 100);
+                }
+                press(&mut home, "menu", 2400);
+                assert_eq!(home.layer, Layer::OnHome, "{mode:?} {scale}");
+                let mut s = HomeSurface::new(1000);
+                s.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
+                s.apply(&mut kit, &mut engine, &mut home, 2500).expect("the sheet drawn");
+                let sheet = s.onhome_sheet.as_ref().expect("the sheet");
+                let pane = sheet.layout().pane;
+                assert!(pane.x >= 0.0 && pane.y >= 0.0 && pane.right() <= 1920.0 && pane.bottom() <= 1080.0, "{mode:?} {scale}: {pane:?}");
+                let lint = s.lint(&mut kit, &home);
+                let bad: Vec<String> = lint.findings().iter().filter(|f| f.subject.starts_with("onhome sheet")).map(|f| format!("{f:?}")).collect();
+                assert!(bad.is_empty(), "{mode:?} at {scale}: {}", bad.join("\n"));
+                assert!(lint.words().iter().any(|w| w.name.starts_with("onhome sheet")), "the sheet's words were linted");
+                // a value changed in the sheet is said at once, from the tile the helper last made
+                press(&mut home, "back", 2600);
+                s.apply(&mut kit, &mut engine, &mut home, 2700).expect("Home drawn");
+                assert!(s.onhome_sheet.is_none(), "Back takes the sheet away");
                 std::mem::forget(h);
             }
         }
