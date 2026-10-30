@@ -161,6 +161,7 @@ WebOSWindow {
             onStatusChanged: if (status === Loader.Error) console.warn("[Shell] Notify failed to load from " + source)
         }
         // The toasts keep clear of the volume bar while it is drawn (they rest at the foot of the screen, where the bar is)
+        Binding { target: notify.item; property: "overVideo"; value: homeWin.appFront; when: notify.status === Loader.Ready }
         Binding { target: notify.item; property: "barTop"; value: overlay.status === Loader.Ready ? overlay.item.osdBarTop : -1; when: notify.status === Loader.Ready }
         Binding { target: notify.item; property: "barBottom"; value: overlay.status === Loader.Ready ? overlay.item.osdBarBottom : -1; when: notify.status === Loader.Ready }
         // The screensaver over an app (on Home, LumaHome's own saver draws): active while LG's power state says Screen Saver, or

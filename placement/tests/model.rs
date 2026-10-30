@@ -3,6 +3,7 @@
 
 use lumatv_placement::model::{GAP, STACK, SUBS, TOAST_FOOT};
 use lumatv_placement::motion::{STOPS, axis, pixels};
+use lumatv_placement::above_subtitles;
 use lumatv_placement::{
     Anchor, Dir, Frame, Item, Layout, Placement, Point, Press, Rect, Registry, Size, Sizes, User,
     ZoneKind, column_room,
@@ -671,13 +672,15 @@ fn an_item_cannot_be_put_where_another_is_and_the_stacked_pair_are_not_in_each_o
     );
     assert_eq!(who("mute", Rect::new(r.x - 64 - 9, r.y, 64, 64)), None);
     assert_eq!(GAP, 8);
-    // the toasts at the foot are clear of the camera window; over Home the bar is at the same foot, so they stack above it (over an app the
-    // lifted bar is already clear of them)
+    // the toasts at the foot are clear of the camera window; over Home the bar is at the same foot, so they stack above it
     assert_eq!(who("toast", l.rect("toast").unwrap()), None);
     let home = all(&User::default(), false);
     let (bar, toast) = (home.rect("volume").unwrap(), home.rect("toast").unwrap());
     assert!(toast.bottom() + STACK <= bar.y && !toast.meets(&bar, 0), "{toast:?} over {bar:?}");
+    // the layout shows them where they rest; while an app plays the surface raises them 16 above the film's subtitles (905)
     assert_eq!(l.rect("toast").unwrap(), Rect::new(680, 928, 560, 98));
+    assert_eq!(above_subtitles(Rect::new(680, 928, 560, 98), STACK), Rect::new(680, 905 - 16 - 98, 560, 98));
+    assert_eq!(above_subtitles(Rect::new(1336, 24, 560, 98), STACK), Rect::new(1336, 24, 560, 98), "a rectangle clear of the band stays");
     // the volume bar on the right edge is in the way of the default column: the owner has to move that first
     let right = rect_of(
         "volume",

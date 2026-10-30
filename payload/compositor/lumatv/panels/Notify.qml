@@ -228,10 +228,12 @@ Item {
     // ============================================================= drawing
     // toasts: centred at the foot of the screen, 54 px (5 % of the height, the TV-safe margin) above the bottom edge, the newest at the foot
     // with the older ones above it. While the volume bar's card is up (`barTop`, `barBottom`, from the overlay through Shell.qml) and the
-    // column would meet it (16 px of air kept), the column sits above the bar; a bar lifted over an app is clear of it and moves nothing.
+    // column would meet it (16 px of air kept), the column sits above the bar (the bar rides 120 px higher over an app, so there the column goes above it).
     property int barTop: -1
     property int barBottom: -1
-    readonly property int toastFoot: 1080 - 54
+    // An app is in front: the column rests 16 px above the film's subtitles (they fill 905 to 1010), not on them.
+    property bool overVideo: false
+    readonly property int toastFoot: overVideo ? 905 - 16 : 1080 - 54
     Column {
         id: toastStack
         readonly property bool barMeets: notify.barTop >= 0 && notify.barTop < notify.toastFoot + 16 && notify.barBottom + 16 > notify.toastFoot - height

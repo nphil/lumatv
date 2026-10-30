@@ -836,7 +836,7 @@ impl Shell {
             }
             if self.kinds.toast {
                 let view = self.toasts.view();
-                match self.toast_surface.apply(&mut self.kit, &view, self.volume_surface.pane_rect()) {
+                match self.toast_surface.apply(&mut self.kit, &view, self.volume_surface.pane_rect(), self.sys.app_front()) {
                     Ok(on) => live |= on,
                     Err(e) => acts.push(Act::Log(format!("toasts: {e}"))),
                 }

@@ -932,6 +932,18 @@ pub fn rect_in(z: &Rect, (fx, fy): (f64, f64), size: Size) -> Rect {
 
 // ---- stacking ---------------------------------------------------------------------------------------------------------------------------
 
+/// `r` raised to rest `gap` above the film's subtitles when it would cover them (a toast at the foot of the screen over an app; the surface
+/// does it while an app is in front, the editor shows the toast where it rests): its place on the other axis is its own, and a rectangle
+/// clear of the band stays where it is.
+pub fn above_subtitles(r: Rect, gap: i32) -> Rect {
+    let limit = SUBS.top - gap;
+    if r.bottom() > limit && r.y < SUBS.bottom {
+        Rect::new(r.x, limit - r.h, r.w, r.h)
+    } else {
+        r
+    }
+}
+
 /// `r` placed beside `ref_` when they meet (the cards go under the camera window, or above it when they grow upwards); its place on the other
 /// axis is its own.
 pub fn stack_beside(ref_: Option<&Rect>, r: Rect, gap: i32, down: bool) -> Rect {

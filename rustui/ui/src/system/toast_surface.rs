@@ -12,7 +12,7 @@ use crate::kit::motion::Beat;
 use crate::kit::pane::{Pane, PaneKind};
 use crate::kit::text::{Text, role_style};
 use compositor_protocol::{Props, Rect};
-use lumatv_placement::{Frame as PlacementFrame, Rect as PlacedRect, Registry, Size, User, model::STACK, stack_beside};
+use lumatv_placement::{Frame as PlacementFrame, Rect as PlacedRect, Registry, Size, User, above_subtitles, model::STACK, stack_beside};
 use lumatv_tokens::{Radius, TypeRole};
 use serde_json::Value;
 use ui::components::{Align, plate};
@@ -124,12 +124,14 @@ impl ToastSurface {
     /// column leaves, so it never runs past its zone), and whether the newest card is at the top of it. An item anchored in the upper half
     /// grows downwards from its edge (newest on top, the older ones under it); one anchored low grows upwards (newest at the foot, nearest
     /// the edge, the older ones above it). `bar` is the volume bar while it is up: a column that would meet it goes beside it, above it
-    /// for one that grows up.
-    fn column(&self, n: usize, gap: f32, bar: Option<&PlacedRect>) -> ((f32, f32), bool) {
+    /// for one that grows up. `over_app`: an app's picture is behind.
+    fn column(&self, n: usize, gap: f32, bar: Option<&PlacedRect>, over_app: bool) -> ((f32, f32), bool) {
         let n = n.max(1);
         let total = (n as f32 * self.height + (n - 1) as f32 * gap).ceil() as i32;
         let down = self.registry.placement_of("toast", &self.user).is_none_or(|p| p.placement.grows_down());
         let rect = self.registry.rect_of("toast", &self.user, &self.frame, Size::new(WIDTH as i32, total));
+        // over an app the column rests above the film's subtitles, not on them; the bar (lifted over an app) is cleared after that
+        let rect = rect.map(|r| if over_app { above_subtitles(r, STACK) } else { r });
         let rect = rect.map(|r| stack_beside(bar, r, STACK, down));
         let at = rect.map_or((1920.0 - 24.0 - WIDTH, 24.0), |r| (r.x as f32, r.y as f32));
         (at, down)
@@ -141,8 +143,8 @@ impl ToastSurface {
         (((room + gap) / (self.height + gap)).floor() as usize).max(1)
     }
 
-    /// Draws `toasts` (newest first). `bar`: the volume bar's rectangle while it is up. Returns whether any is on screen.
-    pub fn apply(&mut self, kit: &mut Kit, toasts: &[Toast], bar: Option<Rect>) -> std::io::Result<bool> {
+    /// Draws `toasts` (newest first). `bar`: the volume bar's rectangle while it is up; `over_app`: an app is in front. Returns whether any is on screen.
+    pub fn apply(&mut self, kit: &mut Kit, toasts: &[Toast], bar: Option<Rect>, over_app: bool) -> std::io::Result<bool> {
         if self.slots.is_empty() || self.generation != kit.generation() || self.text_scale != kit.text_scale {
             self.build(kit)?;
         }
@@ -151,7 +153,7 @@ impl ToastSurface {
         let h = self.height;
         let shown = toasts.len().min(SLOTS).min(self.fit(gap));
         let bar = bar.map(|b| PlacedRect::new(b.x.round() as i32, b.y.round() as i32, b.w.round() as i32, b.h.round() as i32));
-        let ((x0, y0), down) = self.column(shown, gap, bar.as_ref());
+        let ((x0, y0), down) = self.column(shown, gap, bar.as_ref(), over_app);
         // a card arrives from the edge it rests against
         let from = self.registry.slide_of("toast", &self.user);
         let travel = if kit.ui.look.reduced_motion { 0.0 } else { RISE };
@@ -252,12 +254,12 @@ mod tests {
         for scale in [1.0, 2.0] {
             let (_h, mut kit) = testkit::kit(scale);
             let mut s = resting();
-            s.apply(&mut kit, &toasts(1), None).unwrap();
+            s.apply(&mut kit, &toasts(1), None, false).unwrap();
             let r = s.rects()[0];
             assert_eq!(r.x + r.w / 2.0, 960.0, "centred at {scale}: {r:?}");
             assert!(1080.0 - (r.y + r.h) >= 54.0, "5 % of 1080 under it at {scale}: {r:?}");
             assert!(1080.0 - (r.y + r.h) < 54.0 + 1.0, "and not floating higher than that at {scale}: {r:?}");
-            s.apply(&mut kit, &toasts(3), None).unwrap();
+            s.apply(&mut kit, &toasts(3), None, false).unwrap();
             let rects = s.rects();
             assert_eq!(rects.len(), 3);
             assert_eq!(rects[2].y + rects[2].h, 1026.0, "the newest at the foot, the older ones above it: {rects:?}");
@@ -270,27 +272,50 @@ mod tests {
         let (_h, mut kit) = testkit::kit(1.0);
         let mut s = resting();
         let bar = Rect { x: 740.0, y: 956.0, w: 440.0, h: 60.0 };
-        s.apply(&mut kit, &toasts(2), None).unwrap();
+        s.apply(&mut kit, &toasts(2), None, false).unwrap();
         let at_foot = s.rects();
-        s.apply(&mut kit, &toasts(2), Some(bar)).unwrap();
+        s.apply(&mut kit, &toasts(2), Some(bar), false).unwrap();
         let over = s.rects();
         let low = over.last().unwrap();
         assert_eq!(low.y + low.h, bar.y - 16.0, "the lowest card is 16 above the bar: {over:?}");
         assert_eq!(over[1].y - over[0].y, at_foot[1].y - at_foot[0].y, "the column keeps its shape");
-        s.apply(&mut kit, &toasts(2), None).unwrap();
+        s.apply(&mut kit, &toasts(2), None, false).unwrap();
         assert_eq!(s.rects(), at_foot, "the bar gone, the column is back at the foot");
-        // a bar lifted clear of a single card (over an app) moves nothing
-        s.apply(&mut kit, &toasts(1), None).unwrap();
-        let one = s.rects();
-        s.apply(&mut kit, &toasts(1), Some(Rect { x: 740.0, y: 836.0, w: 440.0, h: 60.0 })).unwrap();
-        assert_eq!(s.rects(), one);
+    }
+
+    #[test]
+    fn over_an_app_the_column_rests_16_above_the_subtitles_and_above_the_lifted_bar_and_a_high_column_is_left_alone() {
+        for scale in [1.0, 2.0] {
+            let (_h, mut kit) = testkit::kit(scale);
+            let mut s = resting();
+            s.apply(&mut kit, &toasts(1), None, true).unwrap();
+            let r = s.rects()[0];
+            assert_eq!(r.y + r.h, 905.0 - 16.0, "not on the subtitles (905 to 1010) at {scale}: {r:?}");
+            s.apply(&mut kit, &toasts(3), None, true).unwrap();
+            let col = s.rects();
+            assert_eq!(col[2].y + col[2].h, 889.0, "the lowest card at {scale}: {col:?}");
+            // the bar rides 120 higher over an app: the column goes on above it where the two meet
+            let lifted = Rect { x: 740.0, y: 836.0, w: 440.0, h: 60.0 };
+            s.apply(&mut kit, &toasts(1), Some(lifted), true).unwrap();
+            let r = s.rects()[0];
+            assert_eq!(r.y + r.h, lifted.y - 16.0, "{r:?}");
+            // off the app, back at the foot with its 54 px
+            s.apply(&mut kit, &toasts(1), None, false).unwrap();
+            assert_eq!(s.rects()[0].y + s.rects()[0].h, 1026.0);
+            // a column the owner put high is not in the subtitles' way
+            let mut top = surface("top-right", 0.0);
+            top.apply(&mut kit, &toasts(1), None, false).unwrap();
+            let at = top.rects();
+            top.apply(&mut kit, &toasts(1), None, true).unwrap();
+            assert_eq!(top.rects(), at);
+        }
     }
 
     #[test]
     fn a_column_anchored_high_grows_down_from_its_edge_and_one_anchored_low_grows_up_from_its_edge_the_newest_nearest_it() {
         let (_h, mut kit) = testkit::kit(1.0);
         let mut top = surface("top-right", 0.0);
-        assert!(top.apply(&mut kit, &toasts(3), None).unwrap());
+        assert!(top.apply(&mut kit, &toasts(3), None, false).unwrap());
         let rects = top.rects();
         assert_eq!(rects.len(), 3);
         assert_eq!(rects[0].y, 24.0, "the first card is at the top edge of the zone");
@@ -299,7 +324,7 @@ mod tests {
         assert_eq!(top.slots[0].at.1, rects[0].y);
 
         let mut low = surface("bottom-right", 0.0);
-        assert!(low.apply(&mut kit, &toasts(3), None).unwrap());
+        assert!(low.apply(&mut kit, &toasts(3), None, false).unwrap());
         let rects = low.rects();
         let zone_bottom = 1026.0;
         assert_eq!(rects.len(), 3);
@@ -314,10 +339,10 @@ mod tests {
             let (_h, mut kit) = testkit::kit(scale);
             for (anchor, dy) in [("top-right", 0.0), ("right", 0.3), ("bottom-right", 0.0), ("bottom-left", 0.0)] {
                 let mut s = surface(anchor, dy);
-                s.apply(&mut kit, &toasts(1), None).unwrap();
+                s.apply(&mut kit, &toasts(1), None, false).unwrap();
                 let one = s.rects();
                 assert_eq!(one.len(), 1);
-                s.apply(&mut kit, &toasts(3), None).unwrap();
+                s.apply(&mut kit, &toasts(3), None, false).unwrap();
                 let rects = s.rects();
                 assert!(!rects.is_empty());
                 for r in &rects {
