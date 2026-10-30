@@ -13,6 +13,10 @@
 #   hwplanes.sh feeder CLIP SIZE CODEC FPS SECS [APP [NDLAPP]]   the feeder in a video window, in the background (V2 to V7); one per APP id (default the Cameras
 #                                            app's). NDLAPP is the app id its decoder is opened for (--ndl-app): LG's video path connects a video only for
 #                                            an app on SAM's foreground list, so com.webos.app.home shows over Home where the window's own id does not
+#                                            With HWPLANES_TEXTURE=WxH (and the libraries put by `tv_hwplanes.py put-texture build/arm`) the feeder decodes the clip itself
+#                                            and paints its window at that size: the texture path (docs/research/multiview-result.md, checks T1 to T3); its
+#                                            numbers are the `tex` lines of out/hwplanes/feeder-APP.jsonl (decode and convert microseconds, the process's CPU)
+#   hwplanes.sh bench CLIP CODEC WxH         what a picture costs as a texture, in CPU time (swdec_bench: the decoder and the scale to WxH, no window)
 #   hwplanes.sh vwin                         the claims, the windows, the sinks videooutputd reports
 #   hwplanes.sh sizes                        V6: a claim moved through sizes from 114x64 to full screen, a capture each
 #   hwplanes.sh stop                         kill the feeder, release every claim, vwin off, pointer gpu
@@ -157,8 +161,16 @@ step_feeder() {
     # only the feeder of this app id is replaced: V7 runs two, each with an id of its own
     pkill -f "lumatv-gfn-feeder.* -a $app( |\$)" 2> /dev/null
     sleep 0.5
-    XDG_RUNTIME_DIR=$RT WAYLAND_DISPLAY=wayland-0 $FEEDER --play "$clip" --size "$size" --codec "$codec" --fps "$fps" --seconds "$secs" --loop -w video -a "$app" ${ndl:+--ndl-app "$ndl"} --stats $OUT/feeder-$app.jsonl > $OUT/feeder-$app.log 2>&1 &
-    say "feeder started: pid $! ($clip $size $codec at $fps for $secs s, window type video, app $app${ndl:+, decoder opened for $ndl}); log out/hwplanes/feeder-$app.log"
+    tex=${HWPLANES_TEXTURE:-}
+    XDG_RUNTIME_DIR=$RT WAYLAND_DISPLAY=wayland-0 $FEEDER --play "$clip" --size "$size" --codec "$codec" --fps "$fps" --seconds "$secs" --loop -w video -a "$app" ${ndl:+--ndl-app "$ndl"} ${tex:+--texture "$tex" --swdec-lib "${HWPLANES_SWDEC_LIB:-/tmp/gfn/lib}" --no-ndl} --stats $OUT/feeder-$app.jsonl > $OUT/feeder-$app.log 2>&1 &
+    say "feeder started: pid $! ($clip $size $codec at $fps for $secs s, window type video, app $app${ndl:+, decoder opened for $ndl}${tex:+, a texture of $tex}); log out/hwplanes/feeder-$app.log"
+}
+
+step_bench() {
+    clip=$1; codec=${2:-h264}; size=${3:-480x270}
+    [ -x /tmp/gfn/swdec_bench ] || { say "no /tmp/gfn/swdec_bench (tv_hwplanes.py put-texture gfn/feeder/build/arm)"; exit 1; }
+    [ -f "$clip" ] || { say "no clip $clip (tv_hwplanes.py put-clip)"; exit 1; }
+    /tmp/gfn/swdec_bench "${HWPLANES_SWDEC_LIB:-/tmp/gfn/lib}" "$clip" "$codec" "$size" 2>&1 | tee $OUT/bench-$(basename $clip)-$size.json
 }
 
 step_vwin() {
@@ -203,6 +215,7 @@ afbc) step_afbc ;;
 layout) step_layout "${2:-}" ;;
 shot) step_shot "${2:-shot}" ;;
 feeder) shift; step_feeder "$@" ;;
+bench) shift; step_bench "$@" ;;
 vwin) step_vwin ;;
 sizes) step_sizes ;;
 stop) step_stop ;;

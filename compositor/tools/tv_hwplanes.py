@@ -6,6 +6,7 @@
     tv_hwplanes.py ctl WORDS...        one `lumatv-compositor ctl` line against the live compositor ("ctl vwin apps", "ctl afbc on")
     tv_hwplanes.py put-feeder FILE     uploads a feeder build (gfn/feeder/build/arm/lumatv-gfn-feeder) to /tmp/gfn/
     tv_hwplanes.py put-clip FILE       uploads a test clip to /tmp/gfn/clips/
+    tv_hwplanes.py put-texture DIR     uploads the texture path's decoder libraries and benchmark (DIR is gfn/feeder/build/arm) to /tmp/gfn/lib/ and /tmp/gfn/
     tv_hwplanes.py fetch               copies /tmp/lumatv/out/hwplanes to /tmp/lumatv-tv-out/hwplanes
     tv_hwplanes.py compare A.png B.png the share of pixels that differ between two fetched captures, and where (needs Pillow)
 
@@ -20,7 +21,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "..", "docs", "research", "arch"))
 REMOTE = "/tmp/lumatv/hwplanes.sh"
 OUT = "/tmp/lumatv/out/hwplanes"
 LOCAL_OUT = "/tmp/lumatv-tv-out/hwplanes"
-STEPS = ("read", "alpha", "pointer", "afbc", "layout", "shot", "feeder", "vwin", "sizes", "stop")
+STEPS = ("read", "alpha", "pointer", "afbc", "layout", "shot", "feeder", "bench", "vwin", "sizes", "stop")
 CTL = ("/tmp/lumatv/lib/ld-linux-aarch64.so.1 --library-path /tmp/lumatv/lib /tmp/lumatv/bin/lumatv-compositor ctl --runtime-dir %s %s")
 
 
@@ -66,6 +67,14 @@ def main():
         tv.tv("mkdir -p /tmp/gfn")
         tv.put(args[1], "/tmp/gfn/lumatv-gfn-feeder")
         tv.tv("chmod +x /tmp/gfn/lumatv-gfn-feeder")
+        return
+    if what == "put-texture" and len(args) == 2:
+        # the texture path's decoder libraries and the benchmark: gfn/feeder/build/arm/{lib/*,swdec_bench} to /tmp/gfn/lib/ and /tmp/gfn/
+        tv.tv("mkdir -p /tmp/gfn/lib")
+        for name in sorted(os.listdir(os.path.join(args[1], "lib"))):
+            tv.put(os.path.join(args[1], "lib", name), "/tmp/gfn/lib/" + name)
+        tv.put(os.path.join(args[1], "swdec_bench"), "/tmp/gfn/swdec_bench")
+        tv.tv("chmod +x /tmp/gfn/swdec_bench")
         return
     if what == "put-clip" and len(args) == 2:
         tv.tv("mkdir -p /tmp/gfn/clips")
