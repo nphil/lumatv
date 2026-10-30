@@ -28,7 +28,7 @@ import json, subprocess, sys, time
 method, fmt, w, h, path = sys.argv[1:6]
 payload = json.dumps({"path": path, "method": method, "format": fmt, "width": int(w), "height": int(h)})
 t0 = time.perf_counter()
-r = subprocess.run(["luna-send", "-n", "1", "-w", "5000", "luna://com.webos.service.capture/executeOneShot", payload], capture_output=True, text=True, timeout=15)
+r = subprocess.run(["luna-send", "-n", "1", "-w", "5000", "luna://com.webos.service.capture/executeOneShot", payload], capture_output=True, text=True, timeout=15, stdin=subprocess.DEVNULL)
 ms = (time.perf_counter() - t0) * 1000
 print("ms=%.0f reply=%s" % (ms, " ".join(r.stdout.split())[:300] or "(nothing) " + r.stderr.strip()[:200]))
 PY
@@ -88,7 +88,7 @@ c0, t0 = ticks(svc), time.time()
 times, bad, child = [], 0, 0.0
 for i in range(n):
     s = time.perf_counter()
-    r = subprocess.run(["luna-send", "-n", "1", "-w", "5000", "luna://com.webos.service.capture/executeOneShot", payload], capture_output=True, text=True)
+    r = subprocess.run(["luna-send", "-n", "1", "-w", "5000", "luna://com.webos.service.capture/executeOneShot", payload], capture_output=True, text=True, stdin=subprocess.DEVNULL)
     times.append((time.perf_counter() - s) * 1000)
     if '"returnValue":true' not in r.stdout.replace(" ", ""):
         bad += 1
