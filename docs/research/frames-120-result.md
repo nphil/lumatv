@@ -60,17 +60,26 @@ On forge main:
   apart) draws 21.5 Mpx in 11 heavy frames where it drew 30.7 Mpx in 25, and ends on the same page; a walk of deliberate steps (400 ms) is unchanged
   (`tests/test_settings_rail.py`, `page_waits` unit test).
 
+- **Round 23 on 89507fcb with the gate of 25cb7b06** (panel 59.9 / 119.9 Hz, pop-ups off; the owner's file has `wallpaperMotion.enabled=false` and no `weather` key, so the
+  weather card is switched off by the gate for the still surfaces and the idle per-refresh frames are gone from the rings). The compositor's own count:
+  - 60 Hz: dropped quick 1, home-widgets 2, the rest 0; burst_over20 home-dpad 1, quick 2, settings-scroll 1, home-widgets 2, the rest 0; burst_end quick 187 ms (limit 180)
+    and toast 255 ms. What is left is the first whole-screen frame of an open (quick) and the step where the focus enters Home's cards and the others dim (home-widgets, +1.07 s of
+    its walk: 155 layers, ~13 ms of GPU, one frame at 33.4 ms): a frame of 12-13 ms GPU after cheap ones lands one refresh late whatever is done before it.
+  - 120 Hz: dropped quick 7, picker 5, settings-scroll 41, apps-grid 3, home-widgets 3, home-dpad 0; toast burst_end 247 ms. Panels: the first two frames of an open cost 12-15 ms of GPU
+    each (picker's have 13 layers and 83 kpx: the cost is not layers but the glass's backdrop capture, which a panel's first frame pays), Settings: its opening (8 frames of
+    10-19 ms), the rail's page steps and the page changes. Not reachable at 8.3 ms without the engine's help (a backdrop made ahead, Home as one picture under a fading panel).
+  - The toast's burst is its own slide (220 ms, the layer beat) against the gate's 180 ms limit for the burst end: it failed so in round 21 too (241-253 ms). The limit or the beat is
+    the owner's to choose; nothing here moves it.
+
 Next, in order:
 
-1. TV re-check (Round 22 owns the set), install this build: `python3 compositor/tools/tv_gate.py --only frames --quick`, then the same with `--refresh 120`. Read the
-   gate's `panel_refresh` first: a window on another refresh says nothing of the asked one (the helper now puts the panel back to 120 Hz while a camera stream plays; a
-   60 fps video for a few seconds does too). The `dropped` line says "the compositor's own count". Rings:
-   `/tmp/perf/gate-c4shell[-120]-<surface>-m<i>.ring.json` (`perf/ringsum.py FILE`). Expected at 120 Hz: settings-scroll well under the 192, the panels as they were.
-2. The rest is layers: a frame of more than 80 of them is a late frame at 120 Hz. In order of weight: the first frames of a panel open (cold layers: 12-13 ms for the first
-   two; made hidden ahead and shown a frame later, or fewer layers), the page change of Settings when it is made (the list is released and made again: 100 layers made,
-   deleted and drawn new; its rows could be kept), Home as one picture while a panel fades over it.
-   `LUMASHOW_PROFILE=sync` in the compositor's environment prints the time of each part of a frame and what made cached backdrops stale (`render/src/profile.rs`).
-3. The panel stays at 100 Hz after a camera pop-up: fixed on the helper side by a2cdf659 (not mine); the gate flags it (`panel_refresh`).
+1. Decide the toast's burst limit (or its beat), and whether 120 Hz is a gate or a test mode: at 120 Hz a panel's first frames cannot hold 8.3 ms with the glass captured in the frame.
+2. The structural work, by weight: a panel's backdrop made ahead (`Scene::prepare_backdrop` makes a set between frames, as Home's wallpaper backdrop is) instead of captured in the
+   first frame; Home as one picture while a panel or Settings fades over it (the engine redraws every layer under a changing alpha); Settings' page build (about 100 layers made and drawn
+   new: its rows could be kept); the cards' dim as one veil or a cheaper pose. `LUMASHOW_PROFILE=sync` in the compositor's environment prints the time of each part of a frame and what made
+   cached backdrops stale (`rustui/render/src/profile.rs`): one run on the set with it would say what a panel's first frame spends.
+3. Re-check after any change: `python3 compositor/tools/tv_gate.py --only frames --frames-quick`, then with `--refresh 120`; read `panel_refresh` first. Rings:
+   `/tmp/perf/gate-c4shell[-120]-<surface>-m<i>.ring.json` (`perf/ringsum.py FILE`); the in-motion drops by window are `ringsum.motion_drops`.
 
 ## What the gate said, and what it measured
 
