@@ -254,6 +254,17 @@ impl ListArt {
                 self.slots[i].live = false;
             }
         }
+        // the focus plate (a lift group and a lit group) is made for the row the focus is on and given back once its lift is at rest: a page
+        // holds two or three, not one for every row it shows
+        for i in 0..self.slots.len() {
+            let Some(art) = self.slots[i].art.as_mut() else { continue };
+            if stop == Some(i) || !art.at_rest(engine, now_ns) {
+                let mut env = Env { kit, engine, paint, sz, scroll: &self.scroll, z: self.z, region: self.region, scope: self.scope, origin };
+                art.ensure_plates(&mut env)?;
+            } else {
+                art.drop_plates(engine);
+            }
+        }
         // a row that was to be made again and is out of reach now gives its lift back too
         for i in 0..self.slots.len() {
             if self.slots[i].art.is_none() {
@@ -281,7 +292,7 @@ impl ListArt {
             let mut env = Env { kit, engine, paint, sz, scroll: &self.scroll, z: self.z, region: self.region, scope: self.scope, origin };
             art.update(&mut env, &rows[i], moment, at_once);
         }
-        let _ = (now_ns, Kind::Head);
+        let _ = Kind::Head;
         Ok(())
     }
 

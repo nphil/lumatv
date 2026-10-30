@@ -64,6 +64,16 @@ pub struct Moment {
     pub seg: Option<usize>,
 }
 
+/// What a focus plate is made of. A row keeps this and makes the plate (two groups and a layer) when the focus comes to it: the scene has
+/// 96 groups in all, Home holds 64 of them over a full dock, and a page of seventeen rows with a plate each took 43.
+#[derive(Clone, Copy, Debug)]
+struct PlateSpec {
+    rect: Frame,
+    scale: f32,
+    rise: f32,
+    radius: f32,
+}
+
 /// One card of a row of cards: it is a focusable of its own, so the lift hands over from card to card and from card to row.
 pub struct CardArt {
     pub id: Id,
@@ -74,7 +84,8 @@ pub struct CardArt {
     glyph_at: Props,
     hover: ShapeLayer,
     base: ShapeLayer,
-    _lit: ShapeLayer,
+    _lit: Option<ShapeLayer>,
+    spec: PlateSpec,
     glyph: Option<ImageLayer>,
     check: Option<ImageLayer>,
     selected: Option<bool>,
@@ -102,6 +113,7 @@ pub struct RowArt {
     focusable: bool,
     last: Row,
     _lit: Option<ShapeLayer>,
+    plate: Option<PlateSpec>,
     selected_wash: Option<ShapeLayer>,
     hover_wash: Option<ShapeLayer>,
     tile: Option<ImageLayer>,
@@ -284,6 +296,7 @@ impl RowArt {
             focusable,
             last: row.clone(),
             _lit: None,
+            plate: None,
             selected_wash: None,
             hover_wash: None,
             tile: None,
@@ -446,7 +459,7 @@ impl RowArt {
         let radius = env.kit.tokens.radius(Radius::Row);
         let scale = env.kit.tokens.focus.row_scale;
         if self.focusable {
-            self._lit = Some(make_plate(env, self.id, self.rect, true, scale, 0.0, radius)?);
+            self.plate = Some(PlateSpec { rect: self.rect, scale, rise: 0.0, radius });
         }
         let sz = env.sz;
         // the tile
@@ -730,7 +743,7 @@ impl RowArt {
             let y = self.rect.y + line as f32 * (g.card_h + g.gap);
             let rect = Frame::new(x, y, g.card_w, g.card_h);
             let id = Id(self.id.0 + 1 + i as u32);
-            let lit = make_plate(env, id, rect, self.focusable, scale, env.kit.tokens.focus.card_lift, radius)?;
+            let spec = PlateSpec { rect, scale, rise: env.kit.tokens.focus.card_lift, radius };
             let base = make_shape(env, rect.w, rect.h, env.z, pill(paint.wash_hover, paint.edge, radius, 1.0), Props::at(rect.x, rect.y));
             let hover = make_shape(env, rect.w, rect.h, env.z + 2, pill(paint.wash_hover, faded(paint.edge_raised, 0.6), radius, 1.0), HIDDEN);
             let glyph_at = Props::at(rect.x + sz.s5, rect.y + ((rect.h - side as f32) / 2.0).round());
@@ -764,7 +777,7 @@ impl RowArt {
             }
             let text = make_text(env, Frame::new(rect.x + tx, rect.y, tw, rect.h), env.z + 4, &items)?;
             self.cards.push((id, rect));
-            cards.push(CardArt { id, frame: rect, icon: c.icon.clone(), face_free: c.face.is_none(), glyph_at, hover, base, _lit: lit, glyph, check, selected: None, _text: text });
+            cards.push(CardArt { id, frame: rect, icon: c.icon.clone(), face_free: c.face.is_none(), glyph_at, hover, base, _lit: None, spec, glyph, check, selected: None, _text: text });
         }
         self.trailing = Trailing::Cards(cards);
         Ok(())
@@ -958,6 +971,49 @@ impl RowArt {
             engine.focus.unregister(*id);
             if !keep_lift {
                 engine.flow.drop_lift(*id);
+            }
+        }
+    }
+
+    /// The ids whose lifts the row's plates carry: the row's own, or each card's.
+    fn lift_ids(&self) -> Vec<Id> {
+        match &self.trailing {
+            Trailing::Cards(cards) => cards.iter().map(|c| c.id).collect(),
+            _ => vec![self.id],
+        }
+    }
+
+    /// Whether the plates are at rest (or there are none): nothing of the lift is left to show.
+    pub fn at_rest(&self, engine: &Engine, at_ns: u64) -> bool {
+        self.lift_ids().into_iter().all(|id| engine.flow.resting(id, at_ns))
+    }
+
+    /// Makes the plates the row has none of: the row's own, or one for each card. The focus is about to come to the row.
+    pub fn ensure_plates(&mut self, env: &mut Env) -> std::io::Result<()> {
+        if !self.focusable {
+            return Ok(());
+        }
+        if let Some(s) = self.plate
+            && self._lit.is_none()
+        {
+            self._lit = Some(make_plate(env, self.id, s.rect, true, s.scale, s.rise, s.radius)?);
+        }
+        if let Trailing::Cards(cards) = &mut self.trailing {
+            for c in cards.iter_mut().filter(|c| c._lit.is_none()) {
+                c._lit = Some(make_plate(env, c.id, c.spec.rect, true, c.spec.scale, c.spec.rise, c.spec.radius)?);
+            }
+        }
+        Ok(())
+    }
+
+    /// Gives the plates back (and any lift a rebuilt row left behind): the focus is elsewhere and the lift is at rest.
+    pub fn drop_plates(&mut self, engine: &mut Engine) {
+        self._lit = None;
+        engine.flow.drop_lift(self.id);
+        if let Trailing::Cards(cards) = &mut self.trailing {
+            for c in cards.iter_mut() {
+                c._lit = None;
+                engine.flow.drop_lift(c.id);
             }
         }
     }

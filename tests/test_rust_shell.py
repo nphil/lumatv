@@ -99,7 +99,7 @@ class RustShell(unittest.TestCase):
         self.assertTrue(any(r['live'] and r['state']['osd'] for r in reports), "the display was reported live: %s" % [r['state'] for r in reports])
         self.assertTrue(any(r['state']['toasts'] == 1 for r in reports), "the toast was reported")
         self.assertTrue(all(r['wants'] is False for r in reports), "a display and a toast never want the keys")
-        self.assertTrue(all(r['can'] == [] for r in reports), "this client shows no panel yet")
+        self.assertTrue(all(r['can'] == ['toast'] for r in reports), "this client shows no panel yet; a toast may be asked for by name (`ctl shell show toast`)")
         self.assertEqual(reports[0]['state']['kinds'], ['osd', 'toast'])
         uris = {c['uri'] for c in chan.luna}
         self.assertIn('luna://com.webos.notification/getToastNotification', uris, "the feed is subscribed through the channel")

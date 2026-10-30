@@ -155,6 +155,30 @@ class RustSettings(unittest.TestCase):
                 self.assertEqual(rc, 0, '%s\n%s' % (job, text[-1500:]))
                 self.assertEqual(clipped, [], '%s: %s' % (job, json.dumps(clipped)))
 
+    # ------------------------------------------------------------------------------------------------------- over a TV's own Home
+
+    def test_settings_inputs_is_drawn_whole_over_a_tvs_full_home_with_every_kind_up(self):
+        """The scene has 96 groups and a TV's Home over a full dock holds 64 of them (the dock's tiles, the cards, the status bar). Settings >
+        Inputs & devices gave every one of its seventeen rows a plate (two groups each) and took 43: the rows past the thirtieth group were never
+        drawn (HDMI 4, Input banner, Show input previews) and the shell logged "settings: at most 96 groups" over and over."""
+        import test_rust_home as th
+        feeds = {'weather': th.weather(), 'news': th.news(), 'plugins': {'plugins': [], 'firstParty': []}, 'profiles': th.profiles(), 'cameras': th.CAMERAS}
+        extra = ['--push', '50:foreground:' + json.dumps(th.HOME), '--luna', '80:%d:%s' % (th.LP_TAG, json.dumps({'launchPoints': th.launch_points()}))]
+        for topic, doc in feeds.items():
+            extra += ['--helper', '100:%s:%s' % (topic, json.dumps(doc))]
+        extra += ['--push', '4000:show:' + json.dumps({'kind': 'settings', 'page': 'inputs'}), '--eval', '3800:state', '--eval', '8000:state', '--eval', '8000:geometry']
+        kinds = 'osd,toast,alert,cards,saver,capture,popup,layout,home,cameras,settings,quick,picker,drawer,menu,confirm,switcher,entry,ai,banner,keyboard,displaylab'
+        rc, text, _, _, _ = host.run(wait=9000, extra=extra, kinds=kinds)
+        self.assertEqual(rc, 0, text[-3000:])
+        before, after, geometry = host.evals(text)[-3:]
+        self.assertLessEqual(before['room']['groups'], 40, 'Home holds what a full dock holds: %s' % before['room'])
+        self.assertNotIn('at most 96 groups', text, 'Settings was drawn in the groups that were left')
+        self.assertEqual(after['settings']['built'], 7, 'every row of the tab is drawn: %s' % after['settings'])
+        self.assertGreaterEqual(after['room']['groups'], 8, 'the page holds a few groups, not one pair for every row: %s' % after['room'])
+        names = [g['name'] for g in geometry['settings']]
+        self.assertIn('row:previews', names)
+        self.assertIn('row:hdmi4', names)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -338,6 +338,12 @@ impl Flow {
         self.slots.iter().find(|s| s.owner == Some(id)).map_or(0.0, |s| s.track.value_at(at_ns))
     }
 
+    /// Whether `id` is at rest at `at_ns`: no track drives it, or its track has settled back to 0. A focusable that is lifted, or still
+    /// on its way down, is not.
+    pub fn resting(&self, id: Id, at_ns: u64) -> bool {
+        self.slots.iter().find(|s| s.owner == Some(id)).is_none_or(|s| !s.track.is_settling_at(at_ns) && s.track.value_at(at_ns) <= 0.001)
+    }
+
     /// The lift's speed (per second) by the estimate at `at_ns`.
     pub fn velocity_at(&self, id: Id, at_ns: u64) -> f32 {
         self.slots.iter().find(|s| s.owner == Some(id)).map_or(0.0, |s| s.track.velocity_at(at_ns))

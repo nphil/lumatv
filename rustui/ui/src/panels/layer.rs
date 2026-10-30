@@ -362,6 +362,17 @@ impl Panels {
         }
     }
 
+    /// Settings is up and takes the room: a panel that is only kept built for its next opening (the gear's panel is parked for four seconds
+    /// after it closes) gives its layers back at once, as it does when another panel opens. One that is shown, or still sliding out, goes
+    /// when it is parked.
+    pub fn give_way(&mut self) {
+        for w in Which::SHOWN {
+            if self.life_mut(w).release().is_some() {
+                self.redraw = true;
+            }
+        }
+    }
+
     fn on_show(&mut self, kinds: &Kinds, data: &Value, now: u64, out: &mut Vec<Effect>) {
         let n = data.get("n").and_then(Value::as_u64).unwrap_or(0);
         if n != 0 && n <= self.last_show {

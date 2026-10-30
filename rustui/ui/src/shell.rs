@@ -601,6 +601,14 @@ impl Shell {
                 }
                 self.redraw = true;
             }
+            Event::Topic { topic, data } if topic == "show" && data.get("kind").and_then(Value::as_str) == Some("toast") && self.kinds.toast => {
+                // `ctl shell show toast [TEXT]`: a toast through the feed's own path, to check where toasts sit without LG's createToast. In TEXT an
+                // underscore is a space and a bar a line break (the first line is the title, the rest the body); it stays up 8 s.
+                let text = data.get("page").and_then(Value::as_str).filter(|t| !t.is_empty()).unwrap_or("Test_toast|Raised_by_ctl_shell_show_toast");
+                let payload = json!({"sourceId": "lumatv", "message": text.replace('_', " ").replace('|', "\n"), "timeout": 8});
+                self.feed(&Input::Luna { tag: FEED_TAG, payload }, now, &mut acts);
+                self.redraw = true;
+            }
             Event::Topic { topic, data } => {
                 self.feed(&Input::Topic { topic: topic.clone(), data: data.clone() }, now, &mut acts);
             }
@@ -886,6 +894,11 @@ impl Shell {
                 }
             }
             let now_ns = self.kit.ui.scene.now_ns();
+            // Settings is the modal kind over everything and needs the room (the scene has 96 groups in all, Home holds 64 of them): a panel
+            // that is only kept built for its next opening goes at once
+            if self.kinds.settings && self.settings.is_open() {
+                self.panels.give_way();
+            }
             self.panels.set_bell(self.home.bell_frame());
             match self.panels.apply(&self.kinds, &mut self.kit, &mut self.engine, now, now_ns) {
                 Ok(on) => live |= on,
@@ -1004,6 +1017,10 @@ impl Shell {
         if self.kinds.displaylab {
             can.push("displaylab");
         }
+        if self.kinds.toast {
+            // not a panel: `ctl shell show toast [TEXT]` raises one by the feed's own path (see `channel`)
+            can.push("toast");
+        }
         can.extend(self.panels.can(&self.kinds));
         // Home in front wants the keys too: the compositor sends every key of the remote to the layer that wants them
         let wants = self.sys.wants(&self.kinds) || self.panels.wants(&self.kinds) || (self.kinds.home && self.home.active) || (self.kinds.cameras && self.cameras.wants()) || (self.kinds.settings && self.settings.wants()) || self.lab_wants();
@@ -1060,6 +1077,8 @@ impl Shell {
             }
         }
         s["live"] = json!(self.live);
+        let room = self.kit.room();
+        s["room"] = json!({"layers": room.layers, "groups": room.groups, "tracks": room.tracks});
         s
     }
 
@@ -2107,5 +2126,51 @@ mod tests {
             shell.tick(s * 1000 + 50);
         }
         assert_eq!(shell.due_at(), None, "nothing is due while an app is in front");
+    }
+
+    #[test]
+    fn a_toast_is_raised_by_the_show_topic_through_the_feeds_own_path() {
+        let (_h, kit) = testkit::kit(1.0);
+        let mut shell = Shell::new(kit, Kinds::parse("osd,toast"), 2000, &testkit::module_dir().join("icons/audio"), &json!({}), &json!({})).expect("a shell");
+        shell.start();
+        assert!(shell.report()["can"].as_array().unwrap().iter().any(|c| c == "toast"), "the compositor may ask for one by name");
+        shell.channel(&Event::Topic { topic: "show".into(), data: json!({"kind": "toast", "warm": false, "n": 1, "page": "Placement_check|Second_line"}) }, 1_000);
+        assert_eq!(shell.state()["toasts"], 1);
+        assert!(shell.is_live(), "and it is drawn");
+        assert_eq!(shell.geometry()["toasts"].as_array().unwrap().len(), 1);
+        shell.tick(8_900);
+        assert_eq!(shell.state()["toasts"], 1, "it stays up for 8 s");
+        shell.tick(9_100);
+        assert_eq!(shell.state()["toasts"], 0);
+        // no words: a toast of the default ones
+        shell.channel(&Event::Topic { topic: "show".into(), data: json!({"kind": "toast", "n": 2}) }, 10_000);
+        assert_eq!(shell.state()["toasts"], 1);
+        // a process without the kind says it cannot
+        let (_h2, kit) = testkit::kit(1.0);
+        let mut other = Shell::new(kit, Kinds::parse("osd"), 2000, &testkit::module_dir().join("icons/audio"), &json!({}), &json!({})).expect("a shell");
+        other.start();
+        assert!(!other.report()["can"].as_array().unwrap().iter().any(|c| c == "toast"));
+    }
+
+    /// A TV's Home over a full dock holds 64 of the scene's 96 groups, and the gear's panel, closed a moment ago, is kept built for four seconds
+    /// more: Settings opened from it took what was left, and the rows that did not fit were not drawn ("at most 96 groups", over and over).
+    #[test]
+    fn settings_opening_over_a_full_home_takes_the_parked_gear_panel_away_and_draws_the_whole_page() {
+        let (_h, mut shell) = home_shell("quick,settings");
+        let used = 96 - shell.kit.room().groups;
+        let scene = shell.kit.ui.scene.clone();
+        let _full_dock: Vec<_> = (0..64usize.saturating_sub(used)).map(|_| scene.group(None, compositor_protocol::GroupPose::IDENTITY).expect("a group")).collect();
+        shell.channel(&Event::Topic { topic: "show".into(), data: json!({"kind": "quick", "warm": false, "n": 1}) }, 2_000);
+        shell.tick(2_300);
+        assert_eq!(shell.state()["panels"]["quick"], "open");
+        key(&mut shell, "back", 2_400);
+        shell.tick(2_600);
+        assert_eq!(shell.state()["panels"]["quick"], "parked", "closed a moment ago: its layers are kept for the next opening");
+        let acts = shell.open_settings(Some("inputs"), 2_700);
+        assert_eq!(shell.state()["panels"]["quick"], "gone", "Settings takes the room at once");
+        let logs: Vec<&String> = acts.iter().filter_map(|a| if let Act::Log(l) = a { Some(l) } else { None }).collect();
+        assert!(!logs.iter().any(|l| l.contains("groups") || l.contains("scene is full")), "{logs:?}");
+        assert_eq!(shell.state()["settings"]["built"], 7, "every row of the page is drawn");
+        assert!(shell.kit.room().groups >= 4, "{:?}", shell.kit.room());
     }
 }

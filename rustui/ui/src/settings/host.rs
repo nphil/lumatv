@@ -158,7 +158,10 @@ impl SettingsHost {
     }
 
     pub fn state(&self) -> Value {
-        json!({"settings": self.model.debug()})
+        let mut s = self.model.debug();
+        // the rows of the page that were drawn (a page that could not be drawn whole says so here)
+        s["built"] = json!(self.surface.row_count_built());
+        json!({"settings": s})
     }
 
     pub fn geometry(&self) -> Value {
@@ -169,6 +172,7 @@ impl SettingsHost {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kit::Id;
     use crate::kit::lint::Lint;
     use crate::kit::testkit;
     use crate::settings::model::Target;
@@ -225,5 +229,55 @@ mod tests {
                 std::mem::forget(h);
             }
         }
+    }
+
+    /// A TV's Home over a full dock holds 64 of the scene's 96 groups. Settings opens in the 32 that are left and draws every row of the
+    /// page: a plate for every row (two groups each) took 43 for the Inputs page, and the rows past the thirtieth group were never drawn.
+    #[test]
+    fn a_page_is_drawn_whole_in_the_groups_a_full_home_leaves_and_only_the_focus_has_a_plate() {
+        for scale in [1.0, 2.0] {
+            let (_h, mut kit) = testkit::kit_in(Mode::Dark, scale);
+            let mut engine = Engine::new(&kit).unwrap();
+            let scene = kit.ui.scene.clone();
+            let _home: Vec<_> = (0..64).map(|_| scene.group(None, compositor_protocol::GroupPose::IDENTITY).expect("a group")).collect();
+            let mut host = SettingsHost::new(1000, &lumatv_tokens::Tokens::shipped().json().clone(), &json!({}));
+            host.open(Some("inputs"), 1000);
+            let before = kit.room().groups;
+            host.apply(&mut kit, &mut engine, false, 2000, 2_000_000_000).unwrap_or_else(|e| panic!("Settings is drawn in what Home leaves at {scale}: {e}"));
+            assert!(!scene.take_overflow(), "no layer was refused at {scale}");
+            let used = before - kit.room().groups;
+            assert!(used <= 16, "{used} groups at {scale}");
+            let built = host.state()["settings"]["built"].as_u64().unwrap();
+            assert!(if scale == 1.0 { built == 7 } else { built >= 4 }, "{built} rows of the page are drawn at {scale}");
+        }
+    }
+
+    /// The plate is made for the row the focus comes to, and the row the focus left keeps its own until its lift is at rest.
+    #[test]
+    fn the_focus_plate_is_made_for_the_row_it_comes_to_and_given_back_when_the_lift_is_at_rest() {
+        let (_h, mut kit) = testkit::kit(1.0);
+        let t = std::rc::Rc::new(std::cell::Cell::new(1_000_000_000u64));
+        kit.ui.scene.set_clock({ let t = t.clone(); move || t.get() }, 0);
+        let mut engine = Engine::new(&kit).unwrap();
+        let mut host = SettingsHost::new(1000, &lumatv_tokens::Tokens::shipped().json().clone(), &json!({}));
+        host.open(Some("inputs"), 1000);
+        press(&mut host, "right", 1200);
+        let at = |host: &mut SettingsHost, kit: &mut Kit, engine: &mut Engine, ms: u64| {
+            t.set(ms * 1_000_000);
+            host.apply(kit, engine, false, ms, ms * 1_000_000).expect("Settings is drawn");
+        };
+        let plates = |engine: &Engine| (0..7).map(|i| Id(10_000 + 128 * i)).chain((0..10).map(|i| Id(1_000 + 128 * i))).filter(|id| engine.flow.has(*id)).count();
+        at(&mut host, &mut kit, &mut engine, 2000);
+        let first = engine.focus.current().expect("the focus is on a row");
+        assert!(engine.flow.has(first), "the row the focus is on has its plate");
+        assert!(plates(&engine) <= 3, "{} plates", plates(&engine));
+        press(&mut host, "down", 2100);
+        at(&mut host, &mut kit, &mut engine, 2150);
+        let second = engine.focus.current().expect("and moves down");
+        assert_ne!(first, second);
+        assert!(engine.flow.has(second) && engine.flow.has(first), "the new row has its plate and the old one keeps its own while it settles");
+        at(&mut host, &mut kit, &mut engine, 3500);
+        assert!(engine.flow.has(second) && !engine.flow.has(first), "the lift of the old row is at rest: its plate is given back");
+        assert!(plates(&engine) <= 3, "{} plates", plates(&engine));
     }
 }
