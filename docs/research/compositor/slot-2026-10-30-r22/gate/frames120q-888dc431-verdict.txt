@@ -1,0 +1,30 @@
+GATE refresh: measured hz 120 divider 1 shell 120 over 10 s: OSD flips/s 120.1, DE2VSYNC/s 120.8, osd_irq/s 120.2; compositor: "intervals":{"more":0,"one":1445,"three":0,"two":1,"worst_ms":16.683} "frames":{"late":0,"lost":0,"missed":1,"n":1446} "pipeline_ms":{"max":7.71544,"p50":2.5,"p99":6.5} flips/s 119.89161134574559; mali busy ? %; temperature 57; slides (steps/ms/for): none
+PASS  apps-grid       launch_path           none  ()  com.webos.app.discovery: the dock's tile 1, number key (evdev 2)
+PASS  apps-grid       windows                3/3  (== 3)
+PASS  apps-grid       panel_refresh       119.90  (120 Hz +-8 %)
+PASS  apps-grid       first_frame_ms        8.05  (<= 50)
+PASS  apps-grid       p90_render_ms         2.41  (< 4.16667)  343 frames
+PASS  apps-grid       p90_window_ms         2.47  (< 5.55556)  worst single window
+FAIL  apps-grid       dropped                  9  (<= 0)
+PASS  apps-grid       burst_over20             0  (<= 0)
+PASS  apps-grid       rss_growth_mb         0.00  (<= 1.01)  503 -> 503 pages over 1 cycles
+PASS  apps-grid       switches_restored number-keys, quick-access  (as found)
+PASS  apps-grid       log_errors               0  (== 0)
+PASS  apps-grid       compositor_pid       18939  (== 18939)
+PASS  home-widgets    windows                3/3  (== 3)
+PASS  home-widgets    panel_refresh       119.90  (120 Hz +-8 %)
+PASS  home-widgets    first_frame_ms        8.11  (<= 50)
+PASS  home-widgets    p90_render_ms         2.56  (< 4.16667)  343 frames
+PASS  home-widgets    p90_window_ms         2.57  (< 5.55556)  worst single window
+FAIL  home-widgets    dropped                  9  (<= 0)
+FAIL  home-widgets    burst_over20             4  (<= 0)
+PASS  home-widgets    rss_growth_mb         0.00  (<= 1.01)  503 -> 503 pages over 1 cycles
+PASS  home-widgets    log_errors               0  (== 0)
+PASS  home-widgets    compositor_pid       18939  (== 18939)
+VERDICT FAIL
+GATE refresh: measured hz 120 divider 1 shell 120 over 10 s: OSD flips/s 117.5, DE2VSYNC/s 120.8, osd_irq/s 120.1; compositor: "intervals":{"more":1806,"one":120117,"three":141,"two":911,"worst_ms":1000.907} "frames":{"late":428,"lost":34328,"missed":96,"n":122975} "pipeline_ms":{"max":41.23996,"p50":2.75,"p99":9.5} flips/s 93.18756551211116; mali busy 11.4 %; temperature 57; slides (steps/ms/for): none
+GATE refresh: measured hz 60 divider 2 shell 60 over 5 s: OSD flips/s 60.2, DE2VSYNC/s 121.6, osd_irq/s 120.4; compositor: "intervals":{"more":0,"one":424,"three":0,"two":0,"worst_ms":16.691} "frames":{"late":0,"lost":0,"missed":0,"n":424} "pipeline_ms":{"max":3.46736,"p50":2.5,"p99":3.25} flips/s 59.94595510770715; mali busy 6.1 %; temperature 57; slides (steps/ms/for): none
+GATE refresh: measured hz 120 divider 1 shell 120 over 10 s: OSD flips/s 120.1, DE2VSYNC/s 120.8, osd_irq/s 120.2; compositor: "intervals":{"more":0,"one":1445,"three":0,"two":1,"worst_ms":16.683} "frames":{"late":0,"lost":0,"missed":1,"n":1446} "pipeline_ms":{"max":7.71544,"p50":2.5,"p99":6.5} flips/s 119.89161134574559; mali busy ? %; temperature 57; slides (steps/ms/for): none
+GATE frames at 120 Hz: FAIL home-dpad NOT dropped=20,burst_over20=1 [first_frame 4.8 p90_render 2.13]; quick NOT burst_over20=9 [first_frame 12.79 burst_end 137.28 p90_render 2.42]; picker NOT dropped=2,burst_over20=6 [first_frame 6.96 burst_end 139.71 p90_render 3.25]; toast NOT burst_end_ms=1999.64 [first_frame 6.16 burst_end 1999.64 p90_render 2.38]; settings-scroll NOT dropped=6,burst_over20=127 [first_frame 13.75 p90_render 3.72]; apps-grid NOT dropped=9 [first_frame 8.05 p90_render 2.41]; home-widgets NOT dropped=9,burst_over20=4 [first_frame 8.11 p90_render 2.56] (surfaces home-dpad,quick,picker,toast,settings-scroll,apps-grid,home-widgets, 3 cycles; /tmp/lumatv-tv-out/frames-120.json)
+GATE refresh: measured hz 120 divider 1 shell 120 over 10 s: OSD flips/s 117.5, DE2VSYNC/s 120.8, osd_irq/s 120.1; compositor: "intervals":{"more":1806,"one":120117,"three":141,"two":911,"worst_ms":1000.907} "frames":{"late":428,"lost":34328,"missed":96,"n":122975} "pipeline_ms":{"max":41.23996,"p50":2.75,"p99":9.5} flips/s 93.18756551211116; mali busy 11.4 %; temperature 57; slides (steps/ms/for): none
+GATE refresh: measured hz 60 divider 2 shell 60 over 5 s: OSD flips/s 60.2, DE2VSYNC/s 121.6, osd_irq/s 120.4; compositor: "intervals":{"more":0,"one":424,"three":0,"two":0,"worst_ms":16.691} "frames":{"late":0,"lost":0,"missed":0,"n":424} "pipeline_ms":{"max":3.46736,"p50":2.5,"p99":3.25} flips/s 59.94595510770715; mali busy 6.1 %; temperature 57; slides (steps/ms/for): none

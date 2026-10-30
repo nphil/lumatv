@@ -1,0 +1,24 @@
+PASS  apps-grid       launch_path           none  ()  com.webos.app.discovery: the dock's tile 1, number key (evdev 2)
+PASS  apps-grid       windows                3/3  (== 3)
+PASS  apps-grid       panel_refresh        59.90  (60 Hz +-8 %)
+PASS  apps-grid       first_frame_ms        4.25  (<= 50)
+PASS  apps-grid       p90_render_ms         1.62  (< 8.33333)  56 frames
+PASS  apps-grid       p90_window_ms         2.09  (< 11.1111)  worst single window
+FAIL  apps-grid       dropped                  2  (<= 0)
+PASS  apps-grid       burst_over20             0  (<= 0)
+PASS  apps-grid       rss_growth_mb         0.00  (<= 1.01)  487 -> 487 pages over 1 cycles
+PASS  apps-grid       switches_restored number-keys, quick-access  (as found)
+PASS  apps-grid       log_errors               0  (== 0)
+PASS  apps-grid       compositor_pid       29755  (== 29755)
+PASS  home-widgets    windows                3/3  (== 3)
+PASS  home-widgets    panel_refresh        59.90  (60 Hz +-8 %)
+PASS  home-widgets    first_frame_ms       14.16  (<= 50)
+PASS  home-widgets    p90_render_ms         1.38  (< 8.33333)  18 frames
+PASS  home-widgets    p90_window_ms         1.38  (< 11.1111)  worst single window
+FAIL  home-widgets    dropped                  7  (<= 0)
+FAIL  home-widgets    burst_over20             5  (<= 0)
+PASS  home-widgets    rss_growth_mb         0.00  (<= 1.01)  487 -> 487 pages over 1 cycles
+PASS  home-widgets    log_errors               0  (== 0)
+PASS  home-widgets    compositor_pid       29755  (== 29755)
+VERDICT FAIL
+GATE frames: FAIL home-dpad NOT dropped=17 [first_frame 9.94 p90_render 1.34]; quick NOT burst_end_ms=185.8,burst_over20=3 [first_frame 20.83 burst_end 185.8 p90_render 2.26]; picker NOT burst_over20=2 [first_frame 18.3 burst_end 166.3 p90_render 1.22]; toast NOT burst_end_ms=1995.6 [first_frame 10.48 burst_end 1995.6 p90_render 0.5]; settings-scroll NOT burst_over20=9 [first_frame 15.04 p90_render 3.82]; apps-grid NOT dropped=2 [first_frame 4.25 p90_render 1.62]; home-widgets NOT dropped=7,burst_over20=5 [first_frame 14.16 p90_render 1.38] (surfaces home-dpad,quick,picker,toast,settings-scroll,apps-grid,home-widgets, 3 cycles; /tmp/lumatv-tv-out/frames.json)

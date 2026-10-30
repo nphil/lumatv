@@ -2,12 +2,11 @@
 
 ## Resume here
 
-- Installed now: forge 4bc7a078 = 740048bf (third install, 05:15); b421f486 (frames fix) is being built and installed next, then both frames gates re-run (60 Hz and 120 Hz, `--only frames --frames-quick [--refresh 120]`; read `panel_refresh` per surface first). Weather redesign 740048bf is NOT installed yet: rebuild from HEAD, install, run docs/research/weather-redesign-result.md 'TV check (round 22)'.
-- First install: forge 5afc7e41 (worktree `/tmp/lumatv-r22`, staged as `/data/home/tmp/lumatv-next`; build script `/tmp/r22-build/build22.sh`). LumaTV compositor persistent and live, helper running, Smart home listener on (6054, HA's LumaShow entry connected).
-- Newer commits (21a560e3 video windows in UI px, e81474d6 sub window) are not installed yet; rebuild and reinstall when Frames120 pushes or at 05:00, then run CameraPopup's A2/A3 and D1, SubWindow's M2, and the frames gate at 60 and 120 Hz.
-- Marquee 0.9.3: done (below). The receiver stays muted until the end of the night; unmute to 0.52 at the end.
-- Changed on the set for the night, to put back at the end: picture backlight (filmMaker/default) 0, original 80 (the 68 seen at the start was the OLED care dim in progress); `/var/lib/lumatv/helper.json` gained `cameras.testEvents` true (original kept as `helper.json.before-r22`).
-- Install procedure that worked: `cutover.sh disable` on the set, wait for "recover: Home on the panel" plus 60 s, the tv-install grant (the MCP call times out client-side at 30 s but the script keeps running; read `/tmp/lumatv-install-out/log.txt`), then `cutover.sh install` and `cutover.sh enable` over ssh (install refuses while the compositor is mounted).
+- Installed on the set: forge 888dc431 (helper d6ebdce4, compositor+ui persistent live, Home in front, panel at 120 Hz base, 6054 listening, HA LumaShow entry connected). 807b87e8 (Frames120's gate+shell change) is NOT installed.
+- End state at 06:50: backlight 80 restored, receiver unmuted 0.52, `helper.json` test events and directVideo keys removed, `cameras.popups.on` left OFF (Main's word; turn on in Settings > Cameras or POST /v1/settings/scrypted-cameras popups.on true).
+- Open: a camera pop-up (25 fps video) leaves the panel at 100 Hz (UI 50 fps) after it ends; neither fr_rate writes (1 60, 0 50, 0 60, 1 50, 1 60) nor the helper's watcher restore it, a YouTube video does (`docs/research/framerate-r22/`). VwinRefresh's newer helper (writes `1 60` while the stream plays) and Frames120's 807b87e8 gate are not tested on the set.
+- 888dc431 frames gates (pop-ups off, panel_refresh passes): 60 Hz FAIL (dropped home-dpad 17, apps-grid 2, home-widgets 7; burst_over20 quick 3, picker 2, settings-scroll 9, home-widgets 5; burst_end toast 1995 ms and quick 186 ms); 120 Hz FAIL (dropped home-dpad 20, picker 2, settings-scroll 6, apps-grid 9, home-widgets 9; burst_over20 home-dpad 1, quick 9, picker 6, settings-scroll 127, home-widgets 4; toast burst_end 1999 ms). Verdicts in `gate/`, 120 Hz rings copied to `/tmp/r22/keep/` and in `/tmp/perf/gate-c4shell-120-*.ring.json`.
+- Install procedure: `cutover.sh disable`, wait for "recover: Home on the panel" plus 60 s, the tv-install grant (MCP call times out at 30 s but runs; log `/tmp/lumatv-install-out/log.txt`), 60 s, `cutover.sh enable` over ssh (`cutover install` refuses while mounted).
 
 ## Results on 5afc7e41
 
