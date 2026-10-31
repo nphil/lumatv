@@ -4,12 +4,12 @@
 
 The compositor must issue LG tvpower requests for both directions of the physical Power key. Forwarding the key to the focused app alone does not change the power state.
 
-- Installed compositor SHA-256 prefix `65a825168ccf`: the off press requested `power/powerOff` with `reason: remoteKey`; the compositor acknowledged `PreparePowerOff (active standby)` after 90 ms. The panel went dark in about 1 s, reported by Nitin. LG recorded `Active` → `Active Standby`, not a cold shutdown.
-- The wake press 38.823 s later reached the compositor, which remained in `POWER OFF`; LG remained in `ActiveStandby`. The installed build has no wake request.
-- Staged compositor SHA-256 prefix `499f36d9baf1`: a fresh press in `POWER OFF` requests `power/powerOn` with `reason: remoteKey`. Active still requests standby. Held repeats and transitional/unknown states do not toggle power. All 20 key tests pass.
-- Not installed or measured on the TV: the installation approval expired on 2026-10-31 at 03:54 EDT. HomeLabber paused approvals; Nitin must resume them before another request. No installation step ran.
+- Previous compositor SHA-256 prefix `65a825168ccf`: the off press requested `power/powerOff` with `reason: remoteKey`; the compositor acknowledged `PreparePowerOff (active standby)` after 90 ms. The panel went dark in about 1 s, reported by Nitin. LG recorded `Active` → `Active Standby`, not a cold shutdown.
+- The wake press 38.823 s later reached that build, which remained in `POWER OFF`; LG remained in `ActiveStandby`. That build had no wake request.
+- Current compositor SHA-256 prefix `499f36d9baf1`: a fresh press in `POWER OFF` requests `power/powerOn` with `reason: remoteKey`. Active still requests standby. Held repeats and transitional/unknown states do not toggle power. All 20 key tests pass.
+- Installed on 2026-10-31 at 03:57 EDT through approved HomeLabber plan `515ecead-6ebd-4ac2-8d4f-b10213d6727a`; the installed SHA-256 matches `499f36d9baf1`. Rust compositor and UI are running; the supervisor reported two minutes healthy at 03:59. The previous build observations above remain the only physical-key results.
 
-Next: resume HomeLabber approvals, install the staged bundle through the existing compositor-swap script, start the recorder, and measure one physical off/on cycle. Confirm `PreparePowerOn`, the returning picture, and unchanged system uptime. Keep the Rust compositor; no reset of personal settings.
+Next: measure one physical off/on cycle with `powerwatch4.log` recording (started 04:00 EDT; initial state Active, uptime about 9762 s). Confirm `PreparePowerOn`, the returning picture, and unchanged system uptime. Rust UI configuration remains intact.
 
 The observations below predate the explicit power requests and remain historical evidence, not the current diagnosis.
 
