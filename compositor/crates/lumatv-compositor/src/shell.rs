@@ -1157,7 +1157,7 @@ fn spawn_client(job: SpawnJob) -> Result<Child, SpawnFailure> {
         "socket": job.socket,
     });
     let arg = json!({"event": "launch", "appId": APP_ID, "main": job.main_qml, "params": params}).to_string();
-    let log = std::fs::OpenOptions::new().create(true).append(true).open(&job.log);
+    let log = crate::childlog::pipe(&job.log);
     let mut cmd = Command::new(&job.runner);
     cmd.arg(arg)
         .env_remove("NOTIFY_SOCKET")
@@ -1182,11 +1182,11 @@ fn spawn_client(job: SpawnJob) -> Result<Child, SpawnFailure> {
         cmd.env(k, v);
     }
     match log {
-        Ok(f) => {
+        Some(f) => {
             let err = f.try_clone().map(Stdio::from).unwrap_or_else(|_| Stdio::null());
             cmd.stdout(Stdio::from(f)).stderr(err);
         }
-        Err(_) => {
+        None => {
             cmd.stdout(Stdio::null()).stderr(Stdio::null());
         }
     }

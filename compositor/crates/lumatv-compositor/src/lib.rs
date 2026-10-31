@@ -16,6 +16,7 @@ pub mod boxdim;
 pub mod buffer;
 pub mod buttons;
 pub mod capture;
+pub mod childlog;
 pub mod config;
 pub mod control;
 pub mod damage;

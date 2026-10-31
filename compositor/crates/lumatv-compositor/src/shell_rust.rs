@@ -499,7 +499,7 @@ impl State {
         };
         let _ = ours.set_nonblocking(true);
         self.shell_rust.starts.push_back(now);
-        let log = self.shell_rust.log.clone().and_then(|p| std::fs::OpenOptions::new().create(true).append(true).open(p).ok());
+        let log = self.shell_rust.log.as_deref().and_then(crate::childlog::pipe);
         let mut cmd = launch.command();
         cmd.env_remove("NOTIFY_SOCKET")
             .env_remove("LUMATV_LUNA_BRIDGE")

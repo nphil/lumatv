@@ -171,6 +171,9 @@ pub struct Shell {
     pointer_guard: Guard,
     /// The last report sent, so an unchanged one is not sent again.
     reported: Option<Value>,
+    /// The last text logged for each surface whose apply failed, and the surfaces that failed in this pass: a failure that repeats every frame is logged once.
+    apply_errs: Vec<(&'static str, String)>,
+    apply_failed_now: Vec<&'static str>,
     live: bool,
     redraw: bool,
     /// Whether any overlay (Settings, the display lab, a panel) was up at the last look, and until when Home counts it as over it, in ms (`u64::MAX`
@@ -219,6 +222,8 @@ impl Shell {
             cards_took: false,
             pointer_guard: Guard::default(),
             reported: None,
+            apply_errs: Vec::new(),
+            apply_failed_now: Vec::new(),
             live: false,
             redraw: false,
             overlay_up: false,
@@ -267,6 +272,23 @@ impl Shell {
         }
         acts.push(Act::Channel(Outbound { method: "POST", path: "/v1/ui".into(), body: Some(self.report()), tag: None }));
         acts
+    }
+
+    /// Logs a surface's failed apply when its text differs from the one logged last; the apply runs every frame and a failure that stays
+    /// (`settings: at most 96 groups`) filled the log at the frame rate.
+    fn apply_failed(&mut self, src: &'static str, text: String, acts: &mut Vec<Act>) {
+        self.apply_failed_now.push(src);
+        match self.apply_errs.iter_mut().find(|(s, _)| *s == src) {
+            Some((_, last)) if *last == text => {}
+            Some((_, last)) => {
+                *last = text.clone();
+                acts.push(Act::Log(text));
+            }
+            None => {
+                self.apply_errs.push((src, text.clone()));
+                acts.push(Act::Log(text));
+            }
+        }
     }
 
     fn carry(&mut self, effect: Effect, now: u64, acts: &mut Vec<Act>) {
@@ -919,12 +941,12 @@ impl Shell {
                 let view = self.toasts.view();
                 match self.toast_surface.apply(&mut self.kit, &view, self.volume_surface.pane_rect(), self.sys.app_front()) {
                     Ok(on) => live |= on,
-                    Err(e) => acts.push(Act::Log(format!("toasts: {e}"))),
+                    Err(e) => self.apply_failed("toasts", format!("toasts: {e}"), acts),
                 }
             }
             match self.sys.apply(&self.kinds, &mut self.kit, &mut self.engine, now) {
                 Ok(on) => live |= on,
-                Err(e) => acts.push(Act::Log(e)),
+                Err(e) => self.apply_failed("system", e.to_string(), acts),
             }
             // the pop-up's picture box is known once the card is drawn: its claim on a video window is made now, not with the next input
             if self.kinds.popup {
@@ -941,7 +963,7 @@ impl Shell {
             self.panels.set_bell(self.home.bell_frame());
             match self.panels.apply(&self.kinds, &mut self.kit, &mut self.engine, now, now_ns) {
                 Ok(on) => live |= on,
-                Err(e) => acts.push(Act::Log(e)),
+                Err(e) => self.apply_failed("panels", e.to_string(), acts),
             }
             // the places of the switcher's cards, for the compositor to move its pictures to
             for e in self.panels.take_drawn() {
@@ -950,13 +972,13 @@ impl Shell {
             if self.kinds.home {
                 match self.home_surface.apply(&mut self.kit, &mut self.engine, &mut self.home, now) {
                     Ok(on) => live |= on,
-                    Err(e) => acts.push(Act::Log(format!("home: {e}"))),
+                    Err(e) => self.apply_failed("home", format!("home: {e}"), acts),
                 }
             }
             if self.kinds.cameras {
                 match self.cameras.apply(&mut self.kit, &mut self.engine, now) {
                     Ok(on) => live |= on,
-                    Err(e) => acts.push(Act::Log(format!("cameras: {e}"))),
+                    Err(e) => self.apply_failed("cameras", format!("cameras: {e}"), acts),
                 }
             }
             if self.kinds.settings {
@@ -964,7 +986,7 @@ impl Shell {
                 let over_video = self.sys.app_front();
                 match self.settings.apply(&mut self.kit, &mut self.engine, over_video, now, now_ns) {
                     Ok(on) => live |= on,
-                    Err(e) => acts.push(Act::Log(format!("settings: {e}"))),
+                    Err(e) => self.apply_failed("settings", format!("settings: {e}"), acts),
                 }
             }
             if self.kinds.displaylab {
@@ -973,7 +995,7 @@ impl Shell {
                     Ok(on) => live |= on,
                     // a lab that cannot be seen is not run: it ends, and the screen is put back
                     Err(e) => {
-                        acts.push(Act::Log(format!("displaylab: {e}")));
+                        self.apply_failed("displaylab", format!("displaylab: {e}"), acts);
                         for fx in self.lab.close("it could not be drawn", now) {
                             self.carry(fx, now, acts);
                         }
@@ -981,6 +1003,8 @@ impl Shell {
                 }
             }
             self.live = live;
+            let failed = std::mem::take(&mut self.apply_failed_now);
+            self.apply_errs.retain(|(src, _)| failed.contains(src));
         }
         if self.started {
             let report = self.report();
@@ -1421,6 +1445,28 @@ mod tests {
         let (h, kit) = testkit::kit(1.0);
         let shell = Shell::new(kit, Kinds::parse("cameras"), 2000, &testkit::module_dir().join("icons/audio"), &json!({}), &json!({})).expect("a shell");
         (h, shell)
+    }
+
+    #[test]
+    fn a_failure_that_repeats_every_frame_is_logged_once_and_again_after_it_clears() {
+        let (_h, mut shell) = shell();
+        let mut acts = Vec::new();
+        let pass = |shell: &mut Shell, text: Option<&str>, acts: &mut Vec<Act>| {
+            if let Some(t) = text {
+                shell.apply_failed("settings", t.into(), acts);
+            }
+            let failed = std::mem::take(&mut shell.apply_failed_now);
+            shell.apply_errs.retain(|(src, _)| failed.contains(src));
+        };
+        for _ in 0..1000 {
+            pass(&mut shell, Some("settings: at most 96 groups"), &mut acts);
+        }
+        assert_eq!(acts.len(), 1);
+        pass(&mut shell, Some("settings: another"), &mut acts);
+        assert_eq!(acts.len(), 2);
+        pass(&mut shell, None, &mut acts);
+        pass(&mut shell, Some("settings: another"), &mut acts);
+        assert_eq!(acts.len(), 3, "it came back after a good frame");
     }
 
     #[test]

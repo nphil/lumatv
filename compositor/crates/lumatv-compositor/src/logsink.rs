@@ -89,7 +89,13 @@ struct Entry {
 struct Dropped {
     pending: AtomicU64,
     total: AtomicU64,
+    /// Bytes written to the file since it was last emptied.
+    written: AtomicU64,
 }
+
+/// The file is emptied once this much has been written to it: a debug run with `LUMATV_LOG=debug` or a flood of one warning would
+/// otherwise grow the supervisor's `compositor.log` on /var for as long as the compositor runs.
+pub const FILE_MAX: u64 = 8 << 20;
 
 /// A bounded, nonblocking file-log producer. `fd` is borrowed and must remain open until the logger is dropped.
 pub struct Logger {
@@ -201,8 +207,23 @@ fn write_batch(fd: RawFd, dropped: &Dropped, batch: &mut Vec<u8>) {
         batch.extend_from_slice(note.bytes());
     }
     if !batch.is_empty() {
+        if dropped.written.load(Ordering::Relaxed) + batch.len() as u64 > FILE_MAX {
+            empty_file(fd);
+            dropped.written.store(0, Ordering::Relaxed);
+        }
         write_all(fd, batch);
+        dropped.written.fetch_add(batch.len() as u64, Ordering::Relaxed);
         batch.clear();
+    }
+}
+
+/// Back to the start of an empty file; a descriptor that is not a file (a terminal, a pipe) refuses both and is left as it is.
+fn empty_file(fd: RawFd) {
+    // SAFETY: plain calls on a descriptor the logger borrows.
+    unsafe {
+        if libc::ftruncate(fd, 0) == 0 {
+            libc::lseek(fd, 0, libc::SEEK_SET);
+        }
     }
 }
 
@@ -229,4 +250,26 @@ fn write_loop(rx: Receiver<Entry>, fd: RawFd, dropped: &Dropped) {
         write_batch(fd, dropped, &mut batch);
     }
     write_batch(fd, dropped, &mut batch);
+}
+
+#[cfg(test)]
+mod size_tests {
+    use super::*;
+    use std::os::fd::AsRawFd;
+
+    #[test]
+    fn a_flood_never_takes_the_file_past_its_cap() {
+        let path = std::env::temp_dir().join(format!("lumatv-logsink-{}", std::process::id()));
+        let f = std::fs::OpenOptions::new().write(true).create(true).truncate(true).open(&path).unwrap();
+        let dropped = Dropped::default();
+        let mut batch = Vec::new();
+        let mut worst = 0;
+        for _ in 0..(3 * FILE_MAX / 4096) {
+            batch.extend_from_slice(&[b'x'; 4096]);
+            write_batch(f.as_raw_fd(), &dropped, &mut batch);
+            worst = worst.max(std::fs::metadata(&path).unwrap().len());
+        }
+        let _ = std::fs::remove_file(&path);
+        assert!(worst <= FILE_MAX, "{worst}");
+    }
 }

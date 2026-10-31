@@ -462,6 +462,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- /var no longer fills from the shell's own logs: the compositor gives the Rust and QML shell clients a pipe it copies into a log
+  capped at 1 MiB (one `.old` generation), cuts lines at 4 KiB and shrinks a larger file an earlier build left to its tail; its own
+  `compositor.log` is emptied past 8 MiB; a failing surface apply is logged once, not every frame. `shell-rust.log` had reached
+  180 MiB of the 966 MiB partition, whose LG cleanup empties unprotected files at 98 %.
+- `lumatv apply` refuses, before changing anything, unless its staged copies leave a tenth of /var (64 MiB at least) and of its
+  inodes free.
 - Rust shell: Home gets no key, OK or pointer sample while any kind above it owns input (Settings, the
   apps' keyboard, the panels, the Cameras viewer, the layout editor, the alerts); before, D-pad and OK
   under an open Settings also moved Home's dock and launched its app. One order of owners
