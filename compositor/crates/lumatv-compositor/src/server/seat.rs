@@ -333,7 +333,9 @@ fn seat_of(kb: &WlKeyboard) -> SeatId {
 }
 
 /// Delivers a key to the focused surface's client on the keyboards of `seat`, the seat of the device that sent
-/// it (C4 feeds this from evdev; the control socket and the tests use seat 0).
+/// it (C4 feeds this from evdev; the control socket and the tests use seat 0). A client with no keyboard on that seat
+/// gets it on its seat-0 keyboard: Marquee (SDL) takes only some of the per-device seats, and the remote's arrows
+/// were dropped for it (2026-10-30, 124 of 200 keys).
 pub fn send_key(state: &mut State, seat: SeatId, code: u32, pressed: bool) -> bool {
     if pressed {
         if !state.seat.pressed.contains(&(seat, code)) {
@@ -350,6 +352,12 @@ pub fn send_key(state: &mut State, seat: SeatId, code: u32, pressed: bool) -> bo
     for kb in of_client(&state.seat.keyboards, &res).filter(|k| seat_of(k) == seat) {
         kb.key(serial, time, code, if pressed { KeyState::Pressed } else { KeyState::Released });
         sent = true;
+    }
+    if !sent && seat != SeatId(0) {
+        for kb in of_client(&state.seat.keyboards, &res).filter(|k| seat_of(k) == SeatId(0)) {
+            kb.key(serial, time, code, if pressed { KeyState::Pressed } else { KeyState::Released });
+            sent = true;
+        }
     }
     state.seat.last_input = "key";
     sent
