@@ -94,6 +94,14 @@ static void say(const char *fmt, ...) {
     struct tm tm;
     char stamp[16] = "";
     if (localtime_r(&t, &tm)) strftime(stamp, sizeof stamp, "%H:%M:%S", &tm);
+    // The log is appended to by this process for as long as it runs (capture.sh rotates it at a start only), and a failing session
+    // writes about nine lines every backoff: past this much the file is emptied (a no-op where stderr is not a file).
+    static size_t wrote;
+    wrote += strlen(stamp) + strlen(line) + 18;
+    if (wrote > 256 * 1024) {
+        if (ftruncate(STDERR_FILENO, 0) != 0) { /* not a file */ }
+        wrote = 0;
+    }
     fprintf(stderr, "%s lumatv-capture: %s\n", stamp, line);
     fflush(stderr);
 }

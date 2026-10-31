@@ -466,8 +466,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   capped at 1 MiB (one `.old` generation), cuts lines at 4 KiB and shrinks a larger file an earlier build left to its tail; its own
   `compositor.log` is emptied past 8 MiB; a failing surface apply is logged once, not every frame. `shell-rust.log` had reached
   180 MiB of the 966 MiB partition, whose LG cleanup empties unprotected files at 98 %.
-- `lumatv apply` refuses, before changing anything, unless its staged copies leave a tenth of /var (64 MiB at least) and of its
-  inodes free.
+- `lumatv apply` refuses, before changing anything, unless the copies it really writes leave a tenth of /var (64 MiB at least) and
+  of its inodes free; an apply that writes nothing new is not held to it. `sm.log` and `capture.log` are bounded while the
+  supervisor and the colour reader run (256 KiB), not only when they start.
 - Rust shell: Home gets no key, OK or pointer sample while any kind above it owns input (Settings, the
   apps' keyboard, the panels, the Cameras viewer, the layout editor, the alerts); before, D-pad and OK
   under an open Settings also moved Home's dock and launched its app. One order of owners

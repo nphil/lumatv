@@ -142,6 +142,9 @@ static unsigned long inbound_token = 0;
 static double started_mono;
 static char running_path[600];
 static FILE *logf;
+#define SM_LOG_MAX (256 * 1024)
+
+static void rotate_open_log(void);
 
 static void logline(const char *fmt, ...) {
     char ts[32];
@@ -160,6 +163,7 @@ static void logline(const char *fmt, ...) {
         fprintf(logf, "\n");
         fflush(logf);
         va_end(ap);
+        rotate_open_log();
     }
 }
 
@@ -1548,10 +1552,22 @@ static void rotate_log(void) {
     struct stat st;
     char p[600], old[620];
     snprintf(p, sizeof p, "%s/sm.log", state_dir);
-    if (stat(p, &st) == 0 && st.st_size > 256 * 1024) {
+    if (stat(p, &st) == 0 && st.st_size > SM_LOG_MAX) {
         snprintf(old, sizeof old, "%s.old", p);
         rename(p, old);
     }
+}
+
+// The same bound while running: rotate_log runs once at start, and a repeated line (the power query every 10 s while it fails) grows the
+// file for as long as the supervisor lives.
+static void rotate_open_log(void) {
+    if (!logf || ftell(logf) <= SM_LOG_MAX) return;
+    char p[600], old[620];
+    snprintf(p, sizeof p, "%s/sm.log", state_dir);
+    snprintf(old, sizeof old, "%s.old", p);
+    fclose(logf);
+    rename(p, old);
+    logf = fopen(p, "a");
 }
 
 #ifdef LUMATV_SM_TEST
@@ -1996,6 +2012,15 @@ static void test_log_rotation(void) {
     free(big);
     rotate_log();
     CHECK(!has("sm.log") && has("sm.log.old"));
+    // while running: a flood of one line stays under two generations
+    fresh_state();
+    logf = fopen(path_in_state("sm.log"), "a");
+    for (int i = 0; i < 20000; i++) logline("ask_power: tvpower did not answer, retrying in 10 s (%d)", i);
+    struct stat st1, st2;
+    CHECK(stat(path_in_state("sm.log"), &st1) == 0 && st1.st_size <= SM_LOG_MAX + 512);
+    CHECK(stat(path_in_state("sm.log.old"), &st2) == 0 && st2.st_size <= SM_LOG_MAX + 512);
+    fclose(logf);
+    logf = NULL;
 }
 
 // The bridge's hang-up of a compositor that crashed: the reason is the reaped status, not the socket. A child holding

@@ -2890,11 +2890,26 @@ storage_capacity() {
   fi
 }
 
-# "kb inodes" an apply copies beside what is there: $1 = 1 when the stock assets are copied again. Each tree is counted once, which
-# is the new copy; the old one is already in the partition's used figure.
+# "kb inodes" an apply copies beside what is there. Each tree is counted once, which is the new copy; the old one is already in the
+# partition's used figure. $1 = 1 when the stock assets are copied again; $2 = 1 for what this apply really writes: the Home tree and
+# the shadow module only when they differ from what is staged, the binaries only when they differ from the staged ones, the fonts,
+# avatars and theme only where their directories are missing (otherwise each file is overwritten in place). $2 = 0 counts all of it.
 storage_need() {
   sn_kb=0; sn_n=0
-  for sn_d in "$LUMA_SRC" "$STOCK_QML_MODULE" "$LUMA_SRC" "$FONTS_SRC" "$AVATARS_SRC" "$THEME_SRC" "$HELPER_SRC" "$JPEG_SRC" "$WALL_SRC"; do
+  sn_list="$FONTS_SRC $AVATARS_SRC $THEME_SRC $HELPER_SRC $JPEG_SRC $WALL_SRC"
+  if [ "${2:-0}" -eq 1 ]; then
+    sn_list=""
+    [ -d "$FONTS_DIR" ] || sn_list="$sn_list $FONTS_SRC"
+    [ -d "$AVATARS_DIR" ] || sn_list="$sn_list $AVATARS_SRC"
+    [ -d "$THEME_DIR" ] || sn_list="$sn_list $THEME_SRC"
+    cmp -s "$HELPER_SRC" "$HELPER_BIN" 2>/dev/null || sn_list="$sn_list $HELPER_SRC"
+    cmp -s "$JPEG_SRC" "$JPEG_BIN" 2>/dev/null || sn_list="$sn_list $JPEG_SRC"
+    [ -f "$WALLPAPER_STAGE" ] && cmp -s "$WALL_SRC" "$WALLPAPER_STAGE" 2>/dev/null || sn_list="$sn_list $WALL_SRC"
+    luma_stage_current && shadow_current || sn_list="$sn_list $LUMA_SRC $STOCK_QML_MODULE $LUMA_SRC"
+  else
+    sn_list="$sn_list $LUMA_SRC $STOCK_QML_MODULE $LUMA_SRC"
+  fi
+  for sn_d in $sn_list; do
     [ -e "$sn_d" ] || continue
     sn_kb=$((sn_kb + $(du -sk "$sn_d" 2>/dev/null | cut -f1) + 4))
     sn_n=$((sn_n + $(find "$sn_d" 2>/dev/null | wc -l | tr -d ' ')))
@@ -2906,26 +2921,49 @@ storage_need() {
   printf '%s %s\n' "$sn_kb" "$sn_n"
 }
 
-# Returns 1 with the reason in $STORAGE_WHY when the peak does not fit.
-storage_guard() {
-  STORAGE_WHY=""
-  sg_cap=$(storage_capacity "$STATE") || { log_line "storage: the free space of $STATE cannot be read, not checked"; return 0; }
-  sg_need=$(storage_need "${1:-0}")
-  set -- $sg_cap $sg_need
-  sg_free=$1; sg_total=$2; sg_ifree=$3; sg_itotal=$4; sg_kb=$5; sg_n=$6
-  sg_rk=$((sg_total / 10)); [ "$sg_rk" -ge 65536 ] || sg_rk=65536
-  if [ "$sg_free" -lt $((sg_kb + sg_rk)) ]; then
-    STORAGE_WHY="not enough space in $STATE: $((sg_free / 1024)) MiB free, the apply stages $((sg_kb / 1024)) MiB and $((sg_rk / 1024)) MiB must stay free"
+# Whether the staged Home tree is what stage_luma would write now: every shipped file, the two shipped defaults and the fps flag, and
+# nothing else.
+luma_stage_current() {
+  lsc_t="$LUMA_STAGE/$QML_MODULE"
+  [ -d "$lsc_t" ] || return 1
+  [ "$(find "$LUMA_SRC" -type f 2>/dev/null | wc -l | tr -d ' ')" -eq $(( $(find "$lsc_t" -type f 2>/dev/null | wc -l | tr -d ' ') - 3 )) ] || return 1
+  ( cd "$LUMA_SRC" && find . -type f | while IFS= read -r lsc_f; do cmp -s "$lsc_f" "$lsc_t/$lsc_f" || exit 1; done ) || return 1
+  cmp -s "$THEME_SRC/theme.json" "$lsc_t/theme.default.json" && cmp -s "$THEME_SRC/layout.json" "$lsc_t/layout.default.json" || return 1
+  lsc_fps=$(cfg_get_bool fps); [ -n "$lsc_fps" ] || lsc_fps=false
+  [ "$(cat "$lsc_t/settings.json" 2>/dev/null)" = "{\"fps\":$lsc_fps}" ]
+}
+
+# True when $1 kb and $2 files leave the reserve free in blocks and in inodes; the reason in $STORAGE_WHY when they do not.
+storage_fits() {
+  if [ "$sg_free" -lt $(($1 + sg_rk)) ]; then
+    STORAGE_WHY="not enough space in $STATE: $((sg_free / 1024)) MiB free, the apply stages $(($1 / 1024)) MiB and $((sg_rk / 1024)) MiB must stay free"
     return 1
   fi
   if [ "$sg_itotal" -gt 0 ]; then
     sg_ri=$((sg_itotal / 10)); [ "$sg_ri" -ge 2000 ] || sg_ri=2000
-    if [ "$sg_ifree" -lt $((sg_n + sg_ri)) ]; then
-      STORAGE_WHY="not enough inodes in $STATE: $sg_ifree free, the apply stages $sg_n files and $sg_ri must stay free"
+    if [ "$sg_ifree" -lt $(($2 + sg_ri)) ]; then
+      STORAGE_WHY="not enough inodes in $STATE: $sg_ifree free, the apply stages $2 files and $sg_ri must stay free"
       return 1
     fi
   fi
   return 0
+}
+
+# Returns 1 with the reason in $STORAGE_WHY when the peak does not fit. Everything is counted first, which is cheap; only an apply that
+# would not fit that way is looked at closely, so that one that writes nothing new (a boot's) passes on a partition that is fuller
+# than the reserve, and one that really writes is held to the reserve.
+storage_guard() {
+  STORAGE_WHY=""
+  sg_cap=$(storage_capacity "$STATE") || { log_line "storage: the free space of $STATE cannot be read, not checked"; return 0; }
+  sg_build="${1:-0}"
+  set -- $sg_cap
+  sg_free=$1; sg_total=$2; sg_ifree=$3; sg_itotal=$4
+  sg_rk=$((sg_total / 10)); [ "$sg_rk" -ge 65536 ] || sg_rk=65536
+  set -- $(storage_need "$sg_build" 0)
+  storage_fits "$1" "$2" && return 0
+  set -- $(storage_need "$sg_build" 1)
+  [ "$1" -eq 0 ] && [ "$2" -eq 0 ] && return 0
+  storage_fits "$1" "$2"
 }
 
 # -------------------------------------------------------------------- apply
