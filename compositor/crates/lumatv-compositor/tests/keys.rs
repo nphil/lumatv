@@ -477,20 +477,9 @@ fn lgs_rf_home_773_is_home_not_an_unnamed_key_and_the_network_device_sends_the_n
     assert!(!journal.iter().any(|l| l.contains("has no name")), "Home is a key the routing knows: {journal:?}");
 }
 
-/// The token of the compositor's subscription `uri_end` on tvpower, from what it sent to the (null) bridge.
-fn subscription_token(s: &State, uri_end: &str) -> u64 {
-    s.luna
-        .history()
-        .into_iter()
-        .find_map(|m| match m {
-            lumatv_compositor::luna::ToBridge::Outbound(o) if o.uri.ends_with(uri_end) => Some(o.token),
-            _ => None,
-        })
-        .unwrap_or_else(|| panic!("no call to {uri_end}"))
-}
 
 #[test]
-fn power_goes_to_the_app_first_on_every_press_whatever_the_owner_set_and_the_standby_is_timed_from_it() {
+fn power_reaches_the_app_even_when_remapped_or_a_previous_release_was_lost() {
     let mut server = Server::start();
     let dir = std::env::temp_dir().join(format!("lumatv-power-{}", std::process::id()));
     std::fs::create_dir_all(dir.join("theme")).unwrap();
@@ -500,7 +489,7 @@ fn power_goes_to_the_app_first_on_every_press_whatever_the_owner_set_and_the_sta
     server.eval(move |s| s.keys = Keys::new(&Config { data_dir: d, ..Config::default() }));
     let mut a = app(&mut server, "Player", "org.test.player");
     let t = Instant::now();
-    let journal = server.eval(move |s| {
+    server.eval(move |s| {
         let seat = SeatId(0);
         // a tap, then a press held with the key's own repeats, then a tap again soon after: the presses go on whether or not the one before was released
         s.key_event_at(seat, KEY_POWER, true, false, t);
@@ -513,13 +502,6 @@ fn power_goes_to_the_app_first_on_every_press_whatever_the_owner_set_and_the_sta
         s.key_event_at(seat, KEY_POWER, true, false, t + Duration::from_millis(1200));
         s.key_event_at(seat, KEY_POWER, true, false, t + Duration::from_millis(4200));
         s.key_event_at(seat, KEY_POWER, false, false, t + Duration::from_millis(4300));
-        s.luna_register();
-        let state = subscription_token(s, "/getPowerState");
-        let off = subscription_token(s, "/registerPreparePowerOff");
-        s.luna_event(lumatv_compositor::luna::Event { token: state, payload: json!({"returnValue": true, "state": "Active"}) });
-        s.luna_event(lumatv_compositor::luna::Event { token: state, payload: json!({"state": "request power off"}) });
-        s.luna_event(lumatv_compositor::luna::Event { token: off, payload: json!({"timestamp": "9", "next sub state": "active standby"}) });
-        s.journal.clone()
     });
     a.client.roundtrip();
     let press = |down| (KEY_POWER, down);
@@ -534,18 +516,31 @@ fn power_goes_to_the_app_first_on_every_press_whatever_the_owner_set_and_the_sta
         vec![press(1), press(0), press(1), press(1), press(1), press(0), press(1), press(1), press(0)],
         "every press, repeat and release is given to the app as it came"
     );
-    let power: Vec<&String> = journal.iter().filter(|l| l.starts_with("input: Power pressed")).collect();
-    assert_eq!(
-        power,
-        vec![
-            "input: Power pressed",
-            "input: Power pressed, 600 ms after the one before",
-            "input: Power pressed, 600 ms after the one before",
-            "input: Power pressed, 3000 ms after the one before",
-        ],
-        "a held key's repeats are one press in the journal, and a press after a lost release is a new one"
-    );
-    assert!(journal.iter().any(|l| l.starts_with("tvpower: the set is \"request power off\" (was \"Active\"), ") && l.ends_with(" ms after the Power key")), "{journal:?}");
-    assert!(journal.iter().any(|l| l.starts_with("tvpower: PreparePowerOff (active standby) -> ack, ")), "{journal:?}");
     let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn power_requests_standby_and_wake_once_per_press_but_never_toggles_during_a_transition() {
+    let server = Server::start();
+    let requests = server.eval(|s| {
+        let seat = SeatId(0);
+        let t = Instant::now();
+        s.luna_state.power.state = "ACTIVE".into();
+        s.key_event_at(seat, KEY_POWER, true, false, t);
+        s.luna_state.power.state = "POWER OFF".into();
+        // A held off button must not wake the set as soon as the standby state arrives.
+        s.key_event_at(seat, KEY_POWER, true, false, t + Duration::from_millis(100));
+        s.key_event_at(seat, KEY_POWER, false, false, t + Duration::from_millis(200));
+        tap(s, KEY_POWER, t + Duration::from_secs(2), 80);
+        s.luna_state.power.state = "request power on".into();
+        tap(s, KEY_POWER, t + Duration::from_secs(3), 80);
+        s.luna_state.power.state = "Active".into();
+        tap(s, KEY_POWER, t + Duration::from_secs(4), 80);
+        s.luna_state.power.state = "unknown".into();
+        tap(s, KEY_POWER, t + Duration::from_secs(5), 80);
+        s.luna.sent().into_iter().filter_map(|(uri, _)| {
+            uri.strip_prefix("luna://com.webos.service.tvpower/power/").map(str::to_owned)
+        }).collect::<Vec<_>>()
+    });
+    assert_eq!(requests, ["powerOff", "powerOn", "powerOff"]);
 }

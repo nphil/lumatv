@@ -462,6 +462,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The Rust compositor requests standby and wake from LG’s power service on a fresh Power press. Held repeats do not reverse an in-progress power change.
+
 - /var no longer fills from the shell's own logs: the compositor gives the Rust and QML shell clients a pipe it copies into a log
   capped at 1 MiB (one `.old` generation), cuts lines at 4 KiB and shrinks a larger file an earlier build left to its tail; its own
   `compositor.log` is emptied past 8 MiB; a failing surface apply is logged once, not every frame. `shell-rust.log` had reached

@@ -1,15 +1,17 @@
-# Power key: slow standby, repeated presses, set gone from the network (2026-10-30, installed 93496e61)
+# Power key: standby and wake on the Rust compositor
 
 ## Resume here
 
-Nothing in the compositor's code path can hold the Power key or the standby for seconds, so the cause of the 20:28 report is **not found**. Written
-without the set (off the network). Built on forge main after `68f5b6ca`:
+The compositor must issue LG tvpower requests for both directions of the physical Power key. Forwarding the key to the focused app alone does not change the power state.
 
-- Power is the first thing `State::key_event_at` handles (`input.rs`, `power_key`): given to the focused window at once, press, repeats and release;
-  then the screen's care hears of it. The owner's button choices (`buttons::protected`), the key router and the Rust shell's layers (the saver's
-  "any key", `took` entries) no longer see it, so no press can wait on an earlier press's release.
-- The journal now times the standby from the key: `input: Power pressed[, N ms after the one before]`, `tvpower: the set is "X" (was "Y"), N ms after the
-  Power key`, `tvpower: PreparePowerOff (...) -> ack, N ms after the Power key`. Host test `keys::power_goes_to_the_app_first_on_every_press_...`.
+- Installed compositor SHA-256 prefix `65a825168ccf`: the off press requested `power/powerOff` with `reason: remoteKey`; the compositor acknowledged `PreparePowerOff (active standby)` after 90 ms. The panel went dark in about 1 s, reported by Nitin. LG recorded `Active` → `Active Standby`, not a cold shutdown.
+- The wake press 38.823 s later reached the compositor, which remained in `POWER OFF`; LG remained in `ActiveStandby`. The installed build has no wake request.
+- Staged compositor SHA-256 prefix `499f36d9baf1`: a fresh press in `POWER OFF` requests `power/powerOn` with `reason: remoteKey`. Active still requests standby. Held repeats and transitional/unknown states do not toggle power. All 20 key tests pass.
+- Not installed or measured on the TV: the installation approval expired on 2026-10-31 at 03:54 EDT. HomeLabber paused approvals; Nitin must resume them before another request. No installation step ran.
+
+Next: resume HomeLabber approvals, install the staged bundle through the existing compositor-swap script, start the recorder, and measure one physical off/on cycle. Confirm `PreparePowerOn`, the returning picture, and unchanged system uptime. Keep the Rust compositor; no reset of personal settings.
+
+The observations below predate the explicit power requests and remain historical evidence, not the current diagnosis.
 
 ### TV check (next slot, set on, LumaTV compositor persistent, Home in front, pop-ups off)
 
