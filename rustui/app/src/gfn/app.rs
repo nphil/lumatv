@@ -1280,6 +1280,8 @@ impl App {
             if ready && !self.start_asked && !self.has_pending("streamer.start") {
                 self.next_poll_ms = 0;
                 self.start_asked = true;
+                // what the server granted, which decides whether the cloud PC turns HDR on for the game (stderr is the app's log)
+                eprintln!("gfn: session ready: negotiated {} requested sdrHdrMode {}", value["negotiatedStreamProfile"], value["sessionRequestData"]["sdrHdrMode"]);
                 return vec![Self::req("streamer.start", json!({"session": value, "surface": {"visible": true, "rect": {"x": 0, "y": 0, "width": 1920, "height": 1080}}}))];
             }
             self.next_poll_ms = self.now_ms + POLL_SESSION_MS;
