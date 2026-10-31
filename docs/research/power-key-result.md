@@ -7,9 +7,9 @@ The compositor must issue LG tvpower requests for both directions of the physica
 - Previous compositor SHA-256 prefix `65a825168ccf`: the off press requested `power/powerOff` with `reason: remoteKey`; the compositor acknowledged `PreparePowerOff (active standby)` after 90 ms. The panel went dark in about 1 s, reported by Nitin. LG recorded `Active` → `Active Standby`, not a cold shutdown.
 - The wake press 38.823 s later reached that build, which remained in `POWER OFF`; LG remained in `ActiveStandby`. That build had no wake request.
 - Current compositor SHA-256 prefix `499f36d9baf1`: a fresh press in `POWER OFF` requests `power/powerOn` with `reason: remoteKey`. Active still requests standby. Held repeats and transitional/unknown states do not toggle power. All 20 key tests pass.
-- Installed on 2026-10-31 at 03:57 EDT through approved HomeLabber plan `515ecead-6ebd-4ac2-8d4f-b10213d6727a`; the installed SHA-256 matches `499f36d9baf1`. Rust compositor and UI are running; the supervisor reported two minutes healthy at 03:59. The previous build observations above remain the only physical-key results.
-
-Next: measure one physical off/on cycle with `powerwatch4.log` recording (started 04:00 EDT; initial state Active, uptime about 9762 s). Confirm `PreparePowerOn`, the returning picture, and unchanged system uptime. Rust UI configuration remains intact.
+- Installed on 2026-10-31 at 03:57 EDT through approved HomeLabber plan `515ecead-6ebd-4ac2-8d4f-b10213d6727a`; the installed SHA-256 matches `499f36d9baf1`. Rust compositor and UI are running; the supervisor reported two minutes healthy at 03:59.
+- Physical cycle at 04:02 EDT in `powerwatch4.log`: standby acknowledged after 105 ms; the wake press requested `powerOn`, acknowledged `PreparePowerOn` after 19 ms, and received ACTIVE after 85 ms. Uptime continued from 9877 s through 9887 s. Nitin confirmed both directions work well; a second standby was acknowledged after 84 ms. These are handshake timings, not measured panel response times.
+- AVR synchronization remains separate: HA recorded the AVR on throughout TV standby. Current TV settings read `other.simplinkEnable=off`, `other.simplinkAutoPowerOn=on`, `sound.hdmiArcMode=off`, `sound.eArcSupport=on`. Restore HDMI control first, then measure both device states across repeated cycles.
 
 The observations below predate the explicit power requests and remain historical evidence, not the current diagnosis.
 
