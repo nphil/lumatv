@@ -33,9 +33,10 @@ pub const BUTTONS: [(&str, u32); 8] = [
     ("more", KEY_MORE),
 ];
 
-/// Codes no choice reaches: Home (its hold is the escape to LG's compositor) and the pointer's own reports, which are no keys.
+/// Codes no choice reaches: Home (its hold is the escape to LG's compositor), Power (nothing here may take it or hold it up) and the pointer's
+/// own reports, which are no keys.
 pub fn protected(code: u32) -> bool {
-    matches!(code, KEY_HOME | KEY_HOMEPAGE | KEY_RF_HOME | KEY_POINTER_ALIVE | KEY_CURSOR_OFF)
+    matches!(code, KEY_HOME | KEY_HOMEPAGE | KEY_RF_HOME | KEY_POWER | KEY_POINTER_ALIVE | KEY_CURSOR_OFF)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -275,5 +276,15 @@ mod tests {
             assert_eq!(m.decide(c, &t, ""), Decision::Pass);
         }
         assert_eq!(m.decide(KEY_RED, &t, ""), Decision::Pass);
+    }
+
+    #[test]
+    fn power_is_never_remapped_taken_or_acted_as() {
+        let t = KeyTable::default();
+        let m = map(json!({"code:116": "nothing", "red": "as:code:116", "green": "home"}));
+        assert_eq!(m.chosen(), vec![("green", "home".to_string())], "no entry for Power, and none that acts as it by its code");
+        assert_eq!(m.decide(KEY_POWER, &t, ""), Decision::Pass);
+        assert_eq!(m.decide(KEY_RED, &t, ""), Decision::Pass);
+        assert!(!m.knows(KEY_POWER, &t));
     }
 }

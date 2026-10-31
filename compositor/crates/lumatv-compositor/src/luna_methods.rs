@@ -177,11 +177,19 @@ impl State {
             return;
         };
         if round == "PowerState" {
+            // The standby's timeline: each state tvpower goes through, from the Power key (the rounds below are its asks of the compositor).
+            let was = self.luna_state.power.state.clone();
             self.luna_state.power.on_state(&ev.payload);
+            if self.luna_state.power.state != was {
+                let line = format!("tvpower: the set is {:?} (was {was:?}){}", self.luna_state.power.state, self.since_power_key());
+                self.journal(line);
+            }
             return;
         }
         if let Some((uri, payload)) = self.luna_state.power.on_push(round, &ev.payload) {
-            self.journal(format!("tvpower: {round} ({}) -> ack", ev.payload.get("next sub state").and_then(Value::as_str).unwrap_or("")));
+            let next = ev.payload.get("next sub state").and_then(Value::as_str).unwrap_or("");
+            let line = format!("tvpower: {round} ({next}) -> ack{}", self.since_power_key());
+            self.journal(line);
             // the user's panel brightness goes back before the answer that lets the TV power down (`paneldim`)
             if !self.luna_state.power.rendering {
                 self.panel_standby();

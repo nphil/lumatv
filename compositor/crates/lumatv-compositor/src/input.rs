@@ -47,6 +47,9 @@ pub mod code {
     pub const KEY_MUTE: u32 = 113;
     pub const KEY_VOLUMEDOWN: u32 = 114;
     pub const KEY_VOLUMEUP: u32 = 115;
+    /// The remote's Power key (`KEY_POWER`). LG starts the standby below the compositor (`KeyEntryPoints.json`: no handler in its chain); the
+    /// compositor only forwards the key to the focused window, first of all ([`State::power_key`]).
+    pub const KEY_POWER: u32 = 116;
     /// The gear, `IR_KEY_MENU`: the gate's quick-settings step injects it, and LG's own key chain hands this very code to YouTube.
     pub const KEY_MENU: u32 = 139;
     /// The Input key (`TV_VIDEO`, `Key_webOS_InputSource`): read off this set's remote in round 8.
@@ -61,6 +64,9 @@ pub mod code {
     /// The pulse (1198, CUSTOM_KEY_CURSOR_ON, down and up) the same remote sends every 0.5 s while its pointer is active, to keep it alive: no key at all.
     pub const KEY_POINTER_ALIVE: u32 = 1198;
 }
+
+/// A Power key still down this long after its press is held; one pressed again after more is a new press (its release was lost).
+const POWER_REPEAT_WINDOW: Duration = Duration::from_secs(2);
 
 /// How long Home is held for the escape to LG's compositor (PLAN: 650 ms).
 pub const HOLD_HOME: Duration = Duration::from_millis(650);
@@ -362,6 +368,10 @@ pub struct Keys {
     theme: ThemeFile,
     /// Codes in LG's own range that the key table has no name for, once each: a button of this remote it lacks.
     pub unnamed: Vec<u32>,
+    /// The last fresh press of the Power key, and whether it is still down: what the standby's lines in the journal are measured from
+    /// ([`State::since_power_key`]).
+    power_at: Option<Instant>,
+    power_held: bool,
 }
 
 /// The theme file the app buttons are read from, and what it was when last read.
@@ -451,6 +461,12 @@ impl State {
                 return;
             }
             _ => {}
+        }
+        // Power comes before everything that could hold it up or take it: the owner's button choices, the routing, the shell's layers and
+        // the screen's care. The standby itself is LG's, below the compositor.
+        if code == code::KEY_POWER {
+            self.power_key(seat, pressed, now);
+            return;
         }
         // Told over LG's Input Manager queue that the pointer shows (`im_queue`), lginput2 sends the wheel's press as the mouse button, BTN_LEFT, in
         // place of KEY_ENTER (entries 0 and 185 of its key table). It is the same OK: a click while the pointer shows, the key when it hid first.
@@ -558,6 +574,42 @@ impl State {
             Route::System => self.system_key(code, pressed),
         }
         self.seat.last_input = "key";
+    }
+
+    /// The Power key: given to the focused window now, press, repeats and release alike, then noted. It is not the owner's to remap (`buttons::protected`)
+    /// and no layer of the shell takes it, so a press can never be left waiting on the release of an earlier one. The care of the screen (the
+    /// panel's brightness put back, the saver's idle clock) hears of it after the key has gone.
+    fn power_key(&mut self, seat: seat::SeatId, pressed: bool, now: Instant) {
+        if seat::send_key(self, seat, code::KEY_POWER, pressed) {
+            self.keys.delivered += 1;
+        } else {
+            self.keys.dropped += 1;
+        }
+        if pressed {
+            // A press whose release was lost (the set went to standby under it) must not make the next one look like a repeat.
+            let repeat = self.keys.power_held && self.keys.power_at.is_some_and(|t| now.saturating_duration_since(t) < POWER_REPEAT_WINDOW);
+            if !repeat {
+                let before = self.keys.power_at.map(|t| now.saturating_duration_since(t).as_millis());
+                self.keys.power_at = Some(now);
+                self.keys.power_held = true;
+                self.journal(match before {
+                    Some(ms) => format!("input: Power pressed, {ms} ms after the one before"),
+                    None => "input: Power pressed".into(),
+                });
+            }
+        } else {
+            self.keys.power_held = false;
+        }
+        self.care_input();
+        self.seat.last_input = "key";
+    }
+
+    /// ", N ms after the Power key" for a journal line about the standby, when the key was pressed in the last minute.
+    pub(crate) fn since_power_key(&self) -> String {
+        match self.keys.power_at.map(|t| t.elapsed()) {
+            Some(d) if d < Duration::from_secs(60) => format!(", {} ms after the Power key", d.as_millis()),
+            _ => String::new(),
+        }
     }
 
     /// Called every tick: a Home held 650 ms is the escape to LG's compositor (PLAN); the holds of the remote's own keys come
