@@ -99,12 +99,13 @@ fn snap<T: Copy + Into<i64>>(ladder: &[T], value: i64) -> T {
 impl Prefs {
     /// The core's `settings.set` parameters: the tier, HDR with the codec and colour depth it needs, the bitrate cap, both sticks' dead
     /// zone, and what only this platform can say (the video backend is the feeder's). HDR names HEVC: the streamer reads "auto" as H264,
-    /// which refuses every HDR stream; without HDR the codec is left to the core's resolver.
+    /// which refuses every HDR stream; without HDR the codec is left to the core's resolver. The core takes only lowercase codec names
+    /// (anything else is clamped to auto).
     pub fn settings(&self) -> Value {
         json!({
             "resolution": self.tier.resolution(),
             "fps": self.tier.fps(),
-            "codec": if self.hdr { "H265" } else { "auto" },
+            "codec": if self.hdr { "h265" } else { "auto" },
             "colorQuality": if self.hdr { "10bit_420" } else { "8bit_420" },
             "enableHdr": self.hdr,
             "maxBitrateMbps": self.bitrate_mbps,
@@ -237,7 +238,8 @@ impl Row {
     pub fn keys(self) -> &'static [&'static str] {
         match self {
             Row::Stream => &["resolution", "fps"],
-            Row::Hdr => &["enableHdr", "colorQuality"],
+            // the colour depth goes before the codec: the core refuses a codec the saved depth cannot use
+            Row::Hdr => &["enableHdr", "colorQuality", "codec"],
             Row::Bitrate => &["maxBitrateMbps"],
             Row::Deadzone => &["controllerLeftStickDeadzone", "controllerRightStickDeadzone"],
             Row::Stats | Row::SignOut => &[],
@@ -259,7 +261,7 @@ mod tests {
         assert_eq!((s["resolution"].as_str(), s["fps"].as_u64()), (Some("3840x2160"), Some(120)));
         assert_eq!((s["enableHdr"].as_bool(), s["colorQuality"].as_str()), (Some(true), Some("10bit_420")));
         assert_eq!((s["maxBitrateMbps"].as_u64(), s["controllerLeftStickDeadzone"].as_u64(), s["controllerRightStickDeadzone"].as_u64()), (Some(80), Some(8), Some(8)));
-        assert_eq!(s["codec"].as_str(), Some("H265"), "HDR needs HEVC: the streamer reads auto as H264");
+        assert_eq!(s["codec"].as_str(), Some("h265"), "HDR needs HEVC: the streamer reads auto as H264");
     }
 
     #[test]
