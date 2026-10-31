@@ -193,15 +193,22 @@ fn has_bit(words: &[u64], bit: u32) -> bool {
     words.get((bit / 64) as usize).is_some_and(|w| w & (1u64 << (bit % 64)) != 0)
 }
 
+/// LG's own input nodes ("Smart Remote RCU Input", "LGE Network Input" and the remotes) declare every key and every axis, so they pass
+/// the gamepad test; read and grabbed as pads they were extra controllers in the game beside the real one.
+fn lg_virtual(name: &str) -> bool {
+    name.starts_with("LGE ") || name.contains("Smart Remote")
+}
+
 pub fn node_facts(sys_dir: &Path, node: &str) -> NodeFacts {
     let dev = sys_dir.join(node).join("device");
     let ev = capability_words(&read_trim(&dev.join("capabilities/ev")));
     let key = capability_words(&read_trim(&dev.join("capabilities/key")));
     let ff = capability_words(&read_trim(&dev.join("capabilities/ff")));
+    let name = read_trim(&dev.join("name"));
     NodeFacts {
-        name: read_trim(&dev.join("name")),
+        gamepad: !lg_virtual(&name) && has_bit(&ev, u32::from(EV_KEY)) && has_bit(&ev, u32::from(EV_ABS)) && has_bit(&key, u32::from(BTN_SOUTH)),
+        name,
         uniq: read_trim(&dev.join("uniq")),
-        gamepad: has_bit(&ev, u32::from(EV_KEY)) && has_bit(&ev, u32::from(EV_ABS)) && has_bit(&key, u32::from(BTN_SOUTH)),
         rumble: has_bit(&ev, u32::from(EV_FF)) && has_bit(&ff, u32::from(FF_RUMBLE)),
     }
 }
