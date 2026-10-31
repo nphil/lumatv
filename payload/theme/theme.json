@@ -200,7 +200,7 @@
     "standbyHours": 4
   },
   "oledcare": {
-    "enabled": false,
+    "enabled": true,
     "orbitPx": 3,
     "stepSec": 30,
     "dimAfterMin": 5,

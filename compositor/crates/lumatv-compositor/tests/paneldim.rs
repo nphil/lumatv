@@ -190,6 +190,29 @@ fn an_idle_home_dims_the_panel_not_the_picture_and_the_plane_still_takes_it_whol
 }
 
 #[test]
+fn with_nothing_set_in_the_theme_an_idle_home_dims_the_panel_to_the_shipped_level_and_a_key_brings_it_back() {
+    let tv = Stand::new(80);
+    let mut server = quiet_server(&tv);
+    let _home = home(&mut server);
+    let t = server.eval(|s| {
+        assert!(s.scene.care.enabled(), "the care is on until the theme says otherwise");
+        // the shipped care: still for 5 minutes, then 10 minutes down to 0.85
+        let t = run(s, monotonic_ns(), 500);
+        let t = run(s, t, 17 * 60_000);
+        assert_eq!(s.scene.care.home_want(), 0.85, "{}", s.scene.care.status(t));
+        t
+    });
+    assert_eq!(tv.value(), 68, "round(80 x 0.85)");
+    server.eval(move |s| {
+        s.care_input();
+        deliver(s);
+        deliver(s);
+        run(s, t, 1_000);
+    });
+    assert_eq!(tv.value(), 80);
+}
+
+#[test]
 fn a_key_puts_the_value_back_and_the_journal_goes() {
     let tv = Stand::new(80);
     let mut server = quiet_server(&tv);

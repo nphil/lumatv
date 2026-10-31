@@ -20,8 +20,8 @@ PageList {
     readonly property string zoneName: typeof zone === "string" ? zone : (zone.City || zone.ZoneID || "")
     readonly property var theme: Lu.theme || ({})
     function patch(p) { if (host) host.patch(p) }
-    // One of LumaTV's panel-care switches (theme `oledcare`, read by the compositor within 2 s; each feature is off in the shipped theme until its TV check has passed).
-    // A switch whose feature is not built yet still writes its key. `dflt` is what the compositor does while the theme says nothing (panelDim: on).
+    // One of LumaTV's panel-care switches (theme `oledcare`, read by the compositor within 2 s; the care and the panel dim are on in the shipped theme, the rest are off until their TV checks have passed).
+    // A switch whose feature is not built yet still writes its key. `dflt` is what the compositor does while the theme says nothing (the care and panelDim: on).
     function careRow(key, icon, label, help, dflt) {
         return { kind: "toggle", tab: 2, icon: icon, label: label, help: help,
                  on: function() {
@@ -113,7 +113,7 @@ PageList {
                                                                       help: "Suggests a picture setting for eye strain or the room, from how the TV is watched." })),
 
         R.head("LumaTV panel care", 2),
-        page.careRow("enabled", "shield-check", "Protect LumaTV screens", "Moves LumaTV's own screens a pixel now and then and dims Home when it sits idle."),
+        page.careRow("enabled", "shield-check", "Protect LumaTV screens", "Moves LumaTV's own screens a pixel now and then and dims Home when it sits idle.", true),
         page.careRow("appDim", "sun-medium", "Dim still apps", "Dims an app a little when its picture has not changed for a few minutes. Video and any key bring it back."),
         page.careRow("appShift", "waves", "Shift still apps", "Slowly moves an app's picture a few pixels while it sits still. A key or video puts it back."),
         page.careRow("boxDim", "sun-dim", "Dim bright still areas", "Dims only the bright parts of a picture that stays still, such as menu boxes. Video is never touched."),

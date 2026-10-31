@@ -46,8 +46,9 @@ pub mod z {
     pub const CAPTURE: i32 = 180;
 }
 
-/// The client name the saver votes on tvpower's lists with.
-const SAVER_CLIENT: &str = "org.nphil.lumatv.saver";
+/// The client name the saver votes on tvpower's lists with: the app id the QML vote used on the set (`SaverVote.qml`, `LS.appId`, the name LG's own
+/// compositor registers under). A name of its own was never seen on the set's lists.
+const SAVER_CLIENT: &str = "org.nphil.lumatv";
 
 /// The tag the layout editor's write of `layout.overlays` comes back with.
 pub const LAYOUT_TAG: u64 = 0x5359_0300;

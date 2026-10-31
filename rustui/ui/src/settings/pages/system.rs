@@ -2,7 +2,7 @@
 //! rest of LG's Settings is; five tabs. Keys and categories are the ones LG's own Settings app uses. TV information, the software update,
 //! privacy, self-diagnosis and reset are the Support page, the locks' state the Safety page; what is left in LG's app (the account, the
 //! apps, the channel lists) is behind the one row that opens it. The OLED care tab holds LG's own panel care and, under a head of its own,
-//! LumaTV's (the theme's `oledcare` keys, read by the compositor within two seconds; each is off until its TV check has passed).
+//! LumaTV's (the theme's `oledcare` keys, read by the compositor within two seconds; the care and the panel dim are on, the rest are off until their TV checks have passed).
 
 use super::util::{atsc3, atsc3_read, panel_hours, panel_reads, panel_shown};
 use crate::host::power::SLEEP_LABELS;
@@ -60,7 +60,7 @@ fn timer_text(c: &Ctx, which: &str) -> String {
 }
 
 /// The switches of `oledcare` that are on when the theme does not say (the compositor's own defaults, `paneldim::Settings`).
-const CARE_ON_BY_DEFAULT: &[&str] = &["panelDim"];
+const CARE_ON_BY_DEFAULT: &[&str] = &["enabled", "panelDim"];
 
 /// One of LumaTV's panel-care switches (the theme's `oledcare`).
 fn care(c: &Ctx, key: &str, icon: &str, label: &str, help: &str) -> Row {

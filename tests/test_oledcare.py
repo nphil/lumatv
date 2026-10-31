@@ -24,8 +24,9 @@ HELPER = os.path.join(ROOT, "helper", "app", "src")
 # The switches of the care, in the order of the group, with what the Settings row is called.
 SWITCHES = [("enabled", "Protect LumaTV screens"), ("appDim", "Dim still apps"), ("appShift", "Shift still apps"), ("boxDim", "Dim bright still areas"),
             ("panelDim", "Dim with the panel"), ("refreshGuard", "Protect panel refresh")]
-# The switch that is on in what ships: it fails safe (the GPU dim and the saver's own dim take over when the panel cannot be dimmed).
-ON_BY_DEFAULT = {"panelDim"}
+# The switches that are on in what ships: the care's own (an idle Home dims without anyone turning it on) and the panel dim, which fails safe
+# (the GPU dim and the saver's own dim take over when the panel cannot be dimmed).
+ON_BY_DEFAULT = {"enabled", "panelDim"}
 
 
 def read(path):
@@ -60,11 +61,11 @@ class OledCare(unittest.TestCase):
     theme = json.loads(read(THEME))
     rust = read(RUST)
 
-    def test_the_shipped_theme_is_off_and_says_what_the_compositor_defaults_to(self):
+    def test_the_shipped_theme_says_what_the_compositor_defaults_to(self):
         care = self.theme["oledcare"]
         for key, _ in SWITCHES:
-            self.assertIs(care[key], key in ON_BY_DEFAULT, "%s: off until its TV check has passed (the panel dim fails safe and is on)" % key)
-        m = re.search(r"Settings \{\s*enabled: false,\s*radius: (\d+),\s*step_ns: (\d+) \* SEC,\s*dim_after_ns: (\d+) \* 60 \* SEC,\s*"
+            self.assertIs(care[key], key in ON_BY_DEFAULT, "%s: on only where ON_BY_DEFAULT says (the care and the panel dim); the app and box features are off until their TV checks pass" % key)
+        m = re.search(r"Settings \{\s*enabled: true,\s*radius: (\d+),\s*step_ns: (\d+) \* SEC,\s*dim_after_ns: (\d+) \* 60 \* SEC,\s*"
                       r"dim_over_ns: (\d+) \* 60 \* SEC,\s*dim_floor: ([0-9.]+),\s*app_dim: false,\s*app_shift: false,\s*app_after_ns: (\d+) \* 60 \* SEC,\s*"
                       r"app_floor: ([0-9.]+),", self.rust)
         self.assertTrue(m, "the Default of Settings")
@@ -141,7 +142,7 @@ class OledCare(unittest.TestCase):
         self.assertTrue(5 <= floor <= 30, "the panel is never taken to a dark screen, nor kept at full light")
         # the Rust Settings page and the QML one say the same about what is on without a key in the theme
         system_rs = read(os.path.join(ROOT, "rustui", "ui", "src", "settings", "pages", "system.rs"))
-        self.assertIn('CARE_ON_BY_DEFAULT: &[&str] = &["panelDim"]', system_rs)
+        self.assertIn('CARE_ON_BY_DEFAULT: &[&str] = &["enabled", "panelDim"]', system_rs)
 
     def test_the_row_for_lumatvs_screens_is_not_left_behind_on_the_screensaver_tab(self):
         text = read(LOOK)

@@ -1509,6 +1509,25 @@ mod tests {
     }
 
     #[test]
+    fn the_saver_votes_when_home_is_in_front_is_up_once_tvpower_asks_and_any_key_ends_it() {
+        let (_h, mut shell) = home_shell("home,saver");
+        let acts = shell.tick(1_100);
+        let _ = acts;
+        assert_eq!(shell.state()["saverState"]["vote"]["want"], true, "{}", shell.state()["saverState"]);
+        // tvpower takes both lists, then asks on the first: the answer is no, and the saver is up
+        for tag in [0x5359_0010u64, 0x5359_0011] {
+            shell.channel(&Event::Topic { topic: "luna".into(), data: json!({"tag": tag, "payload": {"returnValue": true, "subscribed": true}}) }, 1_200);
+        }
+        assert_eq!(shell.state()["saverState"]["vote"]["registered"], true);
+        shell.channel(&Event::Topic { topic: "luna".into(), data: json!({"tag": 0x5359_0010u64, "payload": {"returnValue": true, "timestamp": "1"}}) }, 180_000);
+        shell.tick(180_050);
+        assert_eq!(shell.state()["saver"], true, "the question was answered no: {}", shell.state()["saverState"]);
+        assert_eq!(shell.state()["saverState"]["owned"], true);
+        key(&mut shell, "left", 181_000);
+        assert_eq!(shell.state()["saver"], false, "a key ends it");
+    }
+
+    #[test]
     fn an_app_that_opens_from_home_shows_the_launch_screen_after_the_compositors_wait_and_tells_it_where_the_icon_is_and_it_goes_when_the_app_has_the_front() {
         let (_h, mut shell) = home_shell("home");
         shell.channel(&Event::Topic { topic: "transitions".into(), data: json!({"on": true, "reduced": false}) }, 1_020);

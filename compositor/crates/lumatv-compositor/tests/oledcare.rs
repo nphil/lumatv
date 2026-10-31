@@ -57,11 +57,14 @@ fn quiet_server() -> Server {
 }
 
 #[test]
-fn off_by_default_nothing_moves_and_nothing_dims() {
+fn switched_off_nothing_moves_and_nothing_dims() {
     let mut server = quiet_server();
     let _home = shown(&mut server, true, "_WEBOS_WINDOW_TYPE_LUMATV_HOME", "LumaHome", 0xff00_00ff);
     let _sys = shown(&mut server, false, "_WEBOS_WINDOW_TYPE_LUMATV_SYSTEM", "System", 0xff00_ff00);
     server.eval(|s| {
+        // on in the shipped defaults (an idle Home dims without anyone turning the care on); the theme's `enabled: false` is this
+        assert!(s.scene.care.enabled());
+        s.scene.care.settings.enabled = false;
         let base = monotonic_ns();
         for k in 0..100 {
             let got = items(s, base + k * 40 * SEC);
@@ -404,8 +407,8 @@ fn the_app_features_are_independent_of_each_other_the_shells_switch_and_the_save
     server.eval(|s| {
         // The shell's own care is off; only the dim is on: no shift.
         app_on(s);
+        s.scene.care.settings.enabled = false;
         s.scene.care.settings.app_shift = false;
-        assert!(!s.scene.care.enabled());
         let mut t = monotonic_ns();
         card_at(s, t);
         t = engage(s, t);

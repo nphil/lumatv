@@ -1,4 +1,4 @@
-//! OLED care: what the compositor does so LumaTV's own static screens do not wear the panel (`theme.oledcare`, off until switched on).
+//! OLED care: what the compositor does so LumaTV's own static screens do not wear the panel (`theme.oledcare`, on unless the theme says `enabled: false`).
 //!
 //! Two things, both on LumaTV's two shell windows (`ShellHome`, `ShellSystem`) and on nothing else: an app's picture, a video and the
 //! moving wallpaper's plane are never moved or dimmed.
@@ -94,7 +94,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Settings {
-            enabled: false,
+            enabled: true,
             radius: 3,
             step_ns: 30 * SEC,
             dim_after_ns: 5 * 60 * SEC,
@@ -304,6 +304,8 @@ impl Care {
             "dim": [self.dim(0), self.dim(1)],
             // what Home's ease asks of the panel while `panelDim` carries it (`dim` is what is drawn: 1 then)
             "homeWant": self.home_want(),
+            // how long Home has been still: a count that stays near 0 on an idle Home says something keeps resetting it (a key, the pointer, commits)
+            "homeStillSec": if self.layers[0].shown { now_ns.saturating_sub(self.layers[0].still_since_ns) / SEC } else { 0 },
             "beats": self.beats,
             "appDim": {"enabled": self.settings.app_dim, "level": self.app_dim(), "to": self.settings.app_floor, "afterMin": self.settings.app_after_ns / (60 * SEC)},
             "appShift": {"enabled": self.settings.app_shift, "offset": [a.0, a.1]},
@@ -557,9 +559,10 @@ mod tests {
     }
 
     #[test]
-    fn the_theme_block_is_read_clamped_and_off_by_default() {
+    fn the_theme_block_is_read_clamped_and_on_by_default() {
         assert_eq!(Settings::from_theme(&json!({})), Settings::default());
-        assert!(!Settings::default().enabled);
+        assert!(Settings::default().enabled, "an idle Home dims without anyone having turned the care on");
+        assert!(!Settings::from_theme(&json!({"oledcare": {"enabled": false}})).enabled);
         let s = Settings::from_theme(&json!({"oledcare": {"enabled": true, "orbitPx": 9, "stepSec": 1, "dimAfterMin": 3, "dimOverMin": 20, "dimTo": 0.1}}));
         assert_eq!((s.enabled, s.radius, s.step_ns, s.dim_after_ns, s.dim_over_ns), (true, 4, 10 * SEC, 3 * MIN, 20 * MIN));
         assert_eq!(s.dim_floor, MIN_DIM_TO, "a dim too deep for the text to read is held at its floor");
@@ -673,8 +676,10 @@ mod tests {
         assert!(levels.iter().all(|l| ((f64::from(*l) * 100.0).round() / 100.0 - f64::from(*l)).abs() < 1e-6), "hundredths");
         assert_eq!(c.dim(0), 0.8, "{levels:?}");
         assert_eq!(c.dim(1), 1.0, "the system layer holds cameras and prompts: not dimmed");
+        assert!(c.status(t)["homeStillSec"].as_u64().unwrap() >= 120, "{}", c.status(t));
         c.input(t);
         assert_eq!(c.dim(0), 1.0, "a key");
+        assert_eq!(c.status(t)["homeStillSec"], 0);
         // Dim again, one commit a beat is a clock, not movement.
         let mut commits = 0;
         for _ in 0..40 {
@@ -740,23 +745,23 @@ mod tests {
     }
 
     #[test]
-    fn the_theme_file_is_read_when_it_changes_and_a_missing_one_is_off() {
+    fn the_theme_file_is_read_when_it_changes_and_a_missing_one_is_the_shipped_defaults() {
         let dir = std::env::temp_dir().join(format!("oledcare-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("theme")).unwrap();
         let mut c = Care::new(&dir);
         c.refresh(10 * SEC);
-        assert!(!c.enabled(), "no file");
-        std::fs::write(dir.join("theme/theme.json"), r#"{"oledcare": {"enabled": true, "orbitPx": 2}}"#).unwrap();
+        assert!(c.enabled(), "no file: the shipped defaults, the care on");
+        std::fs::write(dir.join("theme/theme.json"), r#"{"oledcare": {"enabled": false, "orbitPx": 2}}"#).unwrap();
         c.refresh(10 * SEC + SEC);
-        assert!(!c.enabled(), "looked at a second ago: the poll is 2 s");
+        assert!(c.enabled(), "looked at a second ago: the poll is 2 s");
         c.refresh(13 * SEC);
-        assert!(c.enabled() && c.settings.radius == 2);
+        assert!(!c.enabled() && c.settings.radius == 2);
         std::fs::write(dir.join("theme/theme.json"), "{ not json").unwrap();
         c.refresh(16 * SEC);
-        assert!(c.enabled(), "unreadable now: what was read stays");
+        assert!(!c.enabled(), "unreadable now: what was read stays");
         std::fs::remove_file(dir.join("theme/theme.json")).unwrap();
         c.refresh(19 * SEC);
-        assert!(!c.enabled(), "gone: off");
+        assert!(c.enabled() && c.settings.radius == 3, "gone: the defaults");
         std::fs::remove_dir_all(&dir).ok();
     }
     fn app_on() -> Care {
@@ -923,7 +928,7 @@ mod tests {
     #[test]
     fn a_new_window_starts_bright_and_the_shells_own_switch_is_not_needed() {
         let mut c = app_on();
-        assert!(!c.settings.enabled, "LumaTV's screens are off");
+        c.settings.enabled = false;
         let mut t = 10 * SEC;
         c.step_app(t, view(), false);
         idle_until(&mut c, &mut t, 10 * SEC + 8 * MIN);
