@@ -598,8 +598,9 @@ impl State {
                 });
                 // Nothing below the compositor starts the standby while LumaTV's compositor runs: on 2026-10-31 tvpower stayed Active
                 // for 8 s after the press, then the micom cut the power (OFF_BY_KEYTIMEOUT, a cold boot). LG's logo path is this call
-                // (`power/powerOff`, remoteKey: Active Standby in about 1 s). Only from Active: Power in Screen Off turns the screen on.
-                if self.luna_state.power.state == "Active" {
+                // (`power/powerOff`, remoteKey: Active Standby in about 1 s). Only from Active (the compositor's copy reads "ACTIVE"):
+                // Power in Screen Off turns the screen on.
+                if self.luna_state.power.state.eq_ignore_ascii_case("active") {
                     self.luna_call("luna://com.webos.service.tvpower/power/powerOff".into(), serde_json::json!({"reason": "remoteKey"}));
                     self.journal("tvpower: power/powerOff (remoteKey) asked".into());
                 }
