@@ -97,13 +97,14 @@ fn snap<T: Copy + Into<i64>>(ladder: &[T], value: i64) -> T {
 }
 
 impl Prefs {
-    /// The core's `settings.set` parameters: the tier, HDR with the colour depth it needs, the bitrate cap, both sticks' dead zone,
-    /// and what only this platform can say (the codec is left to the core's resolver, the video backend is the feeder's).
+    /// The core's `settings.set` parameters: the tier, HDR with the codec and colour depth it needs, the bitrate cap, both sticks' dead
+    /// zone, and what only this platform can say (the video backend is the feeder's). HDR names HEVC: the streamer reads "auto" as H264,
+    /// which refuses every HDR stream; without HDR the codec is left to the core's resolver.
     pub fn settings(&self) -> Value {
         json!({
             "resolution": self.tier.resolution(),
             "fps": self.tier.fps(),
-            "codec": "auto",
+            "codec": if self.hdr { "H265" } else { "auto" },
             "colorQuality": if self.hdr { "10bit_420" } else { "8bit_420" },
             "enableHdr": self.hdr,
             "maxBitrateMbps": self.bitrate_mbps,
@@ -258,7 +259,7 @@ mod tests {
         assert_eq!((s["resolution"].as_str(), s["fps"].as_u64()), (Some("3840x2160"), Some(120)));
         assert_eq!((s["enableHdr"].as_bool(), s["colorQuality"].as_str()), (Some(true), Some("10bit_420")));
         assert_eq!((s["maxBitrateMbps"].as_u64(), s["controllerLeftStickDeadzone"].as_u64(), s["controllerRightStickDeadzone"].as_u64()), (Some(80), Some(8), Some(8)));
-        assert_eq!(s["codec"].as_str(), Some("auto"));
+        assert_eq!(s["codec"].as_str(), Some("H265"), "HDR needs HEVC: the streamer reads auto as H264");
     }
 
     #[test]
@@ -269,7 +270,7 @@ mod tests {
             assert_eq!((t.label(), p.settings()["resolution"].as_str().unwrap(), p.settings()["fps"].as_u64().unwrap()), (label, res, fps as u64));
         }
         let p = Prefs { hdr: false, ..Prefs::default() };
-        assert_eq!((p.settings()["enableHdr"].as_bool(), p.settings()["colorQuality"].as_str()), (Some(false), Some("8bit_420")));
+        assert_eq!((p.settings()["enableHdr"].as_bool(), p.settings()["colorQuality"].as_str(), p.settings()["codec"].as_str()), (Some(false), Some("8bit_420"), Some("auto")));
     }
 
     #[test]
