@@ -753,7 +753,8 @@ impl App {
             "title": g.title,
             "store": g.store,
             "accountLinked": g.in_library,
-            "appLaunchMode": "default",
+            // a TV played with a pad: GFN opens Steam (and launchers that have one) in its controller view, Big Picture
+            "appLaunchMode": "gamepadFriendly",
             "runtimeCapabilities": self.runtime_capabilities,
             "maxEntitledFps": 120,
         });
