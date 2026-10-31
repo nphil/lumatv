@@ -211,6 +211,9 @@ pub struct App {
     pub now_ms: u64,
     next_poll_ms: u64,
     pending: Vec<(String, String)>,
+    /// `streamer.start` was asked for this launch: a second session update before the loop records the request must not ask again
+    /// (the core answers the second streamer_busy and the failure tore down the first one's session).
+    start_asked: bool,
     create_id: String,
     hello_done: bool,
     minimized: bool,
@@ -295,6 +298,7 @@ impl App {
             now_ms: 0,
             next_poll_ms: 0,
             pending: Vec::new(),
+            start_asked: false,
             create_id: String::new(),
             hello_done: false,
             minimized: false,
@@ -730,6 +734,7 @@ impl App {
         self.stats = Stats::default();
         self.pad_latency = None;
         self.launch_retried = false;
+        self.start_asked = false;
         self.retry_stage = 0;
         self.create_request().into_iter().collect()
     }
@@ -1271,8 +1276,9 @@ impl App {
             return out;
         }
         if self.screen == Screen::Launching {
-            if ready && !self.has_pending("streamer.start") {
+            if ready && !self.start_asked && !self.has_pending("streamer.start") {
                 self.next_poll_ms = 0;
+                self.start_asked = true;
                 return vec![Self::req("streamer.start", json!({"session": value, "surface": {"visible": true, "rect": {"x": 0, "y": 0, "width": 1920, "height": 1080}}}))];
             }
             self.next_poll_ms = self.now_ms + POLL_SESSION_MS;
@@ -1579,6 +1585,8 @@ mod tests {
             assert_eq!(params["session"]["sessionId"], "s1");
             assert_eq!(params["surface"]["visible"], true);
         }
+        // a second ready update before the loop records the request (the core's session.changed beside the poll's answer) asks nothing
+        assert!(app.handle(ok("12b", "session.poll", json!({"session": ready}))).is_empty(), "one streamer.start a launch");
         app.sent("13", "streamer.start");
         app.handle(ok("13", "streamer.start", json!({"status": "starting", "message": "Launching"})));
         assert_eq!(app.screen, Screen::Stream);
