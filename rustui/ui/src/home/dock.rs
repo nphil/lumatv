@@ -155,7 +155,10 @@ impl Dock {
     }
 
     pub fn refresh(&mut self, theme: &Value) {
-        self.points = Self::points_of(&Self::arranged(&self.raw, theme), theme);
+        let mut list = Self::arranged(&self.raw, theme);
+        // the tiles are focus ids `DOCK_ID..DOCK_ID + DOCK_MAX`; the next id is the dock card's lift, so a longer list cannot be shown
+        list.truncate(super::model::DOCK_MAX as usize);
+        self.points = Self::points_of(&list, theme);
         self.clamp();
     }
 
@@ -393,6 +396,16 @@ mod tests {
         assert_eq!(d.points[1].title, "Films");
         assert_eq!(d.accent_for(d.points.get(2), &json!({}), "#9a8cf0"), "#101010");
         assert_eq!(d.accent_for(d.points.get(2), &json!({"accent": "wallpaper"}), "#9a8cf0"), "#9a8cf0");
+    }
+
+    #[test]
+    fn a_list_longer_than_the_focus_ids_is_cut_to_them() {
+        let mut d = Dock::default();
+        d.configure(&json!({"tile": 120, "gap": 16, "padY": 40, "fade": 110}), 1792, 392);
+        let list: Vec<Value> = (0..super::super::model::DOCK_MAX + 5).map(|i| lp(&format!("app{i}"), "App")).collect();
+        d.set_points(&list, &json!({}));
+        assert_eq!(d.points.len(), super::super::model::DOCK_MAX as usize);
+        assert_eq!(d.points.last().map(|p| p.id.as_str()), Some("app59"));
     }
 
     #[test]

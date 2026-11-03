@@ -912,7 +912,7 @@ impl Lease {
         let Some(mut feeder) = self.feeder.take() else {
             return;
         };
-        if !healthy || !feeder.alive() {
+        if !healthy || feeder.client.broken() || !feeder.alive() {
             drop(feeder);
             *self.pool.slot.lock() = Slot::Empty;
             self.pool.changed.notify_all();
@@ -1578,6 +1578,15 @@ fn fail(inner: &Inner, session: &Session, why: &str) {
 
 /// The session's thread: leases the feeder, loads it, and feeds it what the readers queue until the session ends.
 fn write_session(inner: &Arc<Inner>, pool: &Arc<Pool>, session: &Arc<Session>) {
+    write_session_with(inner, pool, session, Answers::start);
+}
+
+fn write_session_with(
+    inner: &Arc<Inner>,
+    pool: &Arc<Pool>,
+    session: &Arc<Session>,
+    start_answers: impl FnOnce(&Feeder, &Arc<Session>) -> Result<Answers, String>,
+) {
     let window_kind = session.playing.lock().window.clone();
     let mut lease = match pool.lease(&window_kind) {
         Ok(lease) => lease,
@@ -1594,11 +1603,12 @@ fn write_session(inner: &Arc<Inner>, pool: &Arc<Pool>, session: &Arc<Session>) {
         .unwrap_or_default();
     session.window.lock().clone_from(&window);
     inner.update(session.id, |v| v.window = window);
-    let answers = match Answers::start(lease.feeder(), session) {
+    let answers = match start_answers(lease.feeder(), session) {
         Ok(answers) => answers,
         Err(why) => {
             fail(inner, session, &why);
             lease.release(true, false);
+            finish(inner, session);
             return;
         }
     };
@@ -1609,7 +1619,11 @@ fn write_session(inner: &Arc<Inner>, pool: &Arc<Pool>, session: &Arc<Session>) {
     // the answers' thread goes first, so that the feeder is not given back with a reader still on its socket
     drop(answers);
     lease.release(session.unload.load(Ordering::SeqCst), healthy);
-    // a session that is over is not one a new stream can be attached to; a failed one has said why in `fail`
+    finish(inner, session);
+}
+
+/// A session that is over is not one a new stream can be attached to; a failed one has said why in `fail`.
+fn finish(inner: &Inner, session: &Session) {
     session.end(true);
     let mut current = inner.session.lock();
     if current.as_ref().is_some_and(|s| s.id == session.id) {
@@ -2303,5 +2317,124 @@ mod tests {
             (Some("h265"), true, true)
         );
         assert!(View::default().json()["camera"].is_null());
+    }
+
+    fn test_session(id: u64, inner: &Arc<Inner>, info: StreamInfo) -> Arc<Session> {
+        Arc::new(Session {
+            id,
+            inner: Arc::downgrade(inner),
+            queue: Arc::new(Queue::new()),
+            counters: Arc::new(Counters {
+                fed: AtomicU64::new(0),
+                dropped: AtomicU64::new(0),
+                lost: AtomicU64::new(0),
+                pts_us: AtomicI64::new(0),
+            }),
+            stop: AtomicBool::new(false),
+            unload: AtomicBool::new(true),
+            error: Mutex::new(None),
+            reader: Mutex::new(None),
+            playing: Mutex::new(Playing {
+                camera: "273".into(),
+                mode: Mode::Live,
+                started_at: 0,
+                rate: 1,
+                expect: Some(info),
+                ndl_app: String::new(),
+                texture: true,
+                sub: false,
+                purpose: String::new(),
+                window: String::new(),
+            }),
+            epoch: AtomicU64::new(0),
+            awaiting: AtomicBool::new(true),
+            window: Mutex::new(String::new()),
+            began: Instant::now(),
+            first_at: Mutex::new(None),
+            replaced: Mutex::new(Replaced::No),
+            writer: Mutex::new(None),
+        })
+    }
+
+    /// A pool holding one idle "feeder": a process that does nothing, and a socket whose other end is `peer`'s.
+    fn test_pool(dir: &Path, stall: Duration) -> (Arc<Pool>, std::os::unix::net::UnixStream) {
+        let pool = Pool::new(FeederSpec {
+            program: PathBuf::from("unused"),
+            window: "card".into(),
+            library: String::new(),
+            extra_args: Vec::new(),
+            env: Vec::new(),
+            run_dir: dir.to_path_buf(),
+            idle: Duration::from_secs(60),
+        });
+        let (ours, peer) = std::os::unix::net::UnixStream::pair().unwrap();
+        let feeder = Feeder {
+            child: Command::new("sleep").arg("60").spawn().unwrap(),
+            socket: dir.join("feeder.sock"),
+            client: gf::Client::from_stream(ours, stall).unwrap(),
+            window: "_Window_Id_1".into(),
+            library: true,
+            kind: "card".into(),
+        };
+        *pool.slot.lock() = Slot::Idle(Box::new(feeder), Instant::now(), false);
+        (pool, peer)
+    }
+
+    /// An `Inner` with one session (id 1) that it holds and whose view is `starting`.
+    fn test_inner() -> (Arc<Inner>, Arc<Session>) {
+        let inner = Arc::new(Inner {
+            deps: Deps { feeder: None, dial: real_dial() },
+            pool: None,
+            view: Mutex::new((1, View { state: "starting", ..View::default() })),
+            session: Mutex::new(None),
+            next: AtomicU64::new(2),
+            publish: Box::new(|_| {}),
+        });
+        let session = test_session(1, &inner, SMALL);
+        *inner.session.lock() = Some(session.clone());
+        (inner, session)
+    }
+
+    const SMALL: StreamInfo = StreamInfo { codec: Codec::H264, width: 640, height: 360, fps: 15 };
+
+    #[test]
+    fn a_session_whose_answers_cannot_be_read_ends_and_is_not_one_a_new_stream_attaches_to() {
+        let dir = tempfile::tempdir().unwrap();
+        let (pool, _peer) = test_pool(dir.path(), Duration::from_secs(1));
+        let (inner, session) = test_inner();
+        write_session_with(&inner, &pool, &session, |_, _| Err("no thread".to_owned()));
+        assert!(session.ended());
+        assert!(inner.session.lock().is_none(), "a later start must not find this session");
+        assert_eq!(inner.view.lock().1.state, "failed");
+        assert!(matches!(*pool.slot.lock(), Slot::Empty), "the video path is free for the next stream");
+    }
+
+    #[test]
+    fn a_feeder_that_stops_reading_ends_the_session_and_frees_the_video_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let (pool, _peer_never_reads) = test_pool(dir.path(), Duration::from_millis(200));
+        let (inner, session) = test_inner();
+        session.queue.begin(1);
+        session.queue.settle();
+        for i in 0..QUEUE_UNITS {
+            assert!(matches!(session.queue.give(1, unit(i == 0, i as i64 * 1000, 256 * 1024)), Give::Done));
+        }
+        let (done, finished) = std::sync::mpsc::channel();
+        {
+            let (inner, pool, session) = (inner.clone(), pool.clone(), session.clone());
+            thread::spawn(move || {
+                write_session(&inner, &pool, &session);
+                let _ = done.send(());
+            });
+        }
+        assert!(finished.recv_timeout(Duration::from_secs(10)).is_ok(), "the writer is stuck on a feeder that does not read");
+        assert!(session.ended());
+        assert!(inner.session.lock().is_none());
+        assert_eq!(inner.view.lock().1.state, "failed");
+        assert!(matches!(*pool.slot.lock(), Slot::Empty), "the stalled feeder is let go, not parked");
+        // the slot is free: a lease does not wait for a holder (it tries to start a feeder, which this pool has no program for)
+        let asked = Instant::now();
+        assert!(pool.lease("card").is_err());
+        assert!(asked.elapsed() < FEEDER_WAIT);
     }
 }

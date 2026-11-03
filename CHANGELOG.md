@@ -22,6 +22,8 @@ Picture-mode strips keep focused choices visible and align focus and pointer bou
 Card focus outlines retain the rendered button geometry while their highlight fades, without lifting or enlarging the outline independently.
 The status-bar gear opens Quick Settings. Home & look contains the native Wallpaper editor, preserving live preview and save-on-close without the redundant All settings link.
 Glass type replaces the Home-specific label. Non-Rose theme wallpapers use curated dark/light shadow, midtone and highlight colors; Rose Pine retains the original wallpaper.
+Home shows at most 60 dock tiles; a longer launch list no longer makes the dock card disappear.
+A live camera feeder that stops reading ends its session and frees the video path instead of blocking it, and a session that fails to start no longer leaves later streams attached to it.
 
 The native compositor uses the Rust UI for all shell kinds, with stock LG Home
 as the failure path. Obsolete project QML frontends and restyles are removed;

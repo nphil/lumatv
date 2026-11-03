@@ -280,9 +280,14 @@ pub fn decode(kind: u8, p: &[u8]) -> Message {
     }
 }
 
+/// How long one write to the feeder may stall. A feeder that has stopped reading fills the socket's buffer and would block the writer for good.
+const WRITE_STALL: Duration = Duration::from_secs(3);
+
 /// The socket to one feeder.
 pub struct Client {
     stream: UnixStream,
+    /// A write failed, possibly half-way through a frame: nothing more can be sent on this connection.
+    broken: bool,
 }
 
 impl Client {
@@ -300,7 +305,8 @@ impl Client {
             }
         };
         stream.set_read_timeout(Some(timeout))?;
-        let mut me = Self { stream };
+        stream.set_write_timeout(Some(WRITE_STALL))?;
+        let mut me = Self { stream, broken: false };
         let (kind, payload) = me.read_frame()?;
         let hello = decode(kind, &payload);
         if !matches!(hello, Message::Hello { .. }) {
@@ -328,9 +334,23 @@ impl Client {
         read_frame(&mut self.stream)
     }
 
+    #[cfg(test)]
+    pub fn from_stream(stream: UnixStream, write_stall: Duration) -> io::Result<Self> {
+        stream.set_write_timeout(Some(write_stall))?;
+        Ok(Self { stream, broken: false })
+    }
+
+    /// Whether a write failed: the feeder is not reading, or is gone.
+    pub fn broken(&self) -> bool {
+        self.broken
+    }
+
     pub fn send(&mut self, kind: u8, payload: &[u8]) -> io::Result<()> {
         if payload.len() > MAX_PAYLOAD {
             return Err(io::Error::other("a payload over the feeder's limit"));
+        }
+        if self.broken {
+            return Err(io::Error::new(io::ErrorKind::BrokenPipe, "an earlier write to the feeder failed"));
         }
         let head = Frame {
             kind,
@@ -341,7 +361,9 @@ impl Client {
         let mut buf = Vec::with_capacity(8 + payload.len());
         buf.extend_from_slice(bytes_of(&head));
         buf.extend_from_slice(payload);
-        self.stream.write_all(&buf)
+        let written = self.stream.write_all(&buf);
+        self.broken = written.is_err();
+        written
     }
 
     pub fn send_load(&mut self, codec: u32, width: u32, height: u32, fps: u32) -> io::Result<()> {
@@ -484,7 +506,7 @@ mod tests {
         assert_eq!(decode(99, &[]), Message::Other(99));
         // a frame written by the client reads back the same
         let (a, mut b) = UnixStream::pair().unwrap();
-        let mut client = Client { stream: a };
+        let mut client = Client { stream: a, broken: false };
         client
             .send_video(1_000_000_000, true, &[0, 0, 0, 1, 0x65])
             .unwrap();
@@ -508,5 +530,22 @@ mod tests {
             ),
             (1, 1280, 720, 15, PTS_NS, -1)
         );
+    }
+
+    #[test]
+    fn a_feeder_that_stops_reading_fails_the_write_instead_of_blocking_it() {
+        let (a, _unread) = UnixStream::pair().unwrap();
+        a.set_write_timeout(Some(Duration::from_millis(200))).unwrap();
+        let mut client = Client { stream: a, broken: false };
+        let started = std::time::Instant::now();
+        let picture = vec![0u8; 256 * 1024];
+        let failed = (0..1000).any(|i| client.send_video(i, false, &picture).is_err());
+        assert!(failed, "the socket's buffer fills and the write gives up");
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert!(client.broken());
+        // the connection can no longer be trusted (a frame may have gone half-way): later sends fail at once
+        let again = std::time::Instant::now();
+        assert!(client.send_unload().is_err());
+        assert!(again.elapsed() < Duration::from_millis(50));
     }
 }
