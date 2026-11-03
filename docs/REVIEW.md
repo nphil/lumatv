@@ -2,7 +2,7 @@
 
 Scope: LumaTV OS, LumaGame (GeForce NOW feeder, Game Mode) and Marquee, everything committed since 2026-10-26. Focus: performance, stability, UI/UX. Findings are fixed only after the owner picks them.
 
-Baseline: `8f6c04ab` (this repo) and Marquee `f08456d48`. The installed TV build is this tree: compositor `bc5a069b`, UI `0a8467e6`, supervisor `f9625a8a`, helper `94ebaded`; the other installed files match byte for byte.
+Baseline: `8f6c04ab` (this repo) and Marquee `f08456d48`. The installed TV build matches this tree: the compositor by its ten pinned source files and the built binary (`bc5a069b`), the supervisor by an identical rebuild (`f9625a8a`), and the other installed files byte for byte. The UI (`0a8467e6`) and helper (`94ebaded`) match binaries in this tree's build directories with no later source edits by file time, which does not rule out restored files; their provenance is likely, not proven. Fixes after `8f6c04ab` are on `main` but not yet on the TV.
 
 ## Method
 
@@ -21,7 +21,7 @@ Docs and mocks (about 4,600 changed files) are not reviewed beyond the claims ch
 |---|---|
 | Repo hygiene | Done |
 | No-TV pass | Done |
-| Owner stop point | Waiting |
+| Fixes (owner chose P1 + P2, 2026-11-03) | LumaTV done; Marquee in progress; GeForce NOW feeder handed to the LumaGame session |
 | TV run | Needs a 2-3 hour TV slot |
 | Report | Pending |
 
@@ -82,3 +82,15 @@ Stale compositor tests: `ime_own` (keyboard loss now exits to stock), `livetv` a
 Clippy: compositor clean; Rust UI warnings only (`lumatv-render` test modules are stripped on purpose by `sync-lumashow.sh`, so `tools/check-all.sh` excludes its test targets); helper fails on an unhandled `read` amount in a test (`receiver.rs:1925`); Marquee's own gate (`make lint`) passes, default clippy reports style lints only. Python tests need `pytest` installed.
 
 Unfinished-work scan: no `todo!`, `unimplemented!`, TODO/FIXME or `dbg!` in shipping code. Cited proof paths exist; about 60 live under `/tmp` and do not survive a container restart.
+
+## Fix log
+
+- LumaTV `3be661b1`: items 2, 3 (helper live path) and 17 (dock cap).
+- LumaTV `5fafcfa6`: item 13 (one-shot topics). `10239889`: items 11, 12, 14 (page and GL target leaks; recording reads back through pixel buffers a frame later). Item 14 is verified on Mesa only; check recording on the TV.
+- Items 1 and 4 (feeder C): queued to the LumaGame session's Todo (message sch_wPKBu3I).
+- Items 7 and 8 (Marquee sidecar): handed to the Marquee session, which has uncommitted edits in `sidecar.rs`/`alignment.rs` (message sch_8ubpksM).
+- Items 5, 6, 9 (Marquee): in progress; unfinished work is pushed to Marquee branch `review-fixes-wip` if interrupted.
+
+## Resume
+
+If this work is interrupted: check `git log origin/main` in both repos and the Marquee branch `review-fixes-wip` for items 5, 6 and 9; the LumaTV todo audit writes to `/data/home/tmp/lumatv-wake-handoff-20261031.B91cpuWy/` (`TODO.md`, original in `TODO.2026-11-03.orig.md`, progress in `TODO-audit-progress.md`). Next after the fixes: update the 40 stale tests listed above, then the TV run (step 3), which must include a recording check for item 14.
