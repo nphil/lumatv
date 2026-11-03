@@ -218,6 +218,17 @@ struct InfoCache {
     lines: Arc<Vec<String>>,
 }
 
+/// The rows as they were measured and wrapped, for the data and the kit they were measured with: the rows are laid out again only when one of those changes.
+struct RowCache {
+    generation: u64,
+    text_scale: u32,
+    width: u32,
+    rows: Vec<Row>,
+    layouts: Vec<RowLayout>,
+    /// The layouts' part of the panel's signature.
+    sig: String,
+}
+
 
 pub struct QuickSurface {
     /// The root, the dim, the modal scope, the first focus and the pointer's cue and click.
@@ -229,6 +240,7 @@ pub struct QuickSurface {
     popup_modal: bool,
     shake_due: Option<(u64, usize)>,
     info_cache: Option<InfoCache>,
+    row_cache: Option<RowCache>,
 }
 
 fn person_who(p: &Person) -> Who {
@@ -238,7 +250,7 @@ fn person_who(p: &Person) -> Who {
 impl QuickSurface {
     /// `z` is the panels' band base.
     pub fn new(z: i32) -> Self {
-        Self { stage: Stage::new(z, SCOPE), built: None, popup: None, popup_hover: Hover::new(z + 24), popup_modal: false, shake_due: None, info_cache: None }
+        Self { stage: Stage::new(z, SCOPE), built: None, popup: None, popup_hover: Hover::new(z + 24), popup_modal: false, shake_due: None, info_cache: None, row_cache: None }
     }
 
     pub fn is_up(&self) -> bool {
@@ -252,7 +264,7 @@ impl QuickSurface {
 
     // ---- building
 
-    fn signature(kit: &mut Kit, v: &View, rows: &[RowLayout], info_lines: usize) -> String {
+    fn signature(kit: &mut Kit, v: &View, rows: &str, info_lines: usize) -> String {
         let strip: Vec<String> = v.strip.iter().flatten().map(|p| format!("{}/{}/{}/{}/{:?}", p.id, p.name, p.active, p.locked, p.avatar_file)).collect();
         let edit: Vec<String> = v.edit.iter().flat_map(|e| e.rows.iter().map(|r| format!("{}/{}/{}/{}", r.id, r.label, r.detail, r.icon))).collect();
         let head = lay::head_layout(kit, v, lay::SHEET_W - 2.0 * kit.space(6));
@@ -265,7 +277,7 @@ impl QuickSurface {
             strip,
             edit,
             v.hints_foot.len(),
-            rows.iter().map(RowLayout::signature).collect::<Vec<_>>().join("\n"),
+            rows,
             head.title,
             head.below,
             v.pad.as_ref().map(|p| p.pin.name.clone()),
@@ -934,6 +946,7 @@ impl QuickSurface {
 
     pub fn restyle(&mut self, engine: &mut Engine) {
         self.info_cache = None;
+        self.row_cache = None;
         self.drop_all(engine);
     }
 }
@@ -976,14 +989,19 @@ impl QuickSurface {
             self.info_cache = Some(InfoCache { key, lines });
         }
         let info_lines = Arc::clone(&self.info_cache.as_ref().expect("information cache").lines);
-        let layouts: Vec<RowLayout> =
-            if view.editing || view.pad.is_some() { Vec::new() } else { view.rows.iter().map(|r| lay::row_layout(kit, r, width)).collect() };
-        let sig = Self::signature(kit, view, &layouts, info_lines.len());
+        let rows: &[Row] = if view.editing || view.pad.is_some() { &[] } else { &view.rows };
+        let (generation, text_scale, width_bits) = (kit.generation(), kit.text_scale.to_bits(), width.to_bits());
+        if !self.row_cache.as_ref().is_some_and(|c| (c.generation, c.text_scale, c.width) == (generation, text_scale, width_bits) && c.rows == rows) {
+            let layouts: Vec<RowLayout> = rows.iter().map(|r| lay::row_layout(kit, r, width)).collect();
+            let sig = layouts.iter().map(RowLayout::signature).collect::<Vec<_>>().join("\n");
+            self.row_cache = Some(RowCache { generation, text_scale, width: width_bits, rows: rows.to_vec(), layouts, sig });
+        }
+        let sig = Self::signature(kit, view, &self.row_cache.as_ref().expect("row cache").sig, info_lines.len());
         if self.built.as_ref().is_none_or(|b| b.sig != sig) {
             self.drop_built(engine);
             // a click on nothing is Back: the whole screen is a focusable under everything else, absent from the keys
             self.stage.backdrop(engine, Target::Backdrop.id(), REGION_LIST);
-            let built = match Self::build(kit, engine, self.stage.group(), self.stage.z(), view, layouts, sig, &info_lines) {
+            let built = match Self::build(kit, engine, self.stage.group(), self.stage.z(), view, self.row_cache.as_ref().expect("row cache").layouts.clone(), sig, &info_lines) {
                 Ok(built) if !kit.ui.scene.take_overflow() => built,
                 result => {
                     let error = result.err().unwrap_or_else(|| std::io::Error::other("the scene is full: the quick panel could not be drawn whole"));
@@ -2001,5 +2019,23 @@ mod tests {
         let room = u.kit.room();
         assert!(u.s.layers() < 120, "{} layers", u.s.layers());
         assert!(room.layers > 40, "the testkit starts with some room: {room:?}");
+    }
+
+    #[test]
+    fn rows_are_laid_out_again_only_when_they_change() {
+        let mut u = Up::new(Mode::Dark, 1.0, false);
+        let laid = |u: &Up| u.s.row_cache.as_ref().expect("laid out rows").layouts.as_ptr();
+        let first = laid(&u);
+        u.t += 16;
+        u.apply();
+        assert_eq!(laid(&u), first, "the same rows");
+        let mut view = u.q.view(&u.env, u.t);
+        let id = view.rows[0].id.clone();
+        view.rows[0].label.push_str(" and more");
+        u.s.apply(&mut u.kit, &mut u.engine, &view, u.q.life.phase(), u.t, u.t * 1_000_000).unwrap();
+        assert_ne!(laid(&u), first, "a row's words changed");
+        let cache = u.s.row_cache.as_ref().unwrap();
+        assert_eq!(cache.layouts[0].id, id);
+        assert!(cache.layouts[0].label.iter().any(|line| line.contains("and more")), "{:?}", cache.layouts[0].label);
     }
 }
