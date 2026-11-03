@@ -6,7 +6,7 @@
 #
 # It starts the helper detached the way tools/lumatv will, curls the loopback API, checks what the set can and cannot do
 # for it, stops it, and prints one PASS/FAIL line per check and a VERDICT. Exit 0 = PASS.
-# Everything lives in volatile /tmp (data dir, log, lock); the production data dir and the production port (18731) are never
+# Everything lives in volatile /tmp (data dir, lock); the production data dir and the production port (18731) are never
 # touched, the default test port is 18741. The only thing it reaches outside the set is what the helper itself reaches: the
 # receiver's status page (read only) and, through `openssl s_client`, the weather and news services.
 #
@@ -216,9 +216,6 @@ run_phase() {
   if [ "$used" -le "$((hz / 2))" ]; then ok "the helper is quiet when idle (at most 5 % of a core)"; else bad "the helper is quiet when idle" "$used ticks in 10 s"; fi
   rss=$(awk '/VmRSS/ {print $2}' /proc/$pid/status)
   if [ "${rss:-99999}" -lt 20000 ]; then ok "resident memory under 20 MB"; else bad "resident memory under 20 MB" "$rss kB"; fi
-
-  fact "log tail:"
-  tail -n 14 "$data/log-helper" 2>/dev/null | sed 's/^/        /'
 
   stopped=$("$BIN" stop --data-dir "$data" 2>&1)
   has "stop ends it" "$stopped" '"stopped":true'

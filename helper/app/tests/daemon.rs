@@ -94,10 +94,6 @@ fn start_status_start_again_stop() {
     assert!(pid > 1 && port > 0);
     assert!(health(port), "the API does not answer on {port}");
 
-    // The log is in the data dir under the name the plan gives it.
-    let log = std::fs::read_to_string(path.join("log-helper")).unwrap();
-    assert!(log.contains("listening on 127.0.0.1"), "{log}");
-
     let status = helper(path, &["status"]);
     assert_eq!(status.code, 0);
     assert_eq!(status.json["running"], true);
@@ -126,12 +122,6 @@ fn start_status_start_again_stop() {
     assert_eq!(stopped.json["pid"], pid);
     assert!(!port_open(port), "the port is still open after stop");
     assert!(!Path::new(&format!("/proc/{pid}")).exists());
-    let log = std::fs::read_to_string(path.join("log-helper")).unwrap();
-    assert!(
-        log.contains("signal 15: stopping") && log.trim_end().ends_with("stopped"),
-        "{log}"
-    );
-
     assert_eq!(helper(path, &["status"]).code, 3);
     let nothing = helper(path, &["stop"]);
     assert_eq!(nothing.code, 0);
@@ -305,13 +295,6 @@ fn a_service_that_ends_for_any_reason_is_started_again_and_only_stop_ends_it() {
     kill(second, 15);
     let (same, third) = serving(path, Some(second));
     assert_eq!(same, supervisor);
-
-    let log = std::fs::read_to_string(path.join("log-helper")).unwrap();
-    assert!(
-        log.contains("supervisor: the helper ended with signal 9")
-            && log.contains("starting it again"),
-        "{log}"
-    );
 
     let stopped = helper(path, &["stop"]);
     assert_eq!(stopped.json["stopped"], true, "{}", stopped.json);

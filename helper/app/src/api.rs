@@ -2051,6 +2051,7 @@ mod tests {
             owners,
             [
                 "base.ambient",
+                "base.logging",
                 "base.news",
                 "base.receiver",
                 "base.voice",

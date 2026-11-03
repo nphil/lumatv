@@ -231,6 +231,7 @@ fn fresh(v: &Value) -> bool {
 fn rig_with(http: &FakeAvr, telnet: &FakeTelnet, luna_state: &str, tune: Value) -> (Rig, FakeLuna) {
     let mut rig = Rig::new();
     let luna = FakeLuna::new(rig.dir.path(), LunaMode::Subscribes, luna_state);
+    luna.answer_sound_output();
     receiver_at(&rig.paths, http.port);
     let mut receiver = json!({"telnetPort": telnet.port});
     if let (Value::Object(base), Value::Object(extra)) = (&mut receiver, tune) {

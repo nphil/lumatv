@@ -97,7 +97,14 @@ impl WxView {
         std::thread::Builder::new().name("wx-prefetch".into()).stack_size(512 * 1024).spawn(move || {
             let mut last = Instant::now().checked_sub(PREFETCH_EVERY).unwrap_or_else(Instant::now);
             while !stop() {
-                std::thread::sleep(Duration::from_secs(5));
+                // in slices: one sleep of five seconds outlasts the four the service gives its threads to stop
+                let wake = Instant::now() + Duration::from_secs(5);
+                while Instant::now() < wake && !stop() {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                if stop() {
+                    break;
+                }
                 if last.elapsed() < PREFETCH_EVERY || !screen_on() {
                     continue;
                 }

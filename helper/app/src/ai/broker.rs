@@ -811,7 +811,7 @@ mod tests {
             keys.clone(),
             hub.clone(),
             GateConfig {
-                prompt_ttl: Duration::from_millis(400),
+                prompt_ttl: Duration::from_millis(200),
                 min_display: Duration::from_millis(30),
                 slice: Duration::from_millis(10),
                 ..GateConfig::default()
@@ -949,7 +949,11 @@ mod tests {
 
     #[test]
     fn the_permission_matrix_never_always_and_ask() {
+        // a prompt that nobody answers costs its whole life, and that is the gate's, not the tool's: one tool of each group goes through it
+        let mut waited = Vec::new();
         for (name, args, group) in samples() {
+            let wait_out = !waited.contains(&group);
+            waited.push(group);
             // Never: refused, not listed, nothing acted on, no prompt.
             let r = rig();
             r.all(Level::Never);
@@ -999,6 +1003,9 @@ mod tests {
             );
             assert_eq!(r.last_audit()["outcome"], "denied");
 
+            if !wait_out {
+                continue;
+            }
             // Ask: nobody answers -> refused, not paused.
             let r = rig();
             r.all(Level::Ask);

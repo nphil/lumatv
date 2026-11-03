@@ -417,10 +417,10 @@ mod tests {
             json!({"x": 1328, "y": 32, "w": 560, "h": 469})
         );
         assert_eq!(items["cards"]["rect"]["y"], 32 + 469 + 16);
-        // centred at the foot, above the volume bar it stacks on (988 - 16 - 98)
+        // centred at the foot, above the volume bar it stacks on (988 - 16 - 66)
         assert_eq!(
             items["toast"]["rect"],
-            json!({"x": 680, "y": 874, "w": 560, "h": 98})
+            json!({"x": 800, "y": 906, "w": 320, "h": 66})
         );
         assert_eq!(
             items["volume"]["rect"],

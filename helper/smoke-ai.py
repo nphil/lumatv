@@ -410,11 +410,8 @@ class Run:
             return None
 
     def log_tail(self):
-        try:
-            with open(os.path.join(self.data, "log-helper")) as f:
-                return "".join(f.readlines()[-12:])
-        except OSError:
-            return ""
+        # The helper keeps no log file: its lines go to the collector (/tmp/lumatv-log.sock), which retains them under /tmp/lumatv-logs.
+        return "(no log file; see the collector's /tmp/lumatv-logs)"
 
     # ---- the phases
     def phase_environment(self):

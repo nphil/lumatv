@@ -383,10 +383,11 @@ impl FakeLuna {
             LunaMode::Subscribes => "echo $$ > PIDFILE; last=''; while :; do now=$(cat STATEFILE); if [ \"$now\" != \"$last\" ]; then printf '{\"returnValue\":true,\"state\":\"%s\",\"subscribed\":true}\\n' \"$now\"; last=$now; fi; sleep 0.02; done".to_owned(),
         };
         let script = format!(
-            "#!/bin/sh\ncase \"$1 $2\" in\n  \"-n 1\") printf '{{\"returnValue\":true,\"state\":\"%s\"}}\\n' \"$(cat STATEFILE)\" ;;\n  \"-n \"*) {subscribe} ;;\n  *) exit 1 ;;\nesac\n"
+            "#!/bin/sh\ncase \"$1 $2\" in\n  \"-n 1\") printf '{{\"returnValue\":true,\"state\":\"%s\"}}\\n' \"$(cat STATEFILE)\" ;;\n  \"-n \"*) case \"$3\" in *getSystemSettings*) if [ -e SOUNDFILE ]; then printf '{{\"returnValue\":true,\"subscribed\":true,\"settings\":{{\"soundOutput\":\"tv_speaker\"}}}}\\n'; while :; do sleep 1; done; fi; {subscribe} ;; *) {subscribe} ;; esac ;;\n  *) exit 1 ;;\nesac\n"
         )
         .replace("STATEFILE", &state_file.display().to_string())
-        .replace("PIDFILE", &pid_file.display().to_string());
+        .replace("PIDFILE", &pid_file.display().to_string())
+        .replace("SOUNDFILE", &dir.join("luna-sound-output").display().to_string());
         std::fs::write(&program, script).unwrap();
         #[cfg(unix)]
         {
@@ -399,6 +400,12 @@ impl FakeLuna {
             state_file,
             pid_file,
         }
+    }
+
+    /// From now on the sound-output subscription (`getSystemSettings`) is answered at once as valid, as LG's service does: without it the
+    /// receiver waits four seconds for it each time the screen comes on.
+    pub fn answer_sound_output(&self) {
+        std::fs::write(self.state_file.with_file_name("luna-sound-output"), "").unwrap();
     }
 
     /// Sets what the TV says its power state is.

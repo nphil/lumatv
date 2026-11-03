@@ -1922,7 +1922,7 @@ esac
             let server = thread::spawn(move || {
                 let (mut stream, _) = listener.accept().unwrap();
                 let mut request = [0; 2048];
-                stream.read(&mut request).unwrap();
+                assert!(stream.read(&mut request).unwrap() > 0);
                 let body = "<item><Power><value>OFF</value></Power></item>";
                 if command_in_flight {
                     write!(

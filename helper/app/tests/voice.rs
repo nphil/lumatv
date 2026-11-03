@@ -533,11 +533,6 @@ fn the_token_goes_to_the_saved_address_and_to_nothing_else() {
         r#"{"changes":[{"key":"url","value":{"type":"text","value":"http://192.168.1.99"}}]}"#,
     );
     assert_eq!(tried.status, 422);
-    let log = std::fs::read_to_string(voice.rig.dir.path().join("log-helper")).unwrap_or_default();
-    assert!(
-        !log.contains(TOKEN) && !log.contains("play the news") && !log.contains("hello"),
-        "the log holds a secret or the words"
-    );
 }
 
 #[test]

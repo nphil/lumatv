@@ -13,6 +13,7 @@ import asyncio
 import json
 import os
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -102,8 +103,11 @@ def main():
         try:
             for _ in range(100):
                 time.sleep(0.1)
-                if os.path.exists(os.path.join(data, "log-helper")) and "ble: listening" in open(os.path.join(data, "log-helper")).read():
+                try:
+                    socket.create_connection(("127.0.0.1", PORT), timeout=0.2).close()
                     break
+                except OSError:
+                    pass
             else:
                 raise SystemExit("smoke-ble: the helper never listened")
             count = asyncio.run(exercise(host, key))

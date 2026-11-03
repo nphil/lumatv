@@ -108,11 +108,27 @@ fn ids(doc: &Value) -> Vec<&str> {
     doc["tiles"].as_array().unwrap().iter().map(|t| t["id"].as_str().unwrap()).collect()
 }
 
+/// The call the integration is asked for by `worker`, or none: a worker that is refused ends without one, so no wait is spent on a call that
+/// is not coming; a worker that is waiting for the integration's answer is waited for up to 800 ms.
+fn call_until_done<T>(it: &mut FakeIntegration, worker: &std::thread::JoinHandle<T>) -> Option<ha_bridge::wire::Call> {
+    let ask = |it: &mut FakeIntegration, within| it.recv_where(within, |m| if let Message::Call(c) = m { Some(c.clone()) } else { None });
+    let until = Instant::now() + Duration::from_millis(800);
+    while Instant::now() < until {
+        if let Some(call) = ask(it, Duration::from_millis(20)) {
+            return Some(call);
+        }
+        if worker.is_finished() {
+            return ask(it, Duration::from_millis(20));
+        }
+    }
+    None
+}
+
 /// Runs `act` on its own thread (it waits for the integration's answer) and gives the integration's side what it needs to answer.
 fn act_answered(r: &Rig, it: &mut FakeIntegration, id: &str, verb: &str, value: Value, answer: bool) -> (Result<(), (&'static str, String)>, Option<ha_bridge::wire::Call>) {
     let (onhome, id, verb) = (r.onhome.clone(), id.to_owned(), verb.to_owned());
     let worker = std::thread::spawn(move || onhome.act(&id, &verb, &value).map_err(|f| (f.code, f.words)));
-    let call = it.recv_where(Duration::from_millis(800), |m| if let Message::Call(c) = m { Some(c.clone()) } else { None });
+    let call = call_until_done(it, &worker);
     if let Some(call) = &call {
         let message = if answer { None } else { Some("the bulb is stuck".to_owned()) };
         it.send(&Message::CallResult(CallResult { op: call.op, ok: answer, code: None, message, results: vec![] })).unwrap();
@@ -330,7 +346,7 @@ fn journal(r: &Rig) -> Vec<Value> {
 fn unlock_answered(r: &Rig, it: &mut FakeIntegration, id: &str, token: &str, answer: Option<(bool, Option<&str>)>) -> (Result<(), (&'static str, String)>, Option<ha_bridge::wire::Call>) {
     let (onhome, id, token) = (r.onhome.clone(), id.to_owned(), token.to_owned());
     let worker = std::thread::spawn(move || onhome.unlock(&id, &token).map_err(|f| (f.code, f.words)));
-    let call = it.recv_where(Duration::from_millis(800), |m| if let Message::Call(c) = m { Some(c.clone()) } else { None });
+    let call = call_until_done(it, &worker);
     if let (Some(call), Some((ok, message))) = (&call, answer) {
         it.send(&Message::CallResult(CallResult { op: call.op, ok, code: message.map(|_| "pin_required".to_owned()), message: message.map(str::to_owned), results: vec![] })).unwrap();
     }
