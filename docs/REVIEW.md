@@ -89,6 +89,7 @@ Unfinished-work scan: no `todo!`, `unimplemented!`, TODO/FIXME or `dbg!` in ship
 - LumaTV `5fafcfa6`: item 13 (one-shot topics). `10239889`: items 11, 12, 14 (page and GL target leaks; recording reads back through pixel buffers a frame later). Item 14 is verified on Mesa only; check recording on the TV.
 - Items 1 and 4 (feeder C): queued to the LumaGame session's Todo (message sch_wPKBu3I).
 - Items 7 and 8 (Marquee sidecar): handed to the Marquee session, which has uncommitted edits in `sidecar.rs`/`alignment.rs` (message sch_8ubpksM).
+- LumaTV `253beb2e`, `7ca80e3f`: item 18 (Rust UI per-input and idle work). Host-only (debug build, loaded host): the quiet pointer sample 447 to 11-16 us, an idle theme/layout poll 3.3 to 1.2 ms, the Quick panel's unchanged apply 775 to 109 us, Home's per-apply key strings 108 us to nothing. Not on the TV.
 - Marquee `1d27905b7`: items 5 and 6 (Opus source failure takes the recovery ladder; the Load budget starts at the Load). `4354e99a9`: item 9 (text fit).
 
 ## Next
