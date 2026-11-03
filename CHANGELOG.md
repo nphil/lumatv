@@ -16,6 +16,12 @@ Home Cameras opens the native grid and full-screen viewer. Home Assistant and Sc
 
 The bottom volume popup keeps its full shadow and antialiasing outside reported subtitle bounds through cue changes.
 
+A reconnecting shell is no longer replayed one-shot topics (`homekey`, `show`, `luna`, `imekey`, `menu.open`, `confirm.ask`), which could open the switcher or a dialog unprompted.
+
+A failed scan-out page setup frees its dumb buffer, framebuffer and GL objects, and a refused warm target is tried once instead of on every direct-scanout attempt.
+
+Screen recording reads frames through pixel pack buffers a frame behind instead of stalling the loop on the GPU, with the alpha made opaque on the GPU.
+
 Picture-mode labels capitalize Personalized without changing the native mode identifier.
 Partial LG picture replies retain the current controls; confirmed input, mode or range changes still invalidate stale values.
 Picture-mode strips keep focused choices visible and align focus and pointer bounds with their rendered cells. OLED pixel brightness uses its own native settings context. Glass-strength changes update existing Settings controls without rebuilding unrelated switches on every key repeat.

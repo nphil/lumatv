@@ -104,6 +104,9 @@ pub const GL_EXTENSIONS: GLenum = 0x1F03;
 pub const GL_RENDERER: GLenum = 0x1F01;
 pub const GL_VERSION: GLenum = 0x1F02;
 pub const GL_NO_ERROR: GLenum = 0;
+pub const GL_PIXEL_PACK_BUFFER: GLenum = 0x88EB;
+pub const GL_STREAM_READ: GLenum = 0x88E1;
+pub const GL_MAP_READ_BIT: GLenum = 0x0001;
 
 macro_rules! entry_points {
     ($($name:ident: fn($($arg:ty),*) $(-> $ret:ty)?;)*) => {
@@ -197,6 +200,7 @@ entry_points! {
     glEnableVertexAttribArray: fn(GLuint);
     glDrawArrays: fn(GLenum, GLint, GLsizei);
     glReadPixels: fn(GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, *mut c_void);
+    glColorMask: fn(u8, u8, u8, u8);
     glFinish: fn();
     glFlush: fn();
 }
@@ -216,6 +220,13 @@ pub struct Optional {
     pub eglQueryDmaBufModifiersEXT: Option<unsafe extern "C" fn(EGLDisplay, EGLint, EGLint, *mut u64, *mut EGLBoolean, *mut EGLint) -> EGLBoolean>,
     /// GLES 3's framebuffer blit (`src x0 y0 x1 y1, dst x0 y0 x1 y1, mask, filter`): a page copies from the page drawn last.
     pub glBlitFramebuffer: Option<unsafe extern "C" fn(GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLenum, GLenum)>,
+    /// GLES 3's pixel pack buffers: a recording's read goes into one and is mapped a frame later (`gl/readback.rs`).
+    pub glGenBuffers: Option<unsafe extern "C" fn(GLsizei, *mut GLuint)>,
+    pub glDeleteBuffers: Option<unsafe extern "C" fn(GLsizei, *const GLuint)>,
+    pub glBindBuffer: Option<unsafe extern "C" fn(GLenum, GLuint)>,
+    pub glBufferData: Option<unsafe extern "C" fn(GLenum, isize, *const c_void, GLenum)>,
+    pub glMapBufferRange: Option<unsafe extern "C" fn(GLenum, isize, isize, u32) -> *mut c_void>,
+    pub glUnmapBuffer: Option<unsafe extern "C" fn(GLenum) -> u8>,
 }
 
 /// How the EGL display is made.
@@ -292,6 +303,12 @@ impl Egl {
             eglDupNativeFenceFDANDROID: opt!(c"eglDupNativeFenceFDANDROID"),
             eglQueryDmaBufModifiersEXT: opt!(c"eglQueryDmaBufModifiersEXT"),
             glBlitFramebuffer: opt!(c"glBlitFramebuffer"),
+            glGenBuffers: opt!(c"glGenBuffers"),
+            glDeleteBuffers: opt!(c"glDeleteBuffers"),
+            glBindBuffer: opt!(c"glBindBuffer"),
+            glBufferData: opt!(c"glBufferData"),
+            glMapBufferRange: opt!(c"glMapBufferRange"),
+            glUnmapBuffer: opt!(c"glUnmapBuffer"),
         };
 
         // SAFETY: EGL calls in the documented order; every handle is checked.

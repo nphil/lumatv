@@ -61,6 +61,14 @@ impl Output for ScanOut {
         self.gl.grab_target(self.pages[self.frames.last_page()], size, spare)
     }
 
+    fn grab_deferred(&mut self, size: (u32, u32), spare: Vec<u8>, tag: u64) -> io::Result<Option<(u64, Image)>> {
+        self.gl.grab_target_deferred(self.pages[self.frames.last_page()], size, spare, tag)
+    }
+
+    fn grab_finish(&mut self, size: (u32, u32), spare: Vec<u8>) -> io::Result<Option<(u64, Image)>> {
+        self.gl.grab_take_deferred(size, spare)
+    }
+
     fn grab_end(&mut self) {
         self.gl.release_grab();
     }
@@ -177,5 +185,30 @@ fn the_scratch_target_is_given_back_and_made_again_and_the_pages_are_untouched()
     });
     assert_eq!(first, again, "the same page at the same size reads the same, before and after the scratch target went");
     assert_eq!(page_before, page_after, "a grab draws into no page");
+    assert_eq!(errors, 0);
+}
+
+#[test]
+fn a_deferred_grab_returns_each_picture_a_call_later_with_its_tag_and_the_last_one_on_finish() {
+    let Some((server, _client)) = screen() else { return };
+    let (sync, first, second, third, last, none, errors) = server.eval(|s| {
+        s.tick();
+        let size = (640, 360);
+        let sync = s.output.grab(size, Vec::new()).unwrap();
+        let first = s.output.grab_deferred(size, Vec::new(), 10).unwrap();
+        let second = s.output.grab_deferred(size, Vec::new(), 20).unwrap();
+        let third = s.output.grab_deferred(size, Vec::new(), 30).unwrap();
+        let last = s.output.grab_finish(size, Vec::new()).unwrap();
+        let none = s.output.grab_finish(size, Vec::new()).unwrap();
+        s.output.grab_end();
+        (sync, first, second, third, last, none, s.stats.gl_errors)
+    });
+    assert_eq!(first, None, "nothing is back for the first call");
+    let (tag2, img2) = second.expect("the first picture, a call later");
+    let (tag3, img3) = third.expect("the second");
+    let (tag4, img4) = last.expect("the third, taken by finish");
+    assert_eq!((tag2, tag3, tag4), (10, 20, 30));
+    assert!(img2 == sync && img3 == sync && img4 == sync, "the same picture as the synchronous read, alpha opaque");
+    assert_eq!(none, None, "taken once");
     assert_eq!(errors, 0);
 }

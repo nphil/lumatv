@@ -13,6 +13,7 @@ use wayland_server::protocol::wl_buffer::WlBuffer;
 
 mod boxdim;
 mod previews;
+mod readback;
 
 use super::egl::{self, EGLImage, EGLSync, Egl, GLint, GLuint, Platform};
 use crate::Rect;
@@ -110,7 +111,7 @@ pub struct Gl {
     /// A transition is moving: `bury` waits ([`Gl::defer_frees`]).
     frees_deferred: bool,
     /// A 16x16 target the first draw from a fresh import goes into (`prepare`), made on first use: `(fbo, texture)`.
-    warm: Option<(GLuint, GLuint)>,
+    warm: WarmSlot,
     bgra_upload: bool,
     /// The rows of the rectangle an shm upload sends, kept between frames: the frame path allocates nothing once it is as big as the
     /// largest damage (a fresh buffer of the rectangle's size each frame is an `mmap` and a `munmap` of up to 8 MB above glibc's 128 KiB).
@@ -150,6 +151,8 @@ pub struct Gl {
     /// The scratch target a screenshot or recording reads a page back through (`grab_target`): its index among the targets and its size.
     /// Made when the first picture is wanted, given back when the capture is over (`release_grab`), so nothing is held while none runs.
     grab_scratch: Option<(TargetId, u32, u32)>,
+    /// The pixel pack buffers a recording's frames are read through, a frame behind (`gl/readback.rs`).
+    readback: readback::Readback,
     /// The Rust Home (the engine's stack 0) is not drawn in these frames: an app's card covers it (`Plan::home_hidden`, `set_home_hidden`).
     home_hidden: bool,
     #[cfg(feature = "ui")]
@@ -302,7 +305,7 @@ impl Gl {
             textures: HashMap::new(),
             graveyard: Vec::new(),
             frees_deferred: false,
-            warm: None,
+            warm: WarmSlot::default(),
             bgra_upload,
             upload_rows: Vec::new(),
             clock: FrameClock::new(),
@@ -325,6 +328,7 @@ impl Gl {
             previews: previews::Previews::default(),
             boxdim: boxdim::BoxDim::default(),
             grab_scratch: None,
+            readback: readback::Readback::default(),
             home_hidden: false,
             #[cfg(feature = "ui")]
             ui: None,
@@ -818,16 +822,7 @@ impl Gl {
 
     /// The 16x16 target the warm draws and the acquire samples go into, made on first use.
     fn warm_target(&mut self) -> Option<(GLuint, GLuint)> {
-        if self.warm.is_none() {
-            match offscreen_target(&self.egl, 16, 16) {
-                Ok(w) => self.warm = Some(w),
-                Err(e) => {
-                    log::warn!("warm target: {e}");
-                    return None;
-                }
-            }
-        }
-        self.warm
+        self.warm.get_or_make(|| offscreen_target(&self.egl, 16, 16))
     }
 
     /// The acquire barrier for a buffer the display is about to read directly (`scanout`): one texel of it is sampled into the warm target, so that
@@ -1209,6 +1204,13 @@ impl Gl {
             (a.glCheckFramebufferStatus)(egl::GL_FRAMEBUFFER)
         };
         if status != egl::GL_FRAMEBUFFER_COMPLETE {
+            // SAFETY: the objects made above, bound to nothing that outlives this call.
+            unsafe {
+                (a.glBindFramebuffer)(egl::GL_FRAMEBUFFER, 0);
+                (a.glDeleteFramebuffers)(1, &fbo);
+                (a.glDeleteTextures)(1, &tex);
+                self.egl.destroy_image(image);
+            }
             return Err(egl::other(format!("dma-buf target framebuffer incomplete: 0x{status:x}")));
         }
         // Defined-texture rule: a new page starts opaque black.
@@ -1410,10 +1412,10 @@ impl Gl {
         Ok(id)
     }
 
-    /// The picture `source` holds, at `size`, drawn into `spare`: one textured quad from the page into a scratch target of that size (the
-    /// GPU does the scaling), then the read. Nothing of the frame path's state is touched: no page is drawn into, no texture uploaded, no
-    /// damage taken. The page's pixels are premultiplied and its alpha is made opaque, so a hole for video reads black.
-    pub fn grab_target(&mut self, source: TargetId, size: (u32, u32), mut spare: Vec<u8>) -> io::Result<Image> {
+    /// The picture `source` holds, at `size`, drawn into the scratch target: one textured quad from the page (the GPU does the scaling), its alpha
+    /// then made opaque (the page's pixels are premultiplied, so a hole for video reads black), with the scratch target's framebuffer left bound
+    /// for the read. Nothing of the frame path's state is touched: no page is drawn into, no texture uploaded, no damage taken.
+    fn grab_draw(&mut self, source: TargetId, size: (u32, u32)) -> io::Result<()> {
         let (w, h) = size;
         if source.0 >= self.targets.len() || w == 0 || h == 0 {
             return Err(egl::other(format!("grab: page {} at {w}x{h}", source.0)));
@@ -1422,9 +1424,7 @@ impl Gl {
         let (tex, top_down) = (self.targets[source.0].tex, self.targets[source.0].top_down);
         let previous = std::mem::replace(&mut self.current, scratch);
         let full = Rect::new(0, 0, self.width as i32, self.height as i32);
-        spare.clear();
-        spare.resize(w as usize * h as usize * 4, 0);
-        // SAFETY: GL state calls on the current context and this renderer's objects; the read fills exactly w*h*4 bytes.
+        // SAFETY: GL state calls on the current context and this renderer's objects.
         unsafe {
             let a = &self.egl.api;
             (a.glBindFramebuffer)(egl::GL_FRAMEBUFFER, self.targets[scratch.0].fbo);
@@ -1437,25 +1437,44 @@ impl Gl {
         // The page already holds whatever the OLED care dimmed; copying it takes none of that light away again.
         self.set_dim(1.0);
         self.draw_quad(tex, &full, top_down);
-        // SAFETY: as above; GL_PACK_ALIGNMENT 4 matches the rows of a 4-byte pixel.
+        // SAFETY: as above; a clear with only the alpha channel writable.
+        unsafe {
+            let a = &self.egl.api;
+            (a.glColorMask)(0, 0, 0, 1);
+            (a.glClearColor)(0.0, 0.0, 0.0, 1.0);
+            (a.glClear)(egl::GL_COLOR_BUFFER_BIT);
+            (a.glColorMask)(1, 1, 1, 1);
+        }
+        self.current = previous;
+        Ok(())
+    }
+
+    /// The picture `source` holds, at `size`, read into `spare` (see [`Gl::grab_draw`]) before this returns: the loop waits for the GPU.
+    pub fn grab_target(&mut self, source: TargetId, size: (u32, u32), mut spare: Vec<u8>) -> io::Result<Image> {
+        let (w, h) = size;
+        self.grab_draw(source, size)?;
+        let len = w as usize * h as usize * 4;
+        spare.clear();
+        spare.reserve(len);
+        // SAFETY: the read fills exactly w*h*4 bytes of the spare's capacity (GL_PACK_ALIGNMENT 4 matches the rows of a 4-byte pixel); the length is
+        // set only once no error says it did not.
         unsafe {
             let a = &self.egl.api;
             (a.glPixelStorei)(egl::GL_PACK_ALIGNMENT, 4);
             (a.glReadPixels)(0, 0, w as i32, h as i32, egl::GL_RGBA, egl::GL_UNSIGNED_BYTE, spare.as_mut_ptr() as *mut c_void);
         }
-        self.current = previous;
         let err = self.egl.gl_error();
         if err != egl::GL_NO_ERROR {
             return Err(egl::other(format!("grab: glReadPixels 0x{err:x}")));
         }
-        for px in spare.chunks_exact_mut(4) {
-            px[3] = 255;
-        }
+        // SAFETY: see above.
+        unsafe { spare.set_len(len) };
         Ok(Image { width: w, height: h, rgba: spare })
     }
 
     /// A capture is over: the scratch target is given back (when it is the newest target, which it is unless a page was added since).
     pub fn release_grab(&mut self) {
+        self.readback_free();
         let Some((id, ..)) = self.grab_scratch else { return };
         if id.0 + 1 != self.targets.len() {
             return;
@@ -1823,6 +1842,29 @@ fn bind_image(a: &egl::Api, image: EGLImage) -> GLuint {
     t
 }
 
+/// The warm target's slot: made on first use, and a refusal is remembered, so a driver that will not make it is asked once, not on every
+/// direct-scanout attempt.
+#[derive(Default)]
+struct WarmSlot {
+    made: Option<(GLuint, GLuint)>,
+    refused: bool,
+}
+
+impl WarmSlot {
+    fn get_or_make(&mut self, make: impl FnOnce() -> io::Result<(GLuint, GLuint)>) -> Option<(GLuint, GLuint)> {
+        if self.made.is_none() && !self.refused {
+            match make() {
+                Ok(w) => self.made = Some(w),
+                Err(e) => {
+                    log::warn!("warm target: {e}");
+                    self.refused = true;
+                }
+            }
+        }
+        self.made
+    }
+}
+
 /// A render target in the context's own memory: a texture with a framebuffer over it, cleared to opaque black (the defined-texture
 /// rule, LumaShow lesson 15: never driver noise). Returns `(fbo, texture)`.
 fn offscreen_target(egl: &Egl, width: u32, height: u32) -> io::Result<(GLuint, GLuint)> {
@@ -1841,7 +1883,11 @@ fn offscreen_target(egl: &Egl, width: u32, height: u32) -> io::Result<(GLuint, G
         (a.glFramebufferTexture2D)(egl::GL_FRAMEBUFFER, egl::GL_COLOR_ATTACHMENT0, egl::GL_TEXTURE_2D, tex, 0);
         let status = (a.glCheckFramebufferStatus)(egl::GL_FRAMEBUFFER);
         if status != egl::GL_FRAMEBUFFER_COMPLETE {
-            return Err(egl::other(format!("offscreen framebuffer incomplete: 0x{status:x} (gl 0x{:x})", (a.glGetError)())));
+            let gl_error = (a.glGetError)();
+            (a.glBindFramebuffer)(egl::GL_FRAMEBUFFER, 0);
+            (a.glDeleteFramebuffers)(1, &fbo);
+            (a.glDeleteTextures)(1, &tex);
+            return Err(egl::other(format!("offscreen framebuffer incomplete: 0x{status:x} (gl 0x{gl_error:x})")));
         }
         (a.glViewport)(0, 0, width as i32, height as i32);
         (a.glDisable)(egl::GL_SCISSOR_TEST);
@@ -1903,7 +1949,7 @@ impl Drop for Gl {
             for t in std::mem::take(&mut self.textures).into_values().chain(std::mem::take(&mut self.graveyard)) {
                 self.free(t);
             }
-            if let Some((fbo, tex)) = self.warm {
+            if let Some((fbo, tex)) = self.warm.made {
                 (self.egl.api.glDeleteFramebuffers)(1, &fbo);
                 (self.egl.api.glDeleteTextures)(1, &tex);
             }
@@ -2133,4 +2179,26 @@ pub(crate) fn pack_shm_rows(out: &mut Vec<u8>, bytes: &[u8], offset: usize, stri
         }
     }
     true
+}
+
+#[cfg(test)]
+mod warm_slot_tests {
+    use super::*;
+
+    #[test]
+    fn a_refused_warm_target_is_not_asked_for_again() {
+        let mut slot = WarmSlot::default();
+        let mut asked = 0;
+        for _ in 0..3 {
+            assert_eq!(slot.get_or_make(|| { asked += 1; Err(egl::other("incomplete")) }), None);
+        }
+        assert_eq!(asked, 1);
+    }
+
+    #[test]
+    fn a_made_warm_target_is_kept() {
+        let mut slot = WarmSlot::default();
+        assert_eq!(slot.get_or_make(|| Ok((3, 4))), Some((3, 4)));
+        assert_eq!(slot.get_or_make(|| panic!("made twice")), Some((3, 4)));
+    }
 }

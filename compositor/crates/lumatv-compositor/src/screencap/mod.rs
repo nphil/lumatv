@@ -170,6 +170,8 @@ struct Rec {
     stage: Stage,
     next_grab_ns: u64,
     dirty: bool,
+    /// A picture was asked for and may still be on its way out of the output (`Output::grab_deferred`): it is taken when nothing new is due.
+    in_flight: bool,
     grab_failures: u32,
     ready_at: Option<Instant>,
     dot_lost_since: Option<Instant>,
@@ -405,6 +407,7 @@ impl State {
             stage: Stage::Starting,
             next_grab_ns: start_ns,
             dirty: true,
+            in_flight: false,
             grab_failures: 0,
             ready_at: None,
             dot_lost_since: None,
@@ -625,12 +628,16 @@ impl State {
                 }
                 let now_ns = monotonic_ns();
                 if rec.stage == Stage::Running && rec.dirty && now_ns >= rec.next_grab_ns {
-                    match output.grab(rec.size, rec.recorder.spare()) {
-                        Ok(image) => {
+                    match output.grab_deferred(rec.size, rec.recorder.spare(), now_ns) {
+                        Ok(read) => {
                             rec.grab_failures = 0;
                             rec.dirty = false;
-                            let pts = now_ns.saturating_sub(rec.recorder.spec().start_ns) / 1000;
-                            rec.recorder.send(image, pts);
+                            rec.in_flight = true;
+                            // The picture that comes back may be the one asked for a call ago: its time is the time it was asked for.
+                            if let Some((asked_ns, image)) = read {
+                                let pts = asked_ns.saturating_sub(rec.recorder.spec().start_ns) / 1000;
+                                rec.recorder.send(image, pts);
+                            }
                             // On schedule, but never a burst to catch up after a late tick.
                             rec.next_grab_ns = (rec.next_grab_ns + rec.period_ns).max(now_ns);
                         }
@@ -641,6 +648,18 @@ impl State {
                                 Self::screencap_stop(rec, Some(("grab", format!("the screen could not be read: {e}"))));
                             }
                         }
+                    }
+                }
+                // The screen has come to rest: the last picture of its change is still in the output, and nothing newer will push it out.
+                else if rec.stage == Stage::Running && rec.in_flight && !rec.dirty && now_ns >= rec.next_grab_ns {
+                    rec.in_flight = false;
+                    match output.grab_finish(rec.size, rec.recorder.spare()) {
+                        Ok(Some((asked_ns, image))) => {
+                            let pts = asked_ns.saturating_sub(rec.recorder.spec().start_ns) / 1000;
+                            rec.recorder.send(image, pts);
+                        }
+                        Ok(None) => {}
+                        Err(e) => log::warn!("screencap: picture: {e}"),
                     }
                 }
             }

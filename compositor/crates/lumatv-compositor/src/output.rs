@@ -267,6 +267,18 @@ pub trait Output {
         Ok(self.capture()?.scaled(size.0, size.1, spare))
     }
 
+    /// [`Output::grab`] for a recording, which cannot have the loop wait on the GPU: this call's picture may be read in the background and the
+    /// one asked for by the call before it comes back, with the `tag` that call gave (`None` while there is none). The default is `grab`, returning
+    /// this call's own picture.
+    fn grab_deferred(&mut self, size: (u32, u32), spare: Vec<u8>, tag: u64) -> io::Result<Option<(u64, Image)>> {
+        self.grab(size, spare).map(|image| Some((tag, image)))
+    }
+
+    /// The picture [`Output::grab_deferred`] still holds, when nothing newer is to be asked for. The default holds none.
+    fn grab_finish(&mut self, _size: (u32, u32), _spare: Vec<u8>) -> io::Result<Option<(u64, Image)>> {
+        Ok(None)
+    }
+
     /// While on, every frame is composed into a page (no window goes to the plane directly), so that `grab` finds the screen in the last
     /// page. Offscreen outputs always compose; the default does nothing.
     fn set_compose_only(&mut self, _on: bool) {}

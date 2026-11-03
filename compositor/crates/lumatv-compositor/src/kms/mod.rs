@@ -346,10 +346,30 @@ fn make_page(card: &Card, gl: &mut Gl, width: u32, height: u32, kind: PageKind) 
     let (fourcc, drm, depth) =
         if alpha { (crate::buffer::fourcc::ARGB8888, DrmFourcc::Argb8888, 32) } else { (crate::buffer::fourcc::XRGB8888, DrmFourcc::Xrgb8888, 24) };
     let dumb = card.create_dumb_buffer((width, height), drm, 32)?;
-    let fb = card.add_framebuffer(&dumb, depth, 32)?;
-    let fd = card.buffer_to_prime_fd(dumb.handle(), libc::O_CLOEXEC as u32)?;
-    let target = gl.add_dmabuf_target(fd.as_raw_fd(), width as i32, height as i32, fourcc, dumb.pitch(), 0)?;
-    Ok(Page { dumb, fd, fb, target, kind })
+    let fb = match card.add_framebuffer(&dumb, depth, 32) {
+        Ok(fb) => fb,
+        Err(e) => {
+            let _ = card.destroy_dumb_buffer(dumb);
+            return Err(e);
+        }
+    };
+    let fd = match card.buffer_to_prime_fd(dumb.handle(), libc::O_CLOEXEC as u32) {
+        Ok(fd) => fd,
+        Err(e) => {
+            let _ = card.destroy_framebuffer(fb);
+            let _ = card.destroy_dumb_buffer(dumb);
+            return Err(e);
+        }
+    };
+    match gl.add_dmabuf_target(fd.as_raw_fd(), width as i32, height as i32, fourcc, dumb.pitch(), 0) {
+        Ok(target) => Ok(Page { dumb, fd, fb, target, kind }),
+        Err(e) => {
+            let _ = card.destroy_framebuffer(fb);
+            drop(fd);
+            let _ = card.destroy_dumb_buffer(dumb);
+            Err(e)
+        }
+    }
 }
 
 /// The pages of a ring: `PAGES` of one kind, none left behind when one fails.
@@ -1710,6 +1730,15 @@ impl Output for Kms {
         // The page the last composed frame went into, read on the GPU (`compose_only` made sure the last frame was composed).
         let target = self.pages[self.frames.last_page()].target;
         self.gl.grab_target(target, size, spare)
+    }
+
+    fn grab_deferred(&mut self, size: (u32, u32), spare: Vec<u8>, tag: u64) -> io::Result<Option<(u64, Image)>> {
+        let target = self.pages[self.frames.last_page()].target;
+        self.gl.grab_target_deferred(target, size, spare, tag)
+    }
+
+    fn grab_finish(&mut self, size: (u32, u32), spare: Vec<u8>) -> io::Result<Option<(u64, Image)>> {
+        self.gl.grab_take_deferred(size, spare)
     }
 
     fn set_compose_only(&mut self, on: bool) {
