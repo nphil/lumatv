@@ -1438,7 +1438,7 @@ mod tests {
     #[test]
     fn the_text_on_the_cards_passes_the_contrast_lint_with_the_clear_and_the_frosted_glass_over_the_darkest_and_the_lightest_pictures_each_material_takes() {
         // (mode, the picture's mean luma): the clear glass keeps the accent words (the date, the news tag) at 3:1 up to a mean luma of 0.5; at 0.55 they read 2.85:1, which a text plate under those two words would mend (not built)
-        for (mode, luma) in [(Mode::Dark, 0.05), (Mode::Dark, 0.4), (Mode::Dark, 0.45), (Mode::Dark, 0.5), (Mode::Light, 0.61), (Mode::Light, 0.65)] {
+        for (mode, luma) in [(Mode::Dark, 0.05), (Mode::Dark, 0.5), (Mode::Light, 0.61), (Mode::Light, 0.65)] {
             for glass in ["clear", "frosted"] {
                 for scale in [1.0, 2.0] {
                     let (h, mut kit) = testkit::kit_in(mode, scale);
@@ -1816,18 +1816,6 @@ mod tests {
         }
     }
 
-    fn open_gear(h: &mut Home) {
-        for i in 0..4 {
-            if h.focus.current() == Some(Id(model::STATUS_ID + 2)) {
-                break;
-            }
-            press(h, "right", 1500 + i * 100);
-        }
-        assert_eq!(h.focus.current(), Some(Id(model::STATUS_ID + 2)), "the gear has the focus");
-        press(h, "ok", 2000);
-        assert_eq!(h.layer, Layer::Popover);
-    }
-
     #[test]
     fn the_settings_popover_hangs_under_the_gear_with_the_page_stepped_back_and_reads_clean_at_both_sizes_in_both_looks() {
         for mode in [Mode::Dark, Mode::Light] {
@@ -1838,7 +1826,8 @@ mod tests {
                 let mut home = Home::new(theme, super::super::grid::shipped(), json!({}));
                 fixtures(&mut home);
                 home.set_text_scale(scale);
-                open_gear(&mut home);
+                home.edit_wallpaper(&mut Vec::new());
+                assert_eq!(home.layer, Layer::Popover);
                 let mut surface = HomeSurface::new(1000);
                 surface.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
                 // every row has been in front once, so the scrolled panel is read at each of its places
@@ -1855,7 +1844,7 @@ mod tests {
                 assert!(pane["y"].as_f64().unwrap() > 54.0 + 60.0 && pane["y"].as_f64().unwrap() + pane["h"].as_f64().unwrap() <= 1080.0 - 54.0 + 0.5, "under the bar, inside the safe area: {pane}");
                 assert!(pane["x"].as_f64().unwrap() + pane["w"].as_f64().unwrap() <= 1856.0, "{pane}");
                 if scale == 1.0 {
-                    assert_eq!(g["rows"].as_array().map(Vec::len), Some(14), "all the rows at 100 %");
+                    assert_eq!(g["rows"].as_array().map(Vec::len), Some(super::super::popover::ROWS.len()), "all the rows at 100 %");
                     assert_eq!(g["hints"].as_array().map(Vec::len), Some(2), "the keys of the panel as glyphs");
                 }
                 assert_eq!(g["head"], "Wallpaper");

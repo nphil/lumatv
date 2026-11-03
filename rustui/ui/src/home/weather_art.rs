@@ -980,10 +980,21 @@ mod tests {
         assert_eq!(Cond::from_doc(&json!({"display": {}})), None);
     }
 
+    /// `check` for every condition, across the cores: making the pictures is what costs.
+    fn each_condition(check: impl Fn(Cond) + Sync) {
+        let all = every();
+        let check = &check;
+        std::thread::scope(|scope| {
+            for chunk in all.chunks(all.len().div_ceil(4)) {
+                scope.spawn(move || chunk.iter().for_each(|cond| check(*cond)));
+            }
+        });
+    }
+
     #[test]
     fn every_condition_is_drawn_on_whole_pixels_at_rest_and_nothing_is_empty_or_unpremultiplied() {
-        for st in stages() {
-            for cond in every() {
+        each_condition(|cond| {
+            for st in stages() {
                 let p = parts(cond, st, !cond.day);
                 assert!(!p.is_empty(), "{cond:?}");
                 for part in &p {
@@ -993,14 +1004,29 @@ mod tests {
                     assert!(part.raster.px.chunks_exact(4).all(|q| q[0] <= q[3] && q[1] <= q[3] && q[2] <= q[3]), "{cond:?}: premultiplied");
                 }
             }
-        }
+        });
     }
 
+    /// One pass over every picture at every size (making them is what costs): what is seen at rest is inside its box, the card's and the view's
+    /// pictures are few layers (the scene has 256 for all of the shell and Home holds over a hundred) and a few megabytes at most.
     #[test]
-    fn what_is_seen_at_rest_is_inside_its_box() {
-        for st in stages() {
-            for cond in every() {
-                for part in parts(cond, st, cond.day) {
+    fn what_is_seen_at_rest_is_inside_its_box_and_a_picture_is_few_layers_and_a_few_megabytes() {
+        each_condition(|cond| {
+            for (n, st) in stages().into_iter().enumerate() {
+                let (layers, bytes) = match n {
+                    1 => (Some(38usize), Some(2_200_000usize)),
+                    2 => (Some(46), Some(6_000_000)),
+                    _ => (None, None),
+                };
+                let p = parts(cond, st, cond.day);
+                if let Some(cap) = layers {
+                    assert!(p.len() <= cap, "{cond:?} at {}: {} layers (at most {cap})", st.w, p.len());
+                }
+                if let Some(cap) = bytes {
+                    let size: usize = p.iter().map(|q| q.raster.px.len()).sum();
+                    assert!(size <= cap, "{cond:?} at {}: {size} bytes", st.w);
+                }
+                for part in p {
                     let rest = part.rest_pose();
                     if rest.alpha <= 0.0 {
                         continue;
@@ -1017,7 +1043,7 @@ mod tests {
                     }
                 }
             }
-        }
+        });
     }
 
     #[test]
@@ -1159,26 +1185,6 @@ mod tests {
         assert!(p.iter().any(|q| q.rest_alpha > 0.5 && matches!(q.motion.alpha, Wave::Pulse { .. })));
         assert!(moves(&p));
         assert!(!moves(&[]));
-    }
-
-    #[test]
-    fn a_picture_is_few_layers_the_scene_has_256_for_all_of_the_shell_and_home_holds_over_a_hundred() {
-        for cond in every() {
-            for (st, cap) in [(stages()[1], 38usize), (stages()[2], 46usize)] {
-                let n = parts(cond, st, cond.day).len();
-                assert!(n <= cap, "{cond:?} at {}: {n} layers (at most {cap})", st.w);
-            }
-        }
-    }
-
-    #[test]
-    fn a_picture_is_a_few_megabytes_at_most_even_for_the_view() {
-        for cond in every() {
-            for (st, cap) in [(stages()[1], 2_200_000usize), (stages()[2], 6_000_000usize)] {
-                let bytes: usize = parts(cond, st, cond.day).iter().map(|q| q.raster.px.len()).sum();
-                assert!(bytes <= cap, "{cond:?} at {}: {bytes} bytes", st.w);
-            }
-        }
     }
 
     /// `cargo test --release -p lumatv-ui --lib weather_art::tests::cost -- --ignored --nocapture`: what a picture costs to make and to move.

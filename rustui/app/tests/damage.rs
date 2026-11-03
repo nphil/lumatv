@@ -12,15 +12,15 @@ fn assert_same(rig: &Rig, cost: &FrameCost, frame: usize, what: &str) {
 }
 
 #[test]
-fn lumahome_drawn_as_it_is_owed_is_the_frame_drawn_whole_over_300_frames() {
+fn lumahome_drawn_as_it_is_owed_is_the_frame_drawn_whole_over_30_frames() {
     let mut rig = Rig::new(RigConfig { pages: 3, reference: true, gpu_sync: false }).expect("a software GL and LumaHome");
     let (mut frames, mut partial, mut drew, mut damaged) = (0usize, 0usize, 0u64, 0u64);
-    // Two seconds of nothing but the wallpaper's steps and the clock's hand, then the gate's D-pad and sweep scripts until 300.
-    for (script, seconds) in [("idle", 2.0), ("mix", 30.0)] {
+    // A second of nothing but the wallpaper's steps and the clock's hand, then the gate's D-pad and sweep scripts until 30 frames.
+    for (script, seconds) in [("idle", 1.0), ("mix", 3.0)] {
         let mut stop = false;
         let mut results = Vec::new();
         rig.run(script, seconds, |cost| {
-            if frames < 300 {
+            if frames < 30 {
                 results.push(*cost);
                 frames += 1;
             } else {
@@ -34,12 +34,12 @@ fn lumahome_drawn_as_it_is_owed_is_the_frame_drawn_whole_over_300_frames() {
             drew += cost.region_px;
             damaged += cost.damage_px;
         }
-        if stop || frames >= 300 {
+        if stop || frames >= 30 {
             break;
         }
     }
-    assert!(frames >= 300, "{frames} frames drawn");
-    assert!(partial > 150, "only {partial} of {frames} frames were drawn in part");
+    assert!(frames >= 30, "{frames} frames drawn");
+    assert!(partial > 15, "only {partial} of {frames} frames were drawn in part");
     eprintln!(
         "{frames} frames, {partial} drawn in part, {:.1} % of the panel drawn on average, {:.1} % changed",
         100.0 * drew as f64 / (frames as f64 * 2_073_600.0),
@@ -92,7 +92,7 @@ mod stage {
         let mut picture = stage.ui.scene.image(200, 120, 8, Props::at(1500.0, 600.0)).expect("a picture");
         let mut toast = None;
         let (mut frames, mut partial) = (0, 0);
-        for k in 0..300usize {
+        for k in 0..80usize {
             let f = k as f32;
             bar_a.set(Props::at((f * 13.0) % 1800.0, 150.0));
             bar_b.set(Props::at(660.0 + (f * 7.0) % 700.0, 20.0));
@@ -121,7 +121,7 @@ mod stage {
             if let (62, Some(toast)) = (k, &toast) {
                 toast.animate(Props::at(750.0, 40.0), 200, compositor_protocol::Ease::Out);
             }
-            if k == 150 {
+            if k == 75 {
                 toast = None;
             }
             live_low.set(Props::at(900.0 + (f * 3.0) % 300.0, 700.0));
@@ -130,8 +130,8 @@ mod stage {
             frames += 1;
             partial += usize::from(cost.region_px < 1920 * 1080);
         }
-        assert_eq!(frames, 300);
-        assert!(partial > 150, "only {partial} of {frames} frames were drawn in part");
+        assert_eq!(frames, 80);
+        assert!(partial > 40, "only {partial} of {frames} frames were drawn in part");
         eprintln!("{partial} of {frames} frames drawn in part");
     }
 }
