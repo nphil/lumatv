@@ -92,9 +92,11 @@ Unfinished-work scan: no `todo!`, `unimplemented!`, TODO/FIXME or `dbg!` in ship
 - LumaTV `253beb2e`, `7ca80e3f`: item 18 (Rust UI per-input and idle work). Host-only (debug build, loaded host): the quiet pointer sample 447 to 11-16 us, an idle theme/layout poll 3.3 to 1.2 ms, the Quick panel's unchanged apply 775 to 109 us, Home's per-apply key strings 108 us to nothing. Not on the TV.
 - Marquee `1d27905b7`: items 5 and 6 (Opus source failure takes the recovery ladder; the Load budget starts at the Load). `4354e99a9`: item 9 (text fit).
 
+- LumaTV tests: the 15 stale tests are fixed or deleted (`shell_rust_attach` duplicated `ui_programs`, the transitions video-plane leave `transitions_rust_home`, the legacy refresh title tested a removed type), the OLED-care orbit test is driven by its own clock, the Python tests of retired QML and removed tool verbs are gone, and the suites run on an optimised test profile.
+
 ## Next
 
-1. Update the 40 stale tests listed under Tests.
+1. Update the 25 stale Marquee tests listed under Tests.
 2. TV run (step 3), including a recording check for item 14. None of the fixes after `8f6c04ab` is on the TV yet.
 
 The project todo list was audited the same day: `/data/home/tmp/lumatv-wake-handoff-20261031.B91cpuWy/TODO.md` (66 done items verified against commits and receipts, 11 reopened for a TV check, 10 superseded items dropped; original kept as `TODO.2026-11-03.orig.md`).

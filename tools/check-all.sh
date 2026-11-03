@@ -23,10 +23,9 @@ run() { # name dir command...
 run compositor-test   "$root/compositor" cargo test --workspace --features ui --no-fail-fast
 run compositor-clippy "$root/compositor" cargo clippy --workspace --features ui --all-targets -q
 run rustui-test       "$root/rustui" cargo test --workspace --no-fail-fast
-run rustui-clippy     "$root/rustui" cargo clippy --workspace --all-targets -q
 run helper-test       "$root/helper" cargo test --workspace --no-fail-fast
 run helper-clippy     "$root/helper" cargo clippy --workspace --all-targets -q
-# lumatv-render is vendored from LumaShow with its unit-test files stripped on purpose (sync-lumashow.sh, `[lib] test = false`),
-# so its #[cfg(test)] modules cannot compile under --all-targets; its library is still checked as a dependency.
-run rustui-clippy     "$root/rustui" cargo clippy --workspace --all-targets --exclude lumatv-render -q
+# lumatv-render and ui (lumashow-ui) are vendored from LumaShow with their unit-test files stripped on purpose (sync-lumashow.sh,
+# `[lib] test = false`), so their #[cfg(test)] modules cannot compile under --all-targets; their libraries are still checked as dependencies.
+run rustui-clippy     "$root/rustui" cargo clippy --workspace --all-targets --exclude lumatv-render --exclude ui -q
 grep -q 'exit [^0]' "$out/SUMMARY" && exit 1 || exit 0

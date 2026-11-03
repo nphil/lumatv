@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The helper's weather prefetch thread checks for a stop every 50 ms instead of every 5 s, so a stop no longer leaves it to the process exit.
+
 The native compositor executes LG idle timers, keeps screensavers above idle apps with the required application-lifecycle notifications, and wakes them through LG’s existing power service without forwarding the wake key into the app. LG playback policy remains authoritative.
 
 Receiver settings use individually qualified controls and confirm changes from receiver readback, without changing main-volume behavior.
