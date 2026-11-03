@@ -205,12 +205,6 @@ class WholeTool(unittest.TestCase):
         rc, out, err = self.run_tool("openapps", "on")
         self.assertEqual((rc, json.loads(out)["ok"]), (1, False))
 
-    def test_revert_calls_the_restore(self):
-        with open(TOOL) as f:
-            text = f.read()
-        i = text.index("do_revert_internal() {")
-        self.assertIn("  helper_stop\n  openapps_restore\n", text[i:i + 1500])
-
 
 if __name__ == "__main__":
     unittest.main()

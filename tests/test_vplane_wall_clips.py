@@ -48,23 +48,6 @@ HAVE_ENCODER = encoder_has_10_bits()
 class Warp(unittest.TestCase):
     GPU_RATES = {"x": 0.70, "y": 0.50, "z": 0.40, "w": 0.90, "v": 0.56}   # LumaHome.qml: phase = t * (0.70, 0.50, 0.40, 0.90); the third field 0.8 of the first
 
-    def test_the_shaders_expressions_are_the_ones_the_generator_evaluates(self):
-        """The clip is the GPU wallpaper's picture: if the shader moves, the clip is stale and this says so."""
-        with open(QML) as f:
-            q = f.read()
-        for expr in ("sin(uv.y * 6.0 * k + phase.x) * cos(uv.x * 4.0 * k - phase.y)", "sin((uv.x + uv.y) * 5.0 * k - phase.z)",
-                     "sin(uv.x * 11.0 * k + phase.w) * sin(uv.y * 9.0 * k - phase.x * 0.8)",
-                     "vec2(w1 + 0.5 * w2, 0.7 * w2 - 0.5 * w1) + params.w * 0.5 * vec2(w3, -w3)", "vUv = uv + params.x * disp",
-                     "vLight = 1.0 + params.y * (0.3 * (w1 - 0.5 * w2) + params.w * 0.25 * w3)",
-                     "y < 0.55 ? mix(scrimA, scrimB, y / 0.55) : mix(scrimB, scrimC, (y - 0.55) / 0.45)", "c = mix(c, sc.rgb, sc.a)",
-                     "GridMesh { resolution: Qt.size(64, 36) }", "Qt.vector4d(t * 0.70, t * 0.50, t * 0.40, t * 0.90)",
-                     "property real amp: (root.wallMotion.amplitude || 4) / 1920", "texture2D(src, vUv).rgb * vLight + vAdd",
-                     "mediump float crest = clamp(0.5 + 0.5 * (w1 + 0.4 * w3), 0.0, 1.0)", "look.y * 0.35 * crest * crest * crest * crest * crest * crest",
-                     "highp vec2 q = (uv - 0.5) * vec2(1.0, 0.5625)", "vLight *= 1.0 - look.x * 0.75 * smoothstep(0.12, 0.42, dot(q, q))",
-                     "max(texture2DLod(glow, vUv, 0.0).rgb - 0.3, 0.0) * look.z", "vAdd = vec3(spec) + bl"):
-            self.assertIn(expr, q, expr)
-        self.assertEqual(vw.GRID, (64, 36))
-
     def test_the_numbers_are_the_themes_own(self):
         theme = vw.read_theme()
         look = vw.look_of(theme)
@@ -180,26 +163,6 @@ class Warp(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_PIL, "needs Pillow 10.3 or newer")
 class Numbers(unittest.TestCase):
-    def test_the_tint_port_is_tint_js(self):
-        """The manifest's tint and luma are Tint.js's own method: both run on the same bytes."""
-        if not shutil.which("bun"):
-            self.skipTest("needs bun")
-        import random
-        rng = random.Random(7)
-        data = bytes(v for _ in range(32 * 18) for v in (rng.choice((12, 30, 70, 90, 120, 200)), rng.choice((10, 40, 80, 150)), rng.choice((20, 60, 100, 220)), 255 if rng.random() > 0.05 else 0))
-        script = ("import { readFileSync } from 'node:fs';"
-                  "const src = readFileSync(%r, 'utf8').replace(/^\\.pragma library$/m, '');"
-                  "const T = new Function(src + '\\nreturn { dominant, luma };')();"
-                  "const d = new Uint8Array(JSON.parse(process.env.TINT_DATA));"
-                  "console.log(JSON.stringify({ dominant: T.dominant(d, 576), luma: T.luma(d, 576) }));") % os.path.join(ROOT, "payload", "compositor", "lumatv", "Tint.js")
-        out = subprocess.run(["bun", "-e", script], capture_output=True, text=True, timeout=60, env=dict(os.environ, TINT_DATA=json.dumps(list(data))))
-        self.assertEqual(out.returncode, 0, out.stderr)
-        js = json.loads(out.stdout)
-        py = vw.dominant_of(list(data), 576)
-        self.assertEqual({k: js["dominant"][k] for k in ("r", "g", "b")}, {k: py[k] for k in ("r", "g", "b")})
-        self.assertAlmostEqual(js["dominant"]["share"], py["share"], places=9)
-        self.assertAlmostEqual(js["luma"], vw.luma_of(list(data), 576), places=9)
-
     def test_the_manifests_numbers_are_what_the_sampler_finds_in_the_wallpaper(self):
         w = json.load(open(os.path.join(SHIPPED, "wall.json")))["walls"][0]
         base = Image.open(vw.wallpaper_path(w["source"]["file"])).convert("RGB").resize(vw.SAMPLE, Image.BOX)

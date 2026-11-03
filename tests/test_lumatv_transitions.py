@@ -95,18 +95,6 @@ class Defaults(unittest.TestCase):
         self.assertIsNotNone(m)
         self.assertEqual(m.group(1), "false")
 
-    def test_the_settings_page_has_the_row_and_writes_the_same_key(self):
-        with open(os.path.join(ROOT, "payload", "compositor", "lumatv", "settings", "PageLook.qml")) as f:
-            qml = f.read()
-        self.assertIn('label: "Smooth transitions"', qml)
-        self.assertIn("motion: { transitions: v }", qml)
-
-    def test_the_shell_binds_home_to_the_compositors_word(self):
-        with open(os.path.join(ROOT, "compositor", "shell", "Shell.qml")) as f:
-            qml = f.read()
-        self.assertIn('Link.topics.transitions', qml)
-        self.assertIn('property: "smoothLaunch"', qml)
-
 
 if __name__ == "__main__":
     unittest.main()

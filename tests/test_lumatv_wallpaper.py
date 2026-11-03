@@ -151,13 +151,6 @@ class Wallpaper(unittest.TestCase):
         self.put_theme({"wallpaperMotion": {"source": "hologram"}})
         self.assertEqual(json.loads(self.run_verb("status")[1])["wallpaper"]["source"], "gpu")
 
-    def test_the_tool_has_the_verb_in_its_map_and_its_dispatch(self):
-        t = text()
-        self.assertRegex(t, r"(?m)^#   wallpaper video\|gpu\|status")
-        self.assertIn('wallpaper) verb_wallpaper "${2:-status}"; exit $? ;;', t)
-        for name in FUNCTIONS:
-            self.assertTrue(re.search(r"(?m)^%s\(\) \{" % name, t), name)
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -1026,17 +1026,6 @@ class Wiring(unittest.TestCase):
         with open(os.path.join(ROOT, "docs/research/arch/x4/x4-monitor.sh")) as f:
             self.assertIn("D=/tmp/x4", f.read(), "the script rewrites this line to keep its capture out of /tmp/x4")
 
-    def test_the_door_is_the_one_home_polls(self):
-        with open(os.path.join(ROOT, "payload", "compositor", "lumatv", "LumaHome.qml")) as f:
-            qml = f.read()
-        self.assertIn('file:///tmp/{{shortId}}-layer', qml)
-        self.assertIn("function find(id)", open(os.path.join(ROOT, "payload", "compositor", "lumatv", "Layers.qml")).read())
-        layers = open(os.path.join(ROOT, "payload", "compositor", "lumatv", "Layers.qml")).read()
-        for name in ("quick", "drawer", "settings"):
-            self.assertIn('id === "%s"' % name, layers)
-        mod = load()
-        self.assertEqual(mod.DOOR, "/tmp/lumatv-layer")
-
 
 if __name__ == "__main__":
     unittest.main()

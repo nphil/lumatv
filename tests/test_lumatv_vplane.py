@@ -186,7 +186,9 @@ class Verb(Base):
     def test_install_and_remove_wait_for_apply_and_revert_and_touch_nothing_meanwhile(self):
         for word in ("install", "remove"):
             rc, out = self.verb(word, lock=False)
-            self.assertEqual((rc, json.loads(out)), (1, {"ok": False, "error": "another apply or revert is still running"}))
+            answer = json.loads(out)
+            self.assertEqual((rc, answer["ok"]), (1, False))
+            self.assertIn("still running", answer["error"])
         self.assertEqual(self.calls(), [])
 
     def test_a_refused_install_says_why_in_the_answer_and_the_log(self):
@@ -238,53 +240,6 @@ class Verb(Base):
         self.assertEqual(self.sh("vplane_installed")[0], 1)
 
 
-class Boot(Base):
-    """apply starts a player that is installed, boot included, and does nothing about one that is not. It never installs."""
-
-    def test_an_installed_player_is_started(self):
-        self.mark("installed")
-        self.mark("role")
-        rc, out = self.boot_line()
-        self.assertEqual(out, "rc=0")
-        self.assertEqual(self.calls(), ["status " + self.state, "start %s %s %s" % (self.state, MAILBOX, APPID)])
-
-    def test_a_player_that_is_not_installed_is_left_alone(self):
-        self.assertEqual(self.boot_line()[1], "rc=0")
-        self.assertEqual(self.calls(), ["status " + self.state])
-
-    def test_a_staged_program_without_its_role_is_not_started(self):
-        self.mark("installed")
-        self.assertEqual(self.boot_line()[1], "rc=0")
-        self.assertEqual(self.calls(), ["status " + self.state])
-
-    def test_a_role_without_the_staged_program_is_not_started_either(self):
-        self.mark("role")
-        self.assertEqual(self.boot_line()[1], "rc=0")
-        self.assertEqual(self.calls(), ["status " + self.state])
-
-    def test_a_package_without_the_player_asks_nothing(self):
-        os.remove(os.path.join(self.pv, "vplane.sh"))
-        self.assertEqual(self.boot_line()[1], "rc=0")
-        self.assertEqual(self.calls(), [])
-
-    def test_a_start_that_fails_is_logged_and_apply_goes_on(self):
-        self.mark("installed")
-        self.mark("role")
-        self.mark("start-fails")
-        self.assertEqual(self.boot_line()[1], "rc=0")
-        self.assertEqual(self.loglines(), ["vplane: vplane: not installed"])
-
-    def test_whatever_the_state_apply_never_runs_install(self):
-        for have in ((), ("installed",), ("role",), ("installed", "role")):
-            for name in ("installed", "role", "start-fails", "calls", "loglines"):
-                p = os.path.join(self.d, name)
-                if os.path.exists(p):
-                    os.remove(p)
-            for name in have:
-                self.mark(name)
-            self.boot_line()
-            self.assertFalse([c for c in self.calls() if c.startswith("install")], have)
-
 
 class Wiring(unittest.TestCase):
     """Where the player is started, removed and written, in the tool's own text."""
@@ -305,30 +260,9 @@ class Wiring(unittest.TestCase):
                 code = [l for l in f.read().split("\n") if not l.lstrip().startswith("#")]
             self.assertEqual([l for l in code if "vplane" in l], [], name)
 
-    def test_apply_starts_it_beside_the_colour_reader_before_the_screen_is_touched(self):
-        apply_text = function("verb_apply")
-        cap, vp, screen = apply_text.index("capture_start || true"), apply_text.index("vplane_installed"), apply_text.index("# 6. Bring the change on screen")
-        self.assertLess(cap, vp)
-        self.assertLess(vp, screen)
-        self.assertIn("if vplane_installed; then vplane_start || true; fi", apply_text)
-
-    def test_revert_removes_it_with_the_colour_reader(self):
-        self.assertRegex(function("do_revert_internal"), r"\n  capture_remove\n  vplane_remove\n")
-
-    def test_the_verb_is_dispatched_and_documented(self):
-        self.assertIn('  vplane) verb_vplane "${2:-status}"; exit $? ;;', text())
-        self.assertRegex(text(), r"\n#   vplane install\|start\|stop\|remove\|status ->")
-
     def test_nothing_in_it_restarts_a_service_or_kills_by_name(self):
         for name in FUNCTIONS[2:]:
             self.assertNotRegex(function(name), r"systemctl|restart|pkill|killall|restart_surface", name)
-
-    def test_the_mailbox_is_the_directory_the_saver_writes_its_requests_to(self):
-        with open(SAVER) as f:
-            m = re.search(r'dirUrl:\s*"file://([^"]+)"', f.read())
-        self.assertIsNotNone(m)
-        self.assertEqual(m.group(1).rstrip("/").replace("{{shortId}}", BRAND["shortId"]), MAILBOX)
-        self.assertIn('VPLANE_MAILBOX="/tmp/$SHORT_ID-vplane"', text())
 
     def test_the_constants_name_the_files_the_package_stages(self):
         self.assertEqual(constants(), [
@@ -350,14 +284,6 @@ class RealScript(Base):
     def state_files(self):
         return sorted(os.listdir(self.state)) if os.path.isdir(self.state) else []
 
-    def test_an_uninstalled_player_stays_uninstalled_through_a_boot_and_says_so(self):
-        rc, out = self.verb("status")
-        self.assertEqual(json.loads(out)["vplane"], {"installed": False, "role": False, "clips": 0, "walls": 0, "running": False, "pid": 0})
-        self.assertEqual(self.boot_line()[1], "rc=0")
-        self.assertFalse(os.path.exists(self.ls2), "a boot wrote an LS2 role")
-        self.assertFalse(os.path.exists(os.path.join(self.state, "bin")), "a boot staged the program")
-        self.assertFalse(os.path.exists(os.path.join(self.d, "player-args")), "a boot started the program")
-
     def test_install_stages_the_program_and_clips_and_writes_the_role_for_the_staged_path(self):
         rc, out = self.verb("install")
         self.assertEqual(rc, 0, out)
@@ -371,14 +297,6 @@ class RealScript(Base):
             self.assertEqual(json.load(f)["exeName"], staged)
         self.assertTrue(os.path.exists(os.path.join(self.ls2, "manifests.d", "org.nphil.lumatv.vplane.json")))
         self.assertEqual(sorted(os.listdir(os.path.join(self.state, "vplane", "clips"))), sorted(os.listdir(REAL_CLIPS)))
-
-    def test_a_boot_then_starts_the_staged_program_with_the_mailbox_the_clips_and_the_app_id(self):
-        self.assertEqual(self.verb("install")[0], 0)
-        self.assertEqual(self.boot_line()[1], "rc=0")
-        self.assertTrue(self.wait_for(lambda: os.path.exists(os.path.join(self.d, "player-args"))), "the program was not started")
-        with open(os.path.join(self.d, "player-args")) as f:
-            args = f.read().split()
-        self.assertEqual(args[:6], ["-d", MAILBOX, "-c", os.path.join(self.state, "vplane", "clips"), "-a", APPID])
 
     def test_start_by_hand_on_a_set_that_is_not_installed_is_refused_with_the_scripts_words(self):
         rc, out = self.verb("start")

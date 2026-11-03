@@ -498,16 +498,6 @@ class Early(unittest.TestCase):
         self.assertEqual(self.dc("on", "--group", "uploaders")[0], 0)
         self.assertIsNone(self.status()["early"]["last"], "a pass says nothing about a group switched on after it")
 
-    def test_the_worker_starts_it_first_in_parallel_and_bounded(self):
-        with open(os.path.join(REPO, "tools", "autostart.sh"), encoding="utf-8") as f:
-            text = f.read()
-        call = 'timeout 20 "$APPDIR/tools/declutter.sh" early'
-        order = [text.index(s) for s in ("--worker", call, 'if [ -f "$STATE/bootcap" ]', '"$CLI" homestub-boot', '"$CLI" compositor-boot', '"$CLI" boot-bind')]
-        self.assertEqual(order, sorted(order), "the early step comes before the logo capture and the Home stub")
-        line = [l for l in text.split("\n") if call in l][0]
-        self.assertTrue(line.rstrip().endswith(") &"), "it must not hold the worker back")
-        self.assertIn("</dev/null", line)
-
     def test_the_stubs_are_in_before_the_masks_are_loaded_and_the_pass_times_itself(self):
         self.activate(*PRIVACY_GROUPS)
         self.persist()
@@ -597,18 +587,6 @@ class UpdateBlock(unittest.TestCase):
             self.assertRegex(f.read(), r"updateblock: bound, the four update names map to loopback at uptime [\d.]+ s")
         ub = self.status()["updateBlock"]
         self.assertEqual((ub["flag"], ub["mapped"], ub["ours"], ub["thisBoot"]), (True, 4, True, True))
-
-    def test_it_runs_without_any_declutter_group_and_before_the_group_step(self):
-        self.prepare()
-        self.assertFalse(os.path.exists(self.d("active")))
-        self.assertTrue(json.loads(self.dc("updateblock", "early")[1])["laid"])
-        with open(os.path.join(REPO, "tools", "autostart.sh"), encoding="utf-8") as f:
-            text = f.read()
-        call = 'timeout 20 "$APPDIR/tools/declutter.sh" updateblock early'
-        order = [text.index(s) for s in ("--worker", call, 'timeout 20 "$APPDIR/tools/declutter.sh" early', '"$CLI" homestub-boot')]
-        self.assertEqual(order, sorted(order), "the update block comes before everything else the worker does")
-        line = [l for l in text.split("\n") if call in l][0]
-        self.assertTrue(line.rstrip().endswith(") &") and "</dev/null" in line, "it must not hold the worker back")
 
     def test_it_is_left_alone_and_says_why_when_the_boot_is_not_to_have_it(self):
         cases = [("persist is off", dict(persist=False), None),

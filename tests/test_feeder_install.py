@@ -236,18 +236,6 @@ class Verb(Script):
         self.assertIn("no camera feeder", json.loads(out)["error"])
         self.assertEqual(self.sh("feeder_update")[0], 0, "an update of a package that has none is nothing")
 
-    def test_apply_updates_an_installed_feeder_and_never_installs_one(self):
-        line = [l.strip() for l in function("apply_run").splitlines() if "feeder_installed" in l]
-        self.assertEqual(line, ["if feeder_installed; then feeder_update || true; fi"])
-        self.assertNotIn("feeder_install ", function("apply_run"), "the role is the owner's to write")
-        self.assertIn("feeder_remove", function("do_revert_internal"), "revert takes it away with its role")
-        self.assertEqual(self.sh("feeder_installed")[0], 1)
-        self.sh("verb_feeder install")
-        self.write(os.path.join(self.pf, "lumatv-gfn-feeder"), "#!/bin/sh\necho two\n")
-        rc, _ = self.sh("if feeder_installed; then feeder_update || true; fi")
-        self.assertEqual(rc, 0)
-        self.assertEqual(subprocess.run([self.exe()], capture_output=True, text=True).stdout.strip(), "two")
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -94,7 +94,7 @@ class RustShell(unittest.TestCase):
         self.assertFalse(evals[2]['osd'], "the display went after its hold")
         toasts = evals[3]['toasts']
         self.assertEqual(len(toasts), 1)
-        self.assertEqual((toasts[0]['x'], toasts[0]['y'] + toasts[0]['h'], toasts[0]['w']), (680, 905 - 16, 560), "centred, over an app 16 px above the subtitles (at rest 54 px above the bottom edge): %s" % toasts)
+        self.assertEqual((toasts[0]['x'], toasts[0]['y'] + toasts[0]['h'], toasts[0]['w']), (800, 905 - 16, 320), "centred, over an app 16 px above the subtitles (at rest 54 px above the bottom edge): %s" % toasts)
         reports = self.reports(out)
         self.assertTrue(any(r['live'] and r['state']['osd'] for r in reports), "the display was reported live: %s" % [r['state'] for r in reports])
         self.assertTrue(any(r['state']['toasts'] == 1 for r in reports), "the toast was reported")

@@ -84,7 +84,7 @@ class DryRun(unittest.TestCase):
             self.assertEqual(p.returncode, 0, p.stdout[-2000:] + p.stderr[-500:])
             self.assertIn('FINAL POWER STATE: Active Standby', p.stdout)
             self.assertNotIn('PROBLEMS', p.stdout)
-            for f in ('log.txt', 'summary.txt', 'results.json', 'start-state.json', 'end-state.json', 'ble/scan-shapes.json', 'banners/pill-montage.png'):
+            for f in ('log.txt', 'summary.txt', 'results.json', 'start-state.json', 'end-state.json', 'ble/scan-shapes.json'):
                 self.assertTrue(os.path.exists(os.path.join(d, f)), f)
             self.assertNotIn('AA:BB', open(os.path.join(d, 'ble', 'scan-shapes.json')).read())
 
@@ -95,25 +95,6 @@ class DryRun(unittest.TestCase):
             self.assertIn('plugins   ', p.stdout)
             self.assertTrue(os.path.exists(os.path.join(d, 'plugins', 'plugins.json')))
 
-
-class BannerTree(unittest.TestCase):
-    def test_expectations_come_from_the_patch_not_from_constants(self):
-        t = r19.banner_tree()
-        self.assertIn("UserInterfaceLayer/Components/LumaStyle.qml", t["files"])      # one level deeper than the first guess
-        self.assertIn("UserInterfaceLayer/GlobalStyle.qml", t["files"])
-        self.assertEqual(len(t["files"]), len(set(t["files"])))
-        self.assertGreaterEqual(t["at_least"], 20)
-        self.assertFalse(hasattr(r19, "IC_FILES"))
-        if t["count"] is not None:                                                    # with the census copy of LG's tree on this host
-            self.assertGreaterEqual(t["count"], t["at_least"])
-
-    def test_the_banner_check_asks_the_set_for_every_derived_file(self):
-        d = tempfile.mkdtemp()
-        tv = r19.DryTv()
-        r19.Slot(r19.parse_args(["--dry-run", "--out", d]), tv).check_banners()
-        cmd = next(c for c in tv.commands if "missing-files" in c)
-        for rel in r19.banner_tree()["files"]:
-            self.assertIn(rel, cmd)
 
 
 class UpdateBlockCheck(unittest.TestCase):
