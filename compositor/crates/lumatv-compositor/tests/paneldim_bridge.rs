@@ -93,7 +93,7 @@ fn setup(name: &str) -> (PathBuf, PathBuf, Arc<Mutex<Tv>>) {
     let dir = std::env::temp_dir().join(format!("lumatv-paneldim-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("theme")).unwrap();
-    // a one-second ramp step keeps the test short
+    // a one-second ramp step and a two-unit dim (80 to 78) keep the test short
     std::fs::write(dir.join("theme/theme.json"), r#"{"oledcare": {"panelDimStepSec": 1}}"#).unwrap();
     let sock = dir.join("bridge.sock");
     let tv =
@@ -111,9 +111,9 @@ fn kill(child: &Child, sig: i32) {
 fn a_sigterm_puts_the_panel_back_before_the_process_ends() {
     let (dir, sock, tv) = setup("term");
     let mut child = spawn(&dir, &sock);
-    let reply = ctl(&dir, &["paneldim", "want", "0.9"]);
+    let reply = ctl(&dir, &["paneldim", "want", "0.975"]);
     assert_eq!(reply["ok"], true, "{reply}");
-    until("the panel dims to 72", 30, || tv.lock().value == 72);
+    until("the panel dims to 78", 30, || tv.lock().value == 78);
     assert!(dir.join("paneldim.json").exists(), "the journal stands while it is dim");
     let status = ctl(&dir, &["status"]);
     assert_eq!(status["oledcare"]["panelDim"]["dimmed"], true, "{status}");
@@ -128,11 +128,11 @@ fn a_sigterm_puts_the_panel_back_before_the_process_ends() {
 fn after_a_sigkill_the_next_start_puts_the_panel_back_from_the_journal() {
     let (dir, sock, tv) = setup("kill");
     let mut child = spawn(&dir, &sock);
-    ctl(&dir, &["paneldim", "want", "0.9"]);
-    until("the panel dims to 72", 30, || tv.lock().value == 72);
+    ctl(&dir, &["paneldim", "want", "0.975"]);
+    until("the panel dims to 78", 30, || tv.lock().value == 78);
     kill(&child, libc::SIGKILL);
     let _ = child.wait();
-    assert_eq!(tv.lock().value, 72, "nothing put it back: the process was killed");
+    assert_eq!(tv.lock().value, 78, "nothing put it back: the process was killed");
     assert!(dir.join("paneldim.json").exists());
     let mut next = spawn(&dir, &sock);
     until("the next start puts it back", 30, || tv.lock().value == 80);

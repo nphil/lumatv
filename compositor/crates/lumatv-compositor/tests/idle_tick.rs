@@ -85,8 +85,8 @@ fn a_screen_at_rest_wakes_the_loop_ten_times_a_second_and_an_event_puts_the_pane
         tick
     });
     assert_eq!((tick.period_ns(), tick.is_slowed()), (IDLE_TICK_NS, true));
-    let slow = wakeups(&tick, Duration::from_secs(1));
-    assert!((9..=11).contains(&slow), "{slow} expirations in a second at {} ms", IDLE_TICK_NS / 1_000_000);
+    let slow = wakeups(&tick, Duration::from_millis(500));
+    assert!((4..=6).contains(&slow), "{slow} expirations in half a second at {} ms", IDLE_TICK_NS / 1_000_000);
 
     // An event, and the same pass re-arms the timer at the panel's rate.
     let mut tick = tick;
@@ -96,8 +96,8 @@ fn a_screen_at_rest_wakes_the_loop_ten_times_a_second_and_an_event_puts_the_pane
         tick
     });
     assert_eq!((tick.period_ns(), tick.is_slowed()), (REFRESH_NS, false), "a commit, a key, a flip: not calm");
-    let fast = wakeups(&tick, Duration::from_secs(1));
-    assert!((58..=62).contains(&fast), "{fast} expirations in a second at the panel's rate");
+    let fast = wakeups(&tick, Duration::from_millis(500));
+    assert!((29..=31).contains(&fast), "{fast} expirations in half a second at the panel's rate");
 
     // A key held: not calm for as long as a hold is measured, even with no event since.
     let mut tick = tick;

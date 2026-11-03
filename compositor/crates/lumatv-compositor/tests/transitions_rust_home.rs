@@ -6,19 +6,14 @@
 
 mod harness;
 
-use compositor_protocol::{Event, Fill, Props, Rgba, Shape};
+use compositor_protocol::{Fill, Props, Rgba, Shape};
+use harness::home_engine::{self, HomeEngine};
 use harness::{Client, Server, Window};
-use lumashow_ui::{Scene, SceneOptions, Ui};
 use lumatv_compositor::output::Image;
-use lumatv_compositor::render::egl::Platform;
-use lumatv_compositor::render::gl::{BufferPath, Gl};
 use lumatv_compositor::scene::Hole;
 use serde_json::json;
-use std::path::Path;
-use std::time::{Duration, Instant};
 use wayland_client::protocol::wl_buffer::WlBuffer;
 
-const MESA: &str = "/usr/lib/x86_64-linux-gnu/libEGL.so.1";
 const MS: u64 = 1_000_000;
 const HOME_STUB: &str = "com.webos.app.home";
 const HOME: [u8; 3] = [32, 48, 96];
@@ -29,49 +24,12 @@ struct Rig {
     server: Server,
     client: Client,
     _keep: Vec<(Window, WlBuffer)>,
-    _ui: Ui,
-    hangup: std::os::unix::net::UnixStream,
-}
-
-fn skip() -> bool {
-    if !Path::new(MESA).exists() {
-        eprintln!("skipped: no Mesa at {MESA}");
-        return true;
-    }
-    // SAFETY: nothing else in this process reads the environment while it is set.
-    unsafe { std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1") };
-    false
+    engine: HomeEngine,
 }
 
 /// The Rust shell's Home as the engine's ground, the Home stub card over nothing, the compositor's `home_rust` on and transitions forced on.
 fn rig() -> Rig {
-    let shm = std::env::temp_dir().join(format!("lumatv-rust-home-transitions-{}-{:?}", std::process::id(), std::thread::current().id()));
-    std::fs::create_dir_all(&shm).unwrap();
-    let dir = shm.clone();
-    let (tx, rx) = std::sync::mpsc::channel();
-    let mut server = Server::start_with(Box::new(move || {
-        let mut gl = Gl::new(MESA, Platform::Surfaceless, 1920, 1080, BufferPath::Own, None).unwrap();
-        tx.send(gl.attach_ui(MESA, 1000, dir).unwrap()).unwrap();
-        gl.ui().unwrap().finish_handshake().unwrap();
-        Box::new(gl)
-    }));
-    let app_end = rx.recv().unwrap();
-    let hangup = app_end.try_clone().unwrap();
-    let (scene, _, events) = Scene::over_with(app_end, SceneOptions { shm_dir: Some(shm), ..Default::default() }).unwrap();
-    let ui = Ui::new(scene);
-    let ground = Shape { corner_radius: 0.0, fill: Fill::Solid(Rgba(HOME[0], HOME[1], HOME[2], 255)), border_width: 0.0, border: Rgba(0, 0, 0, 0) };
-    let layer = ui.scene.shape(1920, 1080, 0, ground, Props::at(0.0, 0.0));
-    std::mem::forget(layer);
-    let first = ui.try_commit().unwrap().unwrap();
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let event = events.recv_timeout(deadline.saturating_duration_since(Instant::now())).expect("a presented UI frame");
-        ui.scene.observe(&event);
-        if matches!(event, Event::Frame { tag, .. } if tag >= first) {
-            break;
-        }
-    }
-    server.ticking.store(false, std::sync::atomic::Ordering::SeqCst);
+    let (mut server, engine) = home_engine::start(HOME);
     let mut client = Client::connect(&mut server);
     let stub = client.card("_WEBOS_WINDOW_TYPE_CARD", "Stub");
     stub.webos.set_property("appId".into(), HOME_STUB.into());
@@ -86,13 +44,7 @@ fn rig() -> Rig {
         s.set_launch_origin(&json!({"appId": "com.webos.app.hdmi2", "tile": {"x": TILE.0, "y": TILE.1, "width": TILE.2, "height": TILE.3, "radius": 22}}));
         s.tick_at(1_000 * MS);
     });
-    Rig { server, client, _keep: vec![(stub, clear)], _ui: ui, hangup }
-}
-
-impl Drop for Rig {
-    fn drop(&mut self) {
-        let _ = self.hangup.shutdown(std::net::Shutdown::Both);
-    }
+    Rig { server, client, _keep: vec![(stub, clear)], engine }
 }
 
 fn tick(server: &Server, ns: u64) -> Image {
@@ -130,7 +82,7 @@ fn app(rig: &mut Rig, id: &str) -> (Window, WlBuffer) {
 
 #[test]
 fn a_launch_and_a_return_are_a_card_growing_out_of_its_tile_over_the_rust_home_and_back_with_home_told_it_stays_and_no_black_frame() {
-    if skip() {
+    if !home_engine::available() {
         return;
     }
     let mut rig = rig();
@@ -176,7 +128,7 @@ fn a_launch_and_a_return_are_a_card_growing_out_of_its_tile_over_the_rust_home_a
 
 #[test]
 fn an_app_on_the_video_plane_arrives_on_a_veil_and_leaves_with_home_covering_its_hole_at_once() {
-    if skip() {
+    if !home_engine::available() {
         return;
     }
     let mut rig = rig();
@@ -213,14 +165,14 @@ fn an_app_on_the_video_plane_arrives_on_a_veil_and_leaves_with_home_covering_its
 
 #[test]
 fn a_rust_home_under_an_app_that_covers_it_is_not_drawn_and_is_drawn_whole_the_frame_the_app_goes() {
-    if skip() {
+    if !home_engine::available() {
         return;
     }
     let mut rig = rig();
     // Home as more than a ground: twelve pieces over it, each a draw
     let solid = |c: [u8; 3]| Shape { corner_radius: 0.0, fill: Fill::Solid(Rgba(c[0], c[1], c[2], 255)), border_width: 0.0, border: Rgba(0, 0, 0, 0) };
-    let pieces: Vec<_> = (0..12).map(|i| rig._ui.scene.shape(100, 60, 10 + i, solid([200, 200, 60]), Props::at(40.0 + 120.0 * i as f32, 300.0))).collect();
-    rig._ui.try_commit().unwrap();
+    let pieces: Vec<_> = (0..12).map(|i| rig.engine.ui.scene.shape(100, 60, 10 + i, solid([200, 200, 60]), Props::at(40.0 + 120.0 * i as f32, 300.0))).collect();
+    rig.engine.ui.try_commit().unwrap();
     // no motion: the card is there at once, with no transition to draw Home through
     rig.server.eval(|s| {
         s.motion.forced = Some(false);
@@ -241,8 +193,8 @@ fn a_rust_home_under_an_app_that_covers_it_is_not_drawn_and_is_drawn_whole_the_f
     assert_eq!(rig.server.eval(|s| s.stats.ui_draws_last), 0, "the engine drew nothing: Home is under the card");
 
     // a layer of the system layer over the card is drawn alone
-    let toast = rig._ui.scene.shape(300, 100, 1000, solid([10, 200, 10]), Props::at(500.0, 500.0));
-    rig._ui.try_commit().unwrap();
+    let toast = rig.engine.ui.scene.shape(300, 100, 1000, solid([10, 200, 10]), Props::at(500.0, 500.0));
+    rig.engine.ui.try_commit().unwrap();
     let with_toast = tick(&rig.server, 1_300 * MS);
     assert_eq!(with_toast.pixel(600, 540)[..3], [10, 200, 10], "the system layer over the card");
     assert_eq!(with_toast.pixel(60, 320)[..3], [0xd0, 0x40, 0x40]);
@@ -250,7 +202,7 @@ fn a_rust_home_under_an_app_that_covers_it_is_not_drawn_and_is_drawn_whole_the_f
     assert!(toast_draws >= 1 && toast_draws < home_draws, "the toast's frame draws the toast and not Home: {toast_draws} against {home_draws}");
     // and a frame of it that moves nothing else draws nothing of Home either
     drop(toast);
-    rig._ui.try_commit().unwrap();
+    rig.engine.ui.try_commit().unwrap();
     tick(&rig.server, 1_350 * MS);
     assert_eq!(rig.server.eval(|s| s.stats.ui_draws_last), 0);
 

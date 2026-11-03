@@ -704,3 +704,74 @@ pub fn counted(f: impl FnOnce()) -> usize {
     ARMED.with(|a| a.set(false));
     ALLOCATIONS.load(std::sync::atomic::Ordering::Relaxed)
 }
+
+/// The Rust shell's Home as the UI engine draws it (feature `ui`, Mesa's software GL): a ground of one colour under the windows, on a GL output of the
+/// compositor's own, as LumaTV runs. Without the engine native Home is never drawn and the compositor's transitions wait for it.
+#[cfg(feature = "ui")]
+pub mod home_engine {
+    use super::Server;
+    use compositor_protocol::{Event, Fill, Props, Rgba, Shape};
+    use lumashow_ui::{Scene, SceneOptions, Ui};
+    use lumatv_compositor::render::egl::Platform;
+    use lumatv_compositor::render::gl::{BufferPath, Gl};
+    use std::os::unix::net::UnixStream;
+    use std::path::Path;
+    use std::time::{Duration, Instant};
+
+    const MESA: &str = "/usr/lib/x86_64-linux-gnu/libEGL.so.1";
+
+    /// Whether Mesa is there to run the engine on; sets the software rasteriser for this process when it is.
+    pub fn available() -> bool {
+        if !Path::new(MESA).exists() {
+            eprintln!("skipped: no Mesa at {MESA}");
+            return false;
+        }
+        // SAFETY: nothing else in this process reads the environment while it is set.
+        unsafe { std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1") };
+        true
+    }
+
+    pub struct HomeEngine {
+        /// The engine's scene: tests add layers to Home through it.
+        pub ui: Ui,
+        hangup: UnixStream,
+    }
+
+    impl Drop for HomeEngine {
+        fn drop(&mut self) {
+            let _ = self.hangup.shutdown(std::net::Shutdown::Both);
+        }
+    }
+
+    /// A server whose output has the engine attached, with Home's ground (`ground`, RGB) drawn once; the server does not tick on its own.
+    pub fn start(ground: [u8; 3]) -> (Server, HomeEngine) {
+        let shm = std::env::temp_dir().join(format!("lumatv-home-engine-{}-{:?}", std::process::id(), std::thread::current().id()));
+        std::fs::create_dir_all(&shm).unwrap();
+        let dir = shm.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let server = Server::start_with(Box::new(move || {
+            let mut gl = Gl::new(MESA, Platform::Surfaceless, 1920, 1080, BufferPath::Own, None).unwrap();
+            tx.send(gl.attach_ui(MESA, 1000, dir).unwrap()).unwrap();
+            gl.ui().unwrap().finish_handshake().unwrap();
+            Box::new(gl)
+        }));
+        let app_end = rx.recv().unwrap();
+        let hangup = app_end.try_clone().unwrap();
+        let (scene, _, events) = Scene::over_with(app_end, SceneOptions { shm_dir: Some(shm), ..Default::default() }).unwrap();
+        let ui = Ui::new(scene);
+        let fill = Shape { corner_radius: 0.0, fill: Fill::Solid(Rgba(ground[0], ground[1], ground[2], 255)), border_width: 0.0, border: Rgba(0, 0, 0, 0) };
+        let layer = ui.scene.shape(1920, 1080, 0, fill, Props::at(0.0, 0.0));
+        std::mem::forget(layer);
+        let first = ui.try_commit().unwrap().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let event = events.recv_timeout(deadline.saturating_duration_since(Instant::now())).expect("a presented UI frame");
+            ui.scene.observe(&event);
+            if matches!(event, Event::Frame { tag, .. } if tag >= first) {
+                break;
+            }
+        }
+        server.ticking.store(false, std::sync::atomic::Ordering::SeqCst);
+        (server, HomeEngine { ui, hangup })
+    }
+}

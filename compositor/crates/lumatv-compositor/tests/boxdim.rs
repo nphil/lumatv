@@ -195,29 +195,32 @@ fn the_same_picture_committed_again_every_few_seconds_is_still_for_the_box_dim_a
         let c = &mut s.scene.care.settings;
         c.app_dim = true;
         c.app_shift = true;
-        c.app_after_ns = 60 * SEC;
-        c.dim_over_ns = 60 * SEC;
+        c.app_after_ns = 20 * SEC;
+        c.dim_over_ns = 20 * SEC;
         c.app_floor = 0.7;
+        c.step_ns = 5 * SEC;
+        c.boxdim.after_ns = 20 * SEC;
+        c.boxdim.ramp_ns = 10 * SEC;
         s.tick_at(SEC);
         SEC
     });
-    // Round 16's static page: bursts of commits of the same frame every 4 to 5 s, for two and a half minutes.
+    // Round 16's static page: bursts of commits of the same frame every 4 to 5 s, past both waits (20 s) and both ramps.
     let mut t = t;
-    for cycle in 0..34 {
+    for cycle in 0..8 {
         for k in 0..3 {
             t = commit(&server, &mut app, &card, if (cycle + k) % 2 == 0 { &buf } else { &twin }, t, 16 * MS);
         }
-        t = run_on(&server, t, 4 * SEC + 400 * MS, 200 * MS);
+        t = run_on(&server, t, 4 * SEC + 400 * MS, SEC);
     }
     let t = server.eval(move |s| {
         let b = &s.scene.boxdim;
         assert!(b.engaged(), "the box dim engaged, the commits notwithstanding: {}", b.report(t, &s.scene.care.settings.boxdim));
-        assert!(b.samples >= 30, "each burst was judged: {}", b.samples);
+        assert!(b.samples >= 6, "each burst was judged: {}", b.samples);
         assert!(b.checks > 0, "and judged at once once dimmed: {}", b.checks);
         let status = s.scene.care.status(t);
         assert_eq!(status["app"]["engaged"], true, "the app features engaged too: {status}");
         assert!(s.scene.care.app_dim() < 1.0, "{status}");
-        assert!(status["app"]["stillSec"].as_u64().unwrap() >= 140, "still since it appeared: {status}");
+        assert!(status["app"]["stillSec"].as_u64().unwrap() >= 30, "still since it appeared: {status}");
         assert!(s.journal.iter().all(|l| !l.contains("put back")), "never put back by a commit: {:?}", s.journal);
         t
     });

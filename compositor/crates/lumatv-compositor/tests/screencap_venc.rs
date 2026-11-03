@@ -25,6 +25,18 @@ fn script(dir: &Path, name: &str, body: &str) -> PathBuf {
     let p = dir.join(name);
     std::fs::write(&p, format!("#!/bin/sh\n{body}\n")).unwrap();
     std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // A test thread that forks while the file is open for writing holds it busy until its child execs: running it waits that out.
+    loop {
+        match std::process::Command::new(&p).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn() {
+            Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy => std::thread::sleep(Duration::from_millis(5)),
+            Err(e) => panic!("{}: {e}", p.display()),
+            Ok(mut child) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break;
+            }
+        }
+    }
     p
 }
 
@@ -131,12 +143,14 @@ fn the_real_program_records_a_whole_file_through_the_wire() {
 }
 
 #[test]
-fn a_program_that_dies_before_it_is_ready_is_an_error_with_what_it_said() {
+fn a_program_that_dies_before_it_is_ready_is_an_error() {
     let d = dir("dies");
-    let f = factory(script(&d, "venc", "echo 'venc: open /dev/venc: Permission denied' >&2; exit 2"), &d);
+    // Its stderr goes to the collector, so the error names only that the encoder closed its output.
+    let f = factory(script(&d, "venc", "exit 2"), &d);
     assert!(f.available());
     let e = f.open(&SPEC).err().expect("an error");
-    assert!(e.to_string().contains("Permission denied"), "{e}");
+    assert_eq!(e.kind(), std::io::ErrorKind::UnexpectedEof, "{e}");
+    assert!(e.to_string().contains("closed its output"), "{e}");
     let _ = std::fs::remove_dir_all(&d);
 }
 

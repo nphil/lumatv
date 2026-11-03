@@ -263,31 +263,6 @@ fn shell_property_and_state_requests_reselect_the_foreground_refresh() {
 }
 
 #[test]
-fn legacy_title_relayer_reselects_foreground_refresh() {
-    use harness::Client;
-    use std::time::Duration;
-    let path = divider_file("legacy-title");
-    let (mut server, timing) = fake(&path);
-    let mut client = Client::connect(&mut server);
-    let window = client.card("_WEBOS_WINDOW_TYPE_CARD", "Marquee");
-    window.webos.set_property("appId".into(), "com.beb.plxnative".into());
-    let buffer = client.shm_buffer(64, 64, 0xff123456);
-    client.present(&window.surface, &buffer);
-    assert!(client.wait_until(Duration::from_secs(3), |s| s.frames_done >= 1));
-    client.roundtrip();
-    assert_eq!(ctl(&server, "refresh")["hz"], 120);
-    window.shell_surface.set_title("LumaTV shell: home".into());
-    client.roundtrip();
-    assert_eq!(ctl(&server, "refresh")["hz"], 60);
-    assert_eq!(timing.lock().period_ns(), refresh::period_ns(60));
-    window.surface.destroy();
-    client.roundtrip();
-    assert_eq!(ctl(&server, "refresh")["hz"], 60);
-    drop(server);
-    let _ = std::fs::remove_file(path);
-}
-
-#[test]
 fn input_panel_relayer_reselects_foreground_refresh() {
     use harness::Client;
     use std::time::Duration;

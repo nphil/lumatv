@@ -147,9 +147,15 @@ fn a_member_that_the_hole_covers_does_not_lose_its_callbacks_or_its_releases() {
     }
 }
 
+/// With the UI engine (native Home is drawn by it: the leave's dissolve begins when Home has been drawn, not at a cap).
+#[cfg(feature = "ui")]
 #[test]
 fn a_launch_and_a_leave_of_live_tv_run_every_refresh_with_its_dmost_window_there() {
-    let mut server = Server::start();
+    use harness::home_engine;
+    if !home_engine::available() {
+        return;
+    }
+    let (mut server, _engine) = home_engine::start([32, 48, 96]);
     let mut rig = rig(&mut server, true);
     let sid = rig.sid;
     let t0 = 2_000 * MS;

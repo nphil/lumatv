@@ -244,7 +244,11 @@ fn a_screenshot_is_a_png_of_the_composed_picture_and_the_hole_for_video_is_black
     assert_eq!(at(960, 1040), [128, 128, 128], "premultiplied pixels are composited over black");
 
     // The shell is told: a counter its toast follows, and what the last capture was.
-    let topic = server.eval(|s| s.shell_rust.topic("capture").cloned()).expect("the capture topic");
+    let topic = server.eval(|s| {
+        s.tick();
+        s.shell_rust.topic("capture").cloned()
+    });
+    let topic = topic.expect("the capture topic");
     assert_eq!(
         (topic["recording"].clone(), topic["n"].clone(), topic["last"]["kind"].clone(), topic["last"]["name"].clone()),
         (json!(false), json!(1), json!("shot"), json!(name))

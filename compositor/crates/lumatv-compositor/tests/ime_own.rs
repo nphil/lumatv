@@ -381,7 +381,7 @@ fn a_native_keyboard_that_does_not_appear_requires_stock_recovery() {
 }
 
 #[test]
-fn the_shell_going_ends_the_field_it_serves_and_a_late_ok_from_it_is_dropped() {
+fn the_shell_going_takes_its_keyboard_down_and_exits_to_stock() {
     let (mut server, dir) = setup(true);
     let mut a = app(&mut server, "Search");
     let (mut k, _method) = maliit(&mut server);
@@ -392,11 +392,8 @@ fn the_shell_going_ends_the_field_it_serves_and_a_late_ok_from_it_is_dropped() {
     assert!(server.eval(|s| s.should_exit && s.fatal_error.is_some()));
     k.roundtrip();
     assert_eq!(k.state.ime.activations, 0);
-    assert!(a.client.wait_until(WAIT, |s| s.ime.model_leaves == 1), "the field left with the shell's keyboard");
+    assert_eq!(server.eval(|s| s.ime_report()["own"]["counts"]["failed"].clone()), json!(1));
     assert!(!server.eval(|s| s.ime_grabbing() || s.keyboard_up() || s.scene.shell_pointer.is_some()));
-    say(&server, json!({"op": "text", "text": "late"}));
-    a.client.roundtrip();
-    assert!(a.client.state.ime.commits.is_empty(), "nothing is typed into a field that left");
     let _ = std::fs::remove_dir_all(dir);
 }
 

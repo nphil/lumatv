@@ -302,35 +302,6 @@ fn foreground_video_hole_rejects_an_offscreen_transition_pose() {
 }
 
 #[test]
-fn a_card_on_the_video_plane_leaves_with_native_home_visible() {
-    let mut server = Server::start();
-    let mut rig = rig(&mut server, true);
-    let win = rig.client.card("_WEBOS_WINDOW_TYPE_CARD", "Hdmi");
-    win.webos.set_property("appId".into(), "com.webos.app.hdmi2".into());
-    let clear = rig.client.shm_buffer(1920, 1080, 0);
-    rig.client.present(&win.surface, &clear);
-    rig.client.roundtrip();
-    state(&server, |s| {
-        let sid = s.scene.windows().find(|w| w.app_id() == "com.webos.app.hdmi2").unwrap().surface;
-        s.scene.holes.push(Hole { surface: sid, rect: lumatv_compositor::Rect::new(0, 0, 1920, 1080) });
-    });
-    tick(&server, 2_000 * MS);
-    tick(&server, 3_000 * MS);
-    tick(&server, 3_400 * MS);
-    let plane = tick(&server, 4_000 * MS);
-    assert_eq!(plane.pixel(960, 540), [0, 0, 0, 0], "veil gone: the plane");
-    rig.stub.webos.set_state(3);
-    rig.client.roundtrip();
-    let t0 = 5_000 * MS;
-    tick(&server, t0);
-    assert!(state(&server, |s| s.shell_home_drawn() && !s.scene.last_plan().home_hidden), "native Home covers the departing video");
-    tick(&server, t0 + 90 * MS);
-    assert!(state(&server, |s| s.scene.transitions.active()));
-    tick(&server, t0 + 181 * MS);
-    assert!(state(&server, |s| !s.scene.transitions.active() && s.shell_home_drawn()));
-}
-
-#[test]
 fn reduced_motion_is_one_fade_with_no_travel() {
     let mut server = Server::start();
     let mut rig = rig(&mut server, true);

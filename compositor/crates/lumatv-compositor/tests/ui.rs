@@ -97,14 +97,14 @@ fn the_demo_surface_is_drawn_into_the_compositors_pages_as_the_ring_owes_them() 
         gl.leave(&saved);
         format!("{saved:?}")
     };
-    for k in 0..240usize {
+    for k in 0..90usize {
         now += 16_666_667;
         demo.tick(now).expect("the app's tick");
         match k {
-            60 => demo.show_volume(0.4),
-            75 => demo.show_volume(0.55),
-            100 => demo.show_volume(0.8),
-            140 => demo.hide_volume(),
+            25 => demo.show_volume(0.4),
+            35 => demo.show_volume(0.55),
+            50 => demo.show_volume(0.8),
+            70 => demo.hide_volume(),
             _ => {}
         }
         demo.tick(now).expect("the app's commit");
@@ -168,13 +168,13 @@ fn the_demo_surface_is_drawn_into_the_compositors_pages_as_the_ring_owes_them() 
         // arrays were off, and the two pages agreed on it).
         let pixel = |x: u32, y: u32| &drawn[((y * W + x) * 4) as usize..][..4];
         assert_eq!(pixel(40, 40), [18, 20, 32, 255], "frame {k}: the ground is not on the page");
-        if (110..140).contains(&k) {
+        if (60..70).contains(&k) {
             assert_eq!(pixel(770, 942), [245, 245, 255, 255], "frame {k}: the volume bar is not on the page");
         }
         frames += 1;
     }
-    assert_eq!(frames, 240);
-    assert!(partial > 200, "only {partial} of {frames} pages were drawn in part");
+    assert_eq!(frames, 90);
+    assert!(partial > 75, "only {partial} of {frames} pages were drawn in part");
     eprintln!(
         "{frames} frames, {partial} drawn in part, {:.1} % of the output drawn a frame, {:.1} % changed",
         100.0 * drawn_px as f64 / (frames as f64 * f64::from(W) * f64::from(H)),

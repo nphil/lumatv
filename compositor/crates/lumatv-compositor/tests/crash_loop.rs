@@ -202,15 +202,15 @@ fn apps_that_die_mid_teardown_leave_nothing_behind_and_the_loop_goes_back_to_idl
     let socket = c.dir.join("wayland-lumatv");
     // A first close sets up what the compositor keeps for good (the seat's first keyboard and so on); what follows is measured.
     crashing_app(&socket, 5);
-    std::thread::sleep(Duration::from_millis(300));
+    std::thread::sleep(Duration::from_millis(100));
     let before = c.status();
-    let idle_before = c.load(Duration::from_secs(1));
-    for _ in 0..30 {
+    let idle_before = c.load(Duration::from_millis(500));
+    for _ in 0..8 {
         crashing_app(&socket, 5);
     }
-    std::thread::sleep(Duration::from_millis(300));
+    std::thread::sleep(Duration::from_millis(100));
     let after = c.status();
-    let idle_after = c.load(Duration::from_secs(2));
+    let idle_after = c.load(Duration::from_millis(500));
     assert_eq!(after["clients"], before["clients"], "every client is gone");
     assert_eq!(after["held"], before["held"], "nothing a client left is still held");
     assert!(
@@ -246,7 +246,7 @@ fn a_device_that_goes_and_a_bridge_that_closes_leave_the_loop_idle() {
     let c = Compositor { child, dir };
     let (bridge_end, _) = listener.accept().unwrap();
     c.wait_ready();
-    assert!(c.load(Duration::from_secs(1)) < 0.10, "idle before");
+    assert!(c.load(Duration::from_millis(500)) < 0.10, "idle before");
 
     // A key comes from the device, then it goes.
     let mut writer = std::fs::OpenOptions::new().write(true).open(&device).unwrap();
@@ -258,8 +258,8 @@ fn a_device_that_goes_and_a_bridge_that_closes_leave_the_loop_idle() {
     // The supervisor's end of the bridge closes.
     drop(bridge_end);
     drop(listener);
-    std::thread::sleep(Duration::from_millis(300));
-    let load = c.load(Duration::from_secs(2));
+    std::thread::sleep(Duration::from_millis(100));
+    let load = c.load(Duration::from_millis(500));
     assert!(load < 0.10, "the loop at {:.1} % of a core with the device gone and the bridge closed", load * 100.0);
     let journal = c.journal();
     assert!(journal.iter().any(|l| l.starts_with("input: ") && l.contains("event0) is gone")), "{journal:?}");

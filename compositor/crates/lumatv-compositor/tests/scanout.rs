@@ -348,17 +348,17 @@ fn every_rule_on_a_real_buffer_composes_the_frame_with_its_own_reason() {
 }
 
 #[test]
-fn a_keyboard_composes_the_frame_it_appears_in_and_the_plane_has_the_window_again_when_it_leaves() {
+fn a_system_window_over_the_card_composes_the_frame_it_appears_in_and_the_plane_has_the_window_again_when_it_leaves() {
     let (mut server, knobs) = rig();
     let mut client = Client::connect(&mut server);
     let mali: MaliBufferSharing = client.globals.bind(&client.qh, 5..=5, ()).unwrap();
     let app = client.card("_WEBOS_WINDOW_TYPE_CARD", "App");
-    let sys = client.card("_WEBOS_WINDOW_TYPE_KEYBOARD", "Keyboard");
+    let sys = client.card("_WEBOS_WINDOW_TYPE_SYSTEM_UI", "Keyboard");
     let a = takeable(&mut client, &mali);
     show(&mut client, &app.surface, &a);
     assert!(matches!(frames(&knobs).last(), Some(Frame::Direct(_))));
 
-    // A keyboard appears over the card: the plane cannot blend both pictures.
+    // A system window appears over the card (a vendor keyboard is never displayed): the plane cannot blend both pictures.
     let bar = client.shm_buffer(400, 80, 0xcc20_2020);
     show(&mut client, &sys.surface, &bar);
     assert_eq!(frames(&knobs).last(), Some(&Frame::Composed("layers".into())));
@@ -367,7 +367,7 @@ fn a_keyboard_composes_the_frame_it_appears_in_and_the_plane_has_the_window_agai
     show(&mut client, &app.surface, &a2);
     assert_eq!(frames(&knobs).last(), Some(&Frame::Composed("layers".into())));
 
-    // Removing the keyboard lets the app's buffer go to the plane again.
+    // Removing the window lets the app's buffer go to the plane again.
     sys.surface.destroy();
     client.roundtrip();
     let a3 = takeable(&mut client, &mali);
@@ -400,12 +400,21 @@ fn an_opaque_alpha_buffer_is_taken_in_linear_layout_but_not_in_an_unsupported_la
     assert_eq!(frames(&knobs).last(), Some(&Frame::Composed("modifier".into())));
 }
 
-/// An app's successive buffers while app shift moves its picture.
-fn orbit_frames(server: &mut Server, client: &mut Client, mali: &MaliBufferSharing, home: &harness::Window, knobs: &Arc<Knobs>, n: usize) -> Vec<((i32, i32), Frame)> {
+/// An app's successive buffers while app shift moves its picture. The loop does not tick on its own (`ticking` is off): each buffer is planned once, at
+/// a time of the test's own (`clock`, ns), so a beat of the orbit is exactly one buffer's frame.
+fn orbit_frames(server: &mut Server, client: &mut Client, mali: &MaliBufferSharing, home: &harness::Window, knobs: &Arc<Knobs>, clock: &mut u64, n: usize) -> Vec<((i32, i32), Frame)> {
     let mut out = Vec::new();
     for _ in 0..n {
         let buf = takeable(client, mali);
-        show(client, &home.surface, &buf);
+        let before = client.state.frames_done;
+        client.present(&home.surface, &buf);
+        client.roundtrip();
+        *clock += 100_000_000;
+        let now = *clock;
+        server.eval(move |s| {
+            s.tick_at(now);
+        });
+        assert!(client.wait_until(WAIT, |s| s.frames_done > before), "the frame did not land");
         let offset = server.eval(|s| s.scene.care.app_offset());
         out.push((offset, frames(knobs).last().cloned().unwrap()));
     }
@@ -418,6 +427,8 @@ fn the_cares_orbit_is_the_planes_position_right_or_down_of_the_origin_when_allow
     let mut client = Client::connect(&mut server);
     let mali: MaliBufferSharing = client.globals.bind(&client.qh, 5..=5, ()).unwrap();
     let home = client.card("_WEBOS_WINDOW_TYPE_CARD", "App");
+    server.ticking.store(false, std::sync::atomic::Ordering::SeqCst);
+    let mut clock = lumatv_compositor::output::monotonic_ns();
     server.eval(|s| {
         s.scene.care.settings.app_shift = true;
         s.scene.care.settings.app_after_ns = 0;
@@ -425,7 +436,7 @@ fn the_cares_orbit_is_the_planes_position_right_or_down_of_the_origin_when_allow
         s.scene.care.settings.step_ns = 1;
     });
     // Radius 1: the ring's eight points, one pixel a beat, beginning top left; one and a half turns show every point under both rules.
-    let walked = orbit_frames(&mut server, &mut client, &mali, &home, &knobs, 14);
+    let walked = orbit_frames(&mut server, &mut client, &mali, &home, &knobs, &mut clock, 14);
     let seen: std::collections::BTreeSet<(i32, i32)> = walked.iter().map(|(o, _)| *o).collect();
     assert!(seen.len() >= 8, "the orbit walked its ring: {walked:?}");
     for (offset, frame) in &walked {
@@ -449,7 +460,7 @@ fn the_cares_orbit_is_the_planes_position_right_or_down_of_the_origin_when_allow
     // Switched off while running: the same orbit composes every shifted frame, and the plane is at the origin for the rest.
     assert!(server.eval(|s| s.set_scanout_offset(false).is_ok()));
     let places_before = knobs.log.lock().places.len();
-    let walked = orbit_frames(&mut server, &mut client, &mali, &home, &knobs, 10);
+    let walked = orbit_frames(&mut server, &mut client, &mali, &home, &knobs, &mut clock, 10);
     for (offset, frame) in &walked {
         if *offset == (0, 0) {
             assert!(matches!(frame, Frame::Direct(_)), "{walked:?}");
@@ -463,7 +474,7 @@ fn the_cares_orbit_is_the_planes_position_right_or_down_of_the_origin_when_allow
 
     // Turning app shift off returns the card to the origin.
     server.eval(|s| s.scene.care.settings.app_shift = false);
-    let walked = orbit_frames(&mut server, &mut client, &mali, &home, &knobs, 2);
+    let walked = orbit_frames(&mut server, &mut client, &mali, &home, &knobs, &mut clock, 2);
     assert!(matches!(walked.last(), Some(((0, 0), Frame::Direct(_)))), "{walked:?}");
 }
 

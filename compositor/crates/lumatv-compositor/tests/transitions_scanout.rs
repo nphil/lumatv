@@ -190,7 +190,8 @@ fn a_move_on_scan_out_pages_is_the_software_renderers_picture() {
     assert!(off * 200 <= total, "{off} of {total} samples differ by more than 6");
 }
 
-/// The first buffer of an app, which the driver is still busy with, is not drawn (what is under it shows): the move waits and is seen from its start.
+/// The first buffer of an app, which the driver is still busy with, is not drawn (the frame is held, what is on the screen stays): the move waits and is
+/// seen from its start.
 #[test]
 fn a_first_buffer_the_driver_is_busy_with_is_not_drawn_and_the_move_waits_for_it() {
     if !Path::new(MESA).exists() {
@@ -204,15 +205,14 @@ fn a_first_buffer_the_driver_is_busy_with_is_not_drawn_and_the_move_waits_for_it
     let home_at_tile = tick(&server, 1_000 * MS).pixel(tile_centre.0, tile_centre.1);
     hold_next.store(true, Ordering::SeqCst);
     let (_a, _buf) = app(&mut r, false);
-    // while the driver is busy: the plan runs (the page to stand in from is there), the app's picture is not drawn, the clock keeps starting again
+    // while the driver is busy: the frame is held, so the app's picture is not drawn and the move has not begun
     let mut t = 2_000 * MS;
     for _ in 0..4 {
         let img = tick(&server, t);
         assert_eq!(img.pixel(tile_centre.0, tile_centre.1), home_at_tile, "Home at the tile: the picture is not drawn yet");
-        assert_eq!(img.pixel(960, 540), tick(&server, t).pixel(960, 540));
         t += 16 * MS;
     }
-    assert!(server.eval(|s| s.scene.transitions.active()));
+    assert_eq!(server.eval(|s| (s.stats.held_ticks, s.scene.transitions.active())), (4, false), "four held ticks planned nothing");
     release.store(true, Ordering::SeqCst);
     // the first frame that shows the app: at its start (a quarter seen over the tile), not part-way through its move
     let mut first = None;

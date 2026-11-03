@@ -71,7 +71,8 @@ fn the_rust_home_is_uncovered_until_a_full_screen_window_is_over_it() {
         server.eval(|s| {
             s.tick();
             s.luna_notify();
-            s.shell_rust.topic("foreground").cloned()
+            // `surface` is the window's id, which the test does not pin
+            s.shell_rust.topic("foreground").map(|t| json!({"app": t["app"], "home": t["home"], "covered": t["covered"], "video": t["video"]}))
         })
     };
     let _stub = shown(&mut server, true, "_WEBOS_WINDOW_TYPE_CARD", "Stub", HOME_STUB, 0xffff_0000);
@@ -135,9 +136,9 @@ fn the_gear_and_input_go_to_the_shell_when_it_can_show_the_panel() {
     let mut server = Server::start();
     let mut app = shown(&mut server, true, "_WEBOS_WINDOW_TYPE_CARD", "App", "org.test.app", 0xffff_0000);
     assert!(app.client.wait_until(WAIT, |s| s.keyboard_enters >= 1));
-    // No client connected: the interim route (LG's Settings app for the gear's tap).
+    // No client connected: nothing opens (LG's Settings is no longer the fallback).
     server.eval(|s| s.system_request(SystemRequest::QuickSettings));
-    assert_eq!(server.eval(launches), vec!["com.palm.app.settings".to_string()]);
+    assert!(server.eval(launches).is_empty());
 
     // The client is connected and can show the quick panel and the picker: the requests go to it as `show` events.
     server.eval(|s| {
@@ -159,11 +160,7 @@ fn the_gear_and_input_go_to_the_shell_when_it_can_show_the_panel() {
         )
     });
     assert_eq!(shows[0]["kind"], "picker");
-    assert_eq!(
-        launched,
-        vec!["com.palm.app.settings".to_string()],
-        "only the first tap, before a shell was there, went to LG's Settings: the hold opens no LG app"
-    );
+    assert!(launched.is_empty(), "no tap or hold opens an LG app: {launched:?}");
     assert_eq!(ui_state, json!({"open": ""}));
     assert!(j1 && j2);
 
@@ -188,13 +185,14 @@ fn the_gear_and_input_go_to_the_shell_when_it_can_show_the_panel() {
     let show = server.eval(|s| s.shell_rust.topic("show").cloned().unwrap());
     assert_eq!(show["kind"], "quick");
 
-    // The client goes: nothing is offered to it any more.
+    // The client goes: nothing is offered to it any more, and no LG app stands in.
+    let shows = server.eval(|s| s.shell_rust.stats.shows);
     server.eval(|s| {
         s.shell_rust_handle(Msg::Ui { can: Some(vec![]), wants: None, live: None, state: None });
         s.system_request(SystemRequest::InputPicker);
     });
-    let launched = server.eval(launches);
-    assert_eq!(launched.last().map(String::as_str), Some("com.webos.app.homeconnect"));
+    assert_eq!(server.eval(|s| s.shell_rust.stats.shows), shows);
+    assert!(server.eval(launches).is_empty());
 }
 
 #[test]

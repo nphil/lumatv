@@ -190,7 +190,23 @@ fn a_video_window_nobody_claimed_is_closed_so_that_its_decoder_is_free() {
     let mut server = Server::start();
     let _app = app(&mut server, "App", 0xffff_0000);
     let mut feeder = feeder(&mut server, "Cameras", "_ctx_cam");
-    assert!(feeder.client.wait_until(Duration::from_secs(8), |s| s.closes >= 1), "the window was closed after a few seconds without a claim");
+    // The grace (three seconds on the monotonic clock) starts when the loop first sees the unclaimed window; its start is put back past it.
+    let mut aged = false;
+    for _ in 0..400 {
+        aged = server.eval(|s| {
+            let ids: Vec<_> = s.scene.windows().filter(|w| w.vwin_seen_ns != 0).map(|w| w.id).collect();
+            for id in &ids {
+                s.scene.window_mut(*id).unwrap().vwin_seen_ns -= 4_000_000_000;
+            }
+            !ids.is_empty()
+        });
+        if aged {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(aged, "the loop saw the window");
+    assert!(feeder.client.wait_until(WAIT, |s| s.closes >= 1), "the window was closed once the grace was over");
     let journal = server.eval(|s| s.journal.clone());
     assert!(journal.iter().any(|l| l.contains("vwin: close sent") && l.contains("no claim was granted")), "{journal:?}");
 }

@@ -28,4 +28,5 @@ strip = true
 [profile.dev]
 debug = "line-tables-only"
 [profile.test]
+opt-level = 2
 debug = "line-tables-only"
